@@ -1,0 +1,84 @@
+- generic [active] [ref=f1e1]:
+  - banner [ref=f1e36]:
+    - generic [ref=f1e37]: Pivot.
+    - generic "Search companies" [ref=f1e39] [cursor=pointer]:
+      - generic [ref=f1e40]: RELIANCE
+      - generic [ref=f1e41]: NSE
+    - button "5m" [ref=f1e44] [cursor=pointer]
+    - button "Indicators" [ref=f1e47] [cursor=pointer]
+    - button "Undo" [disabled] [ref=f1e54]
+    - button "Redo" [disabled] [ref=f1e58]
+    - button "Chart settings" [ref=f1e62] [cursor=pointer]
+    - button "Unnamed" [ref=f1e67] [cursor=pointer]
+    - button "Layout — Single chart" [ref=f1e72] [cursor=pointer]
+    - button "Screenshot the chart for the chat" [ref=f1e76] [cursor=pointer]
+    - button "Chat" [ref=f1e80] [cursor=pointer]
+    - button "Paper book" [ref=f1e83] [cursor=pointer]
+    - button "Sign in to Pivot" [ref=f1e89] [cursor=pointer]
+  - generic [ref=f1e93]:
+    - generic [ref=f1e94]:
+      - button "Cursor / select" [ref=f1e95] [cursor=pointer]
+      - button "Lines" [ref=f1e100] [cursor=pointer]
+      - button "Fibonacci" [ref=f1e106] [cursor=pointer]
+      - button "Shapes" [ref=f1e109] [cursor=pointer]
+      - button "Measure" [ref=f1e113] [cursor=pointer]
+      - button "Position" [ref=f1e121] [cursor=pointer]
+      - button "Annotations" [ref=f1e126] [cursor=pointer]
+      - button "Magnet — snap to OHLC" [ref=f1e130] [cursor=pointer]
+      - button "Watchlist" [ref=f1e136] [cursor=pointer]
+      - button "Alerts" [ref=f1e139] [cursor=pointer]
+      - button "Journal" [ref=f1e143] [cursor=pointer]
+      - button "Export drawings JSON" [ref=f1e148] [cursor=pointer]
+      - button "Remove objects…" [disabled] [ref=f1e152]
+    - generic [ref=f1e157]:
+      - table [ref=f1e160]:
+        - row [ref=f1e161]:
+          - cell
+          - cell [ref=f1e162]
+          - cell [ref=f1e166]
+        - row [ref=f1e170]:
+          - cell
+          - cell [ref=f1e171]
+          - cell [ref=f1e175]
+      - generic:
+        - generic:
+          - generic "Change instrument" [ref=f1e178] [cursor=pointer]: RELIANCE
+          - generic: ·
+          - text: 5m
+          - generic: ·
+          - generic: NSE
+      - generic "Price scale currency": INR
+      - generic "Chart timezone": 13:39:27 (UTC+5:30)
+      - generic [ref=f1e179]: dataserver HTTP 500
+    - separator "Chat width" [ref=f1e181]:
+      - generic [aria-hidden]: 30% · 480px
+    - complementary [ref=f1e182]:
+      - toolbar "Conversation actions" [ref=f1e183]:
+        - radiogroup "Conversation mode" [ref=f1e184]:
+          - radio "Research" [checked] [ref=f1e185] [cursor=pointer]
+          - radio "Execution" [ref=f1e186] [cursor=pointer]
+        - button "New conversation" [ref=f1e187] [cursor=pointer]
+        - button "Chat history" [ref=f1e189] [cursor=pointer]
+      - generic [ref=f1e194]:
+        - generic [ref=f1e195]: START ASKING WITH
+        - generic [ref=f1e196]:
+          - button "Levels" [ref=f1e197] [cursor=pointer]
+          - button "Patterns" [ref=f1e207] [cursor=pointer]
+          - button "Trends" [ref=f1e213] [cursor=pointer]
+          - button "Indicators" [ref=f1e219] [cursor=pointer]
+          - button "Screenshot" [ref=f1e225] [cursor=pointer]
+          - button "Why it moved" [ref=f1e234] [cursor=pointer]
+          - button "Plan" [ref=f1e242] [cursor=pointer]
+          - button "Evidence" [ref=f1e247] [cursor=pointer]
+          - button "Screen" [ref=f1e253] [cursor=pointer]
+          - button "Compare" [ref=f1e262] [cursor=pointer]
+          - button "Alert" [ref=f1e268] [cursor=pointer]
+          - button "Earnings" [ref=f1e275] [cursor=pointer]
+      - generic [ref=f1e288]:
+        - textbox "How does it compare ▌" [ref=f1e301]
+        - generic [ref=f1e290]:
+          - button "RELIANCE" [ref=f1e291] [cursor=pointer]
+          - button "Speak instead of typing" [ref=f1e293] [cursor=pointer]
+          - button "Send (Enter)" [ref=f1e297] [cursor=pointer]
+  - complementary [aria-hidden] [ref=f1e300]
+  - status

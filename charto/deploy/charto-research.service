@@ -1,0 +1,40 @@
+[Unit]
+# Pivotted on :5176 — the brain behind the company page's ask bar, reached
+# through nginx at /research/.
+#
+# It runs on /data/venv, the SAME interpreter as the dataserver, and that is
+# not a shortcut: pivotted/tools.py imports charto's `dataserver` module to
+# borrow its tool table, its Azure credentials and its bar store. Giving this
+# a venv of its own would mean a second copy of those dependencies that could
+# drift from the one the tools were tested against.
+#
+# dataserver.py guards its listener behind `if __name__ == "__main__"`, so the
+# import is a module load and nothing else: no second HTTP server, no second
+# live engine, no contention for :5174.
+Description=Charto research chat (pivotted)
+After=network.target charto.service
+Wants=charto.service
+
+[Service]
+Type=simple
+User=azureuser
+WorkingDirectory=/data/app/pivotted
+# The port is :5175 by default, which on this box is the company page. nginx
+# proxies /research/ to :5176, so the two must agree and this is where they do.
+Environment=PIVOTTED_PORT=5176
+# Loopback ONLY. nginx is the sole thing that should reach a model turn,
+# because nginx is where the rate limit lives — an open port here is somebody
+# else's LLM bill. The NSG happens to allow 80/443 only, but a unit that
+# depends on a firewall rule staying put is a unit waiting to be wrong.
+Environment=PIVOTTED_HOST=127.0.0.1
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/data/venv/bin/python -u /data/app/pivotted/server.py
+Restart=always
+RestartSec=5
+# 7.9 GB box already carrying the dataserver (3G) and the company page (1G).
+# The tool round holds bars in memory and the model call is streamed, so this
+# is sized for the working set, not for the archive it reads through.
+MemoryMax=1500M
+
+[Install]
+WantedBy=multi-user.target

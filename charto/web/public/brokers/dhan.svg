@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="Dhan">
+  <title>Dhan</title>
+  <!-- Dhan monogram: rounded-square tile in brand royal blue (#4575D9, per dhan.co brand kit) with a white lowercase "d" mark. Crisp at 28-40px. -->
+  <rect x="2" y="2" width="44" height="44" rx="11" fill="#4575D9"/>
+  <!-- lowercase "d": bowl (ring) + ascender stem -->
+  <path fill="#FFFFFF" d="M30.2 12.5h4.6v23h-4.6v-2.4a8.6 8.6 0 1 1 0-12.9V12.5zM23.9 31.6a4.85 4.85 0 1 0 0-9.7 4.85 4.85 0 0 0 0 9.7z"/>
+</svg>

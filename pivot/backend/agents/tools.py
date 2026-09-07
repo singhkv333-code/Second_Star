@@ -617,6 +617,48 @@ tool("get_top_movers",
      },
      [])
 
+tool("compute",
+     "Deterministic calculator — the COMPUTE lane. Run a short Python "
+     "expression over values ALREADY IN CONTEXT (numbers the user typed, "
+     "or values a tool returned earlier this conversation) and get an "
+     "exact result. USE THIS for any quantitative transform that has no "
+     "dedicated tool: percentile ranks, sorting/ranking a list by a "
+     "metric, averages/medians/std-dev, spreads, weights, position "
+     "sizing, P&L what-ifs ('if it falls 8% on 50 shares @ ₹1,520'), "
+     "breakevens/payoff math from given strikes+premiums, CAGR from "
+     "given start/end values, ratio math, date-free arithmetic of any "
+     "kind. NEVER decline a computable ask because no dedicated tool "
+     "exists, and NEVER do multi-step arithmetic in prose — route it "
+     "here so the numbers are exact.\n\n"
+     "HARD RULE (anti-fabrication): every input number in `code` MUST be "
+     "a literal you saw in this conversation (user-supplied or "
+     "tool-returned). If an input is missing, fetch it with the right "
+     "data tool FIRST, then compute. This tool does maths; it is NOT a "
+     "data source.\n\n"
+     "Language subset: literals, arithmetic, comparisons, comprehensions, "
+     "lambda, f-strings, assignments, sorted/sum/min/max/len/round/abs/"
+     "enumerate/zip/map/filter/any/all, math.*, statistics.*. No imports, "
+     "no loops, no I/O. Write inputs as a dict/list, transform, and end "
+     "with the expression whose value answers the user. Example — "
+     "percentile ranks:\n"
+     "vals = {'TCS': 3.2, 'INFY': 1.8, 'WIPRO': 0.9}\n"
+     "s = sorted(vals.values())\n"
+     "{k: round(100*sum(1 for x in s if x <= v)/len(s)) "
+     "for k, v in vals.items()}",
+     {
+         "code": {
+             "type": "string",
+             "description": "Python-subset script; the LAST expression's "
+                            "value is returned.",
+         },
+         "note": {
+             "type": "string",
+             "description": "3-8 word label of what is being computed "
+                            "(shown in traces).",
+         },
+     },
+     ["code"])
+
 # ── ANALYTICS / INDICATORS / RISK / COMPARISON ──────────────────────────────
 # Bridges to /core/ (indicator vault + calculations + data layer).
 
@@ -685,13 +727,13 @@ tool("compare_performance",
      "which gave better return last year', 'compare returns of HDFCBANK "
      "and ICICIBANK over 3 years', 'which is better WIPRO or INFOSYS', "
      "'rank these by Sharpe'. CRITICAL: for a two-stock comparison you "
-     "MUST call this with BOTH symbols — never call get_returns/"
-     "get_price_history on one stock and state the other's number from "
-     "memory (that fabricates). Returns the full side-by-side table "
+     "MUST call this with BOTH symbols — never fetch one stock's number "
+     "and state the other's from memory (that fabricates). Returns the "
+     "full side-by-side table "
      "(total return %, volatility, Sharpe, max drawdown) for every "
      "symbol with a declared winner. IF the user also wants PE/ROE and/or "
      "SMA/RSI compared, set `include` below in THIS SAME call — do not "
-     "separately call fetch_fundamentals/get_price_history once per "
+     "separately call fetch_fundamentals/get_market_data once per "
      "symbol for a comparison ask, that's slower and the model routinely "
      "forgets half the calls, silently dropping metrics the user asked "
      "for.",
@@ -732,69 +774,142 @@ tool("get_returns",
 
 # ── FUNDAMENTAL SCREEN / SINGLE-STOCK FUNDAMENTALS / NEWS / IPO ───────────────
 
+_SCREEN_FIELDS = [
+    # valuation / quality / balance-sheet ratios
+    "pe", "peg", "roe", "roce", "de", "payout", "price_to_book", "ev_to_ebitda", "roa",
+    "current_ratio", "quick_ratio", "interest_coverage", "net_profit_margin",
+    "ebitda_margin", "asset_turnover",
+    # extended ratio set (scraped + pivot-derived backfill)
+    "roic", "operating_margin", "gross_margin", "inventory_turnover",
+    "receivables_turnover",
+    # GROWTH (YoY over the two latest annual filings)
+    "revenue_growth", "net_profit_growth", "eps_growth",
+    # size (real market cap, ₹ crore, enrich-backed)
+    "market_cap",
+    # raw line items (₹ crore for absolutes, ₹ for per-share)
+    "revenue", "net_profit", "operating_profit", "eps_basic", "eps_diluted",
+    "total_debt", "total_equity", "reserves", "cash_from_ops",
+    "book_value_per_share", "enterprise_value_cr", "interest_expense",
+]
+
 tool("screen_fundamentals",
-     "Cross-sectional fundamental SCREEN over the financials DB — the "
-     "'screener.in for basics' tool. Returns the LIST of companies passing "
-     "EVERY numeric constraint (filters are AND-ed). Use for: 'pharma stocks "
-     "with P/E under 25', 'show me stocks with ROE > 18', 'low debt high ROE "
-     "names', 'cheap banking stocks', 'screen for payout > 40%'. This is the "
-     "MANY-company tool; for ONE company's PE/ROE use fetch_fundamentals. "
-     "Fields: pe, roe, roce, de (debt/equity), payout, price_to_book (P/B), "
-     "ev_to_ebitda, roa, current_ratio, quick_ratio, interest_coverage, "
-     "net_profit_margin, ebitda_margin, asset_turnover. market_cap is NOT a "
-     "screenable field, but a real market-cap FLOOR/TIER is applied via "
-     "market_cap_tier (see below). Sector is optional + coarse: pharma, bank, "
-     "it, energy, auto, autoancillary, metal, finance, chemicals, fmcg, infra, "
-     "textiles. NOTE: 'auto' = vehicle MAKERS (cars/2-3 wheelers/tractors/CVs, "
-     "e.g. Maruti, Tata Motors, M&M, Bajaj, Hero) — use 'autoancillary' ONLY "
-     "when the user explicitly wants auto PARTS / component suppliers. A bare "
-     "sector ranking (no number given) automatically floors out micro-caps so "
-     "recognizable names lead. Never invent names or numbers.\n\n"
-     "VAGUE/QUALITY asks → use sort_by with NO hard filter (do NOT ask the "
-     "user to pick a threshold first): 'cheap banking stocks' → sector=bank, "
-     "sort_by={field:pe,dir:asc}; 'best dividend payers' → sort_by="
-     "{field:payout,dir:desc} (the DB has dividend PAYOUT ratio, not yield, "
-     "capped at 100% — tell the user it ranks by payout ratio, and prefer "
-     "market_cap_tier='large' so recognizable names surface); 'highest quality "
-     "IT names' → sector=it, sort_by={field:roe,dir:desc}; 'low debt companies' "
-     "→ sort_by={field:de,dir:asc}. filters is OPTIONAL — pass it only when the "
-     "user named an explicit number ('PE under 25').\n\n"
-     "CAP CONSTRAINT: if the user says 'large cap' / 'bluechip' / 'big "
-     "companies' / 'mid cap' / 'small cap', set market_cap_tier accordingly — "
-     "it is REQUIRED to honour that phrasing, do NOT drop it. large/mid are "
-     "backed by a curated NIFTY universe (the DB has no market-cap field).",
+     "Cross-sectional fundamental SCREEN over the financials DB. Returns the "
+     "LIST of companies passing EVERY numeric constraint (filters AND-ed). The "
+     "MANY-company tool ('pharma stocks with P/E under 25', 'ROE > 18 and "
+     "positive revenue growth', 'cheap banking stocks'); for ONE company use "
+     "fetch_fundamentals.\n\n"
+     "FIELD COVERAGE — pick the POPULATED field, not just the literal word:\n"
+     " • 'return on capital(-employed)' → `roce` (populated); `roic` is SPARSE "
+     "(a roic screen usually comes back empty) — prefer roce and say so.\n"
+     " • dividend yield, promoter pledge, promoter holding, ESG and "
+     "shareholding are NOT screenable — don't map them onto a look-alike "
+     "(payout ratio is NOT dividend yield); name the gap and offer the closest "
+     "honest screen.\n"
+     " • An EMPTY result on a mainstream ask usually means the field is sparse, "
+     "not that no company qualifies — retry once with the populated sibling.\n"
+     " • No market-cap floor unless you pass one; on GROWTH screens add a "
+     "`market_cap` filter or base-effect microcaps top the table.\n\n"
+     "SCREENABLE FIELDS (use the metric the user names; never substitute):\n"
+     " • ratios: pe, peg (trailing P/E ÷ trailing YoY EPS growth), roe, roce, "
+     "de (debt/equity), payout, price_to_book (P/B), ev_to_ebitda, roa, "
+     "current_ratio, quick_ratio, interest_coverage, net_profit_margin, "
+     "ebitda_margin, asset_turnover\n"
+     " • GROWTH: revenue_growth, net_profit_growth, eps_growth — YoY by default "
+     "(latest two annual filings); set growth_years=N for an N-year CAGR when "
+     "the user names a horizon.\n"
+     " • market_cap — numeric ₹ crore (enrich-backed). For a vague "
+     "'large/mid/small cap' WORD with no number use market_cap_tier instead.\n"
+     " • raw line items: revenue, net_profit, operating_profit (EBITDA), "
+     "eps_basic, total_debt, total_equity, reserves, cash_from_ops, "
+     "book_value_per_share, enterprise_value_cr (₹ crore / ₹ per share).\n\n"
+     "CUSTOM RATIOS: a ratio not in the field list above (debt/EBITDA, "
+     "price/sales, cash/debt, etc.) MUST be defined in custom_ratios as {name, "
+     "numerator, denominator} over raw line items and referenced by `name` in "
+     "filters/sort_by — never dropped or substituted. (EBITDA = "
+     "operating_profit; sales = revenue.)\n\n"
+     "Sector is optional + coarse: pharma, bank, it, energy, auto, "
+     "autoancillary, metal, finance, chemicals, fmcg, infra, textiles. 'auto' = "
+     "vehicle MAKERS (Maruti, Tata Motors, M&M, Bajaj, Hero); 'autoancillary' = "
+     "auto PARTS suppliers only.\n\n"
+     "This is a READ-ONLY ranking/screen, not a weighted basket with per-name "
+     "rationale. For a 'build me a basket' ask wanting sizing/weights/a gate, "
+     "use build_strategy instead.",
      {
          "filters": {"type": "array",
-                     "description": "Numeric constraints, AND-ed. At least one required.",
+                     "description": "Numeric constraints, AND-ed. Include EVERY "
+                     "constraint the user named. Compare against a NUMBER via "
+                     "`value`, or against ANOTHER FIELD via `value_field` "
+                     "('operating cash flow exceeds net profit' → {field:"
+                     "'cash_from_ops', op:'>', value_field:'net_profit'}; 'P/E "
+                     "below its growth rate' → {field:'pe', op:'<', value_field:"
+                     "'net_profit_growth'}). Exactly one of value/value_field.",
                      "items": {"type": "object", "properties": {
-                         "field": {"type": "string",
-                                   "enum": ["pe", "roe", "roce", "de", "payout",
-                                            "price_to_book", "ev_to_ebitda", "roa",
-                                            "current_ratio", "quick_ratio",
-                                            "interest_coverage", "net_profit_margin",
-                                            "ebitda_margin", "asset_turnover",
-                                            "market_cap"]},
+                         "field": {"type": "string", "enum": list(_SCREEN_FIELDS)},
                          "op":    {"type": "string", "enum": ["<", "<=", ">", ">=", "="]},
-                         "value": {"type": "number"}},
-                         "required": ["field", "op", "value"]}},
+                         "value": {"type": "number"},
+                         "value_field": {"type": "string",
+                                         "enum": list(_SCREEN_FIELDS)}},
+                         "required": ["field", "op"]}},
          "sector":  {"type": "string",
+                     "description": "Coarse sector. Set ONLY when the user "
+                     "explicitly names a sector/industry. NEVER infer a sector "
+                     "from the metrics, and NEVER narrow an all-market screen to "
+                     "a sector the user did not ask for — an unsectored screen "
+                     "spans the whole market.",
                      "enum": ["pharma", "bank", "it", "energy", "auto",
                               "autoancillary", "metal", "finance", "chemicals",
                               "fmcg", "infra", "textiles"]},
          "market_cap_tier": {"type": "string", "enum": ["large", "mid", "small"],
-                     "description": "Restrict to large/mid/small-cap names by "
-                     "REAL market cap (large ≥ ₹50k Cr, mid ₹20k–50k Cr, small "
-                     "< ₹20k Cr). Emit 'large' whenever the user says large-cap "
-                     "/ bluechip / 'big companies'."},
+                     "description": "For a vague cap WORD with no ₹ number. "
+                     "Restrict to large/mid/small by REAL market cap (large ≥ "
+                     "₹50k Cr, mid ₹20k–50k Cr, small < ₹20k Cr). For an explicit "
+                     "₹ threshold use a market_cap filter instead."},
+         "custom_ratios": {"type": "array",
+                     "description": "Derived metrics over raw line items, usable "
+                     "by name in filters/sort_by.",
+                     "items": {"type": "object", "properties": {
+                         "name": {"type": "string"},
+                         "numerator": {"type": "string"},
+                         "denominator": {"type": "string"}},
+                         "required": ["name", "numerator", "denominator"]}},
          "sort_by": {"type": "object", "properties": {
-                         "field": {"type": "string",
-                                   "enum": ["pe", "roe", "roce", "de", "payout",
-                                            "price_to_book", "ev_to_ebitda", "roa",
-                                            "current_ratio", "quick_ratio",
-                                            "interest_coverage", "net_profit_margin",
-                                            "ebitda_margin", "asset_turnover"]},
+                         "field": {"type": "string", "enum": list(_SCREEN_FIELDS)},
                          "dir":   {"type": "string", "enum": ["asc", "desc"]}}},
          "limit":   {"type": "integer", "minimum": 1, "maximum": 100, "default": 15},
+         "exclude": {"type": "array", "items": {"type": "string"},
+                     "description": "Sectors, 'PSU', or named companies/tickers "
+                     "to carve out of the results (hard-filtered, not advisory)."},
+         "title": {"type": "string", "maxLength": 90,
+                     "description": "REQUIRED with presentation='table': a "
+                     "short, specific title rendered as the reply's heading "
+                     "(3–9 words, title case). Make it reflect THIS ask — "
+                     "'Profitable Growers: P/E Above 10, ROE Above 20%' or "
+                     "'Cheapest Large Caps by Earnings' — never a generic "
+                     "'Fundamental Screen' or a restated metric name."},
+         "growth_years": {"type": "integer", "minimum": 1,
+                     "description": "Horizon for ALL growth fields, in "
+                     "financial years. Set this ONLY when the user names a "
+                     "horizon ('over the last 5 years' → growth_years=5, "
+                     "'10-year growth' → 10); when they don't, OMIT it — "
+                     "never guess a window, the default is YoY (latest two "
+                     "annual filings). N>1 = CAGR between the latest filing "
+                     "and the one N filings earlier. Any N works — bounded "
+                     "only by a company's actual filing history; names "
+                     "without enough filings drop out rather than getting a "
+                     "fabricated number."},
+         "presentation": {"type": "string", "enum": ["table", "analysis"],
+                     "default": "table",
+                     "description": "How the rows reach the user. 'table' "
+                     "(default): the ranked rows ARE the answer — a "
+                     "deterministic table renders verbatim and you write "
+                     "nothing more. 'analysis': the rows are INPUT to "
+                     "research — the same exact table still renders, and YOU "
+                     "write the analysis below it (comparisons, tradeoffs, "
+                     "caveats, a defended view). Choose 'analysis' whenever "
+                     "the user asks to analyze/research, says 'best' about a "
+                     "broad judgment, or wants a view — a bare table is an "
+                     "incomplete answer to those. Choose 'table' for a plain "
+                     "'show me companies with X' screen."},
      },
      [],
      defaults={"limit": 15})
@@ -811,10 +926,43 @@ tool("fetch_fundamentals",
      "B' (call once per symbol). Returns null for any metric not populated "
      "(coverage is sparse outside large caps) — if a value is null SAY it's "
      "unavailable, NEVER invent it. Note promoter_holding_pct is a proxy; "
-     "present it as approximate. Not a live-price tool (use get_live_price).",
+     "present it as approximate. Not a live-price tool (use get_market_data view=quote).",
      {"symbol": {"type": "string",
                  "description": "NSE ticker, uppercase. Infosys->INFY, Reliance->RELIANCE."}},
      ["symbol"])
+
+tool("query_financials",
+     "Look up ANY single financial figure or ratio for ONE company from the "
+     "financials DB — beyond the fixed fetch_fundamentals snapshot. Use this "
+     "when the user asks for a specific line item or ratio that the snapshot "
+     "doesn't carry: e.g. 'INFY's gross margin', 'Reliance inventory turnover', "
+     "'TCS cash from operations', 'HDFCBANK interest coverage', 'employee "
+     "benefit expense of Infosys', 'operating margin', 'sales per share', "
+     "'P/S ratio'. Pass the user's phrasing verbatim in `metric` — the backend "
+     "translates it (e.g. 'sales'->Net Sales/Revenue, 'cash from ops'->Net "
+     "CashFlow From Operating Activities) and, for P/E, P/B, P/S, computes it "
+     "LIVE as price/per-share. Returns {resolved, value, unit, line_item "
+     "(the exact DB row matched), statement, period_label, matched_via}. When "
+     "NOT confident it returns resolved=false + `candidates` (ranked line "
+     "items) — pick the right one and call again with that exact line_item, or "
+     "tell the user it's unavailable. NEVER invent a value; if resolved=false "
+     "and no candidate fits, say the figure isn't in our data.",
+     {"symbol": {"type": "string", "description": "NSE ticker, uppercase."},
+      "metric": {"type": "string", "description":
+                 "The figure the user wants, in their own words — e.g. "
+                 "'gross margin', 'sales', 'cash from operations', 'P/S', "
+                 "'inventory turnover', or an exact line_item from a prior "
+                 "candidates list."},
+      "basis":  {"type": "string", "enum": ["consolidated", "standalone"],
+                 "default": "consolidated"},
+      "history": {"type": "integer", "minimum": 0, "maximum": 15, "default": 0,
+                  "description":
+                  "Set to N (e.g. 12) to ALSO return the last N years as an "
+                  "annual `series` (newest first) — use for trend / CAGR / "
+                  "'which year had the highest profit' / 'revenue over the "
+                  "years' asks. 0 (default) returns just the latest value."}},
+     ["symbol", "metric"],
+     defaults={"basis": "consolidated", "history": 0})
 
 tool("get_symbol_news",
      "Recent news headlines for ONE stock via yfinance. Use for 'recent news "
@@ -1088,29 +1236,21 @@ tool("propose_workflow",
      "- action.place_order: quantity OR notional_inr; order_type∈{market,limit}.\n"
      "- action.set_stoploss: trigger_price OR trigger_offset_pct (2 = 2%).\n"
      "- notify.message: channel='push' (in-app only; email/SMS/WhatsApp NOT wired).\n"
-     "- trigger.polymarket: mode='threshold' (default, YES prob crosses `threshold` "
-     "in `direction`) or 'resolution' (market RESOLVES; resolve_on∈{YES,NO,ANY}). "
-     "REQUIRED market_id+token_id+side come from calling `propose_polymarket_trigger` "
-     "FIRST. DO NOT invent them; resolver rejects drafts at matcher confidence<0.85.\n\n"
+     "- NOT AVAILABLE: prediction-market (Polymarket/Kalshi), macro-calendar "
+     "outcome and news/headline triggers. A view about the WORLD ('if the RBI "
+     "cuts', 'when there's news on X') is not a trigger we can fire on — say so "
+     "in one line and offer the nearest wired thing: a PRICE or INDICATOR level "
+     "on the instrument that view would move, or a SCHEDULE if the ask was "
+     "really about timing. Drafts naming one are rejected.\n\n"
      "HARD RULES:\n"
-     "1. STAY LITERAL — only what the user asked for. No unprompted sell/SL/trim branches.\n"
+     "1. STAY LITERAL — only what the user asked for; no unprompted "
+     "sell/SL/trim branches, no unprompted notify.message, no buying-power "
+     "guard.\n"
      "2. Multi-condition buy/sell → STOP and call `propose_dsl_workflow` "
      "instead. `trigger.indicator` / `trigger.price` here carries ONE leg "
      "only; chaining `condition.numeric` silently drops extra legs.\n"
-     "3. NO unprompted notify.message — the run card already confirms.\n"
-     "4. NO buying-power guard before action.place_order.\n"
-     "5. QUANTITY IS NEVER A DEFAULT. 'buy some X' → ASK_USER. Exceptions: "
-     "'sell my SYMBOL' (fetch.portfolio + Mustache ref); SIPs.\n"
-     "6. TTL phrases → top-level `valid_until` ISO date; omit for perpetual.\n\n"
-     "EXAMPLE — runtime-relative 5% drop:\n"
-     "  [{step_type:'trigger.schedule', config:{cron:'*/5 9-15 * * 1-5'}},\n"
-     "   {step_type:'fetch.quote', config:{symbol:'RELIANCE'}},\n"
-     "   {step_type:'fetch.relative_threshold', config:{symbol:'RELIANCE',reference:'day_open',offset_pct:-5}},\n"
-     "   {step_type:'condition.numeric', config:{left:'{{context.1.ltp}}',operator:'<=',right:'{{context.2.value}}'}},\n"
-     "   {step_type:'action.set_stoploss', config:{symbol:'RELIANCE',trigger_offset_pct:2}}]\n\n"
-     "For Polymarket-driven workflows: call propose_polymarket_trigger FIRST "
-     "to resolve the contract; then emit with returned market_id/token_id/side "
-     "INLINE. Use mode='resolution' for 'sell when X actually resolves YES'.",
+     "3. QUANTITY IS NEVER A DEFAULT. 'buy some X' → ASK_USER. Exceptions: "
+     "'sell my SYMBOL' (fetch.portfolio + Mustache ref); SIPs.",
      {
          "name": {
              "type": "string",
@@ -1152,7 +1292,9 @@ tool("propose_workflow",
 # simulation. Splitting the tools makes the intent unambiguous.
 
 tool("backtest_workflow",
-     "SIMULATES a strategy on historical daily-close data. For 'backtest …' / "
+     "SIMULATES a strategy on historical bars (daily by default; pass "
+     "`interval='1h'` for hourly, `'15m'` etc for finer intraday). "
+     "For 'backtest …' / "
      "'simulate …' / 'how would X have done' / 'what if I had bought …' "
      "prompts. Returns a chart card (price + equity + signals + metrics + "
      "buy-and-hold benchmark). Shares EXACT `steps[]` schema with "
@@ -1169,14 +1311,6 @@ tool("backtest_workflow",
      "condition.position / market_status / time_window. action.place_order "
      "product: 'CNC'|'MIS'. action.set_stoploss supports trailing:true with "
      "trigger_offset_pct.\n\n"
-     "MULTI-CONDITION ENTRY: trigger on FIRST signal; chain fetch.indicator → "
-     "condition.numeric pairs AFTER using `{{ context.<idx>.value }}` refs. "
-     "Never ask the user for clarification on a complex multi-condition "
-     "backtest — emit the workflow.\n\n"
-     "INDICATOR-VS-INDICATOR CROSSOVERS (50/200 SMA, fast/slow EMA): ONE "
-     "trigger.indicator (fast, op '>', value:0) + fetch.indicator (slow) + "
-     "condition.numeric on context refs + action.place_order. Emit the FULL "
-     "steps[] — do not ASK for these defaults.\n\n"
      "Defaults: period='5y'. Multi-symbol workflows fetch each feed "
      "independently; chart anchors on the first place_order's symbol.",
      {
@@ -1210,6 +1344,30 @@ tool("backtest_workflow",
              "description": (
                  "OPTIONAL buy-and-hold benchmark (default: the trade symbol). "
                  "For baskets / pairs, pass NIFTYBEES or BANKBEES."
+             ),
+         },
+         "interval": {
+             "type": "string",
+             "enum": ["1d", "1wk", "1mo", "1h", "30m", "15m", "5m"],
+             "default": "1d",
+             "description": (
+                 "OPTIONAL bar interval. Default '1d' (daily). Intraday "
+                 "('1h', '15m', '5m', '30m') is accepted; the source's "
+                 "rolling data cap will honestly clamp the window when "
+                 "'period' exceeds it (1h yfinance=730d, Kite=400d)."
+             ),
+         },
+         "starting_capital": {
+             "type": "number",
+             "description": (
+                 "The ACTUAL ₹ amount being deployed. ALWAYS pass this "
+                 "when a real figure is known — a basket's stated deploy "
+                 "amount, a capital_inr the user gave, or an amount from "
+                 "earlier in this conversation. Discrete-share rounding "
+                 "makes the return % itself depend on capital size, so "
+                 "silently defaulting to ₹10,00,000 when the user asked "
+                 "about a different amount misreports the result, not "
+                 "just the label. Omit ONLY when no figure is known."
              ),
          },
      },
@@ -1339,6 +1497,11 @@ tool("backtest_dsl_tree",
          "starting_capital": {
              "type": "number",
              "default": 100000,
+             "description": (
+                 "The ACTUAL ₹ amount being deployed, if known from this "
+                 "conversation — never leave at the default when a real "
+                 "figure was stated."
+             ),
          },
          "quantity": {
              "type": "integer",
@@ -1364,6 +1527,19 @@ tool("backtest_dsl_tree",
                       "atr_risk: fraction of equity risked per trade (0.01 = 1%)."},
          "atr_mult": {"type": "number", "description":
                       "atr_risk: stop distance in ATRs (default 2)."},
+         "direction": {
+             "type": "string",
+             "enum": ["long", "short"],
+             "default": "long",
+             "description": (
+                 "This engine only SIMULATES LONG (buy-then-sell) positions. "
+                 "If the user asks to short / sell-short / go short, still "
+                 "pass direction='short' here (do NOT silently drop it and "
+                 "run it long) — the tool will refuse honestly rather than "
+                 "fabricate a short. Never claim you backtested a short when "
+                 "this returns an error."
+             ),
+         },
      },
      ["condition", "primary_symbol", "interval"])
 
@@ -1461,38 +1637,31 @@ tool("test_cointegration",
 
 
 tool("propose_dsl_workflow",
-     "SINGLE-SYMBOL workflow builder. DSL acts on ONE primary symbol.\n\n"
-     "DO NOT pick when the user names MULTIPLE TICKERS in the same order "
-     "intent ('buy RELIANCE, TCS and BAJFINANCE when they drop 2%'). "
-     "Multi-symbol intents need propose_workflow with one branch per "
-     "(symbol × action) — routing multi-symbol here silently drops "
-     "all-but-one ticker.\n\n"
-     "ALSO DO NOT pick when the prompt mentions news / SEBI / RBI / "
-     "earnings / event / announcement / report / confirms / breaks / "
-     "polymarket / prediction market. The DSL has no news leaf; route to "
-     "propose_workflow with trigger.event / fetch.news instead.\n\n"
-     "FIRST CHOICE for any SINGLE-SYMBOL agent whose entry OR exit contains "
-     "ANY of — pick this tool, NOT propose_workflow / propose_threshold_order:\n"
-     "  • 2+ conditions joined by AND, OR, NOT\n"
-     "  • multi-output indicator components (MACD signal/hist, BB "
-     "upper/middle/lower/%B/bandwidth, Stoch %K/%D, Aroon up/down, "
-     "Donchian/Keltner upper/lower)\n"
-     "  • indicator-vs-indicator (MACD vs signal, 50-EMA vs 200-EMA, price vs Supertrend)\n"
-     "  • aggregate window (percentrank, zscore, highest, lowest, "
-     "barssince, valuewhen, correlation, count_when, rolling std)\n"
-     "  • volume-relative ('volume > 2x 20-day average')\n"
-     "  • cross-symbol / spread / ratio\n"
-     "  • session-day filter ('only on Tuesdays', 'Mon-Wed only')\n"
-     "  • gap or pct_change leaf ('gap-down > 2%', 'up 5% over 5 bars')\n"
-     "  • time-shifted reference ('prior close', 'yesterday's high')\n"
-     "  • any exit referencing position state — drawdown_from_peak_pct, "
-     "unrealised_pct, bars_held, peak_unrealised_pct, entry_price\n\n"
-     "Pass the user's entry as `condition` and (if present) exit as "
-     "`exit_condition` — server-side translation emits trigger.compound "
-     "entry + optional trigger.exit_compound branch. PASS exit_condition "
-     "WHENEVER the user names an exit ('sell when X', 'exit when Y', "
-     "'close when Z', 'trail N%', 'after N bars', 'when down N%'). Pass "
-     "VERBATIM — do NOT paraphrase or simplify. Returns workflow_draft_card.",
+     "SINGLE-SYMBOL compound-workflow builder. DSL acts on ONE primary symbol. "
+     "Returns workflow_draft_card.\n\n"
+     "DO NOT pick for MULTIPLE TICKERS in one order intent (needs "
+     "propose_workflow with one branch per symbol × action — routing multi-"
+     "symbol here silently drops all-but-one ticker), nor for an EARNINGS-print "
+     "trigger (no DSL earnings leaf; use propose_workflow + trigger.earnings).\n\n"
+     "A trigger on NEWS, a HEADLINE, a MACRO OUTCOME (RBI/Fed/CPI), a SEBI "
+     "announcement or a PREDICTION MARKET is NOT AVAILABLE in any tool — do not "
+     "route or draft it. Say so in one line and offer the nearest wired trigger: "
+     "a PRICE or INDICATOR level on the instrument the event would move, or a "
+     "SCHEDULE if the ask was about timing.\n\n"
+     "FIRST CHOICE (over propose_workflow / propose_threshold_order) for a "
+     "single-symbol agent whose entry OR exit uses any of: 2+ conditions "
+     "(AND/OR/NOT); multi-output components (MACD signal/hist, BB %B/bands, "
+     "Stoch %K/%D, Aroon, Donchian/Keltner); indicator-vs-indicator (50-EMA vs "
+     "200-EMA, price vs Supertrend); aggregate windows (percentrank, zscore, "
+     "highest/lowest, barssince, valuewhen, correlation, count_when, rolling "
+     "std); volume-relative; cross-symbol/spread/ratio; session-day filter; "
+     "gap/pct_change; time-shifted reference (prior close, yesterday's high); or "
+     "any position-state exit (drawdown_from_peak_pct, unrealised_pct, "
+     "bars_held, peak_unrealised_pct, entry_price).\n\n"
+     "Pass entry as `condition` and any exit as `exit_condition` (server emits "
+     "trigger.compound entry + optional trigger.exit_compound branch). Pass "
+     "exit_condition WHENEVER the user names an exit. Pass both VERBATIM — do "
+     "NOT paraphrase or simplify.",
      {
          "condition": {
              "type": "string",
@@ -1508,16 +1677,35 @@ tool("propose_dsl_workflow",
          },
          "name": {
              "type": "string",
-             "description": "Short human label, e.g. 'TCS RSI oversold buy'.",
+             "description": (
+                 "REQUIRED in practice — a short human title YOU author, "
+                 "3-6 words, like a nickname a trader would use: 'RELIANCE "
+                 "dip buyer', 'TCS momentum exit'. NEVER a condition dump "
+                 "('RSI(14) of X crosses…') — the card's subtitle already "
+                 "shows the exact conditions. Re-supply an updated name "
+                 "when an amendment changes the symbol or the meaning."
+             ),
+         },
+         "summary": {
+             "type": "string",
+             "description": (
+                 "1-2 plain-English sentences YOU author on how this agent "
+                 "behaves — what gets it in, what gets it out, how often it "
+                 "checks. Shown as the text above the card. No jargon dumps."
+             ),
          },
          "action_kind": {
              "type": "string",
-             "enum": ["notify_only", "buy_market", "buy_limit"],
-             "default": "notify_only",
+             "enum": ["buy_market", "buy_limit"],
+             "default": "buy_market",
              "description": (
-                 "notify_only (default) sends a push; buy_market/buy_limit "
-                 "place an order. Exit branch (when exit_condition set) "
-                 "always market-sells runtime-held quantity."
+                 "buy_market/buy_limit place an ORDER when the condition "
+                 "fires. Exit branch (when exit_condition set) always "
+                 "market-sells the runtime-held quantity. This tool builds "
+                 "ORDER automations only — price/condition ALERTS and "
+                 "notifications are NOT available, so never use this to build "
+                 "a 'just alert me' / 'notify me' / 'ping me' workflow; state "
+                 "that boundary in prose instead."
              ),
          },
          "quantity": {
@@ -1551,7 +1739,12 @@ tool("propose_dsl_workflow",
                  "Optional ISO YYYY-MM-DD. Set ONLY for TTL phrases ('for "
                  "next 30 days', 'until 30 June', 'till Friday'). Resolve "
                  "relative phrases yourself. Omit for perpetual. Scheduler "
-                 "auto-deactivates at 23:59 IST."
+                 "auto-deactivates at 23:59 IST. Granularity is a full DAY — "
+                 "do NOT set this for a sub-day window ('for the next hour', "
+                 "'for 30 minutes'); rounding that up to end-of-day silently "
+                 "misrepresents the duration. Omit it instead and say plainly "
+                 "in your reply that the card has no built-in expiry and the "
+                 "user should deactivate it manually when the window passes."
              ),
          },
          "interval": {
@@ -1562,9 +1755,11 @@ tool("propose_dsl_workflow",
              ],
              "default": "1d",
              "description": (
-                 "Bar interval for entry/exit indicators. 'period' (RSI(14), "
-                 "SMA(50)) counts BARS of THIS interval. If user did NOT pin "
-                 "a timeframe, ASK — do not guess. Default '1d'."
+                 "Bar interval for entry/exit indicators AND for any price "
+                 "leg with offset > 0 ('lower than it was N minutes ago' — "
+                 "'previous bar' means nothing without this). 'period' "
+                 "(RSI(14), SMA(50)) counts BARS of THIS interval. If user "
+                 "did NOT pin a timeframe, ASK — do not guess. Default '1d'."
              ),
          },
      },
@@ -1883,23 +2078,37 @@ tool("ask_agent_clarify",
 
 
 tool("build_strategy",
-     "Do NOT call for a purely conceptual ask ('what would a defence-theme "
-     "basket look like') with no intent to see a card — answer in prose instead.\n\n"
      "Builds a DB-driven EQUITY + GOLD basket (weighting scheme + fundamentals "
-     "gate + sector cap + correlation check + optional gold sleeve).\n\n"
+     "gate + sector cap + correlation check + optional gold sleeve). Returns a "
+     "register-not-execute strategy_builder_card (user places orders in own "
+     "broker app; options/hedge NOT built this phase).\n\n"
      "PREFER over propose_basket_allocation for portfolio asks wanting "
-     "thoughtful structure ('build me a long-term portfolio', 'balanced "
-     "basket of quality stocks', 'invest ₹2L for the long run'). Pass "
-     "filled SLOT-STATE; backend runs the §3a pipeline and returns a "
-     "register-not-execute strategy_builder_card. Skipped slots take "
-     "defaults — never block the build. Register-not-execute: user places "
-     "orders in own broker app. Options/hedge NOT built this phase.\n\n"
-     "Weighting-scheme names (equal/mcap/risk-parity/min-variance/black-"
-     "litterman/factor) and selection-gate names (fscore/magic-formula/"
-     "multifactor) are INTERNAL levers YOU pick — NEVER ask the user to "
-     "choose one and NEVER echo these enum names in a question. For an "
-     "UNDER-SPECIFIED ask (no view/risk/horizon/capital) call "
-     "ask_user_dynamic FIRST, not this tool directly.",
+     "thoughtful structure ('build me a long-term portfolio', 'balanced basket "
+     "of quality stocks', 'invest ₹2L for the long run'). Pass filled "
+     "SLOT-STATE; skipped slots take defaults — never block the build. For an "
+     "UNDER-SPECIFIED ask (no view/risk/horizon/capital) call ask_user_dynamic "
+     "FIRST.\n\n"
+     "Weighting-scheme (equal/mcap/risk-parity/min-variance/black-litterman/"
+     "factor) and selection-gate (fscore/magic-formula/multifactor) names are "
+     "INTERNAL levers YOU pick — never ask the user to choose one or echo these "
+     "enum names in a question.\n\n"
+     "PASS THE USER'S CONSTRAINTS — `filters` (ROE/ROCE/D-E/PE/earnings-yield/"
+     "payout/market-cap thresholds), `mcap_band`, `weight_by`, `gold_pct` and "
+     "`asset_prefs.exclusions` all reach the engine. A constraint outside that "
+     "set (dividend yield, promoter pledge, ESG…) is NOT screenable — say so "
+     "rather than pretending it applied.\n\n"
+     "SELF-SUFFICIENT — do NOT pre-call screen_fundamentals / fetch_fundamentals "
+     "/ compare_performance / compute. Returns, per leg: sector, `gate_metrics` "
+     "(ROE, ROCE, D/E, P/E, earnings yield), `weight_pct`, `allocation_inr` (the "
+     "₹ slice — never recompute weight × capital), `weight_reason`. Plus "
+     "card-level `rejected` (names excluded + why), `constraints_not_applied` "
+     "(you MUST disclose these in your reply), `assumptions`, `sleeves`, "
+     "`alternatives`. Call it FIRST and quote it.\n\n"
+     "A pinned symbol not in the NSE universe comes back in `rejected` as 'not "
+     "found in Pivot's NSE universe' — do NOT present that leg as if it exists; "
+     "re-call with the correct ticker or say the name has no listed expression. "
+     "A name that resolves but has no fundamentals is kept and shows "
+     "'(no data)' — report it as a data gap, not a bad ticker.",
      {
          "request": {
              "type": "string",
@@ -1920,6 +2129,71 @@ tool("build_strategy",
                  "conviction": {"type": "string",
                                 "enum": ["low", "medium", "high"]},
              },
+         },
+         "filters": {
+             "type": "array",
+             "description": (
+                 "The user's HARD fundamental constraints — pass EVERY one "
+                 "they stated ('ROE above 15, debt-to-equity under 1' → "
+                 "[{field:'roe',op:'>',value:15},{field:'de',op:'<',value:1}]). "
+                 "These EXCLUDE names (the internal gate only ranks), and a "
+                 "name that fails comes back in `rejected` with the reason. "
+                 "Fields outside the enum aren't screenable — don't invent one; "
+                 "state the gap in your reply instead."
+             ),
+             "items": {
+                 "type": "object",
+                 "properties": {
+                     "field": {"type": "string",
+                               "enum": ["roe", "roce", "de", "pe",
+                                        "earnings_yield", "payout",
+                                        "market_cap_cr"]},
+                     "op": {"type": "string", "enum": [">", ">=", "<", "<="]},
+                     "value": {"type": "number"},
+                 },
+                 "required": ["field", "op", "value"],
+             },
+         },
+         "max_names": {
+             "type": "integer",
+             "description": (
+                 "How many constituents the user asked for ('exactly 5 "
+                 "stocks', 'a 4-stock basket'). Overrides the engine's own "
+                 "size band — pass it whenever a count is stated, and never "
+                 "clarify a count the user already gave."
+             ),
+         },
+         "mcap_band": {
+             "type": "string",
+             "enum": ["large", "mid", "small"],
+             "description": (
+                 "Restrict discovery to a size band when the user names one "
+                 "('midcap manufacturing basket', 'quality smallcaps'). "
+                 "large ≥ ₹20,000 cr · mid ₹5,000-20,000 cr · small < ₹5,000 cr. "
+                 "Omit when no size was asked for."
+             ),
+         },
+         "weight_by": {
+             "type": "string",
+             "enum": ["roe", "roce", "de", "pe", "earnings_yield", "payout",
+                      "market_cap_cr"],
+             "description": (
+                 "Weight the legs IN PROPORTION to this metric when the user "
+                 "says so ('4 private banks weighted by ROE' → 'roe'). This is "
+                 "the answer to 'weighted by <metric>' — never clarify it and "
+                 "never fall back to asking. Lower-is-better metrics (de, pe) "
+                 "are inverted automatically. Omit to let the engine choose."
+             ),
+         },
+         "gold_pct": {
+             "type": "number",
+             "description": (
+                 "Gold sleeve as a % of the WHOLE portfolio when the user "
+                 "states a split ('70% equity 30% gold' → 30). Required for any "
+                 "stated split — without it the engine's own heuristic caps "
+                 "gold at ~15% and your split will NOT be honoured. Omit when "
+                 "the user didn't name a gold share."
+             ),
          },
          "risk": {
              "type": "string",
@@ -1957,22 +2231,83 @@ tool("build_strategy",
          },
          "theme": {
              "type": "string",
-             "description": "Optional thematic tilt ('quality compounders', "
-                            "'rate-cut beneficiaries') resolved against the "
-                            "thematic map.",
+             "description": (
+                 "Optional sector/tilt for DISCOVERY — used ONLY when you are "
+                 "not pinning `symbols`. Sectors with a real curated universe "
+                 "behind them: banking (spans private+psu), private bank, psu "
+                 "bank, it, auto, pharma, fmcg, energy, metals (includes "
+                 "steel), steel, cement, defence, telecom — plus tilts like "
+                 "'quality compounders' / 'momentum'. THAT IS THE WHOLE LIST. "
+                 "Anything else — chemicals, infra, realty, media, consumer "
+                 "durables, a macro view, 'PLI electronics', 'demographic "
+                 "dividend' — has NO universe behind it: the engine silently "
+                 "falls back to a broad cross-sector pool and notes it in "
+                 "`assumptions`, so the basket is NOT what the user asked for "
+                 "even though the card looks fine. For anything off that list, "
+                 "name the companies yourself and pin `symbols` + "
+                 "`symbol_reasons` — a pinned basket is checked against the "
+                 "full ~4,600-name NSE universe, a theme string is not."
+             ),
          },
          "symbols": {
              "type": "array",
              "items": {"type": "string"},
-             "description": "Optional explicit NSE constituents ALREADY vetted "
-                            "(e.g. winners from the DISCOVER→VET→JUDGE thematic "
-                            "flow). When present, builder PINS the universe to "
-                            "exactly these names — runs NO discovery, never "
-                            "drops a name for missing data (silent DB name → "
-                            "'(no data)', not removed), and sector cap becomes "
-                            "advisory. Weighting scheme + sizing still computed. "
-                            "OMIT for an open build where the backend discovers "
-                            "the universe from theme/sector/view.",
+             "description": "Explicit NSE constituents YOU chose. When present "
+                            "the builder PINS the universe to exactly these "
+                            "names — no discovery runs and the sector cap turns "
+                            "advisory. A name with no fundamentals is KEPT and "
+                            "shown as '(no data)'; a name that doesn't resolve "
+                            "to a listed NSE symbol is NOT allocated and comes "
+                            "back in `rejected`. Weighting + sizing still "
+                            "computed. This is the THEMATIC path: the builder "
+                            "has no thematic knowledge of its own, so reason out "
+                            "who actually benefits and pin them here rather than "
+                            "passing a `theme` string and hoping. THIS IS THE "
+                            "DEFAULT PATH — for almost every basket (including a "
+                            "plain 'create a basket') YOU choose the names and "
+                            "pin them, so the basket reflects the user's ask and "
+                            "your analysis, not a fixed engine selection. OMIT "
+                            "`symbols` ONLY when the user gave hard screening "
+                            "constraints (ROE>20, D/E<0.5) — then the engine's "
+                            "deterministic screen is what they asked for.",
+         },
+         "rationale": {
+             "type": "string",
+             "description": (
+                 "The card's defence, authored by YOU — 3-5 sentences tying "
+                 "the thesis to THIS structure in the user's own terms: why "
+                 "these names, why these weights, what would confirm or "
+                 "invalidate it, and what it is NOT. Omit and the engine falls "
+                 "back to a generic template that cannot know your thesis — "
+                 "supply it for any view-driven or thematic build."
+             ),
+         },
+         "symbol_reasons": {
+             "type": "object",
+             "description": "Per-symbol one-line WHY, authored by YOU — the "
+                            "causal hook tying each pinned name to the thesis "
+                            "({\"ONGC\": \"upstream producer; realisations rise "
+                            "with crude\"}). Shown on the card as each leg's "
+                            "reason. Supply alongside `symbols` for any "
+                            "thematic/view-driven build; without it legs fall "
+                            "back to generic quality-metric text.",
+         },
+         "weight_overrides": {
+             "type": "object",
+             "description": "Explicit per-symbol weights for a RE-WEIGHT / "
+                            "REBUILD amendment. When the user asks to 'rebuild "
+                            "it heavier in X', 'make KSB 40%', 'tilt to the "
+                            "leaders', 'equal-weight it', re-call build_strategy "
+                            "with the SAME symbols plus this map "
+                            "({\"KSB\": 40, \"SHAKTIPUMP\": 30}) — percents or "
+                            "fractions; named symbols take their share and the "
+                            "rest split the remainder by conviction. This is how "
+                            "a rebuild ACTUALLY re-allocates. Omit for a first "
+                            "build (backend picks conviction/quality weights). "
+                            "For a bare 'rebuild' with NO stated change, do NOT "
+                            "silently reproduce — briefly EXPLAIN the existing "
+                            "weights and offer concrete tilts.",
+             "additionalProperties": {"type": "number"},
          },
      },
      ["request"])
@@ -2054,153 +2389,6 @@ tool("propose_holding_action",
      ["symbol", "action_kind", "trigger_kind"])
 
 
-# ── EVENT TRIGGERS: Polymarket prediction-market price-cross ───────────────
-#
-# The user types: "alert me if Trump wins 2028 probability goes above 70%".
-# We hand the description to an LLM matcher that hits Polymarket's
-# /public-search, picks the best contract + which side (YES/NO) is meant,
-# and returns either:
-#   - a HIGH-CONFIDENCE draft → chat card "I found X — confirm threshold?"
-#   - a LOW-CONFIDENCE picker → chat card with candidates to choose from
-# In both cases this tool is PURE: no DB write. Confirmation goes through
-# POST /api/news-events/specs/polymarket which persists the draft, then
-# POST /api/news-events/specs/{id}/activate which kicks off the WS
-# subscription (immediate reconcile, no 30s wait).
-
-tool("propose_polymarket_trigger",
-     "Build a Polymarket prediction-market trigger from a natural-language "
-     "event description. USE for asks like 'alert me if Trump wins 2028 "
-     "above 70%', 'tell me when Bitcoin $150k probability hits 30%', 'ping "
-     "me when the Fed cuts rates'. Does NOT execute or activate — emits a "
-     "draft card. NOT for Indian-stock indicator alerts (use "
-     "propose_threshold_order / propose_holding_action). NOT for news-"
-     "article-driven triggers (use the /api/news-events/ Tier-1/2/3 path).\n\n"
-     "The chat hop fills `event_description` from the user's wording verbatim "
-     "(the matcher needs the full ask for side disambiguation — 'wins' vs "
-     "'doesn't win'). `threshold` is the YES probability the user named "
-     "expressed 0..1 (70% → 0.70) — OMIT IT entirely if the user did not "
-     "name a number. The handler derives three sensible preset chips "
-     "(anchored to current YES price) for the draft card; the user picks one "
-     "or types a custom value. Asking the user to invent a number when they "
-     "didn't give one is friction we do not want. `direction='above'` is "
-     "the common case; use 'below' only when the user explicitly asked for "
-     "a drop ('alert me if Modi's chances drop below 40%').\n\n"
-     "COMPOUND-WORKFLOW USE: when the user asks for a workflow that includes "
-     "a Polymarket trigger ('buy RELIANCE, sell when crude > $100 on poly "
-     "fires'), CALL THIS TOOL FIRST to nail the contract + threshold; THEN "
-     "emit `propose_workflow` with the resolved `market_id` + `token_id` + "
-     "`side` inline on the trigger.polymarket step. Do NOT try to write the "
-     "workflow in one shot — the resolver inside propose_workflow only "
-     "accepts a single-shot escape hatch when matcher confidence is ≥0.85 "
-     "and will reject lower-confidence drafts back to you.\n\n"
-     "TWO TRIGGER MODES — `mode='threshold'` (default) fires when the YES "
-     "probability crosses a number ('alert me when X chance goes above "
-     "70%'). `mode='resolution'` fires WHEN THE MARKET ACTUALLY RESOLVES — "
-     "use it for 'execute when X actually happens', 'buy oil when Iran-"
-     "ceasefire-holds resolves YES', 'sell my hedge when Trump-wins-2028 "
-     "resolves NO', 'once the election is decided'. Resolution mode "
-     "ignores threshold/direction entirely; it just waits for Polymarket "
-     "to declare the winner. `resolve_on='YES' | 'NO' | 'ANY'` picks "
-     "which outcome fires (default YES).",
-     {
-         "event_description": {
-             "type": "string",
-             "description":
-                 "The user's full event wording verbatim, including any "
-                 "negation ('Trump does NOT win'). The matcher uses it to "
-                 "pick a Polymarket contract AND which side (YES/NO).",
-         },
-         "threshold": {
-             "type": "number",
-             "minimum": 0.0,
-             "maximum": 1.0,
-             "description":
-                 "YES probability at which to fire, 0..1. OMIT this field "
-                 "entirely if the user did not name a number — the handler "
-                 "will derive 3 preset chips from the current YES price. "
-                 "Ignored when mode='resolution'.",
-         },
-         "direction": {
-             "type": "string",
-             "enum": ["above", "below"],
-             "description":
-                 "'above' fires when probability rises through threshold; "
-                 "'below' fires when it falls through. Default 'above'. "
-                 "Ignored when mode='resolution'.",
-         },
-         "mode": {
-             "type": "string",
-             "enum": ["threshold", "resolution"],
-             "description":
-                 "'threshold' (default) = fire on probability cross. "
-                 "'resolution' = fire when the market officially resolves "
-                 "YES or NO. Pick 'resolution' for asks like 'when X "
-                 "actually happens', 'once X is decided', 'when X "
-                 "resolves', 'after the event completes'.",
-         },
-         "resolve_on": {
-             "type": "string",
-             "enum": ["YES", "NO", "ANY"],
-             "description":
-                 "Which resolved outcome fires the trigger. Default 'YES'. "
-                 "Use 'NO' when user explicitly wants to fire on negative "
-                 "resolution ('sell my hedge when Trump 2028 resolves NO'). "
-                 "'ANY' fires on either outcome. Only honored when "
-                 "mode='resolution'.",
-         },
-         "workflow_action_summary": {
-             "type": "string",
-             "description":
-                 "Optional one-line note on what should happen when the "
-                 "trigger fires ('sell my NIFTYBEES', 'send a push'). "
-                 "Surfaced on the confirm card so the user knows what "
-                 "they're activating. Workflow wiring is a follow-up.",
-         },
-     },
-     ["event_description"],
-     defaults={"direction": "above", "mode": "threshold", "resolve_on": "YES"})
-
-
-tool("browse_polymarket_markets",
-     "Browse open prediction-market contracts on Polymarket — discovery, "
-     "not subscription. USE when the user asks 'what's hot on Polymarket', "
-     "'show me open Bitcoin markets', 'what crypto / politics / sports "
-     "markets are trading', 'what can I bet on Trump 2028?'. The user "
-     "browses; they pick a contract; THEN they call "
-     "`propose_polymarket_trigger` to set up an alert on it.\n\n"
-     "`topic` is an optional keyword/category to filter on (Bitcoin, "
-     "Politics, NBA, Iran, Trump, election, etc.). Empty/omitted → "
-     "returns the top open events by 24h volume across all categories. "
-     "Returns events grouped (one event can hold many candidate "
-     "markets — e.g. '2028 Presidential' has 128 per-candidate markets). "
-     "Each event row carries title, 24h volume, primary tags, end date, "
-     "and the top markets within it (question + YES price + token ids "
-     "ready for `propose_polymarket_trigger`).\n\n"
-     "NOT for live price reads on a known market (use `propose_polymarket"
-     "_trigger` or the REST cross-check). NOT for Indian-stock listings.",
-     {
-         "topic": {
-             "type": "string",
-             "description":
-                 "Optional keyword / category filter. Examples: 'Bitcoin', "
-                 "'Trump 2028', 'NBA Finals', 'Iran', 'Fed rate'. "
-                 "Empty → top events overall.",
-         },
-         "limit": {
-             "type": "integer",
-             "minimum": 1,
-             "maximum": 20,
-             "default": 10,
-             "description":
-                 "How many events to return (default 10, max 20). Each "
-                 "event surfaces its top 3 markets — don't crank this "
-                 "high; chat UX gets cluttered above 10.",
-         },
-     },
-     [],
-     defaults={"limit": 10})
-
-
 # ── META: find_tool (lazy-loader escape hatch) ─────────────────────────────
 #
 # Why this exists: the regex-based tool_router narrows the visible tool
@@ -2259,7 +2447,7 @@ tool(
     "in order and resolves refs between them (no LLM hop for the "
     "threading). Maximum 6 steps per plan.\n\n"
     "DO NOT call for single-verb intents — those go to the appropriate "
-    "single tool (place_market_order, propose_workflow, "
+    "single tool (place_order, propose_workflow, "
     "compare_performance, etc.) directly. The orchestrator adds "
     "latency; it only earns its keep on genuine multi-step chains.\n\n"
     "Inline helpers usable as `tool` inside the plan:\n"
@@ -2269,18 +2457,6 @@ tool(
     "backtests in parallel and rank by total_return / Sharpe / max_dd.\n"
     "Real tools (propose_threshold_order, propose_workflow, "
     "compare_performance, etc.) also usable as plan steps.\n\n"
-    "EXAMPLE — \"Compare INFY, TCS, WIPRO over 2 years, find lowest "
-    "drawdown, build momentum agent on winner\":\n"
-    "  plan = [\n"
-    "    {step_id:'compare', tool:'compare_performance',\n"
-    "     args:{symbols:['INFY','TCS','WIPRO'], period:'2y', metric:'max_drawdown'}},\n"
-    "    {step_id:'winner',  tool:'extract_winner_symbol',\n"
-    "     args:{from:'$compare', metric:'max_drawdown', direction:'max'}},\n"
-    "    {step_id:'build',   tool:'propose_threshold_order',\n"
-    "     args:{symbol:'$winner.symbol', side:'buy', quantity:10,\n"
-    "           trigger_kind:'indicator', indicator:'rsi',\n"
-    "           operator:'<', threshold:30}}\n"
-    "  ]\n"
     "Pass `user_intent` verbatim so the chat layer can summarise "
     "the plan execution at the end.",
     {

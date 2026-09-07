@@ -582,26 +582,27 @@ def test_metrics_no_nan_values(patched_fetch):
 # 18. Indian costs deducted correctly
 # ═══════════════════════════════════════════════════════════════════════════
 def test_costs_deducted_correctly():
-    # Converged India delivery model (services/trading_costs.py, 2026-05-29):
-    # STT now on BOTH legs + GST 18% on (brokerage+exchange+sebi).
+    # Converged India delivery model (services/trading_costs.py): CNC delivery
+    # brokerage is ₹0 (Zerodha), STT on BOTH legs, GST 18% on
+    # (brokerage+exchange+sebi).
     # buy_cost(100, 100) — notional 10,000:
-    #   brokerage 20, slippage 5.0, STT 10.0, exchange 0.297, sebi 0.01,
-    #   gst (20+0.297+0.01)*0.18=3.655, stamp 1.5  → total ≈ 40.46
+    #   brokerage 0, slippage 5.0, STT 10.0, exchange 0.297, sebi 0.01,
+    #   gst (0+0.297+0.01)*0.18=0.055, stamp 1.5  → total ≈ 16.86
     net_debit, total_costs = buy_cost(100.0, 100)
-    assert abs(total_costs - 40.46) < 0.05, (
-        f"buy_cost total expected ~40.46, got {total_costs}"
+    assert abs(total_costs - 16.86) < 0.05, (
+        f"buy_cost total expected ~16.86, got {total_costs}"
     )
-    assert abs(net_debit - 10040.46) < 0.05, (
-        f"buy_cost net_debit expected ~10040.46, got {net_debit}"
+    assert abs(net_debit - 10016.86) < 0.05, (
+        f"buy_cost net_debit expected ~10016.86, got {net_debit}"
     )
 
-    # sell_cost(100, 100): same minus stamp (buy-side only) → total ≈ 38.96
+    # sell_cost(100, 100): same minus stamp (buy-side only) → total ≈ 15.36
     net_credit, total_sell_costs = sell_cost(100.0, 100)
-    assert abs(total_sell_costs - 38.96) < 0.05, (
-        f"sell_cost total expected ~38.96, got {total_sell_costs}"
+    assert abs(total_sell_costs - 15.36) < 0.05, (
+        f"sell_cost total expected ~15.36, got {total_sell_costs}"
     )
-    assert abs(net_credit - 9961.04) < 0.05, (
-        f"sell_cost net_credit expected ~9961.04, got {net_credit}"
+    assert abs(net_credit - 9984.64) < 0.05, (
+        f"sell_cost net_credit expected ~9984.64, got {net_credit}"
     )
     # Structural invariants: buy carries stamp (sell doesn't) so buy > sell;
     # both now include STT.

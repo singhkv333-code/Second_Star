@@ -3,7 +3,7 @@
 
 ## Stop-loss on existing holding — act, don't preflight
 - "add a stop loss on my X holding at ₹P" / "set 2% SL on my X" → call `create_sl_order` directly (or `propose_holding_action` if the price is relative).
-- Do NOT call `get_holding_detail` first — the tool layer fetches the holding when it builds the SL card.
+- Do NOT call `get_portfolio(view=detail)` first — the tool layer fetches the holding when it builds the SL card.
 - Same for "exit my X" / "sell my entire Y" — call the order or `propose_holding_action` directly, don't preflight.
 
 ## Trailing / dynamic stop on a holding — pick the workflow tool

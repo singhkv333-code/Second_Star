@@ -65,6 +65,8 @@ class ChatRequest(BaseModel):
     #    "book": "portfolio"|"paper"}
     #   {"kind": "agent", "workflow_id": "…", "name": "…",
     #    "description": "…", "status": "active"}
+    #   {"kind": "basket", "basket_id": 12, "name": "Renewables",
+    #    "members": [{"symbol": "SUZLON", "weight": 27.0}, …]}
     # They are woven into the prompt as a labelled context block (same
     # mechanism as quoted_text) so the LLM treats them as the subject of
     # the message. None / absent = no attachments, prompt unchanged.
@@ -142,6 +144,30 @@ def _fmt_attachment(att: dict) -> Optional[str]:
         if book:
             bits.append(f"[{book} book]")
         return " · ".join([bits[0]] + bits[1:]) if len(bits) > 1 else bits[0]
+    if kind == "basket":
+        name = _s("name")
+        if not name:
+            return None
+        line = f"- Saved basket: “{name}”"
+        bid = _s("basket_id")
+        if bid:
+            line += f" [basket_id={bid}]"
+        # Carry the exact legs so an edit ("drop SUZLON", "make it equal
+        # weight") amends THIS basket's holdings rather than a guess.
+        legs = []
+        for m in (att.get("members") or [])[:40]:
+            if not isinstance(m, dict):
+                continue
+            sym = str(m.get("symbol") or "").strip().upper()[:20]
+            if not sym:
+                continue
+            try:
+                legs.append(f"{sym} {float(m.get('weight')):g}%")
+            except (TypeError, ValueError):
+                legs.append(sym)
+        if legs:
+            line += " — holdings: " + ", ".join(legs)
+        return line
     if kind == "agent":
         name = _s("name")
         if not name:
@@ -192,19 +218,57 @@ def _with_attachment_context(message: str, attachments: Optional[list]) -> str:
 _CONV_ID_RE = re.compile(r"^[A-Za-z0-9_\-]{8,36}$")
 
 
-# Cards above this JSON size get persisted as hint-only — a resumed
-# conversation then shows the text without the widget rather than bloating
-# the conversation_messages table with megabyte chain/backtest payloads.
+# Cards above this JSON size used to be persisted as hint-only (dropping
+# the whole card) — a resumed conversation then re-hydrated `{_render_hint}`
+# with no `card` body, and the FE's card components (which assume their
+# required arrays exist, no defensive checks) crashed on render. The error
+# boundary caught it and showed "This card couldn't be shown" (reported
+# 2026-07-14) for exactly the common case of a multi-year backtest, whose
+# bulk is almost always its own chart series, not its metrics/summary.
+# Down-sample those series first so the card that matters (metrics intact,
+# chart slightly coarser) still fits, instead of vanishing outright.
 _PERSIST_CARD_MAX_CHARS = 60_000
+_DOWNSAMPLE_KEYS = frozenset({
+    "equity_curve", "benchmark_curve", "price_curve", "indicator_curve",
+})
+_DOWNSAMPLE_CAP = 200
+
+
+def _downsample_series(points: list, cap: int = _DOWNSAMPLE_CAP) -> list:
+    if not isinstance(points, list) or len(points) <= cap:
+        return points
+    step = len(points) / cap
+    sampled = [points[int(i * step)] for i in range(cap - 1)]
+    sampled.append(points[-1])
+    return sampled
+
+
+def _downsample_large_arrays(obj):
+    """Recursively down-sample any list value keyed by a known chart-series
+    field name, wherever it sits in the payload (some cards nest their
+    series a level deep under a tool-name key)."""
+    if isinstance(obj, dict):
+        return {
+            k: (_downsample_series(v)
+                if k in _DOWNSAMPLE_KEYS and isinstance(v, list)
+                else _downsample_large_arrays(v))
+            for k, v in obj.items()
+        }
+    if isinstance(obj, list):
+        return [_downsample_large_arrays(v) for v in obj]
+    return obj
 
 
 def _bounded_card(raw_data: Optional[dict]) -> Optional[dict]:
-    """The turn's card payload if it is render-hinted and reasonably sized."""
+    """The turn's card payload if it is render-hinted and reasonably sized,
+    down-sampling large chart series first rather than dropping the card
+    outright."""
     if not isinstance(raw_data, dict) or not raw_data.get("_render_hint"):
         return None
     try:
-        if len(json.dumps(raw_data, default=str)) <= _PERSIST_CARD_MAX_CHARS:
-            return raw_data
+        shrunk = _downsample_large_arrays(raw_data)
+        if len(json.dumps(shrunk, default=str)) <= _PERSIST_CARD_MAX_CHARS:
+            return shrunk
     except Exception:
         return None
     return None
@@ -647,8 +711,13 @@ async def chat(
     holdings: list[dict] = []
     if request.include_portfolio_context:
         try:
-            from backend.kite.portfolio import get_holdings
-            holdings = get_holdings(kite_token)
+            # Paper-AWARE: reads the simulated paper book in paper mode
+            # (the default), else Kite — the SAME resolver the Portfolio page
+            # uses. Without this the injected "## User context" block showed
+            # "no holdings" for paper users who actually hold a real book,
+            # so the LLM refused portfolio-grounded asks ("hedge my portfolio").
+            from backend.services.portfolio_source import resolve_holdings
+            holdings = list(resolve_holdings(db, user_id, kite_token))
         except Exception:
             holdings = []
 
@@ -792,8 +861,13 @@ async def chat_stream(
     holdings: list[dict] = []
     if request.include_portfolio_context:
         try:
-            from backend.kite.portfolio import get_holdings
-            holdings = get_holdings(kite_token)
+            # Paper-AWARE: reads the simulated paper book in paper mode
+            # (the default), else Kite — the SAME resolver the Portfolio page
+            # uses. Without this the injected "## User context" block showed
+            # "no holdings" for paper users who actually hold a real book,
+            # so the LLM refused portfolio-grounded asks ("hedge my portfolio").
+            from backend.services.portfolio_source import resolve_holdings
+            holdings = list(resolve_holdings(db, user_id, kite_token))
         except Exception:
             holdings = []
 

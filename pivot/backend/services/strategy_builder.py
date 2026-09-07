@@ -61,7 +61,9 @@ from typing import Optional
 
 from backend.services import weighting as _weighting
 from backend.services.sector_universe import (
+    is_psu,
     normalize_sector,
+    nse_universe_map,
     query_screener,
     resolve_theme,
     symbol_sector_map,
@@ -71,6 +73,8 @@ from backend.services.strategy_contracts import (
     DEFAULT_SECTOR_CAP_PCT,
     MIN_HISTORY_BARS_FOR_COV,
     GoldInstrument,
+    MetricFilter,
+    RejectedName,
     SelectionGate,
     Sleeve,
     SlotState,
@@ -184,6 +188,9 @@ def build_strategy(
     slots: SlotState,
     ctx: object,
     symbols: Optional[list[str]] = None,
+    constituent_reasons: Optional[dict[str, str]] = None,
+    weight_overrides: Optional[dict[str, float]] = None,
+    rationale_override: Optional[str] = None,
 ) -> StrategyBuilderCard:
     """Run the §3a equity+gold construction pipeline → a render-ready card.
 
@@ -193,12 +200,15 @@ def build_strategy(
     (a DB session if present) and otherwise opens its own read-only sessions
     via the reused helpers.
 
-    ``symbols`` (plan §3 B1) is an optional explicit **allow-list** of NSE
-    constituents the caller has already vetted (the DISCOVER→VET→JUDGE thematic
-    flow's winners). When present — or carried in ``slots.symbols`` — the builder
-    PINS the universe to exactly these names (no discovery, no dropping a name for
-    missing data) via :func:`_build_pinned_strategy`; the weighting scheme + sizing
-    are still computed and the sector cap becomes advisory.
+    ``symbols`` (plan §3 B1) is an explicit **allow-list** of NSE constituents
+    the caller chose — the thematic path, where the caller reasons out who
+    benefits and pins them. When present — or carried in ``slots.symbols`` — the
+    builder PINS the universe to exactly these names via
+    :func:`_build_pinned_strategy`: no discovery runs, the sector cap turns
+    advisory, and the weighting scheme + sizing are still computed. A pinned
+    name with no fundamentals is kept and shown as "(no data)"; a pinned name
+    that does not resolve to a listed NSE symbol is NOT allocated and is
+    returned in ``rejected`` (see :func:`_build_pinned_strategy`).
     """
     request = request or ""
     assumptions: list[str] = _assumption_lines(slots)
@@ -208,7 +218,12 @@ def build_strategy(
     # (so a clarify round-trip that carried the winners still builds them).
     pinned = _clean_symbols(symbols if symbols is not None else slots.symbols)
     if pinned:
-        return _build_pinned_strategy(request, slots, pinned, assumptions)
+        return _build_pinned_strategy(
+            request, slots, pinned, assumptions,
+            constituent_reasons=constituent_reasons,
+            weight_overrides=weight_overrides,
+            rationale_override=rationale_override,
+        )
 
     # ── Step 1: universe → fundamentals gate/rank → sector cap + corr check ──
     gate = _choose_selection_gate(slots, request)
@@ -240,6 +255,10 @@ def build_strategy(
         assumptions.append(gate_note)
 
     _lo, hi = _TARGET_NAMES.get(slots.risk, _TARGET_NAMES["balanced"])
+    # A stated count ("exactly 4 private banks") is an instruction, not a
+    # preference the risk-band gets to override.
+    if slots.max_names:
+        hi = max(1, int(slots.max_names))
 
     # A deliberate single-sector basket reports a 100% sector cap (the cap is
     # there to stop ACCIDENTAL collapse, not to forbid an explicit focused
@@ -320,6 +339,28 @@ def build_strategy(
         _deduped.append(c)
     shortlist = _deduped
 
+    # ── Step 1b2: the USER's own hard constraints. The gate above ranks on our
+    # quality opinion; these EXCLUDE on what the user actually asked for, and a
+    # name that fails is reported (never silently absent). Runs before the cap
+    # so the cap fills the basket from names that already clear the ask. ──
+    rejected: list[RejectedName] = []
+    shortlist, _rej = _apply_user_filters(shortlist, slots.filters)
+    rejected.extend(_rej)
+    shortlist, _rej = _apply_mcap_band(shortlist, slots.mcap_band)
+    rejected.extend(_rej)
+    if not shortlist:
+        _asked = "; ".join(
+            f"{_FILTER_LABELS.get(f.field, f.field)} {f.op} {f.value:g}"
+            for f in slots.filters
+        ) or (f"{slots.mcap_band}-cap universe" if slots.mcap_band else "")
+        assumptions.append(
+            f"no name in the resolved universe clears your constraints ({_asked}) — "
+            "nothing was substituted; relax a threshold or widen the sector"
+        )
+        card = _empty_card(request, slots, gate, sector_cap, assumptions)
+        card.rejected = rejected[:12]
+        return card
+
     # ── Step 1c: enforce the sector cap on the AUTHORITATIVE (full-data) ranking,
     # selecting the final ~hi names — provably cap-compliant at its own size. ──
     candidates, cap_note = _enforce_sector_cap(
@@ -337,9 +378,26 @@ def build_strategy(
         assumptions.append(scheme_note)
 
     factor_emphasis = _detect_factor_style(slots, request)
-    weights, weight_note = _compute_weights(
-        scheme, candidates, slots, price_history, factor_emphasis=factor_emphasis
+    # A user-named weighting metric ("weighted by ROE") wins over the internal
+    # scheme choice — it is an explicit instruction, not a preference we get to
+    # optimise away.
+    _by_weights, _by_note = (
+        _metric_proportional_weights(candidates, slots.weight_by)
+        if slots.weight_by else ({}, "")
     )
+    if _by_weights:
+        weights, weight_note, scheme = _by_weights, "", "conviction"
+        assumptions.append(_by_note)
+    else:
+        if slots.weight_by:
+            assumptions.append(
+                f"no usable {_FILTER_LABELS.get(slots.weight_by, slots.weight_by)} "
+                "data for these names — could not weight by it; used the "
+                f"{scheme.replace('_', ' ')} split instead"
+            )
+        weights, weight_note = _compute_weights(
+            scheme, candidates, slots, price_history, factor_emphasis=factor_emphasis
+        )
     if weight_note:
         # Covariance too thin etc. → honest equal-weight fallback + restate.
         scheme = "equal"
@@ -368,7 +426,7 @@ def build_strategy(
     assumptions.extend(sizing_notes)
 
     # ── Anti-bland guardrails (assert before render) ──
-    _assert_guardrails(
+    _conc_note = _assert_guardrails(
         constituents=constituents,
         scheme=scheme,
         gate=gate,
@@ -376,9 +434,14 @@ def build_strategy(
         slots=slots,
         single_sector=single_sector,
     )
+    if _conc_note:
+        assumptions.append(_conc_note)
 
-    title = _title(slots, request, structure)
-    rationale = _rationale(
+    title = _title(slots, request, structure, has_gold=gold_pct > 0)
+    # The MODEL's own defence wins when it wrote one — it has the user's actual
+    # words and the thesis; the template below is the fallback for callers that
+    # didn't author one (and never claims the user said anything they didn't).
+    rationale = (rationale_override or "").strip() or _rationale(
         slots=slots,
         request=request,
         scheme=scheme,
@@ -407,9 +470,35 @@ def build_strategy(
         sleeves=sleeves,
         assumptions=_dedup(assumptions),
         alternatives=alternatives,
+        constraints_not_applied=_unapplied_constraints(slots, pinned=False),
+        rejected=rejected[:12],
         capital_inr=slots.capital_inr,
         disclaimer=DEFAULT_DISCLAIMER,
     )
+
+
+def _unapplied_constraints(slots: SlotState, *, pinned: bool) -> list[str]:
+    """Every user constraint this build could NOT honour, in plain words.
+
+    The reply must disclose these — a card that quietly violates a stated
+    constraint is worse than an honest boundary (2026-07-17 eval B11/B09/B16).
+    Only reports what is genuinely dropped: expressible constraints are applied
+    upstream and never appear here."""
+    out: list[str] = []
+    if pinned:
+        # A pinned build honours the caller's names verbatim; universe-shaping
+        # constraints have nothing to shape.
+        if slots.mcap_band:
+            out.append(
+                f"{slots.mcap_band}-cap universe — not applied: you pinned the "
+                "names, so the band didn't filter anything"
+            )
+        if slots.filters:
+            out.append(
+                "your fundamental filters weren't used as a screen — the pinned "
+                "names were built as given (their ratios are shown per leg)"
+            )
+    return out
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -466,14 +555,126 @@ def _clean_symbols(symbols: Optional[list[str]]) -> list[str]:
 
 
 def _curated_row_map() -> dict[str, dict]:
-    """``{SYMBOL -> universe row}`` across the whole curated universe, network-
-    free — used to resolve name/sector/mcap for pinned symbols we recognise. A
-    pinned symbol absent here still builds (symbol as name, 'unknown' sector)."""
-    m: dict[str, dict] = {}
-    for sec in sorted(set(symbol_sector_map().values())):
-        for r in query_screener(sector=sec, limit=_SCREEN_LIMIT):
-            m[str(r["symbol"]).upper()] = r
-    return m
+    """``{SYMBOL -> universe row}`` for every VERIFIED listed NSE symbol
+    (~4,600), used to resolve existence + name/sector/mcap for pinned symbols.
+
+    This used to walk ``query_screener(limit=30)`` over the curated sector list
+    and returned **80 names across 12 sectors** — so every pinned leg outside
+    that sample resolved to 'unknown' sector with no market cap, silently
+    degrading the sector-cap advisory, the mcap band and conviction weighting
+    on most real baskets. Membership now means "we confirmed this trades";
+    absence is what the pinned path rejects on.
+    """
+    return nse_universe_map()
+
+
+# ── User-stated hard constraints (filters / mcap band) ──────────────────────
+# The selection gate RANKS; these EXCLUDE. Kept separate so a user constraint
+# is never silently replaced by the builder's own quality opinion (the
+# 2026-07-17 eval's B11/B16 failure class).
+
+_MCAP_BANDS: dict[str, tuple[float, float]] = {
+    "large": (20000.0, float("inf")),
+    "mid": (5000.0, 20000.0),
+    "small": (0.0, 5000.0),
+}
+
+_FILTER_LABELS: dict[str, str] = {
+    "roe": "ROE", "roce": "ROCE", "de": "D/E", "pe": "P/E",
+    "earnings_yield": "earnings yield", "payout": "payout ratio",
+    "market_cap_cr": "market cap (₹ cr)",
+}
+
+
+def _candidate_metric(c: _Candidate, field: str) -> Optional[float]:
+    return {
+        "roe": c.roe, "roce": c.roce, "de": c.de, "pe": c.pe,
+        "earnings_yield": c.earnings_yield, "payout": c.payout,
+        "market_cap_cr": c.mcap_cr,
+    }.get(field)
+
+
+def _passes(value: float, op: str, target: float) -> bool:
+    return {
+        ">": value > target, ">=": value >= target,
+        "<": value < target, "<=": value <= target,
+    }[op]
+
+
+def _apply_user_filters(
+    candidates: list[_Candidate], filters: list[MetricFilter],
+) -> tuple[list[_Candidate], list[RejectedName]]:
+    """Drop every candidate failing a user-stated filter. A name the DB is
+    silent on is ALSO dropped — we cannot assert it passes, and quietly keeping
+    it is how a "ROE > 15" basket shipped ROE-unknown names. Returns
+    (survivors, rejected-with-reason)."""
+    if not filters:
+        return candidates, []
+    kept: list[_Candidate] = []
+    rejected: list[RejectedName] = []
+    for c in candidates:
+        fail: Optional[str] = None
+        for f in filters:
+            label = _FILTER_LABELS.get(f.field, f.field)
+            v = _candidate_metric(c, f.field)
+            if v is None:
+                fail = f"no {label} data — can't confirm it clears {label} {f.op} {f.value:g}"
+                break
+            if not _passes(float(v), f.op, float(f.value)):
+                fail = f"{label} {float(v):.2f} vs your {label} {f.op} {f.value:g}"
+                break
+        (kept if fail is None else rejected).append(
+            c if fail is None else RejectedName(symbol=c.symbol, reason=fail)
+        )
+    return kept, rejected
+
+
+def _apply_mcap_band(
+    candidates: list[_Candidate], band: Optional[str],
+) -> tuple[list[_Candidate], list[RejectedName]]:
+    """Restrict to a market-cap band. Unknown-mcap names are KEPT (unlike a
+    metric filter): the band is a universe preference, not an assertion about
+    the name, and dropping every DB-silent name would empty a smallcap ask."""
+    if not band or band not in _MCAP_BANDS:
+        return candidates, []
+    lo, hi = _MCAP_BANDS[band]
+    kept: list[_Candidate] = []
+    rejected: list[RejectedName] = []
+    for c in candidates:
+        m = c.mcap_cr
+        if m is None or lo <= float(m) < hi:
+            kept.append(c)
+        else:
+            rejected.append(RejectedName(
+                symbol=c.symbol,
+                reason=f"₹{float(m):,.0f} cr market cap — outside the {band}-cap band",
+            ))
+    return kept, rejected
+
+
+def _metric_proportional_weights(
+    candidates: list[_Candidate], field: str,
+) -> tuple[dict[str, float], str]:
+    """Weights ∝ a named metric ("weighted by ROE"). Non-positive/missing values
+    take the positive mean so a name is never silently zero-weighted; for
+    lower-is-better metrics (D/E, P/E) proportionality is inverted."""
+    label = _FILTER_LABELS.get(field, field)
+    vals = {c.symbol: _candidate_metric(c, field) for c in candidates}
+    positive = [float(v) for v in vals.values() if v is not None and float(v) > 0]
+    if not positive:
+        return {}, ""
+    mean = sum(positive) / len(positive)
+    invert = field in ("de", "pe")
+    raw: dict[str, float] = {}
+    for sym, v in vals.items():
+        x = float(v) if v is not None and float(v) > 0 else mean
+        raw[sym] = (1.0 / x) if invert else x
+    total = sum(raw.values()) or 1.0
+    note = (
+        f"weighted in proportion to {label}"
+        + (" (inverted — lower is better)" if invert else "")
+    )
+    return {s: v / total for s, v in raw.items()}, note
 
 
 def _pinned_gate_metrics(candidates: list[_Candidate], gate: SelectionGate) -> None:
@@ -517,6 +718,9 @@ def _build_pinned_strategy(
     slots: SlotState,
     pinned: list[str],
     assumptions: list[str],
+    constituent_reasons: Optional[dict[str, str]] = None,
+    weight_overrides: Optional[dict[str, float]] = None,
+    rationale_override: Optional[str] = None,
 ) -> StrategyBuilderCard:
     """B1 — PINNED allow-list path. The caller (e.g. the DISCOVER→VET→JUDGE
     thematic flow) has already vetted the names, so we build EXACTLY these:
@@ -528,23 +732,68 @@ def _build_pinned_strategy(
 
     row_map = _curated_row_map()
     candidates: list[_Candidate] = []
+    unresolved: list[RejectedName] = []
     for sym in pinned:
         row = row_map.get(sym)
+        # A pin we cannot find ANYWHERE in the NSE universe is not a data gap —
+        # it is very likely a symbol the caller mis-remembered or invented
+        # (2026-07-17 eval: a crude-crash basket pinned "HPCL"/"BERGERPAINT",
+        # neither a live NSE symbol; both shipped as legs with a real ₹ slice).
+        # Allocating money to a symbol we cannot confirm trades is a fabrication
+        # no disclaimer repairs, so reject it and SAY the name back — the caller
+        # can then re-call with the right ticker or drop it.
+        if row is None:
+            unresolved.append(RejectedName(
+                symbol=sym,
+                reason="not found in Pivot's NSE universe — could not confirm "
+                       "it is a listed symbol, so it was not allocated. Re-call "
+                       "with the correct ticker if you meant a different name.",
+            ))
+            continue
         candidates.append(
             _Candidate(
                 symbol=sym,
-                name=str(row.get("name") or sym) if row else sym,
-                sector=str(row.get("sector") or "unknown") if row else "unknown",
-                mcap_cr=float(row["mcap_cr"]) if row and row.get("mcap_cr") is not None else None,
+                name=str(row.get("name") or sym),
+                sector=str(row.get("sector") or "unknown"),
+                mcap_cr=float(row["mcap_cr"]) if row.get("mcap_cr") is not None else None,
             )
         )
 
+    # A pinned universe is "already vetted" for DATA availability (never
+    # dropped for missing fundamentals) — but a user's explicit exclusion
+    # ("no PSU exposure", "not X") is a hard constraint that outranks a
+    # vetted pin, including the deterministic thematic-scenario seed (e.g.
+    # crude_spike pins ONGC/OIL straight into this path). Without this, an
+    # excluded name that happened to get pinned (by the model or the
+    # scenario backstop) shipped anyway — confirmed bug.
+    before_excl = [c.symbol for c in candidates]
+    candidates = _apply_exclusions(candidates, slots)
+    excluded = [s for s in before_excl if s not in {c.symbol for c in candidates}]
+    if excluded:
+        assumptions.append(
+            "excluded per your stated preference: " + ", ".join(excluded)
+        )
+    if unresolved:
+        assumptions.append(
+            "did NOT allocate to " + ", ".join(r.symbol for r in unresolved)
+            + " — not found in the NSE universe (see `rejected`); every other "
+            "leg was re-weighted over the remaining names"
+        )
+    if not candidates:
+        card = _empty_card(request, slots, gate, DEFAULT_SECTOR_CAP_PCT, assumptions)
+        card.rejected = list(unresolved) + list(card.rejected)
+        return card
+
     assumptions.append(
         f"pinned universe — building exactly the {len(candidates)} name(s) you/the flow "
-        "vetted; no discovery ran and none were dropped for missing data"
+        "vetted (after exclusions); no discovery ran and none were dropped for missing data"
     )
 
     # Fundamentals for the per-name gate_metrics DISPLAY only (never a drop gate).
+    # NOTE the distinction this path now draws: a name that RESOLVES but has no
+    # fundamentals row is a real data gap — keep it, show "(no data)". A name
+    # that never resolved at all was already rejected above and never reaches
+    # here. Collapsing those two is what let an invented ticker take a ₹ slice.
     _backfill_gate_inputs(candidates)
     _backfill_fundamentals_parallel(candidates)
     _pinned_gate_metrics(candidates, gate)
@@ -552,7 +801,8 @@ def _build_pinned_strategy(
     if no_data:
         assumptions.append(
             "no DB fundamentals for " + ", ".join(no_data)
-            + " — shown without gate metrics (no data), kept as pinned (not fabricated)"
+            + " — a real listed name we hold no ratios for; shown without gate "
+            "metrics (no data), kept as pinned (not fabricated)"
         )
 
     # Sector cap is advisory for a pinned basket (warn, don't trim).
@@ -561,18 +811,23 @@ def _build_pinned_strategy(
     if adv:
         assumptions.append(adv)
 
-    # ── Weighting + sizing still computed ──
+    # ── Weighting + sizing ──
+    # PINNED thesis names are conviction-weighted: sized by the quality gate
+    # (roe/roce/de/pe) where the DB serves it, else by thesis-conviction ORDER
+    # (lead name = highest-beta beneficiary). This is deliberately NOT
+    # factor/covariance weighting — those degrade to momentum/1-N on the thin,
+    # illiquid small-cap history these baskets usually hold, producing distorted
+    # or flat splits (the reported bug). A rich-history large-cap basket still
+    # gets a meaningful spread because the quality gate differentiates it.
     price_history = _fetch_price_history([c.symbol for c in candidates])
-    scheme, scheme_note = _choose_scheme(slots, request, candidates)
-    if scheme_note:
-        assumptions.append(scheme_note)
-    factor_emphasis = _detect_factor_style(slots, request)
-    weights, weight_note = _compute_weights(
-        scheme, candidates, slots, price_history, factor_emphasis=factor_emphasis
+    scheme = "conviction"
+    weights = _differentiate_weights(candidates)
+    _q = any(_quality_score(c.gate_metrics or {}) is not None for c in candidates)
+    assumptions.append(
+        "conviction-weighted — sized by "
+        + ("the quality gate (ROE/ROCE/D-E) " if _q else "thesis-conviction order ")
+        + "so the split is structured, not a flat 1/N or momentum-on-thin-history"
     )
-    if weight_note:
-        scheme = "equal"
-        assumptions.append(weight_note)
 
     corr_note = _correlation_check(candidates, weights, price_history)
     if corr_note:
@@ -582,7 +837,11 @@ def _build_pinned_strategy(
     sleeves, gold_pct, sleeve_notes = _build_sleeves(slots, request)
     assumptions.extend(sleeve_notes)
     equity_share = max(0.0, 100.0 - gold_pct)
-    constituents, sizing_notes = _size_constituents(candidates, weights, equity_share, slots)
+    constituents, sizing_notes = _size_constituents(
+        candidates, weights, equity_share, slots,
+        provided_reasons=constituent_reasons,
+        weight_overrides=weight_overrides,
+    )
     assumptions.extend(sizing_notes)
 
     _assert_guardrails(
@@ -595,8 +854,11 @@ def _build_pinned_strategy(
         pinned=True,
     )
 
-    title = _title(slots, request, structure)
-    rationale = _rationale(
+    title = _title(slots, request, structure, has_gold=gold_pct > 0)
+    # The MODEL's own defence wins when it wrote one — it has the user's actual
+    # words and the thesis; the template below is the fallback for callers that
+    # didn't author one (and never claims the user said anything they didn't).
+    rationale = (rationale_override or "").strip() or _rationale(
         slots=slots,
         request=request,
         scheme=scheme,
@@ -624,6 +886,8 @@ def _build_pinned_strategy(
         sleeves=sleeves,
         assumptions=_dedup(assumptions),
         alternatives=alternatives,
+        constraints_not_applied=_unapplied_constraints(slots, pinned=True),
+        rejected=unresolved,
         capital_inr=slots.capital_inr,
         disclaimer=DEFAULT_DISCLAIMER,
     )
@@ -687,7 +951,23 @@ def _build_universe(
         # the gate then prunes on fundamentals (so this is a starting pool, not
         # the answer).
         rows = _broad_universe()
-        note = note or "no explicit theme/sector — drew a broad cross-sector pool, then gated on fundamentals"
+        if theme:
+            # A theme WAS named but couldn't be mapped to a sector this
+            # builder recognises ("mid-cap manufacturing", "insurance
+            # plays", etc.) — say so explicitly rather than the generic "no
+            # explicit theme/sector" line, which reads as if nothing was
+            # asked for at all. Honest boundary (confirmed bug): the basket
+            # below is a broad quality pool, NOT the specific universe the
+            # user named.
+            note = note or (
+                f"couldn't map '{theme}' to a specific sector in this "
+                "builder — built from a broad cross-sector quality pool "
+                "instead of the specific universe you asked for; name a "
+                "recognised sector (IT/pharma/auto/energy/metals/steel/"
+                "banking/fmcg/cement/defence/telecom) to narrow it"
+            )
+        else:
+            note = note or "no explicit theme/sector — drew a broad cross-sector pool, then gated on fundamentals"
 
     # Build candidates, de-duping by symbol (sector universes overlap — e.g. a
     # name can sit in both the broad pool and a sector pull; the first/best
@@ -729,8 +1009,16 @@ def _broad_universe() -> list[dict]:
 
 def _apply_exclusions(candidates: list[_Candidate], slots: SlotState) -> list[_Candidate]:
     """Drop names the user carved out: a named ticker, a sector word, or
-    ``"PSU"`` (drops psu_bank). Free-text exclusions are matched coarsely —
-    honest and conservative."""
+    ``"PSU"``. Free-text exclusions are matched coarsely — honest and
+    conservative.
+
+    ``"PSU"`` is an OWNERSHIP tag, not a sector — only ``psu_bank`` carries
+    "psu" in the sector name, but real PSUs also sit in ``energy`` (ONGC,
+    IOC, NTPC...), ``metals``/``steel`` (COALINDIA, SAIL, NMDC) and
+    ``defence`` (HAL, BEL, BHEL...). Matching just ``"psu" in sec`` silently
+    kept every non-bank PSU in an "exclude PSU" basket (confirmed bug) — the
+    ``is_psu`` membership check catches those too, regardless of sector.
+    """
     excl = [e.strip().lower() for e in slots.asset_prefs.exclusions if e.strip()]
     if not excl:
         return candidates
@@ -740,7 +1028,7 @@ def _apply_exclusions(candidates: list[_Candidate], slots: SlotState) -> list[_C
         sec = c.sector.lower()
         drop = False
         for e in excl:
-            if e == sym or e in sec or (e == "psu" and "psu" in sec):
+            if e == sym or e in sec or (e == "psu" and ("psu" in sec or is_psu(c.symbol))):
                 drop = True
                 break
             norm = normalize_sector(e)
@@ -1458,14 +1746,32 @@ def _build_sleeves(slots: SlotState, request: str) -> tuple[list[Sleeve], float,
     """
     notes: list[str] = []
     if "gold" not in slots.asset_prefs.allow:
+        if slots.gold_pct:
+            notes.append(
+                f"you asked for a {slots.gold_pct:g}% gold sleeve but gold is "
+                "excluded by the asset preferences on this build — no gold added"
+            )
         return [], 0.0, notes
 
     r = request.lower()
     hedge_cue = any(
         k in r for k in ("inflation", "hedge", "rupee", "safe haven", "ballast", "uncertain", "diversif")
     )
+    # An explicitly STATED split ("70% equity / 30% gold") is an instruction:
+    # it bypasses the earns-its-place heuristic AND the 5-15% band, which
+    # otherwise silently capped a 30% ask at 15% (2026-07-17 eval, B09).
+    if slots.gold_pct is not None:
+        _explicit = max(0.0, min(100.0, float(slots.gold_pct)))
+        if _explicit <= 0:
+            notes.append("gold sleeve set to 0% as asked")
+            return [], 0.0, notes
+        return _gold_sleeve_at(_explicit, notes, stated=True)
+    # An explicit "yes, gold" clarify answer is a direct instruction, not a
+    # second vote alongside the risk/horizon/hedge heuristic — it must win
+    # outright rather than still needing to "earn its place" (2026-07-14).
     earns = (
-        slots.risk == "conservative"
+        slots.asset_prefs.gold_requested
+        or slots.risk == "conservative"
         or slots.horizon == "long"
         or hedge_cue
     )
@@ -1478,9 +1784,16 @@ def _build_sleeves(slots: SlotState, request: str) -> tuple[list[Sleeve], float,
         [slots.risk == "conservative", slots.horizon == "long", hedge_cue]
     )
     gold_pct = max(_GOLD_PCT_MIN, min(_GOLD_PCT_MAX, _GOLD_PCT_BASE + (signals - 1) * 3.0))
+    return _gold_sleeve_at(gold_pct, notes, stated=False)
 
-    # Split the sleeve: SGB long-core (the larger, illiquid-but-tax-efficient
-    # leg) + GOLDBEES ETF (the liquid leg). Weights are % of OVERALL portfolio.
+
+def _gold_sleeve_at(
+    gold_pct: float, notes: list[str], *, stated: bool,
+) -> tuple[list[Sleeve], float, list[str]]:
+    """Build the SGB + GOLDBEES sleeve at a given % of the OVERALL portfolio.
+    ``stated=True`` means the user named the split — the note says so, and no
+    band clamp applies."""
+    # SGB long-core (illiquid but tax-efficient) + GOLDBEES ETF (liquid leg).
     sgb_pct = round(gold_pct * 0.6, 2)
     etf_pct = round(gold_pct - sgb_pct, 2)
     instruments = [
@@ -1497,7 +1810,10 @@ def _build_sleeves(slots: SlotState, request: str) -> tuple[list[Sleeve], float,
             weight_pct=etf_pct,
         ),
     ]
-    note = "inflation / rupee hedge + low-correlation ballast"
+    note = (
+        "the split you asked for" if stated
+        else "inflation / rupee hedge + low-correlation ballast"
+    )
     sleeve = Sleeve(kind="gold", pct=round(gold_pct, 2), instruments=instruments, note=note)
     notes.append(
         f"gold sleeve {gold_pct:.0f}% (SGB {sgb_pct:.0f}% + GOLDBEES {etf_pct:.0f}%) — {note}"
@@ -1510,11 +1826,133 @@ def _build_sleeves(slots: SlotState, request: str) -> tuple[list[Sleeve], float,
 # ════════════════════════════════════════════════════════════════════════════
 
 
+def _quality_score(gm: dict) -> Optional[float]:
+    """Composite quality score in ~[0,1] from a name's gate metrics (higher
+    roe/roce better; lower de/pe better). None when the DB is silent on quality
+    (no roe AND no roce) — the caller then falls back to conviction-order tilt."""
+    if not gm:
+        return None
+    roe, roce = gm.get("roe"), gm.get("roce")
+    de, pe = gm.get("de"), gm.get("pe")
+    if roe is None and roce is None:
+        return None
+    s, k = 0.0, 0
+    if roe is not None:
+        s += max(min(float(roe), 60.0), -20.0) / 60.0
+        k += 1
+    if roce is not None:
+        s += max(min(float(roce), 60.0), -20.0) / 60.0
+        k += 1
+    base = s / max(k, 1)
+    if de is not None:
+        base += (1.0 - min(max(float(de), 0.0), 3.0) / 3.0) * 0.25
+    if pe is not None and float(pe) > 0:
+        base += (1.0 - min(float(pe), 60.0) / 60.0) * 0.25
+    return base
+
+
+def _differentiate_weights(candidates: list[_Candidate]) -> dict[str, float]:
+    """Produce DIFFERENTIATED equity-sleeve weights when the scheme would
+    otherwise be flat 1/N (thin history / ≤4 names / no covariance signal).
+
+    Tilt source, in order of preference:
+      1. quality gate (roe/roce/de/pe) when the DB serves it → quality-weighted;
+      2. else conviction/pin ORDER (lead name = highest conviction) → decay.
+    Blended 65/35 with uniform so the tilt is meaningful but never degenerate,
+    normalised to sum 1.0. This is what turns a bare 25/25/25/25 basket into a
+    structured, reasoned split."""
+    n = len(candidates)
+    if n <= 1:
+        return {c.symbol: 1.0 for c in candidates}
+    have_quality = any(_quality_score(c.gate_metrics or {}) is not None for c in candidates)
+    scores: list[float] = []
+    for i, c in enumerate(candidates):
+        if have_quality:
+            q = _quality_score(c.gate_metrics or {})
+            scores.append(q if q is not None else 0.0)
+        else:
+            scores.append(float(n - i))  # conviction/pin-order decay
+    lo = min(scores)
+    scores = [s - lo + 0.5 for s in scores]  # shift positive, keep spread
+    tot = sum(scores) or 1.0
+    uni = 1.0 / n
+    out = {c.symbol: 0.65 * (scores[i] / tot) + 0.35 * uni
+           for i, c in enumerate(candidates)}
+    z = sum(out.values()) or 1.0
+    return {k: v / z for k, v in out.items()}
+
+
+def _weight_reason(
+    c: _Candidate, rank: int, n: int, have_quality: bool,
+    provided: Optional[str],
+) -> str:
+    """One honest line explaining WHY this name carries its weight."""
+    if provided:
+        return provided.strip()
+    gm = c.gate_metrics or {}
+    if have_quality and _quality_score(gm) is not None:
+        bits = []
+        if gm.get("roe") is not None:
+            bits.append(f"ROE {float(gm['roe']):.0f}%")
+        if gm.get("roce") is not None:
+            bits.append(f"ROCE {float(gm['roce']):.0f}%")
+        if gm.get("de") is not None:
+            bits.append(f"D/E {float(gm['de']):.2f}")
+        metrics = ", ".join(bits)
+        tier = rank / max(n - 1, 1)
+        if tier <= 0.34:
+            head = "Overweight — strongest quality gate"
+        elif tier >= 0.67:
+            head = "Underweight — thinner/weaker fundamentals"
+        else:
+            head = "Core position"
+        return f"{head}" + (f" ({metrics})" if metrics else "")
+    # No quality data → conviction/pin order.
+    if rank == 0:
+        return "Lead conviction — highest-beta beneficiary of the thesis"
+    if rank >= n - 1:
+        return "Satellite — diversifier / lower-conviction tail"
+    return "Core position — mid-conviction constituent"
+
+
+def _apply_weight_overrides(
+    candidates: list[_Candidate], overrides: dict[str, float]
+) -> dict[str, float]:
+    """Honour an explicit user re-weight ("heavier in X", "make KSB 40%").
+    Named symbols take their stated share (as a fraction of 100); any remaining
+    names split the leftover proportional to the conviction decay so the tilt is
+    respected without leaving un-named names at zero. Returns weights summing 1."""
+    up = {str(k).upper(): float(v) for k, v in (overrides or {}).items()}
+    syms = [c.symbol.upper() for c in candidates]
+    named = {s: up[s] for s in syms if s in up and up[s] > 0}
+    # Values >1 are read as percents; ≤1 as fractions.
+    if named and max(named.values()) > 1.0:
+        named = {k: v / 100.0 for k, v in named.items()}
+    named_sum = sum(named.values())
+    out: dict[str, float] = {}
+    rest = [c for c in candidates if c.symbol.upper() not in named]
+    leftover = max(0.0, 1.0 - named_sum)
+    if rest and leftover > 0:
+        n = len(rest)
+        decay = [float(n - i) for i in range(n)]  # conviction order
+        dtot = sum(decay) or 1.0
+        for c, d in zip(rest, decay):
+            out[c.symbol] = leftover * (d / dtot)
+    for c in candidates:
+        if c.symbol.upper() in named:
+            out[c.symbol] = named[c.symbol.upper()]
+    z = sum(out.values()) or 1.0
+    return {k: v / z for k, v in out.items()}
+
+
 def _size_constituents(
     candidates: list[_Candidate],
     weights: dict[str, float],
     equity_share: float,
     slots: SlotState,
+    *,
+    provided_reasons: Optional[dict[str, str]] = None,
+    weight_overrides: Optional[dict[str, float]] = None,
 ) -> tuple[list[StrategyConstituent], list[str]]:
     """Scale the equity-sleeve weights (sum 1.0) to overall-portfolio %, build
     the constituents, and feasibility-check against capital.
@@ -1523,9 +1961,51 @@ def _size_constituents(
     the contract), so they sum to ~100 across the equity names; the gold sleeve
     carries its own overall-% weights. We surface the equity-sleeve share + any
     capital infeasibility as honest-boundary notes.
+
+    When the upstream scheme produced a ~flat 1/N split (covariance/factor
+    fallback on thin history), we replace it with a conviction/quality tilt via
+    :func:`_differentiate_weights` so the basket is never bland, and attach a
+    per-name ``weight_reason``. ``provided_reasons`` (the thematic WHY strings)
+    win over generated ones.
     """
     notes: list[str] = []
+    provided_reasons = provided_reasons or {}
+
+    # Explicit user re-weight (a "rebuild heavier in X" / "make KSB 40%"
+    # amendment) wins over the computed split — this is what makes a rebuild
+    # ACTUALLY re-allocate instead of reproducing the same weights.
+    if weight_overrides:
+        weights = _apply_weight_overrides(candidates, weight_overrides)
+        notes.append("weights set to your specified tilt (re-weighted on request)")
+
+    # Detect a ~flat weight vector and differentiate it (structural, reasoned
+    # split instead of bare equal-weight). Single-asset ≤2-name baskets stay as
+    # given (1/N is genuinely honest there).
+    norm = {c.symbol: weights.get(c.symbol, 0.0) for c in candidates}
+    tot0 = sum(norm.values()) or 1.0
+    norm = {k: v / tot0 for k, v in norm.items()}
+    spread = (max(norm.values()) - min(norm.values())) if norm else 0.0
+    if len(candidates) >= 3 and spread < 0.02 and not weight_overrides:
+        weights = _differentiate_weights(candidates)
+        notes.append(
+            "weights conviction-tilted (differentiated by "
+            + ("quality gate" if any(_quality_score(c.gate_metrics or {}) is not None
+                                     for c in candidates) else "thesis conviction")
+            + " — not a flat 1/N split)"
+        )
+
+    have_quality = any(_quality_score(c.gate_metrics or {}) is not None for c in candidates)
+    # Rank by final weight (desc) so weight_reason tiers line up with the split.
+    ranking = sorted(candidates, key=lambda c: weights.get(c.symbol, 0.0), reverse=True)
+    rank_of = {c.symbol: i for i, c in enumerate(ranking)}
+
     total_w = sum(weights.get(c.symbol, 0.0) for c in candidates) or 1.0
+    # Per-leg rupees, computed HERE so the reply can quote the split instead of
+    # burning a `compute` hop on weight × capital (2026-07-17 eval: B04/B06).
+    _equity_capital = (
+        slots.capital_inr * (equity_share / 100.0)
+        if slots.capital_inr is not None else None
+    )
     constituents: list[StrategyConstituent] = []
     for c in candidates:
         w = weights.get(c.symbol, 0.0) / total_w
@@ -1536,9 +2016,18 @@ def _size_constituents(
                 sector=c.sector,
                 weight_pct=round(w * 100.0, 2),
                 gate_metrics=c.gate_metrics or {},
+                weight_reason=_weight_reason(
+                    c, rank_of.get(c.symbol, 0), len(candidates), have_quality,
+                    provided_reasons.get(c.symbol.upper()) or provided_reasons.get(c.symbol),
+                ),
             )
         )
     _normalise_to_100(constituents)
+    # Rupees AFTER normalisation so the split always reconciles to the weights
+    # actually shown on the card (and thus to the stated capital).
+    if _equity_capital is not None:
+        for _c in constituents:
+            _c.allocation_inr = round(_equity_capital * (_c.weight_pct / 100.0), 2)
 
     if equity_share < 100.0:
         notes.append(
@@ -1580,10 +2069,13 @@ def _assert_guardrails(
     slots: SlotState,
     single_sector: bool = False,
     pinned: bool = False,
-) -> None:
+) -> str:
     """The §3a anti-bland invariants. These are *internal* asserts — they catch
     a builder regression in dev/tests, not a user-input problem. A violation is
     a bug in this module, so failing loudly is correct.
+
+    Returns a concentration note ("" when clean) for the one invariant a thin
+    universe can make unsatisfiable — see #3.
 
     For a PINNED basket (B1) the universe SHAPE was chosen by the caller/flow,
     not the builder: the count, the sector spread, and (when history is thin) an
@@ -1591,7 +2083,7 @@ def _assert_guardrails(
     relaxed. The weights-sanity check still runs — that's a real math invariant."""
     n = len(constituents)
     if n == 0:
-        return  # the empty-card path handled this honestly already.
+        return ""  # the empty-card path handled this honestly already.
 
     if pinned:
         # Only the math invariant applies to a pinned basket.
@@ -1599,7 +2091,7 @@ def _assert_guardrails(
         assert all(c.weight_pct >= 0 for c in constituents) and abs(total - 100.0) < 1.0, (
             f"weights must be ≥0 and sum ~100 (got {total:.2f})"
         )
-        return
+        return ""
 
     # #1: no bare equal-weight unless ≤4 names.
     assert not (scheme == "equal" and n > _EQUAL_WEIGHT_MAX_NAMES), (
@@ -1614,16 +2106,36 @@ def _assert_guardrails(
 
     # #3: sector cap enforced (no single sector over the ceiling by count).
     # Skipped for a deliberate single-sector basket (sector_cap reported 100%).
-    if not single_sector:
+    #
+    # A THIN pool can make the cap arithmetically unsatisfiable: a 3-name
+    # basket under a 32% cap allows 1 name per sector, so any two names sharing
+    # a sector "violate" it with nothing the trimmer can do short of shipping a
+    # 2-name basket. That is a disclosure, not a builder bug — crashing the
+    # turn on it took out every thin-universe sector ask (`theme="defence"`
+    # raised AssertionError before this; found 2026-07-17). We assert only when
+    # a compliant basket was actually reachable, and return a concentration
+    # note otherwise so the caller can surface it honestly.
+    concentration_note = ""
+    if not single_sector and constituents:
         counts: dict[str, int] = {}
         for c in constituents:
             counts[c.sector] = counts.get(c.sector, 0) + 1
         max_allowed = max(1, math.ceil((sector_cap / 100.0) * n))
-        worst = max(counts.values())
-        assert worst <= max_allowed, (
-            f"anti-bland #3: a sector holds {worst}/{n} names, over the "
-            f"{sector_cap:.0f}% cap ({max_allowed} max)"
-        )
+        worst_sector, worst = max(counts.items(), key=lambda kv: kv[1])
+        if worst > max_allowed:
+            # Reachable ⇒ real bug. Unreachable ⇒ honest note.
+            reachable = len(counts) >= math.ceil(n / max_allowed)
+            assert not reachable, (
+                f"anti-bland #3: a sector holds {worst}/{n} names, over the "
+                f"{sector_cap:.0f}% cap ({max_allowed} max)"
+            )
+            concentration_note = (
+                f"{worst} of {n} names are {worst_sector} — above the "
+                f"~{sector_cap:.0f}% sector guide, but the pool that cleared "
+                "the quality gate was too thin to diversify further without "
+                "dropping to a smaller basket; concentrated by data, not design"
+            )
+    return concentration_note
 
     # #4: a stated directional view must map to a tilt (BL / factor / focused),
     # never get flattened into a passive equal/mcap basket.
@@ -1645,16 +2157,24 @@ def _assert_guardrails(
 # ════════════════════════════════════════════════════════════════════════════
 
 
-def _title(slots: SlotState, request: str, structure: str) -> str:
+def _title(slots: SlotState, request: str, structure: str,
+           has_gold: bool = False) -> str:
     bits: list[str] = []
     if slots.theme:
         bits.append(slots.theme.strip().title())
-    bits.append({
+    base = {
         "barbell": "Barbell Basket",
         "core-satellite": "Core-Satellite Basket",
         "focused": "Focused Basket",
         "diversified": "Diversified Equity Basket",
-    }.get(structure, "Equity Basket"))
+    }.get(structure, "Equity Basket")
+    # A basket with a real gold sleeve must say so — calling it a pure
+    # "Equity Basket" while it holds SGB/GOLDBEES is the same silent-
+    # mismatch bug this fix targets, just in the card's own title.
+    if has_gold:
+        base = (base.replace("Equity Basket", "Equity + Gold Basket")
+                if "Equity" in base else f"{base} + Gold")
+    bits.append(base)
     return " — ".join(bits) if len(bits) > 1 else bits[0]
 
 
@@ -1682,6 +2202,7 @@ def _rationale(
         "min_variance": "minimum-variance",
         "black_litterman": "Black-Litterman",
         "factor": "factor weighting",
+        "conviction": "conviction weighting (quality gate / thesis order)",
     }[scheme]
     gate_txt = {
         "fscore": "a Piotroski-style F-score quality gate (drops weak balance sheets)",
@@ -1734,8 +2255,20 @@ def _rationale(
             "the basket is small enough that equal-weight is the honest, cost-efficient choice (1/N "
             "earns its place at this name count)"
         )
+    elif scheme == "conviction":
+        why_scheme = (
+            "weights follow conviction — the thesis/quality order decides size, "
+            "so the names carrying the argument carry the capital"
+        )
     else:  # mcap
-        why_scheme = "you asked to 'own the market', so we weight by market cap — index-like by design"
+        # NEVER put words in the user's mouth: this used to read "you asked to
+        # 'own the market'" as a QUOTE on every mcap build, including ones
+        # where the user said no such thing (2026-07-17 eval flagged it as a
+        # fabricated quote contradicting the reply on 4/10 baskets).
+        why_scheme = (
+            "we weight by market cap — index-like by design, so the basket "
+            "tracks the market rather than taking a name-level bet"
+        )
 
     # 4. WHY the sector cap / gold — connect risk to structure.
     cap_txt = (
@@ -2004,13 +2537,20 @@ def _normalise_to_100(constituents: list[StrategyConstituent]) -> None:
 
 def _num(v: object) -> Optional[float]:
     try:
-        return float(v) if v is not None else None  # type: ignore[arg-type]
+        f = float(v) if v is not None else None  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return None
+    # NaN/inf must degrade to None, NOT propagate: yfinance returns float('nan')
+    # (not None) for a missing ROE/ROCE/D-E. An unguarded NaN poisons the whole
+    # conviction-weight vector (every weight → NaN) and then trips the weight
+    # guardrail assertion, crashing the build.
+    if f is not None and not math.isfinite(f):
+        return None
+    return f
 
 
 def _put(m: dict[str, float], key: str, v: Optional[float]) -> None:
-    if v is not None:
+    if v is not None and math.isfinite(float(v)):
         m[key] = round(float(v), 4)
 
 

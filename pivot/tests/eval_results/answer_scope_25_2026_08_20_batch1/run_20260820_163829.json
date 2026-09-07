@@ -1,0 +1,139 @@
+{
+ "ts": "20260820_163829",
+ "elapsed_s": 30.6,
+ "base": "http://localhost:8000",
+ "user_id": 721,
+ "sessions_file": "tests/eval_prompts/answer_scope_25_2026_08_20.json",
+ "only": null,
+ "n_sessions": 5,
+ "n_turns": 5,
+ "sessions": [
+  {
+   "category": "minimal",
+   "name": "greeting",
+   "why": "Should be social, not a product tour.",
+   "conv": "s_2115d9d5d5",
+   "turns": [
+    {
+     "i": 0,
+     "say": "Hi",
+     "response": "Hi! Tell me what you'd like to do \u2014 check a price, build an agent, look at your portfolio, or run a backtest.",
+     "tools_called": [],
+     "render_hint": null,
+     "raw_keys": [],
+     "card_digest": null,
+     "logiccard": null,
+     "latency_wall_ms": 544,
+     "latency_server_ms": 92,
+     "input_tokens": 0,
+     "output_tokens": 0,
+     "cost_usd": 0.0,
+     "llm_calls": 0
+    }
+   ]
+  },
+  {
+   "category": "minimal",
+   "name": "thanks",
+   "why": "Acknowledgement should not reopen the task.",
+   "conv": "s_317f1baeb4",
+   "turns": [
+    {
+     "i": 0,
+     "say": "Thanks",
+     "response": "Anytime.",
+     "tools_called": [],
+     "render_hint": null,
+     "raw_keys": [],
+     "card_digest": null,
+     "logiccard": null,
+     "latency_wall_ms": 510,
+     "latency_server_ms": 91,
+     "input_tokens": 0,
+     "output_tokens": 0,
+     "cost_usd": 0.0,
+     "llm_calls": 0
+    }
+   ]
+  },
+  {
+   "category": "minimal",
+   "name": "yes_no_capability",
+   "why": "A direct capability question should be answered plainly.",
+   "conv": "s_97e9e87cbb",
+   "turns": [
+    {
+     "i": 0,
+     "say": "Can you compare two stocks?",
+     "response": "Which two NSE-listed stocks would you like me to compare? I\u2019ll use a 1-year performance window by default and compare returns, volatility, Sharpe ratio, maximum drawdown, and fundamentals.",
+     "tools_called": [
+      "ASK_USER"
+     ],
+     "render_hint": "ask_user",
+     "raw_keys": [
+      "_render_hint"
+     ],
+     "card_digest": {
+      "hint": "ask_user",
+      "compact": "{\"_render_hint\": \"ask_user\"}"
+     },
+     "logiccard": null,
+     "latency_wall_ms": 11445,
+     "latency_server_ms": 11063,
+     "input_tokens": 147800,
+     "output_tokens": 592,
+     "cost_usd": 0.0,
+     "llm_calls": 6
+    }
+   ]
+  },
+  {
+   "category": "minimal",
+   "name": "definition",
+   "why": "Simple definition should not become a tutorial.",
+   "conv": "s_eaebd588f5",
+   "turns": [
+    {
+     "i": 0,
+     "say": "What is an ETF?",
+     "response": "An **ETF (Exchange-Traded Fund)** is a pooled investment that holds a collection of assets\u2014such as stocks, bonds, commodities, or an index\u2014and trades on a stock exchange like an ordinary share.\n\n## How ETFs work\n\nFor example, a Nifty 50 ETF aims to track the Nifty 50 Index by holding shares of its constituent companies. When you buy one unit, you gain exposure to a small portion of that basket rather than buying every stock individually.\n\nETFs can generally be:\n\n- **Bought and sold during market hours** at market prices.\n- Held in a **demat account**.\n- Purchased in units, like shares.\n- Used for diversification through a single transaction.\n- Subject to brokerage and exchange-related costs, depending on the platform.\n\n## Example\n\nInstead of buying shares of all 50 Nifty companies separately, an investor could buy a Nifty 50 ETF such as `NIFTYBEES`. Its performance will broadly follow the Nifty 50, minus expenses and tracking differences.\n\nOther common categories include:\n\n- **Equity ETFs:** Track stock indices or sectors.\n- **Gold ETFs:** Track gold prices, such as `GOLDBEES`.\n- **International ETFs:** Provide exposure to overseas markets through listed Indian products.\n- **Bond ETFs:** Track fixed-income securities.\n\n## Advantages and limitations\n\n**Advantages:**\n\n- Diversification\n- Usually lower costs than actively managed funds\n- Intraday liquidity\n- Transparent holdings for many funds\n- No need to select every underlying security\n\n**Limitations:**\n\n- The price can trade slightly above or below the value of its underlying assets.\n- Returns are reduced by expense ratios and tracking error.\n- ETFs do not guarantee profits; the underlying market can fall.\n- Some ETFs have low trading volume, which can lead to wider bid\u2013ask spreads.\n\nIn short, an ETF combines the **diversification of a fund** with the **tradability of a stock**.",
+     "tools_called": [],
+     "render_hint": null,
+     "raw_keys": [],
+     "card_digest": null,
+     "logiccard": null,
+     "latency_wall_ms": 9866,
+     "latency_server_ms": 9454,
+     "input_tokens": 97656,
+     "output_tokens": 578,
+     "cost_usd": 0.0,
+     "llm_calls": 3
+    }
+   ]
+  },
+  {
+   "category": "minimal",
+   "name": "one_line_math",
+   "why": "Arithmetic should remain one line.",
+   "conv": "s_f271328202",
+   "turns": [
+    {
+     "i": 0,
+     "say": "What is 7 times 8?",
+     "response": "56",
+     "tools_called": [],
+     "render_hint": null,
+     "raw_keys": [],
+     "card_digest": null,
+     "logiccard": null,
+     "latency_wall_ms": 4855,
+     "latency_server_ms": 4449,
+     "input_tokens": 48748,
+     "output_tokens": 5,
+     "cost_usd": 0.0,
+     "llm_calls": 1
+    }
+   ]
+  }
+ ]
+}

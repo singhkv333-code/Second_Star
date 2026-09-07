@@ -275,3 +275,114 @@ def test_register_endpoint_executes_paper_book(client, auth_headers, db, monkeyp
     assert out["execution"]["success"], out["execution"]
     assert len(out["execution"]["fills"]) == 2
     assert out["strategy"]["status"] == "active"
+
+
+# ── Close (square off) an active strategy ───────────────────────────
+
+
+def test_close_long_straddle_flattens_positions(db, user):
+    from backend.paper.options_routing import close_option_strategy
+
+    strategy = _registered(db, user, "long_straddle")
+    submit_option_strategy(db, user.id, strategy)
+    account = get_or_create_account(db, user.id)
+    cash_after_entry = to_money(account.cash_available)
+
+    result = close_option_strategy(db, user.id, strategy)
+    assert result["success"], result["error"]
+    assert strategy.status == "closed"
+    assert len(result["fills"]) == 2
+    assert all(f["side"] == "SELL" for f in result["fills"])  # closing longs
+
+    positions = (
+        db.query(PaperPosition)
+        .filter(PaperPosition.user_id == user.id, PaperPosition.is_option == True)  # noqa: E712
+        .all()
+    )
+    assert len(positions) == 2
+    assert all(p.quantity == 0 for p in positions)
+    # Selling back the premium credits cash (net of the spread/charges drag).
+    assert to_money(account.cash_available) > cash_after_entry
+
+
+def test_close_short_strangle_releases_margin(db, user):
+    from backend.paper.options_routing import close_option_strategy
+
+    strategy = _registered(db, user, "short_strangle")
+    submit_option_strategy(db, user.id, strategy)
+    account = get_or_create_account(db, user.id)
+    margin = to_money(strategy.margin_estimate)
+    assert to_money(account.cash_reserved) == margin
+
+    result = close_option_strategy(db, user.id, strategy)
+    assert result["success"], result["error"]
+    assert strategy.status == "closed"
+    assert all(f["side"] == "BUY" for f in result["fills"])  # covering shorts
+    assert to_money(account.cash_reserved) == to_money(0)
+
+    release_rows = db.query(PaperLedgerEntry).filter(PaperLedgerEntry.kind == "release").all()
+    assert any(f"optstrat:{strategy.id}" in (r.note or "") for r in release_rows)
+
+    positions = (
+        db.query(PaperPosition)
+        .filter(PaperPosition.user_id == user.id, PaperPosition.is_option == True)  # noqa: E712
+        .all()
+    )
+    assert all(p.quantity == 0 for p in positions)
+
+
+def test_close_is_idempotent_and_refuses_a_second_close(db, user):
+    from backend.paper.options_routing import OptionFillError, close_option_strategy
+
+    strategy = _registered(db, user, "iron_condor")
+    submit_option_strategy(db, user.id, strategy)
+
+    first = close_option_strategy(db, user.id, strategy)
+    assert first["success"]
+    assert strategy.status == "closed"
+
+    with pytest.raises(OptionFillError):
+        close_option_strategy(db, user.id, strategy)
+
+
+def test_cannot_close_a_registered_strategy(db, user):
+    from backend.paper.options_routing import OptionFillError, close_option_strategy
+
+    strategy = _registered(db, user, "long_call")  # never submitted -> still 'registered'
+    with pytest.raises(OptionFillError):
+        close_option_strategy(db, user.id, strategy)
+
+
+def test_close_endpoint_squares_off_active_strategy(client, auth_headers, db, monkeypatch):
+    monkeypatch.setenv("PAPER_TRADING_ENABLED", "true")
+    from backend.config import settings as _settings
+
+    monkeypatch.setattr(_settings, "paper_trading_enabled", True, raising=False)
+
+    payload = resolve_strategy(db, "NIFTY", "bull_call_spread")
+    body = {
+        "underlying": "NIFTY",
+        "expiry": payload["locked"]["expiry"],
+        "template": "bull_call_spread",
+        "book": "paper",
+        "qty_lots": 1,
+        "legs": [
+            {"option_type": l["option_type"], "side": l["side"],
+             "strike": l["strike"]}
+            for l in payload["editable"]["legs"]
+        ],
+        "acknowledge_disclosure": True,
+    }
+    out = client.post("/option-strategies", json=body, headers=auth_headers).json()
+    assert out["strategy"]["status"] == "active"
+    sid = out["strategy"]["id"]
+
+    close = client.post(f"/option-strategies/{sid}/close", headers=auth_headers).json()
+    assert close["success"], close
+    assert close["strategy"]["status"] == "closed"
+    assert close["execution"]["success"]
+
+    # Closing again is refused with an honest message, not a silent no-op.
+    again = client.post(f"/option-strategies/{sid}/close", headers=auth_headers).json()
+    assert again["success"] is False
+    assert "closed" in again["error"]

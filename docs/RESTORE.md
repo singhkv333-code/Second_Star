@@ -1,0 +1,104 @@
+# Restore points — the platform-merge work, 2026-09-05
+
+Every phase of the Pivot/Charto merge is a separate commit with a named tag, so
+any one of them can be undone without unwinding the rest. **Nothing has been
+pushed to any remote, and nothing has been applied to the VM.**
+
+## The tags
+
+| Tag | Commit | State |
+|---|---|---|
+| `restore/before-merge` | `ff06fdfb` | Untouched. The last commit before any of this work. |
+| `restore/phase0-truth` | `40c8eeba` | CLAUDE.md/AGENTS.md rewritten, `docs/DATA_MAP.md` added, four false statements corrected, two dead files removed. |
+| `restore/phase1-excision` | `35db45ec` | Opinion markets gone from code, schema models, UI and prose. |
+| `restore/phase2-api` | `02fc6de0` | `pivot-api.service`, the `/api/pivot/` nginx block, and the Charto-session seam. Built, **not installed**. |
+| `restore/phase3-shell` | `12a4132a` | The Chart tab in the shell + `js/embed.js`. Production untouched. |
+| `restore/phase4-tools` | `4286f6cb` | The tool-name collision guard + `docs/TOOL_SURFACE.md`. |
+| `restore/wip-landed` | `57c896a8` | The 52 pre-existing uncommitted files, landed as seven commits (see below). The working tree is clean for the first time in this work. |
+| `wip/pre-phase2-2026-09-05` | branch | The 56 pre-existing uncommitted files (execution mode, stock research panels, chat/backtest work), snapshotted verbatim. Not merged into anything. |
+
+## How to undo
+
+**Undo everything, keep the work recoverable:**
+
+    git reset --hard restore/before-merge
+
+The commits stay in the reflog and under their tags; nothing is lost.
+
+**Undo one phase only** (they are independent — Phase 2 does not depend on
+Phase 1's deletions, and Phase 1 does not depend on Phase 0's prose):
+
+    git revert 57c896a8      # re-track tsconfig.tsbuildinfo + package-lock.json
+    git revert 5c4d6f08      # drop the answer-scope eval records
+    git revert 3d72077c      # restore the keyword reply ladder + the fast path
+    git revert 9048743f      # drop the company-page research refactor
+    git revert 96663d23      # drop price_basis=unadjusted on /ohlc
+    git revert 095e1aa0      # unmount /api/execution (revert BEFORE 0efe5772)
+    git revert 0efe5772      # drop indicator settings + the MCX exchange fix
+    git revert 4286f6cb      # drop the collision guard
+    git revert 12a4132a      # drop the Chart tab (removes js/embed.js too)
+    git revert 02fc6de0      # drop the pivot-api unit + session seam
+    git revert 35db45ec      # bring the opinion-markets branch back
+    git revert 40c8eeba      # restore the old CLAUDE.md
+
+## The landed WIP, and the one commit to look at twice
+
+The 52 files that sat uncommitted through Phases 0-4 are now seven commits.
+Six are self-contained and green. The seventh is not a fix:
+
+**`3d72077c` — one adaptive reply class and a 500-token ceiling.** It collapses
+the eight-way reply-class ladder into one model-chosen shape, drops the visible
+reply ceiling from 3800 tokens to 500, and deletes `fast_path`'s canned
+greeting/thanks replies so those turns now cost an LLM hop. That is a product
+decision with a real trade — it is tighter than the ANALYSIS shape CLAUDE.md §6
+documents — and it is isolated in its own commit precisely so it can be
+reverted alone, without losing the DSL fixes it arrived beside.
+
+`095e1aa0` (execution mode) depends on `0efe5772` (the indicator-settings
+registry): `/api/execution/capabilities` describes settings the registry
+validates. Revert them in that order or the app will not boot.
+
+**Recover one file from the WIP snapshot:**
+
+    git checkout wip/pre-phase2-2026-09-05 -- pivot/backend/execution/
+    git checkout wip/pre-phase2-2026-09-05 -- pivot-next/components/stock/ResearchPanel.tsx
+
+**Recover the opinion-markets data** (107 rows, exported before anything was
+dropped, including two `view_positions` rows owned by a real user):
+
+    pivot/archive/view_markets_2026_09_05/*.json
+
+## What is NOT yet reversible-by-git, because it has not happened
+
+These are the deliberate, separate acts still outstanding. None has run:
+
+1. **Migration `0027_drop_view_markets`** — written, `alembic heads` sees it,
+   **not applied**. The seven tables still exist in `pivot_db` with their rows.
+   The code no longer references them, so they sit orphaned, which is harmless.
+   It is irreversible by design once run; the JSON archive is the backup.
+2. **`provision_pivot_api.sh`** — nothing is installed on the VM. No unit, no
+   sudoers file, no nginx change. Production is exactly as it was.
+3. **The nginx `/api/pivot/` block** — in the repo, not on the box.
+   `apply_nginx.sh` installs it with a syntax check, a backup and a rollback.
+4. **The Chart tab** — `pivot-next` is not deployed, so nothing serves it.
+   `charto/preview/js/embed.js` IS live-on-disk once deployed, but it returns
+   immediately when the page is not in a frame, so the standalone chart at `/`
+   is unaffected either way.
+5. **Phase 5 (the verification loop)** — not built. It needs a migration and
+   agent-loop changes; see the plan file.
+
+## Rolling back a VM change, if one is ever applied
+
+    # nginx — apply_nginx.sh keeps a timestamped backup and self-rolls-back on
+    # a failed probe, but by hand:
+    sudo cp /etc/nginx/sites-available/charto.conf.bak.<ts> /etc/nginx/sites-available/charto.conf
+    sudo nginx -t && sudo systemctl reload nginx
+
+    # the API unit
+    sudo systemctl disable --now pivot-api.service
+    sudo rm -f /etc/systemd/system/pivot-api.service /etc/sudoers.d/pivot-api
+    sudo systemctl daemon-reload
+
+Neither touches Charto: `charto.service`, `charto-web.service` and
+`charto-research.service` are independent units and the `/api/pivot/` route is
+additive.

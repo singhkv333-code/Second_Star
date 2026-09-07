@@ -58,6 +58,12 @@ _SYMBOL_BLOCKLIST: frozenset[str] = frozenset({
     # references a non-existent symbol.
     "ENTIRE", "FULL", "WHOLE", "ALL", "COMPLETE", "TOTAL", "EVERY",
     "HOLDING", "HOLDINGS", "POSITION", "POSITIONS",
+    # Currency/amount words: "buy 5000 rupees of NIFTYBEES" must never
+    # parse as qty=5000 symbol=RUPEES (container eval 2026-07-19 #07 —
+    # the skeleton shipped a "Wednesday RUPEES buy" draft). Abstaining
+    # here hands the turn to the LLM, which reads the ₹-amount intent.
+    "RUPEES", "RUPEE", "RS", "INR", "LAKH", "LAKHS", "CRORE", "CRORES",
+    "WORTH",
     "MY", "THE", "THIS", "THAT", "IT", "THEM",
     "NOW", "TODAY", "YESTERDAY", "TOMORROW",
     # Indicator names that the macro doesn't whitelist — if one of
@@ -496,6 +502,20 @@ _SL_PCT_RE = re.compile(
     re.IGNORECASE,
 )
 
+# A profit-target / bracket exit — the skeleton has no leg for it, so its
+# presence means defer to the LLM (see try_workflow_skeleton). Matches "book
+# profit at 6%", "take profit 8%", "target 10%", "exit at +5%", "sell at +7%",
+# "6% gain", and the "X% or Y% loss" bracket phrasing.
+_TAKE_PROFIT_RE = re.compile(
+    r"\b(?:book|take)\s+profit\b"
+    r"|\bprofit\s+(?:target|booking)\b"
+    r"|\btarget\s+(?:of\s+)?\+?\d+(?:\.\d+)?\s*%"
+    r"|\b(?:exit|sell|book|square\s*off)\b[^.]{0,20}?\+\s*\d+(?:\.\d+)?\s*%"
+    r"|\b\d+(?:\.\d+)?\s*%\s*(?:gain|profit|up|target)\b"
+    r"|\+\s*\d+(?:\.\d+)?\s*%[^.]{0,20}?\b(?:gain|profit|target)\b",
+    re.IGNORECASE,
+)
+
 
 def _try_buy_with_pct_sl(message: str) -> Optional[dict[str, Any]]:
     """Buy + percentage stop-loss. Reuses indicator/price trigger
@@ -925,6 +945,18 @@ def _looks_like_multi_day(message: str) -> bool:
     return False
 
 
+# A conditional overlay on a schedule ("every Wednesday buy X, but only
+# when Nifty is below its 50-day SMA") is a shape the scheduled parser
+# cannot express — it emits cron+order only, silently dropping the
+# condition (container eval 2026-07-19 #07). Same abstain principle as
+# the take-profit guard: a partial automation is worse than an LLM hop.
+_SCHED_CONDITION_OVERLAY_RE = re.compile(
+    r"\b(?:only\s+(?:if|when)|but\s+only|unless|provided(?:\s+that)?|"
+    r"as\s+long\s+as|while)\b",
+    re.IGNORECASE,
+)
+
+
 def try_workflow_skeleton(message: str) -> Optional[dict[str, Any]]:
     """Try each canonical pattern in priority order. Return the first
     matching workflow draft dict, or None to fall through to the LLM.
@@ -940,6 +972,16 @@ def try_workflow_skeleton(message: str) -> Optional[dict[str, Any]]:
     if not message or not _BUILD_VERB_RE.search(message):
         return None
     if _COMPLEXITY_RE.search(message):
+        return None
+    # A TAKE-PROFIT / bracket exit is a shape the skeleton cannot build: it has
+    # an entry and (via _try_buy_with_pct_sl) an optional STOP, but no
+    # profit-target leg at all. So "buy 25 SBIN when RSI<32, book profit at 6%
+    # or cut the loss at 3%" matched the entry-only indicator parser and shipped
+    # a card with NEITHER exit — a silent drop of the whole bracket, on the
+    # safety-critical leg (found 2026-07-17, eval C09). Bail to the LLM
+    # translator, which composes brackets correctly (eval C10). Same principle
+    # as the multi-trigger guard below: a partial trade is worse than a hop.
+    if _TAKE_PROFIT_RE.search(message):
         return None
 
     # Cross-symbol guard: the skeleton's single-symbol parsers grab the
@@ -974,6 +1016,11 @@ def try_workflow_skeleton(message: str) -> Optional[dict[str, Any]]:
         # build a multi-trigger workflow. Don't let scheduled silently
         # eat a single day and drop the rest.
         if looks_multi_day and parser is _try_scheduled:
+            continue
+        # Conditional overlay on a schedule → the LLM builds the
+        # condition step; the cron-only shape would silently drop it.
+        if (parser is _try_scheduled
+                and _SCHED_CONDITION_OVERLAY_RE.search(message)):
             continue
         result = parser(message)
         if result is not None:

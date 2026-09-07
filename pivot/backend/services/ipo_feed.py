@@ -558,8 +558,10 @@ def list_upcoming_ipos() -> dict[str, Any]:
                     "is unavailable for them until NSE is reachable."
                 ),
             }
-            _write_cache(_CACHE_KEY, body)
-            _write_cache(_CACHE_KEY + ":raw", {"ipos": extra})
+            # Trendlyne-only is a DEGRADED merge too — short TTL so the
+            # next ask retries NSE instead of pinning the partial list.
+            _write_cache(_CACHE_KEY, body, ttl_s=5 * 60)
+            _write_cache(_CACHE_KEY + ":raw", {"ipos": extra}, ttl_s=5 * 60)
             return {**body, "cached": False}
         # Both sources unreachable — surface the exact failure, do not cache
         # (so the next call retries), do not fabricate.
@@ -604,8 +606,16 @@ def list_upcoming_ipos() -> dict[str, Any]:
     }
     # Cache the full (with _raw) records separately so get_ipo_details can
     # read extra fields without re-hitting NSE.
-    _write_cache(_CACHE_KEY, body)
-    _write_cache(_CACHE_KEY + ":raw", {"ipos": ipos})
+    # DEGRADED-merge guard (live repro 2026-07-19): a fetch where Trendlyne
+    # was momentarily unreachable produced an NSE-only list (1 open IPO
+    # instead of 2 — Sotefin Bharat lives only in Trendlyne) and that
+    # incomplete snapshot was pinned for the full 45-minute TTL. When only
+    # ONE of the two sources contributed, cache briefly so the next chat
+    # ask retries the missing source.
+    degraded = not ("nse" in merged_source and "trendlyne" in merged_source)
+    ttl = 5 * 60 if degraded else _CACHE_TTL_S
+    _write_cache(_CACHE_KEY, body, ttl_s=ttl)
+    _write_cache(_CACHE_KEY + ":raw", {"ipos": ipos}, ttl_s=ttl)
     return {**body, "cached": False}
 
 

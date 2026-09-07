@@ -48,6 +48,9 @@ class _StubStore:
         self.appended: list[tuple[str, str, str]] = []
         self.pending: dict[str, object] = {}
         self.active_drafts: dict[str, object] = {}
+        self.resolutions: dict[str, object] = {}
+        self.clarifies: dict[str, object] = {}
+        self.last_tools: dict[str, list[str]] = {}
 
     def get_history(self, conv_id: str, limit: int = 20):
         return []
@@ -70,8 +73,38 @@ class _StubStore:
     def set_active_draft(self, conv_id: str, draft) -> None:
         self.active_drafts[conv_id] = draft
 
-    def clear_active_draft(self, conv_id: str) -> None:
+    def clear_active_draft(self, conv_id: str, symbol: str | None = None) -> None:
         self.active_drafts.pop(conv_id, None)
+
+    def list_active_drafts(self, conv_id: str):
+        d = self.active_drafts.get(conv_id)
+        return [d] if d is not None else []
+
+    # PendingResolution slot (free-form ASK_USER with options/default).
+    def get_pending_resolution(self, conv_id: str):
+        return self.resolutions.get(conv_id)
+
+    def set_pending_resolution(self, conv_id: str, resolution) -> None:
+        self.resolutions[conv_id] = resolution
+
+    def clear_pending_resolution(self, conv_id: str) -> None:
+        self.resolutions.pop(conv_id, None)
+
+    # ClarifyState slot (dynamic clarify_card N-of-M flow).
+    def get_clarify(self, conv_id: str):
+        return self.clarifies.get(conv_id)
+
+    def set_clarify(self, conv_id: str, state) -> None:
+        self.clarifies[conv_id] = state
+
+    def clear_clarify(self, conv_id: str) -> None:
+        self.clarifies.pop(conv_id, None)
+
+    def get_last_tools(self, conv_id: str) -> list[str]:
+        return self.last_tools.get(conv_id, [])
+
+    def set_last_tools(self, conv_id: str, tools: list[str]) -> None:
+        self.last_tools[conv_id] = list(tools)
 
 
 @pytest.fixture
@@ -104,16 +137,18 @@ async def test_plain_text_reply_passes_through(stub_ctx):
 
 
 @pytest.mark.asyncio
-async def test_fast_path_bypasses_llm(stub_ctx):
-    """Greetings/help/thanks must NOT hit the LLM — fast path."""
-    stub = _StubClient(queue=[])  # any LLM call would crash with empty queue
+async def test_greeting_uses_adaptive_reply_policy(stub_ctx):
+    """Greetings use the normal completion, not a canned capability menu."""
+    stub = _StubClient(queue=[
+        LLMResponse(content="How can I help?", finish_reason="stop"),
+    ])
     set_llm_client_for_tests(stub)
     svc = ChatService(store=_StubStore())
     turn = await svc.handle("hi", "u1", stub_ctx, history_override=[])
-    assert "tell me what" in turn.response.lower()
+    assert turn.response == "How can I help?"
     assert turn.tools_called == []
-    assert len(stub.calls) == 0
-    assert turn.latency_breakdown.get("fast_path") is not None
+    assert len(stub.calls) == 1
+    assert "llm_hop_1" in turn.latency_breakdown
 
 
 @pytest.mark.asyncio
@@ -238,8 +273,10 @@ async def test_llm_error_returns_unavailable_fallback(stub_ctx):
     svc = ChatService(store=_StubStore())
     # Use a non-fast-path message so we hit the LLM
     turn = await svc.handle("show me INFY's PE", "u1", stub_ctx, history_override=[])
-    assert "temporarily unavailable" in turn.response.lower()
+    # Stable contract: the turn is flagged unavailable and the copy offers a
+    # retry affordance (exact wording drifts — assert the marker, not prose).
     assert turn.raw_data == {"_llm_unavailable": True}
+    assert "retry" in turn.response.lower()
 
 
 @pytest.mark.asyncio
@@ -370,6 +407,69 @@ async def test_multi_tool_chain_in_one_turn(stub_ctx, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_backtest_tool_survives_pushback_turn(stub_ctx):
+    """Reported 2026-07-14: after a backtest_workflow call, "-12.7% seems
+    off, break down per-stock" matched the single-stock ANALYSIS
+    tool-router rule (on "break down"), which doesn't carry
+    backtest_workflow along — dropping the actual subject of the
+    question out of scope entirely and dead-ending into an unrelated
+    live-price lookup with no ticker to resolve. backtest_workflow /
+    backtest_dsl_tree must now survive the same prior-read-tool
+    carry-over get_/compare_/screen_ tools already get."""
+    store = _StubStore()
+    store.set_last_tools("u1", ["backtest_workflow"])
+
+    stub = _StubClient(queue=[
+        LLMResponse(content="ok", finish_reason="stop"),
+    ])
+    set_llm_client_for_tests(stub)
+    svc = ChatService(store=store)
+    await svc.handle(
+        "-12.7% seems off, all three went up, break down per-stock",
+        "u1", stub_ctx,
+        history_override=[
+            {"role": "user",
+             "content": "backtest RELIANCE/TCS/HDFCBANK basket"},
+            {"role": "assistant", "content": "Strategy return: -12.7%. [card]"},
+        ],
+    )
+    tool_names = {t.name for t in stub.calls[0]["kwargs"]["tools"]}
+    assert "backtest_workflow" in tool_names
+
+
+@pytest.mark.asyncio
+async def test_challenge_to_prior_screen_result_gets_meta_lane_no_draft_needed(
+    stub_ctx,
+):
+    """Reported 2026-07-14: "isn't IGL Indraprastha Gas, not pharma?"
+    after a screen_fundamentals result had no active draft and no
+    clarification-question tail to anchor on, so the meta/question lane
+    never engaged and the model just re-ran the identical screen with
+    zero acknowledgment. Any turn following a tool call at all (not just
+    a draft/clarify turn) must now be eligible for the question lane."""
+    store = _StubStore()
+    store.set_last_tools("u1", ["screen_fundamentals"])
+
+    stub = _StubClient(queue=[
+        LLMResponse(content="ok", finish_reason="stop"),
+    ])
+    set_llm_client_for_tests(stub)
+    svc = ChatService(store=store)
+    await svc.handle(
+        "isn't IGL Indraprastha Gas, not pharma?",
+        "u1", stub_ctx,
+        history_override=[
+            {"role": "user", "content": "screen pharma stocks"},
+            {"role": "assistant", "content": "Pharma screen: ... IGL ... [table]"},
+        ],
+    )
+    system_blobs = " ".join(
+        (m.content or "") for m in stub.calls[0]["messages"] if m.role == "system"
+    )
+    assert "META TURN" in system_blobs
+
+
+@pytest.mark.asyncio
 async def test_circuit_breaker_after_max_tool_calls(stub_ctx, monkeypatch):
     """If the model keeps calling tools forever, the loop bails at
     MAX_TOOL_CALLS=8 with a 'got a bit lost' message."""
@@ -416,14 +516,16 @@ async def test_chat_turn_records_latency_breakdown(stub_ctx):
 
 
 @pytest.mark.asyncio
-async def test_fast_path_records_fast_path_in_breakdown(stub_ctx):
-    """Fast-path turns log under `fast_path` key, never hit `llm_hop_*`."""
-    stub = _StubClient(queue=[])
+async def test_thanks_uses_normal_reply_breakdown(stub_ctx):
+    """Thanks is governed by the same adaptive policy as other prose."""
+    stub = _StubClient(queue=[
+        LLMResponse(content="You're welcome.", finish_reason="stop"),
+    ])
     set_llm_client_for_tests(stub)
     svc = ChatService(store=_StubStore())
     turn = await svc.handle("thanks", "u1", stub_ctx, history_override=[])
-    assert "fast_path" in turn.latency_breakdown
-    assert "llm_hop_1" not in turn.latency_breakdown
+    assert "llm_hop_1" in turn.latency_breakdown
+    assert "fast_path" not in turn.latency_breakdown
 
 
 @pytest.mark.asyncio
@@ -645,6 +747,52 @@ async def test_followup_hint_includes_active_draft_when_present(
     # rewording doesn't trip the test.
     assert "ACTIVE" in system_blobs and "WORKFLOW DRAFT" in system_blobs
     assert "trigger.cron" in system_blobs   # actual draft JSON injected
+
+
+@pytest.mark.asyncio
+async def test_named_symbol_recall_forces_amendment_even_without_verb(
+    stub_ctx,
+):
+    """Reported 2026-07-14: "activate that goldbees agent from earlier"
+    names the active draft's own symbol but uses no amendment VERB
+    ("change"/"make"/"set"/etc.) — it used to fall through with
+    tool_choice="auto" and no AMENDMENT hint, so the model picked a
+    different tool off raw history instead of re-emitting the actual
+    draft. Naming the active draft's own symbol must now force the same
+    AMENDMENT path an explicit amendment verb does."""
+    from backend.services.conversation_store import ActiveDraft
+
+    store = _StubStore()
+    store.set_active_draft("u1", ActiveDraft(
+        tool_name="propose_dsl_workflow",
+        draft={"name": "GOLDBEES dip-buy",
+               "steps": [{"step_type": "trigger.price"}]},
+        last_caption="GOLDBEES agent caption",
+        symbol="GOLDBEES",
+    ))
+
+    stub = _StubClient(queue=[
+        LLMResponse(content="ok", finish_reason="stop"),
+    ])
+    set_llm_client_for_tests(stub)
+    svc = ChatService(store=store)
+    await svc.handle(
+        "activate that goldbees agent from earlier",
+        "u1",
+        stub_ctx,
+        history_override=[
+            {"role": "user", "content": "some unrelated earlier message"},
+            {"role": "assistant", "content": "some unrelated earlier reply"},
+        ],
+    )
+
+    assert len(stub.calls) == 1
+    assert stub.calls[0]["kwargs"].get("tool_choice") == "required"
+    sent_messages = stub.calls[0]["messages"]
+    system_blobs = " ".join(
+        (m.content or "") for m in sent_messages if m.role == "system"
+    )
+    assert "AMENDMENT TURN" in system_blobs
 
 
 @pytest.mark.asyncio

@@ -125,6 +125,45 @@ class _Strict(BaseModel):
 
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
+    @model_validator(mode="after")
+    def _resolve_commodity_exchange(self) -> "_Strict":
+        """Auto-route to MCX when the step's symbol is a recognised MCX
+        commodity (GOLD/SILVER/CRUDEOIL/NATURALGAS/COPPER/ZINC/ALUMINIUM/
+        LEAD/NICKEL and their mini variants).
+
+        Every `exchange` field in this module defaults to "NSE" — an
+        MCX commodity automation request ("alert me when GOLD crosses
+        75000", "buy CRUDEOIL when RSI<30") would otherwise silently
+        resolve the trigger/fetch step against a nonexistent NSE
+        contract of the same name (there is no equity ticker "GOLD" on
+        NSE), producing a broken draft with no error. Runs generically
+        via getattr so ANY step config carrying an `exchange` field
+        (paired with `symbol` or, for pair-trade fetches, `symbol_a`)
+        gets this for free — no per-class patch needed. Reuses the
+        single source of truth for MCX symbol classification
+        (`backend.market.commodities`) rather than
+        reinventing a commodity list here.
+
+        Gated on the field's own Literal actually allowing "MCX" (checked
+        via ``model_fields`` introspection) so multi-asset basket legs
+        (NSE/BSE/NASDAQ/NYSE/CRYPTO — no MCX in that Literal) are never
+        touched, even if a leg symbol happens to collide with a
+        commodity alias.
+        """
+        if not hasattr(self, "exchange"):
+            return self
+        symbol = getattr(self, "symbol", None) or getattr(self, "symbol_a", None)
+        if not isinstance(symbol, str) or not symbol.strip():
+            return self
+        field = type(self).model_fields.get("exchange")
+        allowed = getattr(field.annotation, "__args__", ()) if field is not None else ()
+        if "MCX" not in allowed:
+            return self
+        from backend.market.commodities import is_commodity
+        if is_commodity(symbol):
+            self.exchange = "MCX"
+        return self
+
 
 # ── Triggers ─────────────────────────────────────────────────────────
 
@@ -149,6 +188,22 @@ class TriggerScheduleConfig(_Strict):
         default="Asia/Kolkata",
         description="IANA timezone, e.g. Asia/Kolkata",
     )
+    duration_minutes: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=365 * 24 * 60,
+        description=(
+            "BOUNDED recurring window. Set this when the user caps how long "
+            "a RECURRING schedule stays live — 'every 5 minutes FOR THE NEXT "
+            "HOUR' -> duration_minutes=60; 'buy every 10 min for the next 30 "
+            "minutes' -> 30; 'each hour for the next 2 hours' -> 120. The "
+            "window is measured FROM ACTIVATION (not from now), so a draft "
+            "that sits before you activate it still gets the full window. "
+            "After it elapses the agent auto-stops (pauses) and never fires "
+            "again. Only valid with `cron`; leave null for an open-ended "
+            "recurring schedule ('every weekday at 3:15 PM' with no end)."
+        ),
+    )
 
     @model_validator(mode="after")
     def _exactly_one_mode(self) -> "TriggerScheduleConfig":
@@ -167,6 +222,14 @@ class TriggerScheduleConfig(_Strict):
                 raise ValueError(
                     f"run_at must be ISO 8601 datetime, got {self.run_at!r}"
                 ) from e
+        # A bounded window only makes sense for a recurring cron — a one-time
+        # run_at already fires exactly once, so pairing it with a duration is
+        # contradictory (and would silently do nothing).
+        if self.duration_minutes is not None and not has_cron:
+            raise ValueError(
+                "trigger.schedule: duration_minutes is only valid with a "
+                "recurring `cron`, not a one-time `run_at`."
+            )
         return self
 
 
@@ -221,7 +284,7 @@ class TriggerPriceConfig(_Strict):
     symbol: str
     operator: Literal[">", "<", "crosses_above", "crosses_below"]
     value: float
-    exchange: Literal["NSE", "BSE"] = "NSE"
+    exchange: Literal["NSE", "BSE", "MCX"] = "NSE"
 
 
 class TriggerIndicatorConfig(_Strict):
@@ -965,7 +1028,7 @@ class TriggerExitCompoundConfig(_Strict):
 
 class FetchQuoteConfig(_Strict):
     symbol: str
-    exchange: Literal["NSE", "BSE"] = "NSE"
+    exchange: Literal["NSE", "BSE", "MCX"] = "NSE"
 
 
 class FetchIndicatorConfig(_Strict):
@@ -1139,7 +1202,7 @@ class FetchNewsConfig(_Strict):
 
 class FetchDayOpenConfig(_Strict):
     symbol: str
-    exchange: Literal["NSE", "BSE"] = "NSE"
+    exchange: Literal["NSE", "BSE", "MCX"] = "NSE"
 
 
 class FetchRollingHighConfig(_Strict):
@@ -1171,7 +1234,7 @@ class FetchRollingHighConfig(_Strict):
             "returns the high unchanged."
         ),
     )
-    exchange: Literal["NSE", "BSE"] = "NSE"
+    exchange: Literal["NSE", "BSE", "MCX"] = "NSE"
 
 
 class FetchSpreadZScoreConfig(_Strict):
@@ -1199,7 +1262,7 @@ class FetchSpreadZScoreConfig(_Strict):
             "longer windows are slower to react to regime changes."
         ),
     )
-    exchange: Literal["NSE", "BSE"] = "NSE"
+    exchange: Literal["NSE", "BSE", "MCX"] = "NSE"
 
 
 class FetchRollingLowConfig(_Strict):
@@ -1214,12 +1277,12 @@ class FetchRollingLowConfig(_Strict):
             "the recent low' (mean-reversion long entry)."
         ),
     )
-    exchange: Literal["NSE", "BSE"] = "NSE"
+    exchange: Literal["NSE", "BSE", "MCX"] = "NSE"
 
 
 class FetchPriorCloseConfig(_Strict):
     symbol: str
-    exchange: Literal["NSE", "BSE"] = "NSE"
+    exchange: Literal["NSE", "BSE", "MCX"] = "NSE"
     sessions_back: int = Field(
         default=1, ge=1, le=10,
         description=(
@@ -1289,7 +1352,7 @@ class FetchRelativeThresholdConfig(_Strict):
             "'below' (e.g. -5 means 5% below). Positive for 'above'."
         ),
     )
-    exchange: Literal["NSE", "BSE"] = "NSE"
+    exchange: Literal["NSE", "BSE", "MCX"] = "NSE"
 
 
 # ── Conditions ───────────────────────────────────────────────────────
@@ -1441,6 +1504,14 @@ class ActionPlaceOrderConfig(_Strict):
             )
         if not has_qty and not has_notional:
             raise ValueError("must specify quantity or notional_inr")
+        # POSITIVITY: a literal quantity / notional must be > 0. (A $ref string
+        # is resolved at fire time and can't be bounded here, so only numeric
+        # literals are checked.) Without this, quantity=0 / -5 passes schema +
+        # lint + macros and reaches submit_order — a zero/negative-size order.
+        if isinstance(self.quantity, (int, float)) and self.quantity <= 0:
+            raise ValueError(f"quantity must be > 0 (got {self.quantity})")
+        if isinstance(self.notional_inr, (int, float)) and self.notional_inr <= 0:
+            raise ValueError(f"notional_inr must be > 0 (got {self.notional_inr})")
         return self
 
 
@@ -1631,7 +1702,16 @@ class ActionAllocateBasketLeg(_Strict):
             "open. 'short' = sell-to-open (backtest-only)."
         ),
     )
-    exchange: Literal["NSE", "BSE"] = "NSE"
+    # Multi-asset baskets (View Markets) mix Indian equities with US equities/
+    # ETFs and crypto — the executor + marks path already route by these venues
+    # (NASDAQ via Alpaca, CRYPTO via Kraken/CoinGecko), so the leg schema must
+    # accept them, not just NSE/BSE.
+    exchange: Literal["NSE", "BSE", "NASDAQ", "NYSE", "CRYPTO"] = "NSE"
+    # Per-leg asset class + settlement currency so the fill executor and the
+    # ledger treat US (fractional shares, USD→INR marks) and crypto legs
+    # correctly. Optional: a bare Indian-equity leg defaults to in_equity/INR.
+    asset_class: Optional[str] = None
+    currency: Optional[str] = None
 
 
 class ActionAllocateBasketConfig(_Strict):
@@ -2078,7 +2158,7 @@ class FetchPriceReferenceConfig(_Strict):
         ),
     )
     symbol: str
-    exchange: Literal["NSE", "BSE"] = "NSE"
+    exchange: Literal["NSE", "BSE", "MCX"] = "NSE"
     sessions_back: int = Field(
         default=1, ge=1, le=10,
         description=(
@@ -2116,4 +2196,4 @@ class FetchRollingExtremeConfig(_Strict):
             "recent low'."
         ),
     )
-    exchange: Literal["NSE", "BSE"] = "NSE"
+    exchange: Literal["NSE", "BSE", "MCX"] = "NSE"

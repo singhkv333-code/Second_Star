@@ -1,0 +1,14 @@
+[Unit]
+Description=Charto: pull charto-deploy and restart if the backend moved
+After=network-online.target data.mount
+Requires=data.mount
+
+[Service]
+Type=oneshot
+User=azureuser
+WorkingDirectory=/data/app
+ExecStart=/data/app/charto/deploy/deploy.sh
+# Journal, not a log file: this runs every 30s and the quiet path prints
+# nothing, so `journalctl -u charto-deploy` is a clean history of real deploys.
+StandardOutput=journal
+StandardError=journal

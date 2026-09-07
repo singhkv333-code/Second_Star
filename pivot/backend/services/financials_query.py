@@ -62,7 +62,12 @@ _ALLOWED_FIELDS: tuple[str, ...] = tuple(
 _VALID_BASIS: tuple[str, ...] = ("consolidated", "standalone")
 
 _MAX_SYMBOLS: int = 6
-_MAX_FIELDS: int = 8
+# 15, up from 8 (2026-07-23): a single-symbol "what do the financials say"
+# deep-dive legitimately wants 9-14 fields, and the old cap RAISED — the
+# error leaked to the user as "the data feed limits a single request to
+# eight metrics". Latency stays bounded: one shared session per call and
+# _ROW_CAP still caps total returned rows.
+_MAX_FIELDS: int = 15
 _MIN_YEARS: int = 1
 _MAX_YEARS: int = 12
 # Rough hard cap on total returned data points so a pathological
@@ -75,16 +80,26 @@ _ROW_CAP: int = 100
 # ── Arg validation ───────────────────────────────────────────────────────
 
 
-def _coerce_str_list(v: Any, name: str, cap: int) -> list[str]:
+def _coerce_str_list(
+    v: Any, name: str, cap: int, notes: "list[str] | None" = None,
+) -> list[str]:
     if not isinstance(v, list) or not v:
         raise ValueError(f"{name} must be a non-empty list of strings")
-    if len(v) > cap:
-        raise ValueError(f"{name} accepts at most {cap} entries; got {len(v)}")
     out: list[str] = []
     for s in v:
         if not isinstance(s, str) or not s.strip():
             raise ValueError(f"{name} entries must be non-empty strings")
         out.append(s.strip())
+    if len(out) > cap:
+        # Clamp, don't raise — an over-ask degrades to "first N served,
+        # rest disclosed in a note", never a turn-killing error (the old
+        # raise surfaced "at most 8 entries" verbatim to the user).
+        if notes is not None:
+            notes.append(
+                f"served the first {cap} {name}; dropped: "
+                f"{', '.join(out[cap:])}"
+            )
+        out = out[:cap]
     return out
 
 
@@ -332,8 +347,9 @@ async def query_financials(args: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(args, dict):
         raise ValueError("args must be a dict")
 
-    symbols = _coerce_str_list(args.get("symbols"), "symbols", _MAX_SYMBOLS)
-    fields = _coerce_str_list(args.get("fields"), "fields", _MAX_FIELDS)
+    notes: list[str] = []
+    symbols = _coerce_str_list(args.get("symbols"), "symbols", _MAX_SYMBOLS, notes)
+    fields = _coerce_str_list(args.get("fields"), "fields", _MAX_FIELDS, notes)
     _validate_fields(fields)
     agg = _parse_agg(args.get("agg", "latest"))
     years = _parse_years(args.get("years", 5))
@@ -345,7 +361,6 @@ async def query_financials(args: dict[str, Any]) -> dict[str, Any]:
         "years": years,
         "basis": basis,
     }
-    notes: list[str] = []
     total_rows = 0
     row_cap_hit = False
     fetch_limit = _fetch_limit_for_agg(agg, years)

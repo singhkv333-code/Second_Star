@@ -1,0 +1,100 @@
+- generic [ref=e1]:
+  - banner [ref=e34]:
+    - generic [ref=e35]: Charto.
+    - generic "Search companies" [ref=e37] [cursor=pointer]:
+      - generic [ref=e38]: RELIANCE
+      - generic [ref=e39]: NSE
+    - button "5m" [ref=e42] [cursor=pointer]
+    - button "Indicators" [ref=e45] [cursor=pointer]
+    - button "Undo" [disabled] [ref=e52]
+    - button "Redo" [disabled] [ref=e56]
+    - button "Layout — Single chart" [ref=e61] [cursor=pointer]
+    - button "Screenshot the chart for the chat" [ref=e65] [cursor=pointer]
+    - group "Panels" [ref=e70]:
+      - button "Watchlist" [expanded] [active] [ref=e71] [cursor=pointer]
+      - button "Alerts" [ref=e75] [cursor=pointer]
+    - button "Switch to dark" [ref=e81] [cursor=pointer]
+    - button "Chat" [ref=e84] [cursor=pointer]
+    - button "Sign in to Charto" [ref=e88] [cursor=pointer]
+  - generic [ref=e92]:
+    - generic [ref=e93]:
+      - button "Cursor / select" [ref=e94] [cursor=pointer]
+      - button "Lines" [ref=e99] [cursor=pointer]
+      - button "Channels" [ref=e105] [cursor=pointer]
+      - button "Fibonacci" [ref=e111] [cursor=pointer]
+      - button "Shapes" [ref=e114] [cursor=pointer]
+      - button "Measure" [ref=e118] [cursor=pointer]
+      - button "Position" [ref=e126] [cursor=pointer]
+      - button "Annotations" [ref=e131] [cursor=pointer]
+      - button "Magnet — snap to OHLC" [ref=e135] [cursor=pointer]
+      - button "Export drawings JSON" [ref=e140] [cursor=pointer]
+      - button "Clear all drawings" [ref=e144] [cursor=pointer]
+    - generic [ref=e149]:
+      - table [ref=e152]:
+        - row [ref=e153]:
+          - cell
+          - cell [ref=e154]:
+            - link "Charting by TradingView" [ref=e158] [cursor=pointer]:
+              - /url: https://www.tradingview.com/?utm_medium=lwc-link&utm_campaign=lwc-chart&utm_source=localhost/index.html
+          - cell [ref=e163]
+        - row [ref=e167]:
+          - cell
+          - cell [ref=e168]
+          - cell [ref=e172]
+      - generic:
+        - generic:
+          - generic "Change instrument" [ref=e196] [cursor=pointer]: RELIANCE
+          - generic: ·
+          - text: 5m
+          - generic: ·
+          - generic: NSE
+        - generic:
+          - generic: O 1,267.7
+          - generic: H 1,267.7
+          - generic: L 1,267.7
+          - generic: C 1,267.7
+          - generic: V 0
+          - text: "-3.9 (-0.31%)"
+    - complementary "Watchlist" [ref=e197]:
+      - generic [ref=e198]:
+        - button "My list" [ref=e199] [cursor=pointer]
+        - button "Add symbol" [ref=e202] [cursor=pointer]
+        - button "Choose columns" [ref=e204] [cursor=pointer]
+        - button "More" [ref=e207] [cursor=pointer]
+      - generic [ref=e212]:
+        - generic [ref=e213]:
+          - generic [ref=e214]: Symbol
+          - generic [ref=e215]: Last
+          - generic [ref=e216]: Chg
+          - generic [ref=e217]: Chg%
+        - button "Indices" [ref=e218] [cursor=pointer]
+        - button "Open NIFTY 50 on the chart" [ref=e222] [cursor=pointer]:
+          - generic "NIFTY 50" [ref=e223]: "N"
+          - generic [ref=e226]: —
+        - button "Open NIFTY BANK on the chart" [ref=e227] [cursor=pointer]:
+          - generic "NIFTY BANK" [ref=e228]: "N"
+          - generic [ref=e231]: —
+        - button "Stocks" [ref=e232] [cursor=pointer]
+        - button "Open RELIANCE on the chart" [ref=e236] [cursor=pointer]:
+          - generic "RELIANCE" [ref=e237]: R
+          - generic [ref=e240]: 1,267.70
+          - generic [ref=e241]: −12.30
+          - generic [ref=e242]: −0.96%
+        - button "Open TCS on the chart" [ref=e243] [cursor=pointer]:
+          - generic "TCS" [ref=e244]: T
+          - generic [ref=e247]: —
+        - button "Open HDFCBANK on the chart" [ref=e248] [cursor=pointer]:
+          - generic "HDFCBANK" [ref=e249]: H
+          - generic [ref=e252]: —
+        - button "Open INFY on the chart" [ref=e253] [cursor=pointer]:
+          - generic "INFY" [ref=e254]: I
+          - generic [ref=e257]: —
+    - generic "Drag to resize · double-click to reset" [ref=e178]
+    - complementary [ref=e179]:
+      - generic [ref=e180]: Ask about what you're looking at.The model sees the visible chart.
+      - generic [ref=e185]:
+        - textbox "Ask about this chart…" [ref=e186]
+        - generic [ref=e187]:
+          - button "Conversation options" [ref=e189] [cursor=pointer]
+          - button "RELIANCE" [ref=e191] [cursor=pointer]
+          - button "Send (Enter)" [ref=e193] [cursor=pointer]

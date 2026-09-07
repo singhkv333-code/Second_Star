@@ -568,22 +568,29 @@ def test_get_ipo_listing_empty_query_honest_null() -> None:
 def test_tool_router_surfaces_get_ipo_listing_for_listing_queries(
     message: str,
 ) -> None:
+    """The IPO-listing capability must be reachable for listing phrasings.
+
+    2026-07-16: the keyword router was deleted (full tool visibility every
+    turn) and `get_ipo_listing` is consolidation-hidden — the LLM-visible
+    surface for this capability is `get_ipo` (view enum includes
+    'listing'). Assert THAT is offered; the old assertion checked a name
+    the model never actually saw."""
     from backend.services.tool_router import select_tool_names
     selected = select_tool_names(message)
     assert selected is not None
-    assert "get_ipo_listing" in selected, (
-        f"get_ipo_listing missing for {message!r}; got {sorted(selected)}"
+    assert "get_ipo" in selected, (
+        f"get_ipo missing for {message!r}; got {sorted(selected)}"
     )
 
 
 def test_tool_router_still_surfaces_listing_tool_for_generic_ipo_query() -> None:
-    """Generic IPO phrasings keep get_ipo_listing in the toolset as a
-    fallback, so a follow-up "how did it list" routes correctly even when
-    the first turn was generic."""
+    """Generic IPO phrasings keep the listing capability in the toolset
+    (via the consolidated `get_ipo`), so a follow-up "how did it list"
+    routes correctly even when the first turn was generic."""
     from backend.services.tool_router import select_tool_names
     selected = select_tool_names("any IPOs to talk about")
     assert selected is not None
-    assert "get_ipo_listing" in selected
+    assert "get_ipo" in selected
 
 
 # ── propose_ipo_application graceful fall-through to listed card ────────

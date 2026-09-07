@@ -1,0 +1,9 @@
+- generic [active] [ref=e1]:
+  - generic "Loading" [ref=e2]:
+    - img "Loading" [ref=e3]
+  - region "Notifications alt+T"
+  - status [ref=e4]:
+    - generic [ref=e9]:
+      - text: Static route
+      - button "Hide static indicator" [ref=e10] [cursor=pointer]
+  - alert [ref=e14]

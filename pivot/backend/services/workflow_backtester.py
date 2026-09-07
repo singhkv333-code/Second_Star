@@ -16,9 +16,9 @@ Pipeline
      ``trigger.schedule`` / ``trigger.indicator`` / ``trigger.price``
      and every action is ``action.place_order``. Notify / wait steps
      are silently skipped during simulation. Anything else
-     (``trigger.event``, ``trigger.webhook``, ``action.cancel_orders``)
-     marks the workflow not-eligible with a specific reason the FE
-     surfaces verbatim.
+     (``trigger.webhook``, ``action.cancel_orders``) marks the
+     workflow not-eligible with a specific reason the FE surfaces
+     verbatim.
 
   2. ``backtest_workflow(steps, period='5y')`` — runs the simulation.
 
@@ -79,7 +79,27 @@ logger = logging.getLogger(__name__)
 # touching the fill loops. See backend/services/trading_costs.py.
 from backend.services.trading_costs import leg_bps as _leg_bps
 _FRICTION = (_leg_bps("buy") + _leg_bps("sell")) / 2.0
+# The simulation's cash pool when the user names no capital. This is a
+# SUFFICIENT-CASH constant so fills are never starved — it is NOT a claim that
+# the user has ₹10L, and it must never end up as the denominator of a reported
+# percent (see the capital-basis block in `_run`). Kept high enough that a
+# realistic basket or SIP never trips the cash check.
 _STARTING_CAPITAL = 1_000_000.0
+
+# What each basis MEANS, in the reply's own terms — shipped on the card so the
+# model states the denominator instead of inferring one.
+_CAPITAL_BASIS_LEGEND: dict[str, str] = {
+    "stated": "the capital the user named — idle cash included, because they "
+              "asked about that amount",
+    "deployed": "the peak capital the strategy actually had at risk at any one "
+                "time (open long cost + short notional); no idle cash diluting "
+                "it, so this is the return on the money the rule really used",
+    "pool": "the simulation's ASSUMED cash pool — either the strategy sizes "
+            "itself off available cash (so the pool is the capital), or it "
+            "holds a short, whose capital is margin and this simulator does "
+            "not model margin. Say the assumed amount out loud; do not present "
+            "this percent as a return on the user's own money",
+}
 
 
 # ── Eligibility ──────────────────────────────────────────────────────
@@ -116,6 +136,12 @@ _BACKTESTABLE_ACTIONS = {
     "action.place_order",
     "action.set_stoploss",
     "action.set_takeprofit",
+    # Bare squareoff (dispatches on `scope`) + the three explicit variants.
+    # The bare form is what the planner emits for a "sell at close" / "exit"
+    # leg — without it here the leg was skipped, so a buy-at-open never got
+    # its close-at-close sell and read as one open position held to window
+    # end ("1 trade, still OPEN").
+    "action.squareoff",
     "action.squareoff_symbol",
     "action.squareoff_all_intraday",
     "action.squareoff_all",
@@ -148,8 +174,6 @@ _SKIPPABLE_STEPS = {
 
 # Steps that block backtesting entirely.
 _BLOCKING_STEPS_REASON = {
-    "trigger.event":          "Event trigger events cannot be backtested.",
-    "trigger.scheduled_macro": "Event trigger events cannot be backtested.",
     "trigger.webhook": "trigger.webhook can only fire from external traffic, so there's nothing historical to replay.",
     "trigger.manual":  "trigger.manual fires when you click 'Run now' — there's no historical signal to replay.",
     "fetch.news":      "fetch.news depends on real-time feed history we don't store.",
@@ -400,6 +424,10 @@ class TakeprofitOrder:
 @dataclass
 class SimState:
     cash: float = _STARTING_CAPITAL
+    # The capital this run actually started with — carried on the state
+    # (not just the module default) so helpers like the short-margin
+    # check use the REAL deployed amount, not a hardcoded floor.
+    starting_capital: float = _STARTING_CAPITAL
     holdings: dict[str, int] = field(default_factory=dict)
     avg_buy_price: dict[str, float] = field(default_factory=dict)
     # Per-symbol product tag (CNC / MIS) of the open lot. Squareoff_all_
@@ -420,6 +448,17 @@ class SimState:
     # the live held position of that order's symbol — the entry fill size
     # in this sim. Populated once before the loop in run_workflow_backtest.
     place_order_symbols: dict[int, str] = field(default_factory=dict)
+    # {branch.trigger_step_index: prev_state} for trigger.exit_compound
+    # evaluation. Keyed per branch (not global) so multiple exit-compound
+    # branches don't clobber each other's crosses_above/below memory.
+    exit_compound_prev_state: dict[int, dict] = field(default_factory=dict)
+    # {(branch.trigger_step_index, body_step_index): prev_state} for
+    # condition.compound gates — same crosses_above/below threading need
+    # as exit_compound, keyed per body step since a branch can have more
+    # than one condition.compound gate.
+    condition_compound_prev_state: dict[tuple[int, int], dict] = field(
+        default_factory=dict
+    )
 
 
 def _yf_symbol(symbol: str, exchange: str = "NSE") -> str:
@@ -432,21 +471,43 @@ def _yf_symbol(symbol: str, exchange: str = "NSE") -> str:
     return resolve_symbol(symbol)
 
 
-def _kite_bars_df(symbol: str, period: str) -> Optional[pd.DataFrame]:
-    """Daily OHLCV from Kite as a yfinance-shaped DataFrame, or None when
-    Kite can't serve it (mock mode, index symbol, unresolved, error)."""
+def _kite_bars_df(
+    symbol: str, period: str, interval: str = "1d",
+) -> Optional[pd.DataFrame]:
+    """OHLCV from Kite as a yfinance-shaped DataFrame, or None when
+    Kite can't serve it (mock mode, index symbol, unresolved, error).
+
+    ``interval`` (canonical, e.g. ``"1d"`` / ``"1h"`` / ``"15m"``) is
+    translated to Kite's own string via ``to_kite`` — an interval Kite
+    can't serve returns ``None`` so the caller degrades honestly.
+
+    CRITICAL: on intraday intervals we DO NOT ``.normalize()`` the index
+    (which snaps every timestamp to midnight and collapses all bars for
+    a session to one). We only strip the timezone so downstream date
+    math stays plain. Daily bars keep the historical normalize.
+    """
     if symbol.startswith("^"):
         return None  # indices: Kite tokens differ — let yfinance handle
     try:
+        from backend.core.data.intervals import (
+            is_intraday as _is_intraday_iv,
+            normalize_interval as _normalize_interval,
+        )
         from backend.kite.auth import KITE_MOCK_MODE
         if KITE_MOCK_MODE:
             return None
         from backend.kite.historical import get_kite_historical
-        rows = get_kite_historical(symbol, period=period)
+        norm_iv = _normalize_interval(interval)
+        rows = get_kite_historical(symbol, period=period, interval=norm_iv)
         if not rows:
             return None
         df = pd.DataFrame(rows)
-        df["date"] = pd.to_datetime(df["date"]).dt.tz_localize(None).dt.normalize()
+        # Intraday: KEEP the time-of-day. Daily/weekly/monthly: normalize
+        # to midnight so index alignment matches the legacy daily path.
+        idx = pd.to_datetime(df["date"]).dt.tz_localize(None)
+        if not _is_intraday_iv(norm_iv):
+            idx = idx.dt.normalize()
+        df["date"] = idx
         df = df.set_index("date").rename(columns={
             "open": "Open", "high": "High", "low": "Low",
             "close": "Close", "volume": "Volume",
@@ -457,22 +518,184 @@ def _kite_bars_df(symbol: str, period: str) -> Optional[pd.DataFrame]:
         return None
 
 
-def _load_bars(symbol: str, period: str) -> pd.DataFrame:
-    """Daily OHLCV, Kite Connect FIRST (live, broker-grade, correctly
-    dated) then yfinance. Raises ValueError on insufficient data so the
-    caller surfaces a clean error."""
-    hist = _kite_bars_df(symbol, period)
+def _load_bars(
+    symbol: str, period: str, interval: str = "1d",
+    warnings_out: Optional[list[str]] = None,
+) -> pd.DataFrame:
+    """OHLCV, Kite Connect FIRST (live, broker-grade, correctly dated)
+    then yfinance. Raises ValueError on insufficient data so the caller
+    surfaces a clean error.
+
+    ``interval`` (canonical: ``"1d"`` / ``"1h"`` / ``"15m"`` / …) is
+    threaded to both sources via ``to_kite`` / ``to_yfinance``. When
+    yfinance can't serve the interval (e.g. ``3m``) we raise honestly.
+    Intraday intervals have shallow rolling data windows (yfinance 1h =
+    730d, Kite 1h = 400d); ``period`` is clamped to the interval's cap
+    and a warning is appended to ``warnings_out`` when it had to be
+    trimmed — never silently fabricating bars beyond what the source
+    can return.
+
+    CRITICAL: the intraday index keeps its full datetime (no
+    ``.normalize()``), otherwise all intraday bars of a day collapse to
+    the same midnight timestamp and the simulator loses its bar
+    ordering.
+    """
+    from backend.core.data.intervals import (
+        is_intraday as _is_intraday_iv,
+        max_lookback_days as _max_lookback_days,
+        normalize_interval as _normalize_interval,
+        to_yfinance as _to_yfinance,
+    )
+    norm_iv = _normalize_interval(interval)
+    intraday = _is_intraday_iv(norm_iv)
+
+    # Intraday: clamp the requested period to the source's rolling cap.
+    # Only touches bare-day ('60d', '400d', …) spans and the legacy
+    # keys ('1y','2y','5y','10y','max') which trivially map to days.
+    effective_period = period
+    if intraday:
+        cap = _max_lookback_days(norm_iv, has_kite=True)
+        if cap is not None:
+            requested_days = _period_to_days(period)
+            if requested_days is None or requested_days > cap:
+                effective_period = f"{int(cap)}d"
+                if warnings_out is not None and period != effective_period:
+                    warnings_out.append(
+                        f"{symbol}: {norm_iv} bars only go back {cap} days "
+                        f"(requested {period}); clamped the window."
+                    )
+
+    hist = _kite_bars_df(symbol, effective_period, interval=norm_iv)
     if hist is None or hist.empty or len(hist) < 30:
+        yf_iv = _to_yfinance(norm_iv)
+        if yf_iv is None:
+            raise ValueError(
+                f"yfinance cannot serve interval {norm_iv!r} for {symbol}"
+            )
         yf_sym = _yf_symbol(symbol)
-        hist = yf.Ticker(yf_sym).history(period=period, interval="1d")
+        # auto_adjust=False to match Kite semantics (split-adjusted,
+        # dividend-UNadjusted). The default (True) folds dividends into
+        # prices, so a mixed Kite/yfinance basket would compare price-return
+        # legs against total-return legs — silently inconsistent.
+        hist = yf.Ticker(yf_sym).history(
+            period=effective_period, interval=yf_iv, auto_adjust=False,
+        )
         if hist.empty or len(hist) < 30:
             raise ValueError(
-                f"insufficient data for {symbol} over {period} "
-                f"(got {len(hist)} bars)"
+                f"insufficient data for {symbol} over {effective_period} "
+                f"at {norm_iv} (got {len(hist)} bars)"
             )
         # yfinance returns tz-aware; drop tz so we can do plain date math.
-        hist.index = pd.to_datetime(hist.index).tz_localize(None).normalize()
-    return hist[["Open", "High", "Low", "Close", "Volume"]]
+        # For intraday, KEEP the time-of-day (do NOT normalize).
+        if intraday:
+            hist.index = pd.to_datetime(hist.index).tz_localize(None)
+        else:
+            hist.index = pd.to_datetime(hist.index).tz_localize(None).normalize()
+    # Drop today's unclosed bar (both Kite and yfinance paths). On daily
+    # bars that's the whole session; on intraday it's the single last
+    # forming bar (still just one bar, not a whole day) — either way we
+    # only trade COMPLETED bars, keeping reruns reproducible.
+    from backend.services.indicator_backtest import drop_partial_last_bar
+    hist = drop_partial_last_bar(hist)
+    hist = hist[["Open", "High", "Low", "Close", "Volume"]]
+    # Drop any bar whose Close is NaN — a raw source glitch (e.g. a
+    # suspended-trading print or corporate-action gap the source still
+    # date-stamps but returns no valid price for). Left unguarded, a NaN
+    # Close survives into a held symbol's mark-to-market and multiplies
+    # straight through every basket-level aggregate downstream
+    # (total_return_pct / cagr_pct / ending_value / the basket
+    # buy-and-hold benchmark), turning them into a literal NaN. Same
+    # raw-external-numeric-field bug class already guarded via
+    # yfinance_fundamentals._safe() and market/yfinance_service.py's
+    # _records_from_df (which drops NaN-close rows the same way) —
+    # mirror that fix here instead of inventing a new pattern.
+    hist = hist[hist["Close"].notna()]
+    if hist.empty:
+        raise ValueError(f"insufficient valid data for {symbol} (all bars had a NaN close)")
+    _warn_known_corporate_action_gap(symbol, hist, warnings_out)
+    return hist
+
+
+# Symbols with a KNOWN, unadjusted corporate-action price discontinuity in
+# the Kite/yfinance series this backtester reads (demerger/spin-off — NOT a
+# stock split, which IS adjusted). No split/spin-off adjustment exists in
+# this codebase (see market/yfinance_service.py's DELISTED_SUCCESSOR, which
+# only redirects the ticker, not the value). Reported live 2026-07-14: a
+# TATAMOTORS leg's mark-to-market return looked far worse than plausible —
+# traced to an unadjusted ~40% overnight cliff on the demerger date baked
+# straight into the price series. Rather than fabricate a correction factor
+# with no authoritative demerger-ratio data, disclose it honestly instead.
+_KNOWN_CORPORATE_ACTION_GAPS: dict[str, tuple[str, str]] = {
+    "TATAMOTORS": (
+        "2025-10-13",
+        "TATAMOTORS demerged into passenger-vehicle and commercial-vehicle "
+        "listings around this date; the price series isn't spin-off-"
+        "adjusted, so a return spanning it may look artificially worse "
+        "than what a real shareholder actually kept",
+    ),
+}
+
+
+def _warn_known_corporate_action_gap(
+    symbol: str, hist: pd.DataFrame, warnings_out: Optional[list[str]],
+) -> None:
+    if warnings_out is None:
+        return
+    entry = _KNOWN_CORPORATE_ACTION_GAPS.get(symbol.upper())
+    if entry is None or hist.empty:
+        return
+    gap_date, note = entry
+    gap_ts = pd.Timestamp(gap_date)
+    if hist.index[0] <= gap_ts <= hist.index[-1]:
+        warnings_out.append(note)
+
+
+def _period_to_days(period: str) -> Optional[int]:
+    """Best-effort translation of legacy period strings to calendar days
+    for clamping intraday requests. ``None`` means 'unbounded / unknown'
+    so the caller leaves the request untouched."""
+    p = (period or "").strip().lower()
+    if not p:
+        return None
+    if p == "max":
+        return None
+    # Bare "Nd" (60d, 200d, …) — the shape default_period_for emits.
+    if p.endswith("d") and p[:-1].isdigit():
+        return int(p[:-1])
+    _map = {
+        "1mo": 30, "3mo": 90, "6mo": 180,
+        "1y": 365, "2y": 730, "3y": 1095, "5y": 1825, "10y": 3650,
+    }
+    return _map.get(p)
+
+
+# ── Interval-aware helpers ────────────────────────────────────────────
+
+
+def _ts_is_intraday(ts: pd.Timestamp) -> bool:
+    """A bar timestamp with non-midnight time is an intraday bar. Used
+    to switch output-time formatting and condition/fetch evaluators
+    per-bar without threading ``interval`` through every internal
+    helper — daily bars always land on 00:00 after ``.normalize()``."""
+    try:
+        return bool(int(getattr(ts, "hour", 0)) or int(getattr(ts, "minute", 0)))
+    except (TypeError, ValueError):
+        return False
+
+
+def _fmt_bar_ts(ts: pd.Timestamp) -> str:
+    """ISO datetime for intraday bars, ISO date for daily bars.
+
+    Keeping daily bars as ``YYYY-MM-DD`` preserves every existing
+    downstream (chart card time-axis, trade-log dedupe key, matching
+    walker) unchanged. For intraday we MUST emit full ISO so multiple
+    bars in the same session don't collide on one 't' key (which would
+    break both the chart and the trade-matching walker).
+    """
+    ts = pd.Timestamp(ts)
+    if _ts_is_intraday(ts):
+        return ts.isoformat()
+    return ts.date().isoformat()
 
 
 # ── Trigger fire-time enumeration ─────────────────────────────────────
@@ -573,20 +796,32 @@ def _expand_run_at(
 def _expand_schedule(
     cfg: dict[str, Any], dates: pd.DatetimeIndex,
     notes: Optional[list[str]] = None,
+    interval: str = "1d",
 ) -> list[pd.Timestamp]:
-    """Match each trading-day index to a cron expression, OR fire once
-    for a one-time ``run_at`` config.
+    """Match each trading-day (or trading-bar) index to a cron
+    expression, OR fire once for a one-time ``run_at`` config.
 
     Cron format: ``minute hour day-of-month month day-of-week``. We
     honour day-of-month (1–31), month (1–12), and day-of-week (cron's
-    Sun=0/7, Mon=1, …) — the trio that constrains WHICH days fire.
-    Minute / hour are interpretation metadata for live execution; the
-    backtest fires at most once per matching trading day (the bar's
-    OPEN for entries, CLOSE for squareoffs — set by the executor).
+    Sun=0/7, Mon=1, …) which constrain WHICH days fire.
+
+    ── Daily bars ──
+    Minute/hour are interpretation metadata for live execution; the
+    backtest fires at most once per matching trading day.
+
+    ── Intraday bars (CRITICAL) ──
+    There are many bars per day (7 for hourly NSE, 25 for 15-min, …).
+    Firing on every matching bar would mis-fire a "daily 09:15 buy" 7×
+    per day. We fire ONCE per matching day, on the FIRST bar at-or-after
+    the cron hour:minute. When no bar exists at-or-after that time on a
+    matching day (e.g. cron is "16:00" but the session ends 15:30), we
+    fall back to that day's LAST bar so the intent still fires.
 
     A day matches when ALL THREE fields match (cron's standard "AND"
     semantics when both DOM and DOW are explicit). When either DOM or
-    DOW is '*' the unconstrained field doesn't filter.
+    DOW is '*' the unconstrained field doesn't filter. When both are
+    explicit we use Vixie's OR ('0 9 14 2 *' = "Feb 14, regardless of
+    DOW" — matching what the LLM emits).
 
     A ``run_at`` config (one-time schedule, no cron) delegates to
     ``_expand_run_at`` — parity with the live scheduler's one-time fire.
@@ -600,6 +835,8 @@ def _expand_schedule(
     parts = cron.split()
     if len(parts) < 5:
         return []
+    minute_field = parts[0]
+    hour_field = parts[1]
     dom_field = parts[2]
     mon_field = parts[3]
     dow_field = parts[4]
@@ -615,27 +852,70 @@ def _expand_schedule(
         if py is not None:
             py_dows.add(py)
 
-    # Standard cron "OR" semantics when DOM and DOW are both explicit
-    # (vista-cron / Vixie cron). When one is '*' the other is the
-    # constraint. We follow Vixie semantics here so '0 9 14 2 *' means
-    # "Feb 14, regardless of DOW" — matching what the LLM expects.
     dow_explicit = dow_field != "*"
     dom_explicit = dom_field != "*"
 
-    out: list[pd.Timestamp] = []
-    for ts in dates:
+    def _day_matches(ts: pd.Timestamp) -> bool:
         if ts.month not in months:
-            continue
+            return False
         dom_match = ts.day in doms
         dow_match = ts.dayofweek in py_dows
         if dom_explicit and dow_explicit:
-            # OR (Vixie semantics)
-            if not (dom_match or dow_match):
-                continue
-        else:
-            if not (dom_match and dow_match):
-                continue
-        out.append(ts)
+            return dom_match or dow_match  # Vixie OR
+        return dom_match and dow_match
+
+    from backend.core.data.intervals import (
+        is_intraday as _is_intraday_iv,
+        normalize_interval as _normalize_interval,
+    )
+    intraday = _is_intraday_iv(_normalize_interval(interval))
+
+    if not intraday:
+        # Daily / weekly / monthly: existing behaviour — one fire per
+        # matching bar (each bar IS its trading period).
+        return [ts for ts in dates if _day_matches(ts)]
+
+    # Intraday: fire once per matching day at the first bar >= cron time.
+    # Parse minute/hour. Any complex spec (e.g. "*/30") reduces to the
+    # smallest matching value in the field: that's the "first tick"
+    # semantics live cron would use for the day.
+    try:
+        hour_target = (
+            min(_cron_field(hour_field, 0, 23)) if hour_field != "*" else 9
+        )
+    except ValueError:
+        hour_target = 9
+    try:
+        minute_target = (
+            min(_cron_field(minute_field, 0, 59)) if minute_field != "*" else 15
+        )
+    except ValueError:
+        minute_target = 15
+    target_mod = hour_target * 60 + minute_target
+
+    # Group bars by calendar date, in order.
+    from collections import defaultdict
+    by_day: dict[Any, list[pd.Timestamp]] = defaultdict(list)
+    for ts in dates:
+        by_day[ts.date()].append(ts)
+
+    out: list[pd.Timestamp] = []
+    for day in sorted(by_day.keys()):
+        # Use any bar from the day to test the day-of-week/month/day
+        # constraints (they're all the same for a given date).
+        probe = by_day[day][0]
+        if not _day_matches(probe):
+            continue
+        # First bar at-or-after cron time; fall back to the day's last
+        # bar if the target time is past the session end.
+        chosen: Optional[pd.Timestamp] = None
+        for ts in by_day[day]:
+            if (ts.hour * 60 + ts.minute) >= target_mod:
+                chosen = ts
+                break
+        if chosen is None:
+            chosen = by_day[day][-1]
+        out.append(chosen)
     return out
 
 
@@ -873,15 +1153,45 @@ def _resolve_ref(
                 return None if pd.isna(v) else float(v)
 
             if st == "fetch.day_open":
-                v = ref_bars.at[ts, "Open"]
+                # Intraday: "day open" is the FIRST bar of the current
+                # session, not this bar's Open (would fabricate a fresh
+                # "day open" on every hourly bar).
+                if _ts_is_intraday(ts):
+                    day = ts.date()
+                    day_bars = ref_bars[
+                        pd.DatetimeIndex(ref_bars.index).date == day
+                    ]
+                    if day_bars.empty:
+                        return s
+                    v = day_bars["Open"].iloc[0]
+                else:
+                    v = ref_bars.at[ts, "Open"]
                 return None if pd.isna(v) else float(v)
 
             if st == "fetch.prior_close":
                 back = int(cfg.get("sessions_back") or 1)
-                pos = ref_bars.index.get_loc(ts)
-                if not isinstance(pos, int) or pos - back < 0:
-                    return s
-                v = ref_bars["Close"].iloc[pos - back]
+                # Intraday: prior close is the LAST bar of the trading
+                # day ``back`` sessions ago — not the prior bar (which
+                # would give last hour's close, meaningless as "prior
+                # close").
+                if _ts_is_intraday(ts):
+                    dates_arr = pd.DatetimeIndex(ref_bars.index).date
+                    prior_days = sorted(
+                        {d for d in dates_arr if d < ts.date()},
+                        reverse=True,
+                    )
+                    if len(prior_days) < back:
+                        return s
+                    target = prior_days[back - 1]
+                    day_bars = ref_bars[dates_arr == target]
+                    if day_bars.empty:
+                        return s
+                    v = day_bars["Close"].iloc[-1]
+                else:
+                    pos = ref_bars.index.get_loc(ts)
+                    if not isinstance(pos, int) or pos - back < 0:
+                        return s
+                    v = ref_bars["Close"].iloc[pos - back]
                 return None if pd.isna(v) else float(v)
 
             if st == "fetch.spread_z_score":
@@ -943,20 +1253,40 @@ def _resolve_ref(
                 ref = str(cfg.get("reference") or "day_open")
                 pct = float(cfg.get("offset_pct") or 0.0)
                 anchor: Optional[float] = None
+                intraday = _ts_is_intraday(ts)
                 if ref == "day_open":
-                    anchor = float(ref_bars.at[ts, "Open"])
-                elif ref == "prior_close":
-                    pos = ref_bars.index.get_loc(ts)
-                    if isinstance(pos, int) and pos > 0:
-                        anchor = float(ref_bars["Close"].iloc[pos - 1])
-                elif ref == "prior_high":
-                    pos = ref_bars.index.get_loc(ts)
-                    if isinstance(pos, int) and pos > 0:
-                        anchor = float(ref_bars["High"].iloc[pos - 1])
-                elif ref == "prior_low":
-                    pos = ref_bars.index.get_loc(ts)
-                    if isinstance(pos, int) and pos > 0:
-                        anchor = float(ref_bars["Low"].iloc[pos - 1])
+                    if intraday:
+                        day = ts.date()
+                        day_bars = ref_bars[
+                            pd.DatetimeIndex(ref_bars.index).date == day
+                        ]
+                        if not day_bars.empty:
+                            anchor = float(day_bars["Open"].iloc[0])
+                    else:
+                        anchor = float(ref_bars.at[ts, "Open"])
+                elif ref in ("prior_close", "prior_high", "prior_low"):
+                    col = {"prior_close": "Close", "prior_high": "High",
+                           "prior_low": "Low"}[ref]
+                    if intraday:
+                        dates_arr = pd.DatetimeIndex(ref_bars.index).date
+                        prior_days = sorted(
+                            {d for d in dates_arr if d < ts.date()},
+                            reverse=True,
+                        )
+                        if prior_days:
+                            target = prior_days[0]
+                            day_bars = ref_bars[dates_arr == target]
+                            if not day_bars.empty:
+                                if col == "Close":
+                                    anchor = float(day_bars[col].iloc[-1])
+                                elif col == "High":
+                                    anchor = float(day_bars[col].max())
+                                else:  # Low
+                                    anchor = float(day_bars[col].min())
+                    else:
+                        pos = ref_bars.index.get_loc(ts)
+                        if isinstance(pos, int) and pos > 0:
+                            anchor = float(ref_bars[col].iloc[pos - 1])
                 if anchor is None:
                     return s
                 return anchor * (1 + pct / 100.0)
@@ -977,26 +1307,52 @@ _NSE_CLOSE = (15, 30)
 
 
 def _bar_is_market_open(ts: pd.Timestamp) -> bool:
-    """yfinance daily bars are NSE trading days — every bar in the
-    series is by definition a market-open day."""
-    return ts.weekday() < 5  # belt-and-braces: skip weekends if any
+    """Is the market open at ``ts``?
+
+    Daily bars only exist for trading days (weekend filter is the
+    belt-and-braces). Intraday bars carry a real time-of-day so we can
+    additionally check the bar's minute-of-day falls inside the NSE
+    cash session — a "market_status open" guard on a synthetic 05:00
+    bar (should never happen given data sources, but robust) still
+    evaluates False."""
+    if ts.weekday() >= 5:
+        return False
+    if _ts_is_intraday(ts):
+        mod = ts.hour * 60 + ts.minute
+        open_mod = _NSE_OPEN[0] * 60 + _NSE_OPEN[1]
+        close_mod = _NSE_CLOSE[0] * 60 + _NSE_CLOSE[1]
+        return open_mod <= mod <= close_mod
+    return True
 
 
-def _time_within(start: str, end: str) -> bool:
-    """Daily bars don't have intraday timestamps. We treat any window
-    that covers an instant inside [09:15, 15:30] as 'true' — the
-    semantics most users mean by "between 09:30 and 15:00". Windows
-    entirely outside trading hours evaluate False so users can author
-    "between 19:00 and 20:00" guards that prevent fires on regular
-    daily bars."""
-    def parse(s: str) -> tuple[int, int]:
-        h, _, m = s.partition(":")
+def _parse_hm(s: str) -> tuple[int, int]:
+    h, _, m = s.partition(":")
+    try:
         return int(h), int(m or 0)
+    except ValueError:
+        return 0, 0
 
-    s_h, s_m = parse(start)
-    e_h, e_m = parse(end)
+
+def _time_within(start: str, end: str, ts: Optional[pd.Timestamp] = None) -> bool:
+    """Does ``ts`` fall inside [start_time, end_time]?
+
+    On intraday bars we check the bar's actual hour/minute — so
+    "between 10:00 and 12:00" fires only on 10:15/11:15 bars, not on
+    every bar of the day.
+
+    On daily bars there's no intraday time to compare against — we
+    retain the legacy overlap-with-trading-hours heuristic so daily
+    workflows that carry a benign "between 09:30 and 15:00" guard
+    still evaluate True, but "between 19:00 and 20:00" (after-hours)
+    evaluates False.
+    """
+    s_h, s_m = _parse_hm(start)
+    e_h, e_m = _parse_hm(end)
     s_total = s_h * 60 + s_m
     e_total = e_h * 60 + e_m
+    if ts is not None and _ts_is_intraday(ts):
+        cur = ts.hour * 60 + ts.minute
+        return s_total <= cur <= e_total
     open_total = _NSE_OPEN[0] * 60 + _NSE_OPEN[1]
     close_total = _NSE_CLOSE[0] * 60 + _NSE_CLOSE[1]
     # Window must overlap [open, close].
@@ -1025,13 +1381,15 @@ def _eval_simple_condition(
             return is_open
         if require == "closed":
             return not is_open
-        # 'pre' / 'post' don't apply to daily bars — let them pass
-        # through so workflows that include them don't silently die.
+        # 'pre' / 'post' don't apply to bars our sources provide — let
+        # them pass through so workflows that include them don't
+        # silently die.
         return True
     if step_type == "condition.time_window":
         return _time_within(
             str(cfg.get("start_time") or "09:15"),
             str(cfg.get("end_time") or "15:30"),
+            ts,
         )
     return True
 
@@ -1100,12 +1458,13 @@ class _BarStrictAccessor:
         period: int,
         exchange: str = "NSE",
         component: Optional[str] = None,
+        settings: Optional[dict] = None,
         offset: int = 0,
     ) -> Optional[float]:
         comp_key = component.lower() if component else None
         key = (
             "ind", symbol.upper(), indicator.lower(), int(period),
-            comp_key, int(offset),
+            comp_key, tuple(sorted((settings or {}).items())), int(offset),
         )
         if key in self._cache:
             return self._cache[key]
@@ -1119,7 +1478,9 @@ class _BarStrictAccessor:
         # The backtester's bars carry capitalised OHLCV columns;
         # compute_series_component normalises internally.
         try:
-            series = compute_series_component(df, indicator, period, component=comp_key)
+            series = compute_series_component(
+                df, indicator, period, component=comp_key, settings=settings,
+            )
         except Exception:
             series = None
         if series is None:
@@ -1301,11 +1662,28 @@ def _eval_exit_compound(
     accessor = _BacktestPositionAwareAccessor(
         inner, state, symbol, symbol_bars, ts,
     )
+    # crosses_above/crosses_below need the PREVIOUS bar's value to detect
+    # a transition — a fresh {} every call (as this was before) means the
+    # comparison never has a baseline and can never fire, so an exit
+    # condition like "sell when 50 EMA crosses below 200 EMA" silently
+    # never triggers a single sell over the whole backtest (reported live
+    # 2026-07-14: "4 buys, 0 sells" on RELIANCE despite 5 genuine EMA(50)/
+    # EMA(200) crossunders in the window). Thread state per branch, same
+    # as `_expand_compound` already does for entry trees — but reset it
+    # the bar a NEW position opens: this gate is skipped entirely while
+    # flat (line above), so whatever was remembered from a PRIOR holding
+    # period is stale (compares across the flat gap, not consecutive
+    # bars) and could spuriously fire on the very first bar of a fresh
+    # position.
+    if state.entry_ts.get(symbol) == ts:
+        state.exit_compound_prev_state.pop(branch.trigger_step_index, None)
+    prev_state = state.exit_compound_prev_state.get(branch.trigger_step_index, {})
     try:
-        result = evaluate(tree, accessor=accessor, prev_state={})
+        result = evaluate(tree, accessor=accessor, prev_state=prev_state)
     except Exception as exc:  # noqa: BLE001
         logger.info("[backtest.exit_compound] eval crashed: %s", exc)
         return False
+    state.exit_compound_prev_state[branch.trigger_step_index] = result.new_state
     return result.value is Ternary.TRUE
 
 
@@ -1352,11 +1730,16 @@ def _expand_exit_compound(union_index: pd.DatetimeIndex) -> list[pd.Timestamp]:
 
 def _eval_condition_compound(
     cfg: dict[str, Any], symbol_bars: dict[str, pd.DataFrame],
-    ts: pd.Timestamp,
+    ts: pd.Timestamp, state: SimState, state_key: tuple[int, int],
 ) -> bool:
     """Walk a DSL tree against historical bars at ``ts``. Returns True
     to continue the branch, False on FALSE or UNKNOWN — same Kleene
-    halt semantics as the live executor."""
+    halt semantics as the live executor.
+
+    Threads prev_state across bars (keyed by state_key) so
+    crosses_above/crosses_below inside a condition.compound gate can
+    detect a transition — same bug class as trigger.exit_compound: a
+    fresh {} every call means a cross can never fire."""
     entry_raw = cfg.get("entry")
     if not isinstance(entry_raw, dict):
         return False
@@ -1369,11 +1752,13 @@ def _eval_condition_compound(
         logger.info("[backtest.cond_compound] tree parse failed: %s", exc)
         return False
     accessor = _BarStrictAccessor(symbol_bars, ts)
+    prev_state = state.condition_compound_prev_state.get(state_key, {})
     try:
-        result = evaluate(tree, accessor=accessor, prev_state={})
+        result = evaluate(tree, accessor=accessor, prev_state=prev_state)
     except Exception as exc:  # noqa: BLE001
         logger.info("[backtest.cond_compound] eval crashed: %s", exc)
         return False
+    state.condition_compound_prev_state[state_key] = result.new_state
     return result.value is Ternary.TRUE
 
 
@@ -1488,7 +1873,7 @@ def _record_trade(
         side = reason  # surface these explicitly on the signals layer
 
     trades_out.append({
-        "t": ts.date().isoformat(),
+        "t": _fmt_bar_ts(ts),
         "side": "buy" if signed_qty > 0 else "sell",
         "symbol": sym,
         "qty": abs(signed_qty),
@@ -1497,7 +1882,7 @@ def _record_trade(
         "reason": reason,
     })
     signals_out.append({
-        "t": ts.date().isoformat(),
+        "t": _fmt_bar_ts(ts),
         "side": side,
         "price": round(price, 2),
         "qty": abs(signed_qty),
@@ -1536,11 +1921,16 @@ def _evaluate_stoplosses(
     trigger price with one-side friction. Trailing stops also ratchet
     their trigger upward against the bar's HIGH before evaluating.
 
-    Order on a single bar: trailing stops update first → take-profits
-    fire (HIGH ≥ trigger) → stoplosses fire (LOW ≤ trigger). Pessimistic
-    when both hit on the same bar: the SL wins, since intraday lows
+    Order on a single bar: trailing stops update first → stoplosses fire
+    (LOW ≤ trigger) → take-profits fire (HIGH ≥ trigger). Pessimistic when
+    both hit on the same bar: the SL wins (evaluated — and, if it clears
+    the position, effectively consumed — first), since intraday lows
     typically print before highs in volatile sessions and we'd rather
-    underestimate strategy returns than inflate them.
+    underestimate strategy returns than inflate them. (Bug fix 2026-07:
+    stoplosses previously ran AFTER take-profits, so a bar that hit both
+    triggers silently resolved to the profitable exit — the opposite of
+    the documented pessimistic tie-break, and an optimistic-fill bug on
+    any strategy pairing a stop-loss with a take-profit.)
 
     Multi-symbol-aware: each stop's bar comes from ``symbol_bars[sym]``."""
     # Pass A — ratchet trailing stops against this bar's HIGH.
@@ -1558,37 +1948,8 @@ def _evaluate_stoplosses(
                 if new_trigger > stop.trigger_price:
                     stop.trigger_price = new_trigger
 
-    # Pass B — take-profits (HIGH ≥ trigger).
-    for sym in list(state.takeprofits.keys()):
-        tps = state.takeprofits.get(sym) or []
-        if not tps:
-            continue
-        bars = symbol_bars.get(sym)
-        if bars is None or ts not in bars.index:
-            continue
-        high = float(bars.at[ts, "High"])
-        # Fire lowest-trigger take-profit first (closer to market).
-        tps.sort(key=lambda t: t.trigger_price)
-        remaining_tps: list[TakeprofitOrder] = []
-        for tp in tps:
-            if high < tp.trigger_price:
-                remaining_tps.append(tp)
-                continue
-            held = state.holdings.get(sym, 0)
-            exec_qty = min(tp.quantity, held)
-            if exec_qty <= 0:
-                continue
-            fill = tp.trigger_price * (1 - _FRICTION)
-            _record_sell(
-                state, sym, exec_qty, fill, ts,
-                signals_out, trades_out, reason="takeprofit",
-            )
-        if state.holdings.get(sym, 0) > 0 and remaining_tps:
-            state.takeprofits[sym] = remaining_tps
-        else:
-            state.takeprofits.pop(sym, None)
-
-    # Pass C — stoplosses (LOW ≤ trigger).
+    # Pass B — stoplosses (LOW ≤ trigger). Evaluated BEFORE take-profits so
+    # a same-bar double-hit resolves to the stop (pessimistic tie-break).
     for sym in list(state.stoplosses.keys()):
         stops = state.stoplosses.get(sym) or []
         if not stops:
@@ -1618,6 +1979,38 @@ def _evaluate_stoplosses(
             state.stoplosses[sym] = remaining
         else:
             state.stoplosses.pop(sym, None)
+
+    # Pass C — take-profits (HIGH ≥ trigger). Runs AFTER stoplosses so any
+    # position the stop-loss pass already closed this bar is skipped here
+    # (held == 0 below) rather than double-exited at a better price.
+    for sym in list(state.takeprofits.keys()):
+        tps = state.takeprofits.get(sym) or []
+        if not tps:
+            continue
+        bars = symbol_bars.get(sym)
+        if bars is None or ts not in bars.index:
+            continue
+        high = float(bars.at[ts, "High"])
+        # Fire lowest-trigger take-profit first (closer to market).
+        tps.sort(key=lambda t: t.trigger_price)
+        remaining_tps: list[TakeprofitOrder] = []
+        for tp in tps:
+            if high < tp.trigger_price:
+                remaining_tps.append(tp)
+                continue
+            held = state.holdings.get(sym, 0)
+            exec_qty = min(tp.quantity, held)
+            if exec_qty <= 0:
+                continue
+            fill = tp.trigger_price * (1 - _FRICTION)
+            _record_sell(
+                state, sym, exec_qty, fill, ts,
+                signals_out, trades_out, reason="takeprofit",
+            )
+        if state.holdings.get(sym, 0) > 0 and remaining_tps:
+            state.takeprofits[sym] = remaining_tps
+        else:
+            state.takeprofits.pop(sym, None)
 
 
 # Triggers whose fire is computed from the SAME bar's OHLC (its close, range,
@@ -1655,6 +2048,33 @@ def _next_bar_ts(
     return idx[pos + 1]
 
 
+def _short_margin_exceeded(
+    state: SimState, symbol_bars: dict[str, pd.DataFrame],
+    ts: pd.Timestamp, qty: int, fill_price: float,
+) -> bool:
+    """Naive margin model shared by every short-opening path: deny if
+    this short would push total shorted notional past 50% of current
+    equity (rough, at the decision bar — real brokers cap at 25-33%,
+    this is generous but keeps the simulator from spiraling on absurd
+    workflows). Used by both the single place_order(short) path and
+    allocate_basket's short legs — the latter used to skip this check
+    entirely, letting a basket short leg take on unbounded exposure."""
+    cur_equity = state.cash + sum(
+        q * float(symbol_bars[s].at[ts, "Close"])
+        for s, q in state.holdings.items()
+        if s in symbol_bars and ts in symbol_bars[s].index
+    )
+    short_notional = (
+        sum(
+            abs(q) * float(symbol_bars[s].at[ts, "Close"])
+            for s, q in state.holdings.items()
+            if q < 0 and s in symbol_bars and ts in symbol_bars[s].index
+        )
+        + qty * fill_price
+    )
+    return short_notional > 0.5 * max(cur_equity, state.starting_capital)
+
+
 def _execute_branch(
     branch: Branch, state: SimState,
     symbol_bars: dict[str, pd.DataFrame],
@@ -1678,7 +2098,7 @@ def _execute_branch(
             branch.trigger_config, state, symbol_bars, ts, branch,
         ):
             return
-    for step in branch.body:
+    for step_idx, step in enumerate(branch.body):
         st = str(step.get("step_type") or "")
         cfg = step.get("config") or {}
         if st == "condition.numeric":
@@ -1696,7 +2116,10 @@ def _execute_branch(
                 return
             continue
         if st == "condition.compound":
-            if not _eval_condition_compound(cfg, symbol_bars, ts):
+            if not _eval_condition_compound(
+                cfg, symbol_bars, ts, state,
+                (branch.trigger_step_index, step_idx),
+            ):
                 return
             continue
         if st == "action.place_order":
@@ -1751,7 +2174,7 @@ def _execute_branch(
                 # Signal printed on the final bar — no subsequent open to
                 # fill against. Mark it but don't fabricate a fill.
                 signals_out.append({
-                    "t": ts.date().isoformat(),
+                    "t": _fmt_bar_ts(ts),
                     "side": "no_fill_bar",
                     "price": round(float(sym_bars.at[ts, "Close"]), 2),
                     "qty": qty,
@@ -1779,7 +2202,7 @@ def _execute_branch(
                 # Long open or extension. Cash check: don't go negative.
                 if fill_price * qty > state.cash:
                     signals_out.append({
-                        "t": fill_ts.date().isoformat(),
+                        "t": _fmt_bar_ts(fill_ts),
                         "side": "buy_skipped",
                         "price": fill_price,
                         "qty": qty,
@@ -1805,28 +2228,10 @@ def _execute_branch(
                     qty = int(notional // fill_price)
                 if qty <= 0:
                     continue
-                # Short open or extension. Naive margin model: deny if
-                # the proceeds would push notional shorted past 50% of
-                # current equity (rough margin check, at the decision bar).
-                # This is generous — real brokers cap at 25-33% — but keeps
-                # the simulator from spiraling on absurd workflows.
-                cur_equity = state.cash + sum(
-                    q * float(symbol_bars[s].at[ts, "Close"])
-                    for s, q in state.holdings.items()
-                    if s in symbol_bars and ts in symbol_bars[s].index
-                )
-                short_notional = (
-                    sum(
-                        abs(q) * float(symbol_bars[s].at[ts, "Close"])
-                        for s, q in state.holdings.items()
-                        if q < 0 and s in symbol_bars
-                        and ts in symbol_bars[s].index
-                    )
-                    + qty * fill_price
-                )
-                if short_notional > 0.5 * max(cur_equity, _STARTING_CAPITAL):
+                # Short open or extension — see _short_margin_exceeded.
+                if _short_margin_exceeded(state, symbol_bars, ts, qty, fill_price):
                     signals_out.append({
-                        "t": fill_ts.date().isoformat(),
+                        "t": _fmt_bar_ts(fill_ts),
                         "side": "short_skipped",
                         "price": fill_price,
                         "qty": qty,
@@ -1910,6 +2315,38 @@ def _execute_branch(
                 )
             )
             continue
+        if st == "action.squareoff":
+            # Bare squareoff dispatches on `scope` (symbol / intraday / all) —
+            # mirrors the live executor. Fills at CLOSE (an EOD-style exit),
+            # so a same-bar buy-at-open → sell-at-close captures the intraday
+            # move instead of being skipped and held open forever.
+            scope = str(cfg.get("scope", "all")).lower()
+            if scope == "symbol":
+                _sq_sym = str(cfg.get("symbol") or "").upper()
+                _sq_syms = [_sq_sym] if _sq_sym else []
+            elif scope in ("intraday", "all_intraday"):
+                _sq_syms = [
+                    s for s in list(state.holdings.keys())
+                    if state.product.get(s) == "MIS"
+                ]
+            else:  # "all" (default)
+                _sq_syms = list(state.holdings.keys())
+            for _sq in _sq_syms:
+                qty = state.holdings.get(_sq, 0)
+                if qty == 0:
+                    continue
+                sym_bars = symbol_bars.get(_sq)
+                if sym_bars is None or ts not in sym_bars.index:
+                    continue
+                fill = float(sym_bars.at[ts, "Close"]) * (
+                    1 - _FRICTION if qty > 0 else 1 + _FRICTION
+                )
+                _record_trade(
+                    state, _sq, -qty, fill,
+                    state.product.get(_sq, "CNC"),
+                    ts, signals_out, trades_out, reason="squareoff",
+                )
+            continue
         if st == "action.squareoff_symbol":
             sym = str(cfg.get("symbol") or "").upper()
             product_filter = str(cfg.get("product", "MIS")).upper()
@@ -1992,14 +2429,48 @@ def _execute_branch(
                 if not leg_sym or w <= 0:
                     continue
                 lb = symbol_bars.get(leg_sym)
-                if lb is None or ts not in lb.index:
+                if lb is None:
+                    continue
+                if ts in lb.index:
+                    entry_ts = ts
+                else:
+                    # Different constituents can have a slightly different
+                    # first available bar even under the "same" nominal
+                    # window (Kite vs yfinance fallback resolve `period`
+                    # independently, so one leg's series can start a few
+                    # calendar days off the rest). Snap forward to the
+                    # nearest available bar within 5 days rather than
+                    # silently dropping the leg — that turned a 7-name
+                    # basket into an unlabelled single-name position with
+                    # 89% of "deployed" capital actually sitting idle in
+                    # cash (2026-07-14 live report). Genuinely stale/short
+                    # series (gap > 5 days) still can't be filled honestly.
+                    _candidates = lb.index[lb.index >= ts]
+                    if len(_candidates) == 0 or (_candidates[0] - ts).days > 5:
+                        signals_out.append({
+                            "t": _fmt_bar_ts(ts),
+                            "side": "buy_skipped",
+                            "symbol": leg_sym,
+                            "reason": "no bar within 5 days of basket entry",
+                        })
+                        continue
+                    entry_ts = _candidates[0]
+                # NO LOOK-AHEAD: a signal-driven basket is decided on bar T's
+                # CLOSE (that's when the RSI/price condition is knowable), so it
+                # can only transact at T+1's open — never bar T's open (a price
+                # that occurred before the signal existed). Mirrors the
+                # single-order place_order path. Schedule-driven baskets fill
+                # same-bar open (the date is known a-priori).
+                fill_ts = _next_bar_ts(lb, entry_ts) if signal_driven else entry_ts
+                if fill_ts is None:
+                    # Signal printed on the final bar — no next open to fill.
                     continue
                 slice_inr = total_inr * w
                 # Long fills at OPEN+f, short fills at OPEN-f (proceeds
                 # reduced by friction on the open side, same as
                 # set_stoploss / takeprofit).
                 paying = leg_side == "long"
-                fill = float(lb.at[ts, "Open"]) * (
+                fill = float(lb.at[fill_ts, "Open"]) * (
                     1 + _FRICTION if paying else 1 - _FRICTION
                 )
                 qty_abs = int(slice_inr // fill)
@@ -2009,14 +2480,28 @@ def _execute_branch(
                 # Long-side cash check.
                 if paying and slice_inr > state.cash:
                     signals_out.append({
-                        "t": ts.date().isoformat(),
+                        "t": _fmt_bar_ts(fill_ts),
                         "side": "buy_skipped",
                         "price": fill,
                         "qty": qty_abs,
                     })
                     continue
+                # Short-side margin check — a basket short leg used to skip
+                # this entirely (only single place_order(short) enforced
+                # it), letting a basket take on unbounded short exposure.
+                if not paying and _short_margin_exceeded(
+                    state, symbol_bars, fill_ts, qty_abs, fill,
+                ):
+                    signals_out.append({
+                        "t": _fmt_bar_ts(fill_ts),
+                        "side": "short_skipped",
+                        "symbol": leg_sym,
+                        "price": fill,
+                        "qty": qty_abs,
+                    })
+                    continue
                 _record_trade(
-                    state, leg_sym, signed, fill, "CNC", ts,
+                    state, leg_sym, signed, fill, "CNC", fill_ts,
                     signals_out, trades_out, reason="basket",
                 )
             continue
@@ -2028,8 +2513,8 @@ def _execute_branch(
 
 _EXIT_ACTION_TYPES = frozenset({
     "action.set_stoploss", "action.set_takeprofit",
-    "action.squareoff_symbol", "action.squareoff_all_intraday",
-    "action.squareoff_all",
+    "action.squareoff", "action.squareoff_symbol",
+    "action.squareoff_all_intraday", "action.squareoff_all",
 })
 _SIGNAL_TRIGGER_TYPES = frozenset({
     "trigger.indicator", "trigger.price", "trigger.compound",
@@ -2093,6 +2578,54 @@ def _normalize_buy_and_hold(
     )
 
 
+def _basket_buy_hold_weights(branches: list) -> dict[str, float]:
+    """Symbol -> normalised weight (sums to 1) for a workflow's BUY legs,
+    used to build the basket's OWN "buy & hold" benchmark instead of
+    comparing against one arbitrarily-chosen constituent.
+
+    Sourced from `action.allocate_basket`'s own explicit per-leg weights
+    when present; otherwise equal-weighted across every distinct
+    `action.place_order` BUY/long symbol (mirrors the "basket detection"
+    heuristic used elsewhere in this module for display purposes). Returns
+    {} for anything with fewer than 2 resolvable names — a single-symbol
+    strategy has no "basket" buy-and-hold to build.
+    """
+    has_allocate = any(
+        step.get("step_type") == "action.allocate_basket"
+        for b in branches for step in b.body
+    )
+    weights: dict[str, float] = {}
+    for b in branches:
+        for step in b.body:
+            st = step.get("step_type")
+            cfg = step.get("config") or {}
+            if has_allocate:
+                if st != "action.allocate_basket":
+                    continue
+                legs_cfg = cfg.get("legs") or []
+                w_sum = sum(
+                    float((leg or {}).get("weight", 0)) for leg in legs_cfg
+                ) or 1.0
+                for leg in legs_cfg:
+                    sym = str((leg or {}).get("symbol") or "").upper().strip()
+                    w = float((leg or {}).get("weight", 0)) / w_sum
+                    if sym and w > 0:
+                        weights[sym] = weights.get(sym, 0.0) + w
+            else:
+                if st != "action.place_order":
+                    continue
+                side = str(
+                    cfg.get("side") or cfg.get("transaction_type") or "buy"
+                ).lower()
+                sym = str(cfg.get("symbol") or "").upper().strip()
+                if sym and ("buy" in side or "long" in side):
+                    weights[sym] = weights.get(sym, 0.0) + 1.0
+    if len(weights) < 2:
+        return {}
+    total = sum(weights.values()) or 1.0
+    return {s: w / total for s, w in weights.items()}
+
+
 def backtest_workflow(
     steps: list[dict[str, Any]],
     *,
@@ -2102,8 +2635,24 @@ def backtest_workflow(
     end_date: Optional[str] = None,
     benchmark_symbol: Optional[str] = None,
     trial_group: Optional[str] = None,
+    interval: str = "1d",
+    starting_capital: Optional[float] = None,
 ) -> IndicatorBacktestResult:
-    """Simulate a workflow draft over historical daily bars.
+    """Simulate a workflow draft over historical bars at ``interval``.
+
+    ``starting_capital`` is the ₹ notional actually being deployed (e.g.
+    a basket's stated deploy amount) — it drives EVERY return/drawdown
+    number below, not just the displayed label, because discrete-share
+    rounding makes the % return itself capital-size-dependent. Falls
+    back to :data:`_STARTING_CAPITAL` only when genuinely unknown; never
+    silently reports against a different amount than what was asked.
+
+    ``interval`` (default ``"1d"``) is any string accepted by
+    ``backend.core.data.intervals.normalize_interval`` — daily / weekly /
+    monthly plus intraday 1m / 3m / 5m / 10m / 15m / 30m / 1h. Intraday
+    intervals have shallow rolling windows (yfinance 1h = 730d, Kite 1h
+    = 400d); ``period`` is clamped honestly rather than fabricating bars
+    beyond what the source can serve.
 
     Returns the same ``IndicatorBacktestResult`` shape the indicator
     backtester produces so the FE chart card reuses without changes.
@@ -2121,6 +2670,11 @@ def backtest_workflow(
     backtests where comparing to a single leg is misleading — pass
     ``benchmark_symbol='NIFTYBEES'`` to compare against the NIFTY 50.
     """
+    capital = (
+        float(starting_capital)
+        if starting_capital is not None and starting_capital > 0
+        else _STARTING_CAPITAL
+    )
     # The chat path validates drafts via DraftStep (propose.py), whose
     # Pydantic dump drops `step_index`. Without it, `_resolve_ref` can't
     # match `{{context.N.value}}` references — so any condition.numeric
@@ -2136,7 +2690,7 @@ def backtest_workflow(
     # squareoff/stop/target) is a buy-and-hold: the user means "put my money
     # in X and hold", not "buy N shares". If the model pinned a fixed share
     # `quantity` and no notional, the position deploys only qty×price of the
-    # ₹10L capital, leaving the rest idle → total_return_pct collapses to ~0
+    # deployed capital, leaving the rest idle → total_return_pct collapses to ~0
     # while the full-capital benchmark shows the real move (the silent-wrong
     # bug). Strip the quantity so the order deploys the full available cash
     # (see `_deploy_cash_buy`). Restricted to one-time/schedule shapes (no
@@ -2217,9 +2771,19 @@ def backtest_workflow(
     bench_sym = (benchmark_symbol or "").upper().strip() or None
     if bench_sym:
         symbols_to_fetch.add(bench_sym)
+    # Normalise the interval once so warnings + result field are canonical.
+    from backend.core.data.intervals import (
+        bars_per_year as _bars_per_year,
+        is_intraday as _is_intraday_iv,
+        normalize_interval as _normalize_interval,
+    )
+    norm_interval = _normalize_interval(interval)
     symbol_bars: dict[str, pd.DataFrame] = {}
     for sym in sorted(symbols_to_fetch):
-        symbol_bars[sym] = _load_bars(sym, period)
+        symbol_bars[sym] = _load_bars(
+            sym, period, interval=norm_interval,
+            warnings_out=elig.warnings,
+        )
 
     # One-time entry: when the workflow's only schedule is a run_at and the
     # caller gave no explicit start_date, clip the window to the entry date.
@@ -2265,6 +2829,12 @@ def backtest_workflow(
             symbol_bars[sym] = df
 
     primary_bars = symbol_bars[primary_symbol]
+    # Resolved test window (from the primary symbol's simulated bars) so the
+    # reply states EXACTLY what was tested — answers "what interval?" and
+    # explains any run-to-run benchmark drift (a rolling 'period' window).
+    _win_start = pd.Timestamp(primary_bars.index[0]).date().isoformat()
+    _win_end = pd.Timestamp(primary_bars.index[-1]).date().isoformat()
+    _n_bars = int(len(primary_bars))
 
     # Build a per-bar event lookup. Each branch's trigger is expanded
     # against the trigger.symbol's bars (or the branch's primary symbol
@@ -2286,9 +2856,14 @@ def backtest_workflow(
         bars_for_trigger = symbol_bars.get(trigger_sym, primary_bars)
         if b.trigger_type == "trigger.schedule":
             # One-time run_at notes (past/future-of-window) surface via
-            # elig.warnings → the summary's "Notes:" line.
+            # elig.warnings → the summary's "Notes:" line. ``interval``
+            # is critical here: on intraday bars the scheduler fires
+            # ONCE per matching day (at the cron hour:minute) rather
+            # than on every hourly bar of the day — a daily buy would
+            # otherwise mis-fire ~7×/day on hourly bars.
             fires = _expand_schedule(
                 b.trigger_config, union_index, notes=elig.warnings,
+                interval=norm_interval,
             )
         elif b.trigger_type == "trigger.indicator":
             fires = _expand_indicator(b.trigger_config, bars_for_trigger)
@@ -2306,7 +2881,7 @@ def backtest_workflow(
         for ts in fires:
             events_by_ts.setdefault(ts, []).append(i)
 
-    state = SimState()
+    state = SimState(cash=capital, starting_capital=capital)
     # Map every action.place_order's step_index → its symbol, across all
     # branches, so _resolve_ref can turn `{{context.<idx>.quantity}}` into
     # the held position of that order's symbol (the entry fill size).
@@ -2330,6 +2905,23 @@ def backtest_workflow(
                 signals, trades,
             )
 
+    # A basket leg that couldn't be filled at all (no bar within the
+    # snap-forward tolerance) must be disclosed — silently shipping a
+    # "7-name basket" that actually only bought some of the names,
+    # with the rest sitting idle in cash, is exactly the fabrication
+    # this backtester is meant to avoid.
+    _skipped_legs = sorted({
+        s["symbol"] for s in signals
+        if s.get("side") == "buy_skipped" and s.get("symbol")
+        and s.get("reason") == "no bar within 5 days of basket entry"
+    })
+    if _skipped_legs:
+        elig.warnings.append(
+            f"{', '.join(_skipped_legs)}: no bar near the basket's entry "
+            "date — not bought; that share of capital sat in cash for "
+            "the whole window instead."
+        )
+
     # Bind the chart-equity-curve walker below to the primary symbol's
     # bar series for the price curve, but mark-to-market the entire
     # multi-symbol portfolio.
@@ -2341,7 +2933,7 @@ def backtest_workflow(
     # symbol so the user has one anchor to read the strategy against.
     price_curve: list[dict] = []
     equity_curve: list[dict] = []
-    walking_state = SimState()
+    walking_state = SimState(cash=capital, starting_capital=capital)
     # Next-open fills stamp a trade one bar AFTER its signal, so sort by
     # execution date before the single-pass walker consumes them (stable sort
     # preserves same-day entry-before-exit order). Same-bar fills are already
@@ -2349,11 +2941,25 @@ def backtest_workflow(
     trades.sort(key=lambda tr: tr["t"])
     trade_iter = iter(trades)
     next_trade = next(trade_iter, None)
-    for ts, row in bars.iterrows():
+    # Walk `union_index` — the SAME calendar the trigger/fill logic above
+    # uses — not just the primary symbol's own bars. A basket whose
+    # alphabetically-first leg (primary_symbol's fallback pick when there's
+    # no place_order to anchor on) starts trading a few days LATER than the
+    # rest used to silently drop every fill dated before that leg's own
+    # first bar (the fill's timestamp never appeared in the walker's
+    # iteration set), leaving `walking_state` empty all the way through and
+    # the equity curve flat at starting capital — a basket that genuinely
+    # moved would report exactly 0.0% (reported 2026-07-14). Carrying the
+    # last known primary close forward on union-only dates keeps the price
+    # line continuous.
+    _last_primary_close: Optional[float] = None
+    _peak_deployed = 0.0
+    _short_held = False
+    for ts in union_index:
         # Apply any trades scheduled today. Uses signed qty so short
         # legs replay correctly: trade rows still have side='buy'/'sell'
         # for cash-flow direction, but holdings can go negative.
-        while next_trade is not None and next_trade["t"] == ts.date().isoformat():
+        while next_trade is not None and next_trade["t"] == _fmt_bar_ts(ts):
             tr = next_trade
             sym = tr["symbol"]
             signed = (
@@ -2374,29 +2980,97 @@ def backtest_workflow(
                     / abs(new_qty)
                 )
             next_trade = next(trade_iter, None)
-        close = float(row["Close"])
+        if ts in bars.index:
+            close = float(bars.at[ts, "Close"])
+            _last_primary_close = close
+        elif _last_primary_close is not None:
+            close = _last_primary_close
+        else:
+            close = float(bars["Close"].iloc[0])
+        # Capital the strategy has AT RISK right now, at cost — the running
+        # peak of this is what it actually needed, and the honest denominator
+        # for every percent we report. Longs only: a SHORT's capital is margin,
+        # which this simulator does not model, and its notional is not a stand-
+        # in (a short's equity isn't "cash deployed + P&L", so rebasing on
+        # notional drives the curve to zero on a 100% adverse move). Runs
+        # holding a short keep the pool basis and say so.
+        _deployed_now = 0.0
+        for _s, _q in walking_state.holdings.items():
+            if _q > 0:
+                _deployed_now += _q * walking_state.avg_buy_price.get(_s, 0.0)
+            elif _q < 0:
+                _short_held = True
+        _peak_deployed = max(_peak_deployed, _deployed_now)
         market_value = 0.0
         for sym, qty in walking_state.holdings.items():
-            if qty <= 0:
+            if qty == 0:
                 continue
             sym_bars = symbol_bars.get(sym)
             if sym_bars is not None and ts in sym_bars.index:
-                market_value += qty * float(sym_bars.at[ts, "Close"])
+                mark_price = float(sym_bars.at[ts, "Close"])
             else:
                 # Symbol didn't trade today (or isn't in the registry —
                 # shouldn't happen). Carry the previous close, falling
                 # back to the entry price so equity stays conservative.
-                market_value += qty * walking_state.avg_buy_price.get(
-                    sym, close,
-                )
+                mark_price = walking_state.avg_buy_price.get(sym, close)
+            # Signed qty: a short (qty<0) SUBTRACTS its buy-back liability
+            # from equity — cash already carries the short-sale proceeds
+            # (see the trade-apply loop above), so skipping qty<=0 here
+            # (as this used to) left the liability out entirely and
+            # overstated equity for the whole time any short was open.
+            market_value += qty * mark_price
         equity = walking_state.cash + market_value
-        price_curve.append({"t": ts.date().isoformat(), "v": close})
-        equity_curve.append({"t": ts.date().isoformat(), "v": round(equity, 2)})
+        price_curve.append({"t": _fmt_bar_ts(ts), "v": close})
+        equity_curve.append({"t": _fmt_bar_ts(ts), "v": round(equity, 2)})
+
+    # ── Capital basis: what every percent below is a percent OF ───────
+    #
+    # `_STARTING_CAPITAL` is a SUFFICIENT-CASH constant, not a claim about the
+    # user's money. Reporting against it turns a real edge into noise: "buy 25
+    # ITC when RSI<35" risks ~₹10k, and scoring that against a ₹10,00,000 pool
+    # reported +0.5% for a sequence that made ~+17% on the money it used.
+    #
+    # So the denominator is the capital the strategy ACTUALLY NEEDED: the peak
+    # of (open long cost + short notional) accumulated over the walk above. That
+    # is one rule for every shape — fixed-qty, notional, SIP, basket/allocate,
+    # shorts — replacing a per-shape conditional that only fired for fixed-qty
+    # long-only runs deploying under half the pool, and silently left baskets
+    # and notional sizing on the ₹10L pool.
+    #
+    # Rebasing the curve by (pool - peak) is EXACT when the pool never bound the
+    # fills: with cash never a constraint, the same fills happen at any
+    # sufficient level and the whole curve just shifts. `_pool_bound` below is
+    # what checks that — if a buy was skipped for cash, or a short for margin,
+    # or any order sized itself off the available cash, then the answer really
+    # does depend on the pool and we keep it and say so.
+    _pool_bound = any(
+        s.get("side") in ("buy_skipped", "short_skipped") for s in signals
+    ) or any(
+        isinstance(s, dict)
+        and str(s.get("step_type", "")).startswith("action.allocate")
+        and not (s.get("config") or {}).get("total_inr")
+        for s in steps
+    ) or bool(_sizing_note)  # buy-and-hold normalisation deploys the pool
+
+    if starting_capital is not None:
+        # The user named their capital: that IS the denominator, whatever the
+        # strategy chose to deploy of it. Idle cash is part of their answer.
+        capital_basis = "stated"
+    elif _pool_bound or _short_held:
+        capital_basis = "pool"
+    elif _peak_deployed > 0:
+        _offset = round(capital - _peak_deployed, 2)
+        for p in equity_curve:
+            p["v"] = round(p["v"] - _offset, 2)
+        capital = round(_peak_deployed, 2)
+        capital_basis = "deployed"
+    else:
+        capital_basis = "pool"
 
     # Metrics: total return %, CAGR, max drawdown, win rate, n_trades.
-    final_equity = equity_curve[-1]["v"] if equity_curve else _STARTING_CAPITAL
+    final_equity = equity_curve[-1]["v"] if equity_curve else capital
     total_return_pct = round(
-        (final_equity - _STARTING_CAPITAL) / _STARTING_CAPITAL * 100, 2,
+        (final_equity - capital) / capital * 100, 2,
     )
     # CAGR on a CALENDAR-year basis (standardized 2026-05-29; was n_days/252,
     # which over-states CAGR on short windows). Falls back to bar-count years
@@ -2406,13 +3080,26 @@ def backtest_workflow(
     )
     if len(equity_curve) >= 2:
         cagr_pct = round(calendar_cagr_pct(
-            _STARTING_CAPITAL, final_equity,
+            capital, final_equity,
             equity_curve[0]["t"], equity_curve[-1]["t"],
         ), 2)
     else:
         cagr_pct = 0.0
     _sharpe, _sortino = sharpe_sortino(
-        daily_returns_from_equity([p["v"] for p in equity_curve])
+        daily_returns_from_equity([p["v"] for p in equity_curve]),
+        # Annualise on the RIGHT cadence: 1h bars have ~1638 per year,
+        # weekly 52, monthly 12. A weekly equity curve run at √252
+        # overstates Sharpe by ~2.2×; same magnitude bug intraday.
+        periods_per_year=_bars_per_year(norm_interval),
+        # rf=0: the sim parks idle capital in cash at 0%, so subtracting a
+        # 6.5% risk-free rate charges every flat/cash day a −rf excess and
+        # drags Sharpe to ~−4 for ANY strategy that isn't fully invested —
+        # a cash-heavy mean-reversion strat that made +2.3% showed −4.22,
+        # which then poisoned PSR/DSR and the trust verdict ("no edge" for
+        # everything). Measuring raw risk-adjusted return (rf=0) is
+        # consistent with the 0%-cash equity curve and gives a sensible
+        # number (+0.57 for that same strat).
+        rf_annual=0.0,
     )
     # Bailey/Lopez de Prado rigor battery on the backtest equity curve — the
     # SAME lens the live forward-test scorecards apply to paper NAV. PSR =
@@ -2428,7 +3115,10 @@ def backtest_workflow(
     forward_stats = forward_stats_block(_eq_vals)
     # Circular-block-bootstrap drawdown / terminal-wealth distribution — how
     # lucky was this single path? (5%-worst drawdown, P(end in loss)).
-    monte_carlo = monte_carlo_robustness(daily_returns_from_equity(_eq_vals))
+    # keep_paths so the card can DRAW the resampling rather than only quote it
+    # — the same block the DSL engine asks for, because one card reads both.
+    monte_carlo = monte_carlo_robustness(
+        daily_returns_from_equity(_eq_vals), keep_paths=32)
     # Time-concentration: is the edge spread across sub-periods or one window?
     sub_periods = sub_period_robustness(_eq_vals)
     # Deflate DSR for how many DISTINCT strategy variants this session has
@@ -2444,7 +3134,7 @@ def backtest_workflow(
                 steps, primary_symbol, period, start_date, end_date,
             ),
         )
-    peak = _STARTING_CAPITAL
+    peak = capital
     max_dd = 0.0
     for p in equity_curve:
         if p["v"] > peak:
@@ -2455,31 +3145,68 @@ def backtest_workflow(
                 max_dd = dd
     max_drawdown_pct = round(max_dd * 100, 2)
 
-    # Buy & hold benchmark — defaults to the primary trade symbol but
-    # the caller can pass benchmark_symbol='NIFTYBEES' (or any other
-    # symbol in symbol_bars) to compare against an index / proxy.
-    bench_bars = (
-        symbol_bars.get(bench_sym, primary_bars)
-        if bench_sym else primary_bars
+    # Buy & hold benchmark. Single-symbol/indicator strategies compare
+    # against the primary trade symbol (or an explicit override). A BASKET
+    # (>=2 legs bought and held, e.g. action.allocate_basket) has no
+    # meaningful single-constituent "buy & hold" — comparing against
+    # whichever symbol won the primary_symbol fallback (an alphabetical
+    # pick, unrelated to the basket's actual composition) silently produced
+    # a fabricated-looking number: the basket could show, say, "+5%/yr"
+    # next to "buy & hold +9%/yr" that was secretly just ONE of its five
+    # names. Default a basket's benchmark instead to the SAME basket at its
+    # own target weights, held with idealized (fractional-share, zero-
+    # rounding-drag) fills over the same window — "what if I'd bought this
+    # exact allocation and simply never touched it." An explicit
+    # benchmark_symbol (e.g. an index like NIFTYBEES) always overrides this.
+    _bh_weights = _basket_buy_hold_weights(elig.branches) if not bench_sym else {}
+    _bh_resolvable = bool(_bh_weights) and all(
+        len(symbol_bars.get(s, [])) >= 2 for s in _bh_weights
     )
-    if len(bench_bars) >= 2:
-        _bench_gross = (
-            float(bench_bars["Close"].iloc[-1])
-            / float(bench_bars["Close"].iloc[0])
+    if _bh_resolvable:
+        _bench_gross = sum(
+            w * (
+                float(symbol_bars[s]["Close"].iloc[-1])
+                / float(symbol_bars[s]["Close"].iloc[0])
+            )
+            for s, w in _bh_weights.items()
         )
-        # Net of one round-trip so it's apples-to-apples with the cost-bearing
-        # strategy (a frictionless benchmark would unfairly beat it).
         _rt = (1 - _FRICTION) ** 2
         bench_pct = round((_bench_gross * _rt - 1) * 100, 2)
+        _bench_label = f"{len(_bh_weights)}-name basket (ideal weights)"
     else:
-        bench_pct = 0.0
+        bench_bars = (
+            symbol_bars.get(bench_sym, primary_bars)
+            if bench_sym else primary_bars
+        )
+        if len(bench_bars) >= 2:
+            _bench_gross = (
+                float(bench_bars["Close"].iloc[-1])
+                / float(bench_bars["Close"].iloc[0])
+            )
+            # Net of one round-trip so it's apples-to-apples with the
+            # cost-bearing strategy (a frictionless benchmark would
+            # unfairly beat it).
+            _rt = (1 - _FRICTION) ** 2
+            bench_pct = round((_bench_gross * _rt - 1) * 100, 2)
+        else:
+            bench_pct = 0.0
+        _bench_label = bench_sym or primary_symbol
 
     n_trades = len(trades)
     # Hit rate: pair sells to their preceding same-symbol buys (FIFO)
     # and count how many sells were profitable. SIPs without sells
     # show 0 wins / 0 hit-rate, which the chart card displays sensibly.
     n_wins = 0
+    _entry_cost = 0.0
+    _realized_pnl = 0.0
+    _days_deployed = 0
     by_symbol_buys: dict[str, list[dict]] = {}
+    # The pairing below is what hit rate is computed from. It used to be
+    # discarded the moment the counters were updated, which left every
+    # trade-level reading of THIS engine's result — the chart overlay above
+    # all — with nothing to read, while the same reading worked fine off the
+    # DSL engine. Same matching, same numbers; it is now written down.
+    closed_trades: list[dict] = []
     for tr in trades:
         sym = tr["symbol"]
         if tr["side"] == "buy":
@@ -2487,17 +3214,111 @@ def backtest_workflow(
         elif tr["side"] == "sell":
             queue = by_symbol_buys.get(sym) or []
             qty_left = tr["qty"]
+            # A win is decided ONCE PER SELL against its blended matched
+            # cost — counting per matched LOT while dividing by sell count
+            # pushed hit-rate past 100% (one sell closing three winning
+            # lots read as 3 wins / 1 sell → the "157% hit rate" card).
+            _m_cost = 0.0
+            _m_qty = 0.0
+            _m_first_t = None
             while qty_left > 0 and queue:
                 buy = queue[0]
+                if _m_first_t is None:
+                    _m_first_t = buy["t"]
                 take = min(qty_left, buy["qty"])
-                if tr["price"] > buy["price"]:
-                    n_wins += 1
+                _m_cost += take * buy["price"]
+                _m_qty += take
+                _entry_cost += take * buy["price"]
+                _realized_pnl += take * (tr["price"] - buy["price"])
+                _days_deployed += max(
+                    (pd.Timestamp(tr["t"]) - pd.Timestamp(buy["t"])).days, 0,
+                )
                 qty_left -= take
                 buy["qty"] -= take
                 if buy["qty"] <= 0:
                     queue.pop(0)
+            if _m_qty > 0:
+                # One row per SELL against its blended matched cost — the
+                # same unit the win is decided on. A row per matched lot
+                # would report three trades where the book saw one exit.
+                _avg_in = _m_cost / _m_qty
+                _gross = _m_qty * (tr["price"] - _avg_in)
+                closed_trades.append({
+                    "trade_id": len(closed_trades) + 1,
+                    "symbol": sym,
+                    "entry_date": str(pd.Timestamp(_m_first_t).date()),
+                    "entry_price": round(_avg_in, 4),
+                    "exit_date": str(pd.Timestamp(tr["t"]).date()),
+                    "exit_price": round(float(tr["price"]), 4),
+                    "quantity": int(_m_qty),
+                    "gross_pnl": round(_gross, 2),
+                    # This engine nets costs into the equity curve rather than
+                    # per trade, so a per-trade cost figure here would be an
+                    # invention. Reported as zero and net == gross, which is
+                    # what it actually knows.
+                    "costs": 0.0,
+                    "net_pnl": round(_gross, 2),
+                    "return_pct": round(
+                        (tr["price"] - _avg_in) / _avg_in, 6) if _avg_in else 0.0,
+                    "exit_reason": "exit_tree",
+                })
+            if _m_qty > 0 and tr["price"] * _m_qty > _m_cost:
+                n_wins += 1
     n_sells = sum(1 for t in trades if t["side"] == "sell")
     hit_rate_pct = round((n_wins / n_sells * 100) if n_sells else 0.0, 1)
+
+    # Still-open (never-sold) lots — mark them to the window's last known
+    # close and count them into the SAME deployed-capital totals. Without
+    # this, a pure buy-and-hold (no sells at all) always had
+    # _entry_cost == 0 / _days_deployed == 0, so return_on_deployed_pct
+    # came back None and capital_utilization_pct read "0% of the window"
+    # on a position that was, in fact, fully invested the whole time
+    # (reported 2026-07-14).
+    _window_end_ts = bars.index[-1] if len(bars.index) else None
+    open_lots: list[dict] = []
+    for sym, queue in by_symbol_buys.items():
+        sym_bars = symbol_bars.get(sym)
+        last_close = (
+            float(sym_bars["Close"].iloc[-1])
+            if sym_bars is not None and len(sym_bars) else None
+        )
+        for buy in queue:
+            if buy["qty"] <= 0:
+                continue
+            open_lots.append({
+                "symbol": sym,
+                "entry_date": str(pd.Timestamp(buy["t"]).date()),
+                "entry_price": round(float(buy["price"]), 4),
+                "quantity": int(buy["qty"]),
+            })
+            _entry_cost += buy["qty"] * buy["price"]
+            if last_close is not None:
+                _realized_pnl += buy["qty"] * (last_close - buy["price"])
+            if _window_end_ts is not None:
+                _days_deployed += max(
+                    (_window_end_ts - pd.Timestamp(buy["t"])).days, 0,
+                )
+
+    # Return on capital actually deployed (dollar-weighted, not
+    # annualized) — mirrors workflows/dsl/backtest/engine.py's
+    # `return_on_deployed_pct` / `capital_utilization_pct` (already
+    # wired into IndicatorBacktestCard's FE type + copy) so a fixed-qty
+    # signal strategy trading a small slice of the simulated capital
+    # pool doesn't read as a near-zero "whole-account" return just
+    # because most of the pool sat idle in cash. `_realized_pnl` also
+    # carries still-open lots' unrealized mark-to-market P&L (above) —
+    # "capital deployed" means every rupee ever put to work, closed or
+    # still held, not just completed round-trips.
+    return_on_deployed_pct = (
+        round(_realized_pnl / _entry_cost * 100, 2) if _entry_cost > 0 else None
+    )
+    _window_days = (
+        (bars.index[-1] - bars.index[0]).days if len(bars.index) >= 2 else 0
+    )
+    capital_utilization_pct = (
+        round(min(_days_deployed / _window_days, 1.0) * 100, 1)
+        if _window_days > 0 else None
+    )
 
     # Synthesise the whole rigor battery into one honest verdict + rationale.
     from backend.services.backtest.validation import trust_verdict
@@ -2521,8 +3342,46 @@ def backtest_workflow(
         "n_trades": n_trades,
         "n_wins": n_wins,
         "hit_rate_pct": hit_rate_pct,
+        # Contribution facts — a recurring/SIP shape is a series of buys, so a
+        # reply claiming "25 trades" on a 36-month SIP has nothing to check
+        # itself against. XIRR/money-weighted return is NOT computed; these are
+        # the inputs a reply needs to say so honestly (2026-07-17 eval, K31).
+        "n_buys": sum(1 for t in trades if t["side"] == "buy"),
+        "total_contributed_inr": round(
+            sum(t["qty"] * t["price"] for t in trades if t["side"] == "buy"), 2,
+        ),
+        "return_on_deployed_pct": return_on_deployed_pct,
+        "capital_utilization_pct": capital_utilization_pct,
         "benchmark_return_pct": bench_pct,
-        "starting_capital": _STARTING_CAPITAL,
+        # 'stated'   = the caller named their capital; that's the denominator.
+        # 'deployed' = no capital named: curve rebased to the peak capital the
+        #              strategy actually had at risk. The default for any
+        #              self-sizing-free run — fixed-qty, basket, SIP alike.
+        # 'pool'     = we could NOT honestly name a deployed figure: the
+        #              strategy sizes off available cash, or it holds a short
+        #              (margin, which we don't model). Assumed ₹10L; say so.
+        "capital_basis": capital_basis,
+        # Self-describing units, so a reply quotes a number on the RIGHT basis
+        # instead of guessing. The 2026-07-17 eval saw account-basis and
+        # deployed-basis percentages mixed inside one comparison table (K35),
+        # and a drawdown reported as "+2.7%" — both are unlabeled-number bugs.
+        "metric_legend": {
+            "capital_basis": _CAPITAL_BASIS_LEGEND[capital_basis],
+            "total_return_pct": (
+                f"% of ₹{capital:,.0f} — the {capital_basis} basis "
+                f"({_CAPITAL_BASIS_LEGEND[capital_basis]}). Use ONE basis for "
+                "every leg of a comparison, and say which one in your reply"
+            ),
+            "return_on_deployed_pct": (
+                "% on capital actually put to work (dollar-weighted, "
+                "not annualised) — differs from total_return_pct whenever "
+                "cash sat idle"
+            ),
+            "max_drawdown_pct": "already NEGATIVE (e.g. -6.3); never re-sign it",
+            "benchmark_return_pct": "buy & hold over the same window, net of one round-trip",
+            "cagr_pct": "calendar-annualised from the equity curve",
+        },
+        "starting_capital": capital,
         "ending_value": round(final_equity, 2),
         "forward_stats": forward_stats,
         "monte_carlo": monte_carlo,
@@ -2539,7 +3398,7 @@ def backtest_workflow(
         {
             "t": s["t"],
             "side": "buy" if s.get("side", "").startswith("buy") else "sell",
-            "price": s["price"],
+            "price": s.get("price", 0.0),
             "indicator_value": None,
         }
         for s in signals
@@ -2551,38 +3410,54 @@ def backtest_workflow(
     # -10% move on a large-cap). %-change thresholds are signed
     # fractions: -0.1 means -10%, so 0.1% is -0.001.
     if n_trades == 0:
-        zero_entry = any(
-            branch_fire_counts.get(i, 0) == 0
+        # WHY nothing traded depends on the zero-firing branch's TRIGGER TYPE.
+        # A price/indicator THRESHOLD that never crossed is a genuine "no
+        # opportunity" outcome; a SCHEDULE (e.g. quarterly rebalance) that
+        # fired zero times is a different, more suspicious situation — a
+        # periodic schedule should fire on its cadence regardless of any
+        # threshold, so 0 fires means it couldn't be simulated as specified,
+        # NOT that the market never gave it a chance. The two must not share an
+        # explanation: the "single-day move that large never happens" language
+        # only makes sense for a threshold crossing and is nonsensical (and
+        # misleading) for a schedule/basket strategy.
+        _THRESHOLD_TRIGGERS = {
+            "trigger.indicator", "trigger.price", "trigger.compound",
+            "trigger.global_price",
+        }
+        _SCHEDULE_TRIGGERS = {"trigger.schedule", "trigger.expiry_day"}
+        zero_branches = [
+            b for i, b in enumerate(elig.branches)
+            if branch_fire_counts.get(i, 0) == 0
             and b.trigger_type != "trigger.exit_compound"
-            for i, b in enumerate(elig.branches)
-        )
-        if zero_entry:
+        ]
+        if any(b.trigger_type in _THRESHOLD_TRIGGERS for b in zero_branches):
             elig.warnings.append(
                 "the entry condition never triggered across this period — "
                 "the threshold may be unreachable (e.g. a single-day move "
                 "that large never happens for this stock). Try a wider "
                 "lookback window (a multi-day dip) or a smaller threshold"
             )
+        elif any(b.trigger_type in _SCHEDULE_TRIGGERS for b in zero_branches):
+            elig.warnings.append(
+                "the scheduled entry produced no fills across this window — "
+                "a periodic schedule should fire on its cadence, so zero "
+                "fires means the strategy couldn't be simulated as specified "
+                "rather than that it had no opportunities. Treat this result "
+                "as inconclusive, not as evidence the strategy has no edge"
+            )
+        elif zero_branches:
+            elig.warnings.append(
+                "no entry fired across this period, so there's nothing to "
+                "stand on — treat this result as inconclusive"
+            )
 
     from backend.services.backtest_metrics import methodology_note
     _method = methodology_note(period_label=period)
-    _sharpe_txt = f" Sharpe {_sharpe:.2f}." if _sharpe is not None else ""
+    # Raw stat values — rendered into the results TABLE below (was prose
+    # bullets). `_conc` still feeds the fragility caveat.
     _psr = forward_stats.get("psr")
-    _psr_txt = (
-        f" PSR {_psr:.0%} (confidence the Sharpe is genuinely > 0)."
-        if isinstance(_psr, (int, float)) else ""
-    )
-    _mc_txt = (
-        f" Monte-Carlo: 5%-worst drawdown {monte_carlo['dd_p95_severity_pct']:.0f}%,"
-        f" P(end in loss) {monte_carlo['prob_loss']:.0%}."
-        if monte_carlo else ""
-    )
     _nt = forward_stats.get("num_trials") or 1
     _dsr = forward_stats.get("deflated_sharpe")
-    _dsr_txt = (
-        f" After {_nt} variants this session, deflated-Sharpe DSR {_dsr:.0%}."
-        if _nt > 1 and isinstance(_dsr, (int, float)) else ""
-    )
     _conc = (sub_periods or {}).get("concentration")
     _sp_txt = (
         f" ⚠ Fragile: {_conc:.0%} of the return came from a single sub-period."
@@ -2600,15 +3475,135 @@ def backtest_workflow(
             "the held position at the window end (unrealized), not a closed "
             "round-trip."
         )
-    summary = (
-        f"Verdict — {verdict['label']}: {verdict['rationale']} "
-        f"Backtested {name!r} on {primary_symbol} over {period}. "
-        f"Strategy returned {total_return_pct:+.1f}% across {n_trades} trade(s); "
-        f"buy-and-hold returned {bench_pct:+.1f}%.{_hold_txt}{_sharpe_txt}{_psr_txt} "
-        f"Results are {_method['costs']}, on {_method['basis']}.{_mc_txt}{_dsr_txt}{_sp_txt}"
+    # ── Basket detection ────────────────────────────────────────────────
+    # A weighted `action.allocate_basket`, OR ≥2 distinct long BUY place_orders
+    # with no exit, is a BASKET buy-and-hold — NOT a single-symbol scheduled/
+    # indicator strategy. Label + title it as a basket so the card doesn't show
+    # one leg's company name ("Bharat Petroleum…") + "Scheduled buy strategy"
+    # for what is actually an 8-name basket, and so the benchmark line is honest.
+    _basket_syms: list[str] = []
+    _has_allocate = False
+    for _b in elig.branches:
+        for _step in _b.body:
+            _st = _step.get("step_type")
+            _cfg = _step.get("config") or {}
+            if _st == "action.allocate_basket":
+                _has_allocate = True
+                for _leg in (_cfg.get("legs") or []):
+                    _s = str((_leg or {}).get("symbol") or "").upper().strip()
+                    if _s and _s not in _basket_syms:
+                        _basket_syms.append(_s)
+            elif _st == "action.place_order":
+                _side = str(_cfg.get("side") or _cfg.get("transaction_type") or "buy").lower()
+                _s = str(_cfg.get("symbol") or "").upper().strip()
+                if _s and ("buy" in _side or "long" in _side) and _s not in _basket_syms:
+                    _basket_syms.append(_s)
+    _is_basket = _has_allocate or (len(_basket_syms) >= 2 and n_sells == 0)
+    _strategy_kind = "basket" if _is_basket else "indicator"
+    _display_title: Optional[str] = None
+    _display_subtitle: Optional[str] = None
+    if _is_basket:
+        _nnames = len(_basket_syms)
+        _display_title = (
+            name if name and name.strip().lower() not in ("workflow", "")
+            else f"{_nnames}-name basket — buy & hold"
+        )
+        _rebal = "hold to end · no rebalance" if n_sells == 0 else "with rebalancing"
+        _display_subtitle = f"{_nnames}-name weighted basket · {_rebal}"
+
+    # ── Structured reply (sections, not a run-on paragraph) ─────────────
+    _cagr = metrics.get("cagr_pct")
+    _cagr_txt = (f" (CAGR {_cagr:+.1f}%/yr)"
+                 if isinstance(_cagr, (int, float)) else "")
+    _subject = (f"the {len(_basket_syms)}-name basket"
+                if _is_basket else primary_symbol)
+    # Report the ACTUAL tested span, not the requested `period` string — a
+    # "march 2025 → march 2026" ask can arrive with period='3y' while the
+    # real window is ~1y, and "over 3y" next to "266 daily bars" is a
+    # self-contradiction. Derive years from the window bounds.
+    try:
+        _y0 = datetime.fromisoformat(_win_start).date()
+        _y1 = datetime.fromisoformat(_win_end).date()
+        _actual_years: Optional[float] = max((_y1 - _y0).days, 1) / 365.25
+    except Exception:
+        _actual_years = None
+    _span_txt = f"~{_actual_years:.1f}y" if _actual_years else period
+    # ── Results TABLE (structured, not a bullet run-on) ─────────────────
+    # Verdict + method + notes stay prose; the numbers go in a compact
+    # two-column table the reader can scan. Signed values keep their +/-
+    # so the FE colours gains green / losses red inside the table cells.
+    # NOTE: no `**bold**` inside table cells — the FE table renderer treats
+    # each cell as a raw string, so markdown emphasis leaks literal asterisks.
+    # Signed values are coloured by the table's own gain/loss colouring.
+    _mrows: list[tuple[str, str]] = [
+        ("Strategy return", f"{total_return_pct:+.1f}%{_cagr_txt}"),
+    ]
+    if return_on_deployed_pct is not None:
+        # Un-annualized, dollar-weighted return on capital actually put at
+        # risk — distinct from "Strategy return" above, which is diluted by
+        # however long capital sat idle in cash (a fixed-qty signal trade
+        # deploying ₹1k of a simulated ₹10L pool otherwise reads as ~0%
+        # even when every individual trade had real edge). Shown together
+        # with the utilization row so it can't read as "always this good".
+        _mrows.append(("Return on capital deployed", f"{return_on_deployed_pct:+.1f}%"))
+    if capital_utilization_pct is not None:
+        _mrows.append(("Capital deployed", f"{capital_utilization_pct:.0f}% of the window"))
+    _bench_note = ""
+    if _is_basket and not bench_sym and _bh_resolvable:
+        _mrows.append(("Buy & hold (ideal weights)", f"{bench_pct:+.1f}%"))
+    elif _is_basket and not bench_sym:
+        # Couldn't resolve every leg's bars — no basket-wide benchmark to show.
+        _bench_note = ("Add a benchmark (e.g. `NIFTYBEES`) to compare vs the "
+                       "index.")
+    elif bench_sym:
+        _mrows.append((f"Benchmark ({bench_sym})", f"{bench_pct:+.1f}%"))
+    else:
+        _mrows.append(("Buy & hold", f"{bench_pct:+.1f}%"))
+    _mrows.append(("Trades", f"{n_trades} on {_subject} over {_span_txt}"))
+    if _sharpe is not None:
+        _mrows.append(("Sharpe", f"{_sharpe:.2f}"))
+    if isinstance(_psr, (int, float)):
+        _mrows.append(("PSR", f"{_psr:.0%}"))
+    if _nt > 1 and isinstance(_dsr, (int, float)):
+        _mrows.append((f"Deflated Sharpe ({_nt} variants)", f"{_dsr:.0%}"))
+    if monte_carlo:
+        _mrows.append(("Monte-Carlo 5%-worst drawdown",
+                       f"{monte_carlo['dd_p95_severity_pct']:.0f}%"))
+        _mrows.append(("P(end in loss)", f"{monte_carlo['prob_loss']:.0%}"))
+    _table = "| Metric | Value |\n| --- | --- |\n" + "\n".join(
+        f"| {_k} | {_v} |" for _k, _v in _mrows
     )
+    _bar_label = {
+        "1d": "daily", "1wk": "weekly", "1mo": "monthly",
+        "1h": "hourly", "1m": "1-minute", "3m": "3-minute",
+        "5m": "5-minute", "10m": "10-minute", "15m": "15-minute",
+        "30m": "30-minute",
+    }.get(norm_interval, f"{norm_interval}")
+    _partial_note = (
+        "partial-day bar excluded" if not _is_intraday_iv(norm_interval)
+        else "unclosed last bar excluded"
+    )
+    _lines = [
+        f"**Verdict — {verdict['label']}.** {verdict['rationale']}",
+        "",
+        _table,
+    ]
+    # Textual caveats that don't belong inside the metric table.
+    for _cav in (_hold_txt.strip(), _bench_note, _sp_txt.strip()):
+        if _cav:
+            _lines += ["", _cav]
+    _lines += [
+        "",
+        (
+            f"_Method: results are {_method['costs']}, on {_method['basis']}. "
+            f"Window {_win_start} → {_win_end} · {_n_bars} {_bar_label} bars "
+            f"({_partial_note})._"
+        ),
+    ]
     if elig.warnings:
-        summary += " Notes: " + "; ".join(elig.warnings[:3]) + "."
+        _lines.append("")
+        _lines.append(f"_Notes: {'; '.join(elig.warnings[:3])}._")
+    summary = "\n".join(_lines)
 
     # Pull a meaningful indicator label + series for the chart card's
     # bottom panel. The card titles the panel "<INDICATOR>(<PERIOD>)"
@@ -2641,7 +3636,7 @@ def backtest_workflow(
         chart_threshold = float(cfg.get("value") or 0.0)
         if series is not None:
             chart_curve = [
-                {"t": ts.date().isoformat(), "v": round(float(v), 4)}
+                {"t": _fmt_bar_ts(ts), "v": round(float(v), 4)}
                 for ts, v in series.dropna().items()
             ]
         break
@@ -2668,4 +3663,14 @@ def backtest_workflow(
         bench_buy_hold_return_pct=bench_pct,
         summary_text=summary,
         methodology=_method,
+        strategy_kind=_strategy_kind,
+        display_title=_display_title,
+        display_subtitle=_display_subtitle,
+        window_start=_win_start,
+        window_end=_win_end,
+        n_bars=_n_bars,
+        bar_interval=norm_interval,
+        benchmark_label=_bench_label,
+        trades=closed_trades,
+        open_lots=open_lots,
     )

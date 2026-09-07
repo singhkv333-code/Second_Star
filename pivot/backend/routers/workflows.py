@@ -759,7 +759,11 @@ class _WorkflowsSummaryResponse(BaseModel):
     trades_6mo: _TradeScorecard = Field(default_factory=_TradeScorecard)
     daily_pnl: list[_DailyPnlPoint] = Field(default_factory=list)
     strategy_returns: list[_StrategyReturn] = Field(default_factory=list)
+    # Lifetime Total P&L (nav − starting_capital) — the SAME canonical figure
+    # the header / Portfolio tab show. The daily_pnl grid below stays a trailing
+    # 6-month texture, but this headline must agree across surfaces.
     total_pnl: float = 0.0
+    total_pnl_pct: float = 0.0
     has_data: bool = False
 
 
@@ -856,9 +860,8 @@ def workflows_summary(
             ),
         )
 
-    # ── Daily P&L from NAV day-over-day deltas ───────────────────────
+    # ── Daily P&L grid: trailing-6mo NAV day-over-day deltas (texture only) ──
     daily_pnl: list[_DailyPnlPoint] = []
-    total_pnl = 0.0
     if account is not None:
         snaps = (
             db.query(PaperNavSnapshot)
@@ -873,16 +876,45 @@ def workflows_summary(
         for snap in snaps:
             nav = float(snap.nav)
             if prev_nav is not None:
-                pnl = round(nav - prev_nav, 2)
                 daily_pnl.append(
                     _DailyPnlPoint(
                         date=snap.as_of_date.isoformat(),
-                        pnl=pnl,
+                        pnl=round(nav - prev_nav, 2),
                     )
                 )
-                total_pnl += pnl
             prev_nav = nav
-        total_pnl = round(total_pnl, 2)
+
+    # ── Headline Total P&L: the ONE canonical figure. Reuse the shared
+    # account_summary (nav − starting_capital, marked live) so the agents chip
+    # can never disagree with the header / Portfolio tab. NOT the 6-month
+    # snapshot telescoping sum, whose baseline floats as old snaps age out.
+    total_pnl = 0.0
+    total_pnl_pct = 0.0
+    day_pnl_live: Optional[float] = None
+    if account is not None:
+        try:
+            from backend.paper.portfolio import account_summary
+
+            acct = account_summary(db, user_id)
+            if acct.get("exists"):
+                total_pnl = float(acct.get("total_pnl") or 0.0)
+                total_pnl_pct = float(acct.get("total_pnl_pct") or 0.0)
+                day_pnl_live = float(acct.get("day_pnl") or 0.0)
+        except Exception:  # noqa: BLE001 — headline must not break the summary
+            logger.debug("account_summary total_pnl failed", exc_info=True)
+
+    # TODAY's heatmap cell must equal the header's Day P&L (live intraday mark),
+    # not a partial NAV-snapshot delta — so hovering today agrees with the
+    # header. Overwrite (or append) today's point with the live figure.
+    if day_pnl_live is not None:
+        today_iso = now.date().isoformat()
+        today_val = round(day_pnl_live, 2)
+        for i, p in enumerate(daily_pnl):
+            if p.date == today_iso:
+                daily_pnl[i] = _DailyPnlPoint(date=today_iso, pnl=today_val)
+                break
+        else:
+            daily_pnl.append(_DailyPnlPoint(date=today_iso, pnl=today_val))
 
     # ── Per-agent sparkline + returns + run stats, batched for EVERY
     # workflow ── The Agents tab used to fire one GET
@@ -992,6 +1024,7 @@ def workflows_summary(
         daily_pnl=daily_pnl,
         strategy_returns=strategy_returns,
         total_pnl=total_pnl,
+        total_pnl_pct=total_pnl_pct,
         has_data=has_data,
     )
 
@@ -1095,6 +1128,23 @@ def _register_armed_idea(db: Session, user_id: int, wf) -> None:
     db.commit()
 
 
+def _schedule_window_minutes(wf: Workflow) -> Optional[int]:
+    """Shortest bounded window (``duration_minutes``) across the workflow's
+    ``trigger.schedule`` steps, or None if none of them bounds its window.
+
+    Backs "every 5 min FOR THE NEXT HOUR" agents: the trigger carries the
+    duration; activation turns the SHORTEST such window into a concrete
+    ``expires_at`` so the scheduler auto-pauses the agent once it elapses.
+    """
+    windows: list[int] = []
+    for s in wf.steps:
+        if s.step_type == "trigger.schedule":
+            d = (s.config or {}).get("duration_minutes")
+            if isinstance(d, int) and d > 0:
+                windows.append(d)
+    return min(windows) if windows else None
+
+
 @router.post(
     "/workflows/{workflow_id}/activate",
     response_model=WorkflowOut,
@@ -1130,6 +1180,19 @@ def activate_workflow(
 
     wf.status = WorkflowStatus.active
     wf.activated_at = datetime.now(timezone.utc)
+    # Bounded recurring schedules ("every 5 min for the next hour"): the
+    # trigger.schedule step carries `duration_minutes`; anchor the workflow's
+    # expires_at at activation + the SHORTEST such window. The scheduler
+    # already refuses to fire — and auto-pauses — any workflow past its
+    # expires_at (_poll_due_workflows R4b), so no scheduler change is needed;
+    # this is what makes "for the next hour" actually stop after an hour
+    # instead of firing forever. Only tighten (never loosen) a pre-existing
+    # expiry so an IPO/event window set elsewhere still wins if it's sooner.
+    _window_min = _schedule_window_minutes(wf)
+    if _window_min is not None:
+        _window_expiry = wf.activated_at + timedelta(minutes=_window_min)
+        if wf.expires_at is None or _window_expiry < wf.expires_at:
+            wf.expires_at = _window_expiry
     # Compute `next_run_at` for trigger.schedule workflows. Invalid
     # cron / timezone fails the activation 422 (closes reviewer
     # Day-2 edge case #1 — never silently arm a dead schedule).
@@ -1156,25 +1219,6 @@ def activate_workflow(
             "[workflows.activate] armed-idea registration failed wf=%s",
             workflow_id,
         )
-
-    # Polymarket immediate-reconcile: if this workflow contains any
-    # trigger.polymarket step, poke the WS supervisor so the
-    # subscription opens within an event-loop tick instead of waiting
-    # up to 30s for the next reconcile cadence. Guarded — never let a
-    # subscription failure block activation (the next reconcile picks
-    # it up regardless).
-    if any(s.step_type == "trigger.polymarket" for s in wf.steps):
-        try:
-            from backend.news_events.workers.polymarket_ws_worker import (
-                request_immediate_reconcile,
-            )
-            request_immediate_reconcile()
-        except Exception:  # noqa: BLE001
-            logger.exception(
-                "[workflows.activate] polymarket immediate-reconcile failed "
-                "for workflow_id=%s",
-                workflow_id,
-            )
 
     _ph = get_posthog()
     if _ph:
@@ -1558,6 +1602,15 @@ class _BacktestDraftRequest(BaseModel):
             "yfinance period: 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, max."
         ),
     )
+    interval: str = Field(
+        default="1d",
+        description=(
+            "Bar interval. Daily by default; intraday accepted (1h, "
+            "15m, 5m, 30m — normalised via core.data.intervals). Data "
+            "windows for intraday are shallow (yfinance 1h=730d, Kite "
+            "1h=400d) and clamped honestly rather than fabricated."
+        ),
+    )
 
 
 @router.post(
@@ -1595,6 +1648,7 @@ async def backtest_draft(
             body.steps,
             period=body.period,
             name=body.name,
+            interval=body.interval,
         )
     except ValueError as e:
         return {
@@ -1621,6 +1675,14 @@ async def backtest_draft(
         "signals": result.signals,
         "metrics": result.metrics,
         "bench_buy_hold_return_pct": result.bench_buy_hold_return_pct,
+        "benchmark_label": getattr(result, "benchmark_label", None),
         "methodology": result.methodology,
         "summary": result.summary_text,
+        "strategy_kind": getattr(result, "strategy_kind", "indicator"),
+        "display_title": getattr(result, "display_title", None),
+        "display_subtitle": getattr(result, "display_subtitle", None),
+        "window_start": result.window_start,
+        "window_end": result.window_end,
+        "n_bars": result.n_bars,
+        "bar_interval": result.bar_interval,
     }

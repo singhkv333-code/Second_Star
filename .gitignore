@@ -69,3 +69,9 @@ Thumbs.db
 pivot/scripts/strategy_research/**/_cache/
 pivot/scripts/strategy_research/**/*.parquet
 pivot/scripts/strategy_research/**/*.pkl
+
+# Operational DB-backfill artifacts (not source)
+pivot/backups/
+
+# pnpm content-addressable store — a local cache, never source.
+.pnpm-store/

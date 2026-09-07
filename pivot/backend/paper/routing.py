@@ -248,7 +248,11 @@ def submit_order(
         return PaperBroker(db, uid).place_order(
             tradingsymbol=symbol,
             transaction_type=side,
-            quantity=int(quantity),
+            # Pass RAW quantity — PaperBroker.place_order quantizes by asset
+            # class (whole shares/lots for Indian, fractional for US/crypto).
+            # int() here would truncate a 2.5-share US leg to 2 before it ever
+            # reached the fractional-aware book.
+            quantity=quantity,
             order_type=ot,
             exchange=exchange,
             price=price,
@@ -465,6 +469,15 @@ def submit_order_for_user(
     source: str = "chat",
     conversation_id: Optional[str] = None,
     label: Optional[str] = None,
+    origin_kind: str = "chat",
+    strategy_id: Optional[int] = None,
+    # Optional mark override for the PAPER path (symbol -> price). A caller
+    # that has already priced its legs (e.g. views place-basket, which sizes
+    # every leg before submitting) passes the same marks here so the broker
+    # doesn't re-pay a per-symbol quote round-trip per order — a 7-leg basket
+    # was taking ~6s/leg refetching marks the endpoint had just computed.
+    # Ignored on the live-broker path (the broker prices its own fills).
+    price_fn: Optional[Any] = None,
     **_ignored: Any,
 ) -> dict:
     uid = int(user_id)
@@ -473,10 +486,14 @@ def submit_order_for_user(
     ot = str(order_type).upper()
 
     if should_use_paper(db, uid):
-        return PaperBroker(db, uid).place_order(
+        return PaperBroker(db, uid, price_fn=price_fn).place_order(
             tradingsymbol=symbol,
             transaction_type=side,
-            quantity=int(quantity),
+            # Pass RAW quantity — PaperBroker.place_order quantizes by asset
+            # class (whole shares/lots for Indian, fractional for US/crypto).
+            # int() here would truncate a 2.5-share US leg to 2 before it ever
+            # reached the fractional-aware book.
+            quantity=quantity,
             order_type=ot,
             exchange=exchange,
             price=price,
@@ -485,8 +502,9 @@ def submit_order_for_user(
             variety=variety,
             client_request_id=client_request_id,
             source=source,
-            origin_kind="chat",
+            origin_kind=origin_kind,
             conversation_id=conversation_id,
+            strategy_id=strategy_id,
             # Chat idea label = the SYMBOL (not side+symbol), so a BUY and a
             # later SELL of the same symbol in one conversation attribute to
             # ONE idea (the chat natural key is conversation_id+label). The

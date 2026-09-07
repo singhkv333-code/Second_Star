@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session
 
 from backend.auth.jwt_handler import get_user_id_from_token
 from backend.database import get_db
-from backend.models import OptionStrategy
+from backend.models import OptionStrategy, PaperOrder
 from backend.safety import run_option_pretrade_gate
 from backend.services.option_strategies import (
     StrategyResolutionError,
@@ -310,6 +310,110 @@ async def withdraw_option_strategy(
     }
 
 
+@router.post("/option-strategies/{strategy_id}/close")
+async def close_option_strategy(
+    strategy_id: str,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_user_id),
+) -> dict:
+    """Square off (exit) every leg of an ACTIVE paper-book strategy at the
+    live chain and flip status to 'closed'. A live-book strategy never
+    reaches 'active' (register-not-execute — it stays a registered intent
+    forever), so this only ever fires for paper rows; asking to close one
+    in any other status is refused with an honest message rather than a
+    silent no-op."""
+    strategy = (
+        db.query(OptionStrategy)
+        .filter(
+            OptionStrategy.id == strategy_id,
+            OptionStrategy.user_id == user_id,
+        )
+        .first()
+    )
+    if strategy is None:
+        raise HTTPException(404, "Strategy not found")
+
+    if strategy.book != "paper":
+        return {
+            "success": False,
+            "strategy": serialize_option_strategy(strategy),
+            "execution": None,
+            "error": (
+                "Live strategies are register-not-execute — square off each "
+                "leg in your broker app."
+            ),
+        }
+    if strategy.status != "active":
+        return {
+            "success": False,
+            "strategy": serialize_option_strategy(strategy),
+            "execution": None,
+            "error": f"Cannot close a strategy in status '{strategy.status}'.",
+        }
+
+    from backend.paper.options_routing import OptionFillError, close_option_strategy as _close
+
+    try:
+        execution = _close(db, user_id, strategy)
+    except OptionFillError as exc:
+        db.rollback()
+        return {
+            "success": False,
+            "strategy": serialize_option_strategy(strategy),
+            "execution": None,
+            "error": str(exc),
+        }
+    if not execution.get("success"):
+        db.rollback()
+        return {
+            "success": False,
+            "strategy": serialize_option_strategy(strategy),
+            "execution": execution,
+            "error": execution.get("error"),
+        }
+    db.commit()
+    db.refresh(strategy)
+    return {
+        "success": True,
+        "strategy": serialize_option_strategy(strategy),
+        "execution": execution,
+        "error": None,
+    }
+
+
+def _reconcile_phantom_active(db: Session, rows: list[OptionStrategy]) -> None:
+    """Never present an option strategy as ACTIVE unless it was genuinely
+    activated (executed). A strategy only legitimately reaches 'active' via
+    submit_option_strategy, which fills every leg first — so an 'active' row
+    with ZERO filled orders was never really executed (a legacy status set
+    outside the fill path, or a paper-book reset that wiped its fills). Heal
+    those to 'withdrawn' so they stop showing active. Idempotent; a genuinely
+    filled strategy is untouched. Best-effort — never blocks the read."""
+    active_ids = [s.id for s in rows if s.status == "active"]
+    if not active_ids:
+        return
+    filled = {
+        r[0]
+        for r in db.query(PaperOrder.option_strategy_id)
+        .filter(
+            PaperOrder.option_strategy_id.in_(active_ids),
+            PaperOrder.status == "filled",
+        )
+        .distinct()
+        .all()
+    }
+    changed = False
+    for s in rows:
+        if s.status == "active" and s.id not in filled:
+            s.status = "withdrawn"
+            changed = True
+    if changed:
+        try:
+            db.commit()
+        except Exception:  # noqa: BLE001 — reconciliation must never break the list
+            db.rollback()
+
+
 @router.get("/users/option-strategies")
 async def list_option_strategies(
     db: Session = Depends(get_db),
@@ -322,6 +426,7 @@ async def list_option_strategies(
         .limit(100)
         .all()
     )
+    _reconcile_phantom_active(db, rows)
     return {"strategies": [serialize_option_strategy(s) for s in rows]}
 
 

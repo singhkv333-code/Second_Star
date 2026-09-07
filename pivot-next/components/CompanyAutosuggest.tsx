@@ -28,6 +28,7 @@ import { searchCompanies, type CompanySearchResult } from "@/lib/api";
 import { isError } from "@/lib/types";
 import { CompanyLogo } from "@/components/CompanyLogo";
 import { VoiceInputButton } from "@/components/VoiceInputButton";
+import { ChartNoAxesCombined } from "lucide-react";
 
 interface CompanyAutosuggestProps {
   placeholder?: string;
@@ -37,6 +38,7 @@ interface CompanyAutosuggestProps {
   inputDataTestId?: string;
   /** Render a mic that dictates the query (browser recording → English). */
   enableVoice?: boolean;
+  onOpenChart?: (symbol: string) => void;
 }
 
 // Debounce interval in ms — short enough to feel live, long enough to
@@ -81,6 +83,7 @@ export function CompanyAutosuggest({
   autoFocus,
   inputDataTestId,
   enableVoice,
+  onOpenChart,
 }: CompanyAutosuggestProps): React.ReactElement {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<CompanySearchResult[]>([]);
@@ -183,6 +186,23 @@ export function CompanyAutosuggest({
       setHighlighted(0);
     },
     [onSelect],
+  );
+
+  const handleOpenChart = useCallback(
+    (result: CompanySearchResult): void => {
+      if (!onOpenChart) return;
+      onOpenChart(result.symbol);
+      setRecent((prev) => {
+        const next = [result, ...prev.filter((x) => x.symbol !== result.symbol)].slice(0, RECENT_MAX);
+        saveRecent(next);
+        return next;
+      });
+      setQuery("");
+      setResults([]);
+      setOpen(false);
+      setHighlighted(0);
+    },
+    [onOpenChart],
   );
 
   const clearRecent = useCallback((): void => {
@@ -292,6 +312,7 @@ export function CompanyAutosuggest({
             boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
             maxHeight: 280,
             overflowY: "auto",
+            overflowX: "hidden",
           }}
         >
           {showingRecent && (
@@ -339,31 +360,10 @@ export function CompanyAutosuggest({
               highlighted={highlighted === i}
               onMouseEnter={() => setHighlighted(i)}
               onSelect={handleSelect}
+              onOpenChart={onOpenChart ? handleOpenChart : undefined}
             />
           ))}
 
-          {/* logo.dev attribution — required wherever logos render */}
-          <li
-            role="presentation"
-            style={{
-              padding: "5px 14px 3px",
-              fontSize: 10,
-              color: "var(--text-tertiary)",
-              borderTop: "1px solid var(--glass-border)",
-              marginTop: 2,
-            }}
-          >
-            Logos provided by{" "}
-            <a
-              href="https://logo.dev"
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ color: "inherit", textDecoration: "underline" }}
-              onMouseDown={(e) => e.stopPropagation()}
-            >
-              Logo.dev
-            </a>
-          </li>
         </ul>
       )}
 
@@ -394,12 +394,14 @@ function DropdownRow({
   highlighted,
   onMouseEnter,
   onSelect,
+  onOpenChart,
 }: {
   result: CompanySearchResult;
   index: number;
   highlighted: boolean;
   onMouseEnter: () => void;
   onSelect: (r: CompanySearchResult) => void;
+  onOpenChart?: (result: CompanySearchResult) => void;
 }): React.ReactElement {
   return (
     <li
@@ -418,6 +420,9 @@ function DropdownRow({
         alignItems: "center",
         gap: 10,
         padding: "7px 14px",
+        width: "100%",
+        minWidth: 0,
+        boxSizing: "border-box",
         cursor: "pointer",
         background: highlighted ? "var(--surface-hover)" : "transparent",
         transition: "background 0.1s",
@@ -441,6 +446,10 @@ function DropdownRow({
           letterSpacing: "0.03em",
           color: "var(--text-primary)",
           minWidth: 60,
+          maxWidth: 92,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
         }}
       >
         {result.symbol}
@@ -450,6 +459,7 @@ function DropdownRow({
       <span
         style={{
           flex: 1,
+          minWidth: 0,
           fontFamily: "var(--font-ui)",
           fontSize: 12.5,
           color: "var(--text-primary)",
@@ -465,14 +475,43 @@ function DropdownRow({
       {result.sector && (
         <span
           style={{
-            flexShrink: 0,
+            minWidth: 0,
+            maxWidth: 84,
             fontFamily: "var(--font-ui)",
             fontSize: 11,
             color: "var(--text-tertiary)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
           }}
         >
           {result.sector}
         </span>
+      )}
+      {onOpenChart && (
+        <button
+          type="button"
+          aria-label={`Open ${result.symbol} chart`}
+          title="Open chart"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onOpenChart(result);
+          }}
+          className="inline-flex shrink-0 items-center justify-center"
+          style={{
+            width: 26,
+            height: 26,
+            padding: 0,
+            border: 0,
+            borderRadius: "var(--radius-sm)",
+            background: "transparent",
+            color: "var(--text-tertiary)",
+            cursor: "pointer",
+          }}
+        >
+          <ChartNoAxesCombined size={15} strokeWidth={1.9} aria-hidden="true" />
+        </button>
       )}
     </li>
   );

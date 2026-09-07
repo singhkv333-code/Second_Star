@@ -22,11 +22,32 @@ from backend.kite.auth import read_kite_access_token
 from backend.agents.explainer import explain_order
 from backend.posthog_client import get_posthog
 from backend.safety import validate_order_value
-from backend.utils.time_utils import format_ist, now_ist
+from backend.utils.time_utils import (
+    format_ist,
+    is_market_open,
+    next_market_open,
+    now_ist,
+)
+from backend.brokers.registry import get_connector
 import logging
 
 router = APIRouter(prefix="/orders", tags=["Orders"])
 logger = logging.getLogger(__name__)
+
+# TradeLog statuses that represent a still-open order the user can cancel
+# before it executes. Everything else (filled / complete / cancelled /
+# rejected) is terminal and lives in /orders/history. Compared lower-cased so
+# broker-specific casings ("PENDING", "TRIGGER PENDING") all match.
+_CANCELLABLE_STATUSES = {
+    "queued",
+    "pending",
+    "registered",
+    "open",
+    "trigger pending",
+    "amo req received",
+    "put order req received",
+    "validation pending",
+}
 
 
 class OrderPreviewRequest(BaseModel):
@@ -221,17 +242,107 @@ def get_order_history(
     auth: tuple = Depends(get_current_user_token),
     db: Session = Depends(get_db),
     limit: int = 20,
+    offset: int = 0,
 ):
-    """Get recent order history for the current user."""
+    """Get recent order history for the current user (paged, newest first)."""
     user_id, _ = auth
     trades = (db.query(TradeLog)
               .filter(TradeLog.user_id == user_id)
               .order_by(TradeLog.placed_at.desc())
+              .offset(max(0, int(offset)))
               .limit(limit).all())
     return [{"id": t.id, "symbol": t.symbol, "action": t.transaction_type,
              "quantity": t.quantity, "status": t.status,
              "placed_at": format_ist(t.placed_at)}
             for t in trades]
+
+
+@router.get("/open")
+def get_open_orders(
+    auth: tuple = Depends(get_current_user_token),
+    db: Session = Depends(get_db),
+):
+    """List the user's still-open (cancellable) orders.
+
+    These are orders that have not yet executed: AMOs queued while the market
+    was closed, resting LIMIT / trigger orders, and anything the broker still
+    reports as not-yet-complete. Filled / cancelled / rejected orders are
+    terminal and appear in /orders/history instead.
+    """
+    user_id, _ = auth
+    trades = (db.query(TradeLog)
+              .filter(TradeLog.user_id == user_id)
+              .order_by(TradeLog.placed_at.desc())
+              .limit(100).all())
+    open_rows = [t for t in trades
+                 if str(t.status).lower() in _CANCELLABLE_STATUSES]
+    return [{
+        "id": t.id, "symbol": t.symbol, "exchange": t.exchange,
+        "transaction_type": t.transaction_type, "order_type": t.order_type,
+        "quantity": t.quantity, "price": t.price,
+        "trigger_price": t.trigger_price, "status": t.status,
+        "queued": str(t.status).lower() == "queued",
+        "placed_at": format_ist(t.placed_at),
+    } for t in open_rows]
+
+
+@router.post("/{order_id}/cancel")
+def cancel_order_route(
+    order_id: int,
+    auth: tuple = Depends(get_current_user_token),
+    db: Session = Depends(get_db),
+):
+    """Cancel a still-open order before it executes.
+
+    Marks the TradeLog row 'cancelled'. For a LIVE order that reached a real
+    broker (a session exists, a broker order id is stored, and we're not in
+    mock mode), we also ask the broker to cancel — best-effort: a broker error
+    is reported but never leaves the user with an un-cancellable local row, so
+    the local state is authoritative for the UI. Terminal orders (filled /
+    cancelled / rejected) return 409.
+    """
+    user_id, _ = auth
+    row = (db.query(TradeLog)
+           .filter(TradeLog.id == order_id, TradeLog.user_id == user_id)
+           .first())
+    if row is None:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if str(row.status).lower() not in _CANCELLABLE_STATUSES:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Order is '{row.status}' and can no longer be cancelled.",
+        )
+
+    broker_note: Optional[str] = None
+    session = get_active_broker_session(db, user_id)
+    if session is not None and row.kite_order_id and not kite_auth.KITE_MOCK_MODE:
+        try:
+            get_connector(session.broker).cancel_order(session, row.kite_order_id)
+        except Exception as exc:  # noqa: BLE001 — local cancel still proceeds
+            logger.warning(
+                "broker cancel failed for order %s (%s): %s",
+                row.id, row.kite_order_id, exc,
+            )
+            broker_note = (
+                "Marked cancelled here, but the broker could not confirm — "
+                "verify in your broker app."
+            )
+
+    row.status = "cancelled"
+    db.commit()
+    db.refresh(row)
+
+    _ph = get_posthog()
+    if _ph:
+        _ph.capture("order_cancelled", distinct_id=str(user_id), properties={
+            "symbol": row.symbol,
+            "order_type": row.order_type,
+        })
+
+    return {
+        "id": row.id, "symbol": row.symbol, "status": row.status,
+        "broker_note": broker_note,
+    }
 
 
 class OrderRegisterLeg(BaseModel):
@@ -283,7 +394,14 @@ class OrderRegisterRequest(BaseModel):
 
 
 def _persist_leg(
-    db: Session, user_id: int, leg: dict, *, conversation_id: Optional[str] = None,
+    db: Session,
+    user_id: int,
+    leg: dict,
+    *,
+    conversation_id: Optional[str] = None,
+    origin_kind: str = "chat",
+    strategy_id: Optional[int] = None,
+    label: Optional[str] = None,
 ) -> TradeLog:
     """Persist a chat order intent as a TradeLog row, routing it by the
     account's paper-vs-live mode.
@@ -307,6 +425,21 @@ def _persist_leg(
     side = leg["transaction_type"]
     order_type = str(leg["order_type"]).upper()
     qty = int(leg["quantity"])
+
+    # IDEMPOTENCY: /orders/register previously passed NO client_request_id, so a
+    # double-click or a client retry of a timed-out POST created two paper fills
+    # for one intended order. Derive a stable key from the leg contents +
+    # conversation + a coarse time bucket: a rapid re-submit lands in the same
+    # bucket → the paper broker dedups it; a deliberate identical re-order later
+    # falls in a new bucket and is allowed. (/confirm and /gtt already do this.)
+    import hashlib as _hashlib
+    import time as _time
+    _sig = f"{symbol}|{side}|{qty}|{leg.get('price')}|{order_type}|{leg.get('trigger_price')}|{conversation_id}"
+    _bucket = int(_time.time() // 15)  # 15s dedup window
+    _crid = (
+        f"chat-register:{user_id}:"
+        f"{_hashlib.sha1(_sig.encode()).hexdigest()[:16]}:{_bucket}"
+    )
 
     paper = should_use_paper(db, user_id)
 
@@ -351,6 +484,7 @@ def _persist_leg(
                 last_price=float(mark) if mark is not None else float(leg["trigger_price"]),
                 source="chat",
                 conversation_id=conversation_id,
+                client_request_id=f"{_crid}:gtt",
             )
             broker_order_id = (
                 str(result.get("trigger_id") or result.get("order_id") or "") or None
@@ -368,6 +502,10 @@ def _persist_leg(
                 trigger_price=leg.get("trigger_price"),
                 source="chat",
                 conversation_id=conversation_id,
+                client_request_id=_crid,
+                origin_kind=origin_kind,
+                strategy_id=strategy_id,
+                label=label,
             )
             broker_order_id = result.get("order_id")
         # paper_status (simulated book: filled/resting/rejected/pending) takes
@@ -395,6 +533,23 @@ def _persist_leg(
             )
         # PAPER/transient routing failure must not lose intent — register it.
         order_status = "registered"
+
+    # After-market handling: a LIVE MARKET/LIMIT order placed outside NSE
+    # hours cannot fill now — the exchange queues it for the next session (an
+    # AMO / after-market order). The Kite mock optimistically reports
+    # "COMPLETE", so without this override the card would claim an impossible
+    # instant fill on a closed market. Mark it 'queued' so the UI shows
+    # "executes at next open" and it lands in the cancellable open-orders
+    # blotter. Paper mode is a simulator (fills are intentionally instant) and
+    # GTTs already rest by nature, so neither is touched here.
+    if (
+        not paper
+        and order_type in {"MARKET", "LIMIT"}
+        and not is_market_open()
+        and "reject" not in str(order_status).lower()
+        and "cancel" not in str(order_status).lower()
+    ):
+        order_status = "queued"
 
     row = TradeLog(
         user_id=user_id,
@@ -534,6 +689,21 @@ def _arm_bracket_exits(
     return exits, None
 
 
+def _is_queued_status(status: str, order_type: str) -> bool:
+    """True for an order that rested instead of filling because the market
+    was closed at placement — the LIVE path stamps this ``"queued"`` (see
+    the after-market override in ``_persist_leg`` above); the PAPER broker
+    stamps the very same situation ``"resting"`` for a MARKET order (see the
+    market-hours gate in ``paper/broker.py``). A LIMIT/SL order also rests
+    as ``"resting"``, but for a different reason (price not hit yet, not
+    market-closed) — so that case must NOT trip the "market closed, will
+    execute at next open" messaging."""
+    s = str(status).lower()
+    if s == "queued":
+        return True
+    return s == "resting" and str(order_type).upper() == "MARKET"
+
+
 @router.post("/register", status_code=201)
 async def register_order(
     request: OrderRegisterRequest,
@@ -569,11 +739,14 @@ async def register_order(
                     "transaction_type": r.transaction_type, "order_type": r.order_type,
                     "quantity": r.quantity, "price": r.price,
                     "trigger_price": r.trigger_price, "status": r.status,
+                    "queued": _is_queued_status(r.status, r.order_type),
                     "placed_at": format_ist(r.placed_at),
                 }
                 for r in rows
             ],
             "count": len(rows),
+            "market_open": is_market_open(),
+            "next_open": format_ist(next_market_open(), include_seconds=False),
         }
 
     # Single leg.
@@ -622,6 +795,9 @@ async def register_order(
         "transaction_type": row.transaction_type, "order_type": row.order_type,
         "quantity": row.quantity, "price": row.price,
         "trigger_price": row.trigger_price, "status": row.status,
+        "queued": _is_queued_status(row.status, row.order_type),
+        "market_open": is_market_open(),
+        "next_open": format_ist(next_market_open(), include_seconds=False),
         "placed_at": format_ist(row.placed_at),
         "exits": exits,
         "exits_error": exits_error,

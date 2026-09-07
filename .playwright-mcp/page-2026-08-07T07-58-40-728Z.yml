@@ -1,0 +1,96 @@
+- generic [active] [ref=f2e1]:
+  - banner [ref=f2e2]:
+    - generic [ref=f2e3]: Charto.
+    - generic "Search companies" [ref=f2e5] [cursor=pointer]:
+      - generic [ref=f2e6]: RELIANCE
+      - generic [ref=f2e7]: NSE
+    - button "1h" [ref=f2e10] [cursor=pointer]
+    - button "Indicators" [ref=f2e13] [cursor=pointer]
+    - button "Undo" [ref=f2e20] [cursor=pointer]
+    - button "Redo" [disabled] [ref=f2e24]
+    - button "Layout — Single chart" [ref=f2e29] [cursor=pointer]
+    - button "Screenshot the chart for the chat" [ref=f2e33] [cursor=pointer]
+    - group "Panels" [ref=f2e38]:
+      - button "Watchlist" [ref=f2e39] [cursor=pointer]
+      - button "Alerts" [ref=f2e43] [cursor=pointer]
+    - button "Switch to dark" [ref=f2e49] [cursor=pointer]
+    - button "Chat" [ref=f2e52] [cursor=pointer]
+    - button "Sign in to Charto" [ref=f2e56] [cursor=pointer]
+  - generic [ref=f2e60]:
+    - generic [ref=f2e61]:
+      - button "Cursor / select" [ref=f2e62] [cursor=pointer]
+      - button "Lines" [ref=f2e67] [cursor=pointer]
+      - button "Fibonacci" [ref=f2e73] [cursor=pointer]
+      - button "Shapes" [ref=f2e76] [cursor=pointer]
+      - button "Measure" [ref=f2e80] [cursor=pointer]
+      - button "Position" [ref=f2e88] [cursor=pointer]
+      - button "Annotations" [ref=f2e93] [cursor=pointer]
+      - button "Magnet — snap to OHLC" [ref=f2e97] [cursor=pointer]
+      - button "Export drawings JSON" [ref=f2e102] [cursor=pointer]
+      - button "Clear all drawings" [ref=f2e106] [cursor=pointer]
+    - generic [ref=f2e111]:
+      - table [ref=f2e114]:
+        - row [ref=f2e4186]:
+          - cell
+          - cell [ref=f2e4187]
+          - cell [ref=f2e125]
+          - button "Hide 1 drawing — nothing is deleted" [ref=f2e4188] [cursor=pointer]
+        - row [ref=f2e4191]:
+          - cell [ref=f2e4192]
+        - row [ref=f2e4194]:
+          - cell
+          - cell [ref=f2e4195]
+          - cell [ref=f2e4199]
+        - row [ref=f2e4203]:
+          - cell [ref=f2e4204]
+        - row [ref=f2e4206]:
+          - cell
+          - cell [ref=f2e4207]:
+            - link "Charting by TradingView" [ref=f2e4211] [cursor=pointer]:
+              - /url: https://www.tradingview.com/?utm_medium=lwc-link&utm_campaign=lwc-chart&utm_source=127.0.0.1/
+          - cell [ref=f2e4216]
+        - row [ref=f2e132]:
+          - cell
+          - cell [ref=f2e133]
+          - cell [ref=f2e137]
+      - generic:
+        - generic:
+          - generic "Change instrument" [ref=f2e4220] [cursor=pointer]: RELIANCE
+          - generic: ·
+          - text: 1h
+          - generic: ·
+          - generic: NSE
+        - generic:
+          - generic: O 1,306.5
+          - generic: H 1,311
+          - generic: L 1,303
+          - generic: C 1,310.7
+          - generic: V 9,12,735
+          - text: +4.3 (+0.33%)
+        - generic:
+          - generic [ref=f2e4221] [cursor=pointer]: SMA 20
+          - generic [ref=f2e4224] [cursor=pointer]: EMA 21
+          - generic [ref=f2e4227] [cursor=pointer]: Supertrend 10 3
+          - button "Hide indicators" [ref=f2e4230] [cursor=pointer]
+      - generic: MACD 12 26 9
+      - generic: RSI 14
+    - generic "Drag to resize · double-click to reset" [ref=f2e143]
+    - complementary [ref=f2e144]:
+      - generic [ref=f2e146]:
+        - generic [ref=f2e147]:
+          - generic [ref=f2e148]: old thread
+          - generic [ref=f2e150]:
+            - generic "8/6/2026, 10:29:29 PM" [ref=f2e151]: 06 Aug
+            - button "Retry" [ref=f2e152] [cursor=pointer]
+            - button "Copy prompt" [ref=f2e156] [cursor=pointer]
+        - generic [ref=f2e160]:
+          - paragraph [ref=f2e162]: An answer from before.
+          - generic [ref=f2e163]:
+            - button "Copy reply" [ref=f2e164] [cursor=pointer]
+            - generic [ref=f2e168]: 2.4s
+      - generic [ref=f2e171]:
+        - textbox "Ask about this chart…" [ref=f2e172]
+        - generic [ref=f2e173]:
+          - button "Conversation options" [ref=f2e175] [cursor=pointer]
+          - button "RELIANCE" [ref=f2e177] [cursor=pointer]
+          - button "Send (Enter)" [ref=f2e179] [cursor=pointer]

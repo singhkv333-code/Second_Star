@@ -39,7 +39,7 @@ Reasonable parameter ranges:
 
 A good Pivot workflow has:
 - Exactly one trigger as step 0 (`trigger.schedule` / `trigger.price` /
-  `trigger.indicator` / `trigger.event` / `trigger.manual` / `trigger.webhook`)
+  `trigger.indicator` / `trigger.manual` / `trigger.webhook`)
 - Optional `fetch.*` steps to gather data needed for the decision
 - Optional `condition.*` steps that gate continuation (no branching —
   workflow halts if a condition fails)

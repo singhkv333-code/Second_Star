@@ -26,6 +26,7 @@ The tree is built from these node types, each tagged with a "type" field:
   { "type": "price", "symbol": "<SYM>", "exchange": "NSE", "basis": "open"|"high"|"low"|"close", "offset": <int> }
   { "type": "volume", "symbol": "<SYM>", "bars": <int>, "exchange": "NSE", "offset": <int> }
   { "type": "constant", "value": <number> }
+  { "type": "always" }                                                          // boolean: unconditionally TRUE, no fields
   { "type": "session_day", "days": ["mon"|"tue"|"wed"|"thu"|"fri"|"sat"|"sun", ...] }   // boolean: TRUE on listed weekdays
   { "type": "gap", "symbol": "<SYM>" }                                          // (open - prev_close) / prev_close, signed
   { "type": "pct_change", "symbol": "<SYM>", "bars": <int> }                    // (close - close[bars]) / close[bars]
@@ -35,6 +36,18 @@ The tree is built from these node types, each tagged with a "type" field:
   { "type": "logic", "op": "and"|"or"|"not", "operands": [<node>, ...] }
   { "type": "conditional", "if": <bool-node>, "then": <node>, "else": <node> }
   { "type": "aggregate", "op": "<AGG>", "source": <node>, "bars": <int>, "second": <node> }
+
+"exchange" is written as "NSE" in the templates above because that is the
+default, NOT because it is always right. Equities and indices are "NSE" (or
+"BSE"); COMMODITIES are "MCX" — CRUDEOIL, NATURALGAS, GOLD, SILVER, COPPER,
+ZINC, ALUMINIUM, LEAD, NICKEL. A commodity left on NSE names a symbol that
+does not exist, so the condition validates, renders, and can never fire.
+
+Never substitute a symbol you cannot express for the one the user named. If a
+condition refers to something outside these leaves, translate what you CAN and
+leave the rest out rather than quietly re-pointing the comparison at the
+primary symbol — "when crude oil goes above 80" must not become "when ONGC
+goes above 80". They are different rules and only one of them was asked for.
 
 Time-shifted access: every leaf accepts an optional "offset" (default 0). offset=1 reads the previous bar; max 500.
 Price leaves also accept "basis" (default "close"). Use basis="open" for gap conditions, "low"/"high" for stop / target checks.
@@ -62,7 +75,7 @@ Supported comparison operators: ">", "<", ">=", "<=", "==", "crosses_above", "cr
 
 Logic operators: "and", "or" need 2-8 operands; "not" needs exactly 1.
 
-The root MUST be a "comparison" or "logic" node.
+The root MUST be a "comparison", "logic", or "always" node.
 
 Hard limits: tree depth ≤ 6; period in [1, 5000]; aggregate bars in [1, 2000]; offset in [0, 500]; constants finite; constant <op> constant rejected.
 
@@ -73,6 +86,10 @@ Day-of-week filters: when the user says "on Tuesday", "every Monday", "Mon-Wed",
   "Monday and Friday"    → { "type": "session_day", "days": ["mon", "fri"] }
 Compose with other conditions via logic.and / logic.or.
 NEVER fake a day-of-week filter using indicator equality (e.g. RSI == RSI) — the validator rejects tautologies, and the result would never fire correctly.
+
+UNCONDITIONAL / NO-FILTER entries: when the user states no real trigger at all — "buy at open" (with no condition, just naming the fill price), "buy every day", "buy immediately", "just buy X" — use the ALWAYS leaf as the root:
+  "buy RELIANCE at the market open"   → { "type": "always" }
+NEVER fake "always true" with a self-comparison (e.g. price >= price, or any node compared to itself) — the validator rejects that as a tautology. ALWAYS is the correct, explicit way to say "no filter."
 
 ENTRY vs EXIT — the tree returned from THIS prompt is the ENTRY condition only. Exits are translated in a separate hop with their own tree. NEVER AND together a buy condition and a sell condition in one tree (e.g. RSI<30 AND RSI>30) — the validator rejects the empty intersection.
 
@@ -188,6 +205,22 @@ EXIT GRAMMAR (only when the user is explicitly describing an exit condition):
         { "type":"comparison", "op":">",
           "left":  { "type":"position", "field":"drawdown_from_peak_pct" },
           "right": { "type":"constant", "value":0.06 } } ] }
+
+  BRACKET EXIT — "exit at a 7% gain or a 4% loss" (take-profit OR stop-loss).
+  This is the MOST COMMON exit shape and it is ALWAYS a two-operand `or`.
+  A bracket collapsed into the take-profit alone ships a position with NO
+  stop — the losing side simply never fires. NEVER emit only the profit leg:
+    { "type":"logic", "op":"or",
+      "operands": [
+        { "type":"comparison", "op":">=",
+          "left":  { "type":"position", "field":"unrealised_pct", "basis":"high" },
+          "right": { "type":"constant", "value":0.07 } },
+        { "type":"comparison", "op":"<=",
+          "left":  { "type":"position", "field":"unrealised_pct", "basis":"low" },
+          "right": { "type":"constant", "value":-0.04 } } ] }
+  Percent fields are FRACTIONS and the STOP LEG IS NEGATIVE (-0.04, not 0.04)
+  with op `<=`. Any exit phrased with "or", "either", "whichever comes first",
+  "target ... stop", or naming both a gain and a loss is this shape.
 """
 
 

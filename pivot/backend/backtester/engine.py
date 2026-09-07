@@ -303,6 +303,33 @@ def _fetch_ohlcv(
     )
 
     norm = normalize_interval(interval)
+
+    # KITE FIRST (broker-grade, correctly dated) — the rest of Pivot's
+    # backtests are Kite-primary via workflow_backtester._load_bars, but this
+    # legacy fetcher (used by the DSL-tree engine) was yfinance-ONLY, so
+    # `backtest_dsl_tree` silently ran on yfinance. Fetch a Kite window that
+    # reaches `start`, slice to [start, end]; fall through to yfinance below
+    # on any miss (mock mode / no session / deep history / error).
+    try:
+        import datetime as _dt
+        from backend.services.workflow_backtester import _kite_bars_df
+        _span_days = max((_dt.date.today() - start).days + 5, 30)
+        _kdf = _kite_bars_df(symbol, f"{_span_days}d", interval=norm)
+        if _kdf is not None and not _kdf.empty:
+            _kdf = _kdf.rename(columns={c: str(c).lower() for c in _kdf.columns})
+            if isinstance(_kdf.index, pd.DatetimeIndex) and _kdf.index.tz is not None:
+                _kdf = _kdf.copy()
+                _kdf.index = _kdf.index.tz_localize(None)
+            _lo = pd.Timestamp(start)
+            _hi = pd.Timestamp(end) + pd.Timedelta(days=1)
+            _kdf = _kdf.loc[(_kdf.index >= _lo) & (_kdf.index < _hi)]
+            if len(_kdf) >= 30 and all(
+                c in _kdf.columns for c in ("open", "high", "low", "close")
+            ):
+                return _kdf
+    except Exception:  # noqa: BLE001 — any Kite issue → yfinance fallback
+        pass
+
     yf_interval = to_yfinance(norm)
     if yf_interval is None:
         # Honest boundary — yfinance doesn't serve 3m / 10m; refuse rather

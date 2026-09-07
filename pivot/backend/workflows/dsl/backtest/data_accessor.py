@@ -81,13 +81,22 @@ class BacktestDataAccessor:
         exchange: str = "NSE",
         basis: str = "close",
         offset: int = 0,
+        timeframe: str = "daily",
     ) -> Optional[float]:
         """Returns the ``basis`` (close/open/high/low) of bar
         ``as_of_idx - offset``. ``None`` if the symbol isn't loaded,
         the bar's value is NaN, or the offset reaches before bar 0.
         Same no-lookahead guarantees as the rest of the accessor:
         no read past ``as_of_idx``.
+
+        ``timeframe`` is accepted (and normalized) for signature parity
+        with the live accessor; it's informational only here — the
+        backtest's bars are already loaded at the run's chosen
+        interval, so 'offset' is implicitly counted in BARS of those
+        bars. We do not refetch.
         """
+        from backend.core.data.intervals import normalize_interval
+        _ = normalize_interval(timeframe)
         df = self._df_for(symbol, exchange)
         if df is None:
             return None
@@ -112,6 +121,7 @@ class BacktestDataAccessor:
         period: int,
         exchange: str = "NSE",
         component: Optional[str] = None,
+        settings: Optional[dict] = None,
         offset: int = 0,
         timeframe: str = "daily",
     ) -> Optional[float]:
@@ -143,6 +153,7 @@ class BacktestDataAccessor:
             indicator.lower(),
             int(period),
             comp_key,
+            tuple(sorted((settings or {}).items())),
         )
         series = self._indicator_cache.get(key)
         if series is None:
@@ -153,6 +164,7 @@ class BacktestDataAccessor:
             try:
                 series = compute_series_component(
                     df, indicator, period, component=comp_key,
+                    settings=settings,
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.info(
@@ -177,6 +189,7 @@ class BacktestDataAccessor:
         if _strict_mode() and offset == 0:
             self._shadow_check_indicator(
                 df, indicator, period, val, component=comp_key,
+                settings=settings,
             )
         return float(val)
 
@@ -287,6 +300,7 @@ class BacktestDataAccessor:
         expected: float,
         *,
         component: Optional[str] = None,
+        settings: Optional[dict] = None,
     ) -> None:
         """Paranoid recheck — recompute the indicator over the
         truncated slice and assert the result matches the cached
@@ -303,6 +317,7 @@ class BacktestDataAccessor:
         try:
             truncated = compute_series_component(
                 truncated_df, indicator, period, component=component,
+                settings=settings,
             )
         except Exception:  # noqa: BLE001
             return  # if the truncated compute fails, can't compare; skip

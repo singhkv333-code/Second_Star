@@ -103,7 +103,7 @@ _SCAN_FIELDS = ("symbol", "symbol_filter")
 def _step_references_symbol(step_cfg: dict[str, Any], symbol: str) -> bool:
     """True if the step's config references `symbol` directly (top-level
     `symbol` / `symbol_filter`) or via a known nested path
-    (`filter.symbol` for trigger.event)."""
+    (nested `filter.symbol`)."""
     if not isinstance(step_cfg, dict):
         return False
     upper = symbol.upper()

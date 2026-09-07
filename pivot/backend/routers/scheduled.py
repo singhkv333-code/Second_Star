@@ -2,8 +2,7 @@
 
 Enumerates upcoming fire times for the authenticated user's active
 workflows in a [from, to] date range. v1 covers `trigger.schedule`
-only; `trigger.event` is cut to v2 (no event source wired) and
-returns nothing.
+only.
 
 Capped at `_MAX_ITEMS` to bound the response size — a 1-min cron over
 30 days is 43,200 fire times, which would saturate the wire and the

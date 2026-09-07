@@ -1,15 +1,21 @@
 """Demo seeds for fresh users.
 
 Runs once on first registration (via `auth/router.py::register`). Drops
-3 ready-to-show workflows in `active` state and ~6 historical
-`TradeLog` rows so a brand-new demo account doesn't land in an empty
-shell. Idempotent: if the user already has any workflows or trade
-logs, this is a no-op.
+3 ready-to-show workflows in `active` state (these are exactly the
+"Pre-Built strategies" tiles shown on the home screen — HomeTab.tsx
+matches them by name), ~6 historical `TradeLog` rows, and a ₹5,00,000
+paper account (cash only — no starter positions). Idempotent: if the
+user already has any workflows or trade logs, the whole thing is a
+no-op (the paper account step has its own independent idempotency
+check via `get_or_create_account`, since it runs after the commit
+below).
 
 What we seed (and why):
-  - **RELIANCE 3:55 PM weekday buy** — the canonical demo workflow
+  - **RELIANCE 3:15 PM weekday buy** — the canonical demo workflow
     referenced throughout chat tests + docs (5 steps). Lets a new
     user immediately see what an agent looks like in the editor.
+    3:15 PM IST, not 3:55 — NSE closes at 3:30 PM IST, so 3:55 was
+    past close and would never actually fill.
   - **INFY weekly dip-buy** — 2 steps (schedule + action). Compact
     example, contrasts with the 5-step one.
   - **TCS monthly SIP** — 2 steps. Reinforces the SIP automation
@@ -17,6 +23,11 @@ What we seed (and why):
   - **6 TradeLog rows** — mix of BUY/SELL × MARKET/LIMIT/GTT,
     backdated 1-30 days, all `status="registered"` and
     `source="demo-seed"` so the order history tab isn't empty.
+  - **Paper account seeded at ₹5,00,000** — cash only. A fresh signup
+    starts with the full ₹5L as free cash and an EMPTY Portfolio; we no
+    longer buy starter holdings, because a brand-new user shouldn't land
+    with positions they never opened. (The frontend's default watchlist
+    seed is separate — untouched here.)
 
 Logging only — failures here never block registration.
 """
@@ -36,10 +47,16 @@ from backend.models import (
     WorkflowStatus,
     WorkflowStep,
 )
+from backend.paper.accounts import get_or_create_account
 from backend.utils.time_utils import now_ist
 
 logger = logging.getLogger(__name__)
 
+# New-user paper seed capital. Deliberately distinct from (and larger
+# than) the platform default `settings.paper_seed_capital` (₹1,50,000,
+# used when a user reaches paper endpoints without ever registering,
+# e.g. pre-existing rows) — a fresh signup specifically gets ₹5L.
+NEW_USER_PAPER_CAPITAL = 500_000
 
 # Workflow recipes. Each step's `config` matches the Pydantic schema in
 # backend/workflows/schemas.py — validated when the engine loads the
@@ -47,13 +64,13 @@ logger = logging.getLogger(__name__)
 
 _DEMO_WORKFLOWS: list[dict[str, Any]] = [
     {
-        "name": "RELIANCE 3:55 PM weekday buy",
-        "description": "Every weekday at 3:55 PM IST, buy 10 RELIANCE if buying power > ₹50,000.",
+        "name": "RELIANCE 3:15 PM weekday buy",
+        "description": "Every weekday at 3:15 PM IST, buy 10 RELIANCE if buying power > ₹50,000.",
         "steps": [
             {
                 "step_type": "trigger.schedule",
-                "label": "Every weekday at 3:55 PM IST",
-                "config": {"cron": "55 15 * * 1-5", "timezone": "Asia/Kolkata"},
+                "label": "Every weekday at 3:15 PM IST",
+                "config": {"cron": "15 15 * * 1-5", "timezone": "Asia/Kolkata"},
             },
             {
                 "step_type": "fetch.portfolio",
@@ -180,15 +197,20 @@ def seed_demo_data(db: Session, user_id: int) -> dict[str, int]:
         logger.warning("Demo seed commit failed for user %s: %s", user_id, e)
         return {"workflows": 0, "trades": 0, "skipped": False, "error": str(e)[:200]}
 
+    # Paper account + starter holdings: a separate best-effort step,
+    # committed independently so a failure here never rolls back the
+    # workflows/trades that already landed above.
+    paper_result = _seed_paper_account(db, user_id)
+
     return {
         "workflows": workflows_created,
         "trades": trades_created,
         "skipped": False,
+        **paper_result,
     }
 
 
 def _seed_workflows(db: Session, user_id: int) -> int:
-    now = now_ist()
     count = 0
     for recipe in _DEMO_WORKFLOWS:
         wf = Workflow(
@@ -196,8 +218,11 @@ def _seed_workflows(db: Session, user_id: int) -> int:
             user_id=user_id,
             name=recipe["name"],
             description=recipe["description"],
-            status=WorkflowStatus.active,
-            activated_at=now,
+            # Seeded starter agents land as drafts, never live. A brand-new
+            # account must not have agents running against the market before
+            # the user has looked at them, let alone activated them.
+            status=WorkflowStatus.draft,
+            activated_at=None,
             single_instance=True,
             version=1,
         )
@@ -249,3 +274,25 @@ def _seed_trade_logs(db: Session, user_id: int) -> int:
         ))
         count += 1
     return count
+
+
+def _seed_paper_account(db: Session, user_id: int) -> dict[str, Any]:
+    """Seed a ₹5,00,000 paper account for a new user — cash only.
+
+    A fresh signup starts with the full ₹5L as free cash and an EMPTY
+    Portfolio; we intentionally do NOT buy starter holdings (a new user
+    shouldn't land with positions they never opened). Idempotent:
+    `get_or_create_account` no-ops (and ignores `starting_capital`) if
+    the user already has a paper account. Runs in its own commit so a
+    failure here can't roll back the workflows/trades already seeded.
+    """
+    try:
+        get_or_create_account(
+            db, user_id, starting_capital=NEW_USER_PAPER_CAPITAL,
+        )
+        db.commit()
+        return {"paper_seeded": True, "holdings": 0}
+    except Exception as e:
+        db.rollback()
+        logger.warning("Paper account seed failed for user %s: %s", user_id, e)
+        return {"paper_seeded": False, "holdings": 0}

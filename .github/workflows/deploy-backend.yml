@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - "pivot/**"
+      - "pivot-backtester/**"
+      - ".dockerignore"
       - ".github/workflows/deploy-backend.yml"
   workflow_dispatch: {}
 
@@ -38,7 +40,7 @@ jobs:
             --image $IMAGE:${{ github.sha }} \
             --image $IMAGE:latest \
             --file pivot/Dockerfile \
-            pivot
+            .
 
       - name: Deploy new image to Container App
         run: |

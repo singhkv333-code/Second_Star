@@ -469,6 +469,26 @@ def resolve_strategy(
     for l in legs:
         pnl += _leg_expiry_pnl(grid, l, lot_value)
 
+    # Exact kink grid for breakevens/POP/max_profit/max_loss — the expiry
+    # payoff is piecewise LINEAR with kinks only at each leg's strike, so
+    # evaluating exactly at the sorted strikes (+ 0 and the upper econ
+    # bound) locates every zero crossing exactly via linear interpolation
+    # AND every peak/trough exactly via max()/min(), with NO dependence on
+    # grid density. The uniform 61-point ``grid`` above is spaced for a
+    # readable chart over a wide span (0.25·F or 4× expected move) — for a
+    # tight structure (e.g. a 20Δ iron condor with ~50-150pt-wide wings
+    # against a multi-thousand-point span) consecutive display-grid points
+    # can straddle an ENTIRE profit plateau, so interpolating breakevens on
+    # it lands nowhere near the true crossing and silently understates/
+    # overstates POP — and, likewise, reading max_profit/max_loss off that
+    # same coarse grid can miss an ATM-peaked strike (short straddle, iron
+    # butterfly body) entirely, understating both by a wide margin.
+    kink_pts = sorted({0.0, float(F + span)} | {float(l["strike"]) for l in legs})
+    kink_grid = np.array(kink_pts, dtype=float)
+    kink_pnl = np.zeros_like(kink_grid)
+    for l in legs:
+        kink_pnl += _leg_expiry_pnl(kink_grid, l, lot_value)
+
     # ── Theoretical "today" (T+0) curve — the smooth mark-to-market P&L the
     # position would show if exited NOW at each underlying, vs. the kinked
     # expiry payoff. Black-76 per leg at the live IV and current T, summed
@@ -495,18 +515,24 @@ def resolve_strategy(
     # premium paid; a credit position starts above. Mirrors the expiry math.
     now_pnl = now_pnl + float(net_premium)
 
-    econ_grid = np.linspace(0.0, F + span, _PAYOFF_POINTS)
-    econ_pnl = np.zeros_like(econ_grid)
-    for l in legs:
-        econ_pnl += _leg_expiry_pnl(econ_grid, l, lot_value)
-
+    # max_profit/max_loss MUST be read off the same strike-inclusive
+    # ``kink_grid``/``kink_pnl`` used for breakevens/POP above, not a
+    # separate uniform econ grid — the expiry payoff is piecewise LINEAR,
+    # so its true peak/trough can only occur at a kink (a leg's strike) or
+    # at the [0, F+span] domain edges, never strictly between two sampled
+    # points. A uniform grid that doesn't land exactly on the peak strike
+    # (e.g. an ATM-peaked short straddle / iron butterfly body) silently
+    # UNDERSTATES max_profit/max_loss vs the true strike-exact value —
+    # ``kink_grid`` already forces every strike (plus 0 and F+span) into
+    # the sampled points, so max()/min() over it is exact.
+    #
     # Only the UPPER edge (price → ∞) can be genuinely open: a naked short
     # CALL has uncapped loss above, a long call uncapped profit above. The
     # LOWER edge is anchored at price = 0 and is ALWAYS finite — a short
     # PUT's worst case is (strike − premium) × lot at price 0, never None.
-    hi_slope = float(econ_pnl[-1] - econ_pnl[-2])
-    max_profit: Optional[float] = round(float(econ_pnl.max()), 2)
-    max_loss: Optional[float] = round(float(-econ_pnl.min()), 2)
+    hi_slope = float(kink_pnl[-1] - kink_pnl[-2])
+    max_profit: Optional[float] = round(float(kink_pnl.max()), 2)
+    max_loss: Optional[float] = round(float(-kink_pnl.min()), 2)
     if hi_slope > 1e-9:   # profit still rising as price → ∞ (e.g. long call)
         max_profit = None
     if hi_slope < -1e-9:  # loss still deepening as price → ∞ (naked short call)
@@ -531,7 +557,7 @@ def resolve_strategy(
         and _side_quote(atm_row, s).get("iv")
     ]
     sigma_atm = float(np.mean(atm_ivs)) if atm_ivs else None
-    pop = _pop_from_payoff(grid, pnl, F, sigma_atm, T)
+    pop = _pop_from_payoff(kink_grid, kink_pnl, F, sigma_atm, T)
 
     net_greeks = {k: 0.0 for k in ("delta", "gamma", "theta", "vega")}
     for l in legs:
@@ -568,6 +594,14 @@ def resolve_strategy(
         "liquidity_ok": not liquidity_flags,
         "liquidity_flags": liquidity_flags,
         "expiry_gamma_warn": bool(short_legs) and dte_days <= 1.0,
+        # Root cause fixed upstream: chain["research_only"] used to alias
+        # `source == "mock"` (data-quality signal), so this field wrongly
+        # read True — and the FE showed "MCX execution blocked" — for ANY
+        # underlying whenever Kite was simply down, not just MCX. The
+        # chain now reports the real product-level block (instrument_
+        # master.is_research_only, currently always False since MCX is
+        # tradeable via register-not-execute), so this can safely alias
+        # it again.
         "mcx_execution_blocked": research_only,
         "requires_disclosure": True,
     }
@@ -604,7 +638,7 @@ def resolve_strategy(
                 {"s": round(float(s), 2), "pnl": round(float(p), 2)}
                 for s, p in zip(grid, now_pnl)
             ],
-            "breakevens": _breakevens(grid, pnl),
+            "breakevens": _breakevens(kink_grid, kink_pnl),
             "max_loss": max_loss,
             "max_profit": max_profit,
             "pop": pop,
@@ -960,6 +994,36 @@ def critique_strategy(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
     short_legs = [l for l in legs if l["side"] == "SELL"]
     long_legs = [l for l in legs if l["side"] == "BUY"]
     has_protective_wing = bool(long_legs)
+
+    # Cheap arbitrage-boundary sanity check: within one expiry, calls must
+    # price non-increasing and puts non-decreasing as strike rises. A
+    # violation here means the chain data itself is inconsistent (e.g. a
+    # stale/mismatched instrument row leaking a different expiry's quote
+    # into this one) — this can't happen on a genuine single-expiry chain,
+    # so treat it as a data-integrity flag, not a strategy-shape critique.
+    for otype in ("CE", "PE"):
+        same_type = sorted(
+            (l for l in legs if l["option_type"] == otype),
+            key=lambda l: l["strike"],
+        )
+        for prev, cur in zip(same_type, same_type[1:]):
+            bad = (
+                cur["mid"] > prev["mid"] if otype == "CE"
+                else cur["mid"] < prev["mid"]
+            )
+            if bad:
+                flags.append({
+                    "severity": "risk",
+                    "text": (
+                        f"Data inconsistency: {otype} {cur['strike']:g} "
+                        f"(₹{cur['mid']:.2f}) prices against strike-monotonic "
+                        f"{otype} ordering vs {prev['strike']:g} (₹{prev['mid']:.2f}) "
+                        f"on {locked['expiry']} — an arbitrage-boundary violation "
+                        "that shouldn't occur within one expiry. Re-check the "
+                        "chain before trusting this strategy's numbers."
+                    ),
+                })
+                break
 
     # Undefined risk is THE account-killer — always the loudest flag.
     # This is reserved for GENUINELY uncapped structures (a naked short

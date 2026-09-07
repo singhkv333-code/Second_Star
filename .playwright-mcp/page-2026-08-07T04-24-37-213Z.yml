@@ -1,0 +1,112 @@
+- generic [ref=f3e1]:
+  - dialog [ref=f3e2]:
+    - generic [ref=f3e3]:
+      - generic [ref=f3e4]: Charto.
+      - generic [ref=f3e5]: A chart you can hold a conversation with.
+      - generic [ref=f3e6]: Data & analysis only. Not financial advice.
+    - generic [ref=f3e7]:
+      - generic [ref=f3e9]:
+        - generic [ref=f3e10]:
+          - heading "Sign in to Charto" [level=1] [ref=f3e11]
+          - paragraph [ref=f3e12]: Enter your email and password to access your account.
+        - generic [ref=f3e13]:
+          - generic [ref=f3e14]:
+            - generic [ref=f3e15]:
+              - generic [ref=f3e16]: Email
+              - textbox "Email" [active] [ref=f3e17]:
+                - /placeholder: you@example.com
+            - generic [ref=f3e18]:
+              - generic [ref=f3e19]:
+                - generic [ref=f3e20]: Password
+                - generic [ref=f3e21]: Forgot? Contact support
+              - generic [ref=f3e22]:
+                - textbox "Password" [ref=f3e23]:
+                  - /placeholder: ••••••••
+                - button "Show password" [ref=f3e24] [cursor=pointer]
+          - generic [ref=f3e28]:
+            - button "Sign in" [ref=f3e29] [cursor=pointer]
+            - generic [ref=f3e30]:
+              - text: New to Charto?
+              - button "Create an account" [ref=f3e31] [cursor=pointer]
+      - generic [ref=f3e32]:
+        - button "Continue without an account" [ref=f3e33] [cursor=pointer]
+        - text: — your work stays in this browser only.
+  - banner [ref=f3e34]:
+    - generic [ref=f3e35]: Charto.
+    - generic "Search companies" [ref=f3e37] [cursor=pointer]:
+      - generic [ref=f3e38]: RELIANCE
+      - generic [ref=f3e39]: NSE
+    - button "5m" [ref=f3e42] [cursor=pointer]
+    - button "Indicators" [ref=f3e45] [cursor=pointer]
+    - button "Undo" [disabled] [ref=f3e52]
+    - button "Redo" [disabled] [ref=f3e56]
+    - button "Layout — Single chart" [ref=f3e61] [cursor=pointer]
+    - button "Screenshot the chart for the chat" [ref=f3e65] [cursor=pointer]
+    - group "Panels" [ref=f3e70]:
+      - button "Watchlist" [ref=f3e71] [cursor=pointer]
+      - button "Alerts" [ref=f3e75] [cursor=pointer]
+    - button "Switch to dark" [ref=f3e81] [cursor=pointer]
+    - button "Chat" [ref=f3e84] [cursor=pointer]
+    - button "Sign in to Charto" [ref=f3e88] [cursor=pointer]
+  - generic [ref=f3e92]:
+    - generic [ref=f3e93]:
+      - button "Cursor / select" [ref=f3e94] [cursor=pointer]
+      - button "Lines" [ref=f3e99] [cursor=pointer]
+      - button "Channels" [ref=f3e105] [cursor=pointer]
+      - button "Fibonacci" [ref=f3e111] [cursor=pointer]
+      - button "Shapes" [ref=f3e114] [cursor=pointer]
+      - button "Measure" [ref=f3e118] [cursor=pointer]
+      - button "Position" [ref=f3e126] [cursor=pointer]
+      - button "Annotations" [ref=f3e131] [cursor=pointer]
+      - button "Magnet — snap to OHLC" [ref=f3e135] [cursor=pointer]
+      - button "Export drawings JSON" [ref=f3e140] [cursor=pointer]
+      - button "Clear all drawings" [ref=f3e144] [cursor=pointer]
+    - generic [ref=f3e149]:
+      - table [ref=f3e152]:
+        - row [ref=f3e153]:
+          - cell
+          - cell [ref=f3e154]:
+            - link "Charting by TradingView" [ref=f3e158] [cursor=pointer]:
+              - /url: https://www.tradingview.com/?utm_medium=lwc-link&utm_campaign=lwc-chart&utm_source=localhost/index.html
+          - cell [ref=f3e163]
+        - row [ref=f3e167]:
+          - cell
+          - cell [ref=f3e168]
+          - cell [ref=f3e172]
+      - generic:
+        - generic:
+          - generic "Change instrument" [ref=f3e196] [cursor=pointer]: RELIANCE
+          - generic: ·
+          - text: 5m
+          - generic: ·
+          - generic: NSE
+        - generic:
+          - generic: O 1,267.7
+          - generic: H 1,267.7
+          - generic: L 1,267.7
+          - generic: C 1,267.7
+          - generic: V 0
+          - text: "-3.9 (-0.31%)"
+      - generic [ref=f3e197]:
+        - banner [ref=f3e198]:
+          - generic [ref=f3e199]: left shoulder
+        - generic [ref=f3e200]:
+          - term [ref=f3e201]: Status
+          - definition [ref=f3e202]: confirmed
+          - term [ref=f3e203]: Bias
+          - definition [ref=f3e204]: bearish
+          - term [ref=f3e205]: Spans
+          - definition [ref=f3e206]: 24 Jul 2026 12:15 → 27 Jul 2026 15:15
+        - contentinfo [ref=f3e207]:
+          - button "Ask about this" [ref=f3e208] [cursor=pointer]
+          - button "Remove" [ref=f3e211] [cursor=pointer]
+    - generic "Drag to resize · double-click to reset" [ref=f3e178]
+    - complementary [ref=f3e179]:
+      - generic [ref=f3e180]: Ask about what you're looking at.The model sees the visible chart.
+      - generic [ref=f3e185]:
+        - textbox "Ask about this chart…" [ref=f3e186]
+        - generic [ref=f3e187]:
+          - button "Conversation options" [ref=f3e189] [cursor=pointer]
+          - button "RELIANCE" [ref=f3e191] [cursor=pointer]
+          - button "Send (Enter)" [ref=f3e193] [cursor=pointer]
+  - generic [ref=f3e215] [cursor=pointer]: ₹1,272.50

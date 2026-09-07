@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { AppBootstrap } from "@/components/AppBootstrap";
@@ -10,6 +10,17 @@ export const metadata: Metadata = {
   // file convention: app/icon.svg and app/apple-icon.png. No explicit
   // `icons` field is needed; Next bakes <link rel="icon"> tags into
   // <head> with content-hashed URLs that defeat browser cache.
+};
+
+// `viewport-fit=cover` lets the app draw into the notch / Dynamic Island
+// region on iPhones AND makes the `env(safe-area-inset-*)` values resolve to
+// the real insets (they report 0 without it). globals.css then pads the shell
+// so the top bar clears the camera cutout and the composer clears the home
+// indicator. Without this the header rendered directly under the front camera.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({

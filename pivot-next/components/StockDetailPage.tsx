@@ -1,50 +1,14 @@
 "use client";
 
-/**
- * StockDetailPage — Fiscal.ai-inspired individual stock surface.
- *
- * Route: /stock/[symbol]
- *
- * Layout (two-column at xl+, stacked below):
- *   ┌──────────────── header strip ────────────────┐
- *   │ brand glyph + Company Name + bookmark        │
- *   │   exchange:symbol · price · day chip         │
- *   ├──────────────────────┬───────────────────────┤
- *   │ Company Overview     │ Comparison search     │
- *   │   description        │ + range buttons       │
- *   │   Name / CEO / Sector│ + multi-line chart    │
- *   │   Year Founded / etc │                       │
- *   │                      │ Date range summary    │
- *   │ Company Statistics   │ Powered by Pivot      │
- *   │   Profile · Valuation│                       │
- *   │   · Growth grids     │                       │
- *   └──────────────────────┴───────────────────────┘
- *
- * Comparison: the search bar above the chart is multi-select. Picking a
- * peer adds it as a coloured chip and overlays its sparkline on the
- * same axis (normalised so all tickers start at 100). Removable via the
- * × inside each chip. The original symbol is always present.
- *
- * No tab strip below the company name (overview/financials/etc) — that
- * row from the reference is intentionally cut.
- */
+/** Company research surface: price, business, financials, then ownership. */
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  Area,
-  ComposedChart,
-  Line,
-  ReferenceArea,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { format, parseISO } from "date-fns";
 import {
   AlertCircle,
+  ChartNoAxesCombined,
   ChevronDown,
-  ChevronLeft,
   ChevronRight,
   Maximize2,
   Minimize2,
@@ -58,6 +22,10 @@ import {
   getOhlc,
   getFinancials,
   getMetricSeries,
+  getStockQuarters,
+  getStatement,
+  type QuartersResponse,
+  type StatementResponse,
   type StockQuote,
   type SparklineRange,
   type SparklineResponse,
@@ -71,11 +39,18 @@ import { useLiveQuote } from "@/hooks/useLiveQuote";
 import { WatchlistBookmark } from "@/components/WatchlistBookmark";
 import { CompanyAutosuggest } from "@/components/CompanyAutosuggest";
 import { CompanyLogo } from "@/components/CompanyLogo";
+import { openOrderTicket } from "@/components/OrderTicket";
 import {
   StockPriceChart,
   type PriceSeriesDef,
   type VolumePoint,
 } from "@/components/chart/StockPriceChart";
+import { ResearchExtensions } from "@/components/stock/ResearchExtensions";
+import { DeepSections } from "@/components/stock/DeepSections";
+import { SECTION_GAP } from "@/components/stock/chrome";
+import { RowTrend } from "@/components/stock/RowTrend";
+import "./stock/stock-research.css";
+import { TechnicalPanel } from "@/components/stock/TechnicalPanel";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -250,137 +225,12 @@ function brandGlyphHue(sector: string | null): string {
 }
 
 // ---------------------------------------------------------------------------
-// GrowwTooltip — Recharts custom tooltip matching the Groww look:
-// soft floating card with the ticker value(s) tabular-numed, a faint
-// hairline border, and the date as a sub-row.
+// Metric selector type
 // ---------------------------------------------------------------------------
 
-// Metric type is declared here (before GrowwTooltip) so the tooltip can
-// receive it as a prop. The METRIC_OPTIONS const in ChartCard references
-// this same type.
+// The chart's active series: price or a fundamental metric. The METRIC_OPTIONS
+// const in ChartCard references this same type.
 type Metric = "Price" | "PE Ratio" | "Sales and Margin" | "Market Cap";
-
-type TooltipEntry = {
-  dataKey?: string | number;
-  name?: string | number;
-  value?: number;
-  color?: string;
-  /** Full data row for the hovered point — needed to read __margin for Sales and Margin. */
-  payload?: Record<string, unknown>;
-};
-
-function GrowwTooltip({
-  active,
-  payload,
-  label,
-  metric,
-  rawPriceByDate,
-}: {
-  active?: boolean;
-  payload?: TooltipEntry[];
-  label?: string;
-  /** Active metric — drives value formatting (price/PE/market-cap/sales-margin). */
-  metric: Metric;
-  /** Raw (un-normalised) price lookup: symbol → date-string → real price.
-   *  Used in Price mode so the tooltip shows the actual ₹ value, not the
-   *  100-base-indexed chart value. */
-  rawPriceByDate?: Map<string, Map<string, number>>;
-}): React.ReactElement | null {
-  // Drop the synthetic "__selValue" series — it only exists to paint the
-  // drag-selection shaded Area and must not show as a tooltip row.
-  // Also drop the __margin shadow keys (written into metricChartData rows for
-  // Sales and Margin; they're read via entry.payload below, not as own series).
-  const rows = (payload ?? []).filter(
-    (e) => e.dataKey !== "__selValue" && !String(e.dataKey ?? "").endsWith("__margin"),
-  );
-  if (!active || rows.length === 0) return null;
-  let dateLabel = label ?? "";
-  try {
-    dateLabel = format(parseISO(label as string), "d MMM yyyy");
-  } catch {
-    // keep raw label
-  }
-  return (
-    <div
-      role="status"
-      aria-live="polite"
-      style={{
-        background: "var(--bg-primary)",
-        border: "1px solid var(--glass-border)",
-        borderRadius: 8,
-        boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
-        padding: "8px 10px",
-        fontFamily: "var(--font-ui)",
-        fontSize: 11,
-        minWidth: 100,
-      }}
-    >
-      <div style={{ color: "var(--text-tertiary)", fontSize: 10, marginBottom: 4 }}>
-        {dateLabel}
-      </div>
-      {rows.map((entry, i) => {
-        const v = Number(entry.value);
-        let formatted: string;
-        if (Number.isNaN(v)) {
-          formatted = String(entry.value ?? "");
-        } else if (metric === "Price") {
-          // Look up the real (un-normalised) price — the plotted value is
-          // a 100-base index so showing it raw would be wrong.
-          const raw = rawPriceByDate?.get(String(entry.dataKey))?.get(String(label));
-          formatted = raw !== undefined ? `₹${raw.toFixed(2)}` : `₹${v.toFixed(1)}`;
-        } else if (metric === "PE Ratio") {
-          formatted = `${v.toFixed(2)}x`;
-        } else if (metric === "Market Cap") {
-          formatted = fmtCrAxis(v);
-        } else {
-          // "Sales and Margin"
-          const rev = fmtCrAxis(v);
-          const margin = (entry.payload as Record<string, unknown> | undefined)?.[
-            `${String(entry.dataKey)}__margin`
-          ];
-          formatted =
-            typeof margin === "number" && Number.isFinite(margin)
-              ? `${rev} · ${margin.toFixed(1)}% margin`
-              : rev;
-        }
-        return (
-          <div
-            key={i}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              fontVariantNumeric: "tabular-nums",
-            }}
-          >
-            <span
-              aria-hidden="true"
-              style={{
-                width: 7,
-                height: 7,
-                borderRadius: "50%",
-                background: entry.color ?? "var(--text-secondary)",
-                flexShrink: 0,
-              }}
-            />
-            <span style={{ color: "var(--text-tertiary)", fontSize: 10 }}>
-              {entry.name}
-            </span>
-            <span
-              style={{
-                marginLeft: "auto",
-                color: "var(--text-primary)",
-                fontWeight: 600,
-              }}
-            >
-              {formatted}
-            </span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // StockDetailPage
@@ -388,6 +238,7 @@ function GrowwTooltip({
 
 export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElement {
   const [quoteState, setQuoteState] = useState<QuoteState>({ kind: "loading" });
+  const [quoteAttempt, setQuoteAttempt] = useState(0);
   const [range, setRange] = useState<SparklineRange>("5Y");
   const [financials, setFinancials] = useState<FinancialsResponse | null>(null);
   // Phone reflows the page: chart on top, then Performance, then a 2-way
@@ -430,7 +281,7 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
         }),
       );
     setTickers([symbol.toUpperCase()]);
-  }, [symbol]);
+  }, [symbol, quoteAttempt]);
 
   // ── Financials (Moneycontrol DB) ──────────────────────────────────────
   // Fetches the company's fundamentals snapshot + history. Falls through
@@ -516,8 +367,14 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
     setTickers((prev) => prev.filter((t) => t !== s));
   };
 
+  // An index (NIFTY 50, SENSEX, BANKNIFTY, …) is not a company and not a
+  // tradeable instrument: it gets price + chart only — no company profile, no
+  // financial statements, no order path.
+  const isIndexQuote = quoteState.kind === "ok" && !!quoteState.quote.is_index;
+
   return (
-    <div className="flex flex-col">
+    <div className="stock-research flex flex-col" id="stock-overview">
+      <div className="research-eyebrow">Markets <span>/</span> Company research</div>
       {quoteState.kind === "loading" && <HeaderSkeleton />}
       {quoteState.kind === "error" && (
         <div
@@ -527,6 +384,7 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
         >
           <AlertCircle size={16} aria-hidden="true" />
           {quoteState.message}
+          <button type="button" onClick={() => setQuoteAttempt((n) => n + 1)} style={{ marginLeft: 8, textDecoration: "underline", color: "inherit" }}>Try again</button>
         </div>
       )}
       {quoteState.kind === "ok" && (
@@ -537,6 +395,28 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
           isPhone={isPhone}
         />
       )}
+
+      {quoteState.kind === "ok" && <>
+        <div className="research-source">
+          <span className="research-source-dot" />
+          {liveQuote.isLive ? "Kite · live quote" : quoteState.quote.source === "yfinance" ? "yfinance · end-of-day / delayed" : quoteState.quote.source?.startsWith("kite") ? "Kite · last available quote" : "Last available quote · source unavailable"}
+          {quoteState.quote.sector && <span className="research-sector">{quoteState.quote.sector}</span>}
+        </div>
+        <nav className="research-nav" aria-label="Company research sections">
+          <a href="#stock-overview">Overview</a>
+          <a href="#stock-price">Price & performance</a>
+          {!isIndexQuote && <><a href="#stock-technicals">Technicals</a><a href="#stock-financials" onClick={() => window.dispatchEvent(new Event("stock-open-financials"))}>Financials</a><a href="#stock-valuation">Valuation</a><a href="#stock-capital">Capital allocation</a><a href="#stock-benchmarks">Benchmarks</a><a href="#stock-research">Company research</a></>}
+        </nav>
+        {!isIndexQuote && <div className="research-snapshot" aria-label="Company snapshot">
+          {[
+            ["Market capitalisation", fmtCr(quoteState.quote.market_cap)],
+            ["P/E ratio", quoteState.quote.pe_ratio != null && Number.isFinite(quoteState.quote.pe_ratio) ? `${quoteState.quote.pe_ratio.toFixed(1)}×` : "Unavailable"],
+            ["52-week high", inrOrDash(quoteState.quote.w52_high)],
+            ["52-week low", inrOrDash(quoteState.quote.w52_low)],
+            ["Session volume", Number.isFinite(quoteState.quote.volume) ? quoteState.quote.volume.toLocaleString("en-IN") : "Unavailable"],
+          ].map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}
+        </div>}
+      </>}
 
       {/* Phone reflow: chart → Performance → Overview/Financials switch.
           Desktop keeps the original two-column overview+chart layout. */}
@@ -562,18 +442,31 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
               stretches (more comparison tickers, longer summary block),
               the overview just scrolls instead of pushing the row taller. */}
           <div
-            className="grid grid-cols-1 xl:grid-cols-[1fr_1.4fr] items-stretch"
+            className={
+              isIndexQuote
+                ? "grid grid-cols-1 items-stretch"
+                : "research-lead grid grid-cols-1 xl:grid-cols-[minmax(0,1.85fr)_minmax(300px,1fr)] items-start"
+            }
             style={{ marginTop: 24, gap: 14 }}
           >
-            {/* Left column — Overview + Statistics merged */}
-            <div className="flex min-h-0 flex-col">
-              {quoteState.kind === "ok" && (
-                <MergedOverviewCard quote={quoteState.quote} financials={financials} />
-              )}
-            </div>
+            {/* Left column — Overview + Statistics merged. An index has no
+                company behind it: the profile block would assert "…is publicly
+                listed on NSE" with empty CEO / Website / Year Founded / P-E
+                rows. Drop it and let the chart span the row. */}
+            {!isIndexQuote && (
+              <div className="research-company flex min-h-0 min-w-0 flex-col">
+                {quoteState.kind === "ok" && (
+                  <MergedOverviewCard quote={quoteState.quote} financials={financials} />
+                )}
+              </div>
+            )}
 
-            {/* Right column — Comparison chart */}
-            <div className="flex min-h-0 flex-col">
+            {/* Right column — Comparison chart. min-w-0 is load-bearing: grid
+                items default to min-width:auto, so the chart canvas's stale
+                fullscreen width would otherwise prop this track open forever
+                after collapsing the overlay. */}
+            <div id="stock-price" className="research-price flex min-h-0 min-w-0 flex-col">
+              <div className="research-panel-heading"><h2>Price performance</h2></div>
               <ChartCard
                 tickers={tickers}
                 peerQuotes={peerQuotes}
@@ -596,21 +489,42 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
             <PerformanceRanges quote={quoteState.quote} />
           )}
 
+          {quoteState.kind === "ok" && !isIndexQuote && (
+            <section id="stock-technicals"><TechnicalPanel quote={quoteState.quote} /></section>
+          )}
+
           {/* Key Metrics — snapshot tiles from the financials DB. Skipped
               entirely when the symbol has no MC entry. */}
           {quoteState.kind === "ok" && financials && financials.available && (
             <KeyMetricsStrip financials={financials} />
           )}
 
-          {/* Unified Financials panel */}
-          {quoteState.kind === "ok" && (
-            <FinancialsPanel quote={quoteState.quote} financials={financials} />
+          {/* Unified Financials panel — company statements; an index has none. */}
+          {quoteState.kind === "ok" && !isIndexQuote && (
+            <section id="stock-financials"><FinancialsPanel
+              quote={quoteState.quote}
+              financials={financials}
+            /></section>
+          )}
+
+          {quoteState.kind === "ok" && !isIndexQuote && <ResearchExtensions key={symbol} symbol={symbol} exchange={quoteState.quote.exchange === "BSE" ? "BSE" : "NSE"} />}
+
+          {/* Everything the DB gained after this page was built: quarters,
+              segment mixes and ownership.
+              Purely additive — nothing above this line changed. The component
+              asks the API what this company actually HAS and renders only
+              those tabs, so it contributes nothing at all for a symbol with
+              no deep data (and returns null for an index). */}
+          {quoteState.kind === "ok" && !isIndexQuote && (
+            <section id="stock-research"><DeepSections symbol={symbol} price={quoteState.quote.ltp} /></section>
           )}
         </>
       )}
     </div>
   );
 }
+
+
 
 // ---------------------------------------------------------------------------
 // PhoneLayout — mobile reflow of the stock page.
@@ -645,11 +559,12 @@ function PhoneLayout({
   onRemovePeer: (s: string) => void;
 }): React.ReactElement {
   const [tab, setTab] = useState<"overview" | "financials">("overview");
+  useEffect(() => { const open = (): void => setTab("financials"); window.addEventListener("stock-open-financials", open); return () => window.removeEventListener("stock-open-financials", open); }, []);
 
   return (
     <div className="flex flex-col">
       {/* Chart first — shorter on phone so it doesn't dominate the fold. */}
-      <div className="flex min-h-0 flex-col" style={{ marginTop: 16 }}>
+      <div id="stock-price" className="flex min-h-0 flex-col" style={{ marginTop: 16 }}>
         <ChartCard
           tickers={tickers}
           peerQuotes={peerQuotes}
@@ -666,11 +581,16 @@ function PhoneLayout({
       {/* Performance — daily + 52-week range bars. */}
       <PerformanceRanges quote={quote} />
 
+      {!quote.is_index && <section id="stock-technicals"><TechnicalPanel quote={quote} /></section>}
+
       {/* Overview / Financials switch — underline tab strip matching the
-          option-strategy Payoff/P&L/Greeks tabs. */}
+          option-strategy Payoff/P&L/Greeks tabs. Both panels describe a
+          COMPANY, so an index stops here: chart + performance only. */}
+      {!quote.is_index && (
       <div
         className="flex shrink-0 gap-6 border-b border-border/40"
         role="tablist"
+        id="stock-financials"
         aria-label="Stock detail view"
         style={{ marginTop: 24, padding: "0 20px" }}
       >
@@ -698,40 +618,34 @@ function PhoneLayout({
           );
         })}
       </div>
-
-      {tab === "overview" ? (
-        <div style={{ marginTop: 18 }}>
-          <MergedOverviewCard quote={quote} financials={financials} />
-        </div>
-      ) : (
-        <>
-          {financials && financials.available && (
-            <KeyMetricsStrip financials={financials} />
-          )}
-          <FinancialsPanel quote={quote} financials={financials} />
-        </>
       )}
 
-      {/* logo.dev attribution — required by their free tier wherever the
-          company logo is displayed. */}
-      <div
-        style={{
-          marginTop: 20,
-          fontSize: 10.5,
-          color: "var(--text-secondary)",
-          opacity: 0.7,
-        }}
-      >
-        Logos provided by{" "}
-        <a
-          href="https://logo.dev"
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{ color: "inherit", textDecoration: "underline" }}
-        >
-          Logo.dev
-        </a>
-      </div>
+      {!quote.is_index && (
+        tab === "overview" ? (
+          <div style={{ marginTop: 18 }}>
+            <MergedOverviewCard quote={quote} financials={financials} />
+          </div>
+        ) : (
+          <>
+            {financials && financials.available && (
+              <KeyMetricsStrip financials={financials} />
+            )}
+            <FinancialsPanel
+              quote={quote}
+              financials={financials}
+            />
+          </>
+        )
+      )}
+
+      {!quote.is_index && <ResearchExtensions key={quote.symbol} symbol={quote.symbol} exchange={quote.exchange === "BSE" ? "BSE" : "NSE"} />}
+
+      {/* Deep sections ride below the phone switch too, rather than inside
+          one of its two tabs — they are neither "overview" nor "financials",
+          and burying them under a tab the reader has to guess at is how a
+          section stops existing. */}
+      {!quote.is_index && <section id="stock-research"><DeepSections symbol={quote.symbol} price={quote.ltp} /></section>}
+
     </div>
   );
 }
@@ -782,7 +696,7 @@ function Header({
               className="m-0 truncate"
               style={{
                 fontFamily: "var(--font-ui)",
-                fontSize: isPhone ? 16 : 22,
+                fontSize: isPhone ? 16 : 30,
                 fontWeight: 600,
                 letterSpacing: "-0.025em",
                 color: "var(--text-primary)",
@@ -826,7 +740,7 @@ function Header({
           className="inline-flex items-center tabular-nums"
           style={{
             fontFamily: "var(--font-ui)",
-            fontSize: isPhone ? 18 : 28,
+            fontSize: isPhone ? 18 : 34,
             fontWeight: 600,
             letterSpacing: "-0.02em",
             color: "var(--text-primary)",
@@ -871,6 +785,29 @@ function Header({
           {fmtDelta(quote.change)} ({fmtPct(quote.change_pct)})
         </span>
       </div>
+      <button
+        type="button"
+        aria-label={`Open ${quote.symbol} chart`}
+        title={`Open ${quote.symbol} chart`}
+        onClick={() => window.dispatchEvent(new CustomEvent("pivot:open-chart", { detail: { symbol: quote.symbol } }))}
+        className="inline-flex shrink-0 items-center justify-center"
+        style={{
+          height: isPhone ? 34 : 38,
+          padding: isPhone ? "0 9px" : "0 13px",
+          gap: 7,
+          border: "none",
+          borderRadius: "var(--radius-sm)",
+          background: "var(--surface-active)",
+          color: "var(--text-primary)",
+          fontFamily: "var(--font-ui)",
+          fontSize: 12.5,
+          fontWeight: 500,
+          cursor: "pointer",
+        }}
+      >
+        <ChartNoAxesCombined size={16} strokeWidth={1.9} aria-hidden="true" />
+        {!isPhone && <span>Open chart</span>}
+      </button>
     </div>
   );
 }
@@ -1015,11 +952,6 @@ function MergedOverviewCard({
   // 52-week high/low and the day high/low now live in the Performance range
   // bars below, so they're dropped from these columns (no duplication, and no
   // "₹NaN" when a source omits the 52-week figures).
-  const profile: { label: string; value: string }[] = [
-    { label: "Market Cap", value: fmtCr(quote.market_cap) },
-    { label: "Volume", value: quote.volume.toLocaleString("en-IN") },
-  ];
-
   // Valuation ratios: P/E from the live quote; P/B, EV/Sales, EV/EBITDA from
   // the financials snapshot (Moneycontrol / yfinance fallback). Render "—"
   // when the field is absent — never fabricate.
@@ -1045,18 +977,17 @@ function MergedOverviewCard({
     <Card
       transparent
       padding="22px 24px"
-      className="flex h-full min-h-0 flex-col overflow-y-auto"
+      className="research-profile flex min-h-0 flex-col"
     >
       <CompanyOverviewBody quote={quote} financials={financials} />
 
       {/* Stats — folded into the same card. No section header. Sits
           beneath the Year Founded row separated by a slim gap. */}
       <div
-        className="grid grid-cols-1 sm:grid-cols-3"
+        className="research-profile-stats grid grid-cols-1 sm:grid-cols-3"
         style={{ gap: 24, marginTop: 22 }}
       >
-        <StatColumn title="Profile" rows={profile} />
-        <StatColumn title="Valuation (TTM)" rows={valuation} />
+        <StatColumn title="Valuation" rows={valuation} />
         <StatColumn title="Today" rows={day} />
       </div>
     </Card>
@@ -1091,7 +1022,6 @@ function CompanyOverviewBody({
   // Anything we don't have falls back to "—" so the row spacing stays
   // consistent regardless of which symbol you land on.
   const facts: { label: string; value: React.ReactNode }[] = [
-    { label: "Name", value: quote.name },
     { label: "CEO", value: live?.ceo ?? fallback?.ceo ?? "—" },
     {
       label: "Website",
@@ -1336,14 +1266,14 @@ function PerformanceRanges({ quote }: { quote: StockQuote }): React.ReactElement
   return (
     // Full-width section; 20px inset aligns with Key Metrics / Financial
     // Performance below.
-    <div style={{ marginTop: 24, padding: "0 20px" }}>
+    <div style={{ marginTop: SECTION_GAP, padding: "0 20px" }}>
       <h2
         className="m-0"
         style={{
           fontFamily: "var(--font-ui)",
-          fontSize: 14,
+          fontSize: 21,
           fontWeight: 600,
-          letterSpacing: "-0.01em",
+          letterSpacing: "-0.022em",
           color: "var(--text-primary)",
           marginBottom: 16,
         }}
@@ -1401,7 +1331,7 @@ function ChartCard({
   onAddPeer,
   onRemovePeer,
   primaryQuote,
-  chartHeight = 320,
+  chartHeight = 360,
 }: {
   tickers: string[];
   peerQuotes: Record<string, StockQuote>;
@@ -1417,8 +1347,12 @@ function ChartCard({
 }): React.ReactElement {
   const [metric, setMetric] = useState<Metric>("Price");
   // Min/Max date filters (ISO yyyy-mm-dd from native <input type="date">).
-  const [minDate, setMinDate] = useState<string>("");
-  const [maxDate, setMaxDate] = useState<string>("");
+  // The Min/Max date pickers were removed from the chart controls — the range
+  // pills (1D…5Y) are the only windowing control now. These stay as empty
+  // constants so the date-slice memos below remain a harmless no-op rather than
+  // needing that filtering logic ripped out.
+  const minDate = "";
+  const maxDate = "";
   // Fullscreen overlay: the Maximize2 button lifts the entire card to a
   // fixed surface that covers most of the viewport; the chart's height
   // grows to fill the freed space. Esc dismisses.
@@ -1503,80 +1437,6 @@ function ChartCard({
     return () => { cancelled = true; };
   }, [singlePriceMode, primarySym, range]);
 
-  // ── Drag-to-select range state ────────────────────────────────────────
-  // Tracks a click-and-drag selection band on the chart. `startIdx` /
-  // `endIdx` are indices into `chartData.rows`; `startLabel` / `endLabel`
-  // are the corresponding `t` values used as Recharts ReferenceArea x1/x2.
-  type DragState = {
-    isDragging: boolean;
-    startLabel: string;
-    startIdx: number;
-    endLabel: string;
-    endIdx: number;
-  };
-  const [drag, setDrag] = useState<DragState | null>(null);
-
-  // Minimal type matching what Recharts passes to onMouseDown/Move/Up.
-  type ChartMouseState = {
-    activeLabel?: string;
-    activeTooltipIndex?: number;
-  };
-
-  const handleChartMouseDown = (state: ChartMouseState): void => {
-    const label = state.activeLabel;
-    const idx = state.activeTooltipIndex;
-    if (label == null || idx == null) return;
-    setDrag({
-      isDragging: true,
-      startLabel: label,
-      startIdx: idx,
-      endLabel: label,
-      endIdx: idx,
-    });
-  };
-
-  const handleChartMouseMove = (state: ChartMouseState): void => {
-    if (!drag?.isDragging) return;
-    const label = state.activeLabel;
-    const idx = state.activeTooltipIndex;
-    if (label == null || idx == null) return;
-    setDrag((prev) =>
-      prev ? { ...prev, endLabel: label, endIdx: idx } : prev,
-    );
-  };
-
-  const handleChartMouseUp = (state: ChartMouseState): void => {
-    if (!drag) return;
-    const label = state.activeLabel;
-    const idx = state.activeTooltipIndex;
-    const endLabel = label ?? drag.endLabel;
-    const endIdx = idx ?? drag.endIdx;
-    // Plain click (no real drag): clear any existing selection.
-    if (Math.abs(endIdx - drag.startIdx) < 2) {
-      setDrag(null);
-      return;
-    }
-    setDrag((prev) =>
-      prev
-        ? { ...prev, isDragging: false, endLabel, endIdx }
-        : prev,
-    );
-  };
-
-  const handleChartMouseLeave = (): void => {
-    // Cancel an in-progress drag; preserve a finalised selection.
-    if (drag?.isDragging) setDrag(null);
-  };
-
-  // Escape clears a finalised selection.
-  useEffect(() => {
-    if (!drag) return;
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") setDrag(null);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [drag]);
 
   // Merge all series into one Recharts dataset, normalised to 100 at the
   // first point of each ticker. This makes performance comparable across
@@ -1635,20 +1495,6 @@ function ChartCard({
     return { rows, baseline };
   }, [series, minDate, maxDate]);
 
-  // Raw (un-normalised) price lookup: symbol → date-string → real ₹ price.
-  // Used by GrowwTooltip in Price mode so the hover value reflects the actual
-  // price rather than the 100-base-indexed chart value.
-  const rawPriceByDate = useMemo(() => {
-    const map = new Map<string, Map<string, number>>();
-    series.forEach((s) => {
-      if (s.state.kind !== "ok") return;
-      const m = new Map<string, number>();
-      s.state.data.points.forEach((p) => m.set(p.t, p.v));
-      map.set(s.symbol, m);
-    });
-    return map;
-  }, [series]);
-
   // Metric-mode chart rows — absolute values, no normalisation. Master timeline = primary ticker.
   const metricChartData = useMemo(() => {
     if (!isMetricMode) return null;
@@ -1685,16 +1531,6 @@ function ChartCard({
     });
     return rows;
   }, [isMetricMode, metricSeries]);
-
-  // Tickers actually visible in the current mode:
-  // - Price: all tickers that have an ok sparkline series
-  // - Metric: only tickers that have ok metric data
-  const visibleTickers = useMemo(() => {
-    if (!isMetricMode) return tickers;
-    return metricSeries
-      .filter((e) => e.state.kind === "ok")
-      .map((e) => e.symbol);
-  }, [isMetricMode, metricSeries, tickers]);
 
   // Active chart rows — metric data in metric mode, price data otherwise.
   // Wrapped in useMemo so the reference is stable and doesn't bust downstream
@@ -1752,6 +1588,32 @@ function ChartCard({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMetricMode, series, tickers, ohlc, minDate, maxDate]);
 
+  // Metric-mode series in the SAME shape as priceSeriesDefs, so the metric
+  // charts (PE / market cap / sales) render through StockPriceChart — one
+  // rendering path (lightweight-charts) for every graph on the page.
+  const metricSeriesDefs = useMemo((): PriceSeriesDef[] => {
+    if (!isMetricMode) return [];
+    return metricSeries
+      .map((e) =>
+        e.state.kind === "ok"
+          ? {
+              symbol: e.symbol,
+              color: colorFor(e.symbol),
+              points: e.state.points.map((p) => ({ t: p.t, v: p.v })),
+            }
+          : null,
+      )
+      .filter((d): d is PriceSeriesDef => d != null && d.points.length > 0);
+    // colorFor is stable per tickers.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMetricMode, metricSeries, tickers]);
+
+  // Axis / last-value formatter for metric mode — PE reads "16.4x", the ₹-crore
+  // metrics read "₹12.6 L Cr" (fmtCrAxis). Passed to StockPriceChart so its
+  // native axis + last-value box speak the metric's units, just like ₹ for price.
+  const metricValueFormatter = (v: number): string =>
+    metric === "PE Ratio" ? `${v.toFixed(Number.isInteger(v) ? 0 : 1)}x` : fmtCrAxis(v);
+
   const volumePoints = useMemo((): VolumePoint[] => {
     if (!singlePriceMode || !ohlc || ohlc.bars.length === 0) return [];
     const minTs = minDate ? new Date(minDate).getTime() : -Infinity;
@@ -1793,99 +1655,6 @@ function ChartCard({
   const earliestDate = activeBaseRows[0]?.t as string | undefined;
   const latestDate = activeBaseRows[activeBaseRows.length - 1]?.t as string | undefined;
 
-  // Last numeric value per ticker — used to render the price-tag labels
-  // pinned to the right edge of the chart (Fiscal.ai pattern).
-  // In metric mode, reads from metricSeries; in price mode, from series.
-  const endValues = useMemo(() => {
-    const map = new Map<string, number | null>();
-    if (isMetricMode) {
-      metricSeries.forEach((e) => {
-        if (e.state.kind !== "ok") {
-          map.set(e.symbol, null);
-          return;
-        }
-        const last = e.state.points[e.state.points.length - 1]?.v ?? null;
-        map.set(e.symbol, last);
-      });
-    } else {
-      series.forEach((s) => {
-        if (s.state.kind !== "ok") {
-          map.set(s.symbol, null);
-          return;
-        }
-        const last = s.state.data.points[s.state.data.points.length - 1]?.v ?? null;
-        map.set(s.symbol, last);
-      });
-    }
-    return map;
-  }, [isMetricMode, metricSeries, series]);
-
-  // ── Derived selection metrics ─────────────────────────────────────────
-  // Normalise indices so left-to-right and right-to-left drags both work.
-  // Uses the raw primary-series prices (not normalised-to-100 chart values)
-  // so the absolute delta is in real ₹.
-  // Disabled in metric mode (delta in PE units wouldn't render correctly
-  // with the existing ₹-formatted pill).
-  const selectionInfo = useMemo(() => {
-    if (isMetricMode) return null;
-    if (!drag || drag.startIdx === drag.endIdx) return null;
-    const lo = Math.min(drag.startIdx, drag.endIdx);
-    const hi = Math.max(drag.startIdx, drag.endIdx);
-    const loLabel = lo === drag.startIdx ? drag.startLabel : drag.endLabel;
-    const hiLabel = hi === drag.startIdx ? drag.startLabel : drag.endLabel;
-
-    // Raw prices from the primary series.
-    const primarySeries = series[0];
-    const rawPoints =
-      primarySeries?.state.kind === "ok"
-        ? primarySeries.state.data.points
-        : null;
-
-    let deltaAbs: number | null = null;
-    let deltaPct: number | null = null;
-
-    if (rawPoints && rawPoints.length > 0) {
-      // Find the raw point whose `t` matches the row label. The rows are
-      // filtered by date window so we match by label string, then fall
-      // back to index position if no exact match is found.
-      const startT = activeBaseRows[lo]?.t as string | undefined;
-      const endT = activeBaseRows[hi]?.t as string | undefined;
-      const startRaw = rawPoints.find((p) => p.t === startT) ?? rawPoints[lo];
-      const endRaw = rawPoints.find((p) => p.t === endT) ?? rawPoints[hi];
-      if (startRaw && endRaw && startRaw.v !== 0) {
-        deltaAbs = endRaw.v - startRaw.v;
-        deltaPct = (deltaAbs / startRaw.v) * 100;
-      }
-    }
-
-    return { lo, hi, loLabel, hiLabel, deltaAbs, deltaPct };
-  }, [isMetricMode, drag, series, activeBaseRows]);
-
-  // Pill position: horizontally centred on the selection midpoint,
-  // capped to keep the pill inside the chart wrapper (1–94%).
-  const pillLeftPct = useMemo(() => {
-    if (!selectionInfo || activeBaseRows.length === 0) return null;
-    const { lo, hi } = selectionInfo;
-    const midFrac = ((lo + hi) / 2) / (activeBaseRows.length - 1);
-    return Math.max(1, Math.min(94, midFrac * 100));
-  }, [selectionInfo, activeBaseRows.length]);
-
-  // Composed rows: activeBaseRows with __selValue merged in (price mode only).
-  // __selValue = primary ticker's value within [lo, hi], else null.
-  // Merging into the same array guarantees x-axis alignment with the Line series.
-  const composedRows = useMemo(() => {
-    const primaryKey = tickers[0];
-    if (!primaryKey || activeBaseRows.length === 0) return activeBaseRows;
-    const lo = selectionInfo?.lo ?? -1;
-    const hi = selectionInfo?.hi ?? -1;
-    return activeBaseRows.map((row, i) => ({
-      ...row,
-      __selValue:
-        selectionInfo && i >= lo && i <= hi
-          ? (row[primaryKey] as number | null) ?? null
-          : null,
-    }));
-  }, [activeBaseRows, selectionInfo, tickers]);
 
   // Range pills — rendered inline in the controls row on desktop, and moved
   // below the chart (full width, each pill flex-1) on phone, matching the
@@ -2030,7 +1799,9 @@ function ChartCard({
           aria-label={expanded ? "Collapse chart" : "Expand chart"}
           aria-pressed={expanded}
           data-testid="chart-expand-btn"
-          className="inline-flex shrink-0 items-center justify-center"
+          // Hidden on phones — the fullscreen chart overlay is a
+          // desktop/tablet affordance; there's no room for it on mobile.
+          className="inline-flex shrink-0 items-center justify-center max-sm:hidden"
           style={{
             width: 36,
             height: 36,
@@ -2059,9 +1830,9 @@ function ChartCard({
       </div>
 
       {/* ── Row 2: controls ───────────────────────────────────────────────
-          Desktop: Min Date | range pills | Max Date | Price selector (right).
-          Phone: Min/Max dates share one line, then the Price selector full
-          width below; the range pills move beneath the chart (see below). */}
+          Desktop: range pills (left) | Price selector (right).
+          Phone: just the Price selector full width; the range pills move
+          beneath the chart (see below). */}
       <div
         className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center"
         style={{
@@ -2069,27 +1840,9 @@ function ChartCard({
           padding: "0 18px 14px",
         }}
       >
-        {/* Dates wrapper: a full-width flex row on phone (Min + Max share the
-            line); dissolves into the parent row on desktop via `sm:contents`
-            so the original Min | pills | Max ordering is preserved. */}
-        <div className="flex w-full gap-2 sm:contents">
-          <DateField
-            value={minDate}
-            onChange={setMinDate}
-            placeholder="Min Date"
-            aria-label="Minimum date"
-            className="flex-1 sm:w-32 sm:flex-none"
-          />
-          {/* Range pills — desktop in-row slot only (hidden on phone). */}
-          <div className="hidden sm:contents">{rangePills}</div>
-          <DateField
-            value={maxDate}
-            onChange={setMaxDate}
-            placeholder="Max Date"
-            aria-label="Maximum date"
-            className="flex-1 sm:w-32 sm:flex-none"
-          />
-        </div>
+        {/* Range pills — desktop in-row slot only (hidden on phone, where they
+            render beneath the chart). */}
+        <div className="hidden sm:contents">{rangePills}</div>
         {/* Metric selector — full width on phone, pushed to the right edge on
             desktop (lines up with the expand button above). */}
         <div className="w-full sm:ml-auto sm:w-auto">
@@ -2108,6 +1861,9 @@ function ChartCard({
           height: expanded ? "auto" : chartHeight,
           flex: expanded ? 1 : undefined,
           minHeight: expanded ? 0 : undefined,
+          // Lets the box shrink back below the canvas's stale expanded width
+          // instead of the canvas dictating the column width on collapse.
+          minWidth: 0,
           padding: "0 18px",
         }}
       >
@@ -2142,257 +1898,23 @@ function ChartCard({
               volume={volumePoints}
               height="100%"
               intraday={range === "1D" || range === "1W"}
+              refitKey={expanded ? "expanded" : "collapsed"}
             />
           )
+        ) : metricSeriesDefs.length === 0 ? (
+          <Skeleton style={{ height: "100%", width: "100%", borderRadius: "var(--radius-md)" }} />
         ) : (
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart
-              data={composedRows}
-              margin={{ top: 8, right: 16, bottom: 8, left: 8 }}
-              onMouseDown={handleChartMouseDown}
-              onMouseMove={handleChartMouseMove}
-              onMouseUp={handleChartMouseUp}
-              onMouseLeave={handleChartMouseLeave}
-              style={{ userSelect: "none" }}
-            >
-              <XAxis
-                dataKey="t"
-                tick={{ fontSize: 10, fill: "var(--text-tertiary)" }}
-                axisLine={{ stroke: "var(--glass-border)" }}
-                tickLine={false}
-                height={22}
-                minTickGap={40}
-                tickFormatter={(t: string): string => {
-                  try {
-                    return format(parseISO(t), "MMM ''yy");
-                  } catch {
-                    return t;
-                  }
-                }}
-              />
-              <YAxis
-                domain={["auto", "auto"]}
-                tick={{ fontSize: 10, fill: "var(--text-tertiary)" }}
-                axisLine={{ stroke: "var(--glass-border)" }}
-                tickLine={false}
-                width={54}
-                tickFormatter={(v: number): string => {
-                  if (isMetricMode) {
-                    if (metric === "PE Ratio") return `${v.toFixed(0)}x`;
-                    // Market Cap or Sales and Margin — values are already in ₹ Crore
-                    return fmtCrAxis(v);
-                  }
-                  // Price mode: convert normalized 100-base index back to real ₹
-                  if (tickers.length === 1) {
-                    const baseline = chartData.baseline[tickers[0]!];
-                    return baseline
-                      ? `₹${((v / 100) * baseline).toFixed(0)}`
-                      : v.toFixed(0);
-                  }
-                  // Comparison (2+ tickers): show % change from start of window
-                  const delta = v - 100;
-                  return `${delta >= 0 ? "+" : ""}${delta.toFixed(0)}%`;
-                }}
-              />
-              <Tooltip
-                content={
-                  <GrowwTooltip metric={metric} rawPriceByDate={rawPriceByDate} />
-                }
-                cursor={{
-                  stroke: "var(--text-tertiary)",
-                  strokeWidth: 1,
-                  strokeDasharray: "3 3",
-                  opacity: 0.5,
-                }}
-              />
-              {/* Drag-selection shading (price mode only) — Area rendered
-                  BEFORE the Line series so the line draws on top. __selValue
-                  is merged into composedRows (null outside [lo, hi]) so the
-                  fill follows the primary curve and x-alignment is guaranteed. */}
-              {selectionInfo && (
-                <Area
-                  dataKey="__selValue"
-                  type="linear"
-                  fill={
-                    selectionInfo.deltaAbs === null || selectionInfo.deltaAbs >= 0
-                      ? "var(--color-profit)"
-                      : "var(--color-loss)"
-                  }
-                  fillOpacity={0.18}
-                  stroke="none"
-                  connectNulls={false}
-                  isAnimationActive={false}
-                  dot={false}
-                  activeDot={false}
-                  legendType="none"
-                />
-              )}
-              {/* Thin dashed boundary lines at the selection edges */}
-              {selectionInfo && (
-                <ReferenceArea
-                  x1={selectionInfo.loLabel}
-                  x2={selectionInfo.loLabel}
-                  fill="none"
-                  stroke={
-                    selectionInfo.deltaAbs === null || selectionInfo.deltaAbs >= 0
-                      ? "var(--color-profit)"
-                      : "var(--color-loss)"
-                  }
-                  strokeOpacity={0.4}
-                  strokeDasharray="3 3"
-                  ifOverflow="hidden"
-                />
-              )}
-              {selectionInfo && selectionInfo.loLabel !== selectionInfo.hiLabel && (
-                <ReferenceArea
-                  x1={selectionInfo.hiLabel}
-                  x2={selectionInfo.hiLabel}
-                  fill="none"
-                  stroke={
-                    selectionInfo.deltaAbs === null || selectionInfo.deltaAbs >= 0
-                      ? "var(--color-profit)"
-                      : "var(--color-loss)"
-                  }
-                  strokeOpacity={0.4}
-                  strokeDasharray="3 3"
-                  ifOverflow="hidden"
-                />
-              )}
-              {visibleTickers.map((sym) => (
-                <Line
-                  key={sym}
-                  type="linear"
-                  dataKey={sym}
-                  name={sym}
-                  stroke={colorFor(sym)}
-                  strokeWidth={1.75}
-                  dot={false}
-                  activeDot={
-                    drag?.isDragging
-                      ? false
-                      : {
-                          r: 5,
-                          fill: colorFor(sym),
-                          stroke: "var(--bg-base)",
-                          strokeWidth: 2,
-                        }
-                  }
-                  connectNulls
-                  isAnimationActive={false}
-                />
-              ))}
-            </ComposedChart>
-          </ResponsiveContainer>
+          // Metric mode — the SAME lightweight-charts renderer as price, fed the
+          // metric series + a metric formatter, so PE / market cap / sales render
+          // identically to the price chart (native axis, last-value box, crosshair).
+          <StockPriceChart
+            seriesDefs={metricSeriesDefs}
+            height="100%"
+            valueFormatter={metricValueFormatter}
+            normalize={false}
+          />
         )}
 
-        {/* Range-selection floating pill — price mode only. Shows absolute
-            Δ + % for the dragged band. Hidden in metric mode since delta
-            units are non-₹. */}
-        {selectionInfo && pillLeftPct !== null && (
-          <div
-            aria-live="polite"
-            aria-label="Selected range return"
-            style={{
-              position: "absolute",
-              top: 6,
-              left: `${pillLeftPct}%`,
-              transform: "translateX(-50%)",
-              pointerEvents: "none",
-              zIndex: 10,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 2,
-            }}
-          >
-            {/* Main pill — Δ price + Δ % */}
-            <div
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "4px 10px",
-                borderRadius: "var(--radius-pill)",
-                background: "var(--bg-primary)",
-                border: "1px solid var(--glass-border)",
-                boxShadow: "0 2px 8px rgba(0,0,0,0.18)",
-                fontFamily: "var(--font-mono)",
-                fontSize: 12,
-                fontWeight: 600,
-                whiteSpace: "nowrap",
-                color:
-                  selectionInfo.deltaAbs === null || selectionInfo.deltaAbs >= 0
-                    ? "var(--color-profit)"
-                    : "var(--color-loss)",
-              }}
-            >
-              {selectionInfo.deltaAbs !== null && selectionInfo.deltaPct !== null
-                ? `${fmtDelta(selectionInfo.deltaAbs)} (${fmtPct(selectionInfo.deltaPct)})`
-                : "—"}
-            </div>
-            {/* Date range sub-label */}
-            <div
-              style={{
-                fontSize: 10,
-                fontFamily: "var(--font-ui)",
-                color: "var(--text-tertiary)",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {fmtDateShort(selectionInfo.loLabel)} – {fmtDateShort(selectionInfo.hiLabel)}
-            </div>
-          </div>
-        )}
-
-        {/* End-label value tags — metric mode only. The lightweight-charts
-            price render carries native last-value labels on its axis, so the
-            overlay tags would double up there. */}
-        {isMetricMode && activeBaseRows.length > 0 && visibleTickers.length > 0 && (
-          <div
-            className="flex flex-col items-end"
-            style={{
-              position: "absolute",
-              top: 14,
-              right: 28,
-              gap: 4,
-              pointerEvents: "none",
-            }}
-          >
-            {visibleTickers.map((sym) => {
-              const v = endValues.get(sym);
-              if (v == null) return null;
-              const peerLtp = isMetricMode
-                ? null
-                : sym === primaryQuote?.symbol
-                  ? primaryQuote.ltp
-                  : peerQuotes[sym]?.ltp ?? null;
-              return (
-                <span
-                  key={sym}
-                  className="inline-flex items-center"
-                  style={{
-                    gap: 6,
-                    padding: "3px 8px",
-                    borderRadius: "var(--radius-xs)",
-                    background: colorFor(sym),
-                    color: "var(--bg-primary)",
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 11,
-                    fontWeight: 600,
-                    whiteSpace: "nowrap",
-                  }}
-                  aria-label={`${sym} latest ${isMetricMode ? metric : "price"}`}
-                >
-                  {peerLtp !== null
-                    ? INR.format(peerLtp)
-                    : (metric === "Market Cap" || metric === "Sales and Margin")
-                      ? fmtCrAxis(v)
-                      : v.toFixed(2)}
-                </span>
-              );
-            })}
-          </div>
-        )}
       </div>
 
       {/* ── Range pills below the chart — phone only, full width (scrolls if
@@ -2505,523 +2027,119 @@ function ChartCard({
           </div>
         </div>
       )}
+
+      {/* ── Buy / Sell — trade the primary ticker via the global order ticket.
+             Suppressed for an index: NIFTY 50 / SENSEX / BANKNIFTY are not
+             instruments you can hold, so an order path here would be offering
+             something that doesn't exist. Indices get price + chart only. ── */}
+      {tickers[0] && primaryQuote?.is_index && (
+        <div
+          style={{
+            padding: "14px 22px 18px",
+            borderTop: "1px solid var(--glass-border)",
+            fontSize: 12,
+            lineHeight: 1.5,
+            color: "var(--text-tertiary)",
+          }}
+          data-testid="index-not-tradeable"
+        >
+          {primaryQuote.name || tickers[0]} is an index, not a tradeable
+          instrument — this page is price and chart only.
+        </div>
+      )}
+      {/* `primaryQuote &&` is load-bearing: while the quote is in flight it is
+          null, and gating on `!primaryQuote?.is_index` alone rendered Buy/Sell
+          for a beat on an index page before the payload landed. */}
+      {tickers[0] && primaryQuote && !primaryQuote.is_index && (
+        <div
+          style={{
+            display: "flex",
+            gap: 12,
+            padding: "14px 22px",
+            justifyContent: "flex-end",
+            borderTop: "1px solid var(--glass-border)",
+          }}
+        >
+          <TradeCTA
+            side="BUY"
+            onClick={() =>
+              openOrderTicket({
+                symbol: tickers[0]!,
+                side: "BUY",
+                name: primaryQuote?.name ?? tickers[0]!,
+              })
+            }
+          />
+          <TradeCTA
+            side="SELL"
+            onClick={() =>
+              openOrderTicket({
+                symbol: tickers[0]!,
+                side: "SELL",
+                name: primaryQuote?.name ?? tickers[0]!,
+              })
+            }
+          />
+        </div>
+      )}
     </Card>
     </>
   );
 }
 
-// ── Small chrome bits used inside the chart card ──────────────────────
-
-// ── DatePicker (ported from frontend-quartr SipPreviewCard) ─────────────
-// Calendar popover: trigger button shows the formatted date or
-// placeholder; clicking opens a 7-column day grid with month nav,
-// today outline, and selected highlight. Uses our token palette.
-
-const MONTH_NAMES = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December",
-];
-const DOW_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
-
-function ymd(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function formatDateLabel(iso: string): string {
-  if (!iso) return "";
-  try {
-    const d = new Date(iso);
-    return d.toLocaleDateString("en-IN", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
-  } catch {
-    return iso;
-  }
-}
-
-function DateField({
-  value,
-  onChange,
-  placeholder,
-  "aria-label": ariaLabel,
-  className,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  placeholder: string;
-  "aria-label"?: string;
-  /** Width control from the caller (e.g. `flex-1 sm:w-32` so the field is
-   *  fluid on phone and a fixed 128px on desktop). The button fills it. */
-  className?: string;
-}): React.ReactElement {
-  const [open, setOpen] = useState(false);
-  // "days" = month grid (default), "years" = 12-cell year picker.
-  // Clicking the year label in the header swaps to "years"; picking
-  // a year drops back to "days" at the same month.
-  const [view, setView] = useState<"days" | "years">("days");
-  // Top of the year-grid window. Starts at cursor.year - 6 so the
-  // current year sits roughly in the middle.
-  const [yearGridStart, setYearGridStart] = useState<number>(0);
-  const wrapperRef = useRef<HTMLDivElement | null>(null);
-  const initial = value ? new Date(value) : new Date();
-  const [cursor, setCursor] = useState({
-    year: initial.getFullYear(),
-    month: initial.getMonth(),
-  });
-
-  // Re-anchor month cursor on the chosen value when the popover opens.
-  useEffect(() => {
-    if (!open) return;
-    const d = value ? new Date(value) : new Date();
-    setCursor({ year: d.getFullYear(), month: d.getMonth() });
-    setView("days");
-  }, [open, value]);
-
-  // Whenever we enter the year view, recenter the 12-cell window
-  // around the current cursor year.
-  useEffect(() => {
-    if (view !== "years") return;
-    setYearGridStart(cursor.year - 6);
-  }, [view, cursor.year]);
-
-  // Click-outside to dismiss
-  useEffect(() => {
-    if (!open) return;
-    const onDocClick = (e: MouseEvent): void => {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, [open]);
-
-  const cells = useMemo(() => {
-    const first = new Date(cursor.year, cursor.month, 1);
-    const lead = first.getDay();
-    const start = new Date(cursor.year, cursor.month, 1 - lead);
-    const out: { date: Date; key: string; inMonth: boolean }[] = [];
-    for (let i = 0; i < 42; i++) {
-      const d = new Date(start);
-      d.setDate(start.getDate() + i);
-      out.push({
-        date: d,
-        key: ymd(d),
-        inMonth: d.getMonth() === cursor.month,
-      });
-    }
-    return out;
-  }, [cursor]);
-
-  const goPrev = (): void =>
-    setCursor((c) => {
-      const m = c.month - 1;
-      return m < 0 ? { year: c.year - 1, month: 11 } : { year: c.year, month: m };
-    });
-  const goNext = (): void =>
-    setCursor((c) => {
-      const m = c.month + 1;
-      return m > 11 ? { year: c.year + 1, month: 0 } : { year: c.year, month: m };
-    });
-
-  const todayKey = ymd(new Date());
-  const hasValue = value.length > 0;
-  const label = hasValue ? formatDateLabel(value) : placeholder;
-
-  return (
-    <div ref={wrapperRef} className={className} style={{ position: "relative" }}>
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-label={ariaLabel}
-        style={{
-          width: "100%",
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 8,
-          height: 38,
-          padding: "0 12px",
-          background: "var(--bg-base)",
-          border: `1px solid ${open ? "var(--glass-border-focus, var(--text-secondary))" : "var(--glass-border)"}`,
-          borderRadius: "var(--radius-sm)",
-          fontFamily: "var(--font-ui)",
-          fontSize: 12,
-          color: hasValue ? "var(--text-primary)" : "var(--text-tertiary)",
-          cursor: "pointer",
-          outline: "none",
-          transition: "border-color 0.18s var(--ease-quartr)",
-        }}
-      >
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {label}
-        </span>
-        <ChevronDown
-          size={14}
-          strokeWidth={2}
-          style={{
-            color: "var(--text-tertiary)",
-            transform: open ? "rotate(180deg)" : "none",
-            transition: "transform 0.18s var(--ease-quartr)",
-            flexShrink: 0,
-          }}
-          aria-hidden="true"
-        />
-      </button>
-
-      {open && (
-        <div
-          role="dialog"
-          style={{
-            position: "absolute",
-            top: "calc(100% + 6px)",
-            left: 0,
-            zIndex: 20,
-            width: 244,
-            padding: 12,
-            background: "var(--bg-primary)",
-            border: "1px solid var(--glass-border)",
-            borderRadius: "var(--radius-md)",
-            boxShadow: "0 12px 30px rgba(0,0,0,0.25)",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              marginBottom: 8,
-            }}
-          >
-            <CalNavBtn
-              onClick={
-                view === "days"
-                  ? goPrev
-                  : () => setYearGridStart((s) => s - 12)
-              }
-              label={
-                view === "days" ? "Previous month" : "Previous 12 years"
-              }
-            >
-              <ChevronLeft size={14} strokeWidth={2} aria-hidden="true" />
-            </CalNavBtn>
-
-            {/* Header label: month + year in days view, or the year-range
-                in years view. Clicking the year (days view) opens the year
-                grid; clicking the range (years view) closes it. */}
-            {view === "days" ? (
-              <div
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                  fontFamily: "var(--font-ui)",
-                  fontWeight: 500,
-                  fontSize: 13,
-                  color: "var(--text-primary)",
-                  letterSpacing: "-0.01em",
-                }}
-              >
-                <span>{MONTH_NAMES[cursor.month]}</span>
-                <button
-                  type="button"
-                  onClick={() => setView("years")}
-                  aria-label="Pick year"
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    padding: "2px 6px",
-                    borderRadius: "var(--radius-xs)",
-                    color: "var(--text-primary)",
-                    fontFamily: "var(--font-ui)",
-                    fontWeight: 500,
-                    fontSize: 13,
-                    letterSpacing: "-0.01em",
-                    cursor: "pointer",
-                    transition: "background-color 0.15s var(--ease-quartr)",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "var(--surface-hover)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "transparent";
-                  }}
-                >
-                  {cursor.year}
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setView("days")}
-                aria-label="Back to month view"
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  padding: "2px 6px",
-                  borderRadius: "var(--radius-xs)",
-                  color: "var(--text-primary)",
-                  fontFamily: "var(--font-ui)",
-                  fontWeight: 500,
-                  fontSize: 13,
-                  letterSpacing: "-0.01em",
-                  cursor: "pointer",
-                  transition: "background-color 0.15s var(--ease-quartr)",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "var(--surface-hover)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "transparent";
-                }}
-              >
-                {yearGridStart} – {yearGridStart + 11}
-              </button>
-            )}
-
-            <CalNavBtn
-              onClick={
-                view === "days"
-                  ? goNext
-                  : () => setYearGridStart((s) => s + 12)
-              }
-              label={
-                view === "days" ? "Next month" : "Next 12 years"
-              }
-            >
-              <ChevronRight size={14} strokeWidth={2} aria-hidden="true" />
-            </CalNavBtn>
-          </div>
-
-          {view === "days" && (
-            <>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(7, 1fr)",
-                  gap: 2,
-                  marginBottom: 4,
-                }}
-              >
-                {DOW_LABELS.map((d) => (
-                  <div
-                    key={d}
-                    style={{
-                      textAlign: "center",
-                      fontSize: 10,
-                      fontFamily: "var(--font-ui)",
-                      color: "var(--text-tertiary)",
-                      fontWeight: 500,
-                      padding: "4px 0",
-                      letterSpacing: "0.04em",
-                    }}
-                  >
-                    {d}
-                  </div>
-                ))}
-              </div>
-
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(7, 1fr)",
-                  gap: 2,
-                }}
-              >
-                {cells.map((c) => {
-                  const selected = c.key === value;
-                  const today = c.key === todayKey;
-                  return (
-                    <button
-                      key={c.key}
-                      type="button"
-                      onClick={() => {
-                        onChange(c.key);
-                        setOpen(false);
-                      }}
-                      style={{
-                        height: 28,
-                        background: selected ? "var(--text-primary)" : "transparent",
-                        border:
-                          today && !selected
-                            ? "1px solid var(--glass-border-focus, var(--text-secondary))"
-                            : "1px solid transparent",
-                        borderRadius: "var(--radius-sm)",
-                        color: selected
-                          ? "var(--bg-primary)"
-                          : c.inMonth
-                            ? "var(--text-primary)"
-                            : "var(--text-tertiary)",
-                        fontFamily: "var(--font-ui)",
-                        fontSize: 12,
-                        fontWeight: selected ? 600 : 500,
-                        cursor: "pointer",
-                        transition:
-                          "background-color 0.15s var(--ease-quartr), color 0.15s var(--ease-quartr)",
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!selected)
-                          e.currentTarget.style.background = "var(--surface-hover)";
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!selected)
-                          e.currentTarget.style.background = "transparent";
-                      }}
-                    >
-                      {c.date.getDate()}
-                    </button>
-                  );
-                })}
-              </div>
-            </>
-          )}
-
-          {view === "years" && (
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(3, 1fr)",
-                gap: 4,
-              }}
-            >
-              {Array.from({ length: 12 }).map((_, i) => {
-                const yr = yearGridStart + i;
-                const thisYear = new Date().getFullYear();
-                // Future years are not selectable — historical price
-                // data only exists up to today, so anything past the
-                // current year is rendered as a disabled placeholder.
-                const isFuture = yr > thisYear;
-                const selected = yr === cursor.year;
-                const isToday = yr === thisYear;
-                return (
-                  <button
-                    key={yr}
-                    type="button"
-                    disabled={isFuture}
-                    onClick={() => {
-                      if (isFuture) return;
-                      setCursor((c) => ({ ...c, year: yr }));
-                      setView("days");
-                    }}
-                    style={{
-                      height: 40,
-                      background: selected ? "var(--text-primary)" : "transparent",
-                      border:
-                        isToday && !selected
-                          ? "1px solid var(--glass-border-focus, var(--text-secondary))"
-                          : "1px solid transparent",
-                      borderRadius: "var(--radius-sm)",
-                      color: isFuture
-                        ? "var(--text-tertiary)"
-                        : selected
-                          ? "var(--bg-primary)"
-                          : "var(--text-primary)",
-                      fontFamily: "var(--font-ui)",
-                      fontSize: 12.5,
-                      fontWeight: selected ? 600 : 500,
-                      cursor: isFuture ? "not-allowed" : "pointer",
-                      opacity: isFuture ? 0.4 : 1,
-                      transition:
-                        "background-color 0.15s var(--ease-quartr), color 0.15s var(--ease-quartr)",
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!selected && !isFuture)
-                        e.currentTarget.style.background = "var(--surface-hover)";
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!selected && !isFuture)
-                        e.currentTarget.style.background = "transparent";
-                    }}
-                  >
-                    {yr}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
-          {hasValue && (
-            <button
-              type="button"
-              onClick={() => {
-                onChange("");
-                setOpen(false);
-              }}
-              style={{
-                marginTop: 10,
-                width: "100%",
-                padding: "6px 10px",
-                background: "transparent",
-                border: "1px solid var(--glass-border)",
-                borderRadius: "var(--radius-sm)",
-                color: "var(--text-secondary)",
-                fontFamily: "var(--font-ui)",
-                fontSize: 11.5,
-                cursor: "pointer",
-                transition:
-                  "color 0.18s var(--ease-quartr), border-color 0.18s var(--ease-quartr)",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = "var(--text-primary)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = "var(--text-secondary)";
-              }}
-            >
-              Clear
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function CalNavBtn({
-  children,
+/** A big, symmetric Buy/Sell button — flat shadcn-style fill (no glow/shine),
+ *  green for BUY, red for SELL, with a subtle darken on hover/press. */
+function TradeCTA({
+  side,
   onClick,
-  label,
 }: {
-  children: React.ReactNode;
+  side: "BUY" | "SELL";
   onClick: () => void;
-  label: string;
 }): React.ReactElement {
+  const [hover, setHover] = useState(false);
+  const [active, setActive] = useState(false);
+  const buy = side === "BUY";
+  const base = buy ? "var(--color-profit)" : "var(--color-loss)";
   return (
     <button
       type="button"
       onClick={onClick}
-      aria-label={label}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => {
+        setHover(false);
+        setActive(false);
+      }}
+      onMouseDown={() => setActive(true)}
+      onMouseUp={() => setActive(false)}
+      aria-label={buy ? "Buy" : "Sell"}
       style={{
-        width: 24,
-        height: 24,
+        flex: 1,
+        height: 46,
         display: "inline-flex",
         alignItems: "center",
         justifyContent: "center",
-        background: "transparent",
+        gap: 8,
+        borderRadius: "var(--radius-md)",
         border: "none",
-        borderRadius: "var(--radius-sm)",
-        color: "var(--text-secondary)",
+        background: base,
+        // Flat matte fill — a plain brightness nudge on hover/press, never a
+        // glow or gradient sheen.
+        filter: active ? "brightness(0.92)" : hover ? "brightness(1.06)" : "none",
+        color: "#fff",
+        fontFamily: "var(--font-ui)",
+        fontSize: 15,
+        fontWeight: 600,
+        letterSpacing: "0.01em",
         cursor: "pointer",
-        transition:
-          "color 0.2s var(--ease-quartr), background-color 0.2s var(--ease-quartr)",
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.color = "var(--text-primary)";
-        e.currentTarget.style.background = "var(--surface-hover)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.color = "var(--text-secondary)";
-        e.currentTarget.style.background = "transparent";
+        transition: "filter 120ms ease",
       }}
     >
-      {children}
+      {buy ? "Buy" : "Sell"}
     </button>
   );
 }
+
+// ── Small chrome bits used inside the chart card ──────────────────────
 
 function MetricSelector({
   value,
@@ -3157,7 +2275,9 @@ function CompareChip({
       className="inline-flex items-center"
       style={{
         gap: 4,
-        padding: "3px 4px 3px 10px",
+        // Tight right padding leaves room for the X button; when the chip
+        // isn't removable there's no button, so pad both sides evenly.
+        padding: removable ? "3px 4px 3px 10px" : "3px 10px",
         background: `${color}26`,
         borderRadius: "var(--radius-sm)",
         color,
@@ -3215,10 +2335,17 @@ const FY_YEARS: string[] = (() => {
   return [y - 4, y - 3, y - 2, y - 1, y].map((n) => `FY${String(n).slice(2)}`);
 })();
 
-/** Both Financials and P&L pad to this row count so the boxes
- *  always align at the bottom regardless of metric mix. The P&L
- *  walkdown has 7 rows currently (Revenue → COGS → Gross Profit →
- *  Opex → Operating Income → Tax → Net Income), so we anchor on 7. */
+/** The summary panel shows the SAME NUMBER OF ROWS on every tab.
+ *
+ *  Three tabs of one panel that disagree on height are three panels: the chart
+ *  beside them is one size, and a tab that runs past it makes the reader
+ *  scroll to change tabs. So each tab is built to this count and pads with an
+ *  em-dash rather than dropping a line — the opposite of the rule the detail
+ *  page follows, and right for the opposite reason. There, an absent line is
+ *  information; here, a moving row count is noise.
+ *
+ *  Passed in as `minRows` at each call site rather than read from here, so it
+ *  stands as the reference value the call sites agree on. */
 const _SHARED_TABLE_ROWS = 7;
 
 type FinancialRow = { label: string; values: (string | null)[] };
@@ -3287,7 +2414,7 @@ function FinancialsTable({
   financials: FinancialsResponse | null;
 }): React.ReactElement {
   const rows = useMemo(() => {
-    if (financials?.available) return buildBalanceSheetFromDB(financials);
+    if (financials?.available) return buildBalanceSheetFromDB(financials, null);
     return buildBalanceSheetEstimate();
   }, [financials]);
   const source = financials?.available ? "Moneycontrol" : "placeholder";
@@ -3312,7 +2439,7 @@ function ProfitLossTable({
   financials: FinancialsResponse | null;
 }): React.ReactElement {
   const rows = useMemo(() => {
-    if (financials?.available) return buildProfitLossFromDB(financials);
+    if (financials?.available) return buildProfitLossFromDB(financials, null);
     return buildProfitLoss(quote);
   }, [quote, financials]);
   const source = financials?.available ? "Moneycontrol" : "placeholder";
@@ -3354,7 +2481,36 @@ function pickByFY(
   return hit?.value ?? null;
 }
 
-function buildBalanceSheetFromDB(f: FinancialsResponse): FinancialRow[] {
+/** One filed ratio, read out of the ratio sheet and keyed by fiscal year.
+ *
+ *  Read, not computed. Debt/equity and ROE could both be divided out of the
+ *  history series already on this page, and doing so would put a second,
+ *  silently different number next to the one the statements page quotes for
+ *  the same year. MC files these; both surfaces quote the filing.
+ *
+ *  Takes CANDIDATE names because MC files banks under a different vocabulary
+ *  from everyone else — return on equity is "Return on Networth / Equity (%)"
+ *  for TCS and "Return on Equity / Networth (%)" for HDFCBANK, and ROCE is
+ *  "Return on Capital Employed (%)" against a bare "Roce (%)". First hit
+ *  wins. */
+function ratioByFY(
+  ratios: StatementResponse | null,
+  lineItems: string[],
+  fy: string,
+): number | null {
+  if (!ratios) return null;
+  const row = ratios.rows.find((r) => lineItems.includes(r.line_item.trim()));
+  if (!row) return null;
+  // "Mar 26" → FY26. The ratio sheet is labelled by period end, the summary
+  // by fiscal year, and the two only ever meet here.
+  const period = ratios.periods.find((p) => `FY${p.slice(-2)}` === fy);
+  return period ? (row.values[period] ?? null) : null;
+}
+
+function buildBalanceSheetFromDB(
+  f: FinancialsResponse,
+  ratios: StatementResponse | null,
+): FinancialRow[] {
   const equity = f.history["total_equity"] ?? [];
   const reserves = f.history["reserves"] ?? [];
   const debt = f.history["total_debt"] ?? [];
@@ -3380,8 +2536,92 @@ function buildBalanceSheetFromDB(f: FinancialsResponse): FinancialRow[] {
         return v === null ? "—" : `₹${v.toFixed(2)}`;
       }),
     },
+    // Three balance-sheet ratios: what it owes against what it owns, whether
+    // it can pay this year's bills, and what the equity earned. Filed values,
+    // so they cannot disagree with the ratio sheet — and swapped for a bank,
+    // which files none of the first two.
+    ...(filesBankRatios(ratios)
+      ? [
+          ratioRow("Return on Equity", ratios, ROE_NAMES, (v) => `${v.toFixed(1)}%`),
+          ratioRow("Return on Assets", ratios, ["Return on Assets (%)"], (v) => `${v.toFixed(1)}%`),
+          ratioRow("CASA", ratios, ["Casa (%)"], (v) => `${v.toFixed(1)}%`),
+        ]
+      : [
+          ratioRow("Debt / Equity", ratios, ["Total Debt/Equity (X)"], (v) => `${v.toFixed(2)}×`),
+          ratioRow("Current Ratio", ratios, ["Current Ratio (X)"], (v) => `${v.toFixed(2)}×`),
+          ratioRow("Return on Equity", ratios, ROE_NAMES, (v) => `${v.toFixed(1)}%`),
+        ]),
   ];
 }
+
+/** The ratio summary tab: seven filed ratios spanning what the company earns,
+ *  what it owes and what it is priced at.
+ *
+ *  Every one is read from MC's ratio sheet, so the summary and the statements
+ *  page cannot disagree — and so this tab costs no arithmetic at all. The
+ *  labels are ours; the numbers are the filing's. */
+function buildRatioRows(ratios: StatementResponse | null): FinancialRow[] {
+  const pctFmt = (v: number) => `${v.toFixed(1)}%`;
+  const mult = (v: number) => `${v.toFixed(2)}×`;
+
+  // A bank has no debt/equity, no current ratio and no EV/EBITDA to file, so
+  // asking for them printed five em-dashes out of seven — the dead rows this
+  // page exists to avoid. It gets the three that describe a bank instead.
+  if (filesBankRatios(ratios)) {
+    return [
+      ratioRow("Return on Equity", ratios, ROE_NAMES, pctFmt),
+      ratioRow("Return on Assets", ratios, ["Return on Assets (%)"], pctFmt),
+      ratioRow("Net Margin", ratios, ["Net Profit Margin (%)"], pctFmt),
+      ratioRow("Operating Margin", ratios, ["Operating Profit Margin (%)"], pctFmt),
+      ratioRow("Net Interest Margin", ratios, ["Net Interest Margin (%)"], pctFmt),
+      ratioRow("CASA", ratios, ["Casa (%)"], pctFmt),
+      ratioRow("Cost to Income", ratios, ["Cost to Income (%)"], pctFmt),
+    ];
+  }
+
+  return [
+    ratioRow("Return on Equity", ratios, ROE_NAMES, pctFmt),
+    ratioRow("Return on Capital", ratios, ROCE_NAMES, pctFmt),
+    ratioRow("Return on Assets", ratios, ["Return on Assets (%)"], pctFmt),
+    ratioRow("Net Margin", ratios, ["Net Profit Margin (%)"], pctFmt),
+    ratioRow("Debt / Equity", ratios, ["Total Debt/Equity (X)"], mult),
+    ratioRow("Current Ratio", ratios, ["Current Ratio (X)"], mult),
+    ratioRow("EV / EBITDA", ratios, ["EV/EBITDA (X)"], mult),
+  ];
+}
+
+/** A ratio-sheet line, shaped as a summary row across the fiscal years. */
+function ratioRow(
+  label: string,
+  ratios: StatementResponse | null,
+  lineItems: string | string[],
+  fmt: (v: number) => string,
+): FinancialRow {
+  const names = Array.isArray(lineItems) ? lineItems : [lineItems];
+  return {
+    label,
+    values: FY_YEARS.map((fy) => {
+      const v = ratioByFY(ratios, names, fy);
+      return v === null || !Number.isFinite(v) ? "—" : fmt(v);
+    }),
+  };
+}
+
+/** MC files banks under their own ratio vocabulary — no debt/equity, no
+ *  current ratio, no EV/EBITDA, and instead the three that actually describe a
+ *  bank: what the deposits cost, what the spread is, what the branch network
+ *  costs to run. Detected by the presence of those lines rather than by a
+ *  sector string, because the ratio sheet is the thing being read. */
+function filesBankRatios(ratios: StatementResponse | null): boolean {
+  if (!ratios) return false;
+  return ratios.rows.some((r) => {
+    const li = r.line_item.trim();
+    return li === "Casa (%)" || li === "Net Interest Margin (%)";
+  });
+}
+
+const ROE_NAMES = ["Return on Networth / Equity (%)", "Return on Equity / Networth (%)"];
+const ROCE_NAMES = ["Return on Capital Employed (%)", "Roce (%)"];
 
 // Estimated fallback for the Balance Sheet tab. We don't fabricate balance
 // sheets when the financials DB has no data — the line items show as
@@ -3396,7 +2636,10 @@ function buildBalanceSheetEstimate(): FinancialRow[] {
   ];
 }
 
-function buildProfitLossFromDB(f: FinancialsResponse): FinancialRow[] {
+function buildProfitLossFromDB(
+  f: FinancialsResponse,
+  ratios: StatementResponse | null,
+): FinancialRow[] {
   const revenue = f.history["revenue"] ?? [];
   const op = f.history["operating_profit"] ?? [];
   const net = f.history["net_profit"] ?? [];
@@ -3427,6 +2670,10 @@ function buildProfitLossFromDB(f: FinancialsResponse): FinancialRow[] {
         return v === null ? "—" : v.toFixed(2);
       }),
     },
+    // Two filed ratios, to the same seven rows the other tabs carry: what the
+    // revenue kept, and what the capital earned.
+    ratioRow("Net Margin", ratios, ["Net Profit Margin (%)"], (v) => `${v.toFixed(1)}%`),
+    ratioRow("Return on Capital", ratios, ROCE_NAMES, (v) => `${v.toFixed(1)}%`),
   ];
 }
 
@@ -3436,7 +2683,7 @@ function buildProfitLossFromDB(f: FinancialsResponse): FinancialRow[] {
 // Skipped entirely when the symbol has no MC entry — the page falls
 // back to its existing chart + placeholder tables.
 
-const _METRIC_TILES: Array<{ key: string; label: string; suffix?: string; decimals?: number }> = [
+const _METRIC_TILES: Array<{ key: string; label: string; suffix?: string; decimals?: number; skipZero?: boolean }> = [
   { key: "roe",            label: "ROE",            suffix: "%", decimals: 2 },
   { key: "roce",           label: "ROCE",           suffix: "%", decimals: 2 },
   { key: "roa",            label: "ROA",            suffix: "%", decimals: 2 },
@@ -3447,39 +2694,44 @@ const _METRIC_TILES: Array<{ key: string; label: string; suffix?: string; decima
   { key: "net_profit_margin", label: "Net Margin",  suffix: "%", decimals: 2 },
 ];
 
-/** Honest provenance label for a set of financial values — yfinance-filled
- *  metrics must not read "Moneycontrol". */
-function sourceLabel(sources: (string | null | undefined)[]): string {
-  const set = new Set(sources.filter(Boolean));
-  const mc = set.has("moneycontrol");
-  const yf = set.has("yfinance");
-  if (mc && yf) return "Moneycontrol + yfinance";
-  if (yf) return "yfinance";
-  if (mc) return "Moneycontrol";
-  return "—";
-}
+// Banks report a different vocabulary — asset quality + loan-book margins.
+// A symbol is treated as a bank when any bank-only field resolves (NPA/NIM/
+// CASA exist only for banking companies in the Moneycontrol DB).
+// skipZero: MC stores a junk 0.00 CASA for some banks (e.g. ICICI) — render
+// "—" instead of a fake zero.
+const _BANK_METRIC_TILES: typeof _METRIC_TILES = [
+  { key: "roe",                 label: "ROE",        suffix: "%", decimals: 2 },
+  { key: "gross_npa_pct",       label: "Gross NPA",  suffix: "%", decimals: 2 },
+  { key: "net_npa_pct",         label: "Net NPA",    suffix: "%", decimals: 2 },
+  { key: "net_interest_margin", label: "NIM",        suffix: "%", decimals: 2 },
+  { key: "casa_pct",            label: "CASA",       suffix: "%", decimals: 2, skipZero: true },
+  { key: "price_to_book",       label: "P/B",        suffix: "x", decimals: 2 },
+  { key: "net_profit_margin",   label: "Net Margin", suffix: "%", decimals: 2 },
+];
+
+const _BANK_FIELD_KEYS = ["gross_npa_pct", "net_npa_pct", "net_interest_margin", "casa_pct"];
 
 function KeyMetricsStrip({
   financials,
 }: {
   financials: FinancialsResponse;
 }): React.ReactElement {
+  const isBank = _BANK_FIELD_KEYS.some(
+    (k) => financials.latest[k]?.value != null,
+  );
+  const tiles = isBank ? _BANK_METRIC_TILES : _METRIC_TILES;
   const period = (() => {
     // All tiles come from the same fiscal year — surface it once.
-    for (const t of _METRIC_TILES) {
+    for (const t of tiles) {
       const v = financials.latest[t.key];
       if (v) return v.period_label;
     }
     return null;
   })();
-  const metricSource = sourceLabel(
-    _METRIC_TILES.map((t) => financials.latest[t.key]?.source),
-  );
-
   return (
     // Horizontal padding matches the Financial Performance panel below so the
     // heading + tiles line up with it (instead of sitting flush-left).
-    <div style={{ marginTop: 36, padding: "0 20px" }}>
+    <div style={{ marginTop: SECTION_GAP, padding: "0 20px" }}>
       <div
         style={{
           display: "flex",
@@ -3492,9 +2744,9 @@ function KeyMetricsStrip({
           className="m-0"
           style={{
             fontFamily: "var(--font-ui)",
-            fontSize: 14,
+            fontSize: 21,
             fontWeight: 600,
-            letterSpacing: "-0.01em",
+            letterSpacing: "-0.022em",
             color: "var(--text-primary)",
           }}
         >
@@ -3502,16 +2754,24 @@ function KeyMetricsStrip({
         </h2>
         {period && (
           <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
-            As of {period} · {metricSource}
+            As of {period}
           </span>
         )}
       </div>
       <div
-        className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8"
+        className={
+          isBank
+            ? "grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7"
+            : "grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8"
+        }
         style={{ gap: 8 }}
       >
-        {_METRIC_TILES.map((t) => {
-          const v = financials.latest[t.key];
+        {tiles.map((t) => {
+          const raw = financials.latest[t.key];
+          const v =
+            raw && raw.value !== null && !(t.skipZero && raw.value === 0)
+              ? raw
+              : null;
           return (
             <div
               key={t.key}
@@ -3568,7 +2828,7 @@ function KeyMetricsStrip({
 // FinancialsPanel — bar chart (left) + data table (right)
 // ---------------------------------------------------------------------------
 
-type FinPanelTab = "financials" | "pl";
+type FinPanelTab = "financials" | "pl" | "quarters" | "ratios";
 
 function parseFinVal(v: string | null | undefined): number | null {
   if (!v || v === "—") return null;
@@ -3594,10 +2854,15 @@ function FinBarChart({
   periods,
   metricA,
   metricB,
+  unit = "cr",
 }: {
   periods: string[];
   metricA: { label: string; values: (number | null)[]; color: string };
   metricB: { label: string; values: (number | null)[]; color: string };
+  /** What the bars are counted in. The legend used to say "(Cr)" and the
+   *  readout used to print a ₹ regardless — which on the ratio tab labelled a
+   *  return on equity as crores of rupees. */
+  unit?: "cr" | "pct";
 }): React.ReactElement {
   const [hover, setHover] = useState<number | null>(null);
   const allVals = [...metricA.values, ...metricB.values].filter((n): n is number => n !== null);
@@ -3610,7 +2875,7 @@ function FinBarChart({
         {[metricA, metricB].map((m) => (
           <span key={m.label} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, fontFamily: "var(--font-ui)", color: "var(--text-secondary)", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em" }}>
             <span style={{ width: 10, height: 10, borderRadius: "50%", background: m.color, flexShrink: 0 }} />
-            {m.label} (Cr)
+            {m.label}{unit === "cr" ? " (Cr)" : " (%)"}
           </span>
         ))}
       </div>
@@ -3628,7 +2893,9 @@ function FinBarChart({
                 return (
                   <div key={m.label}>
                     <span style={{ fontFamily: "var(--font-mono)", fontSize: 20, fontWeight: 700, color: "var(--text-primary)" }}>
-                      ₹{v !== null ? fmtShort(v) : "—"}
+                      {v === null ? "—"
+                        : unit === "cr" ? `₹${fmtShort(v)}`
+                        : `${v.toFixed(1)}%`}
                     </span>
                     <span style={{ fontSize: 10, color: "var(--text-tertiary)", fontFamily: "var(--font-ui)", marginLeft: 4 }}>{m.label}</span>
                   </div>
@@ -3650,7 +2917,7 @@ function FinBarChart({
         {[0.25, 0.5, 0.75, 1].map((f) => (
           <div key={f} style={{ position: "absolute", left: 0, right: 32, bottom: `${f * 100}%`, borderTop: "1px dotted var(--glass-border)", pointerEvents: "none" }}>
             <span style={{ position: "absolute", right: -30, top: -8, fontSize: 9, color: "var(--text-tertiary)", fontFamily: "var(--font-mono)" }}>
-              {fmtShort(maxVal * f)}
+              {unit === "cr" ? fmtShort(maxVal * f) : `${(maxVal * f).toFixed(0)}%`}
             </span>
           </div>
         ))}
@@ -3715,69 +2982,266 @@ function FinancialsPanel({
   financials: FinancialsResponse | null;
 }): React.ReactElement {
   const [tab, setTab] = useState<FinPanelTab>("financials");
+  // One row's series open at a time. Keyed by label rather than index so
+  // switching tabs — which swaps the whole row set — closes it rather than
+  // opening whatever now sits in that position.
+  const [openRow, setOpenRow] = useState<string | null>(null);
+  // ── the quarterly tab ───────────────────────────────────────────────────
+  // Quarters used to be a section of its own below, with a different heading
+  // size, its own stat tiles and three sparklines — a second financials panel
+  // that happened to be about three months instead of twelve. It is the same
+  // question at a different period, so it is a third tab here and it is drawn
+  // by the same chart and the same table as the other two.
+  //
+  // Loaded WITH the panel, not on first open of the tab, because the answer
+  // decides whether the tab exists at all. Coverage decides what renders is
+  // the rule the sections below already follow, and a great many companies
+  // file no quarterly metrics — HDFCBANK and INFY among them. Opening the tab
+  // to fetch would have meant advertising a tab that turns out to be empty,
+  // which is the dead panel that rule exists to prevent.
+  const [quarters, setQuarters] = useState<QuartersResponse | null>(null);
+  const [hasQuarters, setHasQuarters] = useState(false);
+  const [qBasis, setQBasis] = useState<"consolidated" | "standalone">("consolidated");
+  // The filed ratio sheet, for the ratio rows on the Balance Sheet and P&L
+  // tabs. Read rather than divided out of the history series already here, so
+  // this panel and the statements page cannot quote different numbers for the
+  // same year. Absent for a company MC files no ratios for, and those rows
+  // then print em-dashes without changing the row count.
+  const [ratios, setRatios] = useState<StatementResponse | null>(null);
+
+  // A new company answers the question again from scratch, and must not
+  // inherit the last one's tab — landing on Quarterly Results for a company
+  // that has none is the same dead panel by another route.
+  useEffect(() => {
+    setHasQuarters(false);
+    setQBasis("consolidated");
+    setTab((t) => (t === "quarters" || t === "ratios" ? "financials" : t));
+  }, [quote.symbol]);
+
+  useEffect(() => {
+    let dead = false;
+    setRatios(null);
+    getStatement(quote.symbol, "ratios", "consolidated", 10)
+      .then((r) => { if (!dead && !isError(r) && r.data.available) setRatios(r.data); })
+      .catch(() => {});
+    return () => { dead = true; };
+  }, [quote.symbol]);
+
+  useEffect(() => {
+    let dead = false;
+    setQuarters(null);
+    getStockQuarters(quote.symbol, qBasis, 12)
+      .then((r) => {
+        if (dead || isError(r)) return;
+        setQuarters(r.data);
+        // Latched: a company that reports consolidated quarters but no
+        // standalone ones must not have the tab vanish under the reader when
+        // they flip the basis.
+        if (r.data.quarters.length) setHasQuarters(true);
+      })
+      .catch(() => {});
+    return () => { dead = true; };
+  }, [quote.symbol, qBasis]);
 
   // `financials` tab = Balance Sheet, `pl` tab = Profit and Loss.
   const bsRows = useMemo(
-    () => financials?.available ? buildBalanceSheetFromDB(financials) : buildBalanceSheetEstimate(),
-    [financials],
+    () => financials?.available ? buildBalanceSheetFromDB(financials, ratios) : buildBalanceSheetEstimate(),
+    [financials, ratios],
   );
   const plRows = useMemo(
-    () => financials?.available ? buildProfitLossFromDB(financials) : buildProfitLoss(quote),
-    [quote, financials],
+    () => financials?.available ? buildProfitLossFromDB(financials, ratios) : buildProfitLoss(quote),
+    [quote, financials, ratios],
   );
 
-  const rows = tab === "financials" ? bsRows : plRows;
+  // Quarters, shaped into exactly the row/period pair the other two tabs
+  // hand to the chart and the table. Oldest → newest, because that is the
+  // direction FY_YEARS runs and the chart reads left to right; the API
+  // returns newest first. Five columns, matching the five financial years,
+  // so the two tables are the same width.
+  const qPeriods = useMemo(
+    () => (quarters?.quarters ?? []).slice(0, 5).reverse()
+      .map((q) => q.period_label ?? q.period_end ?? ""),
+    [quarters],
+  );
+  const qRows = useMemo(() => {
+    const qs = (quarters?.quarters ?? []).slice(0, 5).reverse();
+    if (!qs.length) return [];
+    // `?? null` is load-bearing: the API omits a metric a company does not
+    // file rather than sending null, so a `v === null` guard inside a
+    // formatter lets `undefined` straight through to v.toFixed(). The declared
+    // type says number | null, so the compiler cannot see it — this is the
+    // boundary where the wire's shape and the type's shape have to be
+    // reconciled, and it is cheaper to do it once here than in six formatters.
+    const line = (label: string, pick: (q: typeof qs[number]) => number | null | undefined, fmt: (v: number | null) => string) =>
+      ({ label, values: qs.map((q) => fmt(pick(q) ?? null)) });
+    const pct = (v: number | null) =>
+      (v === null || !Number.isFinite(v)) ? "—" : `${v.toFixed(1)}%`;
+    const rupees = (v: number | null) =>
+      (v === null || !Number.isFinite(v)) ? "—" : `₹${v.toFixed(2)}`;
+
+    // Seven rows, fixed, like the other two tabs. The full quarterly P&L —
+    // every expense line, the tax block, the YoY pair — is on the statements
+    // page; this is the summary, and a summary that runs three times the
+    // height of the tab beside it is not one.
+    //
+    // Fixed rather than filtered, so a company that files no margin keeps the
+    // shape and prints an em-dash. On this panel the row count is a promise
+    // the three tabs make to each other.
+    const out = [
+      line("Revenue", (q) => q.revenue, fmtCrFromMC),
+      line("Profit Before Tax", (q) => q.pbt, fmtCrFromMC),
+      line("Tax", (q) => q.tax, fmtCrFromMC),
+      line("Net Profit", (q) => q.net_profit, fmtCrFromMC),
+      line("Net Margin", (q) => q.net_margin_pct, pct),
+      line("EPS", (q) => q.eps_basic, rupees),
+      line("Revenue YoY", (q) => q.revenue_yoy_pct, pct),
+    ];
+    return out;
+  }, [quarters]);
+
+  const rRows = useMemo(() => buildRatioRows(ratios), [ratios]);
+  // A company MC files no ratio sheet for does not get an empty fourth tab.
+  const hasRatios = !!ratios && rRows.some((r) => r.values.some((v) => v !== "—"));
+
+  const periods = tab === "quarters" ? qPeriods : FY_YEARS;
+  const rows = tab === "financials" ? bsRows
+    : tab === "pl" ? plRows
+    : tab === "ratios" ? rRows
+    : qRows;
   const _source = financials?.available ? "Moneycontrol" : "Estimated";
 
   const getMetric = (label: string): (number | null)[] =>
-    rows.find((r) => r.label === label)?.values.map(parseFinVal) ?? FY_YEARS.map(() => null);
+    rows.find((r) => r.label === label)?.values.map(parseFinVal) ?? periods.map(() => null);
 
   const cfg = tab === "financials"
-    ? { a: "Total Equity", b: "Total Debt",  colorA: "#64748b", colorB: "#f59e0b" }
-    : { a: "Revenue",      b: "Net Profit",  colorA: "#64748b", colorB: "#1b7cc7" };
+    ? { a: "Total Equity", b: "Total Debt",  colorA: "#64748b", colorB: "#f59e0b", unit: "cr" as const }
+    : tab === "ratios"
+      // The two that say most about quality, and the pair a reader compares:
+      // ROCE above ROE means the equity is not carrying the return alone. A
+      // bank has no ROCE row, so it charts the spread against the return
+      // instead — which is the same question asked of a balance sheet made of
+      // deposits.
+      ? filesBankRatios(ratios)
+        ? { a: "Return on Equity", b: "Net Interest Margin", colorA: "#64748b", colorB: "#4F8A5B", unit: "pct" as const }
+        : { a: "Return on Equity", b: "Return on Capital", colorA: "#64748b", colorB: "#4F8A5B", unit: "pct" as const }
+      : { a: "Revenue",      b: "Net Profit",  colorA: "#64748b", colorB: "#1b7cc7", unit: "cr" as const };
 
   return (
-    <div style={{ marginTop: 28 }}>
-      <div style={{ background: "transparent", border: "none", borderRadius: "var(--radius-lg, 16px)", overflow: "hidden" }}>
+    <div style={{ marginTop: SECTION_GAP, minWidth: 0, maxWidth: "100%" }}>
+      <div style={{ background: "transparent", border: "none", borderRadius: "var(--radius-lg, 16px)", overflow: "hidden", minWidth: 0 }}>
 
         {/* Header: title row + tabs row */}
         <div style={{ padding: "18px 20px 0", borderBottom: "1px solid var(--glass-border)" }}>
-          {/* Title + source badge */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-            <span style={{ fontFamily: "var(--font-ui)", fontSize: 14, fontWeight: 600, color: "var(--text-primary)" }}>
+          {/* Title. The heading owns this row alone, like every other section
+              heading on the page — the way out to the full statement moved
+              down to the tab strip, next to the tab it opens. */}
+          <div style={{ marginBottom: 10 }}>
+            <span style={{ fontFamily: "var(--font-ui)", fontSize: 21, fontWeight: 600, letterSpacing: "-0.022em", color: "var(--text-primary)" }}>
               Financial Performance
             </span>
           </div>
-          {/* Tabs */}
-          <div style={{ display: "flex", gap: 0 }}>
-            {(["financials", "pl"] as const).map((t) => {
-              const active = tab === t;
-              return (
-                <button key={t} type="button" onClick={() => setTab(t)} style={{
-                  padding: "6px 14px", border: "none", background: "transparent",
-                  fontSize: 12.5, fontFamily: "var(--font-ui)",
-                  fontWeight: active ? 600 : 400,
-                  color: active ? "var(--pivot-blue, #1b7cc7)" : "var(--text-secondary)",
-                  borderBottom: active ? "2px solid var(--pivot-blue, #1b7cc7)" : "2px solid transparent",
-                  cursor: "pointer", marginBottom: -1, transition: "color 0.15s, border-color 0.15s",
-                }}>
-                  {t === "financials" ? "Balance Sheet" : "Profit and Loss"}
-                </button>
-              );
-            })}
+          {/* Tabs. The basis switch rides at the far end of this row when the
+              quarterly tab is open — it belongs to that tab and only that tab,
+              and giving it its own line below would push the chart down by a
+              row that is empty two-thirds of the time. */}
+          <div style={{ display: "flex", gap: 0, alignItems: "flex-end", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", gap: 0 }}>
+              {([
+                "financials" as const,
+                "pl" as const,
+                ...(hasQuarters ? ["quarters" as const] : []),
+                ...(hasRatios ? ["ratios" as const] : []),
+              ]).map((t) => {
+                const active = tab === t;
+                return (
+                  <button key={t} type="button" onClick={() => { setTab(t); setOpenRow(null); }} style={{
+                    padding: "6px 14px", border: "none", background: "transparent",
+                    fontSize: 12.5, fontFamily: "var(--font-ui)",
+                    fontWeight: active ? 600 : 400,
+                    color: active ? "var(--pivot-blue, #1b7cc7)" : "var(--text-secondary)",
+                    borderBottom: active ? "2px solid var(--pivot-blue, #1b7cc7)" : "2px solid transparent",
+                    cursor: "pointer", marginBottom: -1, transition: "color 0.15s, border-color 0.15s",
+                  }}>
+                    {t === "financials" ? "Balance Sheet"
+                      : t === "pl" ? "Profit and Loss"
+                      : t === "quarters" ? "Quarterly Results"
+                      : "Ratios"}
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 18, paddingBottom: 7 }}>
+              {tab === "quarters" && (quarters?.bases_available.length ?? 0) > 1 ? (
+                <div style={{ display: "inline-flex", gap: 14 }}>
+                  {quarters!.bases_available.map((b) => (
+                    <button
+                      key={b}
+                      type="button"
+                      onClick={() => setQBasis(b as "consolidated" | "standalone")}
+                      style={{
+                        border: "none", background: "transparent", cursor: "pointer",
+                        padding: 0, fontFamily: "var(--font-ui)", fontSize: 12,
+                        fontWeight: qBasis === b ? 600 : 400,
+                        color: qBasis === b ? "var(--text-primary)" : "var(--text-secondary)",
+                        transition: "color 0.15s",
+                      }}
+                    >
+                      {b === "consolidated" ? "Consolidated" : "Standalone"}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              {/* The way out to the whole statement. This panel is a summary —
+                  four balance-sheet lines and two P&L lines — over a store that
+                  holds a hundred and twenty line items across twenty-three
+                  periods, and until there was somewhere to send a reader, the
+                  summary read as all we had. It carries the open tab across so
+                  the reader lands on the statement they were already reading,
+                  which is why it belongs on the tab row and not above it: it
+                  changes meaning with the tab, so it should sit beside it.
+                  No pill either — a bordered capsule at the end of a row of
+                  flat tabs reads as the loudest control in the panel, when it
+                  is the quietest thing here. Plain text and a chevron. */}
+              <Link
+                href={`/stock/${encodeURIComponent(quote.symbol)}/financials?tab=${
+                  tab === "financials" ? "balance_sheet"
+                    : tab === "ratios" ? "ratios"
+                    // Quarterly has no statement of its own over there; the P&L
+                    // is the same lines over twelve months, which is the nearest
+                    // true thing rather than a tab that does not exist.
+                    : "profit_loss"
+                }`}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 3,
+                  fontFamily: "var(--font-ui)", fontSize: 12, fontWeight: 500,
+                  color: "var(--text-secondary)", textDecoration: "none",
+                  whiteSpace: "nowrap", transition: "color 120ms",
+                }}
+              >
+                See detail
+                <ChevronRight size={13} aria-hidden="true" />
+              </Link>
+            </div>
           </div>
         </div>
 
         {/* Body: chart left | table right (table gets a bit more room) */}
-        <div className="grid grid-cols-1 lg:grid-cols-[5fr_6fr]">
+        <div className="grid grid-cols-1 lg:grid-cols-[4.3fr_6.7fr]">
 
           {/* Left — bar chart */}
           <div style={{ padding: "24px 24px 20px", borderRight: "1px solid var(--glass-border)" }}>
-            <FinBarChart
-              periods={FY_YEARS}
-              metricA={{ label: cfg.a, values: getMetric(cfg.a), color: cfg.colorA }}
-              metricB={{ label: cfg.b, values: getMetric(cfg.b), color: cfg.colorB }}
-            />
+            {tab === "quarters" && !periods.length ? (
+              <div style={{ height: 260, display: "grid", placeItems: "center", fontSize: 12, color: "var(--text-tertiary)" }}>
+                {quarters === null ? "Loading quarterly results…" : "No quarterly results reported."}
+              </div>
+            ) : (
+              <FinBarChart
+                periods={periods}
+                unit={cfg.unit}
+                metricA={{ label: cfg.a, values: getMetric(cfg.a), color: cfg.colorA }}
+                metricB={{ label: cfg.b, values: getMetric(cfg.b), color: cfg.colorB }}
+              />
+            )}
           </div>
 
           {/* Right — data table */}
@@ -3785,15 +3249,15 @@ function FinancialsPanel({
             <table style={{ width: "100%", tableLayout: "fixed", borderCollapse: "collapse", fontFamily: "var(--font-ui)" }}>
               <thead>
                 <tr style={{ background: "var(--bg-base, #f8fafc)", borderBottom: "1px solid var(--glass-border)" }}>
-                  <th style={{ width: "26%", padding: "12px 12px", fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-tertiary)", textAlign: "left", whiteSpace: "nowrap" }}>
+                  <th style={{ width: "25%", padding: "12px 10px", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-tertiary)", textAlign: "left", whiteSpace: "nowrap" }}>
                     Metric
                   </th>
-                  {FY_YEARS.map((y, i) => (
+                  {periods.map((y, i) => (
                     <th key={y} style={{
-                      padding: "12px 8px", fontSize: 10.5, fontWeight: 600,
+                      padding: "12px 6px", fontSize: 11, fontWeight: 600,
                       textTransform: "uppercase", letterSpacing: "0.06em",
                       textAlign: "right", whiteSpace: "nowrap",
-                      color: i === FY_YEARS.length - 1 ? "var(--pivot-blue, #1b7cc7)" : "var(--text-tertiary)",
+                      color: i === periods.length - 1 ? "var(--pivot-blue, #1b7cc7)" : "var(--text-tertiary)",
                     }}>
                       {y}
                     </th>
@@ -3801,39 +3265,66 @@ function FinancialsPanel({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r, idx) => (
-                  <tr key={r.label || idx}
-                    style={{ borderBottom: idx < rows.length - 1 ? "1px solid var(--glass-border)" : "none", transition: "background 120ms" }}
+                {rows.map((r, idx) => {
+                  const open = openRow === r.label;
+                  return (
+                  <Fragment key={r.label || idx}>
+                  <tr
+                    onClick={() => setOpenRow(open ? null : r.label)}
+                    aria-expanded={open}
+                    style={{
+                      borderBottom: idx < rows.length - 1 || open ? "1px solid var(--glass-border)" : "none",
+                      transition: "background 120ms",
+                      cursor: "pointer",
+                      background: open ? "var(--bg-base, #f8fafc)" : "transparent",
+                    }}
                     onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-base, #f8fafc)"; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = open ? "var(--bg-base, #f8fafc)" : "transparent"; }}
                   >
-                    <td style={{ padding: "11px 12px" }}>
+                    <td style={{ padding: "12px 10px" }}>
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
                         <span style={{
                           width: 7, height: 7, borderRadius: "50%", flexShrink: 0,
                           background: r.label === cfg.a ? cfg.colorA : r.label === cfg.b ? cfg.colorB : "transparent",
                         }} />
-                        <span style={{ fontSize: 12, fontWeight: 500, color: "var(--text-primary)" }}>
+                        <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>
                           {r.label}
                         </span>
                       </span>
                     </td>
                     {r.values.map((v, i) => (
                       <td key={i} className="tabular-nums" style={{
-                        padding: "11px 8px", textAlign: "right",
-                        fontSize: 11.5, fontFamily: "var(--font-mono)",
-                        fontWeight: i === FY_YEARS.length - 1 ? 600 : 400,
-                        color: i === FY_YEARS.length - 1 ? "var(--text-primary)" : "var(--text-secondary)",
+                        padding: "12px 6px", textAlign: "right", whiteSpace: "nowrap",
+                        // The numbers are the row. At 11.5 they were set
+                        // SMALLER than the label beside them and barely above
+                        // the column header, which reads as a table of names
+                        // with footnotes rather than a table of figures.
+                        fontSize: 13, fontFamily: "var(--font-mono)",
+                        fontWeight: i === periods.length - 1 ? 600 : 400,
+                        color: i === periods.length - 1 ? "var(--text-primary)" : "var(--text-secondary)",
                       }}>
                         {v ?? "—"}
                       </td>
                     ))}
                   </tr>
-                ))}
+                  {/* The row's own series, at full table width. Opened rather
+                      than always-on: a sparkline per row costs a column on
+                      every table and is too small to read a turn off. */}
+                  {open ? (
+                    <tr style={{ borderBottom: idx < rows.length - 1 ? "1px solid var(--glass-border)" : "none" }}>
+                      <td colSpan={periods.length + 1} style={{ padding: 0, background: "var(--bg-base, #f8fafc)" }}>
+                        <RowTrend label={r.label} periods={periods} values={r.values} />
+                      </td>
+                    </tr>
+                  ) : null}
+                  </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         </div>
+
       </div>
     </div>
   );
@@ -3877,7 +3368,7 @@ function FinancialsLikeTable({ title, subtitle, rows, minRows }: {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-        <h2 className="m-0" style={{ fontFamily: "var(--font-ui)", fontSize: 14, fontWeight: 600, letterSpacing: "-0.01em", color: "var(--text-primary)" }}>
+        <h2 className="m-0" style={{ fontFamily: "var(--font-ui)", fontSize: 21, fontWeight: 600, letterSpacing: "-0.022em", color: "var(--text-primary)" }}>
           {title}
         </h2>
         {subtitle && (
@@ -3912,7 +3403,7 @@ function FinancialsLikeTable({ title, subtitle, rows, minRows }: {
                 onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-secondary, #f8fafc)"; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
               >
-                <td style={{ padding: "10px 14px", fontSize: 12.5, fontWeight: 500, color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                <td style={{ padding: "11px 14px", fontSize: 13.5, fontWeight: 500, color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
                   {r ? r.label : ""}
                 </td>
                 <td style={{ padding: "10px 8px", textAlign: "center" }}>
@@ -3921,7 +3412,7 @@ function FinancialsLikeTable({ title, subtitle, rows, minRows }: {
                 {FY_YEARS.map((_, i) => {
                   const isLatest = i === latestIdx;
                   return (
-                    <td key={i} className="tabular-nums" style={{ padding: "10px 14px", fontSize: 12.5, textAlign: "right", fontFamily: "var(--font-mono)", fontWeight: isLatest ? 600 : 400, color: isLatest ? "var(--text-primary)" : "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                    <td key={i} className="tabular-nums" style={{ padding: "11px 14px", fontSize: 13.5, textAlign: "right", fontFamily: "var(--font-mono)", fontWeight: isLatest ? 600 : 400, color: isLatest ? "var(--text-primary)" : "var(--text-secondary)", whiteSpace: "nowrap" }}>
                       {r ? (r.values[i] ?? "—") : ""}
                     </td>
                   );
@@ -3952,4 +3443,3 @@ const _screenerTd: React.CSSProperties = {
   fontSize: 12.5,
   whiteSpace: "nowrap",
 };
-

@@ -1,0 +1,70 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]: Charto.
+    - generic "Search companies" [ref=e5] [cursor=pointer]:
+      - generic [ref=e6]: RELIANCE
+      - generic [ref=e7]: NSE
+    - button "1h" [ref=e10] [cursor=pointer]
+    - button "Indicators" [ref=e13] [cursor=pointer]
+    - button "Undo" [disabled] [ref=e20]
+    - button "Redo" [disabled] [ref=e24]
+    - button "Layout — Single chart" [ref=e29] [cursor=pointer]
+    - button "Screenshot the chart for the chat" [ref=e33] [cursor=pointer]
+    - group "Panels" [ref=e38]:
+      - button "Watchlist" [ref=e39] [cursor=pointer]
+      - button "Alerts" [ref=e43] [cursor=pointer]
+    - button "Switch to dark" [ref=e49] [cursor=pointer]
+    - button "Chat" [ref=e52] [cursor=pointer]
+    - button "Sign in to Charto" [ref=e56] [cursor=pointer]
+  - generic [ref=e60]:
+    - generic [ref=e61]:
+      - button "Cursor / select" [ref=e62] [cursor=pointer]
+      - button "Lines" [ref=e67] [cursor=pointer]
+      - button "Fibonacci" [ref=e73] [cursor=pointer]
+      - button "Shapes" [ref=e76] [cursor=pointer]
+      - button "Measure" [ref=e80] [cursor=pointer]
+      - button "Position" [ref=e88] [cursor=pointer]
+      - button "Annotations" [ref=e93] [cursor=pointer]
+      - button "Magnet — snap to OHLC" [ref=e97] [cursor=pointer]
+      - button "Export drawings JSON" [ref=e102] [cursor=pointer]
+      - button "Clear all drawings" [ref=e106] [cursor=pointer]
+    - generic [ref=e111]:
+      - table [ref=e114]:
+        - row [ref=e115]:
+          - cell
+          - cell [ref=e116]:
+            - link "Charting by TradingView" [ref=e120] [cursor=pointer]:
+              - /url: https://www.tradingview.com/?utm_medium=lwc-link&utm_campaign=lwc-chart&utm_source=127.0.0.1/
+          - cell [ref=e125]
+        - row [ref=e129]:
+          - cell
+          - cell [ref=e130]
+          - cell [ref=e134]
+      - generic:
+        - generic:
+          - generic "Change instrument" [ref=e137] [cursor=pointer]: RELIANCE
+          - generic: ·
+          - text: 5m
+          - generic: ·
+          - generic: NSE
+      - generic [ref=e138]: Loading…
+    - generic "Drag to resize · double-click to reset" [ref=e140]
+    - complementary [ref=e141]:
+      - generic [ref=e143]:
+        - generic [ref=e144]:
+          - generic [ref=e145]: old thread
+          - generic [ref=e147]:
+            - generic "8/6/2026, 10:29:29 PM" [ref=e148]: 06 Aug
+            - button "Retry" [ref=e149] [cursor=pointer]
+            - button "Copy prompt" [ref=e153] [cursor=pointer]
+        - generic [ref=e157]:
+          - paragraph [ref=e159]: An answer from before.
+          - generic [ref=e160]:
+            - button "Copy reply" [ref=e161] [cursor=pointer]
+            - generic [ref=e165]: 2.4s
+      - generic [ref=e168]:
+        - textbox "Ask about this chart…" [ref=e169]
+        - generic [ref=e170]:
+          - button "Conversation options" [ref=e172] [cursor=pointer]
+          - button "RELIANCE" [ref=e174] [cursor=pointer]
+          - button "Send (Enter)" [ref=e176] [cursor=pointer]

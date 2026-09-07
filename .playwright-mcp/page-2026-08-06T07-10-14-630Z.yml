@@ -1,0 +1,106 @@
+- generic [ref=f9e1]:
+  - dialog [ref=f9e312]:
+    - generic [ref=f9e7]:
+      - generic [ref=f9e313]: Charto.
+      - generic [ref=f9e9]:
+        - generic [ref=f9e10]:
+          - heading "Create your account" [level=1] [ref=f9e314]
+          - paragraph [ref=f9e12]: Keep your layouts, drawings and conversations across devices.
+        - generic [ref=f9e13]:
+          - generic [ref=f9e14]:
+            - generic [ref=f9e315]:
+              - generic [ref=f9e316]: Full name (optional)
+              - textbox "Full name (optional)" [ref=f9e317]:
+                - /placeholder: Arjun Sharma
+            - generic [ref=f9e15]:
+              - generic [ref=f9e16]: Email
+              - textbox "Email" [active] [ref=f9e17]:
+                - /placeholder: you@example.com
+            - generic [ref=f9e18]:
+              - generic [ref=f9e19]: Password
+              - generic [ref=f9e22]:
+                - textbox "Password" [ref=f9e23]:
+                  - /placeholder: ••••••••
+                - button "Show password" [ref=f9e24] [cursor=pointer]
+            - generic [ref=f9e318]:
+              - generic [ref=f9e319]: Confirm password
+              - generic [ref=f9e320]:
+                - textbox "Confirm password" [ref=f9e321]:
+                  - /placeholder: ••••••••
+                - button "Show password" [ref=f9e322] [cursor=pointer]
+          - generic [ref=f9e28]:
+            - button "Create account" [ref=f9e326] [cursor=pointer]
+            - generic [ref=f9e30]:
+              - text: Already have an account?
+              - button "Sign in" [ref=f9e327] [cursor=pointer]
+      - generic [ref=f9e32]:
+        - button "Continue without an account" [ref=f9e33] [cursor=pointer]
+        - text: — your work stays in this browser only.
+  - banner [ref=f9e34]:
+    - generic [ref=f9e35]: Charto.
+  - generic [ref=f9e76]:
+    - generic [ref=f9e133]:
+      - table [ref=f9e136]:
+        - row [ref=f9e248]:
+          - cell
+          - cell [ref=f9e207]
+          - cell [ref=f9e147]
+        - row [ref=f9e216]:
+          - cell [ref=f9e217]
+        - row [ref=f9e219]:
+          - cell
+          - cell [ref=f9e220]:
+            - link "Charting by TradingView" [ref=f9e224] [cursor=pointer]:
+              - /url: https://www.tradingview.com/?utm_medium=lwc-link&utm_campaign=lwc-chart&utm_source=127.0.0.1/
+          - cell [ref=f9e229]
+        - row [ref=f9e151]:
+          - cell
+          - cell [ref=f9e152]
+          - cell [ref=f9e156]
+      - generic:
+        - generic:
+          - generic "Change instrument" [ref=f9e159] [cursor=pointer]: RELIANCE
+          - generic: ·
+          - text: 15m
+          - generic: ·
+          - generic: NSE
+        - generic:
+          - generic: 1,267.7
+          - text: "-3.9 (-0.31%)"
+        - generic:
+          - generic [ref=f9e160] [cursor=pointer]:
+            - generic [ref=f9e161]: SMA 20
+            - generic [ref=f9e162]: ·1,271.97
+          - generic [ref=f9e163] [cursor=pointer]:
+            - generic [ref=f9e164]: EMA 21
+            - generic [ref=f9e165]: ·1,271.88
+          - generic [ref=f9e166] [cursor=pointer]:
+            - generic [ref=f9e167]: Supertrend 10 3
+            - generic [ref=f9e168]: ·1,274.23
+          - button "Hide indicators" [ref=f9e169] [cursor=pointer]
+      - generic [ref=f9e172] [cursor=pointer]:
+        - generic [ref=f9e173]: MACD 12 26 9
+        - generic [ref=f9e174]: ·-2.08 -1.96
+      - button "8" [ref=f9e249] [cursor=pointer]
+    - navigation "Chart tools" [ref=f9e253]:
+      - button "RELIANCE" [ref=f9e254] [cursor=pointer]
+      - button "15m" [ref=f9e260] [cursor=pointer]
+      - button "Indicators" [ref=f9e262] [cursor=pointer]
+      - button "Drawings" [ref=f9e266] [cursor=pointer]
+      - button "Watchlist" [ref=f9e270] [cursor=pointer]
+      - button "Alerts" [ref=f9e272] [cursor=pointer]
+      - button "More" [ref=f9e277] [cursor=pointer]
+    - generic "Drag to resize · double-click to reset" [ref=f9e182]
+    - complementary [ref=f9e183]:
+      - generic [ref=f9e184]: Ask about what you're looking at.The model sees the visible chart.
+      - generic [ref=f9e189]:
+        - textbox "Ask about this chart…" [ref=f9e190]
+        - generic [ref=f9e191]:
+          - button "Conversation options" [ref=f9e193] [cursor=pointer]
+          - button "The model reads this chart — RELIANCE 5m · click to choose what is in context" [ref=f9e282] [cursor=pointer]
+          - button "Send (Enter)" [ref=f9e197] [cursor=pointer]
+  - contentinfo [ref=f9e201]:
+    - generic [ref=f9e202]: "15m: 501 bars in 103ms · last ₹1,267.7"
+    - generic [ref=f9e203]: local store · kite 1-min
+    - generic [ref=f9e204]: ·
+    - generic [ref=f9e205]: 501 × 15m

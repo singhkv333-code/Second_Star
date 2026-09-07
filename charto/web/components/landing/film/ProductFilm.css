@@ -1,0 +1,790 @@
+/* ──────────────────────────────────────────────────────────────────────────
+   ProductFilm — the landing page's product demo.
+
+   The frame is its own dark island on a light page, so it declares charto's
+   DARK tokens locally rather than inheriting the landing's paper palette. The
+   values below are `:root[data-theme="dark"]` from `charto/preview/index.html`
+   verbatim, and every control rule after them is that file's own rule for the
+   same control (`.btn`, `.symbol`, `.iv-pill`, `.ly-btn`, `.acct-btn`,
+   `.readout`, `.turn.user .bubble`, `.prose`, `.composer`, `.send`, …). Kept
+   as a copy rather than an import because the product ships as a standalone
+   HTML prototype, not as a stylesheet this bundle can reach — so the way to
+   look identical is to transcribe, and the way to STAY identical is to
+   re-transcribe when those rules move.
+   ────────────────────────────────────────────────────────────────────────── */
+.film-section {
+  background: #050506;
+  padding: 96px 0 104px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+.film-shell {
+  /* Capped at the film's own design width: the frame never scales ABOVE 1, so a
+     wider shell would just leave dead stage beside it. */
+  width: min(1200px, calc(100% - 48px));
+  margin: auto;
+}
+.film-head {
+  margin-bottom: 34px;
+}
+.film-head h2 {
+  margin: 0;
+  font-family: "Newsreader", Georgia, "Times New Roman", serif;
+  font-weight: 400;
+  font-size: clamp(38px, 4.6vw, 64px);
+  line-height: 1.02;
+  letter-spacing: -0.04em;
+  color: #fbfcfc;
+}
+.film-head h2 em {
+  font-family: inherit;
+  font-style: italic;
+  color: rgba(255, 255, 255, 0.62);
+}
+.film-outer {
+  /* ── charto dark, from :root[data-theme="dark"] ── */
+  --film-background: #000000;
+  --film-foreground: #fbfcfc;
+  --film-card: #1c1c1d;
+  --film-muted: #1c1c1d;
+  --film-muted-foreground: #8f98a1;
+  --film-faint: #6b7280;
+  --film-accent: rgba(255, 255, 255, 0.04);
+  --film-border: #242424;
+  --film-border-soft: #1a1a1a;
+  --film-primary: #2bb3d1;
+  --film-primary-foreground: #0d0d0e;
+  --film-up: #089981;
+  --film-down: #f23645;
+  --film-seam: var(--film-border);
+  --film-seam-w: 2px;
+
+  /* type scale, verbatim */
+  --film-3xs: 10.5px;
+  --film-2xs: 11px;
+  --film-xs: 11.5px;
+  --film-sm: 12px;
+  --film-base: 12.5px;
+  --film-md: 13px;
+  --film-lg: 13.5px;
+  --film-xl: 14px;
+  --film-2xl: 14.5px;
+  --film-h3: 15px;
+  --film-h2: 17px;
+
+  --film-radius-xs: 4px;
+  --film-radius-sm: 8px;
+  --film-radius: 10px;
+  --film-radius-md: 12px;
+  --film-radius-lg: 16px;
+  --film-radius-pill: 9999px;
+
+  width: 100%;
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.film-stage {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  background: var(--film-background);
+  box-shadow: 0 40px 120px -40px rgba(0, 0, 0, 0.9);
+}
+.film-frame {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  color: var(--film-foreground);
+}
+
+/* Shared glyph geometry — `svg.icon` in the product. Weight is held constant
+   as the box grows by easing the stroke off, which is why the sizes carry
+   their own stroke-widths rather than scaling one. */
+.film-icon {
+  width: 22px;
+  height: 22px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: none;
+}
+.film-icon.sm {
+  width: 19px;
+  height: 19px;
+  stroke-width: 1.8;
+}
+.film-icon.xs {
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.95;
+}
+.film-spacer {
+  flex: 1;
+}
+
+/* ── header ─────────────────────────────────────────────────────────────── */
+.film-header {
+  position: absolute;
+  inset: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 0 12px;
+  border-bottom: var(--film-seam-w) solid var(--film-seam);
+  background: var(--film-background);
+  z-index: 20;
+}
+.film-brand {
+  font-family: "Newsreader", Georgia, "Times New Roman", serif;
+  font-weight: 550;
+  font-size: var(--film-h2);
+  letter-spacing: -0.03em;
+  white-space: nowrap;
+  margin-right: 2px;
+}
+.film-brand .dot {
+  color: var(--film-primary);
+}
+.film-vsep {
+  width: 1px;
+  height: 20px;
+  background: var(--film-border);
+  flex: none;
+  margin: 0 2px;
+}
+/* symbol pill — the product's ticker chip */
+.film-symbol {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: var(--film-radius-pill);
+  background: var(--film-muted);
+  font-size: var(--film-md);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  flex: none;
+}
+/* The instrument mark. The product loads a real logo here; the film draws the
+   initial on the same 15px rounded tile so the row keeps its metrics. */
+.film-co-logo {
+  display: grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  flex: none;
+  border-radius: 3px;
+  background: #f5a524;
+  color: #241a05;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+.film-co-logo.lg {
+  width: 17px;
+  height: 17px;
+  font-size: 10.5px;
+}
+/* the uppercase micro-label — `.micro`, and `.symbol .ex` / `.readout .ex` */
+.film-symbol .ex,
+.film-readout .ex {
+  font-size: var(--film-2xs);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--film-faint);
+}
+/* button — ghost by default, which is what the whole header wears */
+.film-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 11px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--film-foreground);
+  font-size: var(--film-base);
+  font-weight: 500;
+  white-space: nowrap;
+  flex: none;
+}
+.film-btn.icon {
+  width: 32px;
+  padding: 0;
+  justify-content: center;
+  color: var(--film-muted-foreground);
+}
+.film-btn.icon .film-icon {
+  width: 19px;
+  height: 19px;
+}
+/* undo/redo with an empty stack: dimmed, exactly as the product dims them */
+.film-btn.is-off {
+  opacity: 0.32;
+}
+.film-btn .film-icon.xs {
+  color: var(--film-muted-foreground);
+}
+.film-iv-pill {
+  min-width: 44px;
+  justify-content: center;
+  padding: 0 10px;
+  font-size: var(--film-md);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+.film-ly-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 8px 0 10px;
+  max-width: 190px;
+  border-radius: 6px;
+  color: var(--film-foreground);
+  font-size: var(--film-sm);
+  font-weight: 500;
+  flex: none;
+}
+.film-ly-btn .film-icon {
+  opacity: 0.6;
+}
+/* the chat toggle rides borderless — the pill reads as a label, not a control */
+.film-chat-toggle {
+  border-color: transparent;
+}
+.film-acct {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--film-muted);
+  color: var(--film-muted-foreground);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* ── body ───────────────────────────────────────────────────────────────── */
+.film-body {
+  position: absolute;
+  inset: 0 0 0 0;
+  display: flex;
+}
+.film-chart-pane {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  background: #0d0e12;
+}
+.film-chart-host {
+  position: absolute;
+  inset: 0;
+}
+
+/* the in-pane legend — `.readout` */
+.film-readout {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  right: 76px;
+  z-index: 5;
+  font-size: var(--film-sm);
+  color: var(--film-muted-foreground);
+  pointer-events: none;
+  line-height: 1.55;
+  font-variant-numeric: tabular-nums;
+}
+.film-readout .title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--film-foreground);
+  font-size: var(--film-lg);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.film-readout .row {
+  font-size: var(--film-xs);
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+.film-readout .row span {
+  margin-right: 9px;
+}
+.film-readout .row i {
+  font-style: normal;
+}
+.film-readout .sep {
+  margin: 0 5px;
+  color: var(--film-faint);
+  font-weight: 400;
+}
+.film-readout b {
+  font-weight: 500;
+}
+.film-readout b.up {
+  color: var(--film-up);
+}
+.film-readout b.down {
+  color: var(--film-down);
+}
+
+/* Explicit width/height, not just insets: <svg> is a REPLACED element, so an
+   `auto` size resolves to its intrinsic 300x150 rather than stretching to the
+   offsets. Its user coordinate space is then CSS pixels, which is exactly the
+   space `film-chart` hands back. Matches .film-chart-host so the two share an
+   origin. */
+.film-anno {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+  /* Above the chart. lightweight-charts gives its own canvases `z-index: 1`
+     and `2`, and because nothing between them and `.film-frame` opens a
+     stacking context, they compete directly with this overlay inside the
+     frame's context — where `auto` loses to both. Without this the marks are
+     painted and then covered by the candles, which looks exactly like an
+     annotation layer that never ran. Stays under `.film-readout` (5). */
+  z-index: 3;
+}
+
+/* Hidden until the timeline (or the reduced-motion resting state) reveals one
+   scene's worth. The default has to live in CSS: before GSAP's reset block runs
+   there is one frame where every scene's annotations would otherwise paint at
+   once, and the reduced-motion path never runs a reset at all. */
+.film-anno > g {
+  opacity: 0;
+  visibility: hidden;
+}
+
+/* Annotation vocabulary — bands, lines, event markers. The colours are the
+   product's own `annRes` / `annSup` from `Theme.palette.dark`, which never
+   borrow the candle colours: red and green mean "this bar closed down / up"
+   everywhere else, so a red resistance band would read as a price move rather
+   than as structure. */
+.film-zone rect[data-film-anno-body] {
+  fill: rgba(245, 165, 36, 0.1);
+}
+.film-zone.tone-support rect[data-film-anno-body] {
+  fill: rgba(34, 211, 238, 0.1);
+}
+.film-zone line[data-film-anno-edge] {
+  stroke: #f5a524;
+  stroke-width: 1;
+  stroke-dasharray: 5 4;
+}
+.film-zone.tone-support line[data-film-anno-edge] {
+  stroke: #22d3ee;
+}
+.film-zone [data-film-anno-label] rect {
+  fill: #f5a524;
+}
+.film-zone.tone-support [data-film-anno-label] rect {
+  fill: #22d3ee;
+}
+.film-line line[data-film-anno-draw] {
+  stroke: #f5a524;
+  stroke-width: 1.5;
+  fill: none;
+}
+.film-line.tone-trend line[data-film-anno-draw] {
+  stroke: #22d3ee;
+}
+.film-line [data-film-anno-label] rect {
+  fill: #f5a524;
+}
+.film-line.tone-trend [data-film-anno-label] rect {
+  fill: #22d3ee;
+}
+.film-marker line[data-film-anno-draw] {
+  stroke: rgba(255, 255, 255, 0.45);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+}
+.film-marker [data-film-anno-label] rect {
+  fill: rgba(255, 255, 255, 0.92);
+}
+.film-marker [data-film-anno-label] text {
+  fill: #0d0d0e;
+}
+.film-marker [data-film-anno-detail] rect {
+  fill: rgba(13, 14, 18, 0.88);
+  stroke: rgba(255, 255, 255, 0.16);
+}
+.film-marker [data-film-anno-detail] text {
+  fill: rgba(255, 255, 255, 0.82);
+}
+.film-anno text {
+  font: 600 9px/1 Inter, system-ui, sans-serif;
+  letter-spacing: 0.07em;
+  fill: #0d0d0e;
+}
+.film-marker [data-film-anno-detail] text {
+  letter-spacing: 0.03em;
+  font-weight: 500;
+}
+
+/* ── chat panel ─────────────────────────────────────────────────────────── */
+.film-chatpanel {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  background: var(--film-background);
+  /* the seam, so the chart's price axis does not run into the reply text */
+  border-left: var(--film-seam-w) solid var(--film-seam);
+}
+.film-chat-actions {
+  height: 42px;
+  padding: 6px 12px 6px 0;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+}
+.film-chat-action {
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  color: var(--film-muted-foreground);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.film-chat-action .film-icon {
+  width: 17px;
+  height: 17px;
+}
+
+.film-thread {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 8px 0;
+}
+.film-thread-inner {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0 clamp(16px, 4%, 34px);
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+
+/* user turn — a quiet rounded block, right-weighted */
+.film-turn-user {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.film-bubble {
+  background: var(--film-muted);
+  border-radius: var(--film-radius-md);
+  padding: 11px 16px;
+  max-width: 88%;
+  font-size: var(--film-xl);
+  line-height: 1.55;
+  color: var(--film-foreground);
+}
+/* assistant turn — BARE PROSE, full measure, no container. Deliberately not a
+   card: the product has no bordered reply box, and adding one is the single
+   change that makes a mock stop looking like the app. */
+.film-turn-assistant,
+.film-turn-greet {
+  display: block;
+}
+.film-prose {
+  font-size: var(--film-2xl);
+  line-height: 1.72;
+  color: var(--film-foreground);
+}
+.film-turn-greet .film-prose {
+  color: var(--film-muted-foreground);
+}
+.film-prose p {
+  margin: 0;
+}
+.film-prose strong {
+  font-weight: 650;
+}
+.film-prose,
+.film-bubble {
+  font-variant-numeric: tabular-nums;
+}
+/* the reference row a reply prints under itself */
+.film-refs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 14px;
+}
+.film-refs span {
+  padding: 3px 10px;
+  border-radius: var(--film-radius-pill);
+  background: var(--film-muted);
+  font-size: var(--film-2xs);
+  font-weight: 500;
+  color: var(--film-muted-foreground);
+  white-space: nowrap;
+}
+
+/* Thinking indicator — three dots on a staggered fade. Short by design: the
+   film should not make anyone sit through a realistic model latency. */
+.film-think {
+  display: inline-flex;
+  gap: 4px;
+  vertical-align: middle;
+}
+.film-think i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--film-muted-foreground);
+  animation: film-think 1.05s ease-in-out infinite;
+}
+.film-think i:nth-child(2) {
+  animation-delay: 0.16s;
+}
+.film-think i:nth-child(3) {
+  animation-delay: 0.32s;
+}
+@keyframes film-think {
+  0%,
+  100% {
+    opacity: 0.28;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+/* ── composer ───────────────────────────────────────────────────────────── */
+.film-composer-wrap {
+  padding: 6px clamp(16px, 4%, 34px) 14px;
+  flex: none;
+}
+.film-composer {
+  max-width: 720px;
+  margin: 0 auto;
+  background: var(--film-card);
+  border: 1px solid var(--film-border);
+  border-radius: var(--film-radius-lg);
+  padding: 10px 10px 8px 14px;
+}
+.film-composer-line {
+  position: relative;
+  margin: 0;
+  min-height: 24px;
+  padding: 2px 4px 4px 0;
+  font-size: var(--film-xl);
+  line-height: 1.55;
+  color: var(--film-foreground);
+}
+.film-placeholder {
+  position: absolute;
+  left: 0;
+  top: 2px;
+  color: var(--film-faint);
+  pointer-events: none;
+}
+.film-caret {
+  display: inline-block;
+  width: 1.5px;
+  height: 14px;
+  margin-left: 1px;
+  vertical-align: -2px;
+  background: var(--film-primary);
+  animation: film-blink 1.05s steps(1) infinite;
+}
+@keyframes film-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+.film-composer-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+/* the subject chip — which instrument this conversation is about */
+.film-ctx-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--film-2xs);
+  color: var(--film-muted-foreground);
+  border-radius: var(--film-radius-pill);
+  padding: 4px 10px 4px 8px;
+  background: var(--film-muted);
+  white-space: nowrap;
+  line-height: 1;
+}
+.film-ctx-flag .film-co-logo {
+  width: 13px;
+  height: 13px;
+  font-size: 8.5px;
+}
+.film-ctx-flag .sym {
+  font-weight: 600;
+  color: var(--film-foreground);
+  letter-spacing: -0.01em;
+}
+/* Voice is deliberately quieter than the send action beside it. */
+.film-mic-btn {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--film-radius-pill);
+  color: var(--film-faint);
+}
+.film-mic-btn .film-icon {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2;
+}
+.film-send {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--film-primary);
+  color: var(--film-primary-foreground);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.film-send .film-icon {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2.2;
+}
+
+/* ── cursor ─────────────────────────────────────────────────────────────── */
+.film-cursor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 40;
+  pointer-events: none;
+  filter: drop-shadow(0 3px 7px rgba(0, 0, 0, 0.55));
+}
+.film-ripple {
+  position: absolute;
+  left: -13px;
+  top: -13px;
+  z-index: 39;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.8);
+  pointer-events: none;
+}
+
+/* ── progress ───────────────────────────────────────────────────────────── */
+.film-progress {
+  display: flex;
+  justify-content: center;
+  gap: 7px;
+  margin-top: 20px;
+}
+.film-progress span {
+  width: 22px;
+  height: 2px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.14);
+  transition: background-color 0.35s ease;
+}
+.film-progress span.on {
+  background: var(--film-primary);
+}
+
+/* ── responsive ─────────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .film-section {
+    padding: 68px 0 76px;
+  }
+  .film-shell {
+    width: min(100% - 32px, 760px);
+  }
+}
+
+/* The narrow composition. Below the breakpoint `film-demo` swaps the design
+   frame to 440x720 and adds `.is-narrow`; this stacks the same real parts —
+   chart band over chat panel — instead of shrinking the desktop layout until
+   the panel's type is 4px tall. The frame is still one scaled object, so the
+   cursor stays aligned to its targets either way. */
+.film-frame.is-narrow .film-body {
+  flex-direction: column;
+}
+.film-frame.is-narrow .film-chart-pane {
+  flex: none;
+  height: 250px;
+  border-bottom: var(--film-seam-w) solid var(--film-seam);
+}
+.film-frame.is-narrow .film-chatpanel {
+  flex: 1;
+  min-height: 0;
+  border-left: 0;
+}
+.film-frame.is-narrow .film-header {
+  gap: 6px;
+  padding: 0 8px;
+}
+.film-frame.is-narrow .film-readout {
+  right: 60px;
+}
+.film-frame.is-narrow .film-thread-inner,
+.film-frame.is-narrow .film-composer-wrap {
+  padding-left: 14px;
+  padding-right: 14px;
+}
+/* The thread has ~2/3 the height it has on the desktop composition and the
+   same words to hold, so the reply steps down one stop on the product's own
+   scale and the turns sit closer. Without this the last line of every answer
+   is clipped by the composer. */
+.film-frame.is-narrow .film-thread-inner {
+  gap: 16px;
+}
+.film-frame.is-narrow .film-prose {
+  font-size: var(--film-md);
+  line-height: 1.62;
+}
+.film-frame.is-narrow .film-bubble {
+  font-size: var(--film-md);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .film-think i,
+  .film-caret {
+    animation: none;
+  }
+  .film-caret {
+    opacity: 0;
+  }
+}

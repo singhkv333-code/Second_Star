@@ -162,79 +162,6 @@ class Settings(BaseSettings):
     log_format: str = "console"   # "json" | "console"
     log_level: str = "INFO"
 
-    # --- News & Event Trigger subsystem -----------------------------------------
-    # Master flag for backend/news_events/. With it FALSE (the default),
-    # the router is not included, no APScheduler jobs are registered, and
-    # the integration seam is a no-op. The 0007 migration still runs so
-    # the tables exist, but they stay empty.
-    news_events_enabled: bool = False
-    # Identifying User-Agent for all outbound source fetches. Some Indian
-    # publisher feeds 403 a generic Python UA; this string is sent on
-    # every request and is also what we surface in robots.txt requests.
-    news_events_user_agent: str = (
-        "PivotNewsBot/0.1 (+https://pivot.app/news-bot; "
-        "automation for retail-investor event triggers)"
-    )
-
-    # --- Phase 7 Tier-A: Telegram MTProto channel reader -----------------------
-    # Sub-flag: TELEGRAM_ENABLED gates the long-running Telethon
-    # client. Master news_events flag must also be on. Both default
-    # off so dev and tests don't try to connect.
-    telegram_enabled: bool = False
-    # Get these from https://my.telegram.org → API development tools.
-    telegram_api_id: int = 0
-    telegram_api_hash: str = ""
-    # Path to the Telethon ``.session`` file. Created by the
-    # one-time auth CLI (``scripts/auth_telegram.py``); reused on
-    # every subsequent boot so no SMS step is needed.
-    telegram_session_path: str = "/var/lib/pivot/telegram.session"
-
-    # --- Phase 7 Tier-B: Miniflux webhook receiver ----------------------------
-    # Shared HMAC secret. Configure the SAME value inside Miniflux's
-    # ``WEBHOOK_SECRET`` env. Empty string disables the endpoint
-    # entirely (POSTs return 401).
-    miniflux_webhook_secret: str = ""
-
-    # --- Polymarket WS prediction-market trigger -------------------------------
-    # Sub-flag: opens a persistent CLOB market-data WS connection and
-    # drives fire decisions for any active NewsEventSpec whose
-    # resolution_criteria carry a polymarket_token_id. Master
-    # news_events flag must also be on. Default off so dev and tests
-    # don't open the connection.
-    polymarket_ws_enabled: bool = False
-    # How often the supervisor scans the DB to reconcile its in-memory
-    # registration set against active specs. 30s is brisk enough that
-    # newly-created specs go live within one tick, slow enough that the
-    # query is negligible.
-    polymarket_ws_reconcile_interval_s: int = 30
-
-    # --- Kalshi prediction-market trigger (trigger.kalshi) --------------------
-    # Sub-flag: boots a REST poll worker (asyncio task, NOT an APScheduler
-    # job) that drives the SAME venue-agnostic prediction-market evaluator
-    # the Polymarket path uses, firing active trigger.kalshi workflow steps
-    # via fire_external_event. Kalshi public market-data reads need no auth;
-    # the WS channel needs RSA-signed auth, so REST polling is the beta path.
-    # Master news_events flag must also be on. Default off.
-    kalshi_rest_enabled: bool = False
-    # How often the worker reconciles registrations + polls watched market
-    # prices. Kalshi unauth reads are generous (~20 req/s) and we batch by
-    # ticker, so 30s is brisk and well under any rate cap.
-    kalshi_rest_reconcile_interval_s: int = 30
-    # Public market-data base URL. The `.elections.` host is current
-    # canonical; api.kalshi.com is an alias.
-    kalshi_api_base_url: str = "https://api.elections.kalshi.com/trade-api/v2"
-
-    # --- Scheduled macro-event triggers (trigger.scheduled_macro) -------------
-    # Gates registration of the macro watcher poll loop
-    # (_poll_scheduled_macro_triggers). Independent of news_events_enabled:
-    # the verifier only needs the RSS adapter + (optionally) the
-    # prediction-market client, both of which import fine with the master
-    # news flag off. Default off so dev/tests don't arm the loop.
-    macro_events_enabled: bool = False
-    # Minimum verifier confidence to fire (overridable per-step via the
-    # trigger config's own min_confidence; this is the global floor).
-    macro_verifier_min_confidence: float = 0.85
-
     # --- Global-price triggers (trigger.global_price) -------------------------
     # Master flag for the trigger.global_price watcher poll loop
     # (_poll_global_price_triggers in backend/workflows/scheduler.py). This
@@ -257,6 +184,12 @@ class Settings(BaseSettings):
     # api.frankfurter.app now 301-redirects to a non-JSON page; the live
     # host is api.frankfurter.dev/v1 (accepts the same from/to params).
     frankfurter_api_base_url: str = "https://api.frankfurter.dev/v1"
+    # Alpaca — US-equity/ETF market DATA only (register-not-execute: we never
+    # place live US orders; US positions fill into the simulated paper book).
+    # Paper keys are fine for the data API. Base is the DATA host, not trading.
+    alpaca_api_key: str = ""
+    alpaca_api_secret: str = ""
+    alpaca_data_base_url: str = "https://data.alpaca.markets/v2"
     # When True, backend.market.global_quotes.get_global_quote() returns a
     # deterministic synthetic price derived from a stable hash of the symbol
     # (no randomness, no wall-clock-dependent value) so dev + tests are
@@ -281,6 +214,30 @@ class Settings(BaseSettings):
     # both reported + estimate are present — this floor mainly guards against
     # half-populated rows.
     earnings_verifier_min_confidence: float = 0.85
+
+    # --- Web search (provider-hosted) -----------------------------------------
+    # When on, the main chat hop offers the LLM the Responses-API HOSTED
+    # `web_search` tool. The provider runs the search server-side and returns
+    # the answer with url citations in one call — no retrieval code our side.
+    # Verified 2026-07-12 against deploymentpivot111/gpt-5.4-mini (all tool-type
+    # variants 200 + real citations). Default OFF (feature-flag convention);
+    # scoped/guided by system_core.md's web-search clause — prices/fundamentals
+    # still come from Kite tools, web search is for LATEST qualitative context.
+    # Reactivated 2026-07-19 with a SCOPED surface: the tool is attached
+    # per-turn only for news / qualitative-company / earnings-date asks
+    # (chat_service._web_search_scope) and runs with
+    # search_context_size="low" for latency.
+    web_search_enabled: bool = True
+
+    # --- LLM-owned interpretation (A/B experiment, 2026-07-17) -----------------
+    # When True, chat_service skips the regex "interpretation" layers — intent-
+    # based tool-surface surgery, reply-class budget pinning, GAN guard
+    # scope-forcing, thematic scenario routing — and instead injects prose
+    # directions so the model interprets the ask itself. SAFETY and
+    # CORRECTNESS gates (alert boundary, no-trade markers, schema validation,
+    # post-LLM verification retries) are NOT affected by this flag.
+    # Default OFF: flipping it back restores the deterministic behavior.
+    llm_owned_interpretation: bool = False
 
     # --- Company logos (logo.dev) ---------------------------------------------
     # Publishable token (pk_…) for img.logo.dev — safe to expose in the
@@ -318,16 +275,23 @@ class Settings(BaseSettings):
     # money.SEED_CAPITAL fallback + the test suite's expectations).
     paper_seed_capital: float = 150000.0
 
-    # --- View Markets (V2: belief -> expression -> deployment) -----------------
-    # Master flag for the View Markets layer (backend/view_markets/, the /api/
-    # views router, the FE "Views" tab). With it FALSE (the default), the router
-    # is not mounted, no curated-view generation/lifecycle jobs are registered,
-    # and the chat View-Markets tool subset stays inert — the 0023 migration may
-    # still run so the tables exist, but they stay empty. V1 is CURATED-ONLY
-    # (backend-generated + human-reviewed views; no user-authored beliefs) and
-    # register-not-execute; we READ Polymarket/Kalshi for "what's priced in" and
-    # never become a prediction exchange. Flip on for internal -> beta -> GA.
-    view_markets_enabled: bool = True  # V2 beta: Views tab live
+    # --- Background work: ON by default, OFF where Charto already owns it ---
+    # Pivot's API is deployed BESIDE Charto's dataserver on one 2-vCPU box
+    # with no swap. Three things its startup does unconditionally are wrong
+    # there, and two of them are wrong quietly:
+    #
+    #   * the APScheduler jobs (SIP/strategy + a 30s workflow poll) compete
+    #     for a core that Charto's live tick engine needs inside market hours;
+    #   * the cache warmup spends model tokens on boot;
+    #   * the Kite ticker autostart opens a SECOND WebSocket on the same API
+    #     key that `charto/data/kite_stream.py` already holds. Kite does not
+    #     welcome two, and the loser is the live feed the chart draws from.
+    #
+    # Both default True so local dev and any existing deployment behave
+    # exactly as before; `pivot-api.service` sets them False.
+    background_jobs_enabled: bool = True
+    kite_ticker_autostart: bool = True
+
 
     @property
     def allowed_origins_list(self) -> list[str]:

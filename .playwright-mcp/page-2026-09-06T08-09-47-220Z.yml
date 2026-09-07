@@ -1,0 +1,41 @@
+- generic [ref=f2e1]:
+  - generic [ref=f2e2]:
+    - generic [aria-hidden]: PIVOT
+    - generic [ref=f2e3]:
+      - generic [ref=f2e5]:
+        - img "Pivot" [ref=f2e6]
+        - generic [ref=f2e11]: Pivot
+      - paragraph [ref=f2e12]: Data & analysis only. Not financial advice.
+    - generic [ref=f2e15]:
+      - generic [ref=f2e16]:
+        - heading "Sign in to Pivot" [level=1] [ref=f2e17]
+        - paragraph [ref=f2e18]: Enter your email and password to access your account.
+      - generic [ref=f2e20]:
+        - generic [ref=f2e21]:
+          - button "Login with Apple" [ref=f2e22] [cursor=pointer]
+          - button "Login with Google" [ref=f2e23] [cursor=pointer]
+        - generic [ref=f2e24]: Or continue with
+      - generic [ref=f2e26]:
+        - generic [ref=f2e27]:
+          - generic [ref=f2e28]: Email
+          - textbox "Email" [active] [ref=f2e29]:
+            - /placeholder: you@example.com
+        - generic [ref=f2e30]:
+          - generic [ref=f2e31]:
+            - generic [ref=f2e32]: Password
+            - generic [ref=f2e33]: Forgot? Contact support
+          - generic [ref=f2e34]:
+            - textbox "Password" [ref=f2e35]:
+              - /placeholder: ••••••••
+            - button "Show password" [ref=f2e36] [cursor=pointer]
+        - button "Sign in" [ref=f2e40] [cursor=pointer]
+      - paragraph [ref=f2e41]:
+        - text: New to Pivot?
+        - link "Create an account" [ref=f2e42] [cursor=pointer]:
+          - /url: /signup
+  - region "Notifications alt+T"
+  - status [ref=f2e43]:
+    - generic [ref=f2e48]:
+      - text: Static route
+      - button "Hide static indicator" [ref=f2e49] [cursor=pointer]
+  - alert [ref=f2e53]

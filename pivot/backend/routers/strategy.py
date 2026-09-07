@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field, field_validator
 from typing import Literal, Optional
@@ -7,6 +8,8 @@ import json
 from backend.database import get_db
 from backend.models import Strategy, StrategyStatus
 from backend.auth.jwt_handler import get_user_id_from_token
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/strategies", tags=["Strategies"])
 
@@ -161,23 +164,89 @@ def _normalise_members(
     return [{"symbol": s, "weight": round(dedup[s] * 100.0 / total, 4)} for s in symbols]
 
 
-def _basket_out(s: Strategy) -> dict:
-    """Serialise a Strategy row (equity_basket) into the FE basket shape."""
+def _enrich_members_with_names(db: Session, members: list[dict]) -> list[dict]:
+    """Attach a display `name` to each member for the FE holdings list (logo +
+    name, not just the bare symbol). Best-effort: on any resolver failure the
+    symbol itself is used as the name rather than failing the request."""
+    symbols = [m.get("symbol") for m in members if m.get("symbol")]
+    if not symbols:
+        return members
+    try:
+        from backend.market.financials_db import get_names_by_symbols
+        names = get_names_by_symbols(symbols)
+    except Exception:  # noqa: BLE001 — name enrichment is decorative
+        names = {}
+    return [
+        {**m, "name": names.get(str(m.get("symbol", "")).upper()) or m.get("symbol")}
+        for m in members
+    ]
+
+
+def _basket_is_deployed(db: Session, user_id: int, basket_id: int) -> bool:
+    """True when a saved basket is currently DEPLOYED — i.e. it was traded
+    (``trade_basket`` → an origin_kind='strategy' ForwardIdea) AND still
+    holds an open position.
+
+    A never-traded basket has no idea → not deployed (show Deploy). After a
+    full square-off the idea's open positions drop to 0 → not deployed again
+    (re-deployable). This is what lets the card toggle Deploy ⇄ Square off in
+    step with the actual book. Cheap: baskets with no idea skip the replay,
+    and we pass a null price_fn (open-qty needs no live marks)."""
+    from backend.models import ForwardIdea
+
+    idea = (
+        db.query(ForwardIdea)
+        .filter(
+            ForwardIdea.user_id == user_id,
+            ForwardIdea.origin_kind == "strategy",
+            ForwardIdea.strategy_id == basket_id,
+        )
+        .order_by(ForwardIdea.created_at.desc())
+        .first()
+    )
+    if idea is None:
+        return False
+    try:
+        from backend.paper.idea_valuation import compute_idea_positions
+        res = compute_idea_positions(db, idea, price_fn=lambda _s: None)
+        return len(res.get("positions", []) or []) > 0
+    except Exception:  # noqa: BLE001 — traded before but couldn't compute →
+        # treat as deployed so we never offer Deploy on a live book (double-buy).
+        return True
+
+
+def _basket_out(s: Strategy, db: Optional[Session] = None) -> dict:
+    """Serialise a Strategy row (equity_basket) into the FE basket shape.
+
+    Pass ``db`` only for user-facing reads (list/create/update) so the
+    members carry a resolved `name` for the holdings list AND the basket
+    reports whether it's currently ``deployed``; internal callers that only
+    need symbol/weight (trade sizing, square-off) omit it to skip the extra
+    DB round-trip."""
     try:
         cfg = json.loads(s.action_config) if s.action_config else {}
     except (ValueError, TypeError):
         cfg = {}
-    return {
+    members = cfg.get("members", [])
+    if db is not None and members:
+        members = _enrich_members_with_names(db, members)
+    out = {
         "id": s.id,
         "name": s.name,
         "description": s.description,
         "weighting": cfg.get("weighting", "equal"),
-        "members": cfg.get("members", []),
+        "members": members,
         "capital_inr": cfg.get("capital_inr"),
         "status": s.status.value if hasattr(s.status, "value") else str(s.status),
         "created_at": s.created_at.isoformat() if s.created_at else None,
         "updated_at": s.updated_at.isoformat() if s.updated_at else None,
     }
+    # `deployed` drives the card's Deploy ⇄ Square-off toggle. Only computed
+    # on user-facing reads (db present); internal sizing/square-off callers
+    # don't need it.
+    if db is not None:
+        out["deployed"] = _basket_is_deployed(db, s.user_id, s.id)
+    return out
 
 
 @router.post("/baskets", status_code=201)
@@ -204,7 +273,7 @@ def create_basket(
     db.add(row)
     db.commit()
     db.refresh(row)
-    return _basket_out(row)
+    return _basket_out(row, db)
 
 
 @router.get("/baskets")
@@ -219,7 +288,7 @@ def list_baskets(user_id: int = Depends(get_user_id), db: Session = Depends(get_
         .order_by(Strategy.created_at.desc().nullslast(), Strategy.id.desc())
         .all()
     )
-    return {"baskets": [_basket_out(s) for s in rows]}
+    return {"baskets": [_basket_out(s, db) for s in rows]}
 
 
 def _load_basket_or_404(db: Session, user_id: int, basket_id: int) -> Strategy:
@@ -273,7 +342,96 @@ def update_basket(
     s.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(s)
-    return _basket_out(s)
+    return _basket_out(s, db)
+
+
+# ── Square off a basket ─────────────────────────────────────────────────────
+#
+# Sell whatever quantity of each member is currently held in the user's paper
+# book, through the SAME order seam `trade_basket` uses for buys (register-
+# not-execute honoured — a live account with no broker connected 409s exactly
+# like a buy would). A basket that was never traded (nothing held) is a no-op,
+# not an error: every member reports "no open position" in `skipped`.
+
+
+def _square_off_basket(db: Session, user_id: int, s: Strategy) -> dict:
+    out = _basket_out(s)
+    symbols = sorted({
+        str(m.get("symbol") or "").strip().upper()
+        for m in out.get("members", [])
+        if m.get("symbol")
+    })
+    if not symbols:
+        return {"count": 0, "registered": [], "skipped": []}
+
+    from backend.paper.positions import paper_positions_kite_shape
+
+    positions = paper_positions_kite_shape(db, user_id)
+    held = {p["tradingsymbol"]: p["quantity"] for p in positions.get("net", [])}
+
+    legs: list[dict] = []
+    skipped: list[dict] = []
+    for symbol in symbols:
+        qty = held.get(symbol) or 0
+        if qty <= 0:
+            skipped.append({"symbol": symbol, "reason": "no open position"})
+            continue
+        legs.append({
+            "symbol": symbol,
+            "exchange": "NSE",
+            "transaction_type": "SELL",
+            "order_type": "MARKET",
+            "quantity": int(qty),
+            "price": None,
+            "trigger_price": None,
+            "product": "CNC",
+        })
+
+    if not legs:
+        return {"count": 0, "registered": [], "skipped": skipped}
+
+    from backend.brokers.sessions import get_active_broker_session
+    from backend.paper.routing import should_use_paper
+    from backend.routers.orders import _persist_leg
+    from backend.utils.time_utils import format_ist
+
+    paper = should_use_paper(db, user_id)
+    if not paper and get_active_broker_session(db, user_id) is None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "No broker connected — connect your broker (e.g. Zerodha Kite) "
+                "in Brokers settings to square off this basket."
+            ),
+        )
+
+    rows = [_persist_leg(db, user_id, leg) for leg in legs]
+    db.commit()
+    for r in rows:
+        db.refresh(r)
+
+    return {
+        "count": len(rows),
+        "registered": [
+            {"id": r.id, "symbol": r.symbol, "transaction_type": r.transaction_type,
+             "quantity": r.quantity, "status": r.status,
+             "placed_at": format_ist(r.placed_at)}
+            for r in rows
+        ],
+        "skipped": skipped,
+    }
+
+
+@router.post("/baskets/{basket_id}/close", status_code=200)
+def close_basket(
+    basket_id: int,
+    user_id: int = Depends(get_user_id),
+    db: Session = Depends(get_db),
+):
+    """Square off (sell) every held member of the basket at market. The
+    basket itself is untouched — it stays in Strategies, tradeable again."""
+    s = _load_basket_or_404(db, user_id, basket_id)
+    return _square_off_basket(db, user_id, s)
 
 
 @router.delete("/baskets/{basket_id}")
@@ -282,10 +440,25 @@ def delete_basket(
     user_id: int = Depends(get_user_id),
     db: Session = Depends(get_db),
 ):
+    """Square off every held member position, then remove the basket for
+    good. Hard-deletes the row rather than the soft-delete convention used
+    by the generic `delete_strategy` — the basket-trade seam never attaches
+    a `strategy_id` to the orders it places, so nothing else references this
+    row. Falls back to a soft delete (status=completed) if some other FK we
+    don't know about blocks the hard delete, so the basket disappears from
+    Strategies either way."""
     s = _load_basket_or_404(db, user_id, basket_id)
-    s.status = StrategyStatus.completed
-    db.commit()
-    return {"id": basket_id, "status": "deleted"}
+    squareoff = _square_off_basket(db, user_id, s)
+    try:
+        db.delete(s)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.warning("Hard delete of basket %s failed, soft-deleting: %s", basket_id, e)
+        s = _load_basket_or_404(db, user_id, basket_id)
+        s.status = StrategyStatus.completed
+        db.commit()
+    return {"id": basket_id, "status": "deleted", "squareoff": squareoff}
 
 
 # ── Trade a basket ─────────────────────────────────────────────────────────
@@ -404,7 +577,14 @@ def trade_basket(
             ),
         )
     rows = [
-        _persist_leg(db, user_id, {k: v for k, v in leg.items() if not k.startswith("_")})
+        _persist_leg(
+            db,
+            user_id,
+            {k: v for k, v in leg.items() if not k.startswith("_")},
+            origin_kind="strategy",
+            strategy_id=basket_id,
+            label=s.name,
+        )
         for leg in legs
     ]
     db.commit()
@@ -423,4 +603,65 @@ def trade_basket(
             for r in rows
         ],
         "skipped": skipped,
+    }
+
+
+@router.get("/baskets/{basket_id}/performance")
+def basket_performance(
+    basket_id: int,
+    user_id: int = Depends(get_user_id),
+    db: Session = Depends(get_db),
+):
+    """Live NAV sparkline + headline return for one basket — mirrors
+    `GET /api/workflows/{id}/performance`, keyed on the ForwardIdea whose
+    ``strategy_id`` matches this basket instead of ``workflow_id``. Fills
+    only attribute to that idea once a leg has been traded via
+    ``trade_basket`` (origin_kind="strategy"); an untraded basket has no
+    idea yet, so this returns has_data=false rather than 404."""
+    _load_basket_or_404(db, user_id, basket_id)
+
+    from backend.models import ForwardIdea, PaperIdeaNavSnapshot
+
+    series: list[dict] = []
+    return_pct = None
+    idea = (
+        db.query(ForwardIdea)
+        .filter(
+            ForwardIdea.user_id == user_id,
+            ForwardIdea.origin_kind == "strategy",
+            ForwardIdea.strategy_id == basket_id,
+        )
+        .order_by(ForwardIdea.created_at.desc())
+        .first()
+    )
+    if idea is not None:
+        from backend.routers.workflows import _live_idea_return_pct
+
+        return_pct = _live_idea_return_pct(db, idea)
+        snaps = (
+            db.query(PaperIdeaNavSnapshot)
+            .filter(PaperIdeaNavSnapshot.idea_id == idea.id)
+            .order_by(PaperIdeaNavSnapshot.as_of_date.asc())
+            .all()
+        )
+        for snap in snaps:
+            series.append({"date": snap.as_of_date.isoformat(), "nav": float(snap.idea_nav)})
+
+        try:
+            from backend.paper.idea_valuation import compute_idea_nav
+            from datetime import datetime as _dt, timezone as _tz
+
+            live_nav = float(compute_idea_nav(db, idea)["idea_nav"])
+            today = _dt.now(_tz.utc).date().isoformat()
+            if series and series[-1]["date"] == today:
+                series[-1] = {"date": today, "nav": live_nav}
+            else:
+                series.append({"date": today, "nav": live_nav})
+        except Exception:
+            pass
+
+    return {
+        "series": series,
+        "return_pct": return_pct,
+        "has_data": bool(series),
     }

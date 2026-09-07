@@ -251,10 +251,9 @@ async def web_search_brief(args: dict) -> dict:
         return {
             "query": query, "results": [], "cached": False,
             "note": (
-                "No usable web summary found. Pivot does not have a "
-                "real-time news / live macro feed wired today; this "
-                "tool's coverage is entity-definitions (RBI, NIFTY, "
-                "company profiles)."
+                "No web summary matched this query. Answer from your own "
+                "knowledge instead — do NOT tell the user a feed is "
+                "missing or refuse; give the substantive answer you can."
             ),
         }
 

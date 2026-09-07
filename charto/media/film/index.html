@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en" data-resolution="landscape">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Charto — the analyst at your chart</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        margin: 0; width: 1920px; height: 1080px;
+        overflow: hidden; background: #ffffff;
+      }
+      /* The film is shot on the product's own surface, so it borrows the
+         product's own type and palette — Charto's UI is Inter on white with
+         a #219ebc accent, and the wordmark is a serif. */
+      body {
+        font-family: "Inter", system-ui, sans-serif;
+        color: #10161c;
+        -webkit-font-smoothing: antialiased;
+      }
+      :root {
+        --ink: #10161c;
+        --muted: #5a6672;
+        --accent: #219ebc;
+        --rule: #e6e6e6;
+      }
+
+      #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; background: #fff; }
+
+      .scene { position: absolute; inset: 0; overflow: hidden; background: #fff; }
+
+      /* The transformed layer holds the screenshot AND anything anchored to
+         image coordinates, so a push-in carries its own annotations with it
+         instead of drifting off the pixels they point at. */
+      .layer {
+        position: absolute; top: 0; left: 0;
+        width: 1920px; height: 1080px;
+        transform-origin: 0 0;
+        will-change: transform;
+      }
+      .layer > img { display: block; width: 1920px; height: 1080px; }
+
+      /* An underline drawn under a number the narration is speaking. Sized in
+         IMAGE pixels and parked inside .layer, so it magnifies with the text. */
+      .mark {
+        position: absolute; display: block;
+        height: 3px; background: var(--accent);
+        transform-origin: 0 50%; border-radius: 2px;
+      }
+
+      /* Hand markup — the thing Charto replaces. Deliberately imprecise:
+         two off-angle strokes a person would draw, not a detector's output. */
+      .hand {
+        position: absolute; display: block; height: 0;
+        border-top: 3px solid #7d8b98;
+        transform-origin: 0 50%; opacity: .85;
+      }
+
+      /* A documentary lower-third: a white scrim so the label stays legible
+         over candles, and a hairline accent to mark it as ours, not the UI's. */
+      .kicker {
+        position: absolute; left: 0; bottom: 0;
+        width: 1920px; height: 168px;
+        background: linear-gradient(to top, rgba(255,255,255,.97) 34%, rgba(255,255,255,0));
+        display: flex; align-items: flex-end;
+      }
+      .kicker-in { display: flex; align-items: center; gap: 18px; padding: 0 0 46px 84px; }
+      .kicker-rule { display: block; width: 46px; height: 2px; background: var(--accent); transform-origin: 0 50%; }
+      .kicker-txt {
+        font-size: 21px; font-weight: 500; letter-spacing: .19em;
+        text-transform: uppercase; color: var(--muted); white-space: nowrap;
+      }
+
+      /* End card */
+      #s5 { background: #fff; display: grid; place-items: center; }
+      .end { width: 1400px; text-align: center; }
+      .end-claim {
+        font-size: 60px; line-height: 1.28; font-weight: 400;
+        letter-spacing: -.018em; color: var(--ink);
+      }
+      .end-claim em { font-style: normal; color: var(--accent); }
+      .end-mark {
+        font-family: "EB Garamond", serif;
+        font-size: 128px; letter-spacing: -.028em; color: var(--ink);
+      }
+      .end-rule { width: 108px; height: 2px; background: var(--accent); margin: 34px auto 30px; transform-origin: 50% 50%; }
+      .end-tag { font-size: 33px; letter-spacing: .012em; color: var(--muted); }
+      .end-foot {
+        position: absolute; left: 0; bottom: 74px; width: 1920px; text-align: center;
+        font-size: 19px; letter-spacing: .2em; text-transform: uppercase; color: #6e777f;
+      }
+      .stack { position: absolute; inset: 0; display: grid; place-items: center; }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-width="1920"
+      data-height="1080"
+      data-duration="30"
+      data-fps="30"
+      data-layout-allow-overflow="true"
+    >
+      <!-- One pre-mixed bed: ElevenLabs v3 narration over a generated
+           underscore, ducked and limited in ffmpeg so the render carries a
+           single deterministic audio track. -->
+      <audio id="soundtrack" src="assets/track.mp3" data-start="0" data-duration="30" data-track-index="0"></audio>
+
+      <!-- ── S1 · the problem: a chart marked up by hand ───────────────── -->
+      <section id="s1" class="scene clip" data-start="0" data-duration="6.9" data-track-index="1"
+               style="z-index: 1" data-layout-allow-overflow="true">
+        <div class="layer" id="s1-layer" data-layout-allow-overflow="true">
+          <img src="assets/shot-clean.png" alt="Charto with a clean RELIANCE chart" />
+          <span class="hand" id="hand-1" style="left: 118px; top: 700px; width: 700px; transform: rotate(-8.4deg)"></span>
+          <span class="hand" id="hand-2" style="left: 300px; top: 470px; width: 880px; transform: rotate(-2.1deg)"></span>
+          <span class="hand" id="hand-3" style="left: 640px; top: 268px; width: 520px; transform: rotate(-13.2deg)"></span>
+        </div>
+      </section>
+
+      <!-- ── S2 · the ask, in plain language ──────────────────────────── -->
+      <section id="s2" class="scene clip" data-start="6.6" data-duration="3.5" data-track-index="2"
+               style="z-index: 2" data-layout-allow-overflow="true">
+        <div class="layer" id="s2-layer" data-layout-allow-overflow="true">
+          <img src="assets/shot-typed.png" alt="A question typed into the Charto composer" />
+        </div>
+      </section>
+
+      <!-- ── S3 · zones drawn, each carrying its record ────────────────── -->
+      <section id="s3" class="scene clip" data-start="9.8" data-duration="6.9" data-track-index="1"
+               style="z-index: 3" data-layout-allow-overflow="true">
+        <div class="layer" id="s3-layer" data-layout-allow-overflow="true">
+          <img src="assets/shot-levels.png" alt="Support zones drawn on the chart with their historical reaction" />
+          <span class="mark" id="mark-held" style="left: 1750px; top: 243px; width: 140px"></span>
+        </div>
+        <div class="kicker" id="s3-kick">
+          <div class="kicker-in">
+            <span class="kicker-rule" id="s3-rule"></span>
+            <span class="kicker-txt">Support zones · detected, not declared</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── S4 · why it moved, with its base rate ─────────────────────── -->
+      <section id="s4" class="scene clip" data-start="16.4" data-duration="7.3" data-track-index="2"
+               style="z-index: 4" data-layout-allow-overflow="true">
+        <div class="layer" id="s4-layer" data-layout-allow-overflow="true">
+          <img src="assets/shot-why.png" alt="Charto attributing a move, with base rates and what it cannot measure" />
+          <span class="mark" id="mark-54" style="left: 1662px; top: 866px; width: 40px"></span>
+          <span class="mark" id="mark-52" style="left: 1559px; top: 896px; width: 40px"></span>
+        </div>
+        <div class="kicker" id="s4-kick">
+          <div class="kicker-in">
+            <span class="kicker-rule" id="s4-rule"></span>
+            <span class="kicker-txt">Move attribution · answered against its base rate</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── S5 · the claim, then the mark ─────────────────────────────── -->
+      <section id="s5" class="scene clip" data-start="23.4" data-duration="6.6" data-track-index="3"
+               style="z-index: 5" data-layout-allow-overflow="true">
+        <div class="stack" id="claim-wrap">
+          <div class="end">
+            <div class="end-claim" id="claim">Nothing is drawn<br />that <em>wasn't computed.</em></div>
+          </div>
+        </div>
+        <div class="stack" id="mark-wrap">
+          <div class="end">
+            <div class="end-mark" id="wordmark">Charto.</div>
+            <div class="end-rule" id="endrule"></div>
+            <div class="end-tag" id="tagline">The analyst at your chart.</div>
+          </div>
+        </div>
+        <div class="end-foot" id="endfoot">NSE &amp; BSE · Register, not execute</div>
+      </section>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      /* Crop-zoom math. The layer is transform-origin 0 0 with
+         `translate(x,y) scale(s)`, so the visible image region is
+         [-x/s, -x/s + 1920/s]. To never expose blank canvas, x and y are
+         clamped to [frame - frame*s, 0] — every keyframe below is either
+         centred or pinned to that clamp, and pairs of keyframes interpolate
+         along the clamp so no intermediate frame opens a gap. */
+      const EASE = "power2.inOut";
+
+      // ── S1 (0 – 6.9) · a slow drift; strokes drawn by hand ────────────
+      // Top-anchored (y = 0): a centred push would crop the toolbar and eat
+      // the wordmark. What it gives up instead is empty volume-pane space.
+      gsap.set("#s1-layer", { x: -4.8, y: 0, scale: 1.005 });
+      gsap.set(["#hand-1", "#hand-2", "#hand-3"], { scaleX: 0 });
+      tl.to("#s1-layer", { x: -43.2, y: 0, scale: 1.045, duration: 6.9, ease: "none" }, 0);
+      tl.to("#hand-1", { scaleX: 1, duration: 0.72, ease: "power2.out" }, 1.15);
+      tl.to("#hand-2", { scaleX: 1, duration: 0.66, ease: "power2.out" }, 2.05);
+      tl.to("#hand-3", { scaleX: 1, duration: 0.58, ease: "power2.out" }, 2.85);
+      // they wipe as "Charto measures instead" lands (5.54s)
+      tl.to(["#hand-1", "#hand-2", "#hand-3"], { opacity: 0, duration: 0.85, ease: "power2.in" }, 4.85);
+
+      // ── S2 (6.6 – 10.1) · dive from the whole app into the composer ────
+      // Interpolating x and y exactly along the clamp (-1920(s-1), -1080(s-1))
+      // keeps the bottom-right corner pinned for the entire push, so no
+      // intermediate frame opens blank canvas beside the screenshot.
+      gsap.set("#s2", { opacity: 0 });
+      gsap.set("#s2-layer", { x: 0, y: 0, scale: 1 });
+      tl.to("#s2", { opacity: 1, duration: 0.5, ease: "power1.inOut" }, 6.6);
+      tl.to("#s2-layer", { x: -2496, y: -1404, scale: 2.3, duration: 3.5, ease: "power2.inOut" }, 6.6);
+
+      // ── S3 (9.8 – 16.7) · the answered chart, then push to its evidence ─
+      // Cuts in under "…the chart answers" (9.99s) so the zones are already
+      // drawn the moment the narration claims they are.
+      gsap.set("#s3", { opacity: 0 });
+      gsap.set("#s3-layer", { x: 0, y: 0, scale: 1 });
+      gsap.set("#mark-held", { scaleX: 0 });
+      gsap.set("#s3-kick", { opacity: 0 });
+      gsap.set("#s3-rule", { scaleX: 0 });
+      tl.to("#s3", { opacity: 1, duration: 0.55, ease: "power1.inOut" }, 9.8);
+      tl.to("#s3-layer", { x: -672, y: 0, scale: 1.35, duration: 6.9, ease: EASE }, 9.8);
+      tl.to("#s3-kick", { opacity: 1, duration: 0.5, ease: "power1.out" }, 10.6);
+      tl.to("#s3-rule", { scaleX: 1, duration: 0.45, ease: "power2.out" }, 10.75);
+      // "Held, two of two." — 13.54s
+      tl.to("#mark-held", { scaleX: 1, duration: 0.5, ease: "power2.out" }, 13.5);
+      tl.to("#s3-kick", { opacity: 0, duration: 0.45, ease: "power1.in" }, 15.95);
+      tl.set("#s3-kick", { opacity: 0 }, 16.4);
+
+      // ── S4 (16.4 – 23.7) · push to the reasoning, then hold the numbers ─
+      gsap.set("#s4", { opacity: 0 });
+      gsap.set("#s4-layer", { x: 0, y: 0, scale: 1 });
+      gsap.set(["#mark-54", "#mark-52"], { scaleX: 0 });
+      gsap.set("#s4-kick", { opacity: 0 });
+      gsap.set("#s4-rule", { scaleX: 0 });
+      tl.to("#s4", { opacity: 1, duration: 0.55, ease: "power1.inOut" }, 16.4);
+      // 16.4 → 18.0 push in onto the measured breakdown
+      tl.to("#s4-layer", { x: -2688, y: -420, scale: 2.4, duration: 1.6, ease: "power2.inOut" }, 16.4);
+      // 18.0 → 19.5 travel down to the paragraph the narration is about to read
+      tl.to("#s4-layer", { y: -1452, duration: 1.5, ease: "power1.inOut" }, 18.0);
+      // 19.5 → 23.7 settle, so the two rates stay on screen while spoken
+      tl.to("#s4-layer", { y: -1512, duration: 4.2, ease: "none" }, 19.5);
+      tl.to("#s4-kick", { opacity: 1, duration: 0.5, ease: "power1.out" }, 17.1);
+      tl.to("#s4-rule", { scaleX: 1, duration: 0.45, ease: "power2.out" }, 17.25);
+      // "fifty-four percent" 19.91 · "…an unconditional fifty-two" ~21.4
+      tl.to("#mark-54", { scaleX: 1, duration: 0.42, ease: "power2.out" }, 19.95);
+      tl.to("#mark-52", { scaleX: 1, duration: 0.42, ease: "power2.out" }, 21.45);
+      tl.to("#s4-kick", { opacity: 0, duration: 0.45, ease: "power1.in" }, 22.95);
+      tl.set("#s4-kick", { opacity: 0 }, 23.4);
+
+      // ── S5 (23.4 – 30.0) · the claim, then the mark ───────────────────
+      gsap.set("#s5", { opacity: 0 });
+      gsap.set("#claim", { opacity: 0, y: 26 });
+      gsap.set("#mark-wrap", { opacity: 0 });
+      gsap.set("#wordmark", { opacity: 0, y: 22 });
+      gsap.set("#endrule", { scaleX: 0 });
+      gsap.set("#tagline", { opacity: 0, y: 14 });
+      gsap.set("#endfoot", { opacity: 0 });
+      tl.to("#s5", { opacity: 1, duration: 0.7, ease: "power1.inOut" }, 23.4);
+      // "Nothing is drawn that wasn't computed." — 23.6 → 26.2
+      tl.to("#claim", { opacity: 1, y: 0, duration: 0.85, ease: "power3.out" }, 23.85);
+      tl.to("#claim", { opacity: 0, y: -22, duration: 0.45, ease: "power2.in" }, 25.85);
+      // the claim is fully gone before the mark arrives — one idea on screen
+      // at a time, never a crossfade of two text blocks
+      tl.set("#claim-wrap", { opacity: 0 }, 26.3);
+      // "Charto." — 26.18 · "The analyst at your chart." — 27.34
+      tl.set("#mark-wrap", { opacity: 1 }, 26.3);
+      tl.to("#wordmark", { opacity: 1, y: 0, duration: 0.9, ease: "power3.out" }, 26.3);
+      tl.to("#endrule", { scaleX: 1, duration: 0.7, ease: "power2.out" }, 26.9);
+      tl.to("#tagline", { opacity: 1, y: 0, duration: 0.8, ease: "power3.out" }, 27.25);
+      tl.to("#endfoot", { opacity: 1, duration: 0.8, ease: "power2.out" }, 28.2);
+
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

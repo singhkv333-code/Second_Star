@@ -9,10 +9,26 @@ Returns: { success, data, logiccard, error }
 import logging
 from typing import Optional
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from backend.agents.tools import get_tool_defaults
 from backend.safety import validate_order_value
 
 logger = logging.getLogger(__name__)
+
+# Generic, user-safe failure for any DB-layer error while registering a
+# workflow. The full exception is logged server-side (stack + SQL); the chat
+# reply must NEVER carry a raw psycopg2/SQLAlchemy string — the register path
+# interpolates `error` verbatim into the user-facing text.
+_REGISTER_DB_ERROR = {
+    "success": False,
+    "error": (
+        "couldn't save the agent just now — a temporary issue on our end. "
+        "Nothing was armed; try registering it again in a moment."
+    ),
+    "data": {},
+    "logiccard": None,
+}
 
 
 async def execute_tool(tool_name: str, arguments: dict,
@@ -92,8 +108,6 @@ def _build_handlers() -> dict:
         "propose_threshold_order":    _propose_threshold_order,
         "propose_basket_allocation":  _propose_basket_allocation,
         "propose_holding_action":     _propose_holding_action,
-        "propose_polymarket_trigger": _propose_polymarket_trigger,
-        "browse_polymarket_markets":  _browse_polymarket_markets,
         "create_cash_sweep":          _generic_confirm,
         "create_rebalancing_rule":    _generic_confirm,
         "create_drawdown_protection": _generic_confirm,
@@ -114,10 +128,12 @@ def _build_handlers() -> dict:
         "get_market_status":          _get_market_status,
         "get_upcoming_events":        _get_upcoming_events,
         "get_top_movers":             _get_top_movers,
+        "compute":                    _compute,
         # retail capability tools (2026-05-29): fundamental screen,
         # single-stock fundamentals + news, IPO feed
         "screen_fundamentals":        _screen_fundamentals,
         "fetch_fundamentals":         _fetch_fundamentals,
+        "query_financials":           _query_financials,
         "get_symbol_news":            _get_symbol_news,
         # Strategy builder + dynamic clarifying questions (Workstreams A & B).
         # build_strategy emits a strategy_builder_card; ask_user_dynamic runs
@@ -652,7 +668,6 @@ async def _propose_workflow(a, kt, db, uid):
         ProposalValidationError,
         _ensure_step_labels,
         propose_workflow_async,
-        resolve_polymarket_event_descriptions,
         validate_draft_against_registry,
     )
 
@@ -673,12 +688,6 @@ async def _propose_workflow(a, kt, db, uid):
     # New path — chat hop emits the structured draft directly.
     if isinstance(a.get("steps"), list):
         try:
-            # Resolve any trigger.polymarket steps that carry only the
-            # event_description escape hatch BEFORE the sync validator
-            # sees them. High-confidence matches fill in ids in-place;
-            # low-confidence raises so the LLM knows to call
-            # propose_polymarket_trigger first.
-            await resolve_polymarket_event_descriptions(a)
             draft = validate_draft_against_registry(a)
         except ProposalValidationError as e:
             logger.info("propose_workflow validation failed: %s", e)
@@ -858,6 +867,8 @@ async def _backtest_workflow(a, kt, db, uid):
     start_date = a.get("start_date") or None
     end_date = a.get("end_date") or None
     benchmark_symbol = a.get("benchmark_symbol") or None
+    interval = str(a.get("interval") or "1d")
+    starting_capital = a.get("starting_capital")
 
     validated_steps = [s.model_dump() for s in draft.steps]
     try:
@@ -869,6 +880,10 @@ async def _backtest_workflow(a, kt, db, uid):
             start_date=start_date,
             end_date=end_date,
             benchmark_symbol=benchmark_symbol,
+            interval=interval,
+            starting_capital=(
+                float(starting_capital) if starting_capital else None
+            ),
             # Group this CONVERSATION's backtests (falls back to user) so the
             # Deflated Sharpe deflates for how many variants were tried in this
             # session — tuning one idea deflates together; unrelated chats stay
@@ -905,10 +920,25 @@ async def _backtest_workflow(a, kt, db, uid):
             "equity_curve": result.equity_curve,
             "indicator_curve": result.indicator_curve,
             "signals": result.signals,
+            # Closed round-trips and still-held lots. `signals` are FILLS —
+            # every buy and every sell as an event — which is a different
+            # question from "what were the trades", and a reader given only
+            # the fills has to pair them itself and can only disagree with
+            # the engine that already did.
+            "trades": getattr(result, "trades", []),
+            "open_lots": getattr(result, "open_lots", []),
             "metrics": result.metrics,
             "bench_buy_hold_return_pct": result.bench_buy_hold_return_pct,
+            "benchmark_label": getattr(result, "benchmark_label", None),
             "methodology": result.methodology,
             "summary_text": result.summary_text,
+            "strategy_kind": getattr(result, "strategy_kind", "indicator"),
+            "display_title": getattr(result, "display_title", None),
+            "display_subtitle": getattr(result, "display_subtitle", None),
+            "window_start": getattr(result, "window_start", None),
+            "window_end": getattr(result, "window_end", None),
+            "n_bars": getattr(result, "n_bars", 0),
+            "bar_interval": getattr(result, "bar_interval", "1d"),
         },
         "logiccard": None,
     }
@@ -1003,227 +1033,6 @@ def _derive_threshold_presets(current_yes: float, direction: str) -> list[float]
     if direction == "below":
         rounded = list(reversed(rounded))  # higher = closer to current = more frequent
     return rounded
-
-
-async def _propose_polymarket_trigger(a, kt, db, uid):
-    """Match a free-text event to a Polymarket contract; return a draft
-    card. Pure — never writes to the DB. Confirmation persists via
-    POST /api/news-events/specs/polymarket; activation kicks off the
-    WS subscription via POST /api/news-events/specs/{id}/activate.
-
-    Two modes supported (carried on the card; FE renders differently):
-      threshold (default) — fires when YES probability crosses a number.
-                            Threshold may be omitted by the LLM; the
-                            handler derives 3 preset chips from current
-                            YES price.
-      resolution          — fires when Polymarket officially declares a
-                            winner. Threshold / direction ignored;
-                            resolve_on picks which outcome fires (YES,
-                            NO, ANY).
-
-    Render hints:
-      polymarket_trigger_draft  → high-confidence auto-pick.
-      polymarket_trigger_picker → low-confidence; FE shows a candidate
-                                  list with the matcher's best guess
-                                  pre-highlighted (if any).
-    """
-    from backend.news_events.parsing.polymarket_match import (
-        match_event_to_polymarket_contract,
-    )
-    from backend.news_events.sources.polymarket import get_market
-
-    a = a or {}
-    desc = str(a.get("event_description") or "").strip()
-    if not desc:
-        return {
-            "success": False,
-            "error": "event_description is required",
-            "data": {},
-            "logiccard": None,
-        }
-    mode = str(a.get("mode", "threshold")).lower()
-    if mode not in {"threshold", "resolution"}:
-        mode = "threshold"
-    resolve_on = str(a.get("resolve_on", "YES")).upper()
-    if resolve_on not in {"YES", "NO", "ANY"}:
-        resolve_on = "YES"
-    direction = str(a.get("direction", "above")).lower()
-    if direction not in {"above", "below"}:
-        direction = "above"
-
-    # Threshold: optional only when mode='threshold' (handler derives
-    # presets); ignored when mode='resolution'.
-    threshold_raw = a.get("threshold")
-    user_supplied_threshold: Optional[float] = None
-    if mode == "threshold" and threshold_raw is not None:
-        try:
-            user_supplied_threshold = float(threshold_raw)
-        except (TypeError, ValueError):
-            return {
-                "success": False,
-                "error": "threshold must be a number in [0, 1]",
-                "data": {},
-                "logiccard": None,
-            }
-        if not (0.0 <= user_supplied_threshold <= 1.0):
-            return {
-                "success": False,
-                "error": f"threshold {user_supplied_threshold} out of [0, 1]",
-                "data": {},
-                "logiccard": None,
-            }
-
-    workflow_note = str(a.get("workflow_action_summary") or "").strip() or None
-
-    try:
-        match = await match_event_to_polymarket_contract(desc)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "polymarket_trigger matcher_failed err=%s", exc,
-        )
-        return {
-            "success": False,
-            "error": f"matcher failed: {exc}",
-            "data": {},
-            "logiccard": None,
-        }
-
-    candidate_views = [
-        {
-            "index": i,
-            "market_id": c.market_id,
-            "question": c.question,
-            "slug": c.slug,
-            "yes_price": c.yes_price,
-            "yes_token_id": c.yes_token_id,
-            "no_token_id": c.no_token_id,
-            "closed": c.closed,
-        }
-        for i, c in enumerate(match.candidates)
-    ]
-
-    # Pull the chosen / best-guess current YES price so we can derive
-    # threshold presets even on the picker path.
-    chosen_yes_price: Optional[float] = None
-    chosen_market_id = match.market_id  # set on both matched + low-conf paths
-    if chosen_market_id is not None:
-        for c in match.candidates:
-            if c.market_id == chosen_market_id:
-                chosen_yes_price = float(c.yes_price)
-                break
-
-    # Auto-fetch end_date for the chosen market so the card carries
-    # the natural deadline. Best-effort — never blocks the card.
-    timeline_default: Optional[str] = None
-    if chosen_market_id is not None:
-        try:
-            snap = await get_market(chosen_market_id)
-            if snap is not None:
-                raw_end = (snap.raw or {}).get("endDate")
-                if raw_end:
-                    timeline_default = str(raw_end)
-        except Exception:  # noqa: BLE001 — never block the card on metadata fetch
-            timeline_default = None
-
-    # Threshold presets only applicable in threshold mode + when we
-    # have a current YES price.
-    threshold_presets: list[float] = []
-    threshold_preselected: Optional[float] = None
-    threshold_was_assumed = False
-    effective_threshold: Optional[float] = user_supplied_threshold
-    if mode == "threshold" and chosen_yes_price is not None:
-        threshold_presets = _derive_threshold_presets(chosen_yes_price, direction)
-        if threshold_presets:
-            mid = threshold_presets[len(threshold_presets) // 2]
-            threshold_preselected = mid
-            if effective_threshold is None:
-                effective_threshold = mid
-                threshold_was_assumed = True
-
-    base = {
-        "event_description": desc,
-        "mode": mode,
-        "resolve_on": resolve_on if mode == "resolution" else None,
-        "threshold": effective_threshold if mode == "threshold" else None,
-        "threshold_presets": threshold_presets if mode == "threshold" else [],
-        "threshold_preselected": threshold_preselected if mode == "threshold" else None,
-        "threshold_was_assumed": threshold_was_assumed if mode == "threshold" else False,
-        "direction": direction if mode == "threshold" else None,
-        "current_yes_price": chosen_yes_price,
-        "timeline_default": timeline_default,
-        "workflow_action_summary": workflow_note,
-        "matcher_reason": match.reason,
-        "candidates": candidate_views,
-    }
-
-    if match.matched:
-        base.update({
-            "_render_hint": "polymarket_trigger_draft",
-            "matched": True,
-            "market_id": match.market_id,
-            "token_id": match.token_id,
-            "side": match.side,
-            "question": match.question,
-            "confidence": match.confidence,
-        })
-        return {"success": True, "data": base, "logiccard": None}
-
-    # Low-confidence — show the picker. Pre-highlight the matcher's
-    # best guess if it had one (low confidence is still surfaced on
-    # MatchResult.market_id/token_id/side). Threshold presets above
-    # also apply so the user picks contract + threshold in one card.
-    base.update({
-        "_render_hint": "polymarket_trigger_picker",
-        "matched": False,
-        "best_guess_market_id": match.market_id,
-        "best_guess_token_id": match.token_id,
-        "best_guess_side": match.side,
-        "best_guess_question": match.question,
-        "best_guess_confidence": match.confidence,
-    })
-    return {"success": True, "data": base, "logiccard": None}
-
-
-async def _browse_polymarket_markets(a, kt, db, uid):
-    """Catalog browse — list open Polymarket events optionally filtered
-    by topic. Pure read-only; no DB write. Returns a render hint the
-    FE renders as a scrollable list of event cards; clicking one
-    drills into its markets and routes to propose_polymarket_trigger.
-    """
-    from backend.news_events.sources.polymarket import browse_events
-
-    a = a or {}
-    topic = str(a.get("topic") or "").strip() or None
-    try:
-        limit = int(a.get("limit", 10))
-    except (TypeError, ValueError):
-        limit = 10
-    limit = max(1, min(20, limit))
-
-    try:
-        events = await browse_events(topic, limit=limit, markets_per_event=3)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("browse_polymarket_markets failed err=%s", exc)
-        return {
-            "success": False,
-            "error": f"browse failed: {exc}",
-            "data": {},
-            "logiccard": None,
-        }
-
-    payload = {
-        "_render_hint": "polymarket_market_browse_card",
-        "topic": topic,
-        "limit": limit,
-        "events": events,
-        "result_count": len(events),
-    }
-    if not events:
-        payload["empty_reason"] = (
-            f"no open markets matched {topic!r}"
-            if topic else "no open events returned by Polymarket"
-        )
-    return {"success": True, "data": payload, "logiccard": None}
 
 
 async def _list_strategies(a, kt, db, uid):
@@ -1422,12 +1231,20 @@ async def _get_index_level(a, kt, db, uid):
     idx = a.get("index", "NIFTY50")
 
     # Fast path: Kite tick cache (unchanged when the ticker is running).
+    # Only when the cache carries a real day-change — defaulting a missing
+    # change to 0 printed "NIFTY unchanged, 0.00%" on a -0.4% day
+    # (2026-07-23); fall through to the REST tier instead, which computes
+    # it from prev_close.
     key = idx.replace("50", " 50") if "NIFTY50" in idx else idx
     d = _cached_price(key)
-    if d and d.get("ltp"):
+    # prev_close is required too: the WS tick writer stores change_pct=0.0
+    # with prev_close=null before the first snapshot, and that fake zero
+    # printed "NIFTY unchanged" on a -0.4% day (2026-07-23).
+    if d and d.get("ltp") and d.get("prev_close") \
+            and d.get("change_pct") is not None:
         return {"success": True,
                 "data": {"index": idx, "level": d.get("ltp"),
-                         "change_pct": d.get("change_pct", 0),
+                         "change_pct": d.get("change_pct"),
                          "source": "kite"},
                 "logiccard": None}
 
@@ -1449,11 +1266,16 @@ async def _get_index_level(a, kt, db, uid):
             kq = get_kite_quotes([kkey]).get(kkey)
             if kq and kq.get("last_price"):
                 level = float(kq["last_price"])
-                prev = kq.get("prev_close") or level
-                change_pct = ((level - prev) / prev * 100) if prev else 0.0
+                prev = kq.get("prev_close")
+                # No prev_close → change is UNKNOWN, not zero. None lets
+                # the reply say "change unavailable" instead of lying flat.
+                change_pct = (
+                    round((level - float(prev)) / float(prev) * 100, 2)
+                    if prev else None
+                )
                 return {"success": True,
                         "data": {"index": idx, "level": round(level, 2),
-                                 "change_pct": round(change_pct, 2),
+                                 "change_pct": change_pct,
                                  "source": "kite"},
                         "logiccard": None}
         except Exception:  # noqa: BLE001 — fall through to yfinance
@@ -1471,12 +1293,14 @@ async def _get_index_level(a, kt, db, uid):
             last_close = records[-1].get("close")
             prev_close = records[-2].get("close") if len(records) >= 2 else None
             if last_close is not None:
-                change_pct = (((last_close - prev_close) / prev_close) * 100
-                              if prev_close else 0.0)
+                change_pct = (
+                    round(((last_close - prev_close) / prev_close) * 100, 2)
+                    if prev_close else None
+                )
                 return {"success": True,
                         "data": {"index": idx,
                                  "level": round(float(last_close), 2),
-                                 "change_pct": round(change_pct, 2),
+                                 "change_pct": change_pct,
                                  "source": "yfinance"},
                         "logiccard": None}
     except Exception as e:
@@ -1535,6 +1359,7 @@ async def _get_multiple_indicators(a, kt, db, uid):
         indicators=a.get("indicators", []),
         history_period=a.get("history_period", "6mo"),
         interval=a.get("interval", "1d"),
+        period=a.get("period"),
     )
     success = "error" not in data
     return {"success": success, "data": data, "logiccard": None}
@@ -1600,6 +1425,10 @@ async def _screen_fundamentals(a, kt, db, uid):
         sort_by=a.get("sort_by"),
         limit=int(a.get("limit", 15)),
         market_cap_tier=a.get("market_cap_tier"),
+        custom_ratios=a.get("custom_ratios") or None,
+        exclude=a.get("exclude") or None,
+        growth_years=a.get("growth_years"),
+        title=(a.get("title") or "").strip() or None,
     )
     return {"success": True, "data": out, "logiccard": None}
 
@@ -1611,6 +1440,27 @@ async def _fetch_fundamentals(a, kt, db, uid):
     return {"success": True,
             "data": public_fundamentals_view(fetch_fundamentals(str(a.get("symbol", "")))),
             "logiccard": None}
+
+
+async def _query_financials(a, kt, db, uid):
+    """Resolve an arbitrary financial term for one company (semantic
+    translation + fuzzy line-item match + live price ratios)."""
+    import asyncio
+    from backend.market.financials_db import resolve_financial_query
+    sym = str(a.get("symbol", "")).strip().upper()
+    metric = str(a.get("metric", "")).strip()
+    basis = str(a.get("basis", "consolidated")).strip() or "consolidated"
+    try:
+        history = int(a.get("history", 0) or 0)
+    except (TypeError, ValueError):
+        history = 0
+    if not sym or not metric:
+        return {"success": False, "error": "symbol and metric are required",
+                "data": {}, "logiccard": None}
+    res = await asyncio.to_thread(
+        resolve_financial_query, sym, metric, basis=basis, history=history,
+    )
+    return {"success": True, "data": res, "logiccard": None}
 
 
 async def _get_symbol_news(a, kt, db, uid):
@@ -1646,12 +1496,59 @@ def _slot_state_from_args(a: dict):
     """
     from backend.services.strategy_contracts import (
         AssetPrefs,
+        MetricFilter,
         SlotState,
         ViewSlot,
     )
 
     slots = SlotState()
     cleared: list[str] = []
+
+    # User-stated hard constraints. Each is parsed independently and a
+    # malformed one is skipped rather than failing the build — but a VALID one
+    # is never dropped: these are the user's own words, not our preferences.
+    filters_in = a.get("filters")
+    if isinstance(filters_in, (list, tuple)):
+        for f in filters_in:
+            if not isinstance(f, dict):
+                continue
+            try:
+                slots.filters.append(MetricFilter(
+                    field=str(f.get("field") or "").strip().lower(),
+                    op=str(f.get("op") or "").strip(),
+                    value=float(f.get("value")),
+                ))
+            except Exception:
+                continue
+
+    mn_in = a.get("max_names")
+    if mn_in is not None:
+        try:
+            slots.max_names = max(1, min(20, int(mn_in)))
+        except (TypeError, ValueError):
+            slots.max_names = None
+
+    band_in = a.get("mcap_band")
+    if isinstance(band_in, str) and band_in.strip().lower() in ("large", "mid", "small"):
+        slots.mcap_band = band_in.strip().lower()  # type: ignore[assignment]
+
+    wb_in = a.get("weight_by")
+    if isinstance(wb_in, str) and wb_in.strip():
+        try:
+            slots.weight_by = wb_in.strip().lower()  # type: ignore[assignment]
+            SlotState.model_validate(slots.model_dump())  # enum check
+        except Exception:
+            slots.weight_by = None
+
+    gp_in = a.get("gold_pct")
+    if gp_in is not None:
+        try:
+            slots.gold_pct = float(gp_in)
+            # A stated split is an explicit gold ask — the sleeve heuristic
+            # must not get a second vote on whether gold "earns its place".
+            slots.asset_prefs.gold_requested = True
+        except (TypeError, ValueError):
+            slots.gold_pct = None
 
     view_in = a.get("view")
     if isinstance(view_in, dict) and view_in:
@@ -1721,35 +1618,12 @@ def _slot_state_from_args(a: dict):
         if cleaned:
             slots.symbols = cleaned
 
-    # Deterministic thematic seed (backstop, not a prompt hope): when the
-    # model did NOT pin `symbols` but the request is one of the recognised
-    # macro scenarios (monsoon/war/rupee/crude/rate-cut/slowdown), seed the
-    # pin from the curated winners in `thematic_map`. Without this the
-    # builder falls back to its coarse theme universe and returns a generic
-    # quality basket that misses the thesis (observed live: a "good monsoon"
-    # ask building TCS/NESTLEIND instead of the irrigation/pump names).
-    # Applies on every entry path into build_strategy (chat, clarify-resume).
-    if not slots.symbols:
-        try:
-            from backend.services.thematic_map import (
-                basket_weights,
-                detect_thematic_scenario,
-            )
-            _scn = detect_thematic_scenario(
-                " ".join(
-                    str(a.get(k) or "") for k in ("request", "theme")
-                )
-            )
-            if _scn is not None:
-                slots.symbols = [tk for tk, _w in basket_weights(_scn)]
-                if not slots.theme:
-                    slots.theme = _scn.label
-                logger.info(
-                    "build_strategy thematic seed: scenario=%s symbols=%s",
-                    _scn.key, slots.symbols,
-                )
-        except Exception:  # never let the backstop break the build
-            pass
+    # (2026-07-17) The deterministic thematic seed — code pinning frozen
+    # thematic_map winners when the model left `symbols` empty — was
+    # REMOVED: the model now reasons out the beneficiaries itself and pins
+    # them via `symbols` + `symbol_reasons` (thematic.md carries the
+    # reasoning pattern with two worked examples). Exclusion re-application
+    # and the fundamentals vet still run on whatever the model pins.
 
     # Re-validate the whole thing once; on any enum slip fall back to a clean
     # default state so the builder always receives a valid SlotState.
@@ -1781,7 +1655,30 @@ async def _build_strategy(a, kt, db, uid):
     # can reuse an open session (it otherwise opens its own read-only ones).
     # `symbols` (the pinned allow-list) is also carried on slots.symbols; passing
     # it explicitly keeps the direct-call path (Wave C thematic flow) unambiguous.
-    card = build_strategy(request, slots, ctx=db, symbols=slots.symbols)
+    # Per-leg WHY strings are MODEL-authored (`symbol_reasons` arg) — the
+    # frozen thematic_map WHY injection went with the seed above. Sanitize
+    # to a plain upper-key str→str map; builder falls back to its quality/
+    # conviction templates for any leg without a reason.
+    reasons: dict[str, str] = {}
+    _sr = a.get("symbol_reasons")
+    if isinstance(_sr, dict):
+        for k, v in _sr.items():
+            if str(k).strip() and str(v).strip():
+                reasons[str(k).strip().upper()] = str(v).strip()[:220]
+    wov = a.get("weight_overrides")
+    if isinstance(wov, dict) and wov:
+        try:
+            wov = {str(k): float(v) for k, v in wov.items()}
+        except (TypeError, ValueError):
+            wov = None
+    else:
+        wov = None
+    card = build_strategy(
+        request, slots, ctx=db, symbols=slots.symbols,
+        constituent_reasons=reasons or None,
+        weight_overrides=wov,
+        rationale_override=str(a.get("rationale") or "").strip()[:1200] or None,
+    )
     payload = {"_render_hint": RENDER_HINT_STRATEGY_BUILDER, **card.model_dump()}
     return {"success": True, "data": payload, "logiccard": None}
 
@@ -2064,28 +1961,48 @@ async def _get_ipo_listing(a, kt, db, uid):
 # or registers an option order by itself.
 
 
-def _normalize_expiry_arg(raw) -> tuple[str | None, bool]:
-    """LLMs pass 'nearest'/'current'/'current_week'/'next' as expiry.
-    Returns (iso_or_none, want_next): None = nearest; want_next picks the
-    second listed expiry."""
+def _normalize_expiry_arg(raw) -> tuple[str | None, str | None]:
+    """LLMs pass 'nearest'/'current'/'current_week'/'next'/'monthly' as
+    expiry. Returns (iso_or_none, mode) where mode is one of
+    {None, "next_weekly", "next_monthly"} when iso is None.
+
+    'monthly'/'next_month' used to be folded into the same bucket as
+    'next'/'next_week' and resolved to the SECOND listed expiry — which
+    is normally the next WEEKLY, not the monthly one (list_expiries
+    tags each entry with its real "kind"). A user asking for an
+    "iron condor expiring next month" would silently get the nearer
+    weekly expiry instead. Kept as a distinct mode so the caller can
+    filter by kind=="monthly"."""
     val = str(raw or "").strip().lower()
     if not val or val in ("nearest", "current", "current_week", "this_week", "weekly"):
-        return None, False
-    if val in ("next", "next_week", "next_expiry", "monthly", "next_month"):
-        return None, True
-    return str(raw)[:10], False
+        return None, None
+    if val in ("next", "next_week", "next_expiry"):
+        return None, "next_weekly"
+    if val in ("monthly", "next_month", "month", "monthly_expiry"):
+        return None, "next_monthly"
+    return str(raw)[:10], None
 
 
 def _resolve_expiry_for_tool(db, underlying: str, raw) -> str | None:
     from backend.market.instrument_master import list_expiries
 
-    iso, want_next = _normalize_expiry_arg(raw)
+    iso, mode = _normalize_expiry_arg(raw)
     if iso:
         return iso
-    if want_next:
+    if mode == "next_weekly":
         expiries = list_expiries(db, underlying)
         if len(expiries) > 1:
             return expiries[1]["expiry"]
+    elif mode == "next_monthly":
+        expiries = list_expiries(db, underlying)
+        monthly = [e for e in expiries if e.get("kind") == "monthly"]
+        if monthly:
+            return monthly[0]["expiry"]
+        # No monthly-tagged row for this underlying (e.g. weeklies-only) —
+        # fall back to the furthest listed expiry rather than silently
+        # handing back the nearest one, which is the opposite of "monthly".
+        if expiries:
+            return expiries[-1]["expiry"]
     return None  # nearest
 
 
@@ -2619,7 +2536,15 @@ async def _register_workflow(a, kt, db, uid):
             expires_at=expires_at,
         )
         db.add(wf)
-        db.flush()
+        try:
+            db.flush()
+        except SQLAlchemyError:
+            # Never leak a raw DB exception (e.g. a psycopg2
+            # ForeignKeyViolation / IntegrityError string) into the
+            # user-facing reply — the caller interpolates `error` verbatim.
+            db.rollback()
+            logger.exception("[register_workflow] persist (flush) failed")
+            return dict(_REGISTER_DB_ERROR)
         _replace_steps(db, wf, steps_in)
 
     # Activate — identical sequence to POST /workflows/{id}/activate.
@@ -2633,7 +2558,15 @@ async def _register_workflow(a, kt, db, uid):
         return {"success": False,
                 "error": f"invalid schedule on the draft: {exc}",
                 "data": {}, "logiccard": None}
-    db.commit()
+    try:
+        db.commit()
+    except SQLAlchemyError:
+        # Same guard on the commit path: a deferred constraint or a
+        # step-insert failure surfaces here, and its raw text must not
+        # reach the chat reply.
+        db.rollback()
+        logger.exception("[register_workflow] commit failed")
+        return dict(_REGISTER_DB_ERROR)
     db.refresh(wf)
     try:
         _register_armed_idea(db, uid, wf)
@@ -3204,22 +3137,76 @@ async def _get_top_movers(a, kt, db, uid):
     # awaits us, the network round-trip is the bottleneck. The Redis
     # cache absorbs subsequent calls within 60s.
     from backend.services.top_movers import get_top_movers
-    rows = get_top_movers(
-        direction=a.get("direction", "gainers"),
-        limit=int(a.get("limit", 5)),
+    direction = a.get("direction", "gainers")
+    limit = int(a.get("limit", 5))
+    # Serve BOTH directions from one call. The raw-row cache in the service
+    # makes the second direction free, and it removes a whole failure class:
+    # on "gainers and losers" turns the model reliably called only ONE
+    # direction, then either fabricated "no data" or abandoned the reply
+    # mid-table when the other half was missing (2026-07-23).
+    gainers = get_top_movers(direction="gainers", limit=limit)
+    losers = get_top_movers(direction="losers", limit=limit)
+    requested = gainers if direction == "gainers" else losers
+    seeded = bool(
+        (gainers and gainers[0].get("seed"))
+        or (losers and losers[0].get("seed"))
     )
-    seeded = bool(rows and rows[0].get("seed"))
     return {
         "success": True,
         "data": {
-            "direction": a.get("direction", "gainers"),
-            "rows": rows,
-            "n": len(rows),
+            "direction": direction,
+            "rows": requested,
+            "n": len(requested),
+            "gainers": gainers,
+            "n_gainers": len(gainers),
+            "losers": losers,
+            "n_losers": len(losers),
             "seeded": seeded,
             "note": (
-                "Note: yfinance unavailable — these are seeded values."
+                "Note: live sources unavailable — these are seeded values."
                 if seeded else None
             ),
+            # Spelled out for low/zero-reasoning reply hops: a minimal-effort
+            # turn narrated "no mover rows returned" over 5 real rows
+            # (2026-07-23). State the row counts in prose the model can't miss.
+            "_guidance": (
+                f"Payload carries BOTH directions: {len(gainers)} gainers "
+                f"rows and {len(losers)} losers rows ARE present in the "
+                "`gainers` / `losers` lists — render every row for whichever "
+                "direction(s) the user asked; never claim movers data is "
+                "missing while these lists are non-empty."
+            ),
+        },
+        "logiccard": None,
+    }
+
+
+async def _compute(a, kt, db, uid):
+    """COMPUTE lane — deterministic sandboxed math over in-context values.
+
+    The subprocess spawn (~100ms) blocks; run it off the event loop. A
+    failed validation/execution comes back success=False with a message
+    written for the model, so the tool loop self-corrects in-turn instead
+    of surfacing a generic apology."""
+    import asyncio
+    from backend.services.safe_compute import run_compute
+    code = str(a.get("code") or "")
+    res = await asyncio.to_thread(run_compute, code)
+    if not res.ok:
+        return {
+            "success": False,
+            "error": f"compute failed: {res.error}",
+            "data": {},
+            "logiccard": None,
+        }
+    return {
+        "success": True,
+        "data": {
+            "result": res.result,
+            "note": a.get("note"),
+            # Nudge the reply to quote these exact values, not re-derive.
+            "_guidance": "Present `result` values verbatim — do not re-do "
+                         "the arithmetic in prose.",
         },
         "logiccard": None,
     }

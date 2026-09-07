@@ -1,0 +1,36 @@
+.stock-research { max-width: 1480px; margin: 0 auto; width: 100%; padding: 16px 12px 64px; --research-rule: var(--glass-border); }
+.research-eyebrow { display: flex; gap: 10px; color: var(--text-tertiary); font-size: 11px; margin-bottom: 26px; letter-spacing: .05em; }
+.research-eyebrow span { opacity: .45; }
+.research-source { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--text-tertiary); margin: 16px 0 26px; }
+.research-source-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--text-tertiary); }
+.research-sector { margin-left: auto; }
+.research-nav { display: flex; gap: 28px; overflow-x: auto; border-block: 1px solid var(--research-rule); scrollbar-width: thin; }
+.research-nav a { padding: 16px 0; white-space: nowrap; color: var(--text-secondary); font-size: 12px; text-decoration: none; border-bottom: 2px solid transparent; }
+.research-nav a:hover, .research-nav a:focus-visible { color: var(--text-primary); border-bottom-color: var(--pivot-blue); }
+.research-snapshot { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); padding: 25px 0; border-bottom: 1px solid var(--research-rule); }
+.research-snapshot > div { padding: 0 22px; border-right: 1px solid var(--research-rule); }
+.research-snapshot > div:first-child { padding-left: 0; }
+.research-snapshot > div:last-child { border: 0; }
+.research-snapshot span { display: block; color: var(--text-tertiary); font-size: 11px; margin-bottom: 10px; }
+.research-snapshot strong { font-size: clamp(16px,1.65vw,24px); font-weight: 550; letter-spacing: -.04em; font-variant-numeric: tabular-nums; color: var(--text-primary); }
+.research-price { grid-column: 1; grid-row: 1; min-width: 0; border: 0; border-radius: 18px; background: var(--bg-secondary); overflow: hidden; }
+.research-company { grid-column: 2; grid-row: 1; }
+.research-panel-heading { display: flex; align-items: baseline; justify-content: space-between; padding: 22px 22px 0; gap: 12px; }
+.research-panel-heading h2 { font-size: 17px; font-weight: 600; letter-spacing: -.025em; }
+.research-panel-heading > span { font-size: 11px; color: var(--text-tertiary); }
+.research-profile { padding: 22px 24px !important; }
+.research-profile h2 { font-size: 17px !important; }
+.research-profile-stats { grid-template-columns: minmax(0,1fr) minmax(0,1fr) !important; gap: 20px !important; }
+.stock-research section, #stock-price { scroll-margin-top: 90px; }
+.stock-research table { font-variant-numeric: tabular-nums; }
+.stock-research table tbody tr:hover { background: color-mix(in srgb,var(--text-primary) 3%,transparent); }
+.stock-research table thead th { background: var(--bg-secondary); }
+.stock-research button:focus-visible, .research-nav a:focus-visible { outline: 2px solid var(--pivot-blue); outline-offset: 4px; }
+.research-price button[aria-label="Buy"], .research-price button[aria-label="Sell"] { flex: 0 1 128px !important; min-height: 38px !important; height: 38px !important; font-size: 13px !important; border-radius: 7px !important; }
+@media(max-width:1279px) { .research-company { grid-column: 1; grid-row: 2; } }
+@media(max-width:639px) { .stock-research { padding: 6px 0 48px; } .research-eyebrow { margin-bottom: 18px; } .research-nav { gap: 22px; } .research-snapshot { grid-template-columns: repeat(2,minmax(0,1fr)); row-gap: 20px; } .research-snapshot > div { padding: 0 12px; } .research-snapshot > div:first-child { padding-left: 12px; } .research-snapshot > div:nth-child(2n) { border: 0; } .research-snapshot strong { font-size: 21px; } .research-profile-stats { grid-template-columns: 1fr !important; } }
+@media(max-width:639px) {
+  .research-snapshot { display: flex; overflow-x: auto; padding: 20px 0; scrollbar-width: thin; }
+  .research-snapshot > div { flex: 0 0 150px; border-right: 1px solid var(--research-rule) !important; }
+  .research-snapshot > div:last-child { border: 0 !important; }
+}

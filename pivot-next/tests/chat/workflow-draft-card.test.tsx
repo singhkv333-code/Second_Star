@@ -126,7 +126,7 @@ describe("WorkflowDraftCard — Save & activate", () => {
     expect(screen.getByText(/Step 0 must be a trigger/)).toBeInTheDocument();
   });
 
-  it("kicks off a manual run and notifies parent with the runId", async () => {
+  it("saves & activates WITHOUT auto-firing a run", async () => {
     const created = {
       id: "wf-99", name: "RELIANCE 3:55 PM buy", description: null,
       status: "draft" as const, version: 1, single_instance: true,
@@ -135,33 +135,26 @@ describe("WorkflowDraftCard — Save & activate", () => {
     };
     const activated = { ...created, status: "active" as const, activated_at: "now" };
     vi.spyOn(api, "createWorkflow").mockResolvedValue({ data: created });
-    vi.spyOn(api, "activateWorkflow").mockResolvedValue({ data: activated });
+    const activateSpy = vi
+      .spyOn(api, "activateWorkflow")
+      .mockResolvedValue({ data: activated });
     const runSpy = vi
       .spyOn(api, "runWorkflow")
       .mockResolvedValue({ data: { run_id: "run-xyz" } });
-    const onActivatedAndRunning = vi.fn();
 
-    render(
-      <WorkflowDraftCard
-        draft={DEMO_DRAFT}
-        onOpenEditor={vi.fn()}
-        onActivatedAndRunning={onActivatedAndRunning}
-      />,
-    );
+    render(<WorkflowDraftCard draft={DEMO_DRAFT} onOpenEditor={vi.fn()} />);
     fireEvent.click(screen.getByTestId("save-activate-button"));
 
+    // Reaches the activated/saved state…
     await waitFor(() =>
-      expect(onActivatedAndRunning).toHaveBeenCalledTimes(1),
+      expect(screen.getByTestId("workflow-saved")).toBeInTheDocument(),
     );
-    expect(runSpy).toHaveBeenCalledWith("wf-99");
-    expect(onActivatedAndRunning).toHaveBeenCalledWith({
-      workflowId: "wf-99",
-      workflowName: "RELIANCE 3:55 PM buy",
-      runId: "run-xyz",
-    });
+    expect(activateSpy).toHaveBeenCalledWith("wf-99");
+    // …but NEVER fires an unrequested manual run.
+    expect(runSpy).not.toHaveBeenCalled();
   });
 
-  it("does not call onActivatedAndRunning when the run kickoff fails", async () => {
+  it("opens the editor bound to the real saved workflow after activation", async () => {
     const created = {
       id: "wf-99", name: "RELIANCE 3:55 PM buy", description: null,
       status: "draft" as const, version: 1, single_instance: true,
@@ -171,24 +164,17 @@ describe("WorkflowDraftCard — Save & activate", () => {
     const activated = { ...created, status: "active" as const, activated_at: "now" };
     vi.spyOn(api, "createWorkflow").mockResolvedValue({ data: created });
     vi.spyOn(api, "activateWorkflow").mockResolvedValue({ data: activated });
-    vi.spyOn(api, "runWorkflow").mockResolvedValue({
-      error: { code: "conflict", message: "already running" },
-    });
-    const onActivatedAndRunning = vi.fn();
+    const onOpenEditor = vi.fn();
 
-    render(
-      <WorkflowDraftCard
-        draft={DEMO_DRAFT}
-        onOpenEditor={vi.fn()}
-        onActivatedAndRunning={onActivatedAndRunning}
-      />,
-    );
+    render(<WorkflowDraftCard draft={DEMO_DRAFT} onOpenEditor={onOpenEditor} />);
     fireEvent.click(screen.getByTestId("save-activate-button"));
-
     await waitFor(() =>
       expect(screen.getByTestId("workflow-saved")).toBeInTheDocument(),
     );
-    expect(onActivatedAndRunning).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("open-in-editor-button"));
+    // The card threads the saved workflow id so the editor binds to the real
+    // persisted agent (no duplicate on re-activate).
+    expect(onOpenEditor).toHaveBeenCalledWith(DEMO_DRAFT, { workflowId: "wf-99" });
   });
 });
 

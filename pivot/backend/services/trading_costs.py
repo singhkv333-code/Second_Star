@@ -22,7 +22,13 @@ from __future__ import annotations
 import os
 
 # ── Rate table (equity delivery / CNC) ───────────────────────────────
-BROKERAGE_PER_ORDER = float(os.getenv("PIVOT_BROKERAGE_PER_ORDER", "20.0"))
+# Zerodha — our primary broker — charges ₹0 brokerage on CNC (delivery) equity;
+# the ₹20/order flat rate is intraday/F&O, NOT delivery. This module is the
+# delivery-cost source, so the correct default is 0. A flat ₹20 here silently
+# added ~1.5% to a small delivery buy (₹20 on a ₹1,299 trade), which showed up
+# as an instant "loss" the moment a position opened. Override via env for a
+# full-service broker that does bill per delivery order.
+BROKERAGE_PER_ORDER = float(os.getenv("PIVOT_BROKERAGE_PER_ORDER", "0.0"))
 SLIPPAGE_PCT = float(os.getenv("PIVOT_SLIPPAGE_PCT", "0.0005"))  # 0.05%/leg (large-cap)
 STT_PCT = 0.001          # 0.1% on BOTH buy & sell (delivery equity)
 STT_SELL_PCT = STT_PCT   # back-compat alias (legacy engine references this name)

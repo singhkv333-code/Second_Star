@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="Fyers">
+  <title>Fyers</title>
+  <!-- Fyers monogram: rounded-square tile in brand blue (#2C5FF6) with a clean
+       white uppercase "F" and an upward-tick accent off the top arm
+       (markets/momentum). Original vector, crisp at 28-40px; no raster. -->
+  <rect x="2" y="2" width="44" height="44" rx="11" fill="#2C5FF6"/>
+  <!-- "F" stem -->
+  <rect x="15.5" y="13" width="4.6" height="22" fill="#FFFFFF"/>
+  <!-- "F" top arm -->
+  <rect x="20.1" y="13" width="11" height="4.4" fill="#FFFFFF"/>
+  <!-- "F" middle arm -->
+  <rect x="20.1" y="22" width="8.4" height="4.4" fill="#FFFFFF"/>
+  <!-- upward tick rising off the top arm -->
+  <polygon fill="#FFFFFF" opacity="0.9" points="31.1 17.4 35.8 12 38 12 32.4 18.4"/>
+</svg>

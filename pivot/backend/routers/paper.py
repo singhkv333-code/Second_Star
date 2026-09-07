@@ -20,8 +20,9 @@ from sqlalchemy.orm import Session
 
 from backend.auth.jwt_handler import get_user_id_from_token
 from backend.database import get_db
-from backend.models import PAPER_ACCOUNT_MODES, PaperIpoAllocation
+from backend.models import PAPER_ACCOUNT_MODES, PaperIpoAllocation, PaperOrder
 from backend.paper.accounts import get_or_create_account
+from backend.paper.fills import cancel_resting_order
 from backend.paper.ipo_sim import serialize_paper_ipo_allocation
 from backend.paper.portfolio import (
     account_summary,
@@ -150,16 +151,52 @@ def paper_orders(
     return open_orders(db, user_id)
 
 
+# Cancellable paper-order states — a resting/queued order can still be pulled
+# before the fill evaluator marks it. Terminal states (filled/cancelled/
+# rejected) cannot.
+_PAPER_CANCELLABLE = {"resting", "pending", "queued"}
+
+
+@router.post("/orders/{order_id}/cancel")
+def cancel_paper_order(
+    order_id: str,
+    user_id: int = Depends(get_user_id),
+    db: Session = Depends(get_db),
+):
+    """Cancel an open paper order before the fill evaluator executes it.
+
+    Releases any reserved cash and marks the order 'cancelled' (see
+    ``cancel_resting_order``). Unlike the other endpoints in this router this
+    one intentionally writes — it is the paper analogue of
+    ``/orders/{id}/cancel`` and owns its own commit.
+    """
+    order = (db.query(PaperOrder)
+             .filter(PaperOrder.id == order_id, PaperOrder.user_id == user_id)
+             .first())
+    if order is None:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if str(order.status).lower() not in _PAPER_CANCELLABLE:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Order is '{order.status}' and can no longer be cancelled.",
+        )
+    cancel_resting_order(db, order)
+    db.commit()
+    return {"id": order.id, "symbol": order.symbol, "status": "cancelled"}
+
+
 @router.get("/fills")
 def paper_fills(
     limit: int = 50,
+    offset: int = 0,
     user_id: int = Depends(get_user_id),
     db: Session = Depends(get_db),
 ):
     # Clamp the page size: a negative LIMIT is "unbounded" in SQL (would
     # dump the whole journal) and a huge value is a payload footgun.
     limit = max(1, min(int(limit), 500))
-    return fills_journal(db, user_id, limit)
+    offset = max(0, int(offset))
+    return fills_journal(db, user_id, limit, offset=offset)
 
 
 @router.get("/nav")

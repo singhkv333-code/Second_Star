@@ -162,6 +162,32 @@ def test_skeleton_monthly_indicator_still_bails():
     ) is None
 
 
+@pytest.mark.parametrize("msg", [
+    # 2026-07-17 eval C09: this shipped a card with NEITHER exit leg because the
+    # skeleton has no take-profit leg and matched only the entry.
+    "buy 25 SBIN when RSI(14) drops under 32, then book profit at 6% or cut the loss at 3%",
+    "buy 10 INFY when RSI under 30, exit at 7% gain or 4% loss",
+    "buy 15 TCS when it dips 3%, target 10%",
+    "buy 5 RELIANCE when it crosses 3000, take profit at 8%",
+])
+def test_skeleton_bails_on_a_take_profit_bracket(msg):
+    """A profit target is a bracket the skeleton can't build — it must defer to
+    the LLM translator rather than ship a card that drops the exit."""
+    from backend.services.workflow_skeleton import try_workflow_skeleton
+    assert try_workflow_skeleton(msg) is None
+
+
+@pytest.mark.parametrize("msg", [
+    "buy 20 RELIANCE when RSI below 35 with a 5% stop loss",  # SL-only still builds
+    "buy 10 SBIN when RSI(14) drops under 30",                # plain entry
+    "buy 5 TCS when it crosses above 4000",                   # price threshold
+])
+def test_skeleton_still_fast_paths_shapes_it_can_represent(msg):
+    """The bracket guard must not swallow the shapes the skeleton handles."""
+    from backend.services.workflow_skeleton import try_workflow_skeleton
+    assert try_workflow_skeleton(msg) is not None
+
+
 def test_watcher_indicator_trigger_passes_timeframe(monkeypatch):
     """_evaluate_indicator_trigger must forward cfg['timeframe'] to the
     compute — the card field is real, not decorative."""
@@ -288,61 +314,44 @@ def test_draft_primary_symbol_helper():
 
 
 # ── #5 Staged scale-out exits ────────────────────────────────────────
+#
+# The deterministic staged-exit fast path (_parse_staged_exit /
+# _build_staged_exit_draft / _try_staged_exit) was DELETED 2026-07-17. It was a
+# regex reading a trade's exit legs out of prose, and it got them wrong in a way
+# that mattered: it laid the stop out AFTER both take-profit tranches, and steps
+# run strictly in order, so the stop could not fire until every target above it
+# had — disarmed on exactly the path it existed for. It also wrote its own reply
+# from a fixed template, bypassing the model entirely.
+#
+# Staged exits now go to the planner (propose.py carries the grammar, including
+# the or-the-stop-into-every-tranche rule and the sell-the-remainder rule).
+# These tests hold the BOUNDARY: nothing may intercept a staged ask before the
+# model sees it.
 
 
-def test_staged_exit_parse_and_draft():
-    from backend.services.chat_service import (
-        _build_staged_exit_draft,
-        _parse_staged_exit,
-    )
-    from backend.workflows.propose import validate_draft_against_registry
+def test_staged_exit_fast_path_is_gone():
+    """No deterministic staged-exit interceptor may come back."""
+    import backend.services.chat_service as cs
 
-    msg = ("Buy 10 INFY at open. Sell 5 when up 3%, 5 more at 6%, "
-           "and all out if it drops 2%.")
-    p = _parse_staged_exit(msg)
-    assert p == {
-        "symbol": "INFY", "entry_qty": 10,
-        "targets": [(5, 3.0), (5, 6.0)], "stop_pct": 2.0,
-    }
-    draft = _build_staged_exit_draft(p)
-    types = [s["step_type"] for s in draft["steps"]]
-    assert types.count("trigger.exit_compound") == 3
-    assert types.count("action.place_order") == 4  # entry buy + 3 sells
-    # Every exit branch is one-shot and symbol-scoped.
-    for s in draft["steps"]:
-        if s["step_type"] == "trigger.exit_compound":
-            assert s["config"]["one_shot"] is True
-            assert s["config"]["target_symbol"] == "INFY"
-    # Stop branch uses the LOW basis, targets use HIGH.
-    exit_cfgs = [s["config"] for s in draft["steps"]
-                 if s["step_type"] == "trigger.exit_compound"]
-    assert exit_cfgs[0]["entry"]["left"]["basis"] == "high"
-    assert exit_cfgs[-1]["entry"]["left"]["basis"] == "low"
-    assert exit_cfgs[-1]["entry"]["right"]["value"] == pytest.approx(-0.02)
-    # Validates against the real step registry.
-    validate_draft_against_registry(draft)
+    for name in ("_parse_staged_exit", "_build_staged_exit_draft",
+                 "_try_staged_exit", "_STAGED_EXIT_HONEST_OFFER"):
+        assert not hasattr(cs, name), (
+            f"{name} is back — a regex must not author exit legs; the planner "
+            "owns staged scale-outs (see propose.py STAGED SCALE-OUT grammar)"
+        )
 
 
-def test_staged_exit_no_entry_returns_offer_shape():
-    from backend.services.chat_service import (
-        _build_staged_exit_draft,
-        _parse_staged_exit,
-    )
-    # Holding case — no parseable entry → parse keeps symbol empty,
-    # builder declines (honest offer path in the guard).
-    msg = ("I hold some shares. Sell 5 when up 3%, 5 more at 6%, "
-           "all out if it drops 2%.")
-    p = _parse_staged_exit(msg)
-    assert p is not None and p["symbol"] == ""
-    assert _build_staged_exit_draft(p) is None
+def test_planner_grammar_teaches_armed_stop_and_remainder():
+    """The two things the deleted code got wrong must be stated to the model,
+    since the model is now the only thing that gets them right."""
+    from backend.workflows.propose import build_system_prompt
 
-
-def test_staged_exit_gate_rejects_plain_orders():
-    from backend.services.chat_service import _parse_staged_exit
-    assert _parse_staged_exit("buy 10 INFY at market") is None
-    assert _parse_staged_exit(
-        "sell 5 INFY when it is up 3%",
-    ) is None  # single tranche, no stop → not a staged shape
+    p = build_system_prompt()
+    assert "STAGED SCALE-OUT" in p
+    # The stop must be OR-ed into every tranche, not appended after them.
+    assert "ARMED AT EVERY STAGE" in p
+    # And the final sell is the remainder, not the entry quantity.
+    assert "REMAINDER" in p or "remainder" in p
 
 
 def test_exit_compound_one_shot_latch_short_circuits():
@@ -507,6 +516,19 @@ def test_router_surfaces_roll_and_status_tools():
     sel2 = select_tool_names("is my agent actually live? when do you check?")
     assert "get_workflow_status" in sel2
     assert "register_workflow" in sel2
+
+
+def test_typo_d_movers_query_still_surfaces_top_movers_tool():
+    """Reported 2026-07-14: "what is the bigggest gainer in themarket
+    today" (typo'd) missed BOTH keyword rules that would normally pull
+    in get_top_movers (the "biggest" spelling and the "market" word
+    boundary), fell through to the fallback floor, and got a hedged
+    non-answer because the tool wasn't even offered to the model.
+    get_top_movers is now in the fallback floor itself."""
+    from backend.services.tool_router import select_tool_names
+
+    sel = select_tool_names("what is the bigggest gainer in themarket today")
+    assert sel is None or "get_top_movers" in sel
 
 
 # ── #1 register_workflow / get_workflow_status ───────────────────────
@@ -691,6 +713,70 @@ def test_select_active_draft_named_backref(db):
     svc.store.clear_active_draft(conv)
 
 
+def test_select_active_draft_clears_on_unrelated_symbol(db):
+    """Reported 2026-07-14 (tool-stickiness): a stale active draft must
+    not silently answer for a message that names a DIFFERENT, unparked
+    symbol — that's a fresh ask, not an amendment. Root-cause fix in
+    `_select_active_draft`, not a new keyword/regex gate."""
+    from backend.services.chat_service import ChatService
+    from backend.services.chat_trace import start_turn
+
+    svc = ChatService()
+    conv = f"t_{uuid.uuid4()}"
+    svc._stash_workflow_draft(conv, _wf_draft("GOLDBEES", 2), "propose_workflow")
+
+    trace = start_turn(conv, "build me a bullish option strategy on RELIANCE")
+    active = svc._select_active_draft(
+        conv, "build me a bullish option strategy on RELIANCE", trace,
+    )
+    assert active is None
+    svc.store.clear_active_draft(conv)
+
+
+def test_select_active_draft_unaffected_when_no_symbol_named(db):
+    """A generic amendment with no symbol at all ("change the number of
+    shares to 7") must still resolve to the active draft — the
+    contradiction check only fires on an actual, different symbol."""
+    from backend.services.chat_service import ChatService
+    from backend.services.chat_trace import start_turn
+
+    svc = ChatService()
+    conv = f"t_{uuid.uuid4()}"
+    svc._stash_workflow_draft(conv, _wf_draft("INFY", 5), "propose_workflow")
+
+    trace = start_turn(conv, "change the number of shares to 7")
+    active = svc._select_active_draft(
+        conv, "change the number of shares to 7", trace,
+    )
+    assert active is not None and active.symbol == "INFY"
+    svc.store.clear_active_draft(conv)
+
+
+def test_non_stashing_order_tools_evict_stale_active_draft():
+    """Reported 2026-07-14: a successful GTT/SL/OCO/SIP/squareoff order
+    call never touched the active_draft slot, so a PRIOR propose_workflow
+    draft stayed "active" and the next generic amendment ("change the
+    number of shares to 7") re-fired the WRONG tool. `handle()`/
+    `handle_stream()` now call `clear_active_draft` for exactly this set
+    — verify it's the right set: real order/macro tools that render their
+    own card, minus anything that already stashes its own amendable
+    draft."""
+    from backend.services.chat_service import (
+        _ORDER_AND_MACRO_TOOLS, _OPTION_CARD_TOOLS, _STASH_DRAFT_TOOLS,
+    )
+
+    non_stashing = _ORDER_AND_MACRO_TOOLS - _STASH_DRAFT_TOOLS - _OPTION_CARD_TOOLS
+    for t in ("create_gtt_order", "create_sl_order", "create_oco_order",
+              "place_market_order", "place_limit_order", "place_order",
+              "create_sip", "squareoff_all_intraday", "squareoff_symbol"):
+        assert t in non_stashing, t
+    # Draft-producing macros must NOT be in this eviction set — they
+    # stash their OWN amendable draft and must stay the active target.
+    for t in ("propose_workflow", "propose_threshold_order",
+              "propose_scheduled_order", "propose_basket_allocation"):
+        assert t not in non_stashing, t
+
+
 def test_register_intent_regexes():
     from backend.services.chat_service import (
         _REGISTER_DRAFT_RE, _WF_STATUS_RE,
@@ -709,3 +795,48 @@ def test_register_intent_regexes():
                 "is the workflow running"]:
         assert _WF_STATUS_RE.search(msg), msg
     assert not _WF_STATUS_RE.search("show me the NIFTY option chain")
+
+
+# ── Bracket exits: the fallback must never guess which leg is the stop ───────
+#
+# 2026-07-17: the regex fast path ran AHEAD of the translator and matched the
+# profit branch of "exit at 7% gain or 4% loss" first, returning immediately and
+# discarding the stop — the card took profit at +7% and never stopped out while
+# the reply promised both. The fast path is gone; the translator owns exit
+# interpretation. What remains is a provider-outage fallback, and it is only
+# allowed to bind ONE unambiguous leg: "book profit at 12% or cut losses at 5%"
+# cannot be read by a regex without binding the stop to 12.
+
+
+@pytest.mark.parametrize("text", [
+    "exit at 7% gain or 4% loss",
+    "book profit at 12% or cut losses at 5%",
+    "take profit at 8% with a stop loss",
+    "sell at +10% or -5%, whichever comes first",
+])
+def test_fallback_refuses_two_legged_exits(text):
+    from backend.services._dsl_chat_tools import _fallback_position_exit
+
+    assert _fallback_position_exit(text) is None, (
+        "a two-legged bracket must never be bound by regex — which number is "
+        "the stop is a reading question, and getting it backwards arms a "
+        "'stop' above the entry"
+    )
+
+
+def test_fallback_still_binds_an_unambiguous_single_leg():
+    from backend.services._dsl_chat_tools import _fallback_position_exit
+
+    tp = _fallback_position_exit("exit when up 6%")
+    assert tp["op"] == ">=" and tp["right"]["value"] == pytest.approx(0.06)
+    sl = _fallback_position_exit("cut losses at 3%")
+    assert sl["op"] == "<=" and sl["right"]["value"] == pytest.approx(-0.03)
+
+
+def test_no_regex_fast_path_ahead_of_the_translator():
+    """The interpreter is the translator, not a regex."""
+    import backend.services._dsl_chat_tools as m
+
+    assert not hasattr(m, "_deterministic_position_exit"), (
+        "the exit fast path is back — it dropped two stop-losses last time"
+    )

@@ -1,0 +1,128 @@
+- generic [active] [ref=f10e1]:
+  - banner [ref=f10e2]:
+    - generic [ref=f10e3]: Charto.
+    - generic "Search companies" [ref=f10e5] [cursor=pointer]:
+      - generic [ref=f10e6]: RELIANCE
+      - generic [ref=f10e7]: NSE
+    - button "1h" [ref=f10e216] [cursor=pointer]
+    - button "Indicators" [ref=f10e13] [cursor=pointer]
+    - generic [ref=f10e168]: 8 drawn by chat
+    - button "Clear what the chat drew" [ref=f10e169] [cursor=pointer]
+    - button "Layout — Two columns" [ref=f10e234] [cursor=pointer]
+    - button "Screenshot the chart for the chat" [ref=f10e24] [cursor=pointer]
+    - button "Switch to dark" [ref=f10e28] [cursor=pointer]
+    - button "Chat" [ref=f10e31] [cursor=pointer]
+    - button "Sign in to Charto" [ref=f10e35] [cursor=pointer]
+  - generic [ref=f10e39]:
+    - generic [ref=f10e40]:
+      - button "Cursor / select" [ref=f10e41] [cursor=pointer]
+      - button "Lines" [ref=f10e46] [cursor=pointer]
+      - button "Channels" [ref=f10e52] [cursor=pointer]
+      - button "Fibonacci" [ref=f10e58] [cursor=pointer]
+      - button "Shapes" [ref=f10e61] [cursor=pointer]
+      - button "Measure" [ref=f10e65] [cursor=pointer]
+      - button "Position" [ref=f10e73] [cursor=pointer]
+      - button "Annotations" [ref=f10e78] [cursor=pointer]
+      - button "Magnet — snap to OHLC" [ref=f10e82] [cursor=pointer]
+      - button "Export drawings JSON" [ref=f10e87] [cursor=pointer]
+      - button "Clear all drawings" [ref=f10e91] [cursor=pointer]
+    - generic [ref=f10e95]:
+      - generic [ref=f10e96]:
+        - table [ref=f10e99]:
+          - row "R 1,312.02 · held 4/4 R 1,294.40 · held 3/3 R 1,276.63 · held 2/2 R 1,316.73 · held 2/2 S 1,249.80 · 1 touch falling wedge · width 2.78 · unresolved bear flag · pole -6.00 · confirmed double top · neckline 1,271.00 · confirmed" [ref=f10e173]:
+            - cell
+            - cell [ref=f10e174]
+            - cell [ref=f10e110]
+            - generic:
+              - generic [ref=f10e175]: R 1,312.02 · held 4/4
+              - generic [ref=f10e176]: R 1,294.40 · held 3/3
+              - generic [ref=f10e177]: R 1,276.63 · held 2/2
+              - generic [ref=f10e178]: R 1,316.73 · held 2/2
+              - generic [ref=f10e179]: S 1,249.80 · 1 touch
+              - generic [ref=f10e180]: falling wedge · width 2.78 · unresolved
+              - generic [ref=f10e181]: bear flag · pole -6.00 · confirmed
+              - generic [ref=f10e182]: double top · neckline 1,271.00 · confirmed
+          - row [ref=f10e183]:
+            - cell [ref=f10e184]
+          - row [ref=f10e186]:
+            - cell
+            - cell [ref=f10e187]:
+              - link "Charting by TradingView" [ref=f10e191] [cursor=pointer]:
+                - /url: https://www.tradingview.com/?utm_medium=lwc-link&utm_campaign=lwc-chart&utm_source=127.0.0.1/
+            - cell [ref=f10e196]
+          - row [ref=f10e114]:
+            - cell
+            - cell [ref=f10e115]
+            - cell [ref=f10e119]
+        - generic:
+          - generic:
+            - generic "Change instrument" [ref=f10e217] [cursor=pointer]: RELIANCE
+            - generic: ·
+            - text: 1h
+            - generic: ·
+            - generic: NSE
+          - generic:
+            - generic: O 1,268.5
+            - generic: H 1,272
+            - generic: L 1,266.9
+            - generic: C 1,267.7
+            - generic: V 18,40,260
+            - text: "-0.9 (-0.07%)"
+          - generic:
+            - generic [ref=f10e218] [cursor=pointer]:
+              - generic [ref=f10e219]: SMA 20
+              - generic [ref=f10e220]: ·1,276.94
+            - generic [ref=f10e221] [cursor=pointer]:
+              - generic [ref=f10e222]: EMA 21
+              - generic [ref=f10e223]: ·1,276.85
+            - generic [ref=f10e224] [cursor=pointer]:
+              - generic [ref=f10e225]: Supertrend 10 3
+              - generic [ref=f10e226]: ·1,267.13
+            - button "Hide indicators" [ref=f10e227] [cursor=pointer]
+        - generic [ref=f10e230] [cursor=pointer]:
+          - generic [ref=f10e231]: MACD 12 26 9
+          - generic [ref=f10e232]: ·-4.84 -4.58
+      - generic [ref=f10e237]:
+        - table [ref=f10e240]:
+          - row [ref=f10e241]:
+            - cell
+            - cell [ref=f10e242]:
+              - link "Charting by TradingView" [ref=f10e246] [cursor=pointer]:
+                - /url: https://www.tradingview.com/?utm_medium=lwc-link&utm_campaign=lwc-chart&utm_source=127.0.0.1/
+            - cell [ref=f10e251]
+          - row [ref=f10e255]:
+            - cell
+            - cell [ref=f10e256]
+            - cell [ref=f10e260]
+        - generic:
+          - generic:
+            - generic [ref=f10e263] [cursor=pointer]: RELIANCE
+            - generic: ·
+            - text: 1h
+            - generic: ·
+            - generic: NSE
+          - generic:
+            - generic: O 1,320.2
+            - generic: H 1,324.4
+            - generic: L 1,316.5
+            - generic: C 1,320.3
+            - generic: V 21,27,889
+    - toolbar "Panels" [ref=f10e125]:
+      - button "Watchlist" [ref=f10e126] [cursor=pointer]
+      - button "Alerts" [ref=f10e128] [cursor=pointer]
+    - generic "Drag to resize · double-click to reset" [ref=f10e132]
+    - complementary [ref=f10e133]:
+      - generic [ref=f10e134]: Ask about what you're looking at.The model sees the visible chart.
+      - generic [ref=f10e138]:
+        - generic [ref=f10e139]:
+          - textbox "Ask about this chart…" [ref=f10e140]
+          - generic [ref=f10e141]:
+            - button "Conversation options" [ref=f10e143] [cursor=pointer]
+            - button "RELIANCE" [ref=f10e145] [cursor=pointer]
+            - button "Send (Enter)" [ref=f10e147] [cursor=pointer]
+        - generic [ref=f10e150]: Enter to send · Shift+Enter for a new line
+  - contentinfo [ref=f10e151]:
+    - generic [ref=f10e152]: "1h: 140 bars in 104ms · last ₹1,267.7"
+    - generic [ref=f10e153]: local store · kite 1-min
+    - generic [ref=f10e154]: ·
+    - generic [ref=f10e155]: 140 × 1h

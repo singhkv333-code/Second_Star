@@ -112,6 +112,30 @@ _NODE_TYPE_ALIASES = {
 }
 _POSITION_FIELD_KEY_ALIASES = ("require", "metric", "property", "attribute")
 
+# Another common near-miss: the model spells the position FIELD directly
+# as the node's "type" (e.g. `{"type": "position_unrealised_pct"}`)
+# instead of `{"type": "position", "field": "unrealised_pct"}`. Seen in
+# the wild when a hand-authored `trigger.exit_compound` tree (built via
+# propose_workflow rather than the dedicated DSL translator) encodes a
+# profit/loss-target exit — 2026-07-14 eval #14 (HDFCBANK profit/loss
+# automation) failed validation on exactly this shape twice.
+_POSITION_FIELD_TYPE_ALIASES = {
+    "position_entry_price": "entry_price",
+    "position_unrealised_pct": "unrealised_pct",
+    "position_unrealised_abs": "unrealised_abs",
+    "position_bars_held": "bars_held",
+    "position_peak_unrealised_pct": "peak_unrealised_pct",
+    "position_drawdown_from_peak_pct": "drawdown_from_peak_pct",
+}
+
+# The model also sometimes spells the boolean op directly as the node's
+# "type" (`{"type": "or", "conditions": [...]}`) instead of the correct
+# `{"type": "logic", "op": "or", "operands": [...]}`. Same eval #14 root
+# cause: attempt 2 fixed the position leaf but kept this shape and failed
+# again — "failed validation twice" from a single unrecognised alias.
+_BARE_LOGIC_OP_ALIASES = ("and", "or", "not")
+_LOGIC_OPERANDS_KEY_ALIASES = ("conditions", "clauses", "items")
+
 
 def normalize_tree_aliases(node: object) -> object:
     """Recursively rewrite well-known LLM node-shape aliases in a raw
@@ -123,7 +147,19 @@ def normalize_tree_aliases(node: object) -> object:
         return node
     out = {k: normalize_tree_aliases(v) for k, v in node.items()}
     t = out.get("type")
-    if isinstance(t, str) and t in _NODE_TYPE_ALIASES:
+    if isinstance(t, str) and t in _POSITION_FIELD_TYPE_ALIASES:
+        out["type"] = "position"
+        out.setdefault("field", _POSITION_FIELD_TYPE_ALIASES[t])
+        t = out["type"]
+    elif isinstance(t, str) and t in _BARE_LOGIC_OP_ALIASES:
+        for alias in _LOGIC_OPERANDS_KEY_ALIASES:
+            if alias in out and "operands" not in out:
+                out["operands"] = out.pop(alias)
+                break
+        out["op"] = t
+        out["type"] = "logic"
+        t = "logic"
+    elif isinstance(t, str) and t in _NODE_TYPE_ALIASES:
         out["type"] = _NODE_TYPE_ALIASES[t]
         t = out["type"]
     if t == "position" and "field" not in out:
@@ -144,6 +180,26 @@ def normalize_tree_aliases(node: object) -> object:
 
 
 # ── Leaf nodes ───────────────────────────────────────────────────────
+
+
+# The exchange a market-data leaf is read on. It carried no description at
+# all, so the translator had no reason to ever emit anything but the default —
+# "buy ONGC when crude oil goes above 80" became a price leaf on NSE:CRUDEOIL,
+# a symbol that does not exist. The tree validated, the card rendered, and the
+# rule could never fire. Commodities are MCX; saying so is what makes the leaf
+# resolvable.
+_EXCHANGE_DESC = (
+    "Exchange the symbol trades on. 'NSE' (default) or 'BSE' for equities and "
+    "indices; 'MCX' for commodities — CRUDEOIL, NATURALGAS, GOLD, SILVER, "
+    "COPPER, ZINC, ALUMINIUM, LEAD, NICKEL; 'NFO' for NSE derivatives. A "
+    "commodity left on NSE names a symbol that does not exist, so set MCX "
+    "whenever the leaf is a commodity."
+)
+
+
+def _exchange_field():
+    return Field(default="NSE", min_length=1, max_length=8,
+                 description=_EXCHANGE_DESC)
 
 
 class IndicatorNode(_Strict):
@@ -169,7 +225,7 @@ class IndicatorNode(_Strict):
     indicator: str = Field(..., min_length=1, max_length=32)
     symbol: str = Field(..., min_length=1, max_length=32)
     period: int = Field(..., ge=1, le=5000)
-    exchange: str = Field(default="NSE", min_length=1, max_length=8)
+    exchange: str = _exchange_field()
     timeframe: Annotated[str, BeforeValidator(_normalize_interval)] = Field(
         default="1d",
         description=(
@@ -196,6 +252,16 @@ class IndicatorNode(_Strict):
             "this field unset."
         ),
     )
+    settings: dict[str, Union[int, float, bool, str]] = Field(
+        default_factory=dict,
+        description=(
+            "Indicator-specific parameters beyond the primary period. "
+            "Examples: MACD fast/slow/signal, Bollinger deviation, or "
+            "Supertrend multiplier. Keys are validated against the shared "
+            "indicator registry; unknown settings are rejected rather than "
+            "silently ignored."
+        ),
+    )
     offset: int = Field(
         default=0, ge=0, le=500,
         description=(
@@ -218,6 +284,27 @@ class IndicatorNode(_Strict):
         s = v.strip().lower()
         return s or None
 
+    @field_validator("settings")
+    @classmethod
+    def _bound_settings(
+        cls, v: dict[str, Union[int, float, bool, str]],
+    ) -> dict[str, Union[int, float, bool, str]]:
+        if len(v) > 12:
+            raise ValueError("indicator settings are limited to 12 keys")
+        out: dict[str, Union[int, float, bool, str]] = {}
+        for raw_key, value in v.items():
+            key = str(raw_key).strip().lower()
+            if not key or len(key) > 32:
+                raise ValueError("indicator setting names must be 1-32 characters")
+            if isinstance(value, str):
+                value = value.strip()
+                if len(value) > 64:
+                    raise ValueError(
+                        f"indicator setting {key!r} exceeds 64 characters"
+                    )
+            out[key] = value
+        return out
+
 
 class PriceNode(_Strict):
     """Last traded close for a symbol, or any other OHLC bar component
@@ -225,7 +312,7 @@ class PriceNode(_Strict):
 
     type: Literal["price"] = "price"
     symbol: str = Field(..., min_length=1, max_length=32)
-    exchange: str = Field(default="NSE", min_length=1, max_length=8)
+    exchange: str = _exchange_field()
     basis: Literal["open", "high", "low", "close"] = Field(
         default="close",
         description=(
@@ -239,6 +326,16 @@ class PriceNode(_Strict):
         description=(
             "How many bars in the past to read. 0 = current bar's "
             "basis; 1 = previous bar's basis; max 500."
+        ),
+    )
+    timeframe: Annotated[str, BeforeValidator(_normalize_interval)] = Field(
+        default="1d",
+        description=(
+            "Bar timeframe ``offset`` counts in. Canonical set: "
+            "1m/3m/5m/10m/15m/30m/1h/1d/1wk/1mo. Only meaningful when "
+            "offset > 0 — 'price 1 bar ago on 5m bars' needs this set "
+            "to '5m', otherwise offset resolves against DAILY bars "
+            "(offset=1 means yesterday's close, not '5 minutes ago')."
         ),
     )
 
@@ -256,7 +353,7 @@ class VolumeNode(_Strict):
     type: Literal["volume"] = "volume"
     symbol: str = Field(..., min_length=1, max_length=32)
     bars: int = Field(default=1, ge=1, le=500)
-    exchange: str = Field(default="NSE", min_length=1, max_length=8)
+    exchange: str = _exchange_field()
     offset: int = Field(
         default=0, ge=0, le=500,
         description=(
@@ -386,6 +483,21 @@ class SessionDayNode(_Strict):
     ] = Field(..., min_length=1, max_length=7)
 
 
+class AlwaysNode(_Strict):
+    """Boolean leaf, unconditionally True on every bar.
+
+    Legal root for a genuinely unconditional entry/exit ("buy at open
+    every day", "just buy now, no filter") — the only case the grammar
+    previously had no way to express, which pushed the LLM translator
+    toward faking it with a self-comparison (``price >= price``), a
+    tautology `_check_no_vacuous_comparisons` correctly rejects as a
+    day-of-week-filter fake. This is the legitimate escape hatch for
+    the *other* case that guard doesn't cover: no filter at all.
+    """
+
+    type: Literal["always"] = "always"
+
+
 class GapNode(_Strict):
     """Single-leaf gap percentage for a symbol:
 
@@ -398,7 +510,7 @@ class GapNode(_Strict):
 
     type: Literal["gap"] = "gap"
     symbol: str = Field(..., min_length=1, max_length=32)
-    exchange: str = Field(default="NSE", min_length=1, max_length=8)
+    exchange: str = _exchange_field()
 
 
 class PctChangeNode(_Strict):
@@ -408,7 +520,7 @@ class PctChangeNode(_Strict):
     type: Literal["pct_change"] = "pct_change"
     symbol: str = Field(..., min_length=1, max_length=32)
     bars: int = Field(..., ge=1, le=500)
-    exchange: str = Field(default="NSE", min_length=1, max_length=8)
+    exchange: str = _exchange_field()
 
 
 class SpreadNode(_Strict):
@@ -422,7 +534,7 @@ class SpreadNode(_Strict):
                    description="Numerator symbol")
     b: str = Field(..., min_length=1, max_length=32,
                    description="Denominator symbol")
-    exchange: str = Field(default="NSE", min_length=1, max_length=8)
+    exchange: str = _exchange_field()
 
 
 class MathNode(_Strict):
@@ -519,7 +631,7 @@ class AggregateNode(_Strict):
 
     type: Literal["aggregate"] = "aggregate"
     op: Literal[
-        "highest", "lowest", "sum", "avg", "std",
+        "highest", "lowest", "sum", "avg", "ema", "wma", "std",
         "count_when", "any_when",
         "percentrank", "zscore",
         "barssince", "valuewhen", "correlation",
@@ -646,6 +758,7 @@ Tree = Annotated[
         ConstantNode,
         PositionNode,
         SessionDayNode,
+        AlwaysNode,
         GapNode,
         PctChangeNode,
         SpreadNode,

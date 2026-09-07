@@ -10,9 +10,25 @@ from backend.services.option_strategies import (
     TEMPLATES,
     VIEW_CANDIDATES,
     StrategyResolutionError,
+    _leg_expiry_pnl,
     resolve_strategy,
     suggest_strategies,
 )
+
+
+def _exact_extrema_at_strikes(payload):
+    """The true max/min of a piecewise-linear expiry payoff can only occur
+    at a kink (a leg's strike) or the domain edges — never strictly between
+    two strikes. Evaluate the ACTUAL payoff formula exactly at every leg's
+    own strike (bypassing any sampled grid) to get the ground-truth peak
+    and trough for the assertions below."""
+    legs = payload["editable"]["legs"]
+    lot_value = payload["locked"]["lot_size"] * payload["editable"]["qty_lots"]
+    strikes = np.array(sorted({l["strike"] for l in legs}), dtype=float)
+    pnl = np.zeros_like(strikes)
+    for l in legs:
+        pnl += _leg_expiry_pnl(strikes, l, lot_value)
+    return float(pnl.max()), float(pnl.min())
 
 
 @pytest.fixture()
@@ -200,3 +216,30 @@ def test_sebi_disclosure_always_present(master):
     p = resolve_strategy(master, "NIFTY", "long_call")
     assert "9 out of 10" in p["locked"]["disclosure"]
     assert p["validation"]["requires_disclosure"] is True
+
+
+def test_short_straddle_max_profit_exact_at_atm_strike(master):
+    """The short straddle's peak sits exactly at the ATM strike (both legs
+    are worthless there, so profit = the full credit collected). A uniform
+    sampled grid over [0, F+span] almost never lands exactly on that
+    strike, so a max()-over-grid read understates max_profit vs the true
+    strike-exact peak — assert the engine reports the EXACT value, not a
+    numerically-close-but-off one."""
+    p = resolve_strategy(master, "NIFTY", "short_straddle")
+    c = p["computed"]
+    exact_max, _ = _exact_extrema_at_strikes(p)
+    # Max profit of a short straddle IS the net credit collected.
+    assert c["max_profit"] == pytest.approx(c["net_premium"], abs=0.02)
+    assert c["max_profit"] == pytest.approx(exact_max, abs=0.02)
+
+
+def test_iron_butterfly_max_profit_and_loss_exact_at_strikes(master):
+    """Iron butterfly: max profit peaks at the ATM strike (short straddle
+    body); max loss troughs at the wing strikes. Both are kink points a
+    uniform display/econ grid can straddle instead of hitting exactly."""
+    p = resolve_strategy(master, "NIFTY", "iron_butterfly")
+    c = p["computed"]
+    exact_max, exact_min = _exact_extrema_at_strikes(p)
+    assert c["max_profit"] == pytest.approx(c["net_premium"], abs=0.02)
+    assert c["max_profit"] == pytest.approx(exact_max, abs=0.02)
+    assert c["max_loss"] == pytest.approx(-exact_min, abs=0.02)

@@ -57,23 +57,38 @@ def kite_session_available() -> bool:
     return _active_token() is not None
 
 
+# The active-token row changes at most once a day (the ~6 AM IST expiry /
+# re-login), but resolving it costs a full Azure-PG round-trip (~1.5s
+# measured) and it ran on EVERY batch-quote call. Cache it in-process for
+# a short window; a fresh login is picked up within a minute, and an
+# expired token just makes kite.quote fail → callers already fall back.
+_TOKEN_CACHE_TTL_S = 60.0
+_token_cache: dict = {"token": None, "ts": 0.0}
+
+
 def _active_token() -> Optional[str]:
     """The app-level active Kite access token, or None. Mirrors the resolution
     in ``kite/historical.py`` so the two tiers agree on whether Kite is live."""
     if KITE_MOCK_MODE:
         return None
+    import time as _time
+    now = _time.monotonic()
+    if now - float(_token_cache["ts"]) < _TOKEN_CACHE_TTL_S:
+        return _token_cache["token"]
     db = SessionLocal()
     try:
         session = get_active_kite_session(db)
     finally:
         db.close()
-    if session is None:
-        return None
-    token = read_kite_access_token(session)
-    # Skip the dev placeholder / obviously-not-a-real token so callers fall
-    # back cleanly instead of 401-ing against Kite.
-    if not token or token.startswith("mock_") or len(token) < 20:
-        return None
+    token: Optional[str] = None
+    if session is not None:
+        token = read_kite_access_token(session)
+        # Skip the dev placeholder / obviously-not-a-real token so callers
+        # fall back cleanly instead of 401-ing against Kite.
+        if not token or token.startswith("mock_") or len(token) < 20:
+            token = None
+    _token_cache["token"] = token
+    _token_cache["ts"] = now
     return token
 
 
@@ -98,13 +113,19 @@ def get_kite_quotes(keys: list[str]) -> dict[str, dict]:
 
     out: dict[str, dict] = {}
     missing: list[str] = []
-    for k in keys:
+    # ONE round-trip for the whole batch. Per-key GETs cost an RTT each —
+    # a 50-symbol movers scan spent ~3.4s (measured) on cache reads alone.
+    cached_raws: list = [None] * len(keys)
+    if rc is not None:
+        try:
+            cached_raws = rc.mget([f"{_CACHE_PREFIX}{k}" for k in keys])
+        except Exception:  # noqa: BLE001
+            cached_raws = [None] * len(keys)
+    for k, raw in zip(keys, cached_raws):
         cached = None
-        if rc is not None:
+        if raw:
             try:
-                raw = rc.get(f"{_CACHE_PREFIX}{k}")
-                if raw:
-                    cached = json.loads(raw if isinstance(raw, str) else raw.decode())
+                cached = json.loads(raw if isinstance(raw, str) else raw.decode())
             except Exception:  # noqa: BLE001
                 cached = None
         if cached is not None:
@@ -148,11 +169,16 @@ def get_kite_quotes(keys: list[str]) -> dict[str, dict]:
             "volume": _f(q.get("volume")) or 0.0,
         }
         out[key] = norm
-        if rc is not None:
-            try:
-                rc.setex(f"{_CACHE_PREFIX}{key}", _QUOTE_TTL_S, json.dumps(norm))
-            except Exception:  # noqa: BLE001
-                pass
+    # ONE pipelined round-trip for the cache writes (was a SETEX per key).
+    fresh = {k: out[k] for k in missing if k in out}
+    if rc is not None and fresh:
+        try:
+            pipe = rc.pipeline(transaction=False)
+            for key, norm in fresh.items():
+                pipe.setex(f"{_CACHE_PREFIX}{key}", _QUOTE_TTL_S, json.dumps(norm))
+            pipe.execute()
+        except Exception:  # noqa: BLE001
+            pass
     return out
 
 

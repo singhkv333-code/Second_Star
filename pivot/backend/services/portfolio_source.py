@@ -36,7 +36,9 @@ def _paper_to_kite_holding(row: dict) -> dict:
     ``adaptPaperHolding``). Exchange is NSE — the paper book is NSE-only.
     """
     qty = int(row.get("quantity") or 0)
-    avg = float(row.get("avg_cost") or 0.0)
+    # Prefer the clean BUY price (ex-charges) so the holdings table shows the
+    # price actually paid next to the LTP, not the charge-inclusive cost basis.
+    avg = float(row.get("buy_price") or row.get("avg_cost") or 0.0)
     last = row.get("last_price")
     last = float(last) if last is not None else avg
     day_pnl = float(row.get("day_pnl") or 0.0)

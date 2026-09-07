@@ -1,0 +1,304 @@
+[
+  {
+    "id": "fc5d73e6-1488-477b-bff5-0b8cf003cbd5",
+    "user_id": 678,
+    "view_id": "af9a3c79-2540-5be1-af71-d77a72093e8d",
+    "expression_id": "7d95778b-8535-5c6c-8073-3ef133fc52fa",
+    "workflow_id": null,
+    "status": "open",
+    "capital_inr": 100000.0,
+    "open_fraction": 1.0,
+    "take_profit_pct": null,
+    "stop_loss_pct": null,
+    "legs": [
+      {
+        "side": "long",
+        "symbol": "BRITANNIA.NS",
+        "weight": 0.166667,
+        "currency": "INR",
+        "asset_class": "in_equity",
+        "entry_price": 5281.0,
+        "entry_price_native": 5281.0
+      },
+      {
+        "side": "long",
+        "symbol": "MRF.NS",
+        "weight": 0.166667,
+        "currency": "INR",
+        "asset_class": "in_equity",
+        "entry_price": 130850.0,
+        "entry_price_native": 130850.0
+      },
+      {
+        "side": "long",
+        "symbol": "MARICO.NS",
+        "weight": 0.166667,
+        "currency": "INR",
+        "asset_class": "in_equity",
+        "entry_price": 847.8,
+        "entry_price_native": 847.8
+      },
+      {
+        "side": "long",
+        "symbol": "APOLLOTYRE.NS",
+        "weight": 0.166667,
+        "currency": "INR",
+        "asset_class": "in_equity",
+        "entry_price": 430.85,
+        "entry_price_native": 430.85
+      },
+      {
+        "side": "long",
+        "symbol": "GODREJCP.NS",
+        "weight": 0.166667,
+        "currency": "INR",
+        "asset_class": "in_equity",
+        "entry_price": 1062.5,
+        "entry_price_native": 1062.5
+      },
+      {
+        "side": "long",
+        "symbol": "HINDUNILVR.NS",
+        "weight": 0.166667,
+        "currency": "INR",
+        "asset_class": "in_equity",
+        "entry_price": 2130.0,
+        "entry_price_native": 2130.0
+      }
+    ],
+    "exits": [],
+    "realized_pnl_inr": null,
+    "note": null,
+    "entry_at": "2026-07-14T07:20:03.670103+00:00",
+    "exited_at": null,
+    "updated_at": "2026-07-14T07:20:03.670103+00:00"
+  },
+  {
+    "id": "30fab81f-2e51-4e67-8db3-b7ab6a35c36c",
+    "user_id": 686,
+    "view_id": "81809245-feeb-4ead-9f35-eb8166757cb7",
+    "expression_id": "6778bad9-9d0a-4528-9f24-5384e2b705cc",
+    "workflow_id": "4b66060a-2572-4380-bec2-1fa462a3fd35",
+    "status": "open",
+    "capital_inr": null,
+    "open_fraction": 1.0,
+    "take_profit_pct": null,
+    "stop_loss_pct": null,
+    "legs": [
+      {
+        "side": "long",
+        "symbol": "DABUR.NS",
+        "weight": 0.11,
+        "entry_price": 425.35
+      },
+      {
+        "side": "long",
+        "symbol": "MARICO.NS",
+        "weight": 0.17,
+        "entry_price": 848.95
+      },
+      {
+        "side": "long",
+        "symbol": "DHANUKA.NS",
+        "weight": 0.13,
+        "entry_price": 1017.2
+      },
+      {
+        "side": "long",
+        "symbol": "ESCORTS.NS",
+        "weight": 0.15,
+        "entry_price": 2943.9
+      },
+      {
+        "side": "long",
+        "symbol": "CHOLAFIN.NS",
+        "weight": 0.14,
+        "entry_price": 1761.4
+      },
+      {
+        "side": "long",
+        "symbol": "COROMANDEL.NS",
+        "weight": 0.11,
+        "entry_price": 2053.3
+      },
+      {
+        "side": "long",
+        "symbol": "HEROMOTOCO.NS",
+        "weight": 0.19,
+        "entry_price": 5046.8
+      }
+    ],
+    "exits": [],
+    "realized_pnl_inr": null,
+    "note": null,
+    "entry_at": "2026-07-21T09:15:12.132235+00:00",
+    "exited_at": null,
+    "updated_at": "2026-07-21T09:15:12.132235+00:00"
+  },
+  {
+    "id": "2a46ec4d-b88e-4ba6-b811-d64f5229a9bb",
+    "user_id": 2,
+    "view_id": "81809245-feeb-4ead-9f35-eb8166757cb7",
+    "expression_id": "ad89abe0-0f1e-46cd-a820-a5b3e396a24c",
+    "workflow_id": null,
+    "status": "open",
+    "capital_inr": 35000.0,
+    "open_fraction": 1.0,
+    "take_profit_pct": null,
+    "stop_loss_pct": null,
+    "legs": [
+      {
+        "side": "long",
+        "symbol": "KSCL.NS",
+        "weight": 0.15,
+        "currency": "INR",
+        "asset_class": "in_equity",
+        "entry_price": 852.5,
+        "entry_price_native": 852.5
+      },
+      {
+        "side": "long",
+        "symbol": "TRIVENI.NS",
+        "weight": 0.13,
+        "currency": "INR",
+        "asset_class": "in_equity",
+        "entry_price": 275.5,
+        "entry_price_native": 275.5
+      },
+      {
+        "side": "long",
+        "symbol": "EIDPARRY.NS",
+        "weight": 0.13,
+        "currency": "INR",
+        "asset_class": "in_equity",
+        "entry_price": 767.5,
+        "entry_price_native": 767.5
+      },
+      {
+        "side": "long",
+        "symbol": "CREDITACC.NS",
+        "weight": 0.15,
+        "currency": "INR",
+        "asset_class": "in_equity",
+        "entry_price": 1496.0,
+        "entry_price_native": 1496.0
+      },
+      {
+        "side": "long",
+        "symbol": "BALRAMCHIN.NS",
+        "weight": 0.14,
+        "currency": "INR",
+        "asset_class": "in_equity",
+        "entry_price": 621.1,
+        "entry_price_native": 621.1
+      },
+      {
+        "side": "long",
+        "symbol": "CHAMBLFERT.NS",
+        "weight": 0.18,
+        "currency": "INR",
+        "asset_class": "in_equity",
+        "entry_price": 435.35,
+        "entry_price_native": 435.35
+      },
+      {
+        "side": "long",
+        "symbol": "DCMSHRIRAM.NS",
+        "weight": 0.12,
+        "currency": "INR",
+        "asset_class": "in_equity",
+        "entry_price": 1014.0,
+        "entry_price_native": 1014.0
+      }
+    ],
+    "exits": [],
+    "realized_pnl_inr": null,
+    "note": null,
+    "entry_at": "2026-07-22T16:33:12.120475+00:00",
+    "exited_at": null,
+    "updated_at": "2026-07-22T16:33:12.120475+00:00"
+  },
+  {
+    "id": "cb2fb6d5-edc9-4c35-a016-a20af57a4434",
+    "user_id": 2,
+    "view_id": "9c020375-5d9b-58de-b559-9d0cca1b389f",
+    "expression_id": "1219128d-a951-54ce-bae9-baa4bc2a3d2c",
+    "workflow_id": null,
+    "status": "open",
+    "capital_inr": 35000.0,
+    "open_fraction": 1.0,
+    "take_profit_pct": null,
+    "stop_loss_pct": null,
+    "legs": [
+      {
+        "side": "long",
+        "symbol": "KSCL.NS",
+        "weight": 0.15,
+        "currency": "INR",
+        "asset_class": "in_equity",
+        "entry_price": 852.5,
+        "entry_price_native": 852.5
+      },
+      {
+        "side": "long",
+        "symbol": "TRIVENI.NS",
+        "weight": 0.13,
+        "currency": "INR",
+        "asset_class": "in_equity",
+        "entry_price": 275.5,
+        "entry_price_native": 275.5
+      },
+      {
+        "side": "long",
+        "symbol": "EIDPARRY.NS",
+        "weight": 0.13,
+        "currency": "INR",
+        "asset_class": "in_equity",
+        "entry_price": 767.5,
+        "entry_price_native": 767.5
+      },
+      {
+        "side": "long",
+        "symbol": "CREDITACC.NS",
+        "weight": 0.15,
+        "currency": "INR",
+        "asset_class": "in_equity",
+        "entry_price": 1496.0,
+        "entry_price_native": 1496.0
+      },
+      {
+        "side": "long",
+        "symbol": "BALRAMCHIN.NS",
+        "weight": 0.14,
+        "currency": "INR",
+        "asset_class": "in_equity",
+        "entry_price": 621.1,
+        "entry_price_native": 621.1
+      },
+      {
+        "side": "long",
+        "symbol": "CHAMBLFERT.NS",
+        "weight": 0.18,
+        "currency": "INR",
+        "asset_class": "in_equity",
+        "entry_price": 435.35,
+        "entry_price_native": 435.35
+      },
+      {
+        "side": "long",
+        "symbol": "DCMSHRIRAM.NS",
+        "weight": 0.12,
+        "currency": "INR",
+        "asset_class": "in_equity",
+        "entry_price": 1014.0,
+        "entry_price_native": 1014.0
+      }
+    ],
+    "exits": [],
+    "realized_pnl_inr": null,
+    "note": null,
+    "entry_at": "2026-07-22T17:02:08.600722+00:00",
+    "exited_at": null,
+    "updated_at": "2026-07-22T17:02:08.600722+00:00"
+  }
+]

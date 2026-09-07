@@ -95,6 +95,7 @@ class DataAccessor(Protocol):
         exchange: str = "NSE",
         basis: str = "close",
         offset: int = 0,
+        timeframe: str = "daily",
     ) -> Optional[float]:
         ...
 
@@ -106,7 +107,9 @@ class DataAccessor(Protocol):
         period: int,
         exchange: str = "NSE",
         component: Optional[str] = None,
+        settings: Optional[dict] = None,
         offset: int = 0,
+        timeframe: str = "daily",
     ) -> Optional[float]:
         ...
 
@@ -169,24 +172,29 @@ class LiveDataAccessor:
         exchange: str = "NSE",
         basis: str = "close",
         offset: int = 0,
+        timeframe: str = "daily",
     ) -> Optional[float]:
+        from backend.core.data.intervals import normalize_interval
+        tf = normalize_interval(timeframe)
         cache_key = (
             "price", symbol.upper(), exchange.upper(),
-            basis.lower(), int(offset),
+            basis.lower(), int(offset), tf,
         )
         if cache_key in self._call_cache:
             return self._call_cache[cache_key]
 
-        # offset==0 + basis==close → fast path via the live quote.
+        # offset==0 + basis==close → fast path via the live quote,
+        # regardless of timeframe (the current live price IS the
+        # in-progress bar's close on any interval).
         if offset == 0 and basis.lower() == "close":
             result = self._live_close(symbol, exchange)
             self._call_cache[cache_key] = result
             return result
 
         # offset > 0 or non-close basis → fall through to historical
-        # daily OHLCV.
+        # OHLCV at the requested interval.
         result = self._historical_bar_price(
-            symbol, basis=basis.lower(), offset=int(offset),
+            symbol, basis=basis.lower(), offset=int(offset), timeframe=tf,
         )
         self._call_cache[cache_key] = result
         return result
@@ -194,16 +202,23 @@ class LiveDataAccessor:
     def _live_close(
         self, symbol: str, exchange: str,
     ) -> Optional[float]:
+        # NOTE: backend.kite.market_data.get_live_quote takes
+        # (access_token, instruments_list) — calling it with (symbol,
+        # exchange=...) as this used to do always raised TypeError,
+        # silently caught below, so this fast path NEVER returned a
+        # live price for any symbol. backend.kite.live_quote.get_kite_quote
+        # is the (symbol, exchange=...) single-quote helper every other
+        # call site of "live quote by symbol" already resolves to.
         try:
-            from backend.kite.market_data import get_live_quote
+            from backend.kite.live_quote import get_kite_quote
         except ImportError as exc:  # pragma: no cover — would mean broken install
-            logger.warning("[dsl.data_accessor] market_data import failed: %s", exc)
+            logger.warning("[dsl.data_accessor] live_quote import failed: %s", exc)
             return None
         try:
-            quote = get_live_quote(symbol, exchange=exchange)
+            quote = get_kite_quote(symbol, exchange=exchange)
         except Exception as exc:  # noqa: BLE001
             logger.info(
-                "[dsl.data_accessor] get_live_quote failed for %s: %s",
+                "[dsl.data_accessor] get_kite_quote failed for %s: %s",
                 symbol, exc,
             )
             return None
@@ -220,22 +235,36 @@ class LiveDataAccessor:
         return None
 
     def _historical_bar_price(
-        self, symbol: str, *, basis: str, offset: int,
+        self, symbol: str, *, basis: str, offset: int, timeframe: str = "1d",
     ) -> Optional[float]:
         """Pull the OHLC at (-1 - offset) from the cached historical
-        OHLCV. Used for any non-zero offset or non-close basis."""
+        OHLCV, fetched at ``timeframe``. Used for any non-zero offset
+        or non-close basis."""
         try:
+            from backend.core.data.intervals import (
+                default_period_for, is_intraday,
+            )
             from backend.kite.market_data import (
                 get_historical_ohlcv, period_for_bars,
             )
         except ImportError:  # pragma: no cover
             return None
         try:
-            # Price offsets are small; size the window to the offset (+ margin).
-            bars = get_historical_ohlcv(
-                symbol, period=period_for_bars(int(offset) + 5, cap="1y"),
-                interval="1d",
-            ) or []
+            if is_intraday(timeframe):
+                # Never resample daily — that would silently change the
+                # timeframe semantics ("5 minutes ago" must mean a 5m
+                # bar, not the previous daily close).
+                bars = get_historical_ohlcv(
+                    symbol,
+                    period=default_period_for(timeframe, has_kite=True),
+                    interval=timeframe,
+                ) or []
+            else:
+                # Price offsets are small; size the window to the offset (+ margin).
+                bars = get_historical_ohlcv(
+                    symbol, period=period_for_bars(int(offset) + 5, cap="1y"),
+                    interval=timeframe,
+                ) or []
         except Exception as exc:  # noqa: BLE001
             logger.info(
                 "[dsl.data_accessor] historical fetch (price) failed for %s: %s",
@@ -266,6 +295,7 @@ class LiveDataAccessor:
         period: int,
         exchange: str = "NSE",
         component: Optional[str] = None,
+        settings: Optional[dict] = None,
         offset: int = 0,
         timeframe: str = "daily",
     ) -> Optional[float]:
@@ -281,7 +311,8 @@ class LiveDataAccessor:
         )
         cache_key = (
             "indicator", symbol.upper(), indicator.lower(),
-            int(period), exchange.upper(), comp_key, int(offset), legacy_label,
+            int(period), exchange.upper(), comp_key,
+            tuple(sorted((settings or {}).items())), int(offset), legacy_label,
         )
         if cache_key in self._call_cache:
             return self._call_cache[cache_key]
@@ -360,7 +391,7 @@ class LiveDataAccessor:
             df = pd.DataFrame(bars)
         try:
             series = compute_series_component(
-                df, indicator, period, component=comp_key,
+                df, indicator, period, component=comp_key, settings=settings,
             )
         except Exception as exc:  # noqa: BLE001
             logger.info(

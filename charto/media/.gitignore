@@ -1,0 +1,18 @@
+# Generated audio is regenerable from the prompts recorded in out/manifest.jsonl
+out/vo/
+out/sfx/
+out/music/
+out/voices/
+*.mp3
+*.wav
+*.mp4
+
+# Render artifacts and the captured stills they are built from
+film*/renders/
+film*/snapshots/
+film*/assets/
+film*/node_modules/
+out/rec/
+out/rec3/
+out/capture2x/
+out/capture/

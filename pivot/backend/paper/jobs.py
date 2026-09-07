@@ -21,7 +21,7 @@ from backend.models import PaperAccount, PaperOrder, PaperPosition
 from backend.paper.evaluator import evaluate_resting_orders
 from backend.paper.snapshots import snapshot_account_nav
 from backend.paper.valuation import mark_positions
-from backend.utils.time_utils import is_market_open, now_ist
+from backend.utils.time_utils import now_ist
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,11 @@ def tick_paper_accounts(db: Session, price_fn: PriceFn = None) -> dict:
     The scheduler cron already restricts to hours 9-15; this tightens it to the
     real session and skips the pre-open/post-close edge ticks."""
     from backend.config import settings as _cfg
-    if getattr(_cfg, "paper_respect_market_hours", True) and not is_market_open():
+    # Run when EITHER the NSE or the US session is open; fills are gated
+    # per-symbol inside evaluate_resting_orders so a US order fills only during
+    # US hours and an Indian order only during NSE hours.
+    from backend.market.market_hours import any_equity_market_open
+    if getattr(_cfg, "paper_respect_market_hours", True) and not any_equity_market_open():
         return {
             "accounts": 0, "filled": [], "cancelled": [], "failed": [],
             "skipped_market_closed": True,
@@ -111,7 +115,8 @@ def mark_open_positions(db: Session, price_fn: PriceFn = None) -> dict:
     ``{"accounts": int, "positions_marked": int, "failed": [account_id]}``.
     """
     from backend.config import settings as _cfg
-    if getattr(_cfg, "paper_respect_market_hours", True) and not is_market_open():
+    from backend.market.market_hours import any_equity_market_open
+    if getattr(_cfg, "paper_respect_market_hours", True) and not any_equity_market_open():
         return {"accounts": 0, "positions_marked": 0, "failed": [],
                 "skipped_market_closed": True}
     acct_ids = [
@@ -141,6 +146,79 @@ def mark_open_positions(db: Session, price_fn: PriceFn = None) -> dict:
             continue
         summary["accounts"] += 1
         summary["positions_marked"] += n
+    return summary
+
+
+def squareoff_intraday_shorts(db: Session, price_fn: PriceFn = None) -> dict:
+    """Force-cover every open equity short (quantity < 0, non-option) across
+    every active paper account. Runs once at EOD, after the 15:30 IST close
+    and before the 15:37 NAV snapshot, so the day's NAV reflects the closed
+    book.
+
+    India bans naked short delivery — a paper short can only exist because a
+    MIS (intraday) sell went past the held quantity (see paper/fills.py).
+    This is the system-wide backstop that makes that guarantee real: it does
+    NOT depend on the user having wired an ``action.squareoff_all_intraday``
+    step into a workflow. A covering BUY MARKET order is placed through the
+    same PaperBroker path as any other order (so it gets a normal fill +
+    ledger row); the client_request_id is namespaced per day so a re-run
+    (retry, or the job firing twice) can't double-cover.
+
+    Returns {"accounts": int, "covered": [...], "failed": [account_id]}."""
+    from backend.paper.broker import PaperBroker
+
+    today = now_ist().date().isoformat()
+    positions = (
+        db.query(PaperPosition)
+        .filter(PaperPosition.quantity < 0, PaperPosition.is_option.is_(False))
+        .all()
+    )
+    by_account: dict[str, list[PaperPosition]] = {}
+    for pos in positions:
+        by_account.setdefault(pos.account_id, []).append(pos)
+
+    summary: dict[str, Any] = {"accounts": 0, "covered": [], "failed": []}
+    for aid, legs in by_account.items():
+        acct = db.get(PaperAccount, aid)
+        if acct is None or not acct.is_active or str(acct.mode) != "paper":
+            continue
+        acct_price_fn = price_fn
+        if acct_price_fn is None:
+            from backend.paper.marks import get_mark_price, user_kite_token
+            _tok = user_kite_token(db, int(acct.user_id))
+            def acct_price_fn(sym, _t=_tok):
+                return get_mark_price(sym, token=_t)
+        broker = PaperBroker(db, acct.user_id, price_fn=acct_price_fn)
+        try:
+            with db.begin_nested():
+                for pos in legs:
+                    qty = abs(pos.quantity)
+                    if qty <= 0:
+                        continue
+                    result = broker.place_order(
+                        tradingsymbol=pos.symbol,
+                        transaction_type="BUY",
+                        quantity=qty,
+                        order_type="MARKET",
+                        product="MIS",
+                        client_request_id=f"eod_sqoff:{aid}:{pos.symbol}:{today}",
+                        source="scheduler",
+                        origin_kind="eod_squareoff",
+                    )
+                    summary["covered"].append({
+                        "account_id": aid,
+                        "symbol": pos.symbol,
+                        "quantity": float(qty),
+                        "status": result.get("status"),
+                    })
+        except Exception:
+            summary["failed"].append(aid)
+            logger.warning(
+                "EOD intraday-short squareoff failed for account %s", aid,
+                exc_info=True,
+            )
+            continue
+        summary["accounts"] += 1
     return summary
 
 

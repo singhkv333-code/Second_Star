@@ -27,13 +27,14 @@ from sqlalchemy.orm import Session
 
 from backend.models import PaperAccount, PaperFill, PaperOrder, PaperPosition
 from backend.paper.money import money_to_float, to_money
+from backend.paper.quantity import qty_display
 from backend.paper.snapshots import nav_series
 from backend.paper.valuation import (
     position_day_pnl,
     position_market_value,
     position_unrealized_pnl,
 )
-from backend.routers.portfolio import SECTOR_MAP
+from backend.routers.portfolio import resolve_sector, universe_by_symbols
 
 PriceFn = Callable[[str], Optional[Decimal]]
 
@@ -54,13 +55,28 @@ def _live_mark_fn(price_fn: Optional[PriceFn]) -> PriceFn:
     reads marks each symbol once."""
     if price_fn is not None:
         return price_fn
+    from backend.paper import marks
     try:
         from backend.utils.time_utils import is_market_open
         if not is_market_open():
-            return lambda sym: None
+            # NSE closed: Indian marks are frozen anyway (and a per-symbol
+            # network storm is slow), so skip them. But US equities (evening
+            # IST session) and crypto (24/7) DO keep trading — mark ONLY those,
+            # detected cheaply (no DB), so their positions don't freeze at the
+            # NSE close while their real markets move.
+            from backend.market.security_meta import is_us_or_crypto_fast
+
+            def _closed_mark(sym: str):
+                try:
+                    if is_us_or_crypto_fast(sym):
+                        return marks.get_mark_price(sym)
+                except Exception:  # noqa: BLE001
+                    pass
+                return None
+
+            return _closed_mark
     except Exception:  # noqa: BLE001 — never let the gate break a read
         pass
-    from backend.paper import marks
     return lambda sym: marks.get_mark_price(sym)
 
 
@@ -207,6 +223,35 @@ def holdings(
         .all()
     )
 
+    # Rich sector per symbol (hand-map → screener universe → "Other"), built
+    # once for the whole book so a name outside the tiny hand-map still shows
+    # its real sector in paper mode (the FE reads this row's `sector`).
+    umap = universe_by_symbols({p.symbol for p in positions})
+
+    # Clean weighted-average BUY price per symbol (the price actually paid,
+    # EXCLUDING charges), so the holdings table can show "the price it was
+    # bought at" next to the LTP — instead of the charge-inclusive cost basis,
+    # which made a fresh buy look like an instant loss equal to the charges.
+    buy_agg: dict[str, list[float]] = {}
+    for _sym, _px, _q in (
+        db.query(PaperFill.symbol, PaperFill.fill_price, PaperFill.quantity)
+        .filter(
+            PaperFill.account_id == account.id,
+            PaperFill.transaction_type == "BUY",
+        )
+        .all()
+    ):
+        try:
+            agg = buy_agg.setdefault(str(_sym), [0.0, 0.0])
+            agg[0] += float(_px) * float(_q)
+            agg[1] += float(_q)
+        except (TypeError, ValueError):
+            continue
+
+    def _buy_price(sym: str, fallback: float) -> float:
+        agg = buy_agg.get(sym)
+        return round(agg[0] / agg[1], 4) if agg and agg[1] else fallback
+
     rows = []
     for pos in positions:
         mark = pf(pos.symbol)  # live price, or None → stored/book fallback
@@ -224,8 +269,12 @@ def holdings(
         )
         rows.append({
             "symbol": pos.symbol,
-            "quantity": pos.quantity,
+            "quantity": qty_display(pos.quantity),
             "avg_cost": money_to_float(pos.avg_cost),
+            # The clean price paid (ex-charges) — what the UI shows as "Avg".
+            "buy_price": _buy_price(
+                str(pos.symbol), money_to_float(pos.avg_cost)
+            ),
             "last_price": (
                 float(display_price) if display_price is not None else None
             ),
@@ -235,7 +284,7 @@ def holdings(
             "day_pnl": money_to_float(position_day_pnl(pos, mark=mark)),
             "invested": money_to_float(invested),
             "realized_pnl": money_to_float(pos.realized_pnl),
-            "sector": SECTOR_MAP.get(pos.symbol, "Other"),
+            "sector": resolve_sector(pos.symbol, umap.get(pos.symbol)),
             # Live-marked rows aren't stale; only an unpriced one inherits it.
             "stale": bool(pos.stale) if mark is None else False,
             "last_mark_at": _iso(pos.last_mark_at),
@@ -266,7 +315,7 @@ def open_orders(db: Session, user_id: int) -> list[dict]:
         "symbol": o.symbol,
         "side": o.transaction_type,
         "order_type": o.order_type,
-        "quantity": o.quantity,
+        "quantity": qty_display(o.quantity),
         "limit_price": (
             float(o.limit_price) if o.limit_price is not None else None
         ),
@@ -281,8 +330,11 @@ def open_orders(db: Session, user_id: int) -> list[dict]:
     } for o in orders]
 
 
-def fills_journal(db: Session, user_id: int, limit: int = 50) -> list[dict]:
-    """The fills log, newest first, capped at ``limit``. JSON-ready dicts."""
+def fills_journal(
+    db: Session, user_id: int, limit: int = 50, offset: int = 0,
+) -> list[dict]:
+    """The fills log, newest first, one ``limit``-sized page starting at
+    ``offset`` (lazy-loaded pagination on the Portfolio trade history)."""
     account = _get_account(db, user_id)
     if account is None:
         return []
@@ -291,6 +343,7 @@ def fills_journal(db: Session, user_id: int, limit: int = 50) -> list[dict]:
         db.query(PaperFill)
         .filter(PaperFill.account_id == account.id)
         .order_by(PaperFill.filled_at.desc())
+        .offset(offset)
         .limit(limit)
         .all()
     )
@@ -299,7 +352,7 @@ def fills_journal(db: Session, user_id: int, limit: int = 50) -> list[dict]:
         "id": f.id,
         "symbol": f.symbol,
         "side": f.transaction_type,
-        "quantity": f.quantity,
+        "quantity": qty_display(f.quantity),
         "fill_price": float(f.fill_price),
         "gross_value": money_to_float(f.gross_value),
         "charges": money_to_float(f.charges),

@@ -6,6 +6,7 @@ import pytest
 
 from backend.market.instrument_master import refresh_instrument_master, resolve_expiry
 from backend.market.option_chain import get_chain
+from backend.models import InstrumentMaster
 
 
 @pytest.fixture()
@@ -68,6 +69,33 @@ def test_expected_move_present_and_sane(master):
     assert em is not None
     assert em["low"] < chain["forward"] < em["high"]
     assert 0 < em["pct"] < 10
+
+
+def test_chain_rows_never_mix_two_expiries(master):
+    """Regression: every strike's CE/PE quote in a single get_chain fetch
+    must be sourced from an InstrumentMaster row whose own ``expiry``
+    equals the chain's resolved expiry — never a different (e.g. weekly
+    vs monthly) listed contract. The 2026-07-14 50-prompt eval found a
+    NIFTY chain with a higher put strike priced cheaper than a lower one
+    (an arbitrage-boundary violation) because a stale duplicate row let a
+    different expiry's live quote leak into one strike."""
+    resolved = resolve_expiry(master, "NIFTY")
+    chain = get_chain(master, "NIFTY", width=6)
+    assert chain is not None
+    assert chain["expiry"] == resolved.isoformat()
+    for row in chain["rows"]:
+        for side in ("ce", "pe"):
+            q = row.get(side)
+            if not q:
+                continue
+            token = q["instrument_token"]
+            record = master.get(InstrumentMaster, token)
+            assert record is not None
+            assert record.expiry == resolved, (
+                f"strike {row['strike']} {side} instrument {token} belongs "
+                f"to expiry {record.expiry}, not the chain's {resolved}"
+            )
+            assert float(record.strike) == row["strike"]
 
 
 def test_unknown_underlying_returns_none_not_fabrication(master):

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-label="Stacked gold bars">
+  <rect width="200" height="200" fill="#2a2015"/>
+  <g stroke="#2a2015" stroke-width="5" stroke-linejoin="round">
+    <!-- top bar -->
+    <path d="M74 54h52l12 30H62Z" fill="#f2c14e"/>
+    <path d="M74 54h52l-6 8H80Z" fill="#f7d98a"/>
+    <!-- bottom-left bar -->
+    <path d="M30 106h52l12 30H18Z" fill="#e0a92e"/>
+    <path d="M30 106h52l-6 8H36Z" fill="#f2c14e"/>
+    <!-- bottom-right bar -->
+    <path d="M118 106h52l12 30h-76Z" fill="#e0a92e"/>
+    <path d="M118 106h52l-6 8h-40Z" fill="#f2c14e"/>
+  </g>
+  <path d="M14 152h172" stroke="#6b5327" stroke-width="6" stroke-linecap="round"/>
+</svg>

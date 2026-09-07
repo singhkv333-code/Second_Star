@@ -58,6 +58,17 @@ _HIDDEN_TOOLS: frozenset = frozenset({
     "extract_winner_symbol",
     # Handler exists but returns placeholder data — stub by behaviour.
     "get_upcoming_events",
+    # 2026-07-19 product decisions — handlers stay (cards/REST/legacy
+    # flows), the LLM never sees them:
+    # (a) SCRIPTED clarify questionnaires retired — under-specified
+    #     builds go through the model's own judgment (build with stated
+    #     assumptions or ONE model-authored ASK_USER question).
+    "ask_user_dynamic",
+    "ask_agent_clarify",
+    # (b) IPO surface is info/analysis-only — applications and reminder
+    #     workflows happen in the user's broker app.
+    "propose_ipo_application",
+    "propose_ipo_automation",
 }) | SUPERSEDED_BY_CONSOLIDATION
 # ^ Chat-kernel Phase 1: the 23 narrow tools replaced by the 5
 # consolidated view-enum tools stay callable (cards, REST, macros,
@@ -119,11 +130,11 @@ _PRE_CONSOLIDATION_SNAPSHOT: set[str] = {
     # series/max/min/cagr/yoy aggregation — the "which year did X have
     # max profit" class. Registered via _ensure_v2_tools_registered.
     "query_financials",
-    "list_upcoming_ipos", "get_ipo_details", "propose_ipo_application",
-    # IPO P2: open-day reminder workflow proposal. Same shape as
-    # propose_workflow's output (workflow_draft_card) — the FE renders
-    # the same card and the user activates via the existing CRUD path.
-    "propose_ipo_automation",
+    # IPO surface is INFO/ANALYSIS-ONLY (2026-07-19 product decision):
+    # propose_ipo_application + propose_ipo_automation removed from the
+    # surface — applications happen in the user's broker app; Pivot
+    # lists, details, and analyses IPOs only.
+    "list_upcoming_ipos", "get_ipo_details",
     # IPO P4: post-listing performance ("how did TIKONA list?" /
     # "TIKONA listing gain"). Reads NSE past-issues + live price; the
     # FE renders the ipo_listed_card. Honest-on-failure (null + note),
@@ -177,27 +188,15 @@ _PRE_CONSOLIDATION_SNAPSHOT: set[str] = {
     "propose_threshold_order",
     "propose_basket_allocation",
     "propose_holding_action",
-    # Strategy builder + dynamic clarifying questions (Workstreams A & B).
-    # build_strategy runs the DB-driven equity+gold construction pipeline and
-    # emits a strategy_builder_card; ask_user_dynamic runs the VOI question
-    # engine and emits a clarify_card (paused turn). MUST be here so the routed
-    # per-hop surface (get_tool_schema gates on this set) can show them to the
-    # model — otherwise the router selects them but they never reach the LLM.
+    # Strategy builder (Workstream A). build_strategy runs the DB-driven
+    # equity+gold construction pipeline and emits a strategy_builder_card.
+    # 2026-07-19: ask_user_dynamic + ask_agent_clarify REMOVED from the
+    # surface — their SCRIPTED question sets (VOI templates with canned
+    # example names, deterministic agent clarify) are gone by product
+    # decision. Under-specified builds now go through the model's own
+    # judgment: build with stated assumptions (the card lists them) or ask
+    # ONE model-authored question via the generic ASK_USER card.
     "build_strategy",
-    "ask_user_dynamic",
-    # ask_agent_clarify: deterministic clarify_card for under-specified
-    # AUTOMATION/agent builds (action-kind + size); answers resume into
-    # propose_workflow. Sibling to ask_user_dynamic (which clarifies
-    # strategy/basket builds → build_strategy).
-    "ask_agent_clarify",
-    # Polymarket — prediction-market trigger + catalog browse.
-    # propose_polymarket_trigger emits a draft card (threshold or
-    # resolution mode); persistence + activation happen via the
-    # /api/news-events/specs/polymarket REST endpoints. The matcher
-    # resolves the contract from natural-language, the picker handles
-    # ambiguous matches, and the supervisor (news_events worker) opens
-    # the CLOB WS subscription when the spec / workflow step activates.
-    "propose_polymarket_trigger", "browse_polymarket_markets",
     # L14: orchestrator + analytics helpers for multi-step compound intents.
     # `compose_multistep` resolves $step.field refs server-side between
     # sub-calls; `compare_backtests` runs 2-4 strategies in parallel.
@@ -231,6 +230,11 @@ _REAL_TOOLS_LEGACY_SNAPSHOT: set[str] = (
         # Chat-kernel Phase 1 + round 2: consolidated view-enum tools...
         | {"get_market_data", "get_portfolio", "manage_automation",
            "get_indicators", "place_order", "calculate", "get_ipo"}
+        # Reasoning-lane (2026-07-12): `compute` is the free-form
+        # deterministic sandbox for in-context maths (percentile ranks,
+        # P&L what-ifs…). Distinct from `calculate`, which is the 5-way
+        # DOMAIN-formula dispatcher (order_qty/tax/SL/dip/margin).
+        | {"compute"}
     )
     # ...replacing the 23 narrow tools they supersede. (Parenthesised:
     # `-` binds tighter than `|`, so without the parens the subtraction

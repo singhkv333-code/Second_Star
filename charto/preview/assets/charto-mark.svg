@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 652 652">
+  <!-- Charto's circular mark, as vector.
+
+       The same geometry the header lockup and the company page's ask bar
+       draw: a solid disc with two cuts taken out of it — a narrow vertical
+       slot near the right edge, and a diagonal slash from the top-right to
+       the bottom-left. What is left reads as a wedge and a sliver inside a
+       circle.
+
+       Vector rather than the assets/pivot-mark.png the lockup masks, because
+       a favicon is asked for at 16px, again at 32px, and again at whatever
+       size the OS wants for a bookmark — and the raster has one.
+
+       A DELIBERATE TWIN of charto/web/app/icon.svg, kept byte-identical in
+       its geometry and its two fills. They are separate apps served from
+       separate roots, so neither can import the other's file, but they open
+       in the same browser and often in adjacent tabs: two marks that differed
+       even slightly would read as two products. Change one, change both.
+
+       THE FILL FOLLOWS THE BROWSER'S THEME. A favicon sits on chrome this
+       page does not paint and cannot read: the tab strip is near-black in a
+       dark browser and near-white in a light one, and a single ink loses on
+       one of them — the mark is a filled disc, so it is exactly the shape
+       that disappears. -->
+  <style>
+    .disc { fill: #0d0d0e; }
+    @media (prefers-color-scheme: dark) { .disc { fill: #f7f6f1; } }
+  </style>
+  <mask id="pivot-cutouts">
+    <circle cx="326" cy="326" r="326" fill="#fff"/>
+    <rect x="460.5" y="0" width="37" height="652" fill="#000"/>
+    <path d="M567.4 18.1 595.4 42.4 83.6 632.9 55.6 608.6Z" fill="#000"/>
+  </mask>
+  <circle class="disc" cx="326" cy="326" r="326" mask="url(#pivot-cutouts)"/>
+</svg>

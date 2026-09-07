@@ -99,7 +99,20 @@ _MCAP_TIER_ALIASES: dict[str, str] = {
     "smallcap": "small", "small-cap": "small", "small": "small",
 }
 
-_SORT_FIELDS = {"market_cap_cr", "pe", "roe", "symbol", "name"}
+# Every column the grid displays is server-sortable over the FULL universe (the
+# sort runs in-memory on the already-built enriched list — see get_screener_
+# stocks — so adding a field is free, no extra DB load). Price/change/1-year come
+# from the warmed market-metrics cache, so those sorts surface the priced subset
+# first with nulls last (disclosed via a note); mcap/pe/roe are DB-backed and
+# fully covered. This replaces the old client-side sort that only reordered the
+# infinite-scroll rows already loaded.
+_SORT_FIELDS = {
+    "market_cap_cr", "pe", "roe", "symbol", "name",
+    "price", "change_pct", "one_year_pct",
+}
+# Fields sourced from the (partial) market-metrics cache — a note is added when
+# sorting by one so the user knows unpriced names sink to the bottom.
+_MARKET_METRIC_SORTS = {"price", "change_pct", "one_year_pct"}
 
 
 # ── Response models ───────────────────────────────────────────────────
@@ -942,6 +955,16 @@ def get_screener_stocks(
                 -(getattr(s, sf) or 0) if desc else (getattr(s, sf) or 0),
             )
         )
+        # Price/change/1-year come from the warmed market-metrics cache, which
+        # may not cover the whole universe yet — say so, so an "empty-looking"
+        # tail of the sort reads as "still warming", not broken.
+        if sf in _MARKET_METRIC_SORTS:
+            priced = sum(1 for s in enriched if getattr(s, sf) is not None)
+            if priced < len(enriched):
+                notes.append(
+                    f"sorted by {sf} over the {priced} names priced so far — "
+                    "unpriced names sink to the bottom and fill in as the grid warms"
+                )
 
     total = len(enriched)
     enriched = enriched[offset : offset + limit]
@@ -977,21 +1000,33 @@ def get_screener_stocks(
         s.symbol for s in enriched if s.symbol.upper() not in mmap
     ]
     if page_missing_mkt:
-        mkt_topup, mkt_source = _compute_market_metrics(page_missing_mkt)
-        if mkt_topup:
-            _merge_market_metrics_cache(mkt_topup, mkt_source)
-            for s in enriched:
-                rec = mkt_topup.get(s.symbol.upper())
-                if not rec:
-                    continue
-                if s.price is None and rec.get("price") is not None:
-                    s.price = round(float(rec["price"]), 2)
-                if s.change_pct is None and rec.get("change_pct") is not None:
-                    s.change_pct = round(float(rec["change_pct"]), 2)
-                if s.one_year_pct is None and rec.get("one_year_pct") is not None:
-                    s.one_year_pct = round(float(rec["one_year_pct"]), 2)
+        # Only pay the synchronous top-up when Kite is live (one fast batch
+        # quote). Without a session, `_compute_market_metrics` falls through
+        # to a synchronous yfinance bulk download (~10-15s) — for sorts like
+        # market_cap_cr, whose top rows aren't tied to what's already warm
+        # in the curated ~80-name universe, this misses on nearly every
+        # request and stalls the response. Defer to the background warm
+        # instead so a cold Kite session never blocks the page.
+        from backend.kite.live_quote import kite_session_available
+
+        mkt_topup: dict[str, dict] = {}
+        if kite_session_available():
+            mkt_topup, mkt_source = _compute_market_metrics(page_missing_mkt)
+            if mkt_topup:
+                _merge_market_metrics_cache(mkt_topup, mkt_source)
+                for s in enriched:
+                    rec = mkt_topup.get(s.symbol.upper())
+                    if not rec:
+                        continue
+                    if s.price is None and rec.get("price") is not None:
+                        s.price = round(float(rec["price"]), 2)
+                    if s.change_pct is None and rec.get("change_pct") is not None:
+                        s.change_pct = round(float(rec["change_pct"]), 2)
+                    if s.one_year_pct is None and rec.get("one_year_pct") is not None:
+                        s.one_year_pct = round(float(rec["one_year_pct"]), 2)
         # Anything the synchronous top-up still couldn't resolve (e.g. a
-        # transient yfinance miss) keeps retrying in the background.
+        # transient miss, or no live Kite session at all) keeps retrying in
+        # the background rather than blocking this response.
         still_missing = [s.symbol for s in enriched if s.symbol.upper() not in mmap and s.symbol.upper() not in mkt_topup]
         if still_missing:
             _kick_page_metrics_warm(still_missing)

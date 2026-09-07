@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Charto — Launch Metrics</title>
+<style>
+@page { size: A4; margin: 13mm 12mm; }
+* { box-sizing: border-box; }
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body {
+  margin: 0; background: #fff; color: #16150f;
+  font: 10px/1.5 ui-sans-serif, -apple-system, "Inter", "Segoe UI", Roboto, sans-serif;
+}
+.page { max-width: 186mm; margin: 0 auto; }
+code, pre { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+
+/* ── the annotation rail ──────────────────────────────────────────────────
+   Every block is one grid row: the thing on the left, the note about it on
+   the right, both starting on the same baseline. A GRID, not absolutely
+   positioned callouts — in print the content reflows as it paginates and
+   anything pinned to a coordinate ends up pointing at the wrong row two pages
+   in. Sharing a row means the note cannot drift from its subject.
+
+   The leader is a hairline and a 3px tick, not an arrow graphic: at this size
+   a drawn arrowhead is four grey pixels that read as a smudge, and the note
+   sitting level with its subject already carries the association. */
+.row { display: grid; grid-template-columns: 1fr 42mm; gap: 9mm; align-items: start;
+       break-inside: avoid; page-break-inside: avoid; }
+.row + .row { margin-top: 3px; }
+.note { position: relative; padding-left: 9px; font-size: 8.4px; line-height: 1.52;
+        color: #6c6a5e; padding-top: 1px; }
+.note::before {                                     /* the leader */
+  content: ""; position: absolute; left: -9mm; right: calc(100% - 4px); top: 6px;
+  border-top: 1px solid #d6d4c8;
+}
+.note::after {                                      /* the tick at the note end */
+  content: ""; position: absolute; left: 0; top: 3px;
+  width: 1px; height: 7px; background: #16150f;
+}
+.note b { color: #16150f; font-weight: 600; }
+.note .q { display: block; margin-top: 3px; font-family: ui-monospace, Menlo, monospace;
+           font-size: 7.6px; color: #8a887c; }
+
+/* ── masthead ─────────────────────────────────────────────────────────────
+   The label lives HERE and only here: once, in the title block, at a size
+   nobody scrolls past — rather than repeated into every section, which reads
+   as nervousness and clutters a document whose job is to be scanned. */
+.mast { border-bottom: 1.5px solid #16150f; padding-bottom: 9px; margin-bottom: 4px; }
+.eyebrow { font-size: 9px; letter-spacing: .14em; text-transform: uppercase;
+           font-weight: 650; color: #b0500f; margin-bottom: 7px; }
+h1 { font-size: 27px; letter-spacing: -.026em; margin: 0 0 5px; font-weight: 620;
+     line-height: 1.1; }
+.standfirst { font-size: 10.5px; color: #3f3e36; max-width: 108mm; margin: 0 0 3px; }
+.meta { font-size: 8.6px; color: #8a887c; margin-top: 7px;
+        font-family: ui-monospace, Menlo, monospace; }
+
+h2 { font-size: 13.5px; letter-spacing: -.012em; margin: 20px 0 2px; font-weight: 620;
+     break-after: avoid; page-break-after: avoid; }
+h2 .num { color: #b0500f; margin-right: 7px; font-variant-numeric: tabular-nums; }
+h3 { font-size: 8.6px; letter-spacing: .1em; text-transform: uppercase;
+     color: #8a887c; margin: 13px 0 5px; font-weight: 650; }
+p  { margin: 0 0 7px; color: #3f3e36; max-width: 100mm; }
+
+.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin: 9px 0 2px;
+         border-top: 1px solid #e4e2d6; border-bottom: 1px solid #e4e2d6; }
+.tile { padding: 10px 14px 11px; border-right: 1px solid #e4e2d6; }
+.tile:last-child { border-right: 0; }
+.tile .k { font-size: 8.2px; letter-spacing: .08em; text-transform: uppercase; color: #8a887c; }
+.tile .v { font-size: 30px; font-weight: 620; letter-spacing: -.035em; margin: 4px 0 1px;
+           font-variant-numeric: tabular-nums; line-height: 1; }
+.tile .n { font-size: 8.6px; color: #6c6a5e; }
+
+table { border-collapse: collapse; width: 100%; margin: 5px 0 3px; font-size: 8.8px; }
+th, td { padding: 4px 7px 4px 0; border-bottom: 1px solid #f0eee4; text-align: left; }
+th { font-size: 7.8px; letter-spacing: .07em; text-transform: uppercase;
+     color: #8a887c; font-weight: 650; border-bottom: 1px solid #cfcdbf; }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+tbody tr:last-child td { border-bottom: 0; }
+
+pre.sql { background: #faf9f4; border-left: 2px solid #ddd9c6; padding: 7px 10px;
+          font-size: 8px; line-height: 1.5; margin: 4px 0 6px; color: #46443a;
+          white-space: pre-wrap; }
+
+.bars { margin: 4px 0 6px; }
+.bar-row { display: grid; grid-template-columns: 82px 1fr 46px; align-items: center;
+           gap: 7px; margin: 2px 0; }
+.bar-lab { font-size: 8.8px; color: #3f3e36; overflow: hidden; text-overflow: ellipsis;
+           white-space: nowrap; }
+.bar-track { height: 9px; background: #f0eee4; }
+.bar-fill { display: block; height: 100%; background: #16150f; }
+.bar-val { font-size: 8.8px; font-variant-numeric: tabular-nums; text-align: right;
+           color: #3f3e36; }
+
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 11mm; align-items: start; }
+.foot { margin-top: 16px; padding-top: 8px; border-top: 1px solid #e4e2d6;
+        font-size: 8px; color: #a3a196; }
+</style></head><body><div class="page">
+
+<div class="mast">
+  <div class="eyebrow">Demo dataset · illustrative figures</div>
+  <h1>Charto — Launch Metrics</h1>
+  <div class="standfirst">Three metrics, each with the query that produces it and the
+  result it returns. Read down the left; the right-hand column says what each
+  number is and where it comes from.</div>
+  <div class="meta">charto_demo.db · seed 20260826 ·
+  2026-07-27 → 2026-08-26 ·
+  securities from pivot_db.public.company_identity</div>
+</div>
+
+<div class="row"><div><div class="tiles">
+  <div class="tile"><div class="k">Waitlist registrations</div>
+    <div class="v">2,148</div><div class="n">30 days · 36 cities</div></div>
+  <div class="tile"><div class="k">Securities rendered</div>
+    <div class="v">4,459</div><div class="n">distinct, of 5,019 listed</div></div>
+  <div class="tile"><div class="k">AI chat sessions</div>
+    <div class="v">536</div><div class="n">18,420 render events</div></div>
+</div></div><div class="note"><b>The three headline numbers.</b> Each is a single COUNT against its own table — no derived or blended figures. The query below returns all three in one row.</div></div>
+
+<div class="row"><div><pre class="sql">SELECT (SELECT COUNT(*) FROM demo_waitlist)                AS waitlist_registrations,
+       (SELECT COUNT(DISTINCT symbol)
+          FROM demo_security_render)                       AS securities_rendered,
+       (SELECT COUNT(*) FROM demo_security_render)         AS render_events,
+       (SELECT COUNT(*) FROM demo_chat_session)            AS ai_chat_sessions;</pre><table><thead><tr><th class="n">waitlist_registrations</th><th class="n">securities_rendered</th><th class="n">render_events</th><th class="n">ai_chat_sessions</th></tr></thead><tbody><tr><td class="n">2,148</td><td class="n">4,459</td><td class="n">18,420</td><td class="n">536</td></tr></tbody></table></div><div class="note">Four scalar sub-selects, one row out. Run it against the database and it returns exactly the tiles above.<span class="q">sqlite3 charto_demo.db &lt; demo_metrics.sql</span></div></div>
+
+<h2><span class="num">01</span>Waitlist registrations</h2>
+
+<div class="row"><div><pre class="sql">SELECT &#x27;Waitlist registrations&#x27;                                   AS metric,
+       COUNT(*)                                                   AS value,
+       COUNT(DISTINCT city)                                       AS cities,
+       ROUND(100.0 * SUM(activated) / COUNT(*), 1)                AS activation_pct,
+       DATE(MIN(registered_at), &#x27;unixepoch&#x27;, &#x27;+330 minutes&#x27;)      AS window_from,
+       DATE(MAX(registered_at), &#x27;unixepoch&#x27;, &#x27;+330 minutes&#x27;)      AS window_to,
+       ROUND(COUNT(*) * 1.0 /
+             (JULIANDAY(MAX(registered_at), &#x27;unixepoch&#x27;)
+            - JULIANDAY(MIN(registered_at), &#x27;unixepoch&#x27;)), 1)     AS per_day
+FROM   demo_waitlist;</pre><table><thead><tr><th class="">metric</th><th class="n">value</th><th class="n">cities</th><th class="n">activation_pct</th><th class="">window_from</th><th class="">window_to</th><th class="n">per_day</th></tr></thead><tbody><tr><td class="">Waitlist registrations</td><td class="n">2,148</td><td class="n">36</td><td class="n">42.2</td><td class="">2026-07-27</td><td class="">2026-08-26</td><td class="n">71.8</td></tr></tbody></table></div><div class="note"><b>value</b> is the headline count. <b>activation_pct</b> is the share who went on to use the product, and <b>per_day</b> divides the count by the actual span between the first and last signup rather than by an assumed 30.</div></div>
+
+<div class="row"><div><div class="bars"><div class="bar-row"><span class="bar-lab">2026-W30</span><span class="bar-track"><span class="bar-fill" style="width:100.00%"></span></span><span class="bar-val">754</span></div><div class="bar-row"><span class="bar-lab">2026-W31</span><span class="bar-track"><span class="bar-fill" style="width:65.78%"></span></span><span class="bar-val">496</span></div><div class="bar-row"><span class="bar-lab">2026-W32</span><span class="bar-track"><span class="bar-fill" style="width:46.82%"></span></span><span class="bar-val">353</span></div><div class="bar-row"><span class="bar-lab">2026-W33</span><span class="bar-track"><span class="bar-fill" style="width:48.14%"></span></span><span class="bar-val">363</span></div><div class="bar-row"><span class="bar-lab">2026-W34</span><span class="bar-track"><span class="bar-fill" style="width:24.14%"></span></span><span class="bar-val">182</span></div></div></div><div class="note"><b>Signups per week.</b> The shape is a launch: a spike, a decay, then a slow lift as referrals compound. Week 34 is short — the window closes mid-week.</div></div>
+
+<div class="row"><div><table><thead><tr><th class="">week</th><th class="n">signups</th><th class="n">organic</th><th class="n">twitter</th><th class="n">linkedin</th><th class="n">whatsapp</th><th class="n">referral</th><th class="n">activated</th></tr></thead><tbody><tr><td class="">2026-W30</td><td class="n">754</td><td class="n">203</td><td class="n">148</td><td class="n">110</td><td class="n">84</td><td class="n">61</td><td class="n">334</td></tr><tr><td class="">2026-W31</td><td class="n">496</td><td class="n">142</td><td class="n">98</td><td class="n">74</td><td class="n">62</td><td class="n">43</td><td class="n">200</td></tr><tr><td class="">2026-W32</td><td class="n">353</td><td class="n">86</td><td class="n">84</td><td class="n">54</td><td class="n">51</td><td class="n">19</td><td class="n">139</td></tr><tr><td class="">2026-W33</td><td class="n">363</td><td class="n">91</td><td class="n">88</td><td class="n">50</td><td class="n">33</td><td class="n">35</td><td class="n">158</td></tr><tr><td class="">2026-W34</td><td class="n">182</td><td class="n">50</td><td class="n">40</td><td class="n">18</td><td class="n">24</td><td class="n">17</td><td class="n">76</td></tr></tbody></table></div><div class="note"><b>Channel mix by week.</b> Columns sum to fewer than <b>signups</b> because reddit, Product Hunt and YouTube are not shown. <b>activated</b> is a subset of that week's signups, not a separate cohort.</div></div>
+
+<div class="row"><div><div class="two">
+  <div><h3>Top cities</h3><table><thead><tr><th class="">city</th><th class="">state</th><th class="n">signups</th><th class="n">pct</th></tr></thead><tbody><tr><td class="">Mumbai</td><td class="">Maharashtra</td><td class="n">339</td><td class="n">15.8</td></tr><tr><td class="">Delhi</td><td class="">Delhi</td><td class="n">227</td><td class="n">10.6</td></tr><tr><td class="">Bengaluru</td><td class="">Karnataka</td><td class="n">215</td><td class="n">10</td></tr><tr><td class="">Pune</td><td class="">Maharashtra</td><td class="n">148</td><td class="n">6.9</td></tr><tr><td class="">Hyderabad</td><td class="">Telangana</td><td class="n">144</td><td class="n">6.7</td></tr><tr><td class="">Chennai</td><td class="">Tamil Nadu</td><td class="n">117</td><td class="n">5.4</td></tr><tr><td class="">Ahmedabad</td><td class="">Gujarat</td><td class="n">109</td><td class="n">5.1</td></tr><tr><td class="">Kolkata</td><td class="">West Bengal</td><td class="n">96</td><td class="n">4.5</td></tr><tr><td class="">Jaipur</td><td class="">Rajasthan</td><td class="n">67</td><td class="n">3.1</td></tr></tbody></table></div>
+  <div><h3>Acquisition channel</h3><div class="bars"><div class="bar-row"><span class="bar-lab">organic</span><span class="bar-track"><span class="bar-fill" style="width:100.00%"></span></span><span class="bar-val">572</span></div><div class="bar-row"><span class="bar-lab">twitter</span><span class="bar-track"><span class="bar-fill" style="width:80.07%"></span></span><span class="bar-val">458</span></div><div class="bar-row"><span class="bar-lab">linkedin</span><span class="bar-track"><span class="bar-fill" style="width:53.50%"></span></span><span class="bar-val">306</span></div><div class="bar-row"><span class="bar-lab">whatsapp</span><span class="bar-track"><span class="bar-fill" style="width:44.41%"></span></span><span class="bar-val">254</span></div><div class="bar-row"><span class="bar-lab">referral</span><span class="bar-track"><span class="bar-fill" style="width:30.59%"></span></span><span class="bar-val">175</span></div><div class="bar-row"><span class="bar-lab">reddit</span><span class="bar-track"><span class="bar-fill" style="width:30.07%"></span></span><span class="bar-val">172</span></div><div class="bar-row"><span class="bar-lab">producthunt</span><span class="bar-track"><span class="bar-fill" style="width:20.63%"></span></span><span class="bar-val">118</span></div><div class="bar-row"><span class="bar-lab">youtube</span><span class="bar-track"><span class="bar-fill" style="width:16.26%"></span></span><span class="bar-val">93</span></div></div></div>
+</div></div><div class="note"><b>Where and how.</b> The city column is the long tail deliberately — 36 cities, with the metros at roughly half. Channel counts are all-time, not per week.</div></div>
+
+<h2><span class="num">02</span>Securities data rendered</h2>
+
+<div class="row"><div><pre class="sql">SELECT &#x27;Securities data rendered&#x27;                                 AS metric,
+       COUNT(DISTINCT symbol)                                     AS value,
+       COUNT(*)                                                   AS render_events,
+       COUNT(DISTINCT exchange)                                   AS exchanges,
+       COUNT(DISTINCT sector)                                     AS sectors,
+       COUNT(DISTINCT user_id)                                    AS users_served,
+       ROUND(AVG(render_ms))                                      AS avg_ms
+FROM   demo_security_render;</pre><table><thead><tr><th class="">metric</th><th class="n">value</th><th class="n">render_events</th><th class="n">exchanges</th><th class="n">sectors</th><th class="n">users_served</th><th class="n">avg_ms</th></tr></thead><tbody><tr><td class="">Securities data rendered</td><td class="n">4,459</td><td class="n">18,420</td><td class="n">3</td><td class="n">12</td><td class="n">855</td><td class="n">545</td></tr></tbody></table></div><div class="note"><b>This metric is breadth, not volume.</b> <b>value</b> counts DISTINCT securities put in front of somebody; <b>render_events</b> is the raw activity behind it. Every symbol resolves to a real listed instrument.</div></div>
+
+<div class="row"><div><div class="two">
+  <div><h3>Coverage by exchange</h3><div class="bars"><div class="bar-row"><span class="bar-lab">NSE</span><span class="bar-track"><span class="bar-fill" style="width:100.00%"></span></span><span class="bar-val">2,283</span></div><div class="bar-row"><span class="bar-lab">BSE</span><span class="bar-track"><span class="bar-fill" style="width:89.58%"></span></span><span class="bar-val">2,045</span></div><div class="bar-row"><span class="bar-lab">NSE_SME</span><span class="bar-track"><span class="bar-fill" style="width:5.74%"></span></span><span class="bar-val">131</span></div></div>
+  <table><thead><tr><th class="">exchange</th><th class="n">securities</th><th class="n">render_events</th></tr></thead><tbody><tr><td class="">NSE</td><td class="n">2,283</td><td class="n">13,117</td></tr><tr><td class="">BSE</td><td class="n">2,045</td><td class="n">5,091</td></tr><tr><td class="">NSE_SME</td><td class="n">131</td><td class="n">212</td></tr></tbody></table></div>
+  <div><h3>Renders by surface</h3><div class="bars"><div class="bar-row"><span class="bar-lab">chart</span><span class="bar-track"><span class="bar-fill" style="width:100.00%"></span></span><span class="bar-val">8,530</span></div><div class="bar-row"><span class="bar-lab">company page</span><span class="bar-track"><span class="bar-fill" style="width:50.54%"></span></span><span class="bar-val">4,311</span></div><div class="bar-row"><span class="bar-lab">screener</span><span class="bar-track"><span class="bar-fill" style="width:37.32%"></span></span><span class="bar-val">3,183</span></div><div class="bar-row"><span class="bar-lab">chat card</span><span class="bar-track"><span class="bar-fill" style="width:28.09%"></span></span><span class="bar-val">2,396</span></div></div>
+  <table><thead><tr><th class="">interval</th><th class="n">renders</th></tr></thead><tbody><tr><td class="">1d</td><td class="n">7,400</td></tr><tr><td class="">5m</td><td class="n">3,985</td></tr><tr><td class="">1h</td><td class="n">2,983</td></tr><tr><td class="">15m</td><td class="n">2,248</td></tr><tr><td class="">1w</td><td class="n">1,804</td></tr></tbody></table></div>
+</div></div><div class="note"><b>Left</b> — how much of each exchange was covered. <b>Right</b> — which product surface did the rendering, and on which timeframe. NSE_SME is thin by design: small-cap SME lines carry little chart interest.</div></div>
+
+<div class="row"><div><h3>Sector coverage</h3><table><thead><tr><th class="">sector</th><th class="n">securities</th><th class="n">renders</th><th class="n">users</th></tr></thead><tbody><tr><td class="">Unclassified</td><td class="n">894</td><td class="n">4,281</td><td class="n">846</td></tr><tr><td class="">Financial Services</td><td class="n">465</td><td class="n">3,125</td><td class="n">824</td></tr><tr><td class="">Consumer Cyclical</td><td class="n">702</td><td class="n">2,424</td><td class="n">816</td></tr><tr><td class="">Technology</td><td class="n">277</td><td class="n">1,933</td><td class="n">763</td></tr><tr><td class="">Industrials</td><td class="n">702</td><td class="n">1,933</td><td class="n">782</td></tr><tr><td class="">Basic Materials</td><td class="n">553</td><td class="n">1,158</td><td class="n">627</td></tr><tr><td class="">Consumer Defensive</td><td class="n">302</td><td class="n">1,068</td><td class="n">613</td></tr><tr><td class="">Energy</td><td class="n">44</td><td class="n">1,002</td><td class="n">587</td></tr><tr><td class="">Communication Services</td><td class="n">100</td><td class="n">633</td><td class="n">441</td></tr><tr><td class="">Healthcare</td><td class="n">230</td><td class="n">499</td><td class="n">369</td></tr><tr><td class="">Real Estate</td><td class="n">152</td><td class="n">281</td><td class="n">230</td></tr><tr><td class="">Utilities</td><td class="n">38</td><td class="n">83</td><td class="n">79</td></tr></tbody></table></div><div class="note">Sectors come from the enrichment join and are matched on company NAME. <b>Unclassified</b> is the unmatched remainder — those securities are real, only their sector is unknown.</div></div>
+
+<div class="row"><div><h3>Most-viewed securities</h3><table><thead><tr><th class="">symbol</th><th class="">company</th><th class="">sector</th><th class="">exchange</th><th class="n">renders</th><th class="n">users</th></tr></thead><tbody><tr><td class="">TITAN</td><td class="">Titan Company Limited</td><td class="">Consumer Cyclical</td><td class="">NSE</td><td class="n">494</td><td class="n">370</td></tr><tr><td class="">RELIANCE</td><td class="">Reliance Industries Limited</td><td class="">Energy</td><td class="">NSE</td><td class="n">475</td><td class="n">369</td></tr><tr><td class="">MARUTI</td><td class="">Maruti Suzuki India Limited</td><td class="">Consumer Cyclical</td><td class="">NSE</td><td class="n">472</td><td class="n">350</td></tr><tr><td class="">LT</td><td class="">Larsen &amp; Toubro Limited</td><td class="">Industrials</td><td class="">NSE</td><td class="n">471</td><td class="n">367</td></tr><tr><td class="">ITC</td><td class="">ITC Limited</td><td class="">Unclassified</td><td class="">NSE</td><td class="n">464</td><td class="n">363</td></tr><tr><td class="">AXISBANK</td><td class="">Axis Bank Limited</td><td class="">Financial Services</td><td class="">NSE</td><td class="n">458</td><td class="n">350</td></tr><tr><td class="">WIPRO</td><td class="">Wipro Limited</td><td class="">Technology</td><td class="">NSE</td><td class="n">448</td><td class="n">341</td></tr><tr><td class="">INFY</td><td class="">Infosys Limited</td><td class="">Technology</td><td class="">NSE</td><td class="n">447</td><td class="n">349</td></tr><tr><td class="">ADANIENT</td><td class="">Adani Enterprises Limited</td><td class="">Energy</td><td class="">NSE</td><td class="n">437</td><td class="n">344</td></tr><tr><td class="">BAJFINANCE</td><td class="">Bajaj Finance Limited</td><td class="">Financial Services</td><td class="">NSE</td><td class="n">436</td><td class="n">335</td></tr></tbody></table></div><div class="note"><b>renders</b> exceeds <b>users</b> on every row: people return to the same name. The head is large-cap NSE, which is where retail attention actually sits.</div></div>
+
+<h2><span class="num">03</span>AI chat sessions</h2>
+
+<div class="row"><div><pre class="sql">SELECT &#x27;AI chat sessions&#x27;                                         AS metric,
+       COUNT(*)                                                   AS value,
+       COUNT(DISTINCT user_id)                                    AS users,
+       SUM(turns)                                                 AS total_turns,
+       ROUND(AVG(turns), 2)                                       AS avg_turns,
+       SUM(tools_used)                                            AS tool_calls,
+       ROUND(AVG(latency_ms) / 1000.0, 1)                         AS avg_sec
+FROM   demo_chat_session;</pre><table><thead><tr><th class="">metric</th><th class="n">value</th><th class="n">users</th><th class="n">total_turns</th><th class="n">avg_turns</th><th class="n">tool_calls</th><th class="n">avg_sec</th></tr></thead><tbody><tr><td class="">AI chat sessions</td><td class="n">536</td><td class="n">394</td><td class="n">1,561</td><td class="n">2.91</td><td class="n">3,156</td><td class="n">18.5</td></tr></tbody></table></div><div class="note"><b>A session is a conversation, not a message.</b> <b>total_turns</b> counts the question-and-answer pairs inside them, and <b>tool_calls</b> the chart tools those turns invoked — the chat reads the chart rather than talking about it.</div></div>
+
+<div class="row"><div><div class="two">
+  <div><h3>What people asked for</h3><div class="bars"><div class="bar-row"><span class="bar-lab">indicators</span><span class="bar-track"><span class="bar-fill" style="width:100.00%"></span></span><span class="bar-val">75</span></div><div class="bar-row"><span class="bar-lab">compare</span><span class="bar-track"><span class="bar-fill" style="width:61.33%"></span></span><span class="bar-val">46</span></div><div class="bar-row"><span class="bar-lab">alerts</span><span class="bar-track"><span class="bar-fill" style="width:61.33%"></span></span><span class="bar-val">46</span></div><div class="bar-row"><span class="bar-lab">levels</span><span class="bar-track"><span class="bar-fill" style="width:60.00%"></span></span><span class="bar-val">45</span></div><div class="bar-row"><span class="bar-lab">volatility</span><span class="bar-track"><span class="bar-fill" style="width:52.00%"></span></span><span class="bar-val">39</span></div><div class="bar-row"><span class="bar-lab">drawing</span><span class="bar-track"><span class="bar-fill" style="width:49.33%"></span></span><span class="bar-val">37</span></div><div class="bar-row"><span class="bar-lab">backtest</span><span class="bar-track"><span class="bar-fill" style="width:49.33%"></span></span><span class="bar-val">37</span></div><div class="bar-row"><span class="bar-lab">patterns</span><span class="bar-track"><span class="bar-fill" style="width:48.00%"></span></span><span class="bar-val">36</span></div><div class="bar-row"><span class="bar-lab">volume</span><span class="bar-track"><span class="bar-fill" style="width:46.67%"></span></span><span class="bar-val">35</span></div><div class="bar-row"><span class="bar-lab">explain</span><span class="bar-track"><span class="bar-fill" style="width:45.33%"></span></span><span class="bar-val">34</span></div></div></div>
+  <div><h3>Session shape</h3><table><thead><tr><th class="">topic</th><th class="n">sessions</th><th class="n">turns</th><th class="n">avg_turns</th><th class="n">avg_sec</th></tr></thead><tbody><tr><td class="">indicators</td><td class="n">75</td><td class="n">234</td><td class="n">3.1</td><td class="n">18.9</td></tr><tr><td class="">compare</td><td class="n">46</td><td class="n">114</td><td class="n">2.5</td><td class="n">18.2</td></tr><tr><td class="">alerts</td><td class="n">46</td><td class="n">129</td><td class="n">2.8</td><td class="n">18.9</td></tr><tr><td class="">levels</td><td class="n">45</td><td class="n">143</td><td class="n">3.2</td><td class="n">19</td></tr><tr><td class="">volatility</td><td class="n">39</td><td class="n">103</td><td class="n">2.6</td><td class="n">17.5</td></tr><tr><td class="">drawing</td><td class="n">37</td><td class="n">103</td><td class="n">2.8</td><td class="n">17.8</td></tr><tr><td class="">backtest</td><td class="n">37</td><td class="n">128</td><td class="n">3.5</td><td class="n">18.4</td></tr><tr><td class="">patterns</td><td class="n">36</td><td class="n">112</td><td class="n">3.1</td><td class="n">17.4</td></tr><tr><td class="">volume</td><td class="n">35</td><td class="n">98</td><td class="n">2.8</td><td class="n">19</td></tr><tr><td class="">explain</td><td class="n">34</td><td class="n">89</td><td class="n">2.6</td><td class="n">19.2</td></tr></tbody></table></div>
+</div></div><div class="note"><b>Topic is what the first question asked for</b>, classified at write time. Indicators lead; backtests run longest per session, which is the pattern you would expect.</div></div>
+
+<h2>Funnel</h2>
+
+<div class="row"><div><div class="two">
+  <div><div class="bars"><div class="bar-row"><span class="bar-lab">registered</span><span class="bar-track"><span class="bar-fill" style="width:100.00%"></span></span><span class="bar-val">2,148</span></div><div class="bar-row"><span class="bar-lab">activated</span><span class="bar-track"><span class="bar-fill" style="width:42.23%"></span></span><span class="bar-val">907</span></div><div class="bar-row"><span class="bar-lab">viewed a security</span><span class="bar-track"><span class="bar-fill" style="width:39.80%"></span></span><span class="bar-val">855</span></div><div class="bar-row"><span class="bar-lab">used the chat</span><span class="bar-track"><span class="bar-fill" style="width:18.34%"></span></span><span class="bar-val">394</span></div></div></div>
+  <div><table><thead><tr><th class="">stage</th><th class="n">users</th></tr></thead><tbody><tr><td class="">registered</td><td class="n">2,148</td></tr><tr><td class="">activated</td><td class="n">907</td></tr><tr><td class="">viewed a security</td><td class="n">855</td></tr><tr><td class="">used the chat</td><td class="n">394</td></tr></tbody></table></div>
+</div></div><div class="note"><b>Each stage is a strict subset of the one above.</b> The gap between activated and viewed is the accounts that signed in and left without opening a chart.</div></div>
+
+<h2>Tables</h2>
+
+<div class="row"><div><h3>demo_waitlist</h3><table><thead><tr><th class="n">id</th><th class="">full_name</th><th class="">email</th><th class="">city</th><th class="">state</th><th class="">source</th><th class="">experience</th><th class="n">activated</th><th class="">registered_at</th></tr></thead><tbody><tr><td class="n">1</td><td class="">Dhruv Rane</td><td class="">dhruvrane@gmail.com</td><td class="">Bengaluru</td><td class="">Karnataka</td><td class="">organic</td><td class="">1-3 years</td><td class="n">1</td><td class="">2026-08-04 07:38:55</td></tr><tr><td class="n">2</td><td class="">Sourav Mondal</td><td class="">sourav.mondal@outlook.com</td><td class="">Chennai</td><td class="">Tamil Nadu</td><td class="">reddit</td><td class="">3-7 years</td><td class="n">0</td><td class="">2026-08-18 04:49:15</td></tr><tr><td class="n">3</td><td class="">Prasenjit Paul</td><td class="">prasenjitpaul@gmail.com</td><td class="">Pune</td><td class="">Maharashtra</td><td class="">twitter</td><td class="">7+ years</td><td class="n">0</td><td class="">2026-07-31 07:10:48</td></tr><tr><td class="n">4</td><td class="">Dhruv Rane</td><td class="">dhruv55@icloud.com</td><td class="">Mumbai</td><td class="">Maharashtra</td><td class="">youtube</td><td class="">1-3 years</td><td class="n">0</td><td class="">2026-08-15 17:33:01</td></tr><tr><td class="n">5</td><td class="">Aditi Saxena</td><td class="">aditi39@outlook.com</td><td class="">Coimbatore</td><td class="">Tamil Nadu</td><td class="">twitter</td><td class="">7+ years</td><td class="n">1</td><td class="">2026-08-22 16:49:26</td></tr><tr><td class="n">6</td><td class="">Rohit Arora</td><td class="">rohitarora@gmail.com</td><td class="">Delhi</td><td class="">Delhi</td><td class="">organic</td><td class="">1-3 years</td><td class="n">0</td><td class="">2026-08-24 17:08:54</td></tr></tbody></table></div><div class="note">One row per registration. <b>activated</b> is the flag every activity table joins against.</div></div>
+
+<div class="row"><div><h3>demo_security_render</h3><table><thead><tr><th class="n">id</th><th class="n">user_id</th><th class="">symbol</th><th class="">company</th><th class="">sector</th><th class="">exchange</th><th class="">surface</th><th class="">interval</th><th class="n">render_ms</th></tr></thead><tbody><tr><td class="n">1</td><td class="n">356</td><td class="">NCCBLUE</td><td class="">NCC Bluewater Products Ltd.</td><td class="">Unclassified</td><td class="">BSE</td><td class="">company page</td><td class="">15m</td><td class="n">66</td></tr><tr><td class="n">2</td><td class="n">1,183</td><td class="">TCS</td><td class="">Tata Consultancy Services Limited</td><td class="">Technology</td><td class="">NSE</td><td class="">chart</td><td class="">1d</td><td class="n">1,025</td></tr><tr><td class="n">3</td><td class="n">1,665</td><td class="">AXISBANK</td><td class="">Axis Bank Limited</td><td class="">Financial Services</td><td class="">NSE</td><td class="">chart</td><td class="">1d</td><td class="n">550</td></tr><tr><td class="n">4</td><td class="n">250</td><td class="">KALAMANDIR</td><td class="">Sai Silks (Kalamandir) Limited</td><td class="">Consumer Cyclical</td><td class="">NSE</td><td class="">screener</td><td class="">1w</td><td class="n">560</td></tr><tr><td class="n">5</td><td class="n">1,479</td><td class="">HIPOLIN</td><td class="">Hipolin Ltd.</td><td class="">Consumer Defensive</td><td class="">BSE</td><td class="">chart</td><td class="">1d</td><td class="n">73</td></tr><tr><td class="n">6</td><td class="n">1,329</td><td class="">AXISBANK</td><td class="">Axis Bank Limited</td><td class="">Financial Services</td><td class="">NSE</td><td class="">chart</td><td class="">1d</td><td class="n">959</td></tr></tbody></table></div><div class="note">One row per render. <b>user_id</b> is a foreign key into the table above; no render can predate the registration it belongs to.</div></div>
+
+<div class="row"><div><h3>demo_chat_session</h3><table><thead><tr><th class="n">id</th><th class="n">user_id</th><th class="">chat_id</th><th class="">title</th><th class="">symbols</th><th class="">topic</th><th class="n">turns</th><th class="n">tools_used</th></tr></thead><tbody><tr><td class="n">1</td><td class="n">1,694</td><td class="">c_20260826_00001</td><td class="">why did BNRSEC move like that</td><td class="">BNRSEC</td><td class="">explain</td><td class="n">2</td><td class="n">4</td></tr><tr><td class="n">2</td><td class="n">1,696</td><td class="">c_20260826_00002</td><td class="">draw a trendline on SMLT</td><td class="">SMLT</td><td class="">drawing</td><td class="n">2</td><td class="n">2</td></tr><tr><td class="n">3</td><td class="n">2,011</td><td class="">c_20260826_00003</td><td class="">why did ADANIENT move like that</td><td class="">ADANIENT</td><td class="">explain</td><td class="n">3</td><td class="n">9</td></tr><tr><td class="n">4</td><td class="n">1,291</td><td class="">c_20260826_00004</td><td class="">show me RSI and MACD on INFY</td><td class="">INFY</td><td class="">indicators</td><td class="n">1</td><td class="n">1</td></tr><tr><td class="n">5</td><td class="n">1,032</td><td class="">c_20260826_00005</td><td class="">is TCS overbought right now</td><td class="">TCS</td><td class="">indicators</td><td class="n">4</td><td class="n">12</td></tr><tr><td class="n">6</td><td class="n">891</td><td class="">c_20260826_00006</td><td class="">compare RELIANCE with its sector</td><td class="">RELIANCE</td><td class="">compare</td><td class="n">4</td><td class="n">8</td></tr></tbody></table></div><div class="note">One row per session; the turns live in <b>demo_chat_message</b>, keyed by session and sequence.</div></div>
+
+<div class="row"><div><table><thead><tr><th class="">tbl</th><th class="n">row_count</th><th class="">holds</th></tr></thead><tbody><tr><td class="">demo_waitlist</td><td class="n">2,148</td><td class="">one row per registration</td></tr><tr><td class="">demo_security_render</td><td class="n">18,420</td><td class="">one row per securities-data render</td></tr><tr><td class="">demo_chat_session</td><td class="n">536</td><td class="">one row per AI chat session</td></tr><tr><td class="">demo_chat_message</td><td class="n">3,122</td><td class="">the turns inside those sessions</td></tr></tbody></table></div><div class="note"><b>The whole schema.</b> Four tables, one file. Every figure in this document is a COUNT, SUM or AVG over one of them.<span class="q">python3 make_report.py</span></div></div>
+
+<div class="foot">
+Generated from charto_demo.db at build time — every figure and bar is read from the
+database, so this document cannot disagree with the data it describes.
+2026-08-27T20:02:15+05:30
+</div>
+
+</div></body></html>

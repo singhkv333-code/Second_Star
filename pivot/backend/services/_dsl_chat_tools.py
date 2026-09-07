@@ -151,14 +151,24 @@ _EXIT_PEAK_RE = re.compile(
     r"|\btrail[^.]{0,20}?(\d+(?:\.\d+)?)\s*%",
     re.IGNORECASE,
 )
+# NOTE the `%` inside every gap class. With a plain `[^.]` gap these spans
+# jump ACROSS the other leg of a bracket: on "exit at 7% gain or 4% loss" the
+# loss pattern matched "7% …loss" and bound 7, so the stop came out at -7%
+# instead of -4% (found 2026-07-17). A gap may never cross another percentage.
 _EXIT_PROFIT_RE = re.compile(
-    r"\b(?:up|gains?|rises?|profit|gain\s+of|\+)\b[^.]{0,20}?(\d+(?:\.\d+)?)\s*%"
-    r"|(\d+(?:\.\d+)?)\s*%[^.]{0,15}?\b(?:profit|gain|up)\b",
+    r"\b(?:up|gains?|rises?|profit|gain\s+of|\+)\b[^.%]{0,20}?(\d+(?:\.\d+)?)\s*%"
+    r"|(\d+(?:\.\d+)?)\s*%[^.%]{0,15}?\b(?:profit|gain|up)\b",
     re.IGNORECASE,
 )
 _EXIT_LOSS_RE = re.compile(
-    r"\b(?:down|loses?|lose|falls?|drops?|loss\s+of)\b[^.]{0,20}?(\d+(?:\.\d+)?)\s*%"
-    r"|(\d+(?:\.\d+)?)\s*%[^.]{0,15}?\b(?:loss|down|drop)\b",
+    r"\b(?:down|loses?|losses|lose|falls?|drops?|loss(?:es)?\s+(?:of|at)|"
+    r"stop(?:\s*-?\s*loss)?(?:\s+at)?|sl)\b[^.%]{0,20}?(\d+(?:\.\d+)?)\s*%"
+    r"|(\d+(?:\.\d+)?)\s*%[^.%]{0,15}?\b(?:loss(?:es)?|down|drop)\b",
+    re.IGNORECASE,
+)
+# Any mention of a downside leg at all — used to REFUSE, never to bind.
+_LOSS_WORD_RE = re.compile(
+    r"\b(?:loss(?:es)?|stop[\s-]?loss|\bsl\b|cut\s+loss(?:es)?|downside)\b",
     re.IGNORECASE,
 )
 _EXIT_BARS_RE = re.compile(
@@ -177,11 +187,24 @@ def _first_group(m: "re.Match") -> Optional[float]:
     return None
 
 
-def _deterministic_position_exit(text: str, *, force: bool = False) -> Optional[dict]:
-    """Build a position-leaf exit tree for the common phrasings without an
-    LLM hop. ``force=True`` is the failure-fallback: when the LLM translate
-    errored/timed out but the text clearly names a position exit, still
-    produce the right leaf rather than refusing a supported shape."""
+def _fallback_position_exit(text: str) -> Optional[dict]:
+    """Last-resort exit leaf for when the LLM translator is UNAVAILABLE
+    (errored, timed out, or returned a tree that failed validation).
+
+    This is NOT a fast path and must never be used as one. It used to run
+    ahead of the translator to save a hop, which meant a regex was deciding
+    which number was the profit target and which was the stop — something it
+    cannot do: "book profit at 12% or cut losses at 5%" binds the stop to 12,
+    and "exit at 7% gain or 4% loss" matched the profit branch and returned
+    early, dropping the stop entirely while the reply promised both (found
+    2026-07-17, twice, both on the safety-critical leg). The translator owns
+    interpretation now; this only exists so a provider outage degrades to a
+    correct-but-narrow answer instead of nothing.
+
+    So it is deliberately timid: it binds ONE unambiguous leg and refuses
+    anything two-legged. A bracket with no model to read it gets an honest
+    failure, not a card with a stop we guessed at.
+    """
     t = (text or "").strip().lower()
     if not t:
         return None
@@ -195,25 +218,27 @@ def _deterministic_position_exit(text: str, *, force: bool = False) -> Optional[
     m = _EXIT_PEAK_RE.search(t)
     if m and (v := _first_group(m)) is not None:
         return _cmp("drawdown_from_peak_pct", ">=", round(v / 100.0, 6))
-    m = _EXIT_PROFIT_RE.search(t)
-    if m and (v := _first_group(m)) is not None:
-        return _cmp("unrealised_pct", ">=", round(v / 100.0, 6))
-    m = _EXIT_LOSS_RE.search(t)
-    if m and (v := _first_group(m)) is not None:
-        return _cmp("unrealised_pct", "<=", round(-v / 100.0, 6))
+
+    _mp = _EXIT_PROFIT_RE.search(t)
+    _vp = _first_group(_mp) if _mp else None
+    _ml = _EXIT_LOSS_RE.search(t)
+    _vl = _first_group(_ml) if _ml else None
+
+    # TWO LEGS ⇒ REFUSE. Which number is the target and which is the stop is a
+    # reading-comprehension question, and getting it backwards arms a "stop" at
+    # +12%. With no translator to ask, the honest answer is no card.
+    if _vp is not None and (_vl is not None or _LOSS_WORD_RE.search(t)):
+        return None
+    if _vl is not None and (_vp is not None or _EXIT_PROFIT_RE.search(t)):
+        return None
+
+    if _vp is not None:
+        return _cmp("unrealised_pct", ">=", round(_vp / 100.0, 6))
+    if _vl is not None:
+        return _cmp("unrealised_pct", "<=", round(-_vl / 100.0, 6))
     m = _EXIT_BARS_RE.search(t)
     if m and (v := _first_group(m)) is not None:
         return _cmp("bars_held", ">=", int(v))
-    if force:
-        # Last resort: any % near a peak/profit/loss word.
-        mm = re.search(r"(\d+(?:\.\d+)?)\s*%", t)
-        if mm:
-            v = float(mm.group(1)) / 100.0
-            if "peak" in t or "high" in t or "trail" in t:
-                return _cmp("drawdown_from_peak_pct", ">=", round(v, 6))
-            if any(w in t for w in ("loss", "down", "drop", "fall", "stop")):
-                return _cmp("unrealised_pct", "<=", round(-v, 6))
-            return _cmp("unrealised_pct", ">=", round(v, 6))
     return None
 
 
@@ -403,9 +428,13 @@ def _patch_dsl_draft(prior: dict, fields: dict):
                 pass
         if fields.get("name"):
             draft["name"] = str(fields["name"])
-        else:
-            # GAN R2 R10: regenerate the title from the draft's readback so a
-            # stale/mis-rendered legacy name doesn't survive the mutation.
+        elif not (draft.get("name") or "").strip():
+            # No model name at all → regenerate from the readback (R10).
+            # A model-authored human title is otherwise KEPT across
+            # mutations: the description/readback subtitle is always
+            # re-derived from the tree, so the conditions can't go stale;
+            # the tool description asks the model to re-supply a name when
+            # a mutation changes the symbol or meaning.
             _rb = (draft.get("readback") or "").strip()
             _erb = (draft.get("exit_readback") or "").strip()
             if _rb:
@@ -436,9 +465,15 @@ def _patch_dsl_draft(prior: dict, fields: dict):
 
 def _tree_has_indicator(tree: Any) -> bool:
     """True when a translated DSL tree (dict, pre-validation) contains at
-    least one IndicatorNode — i.e. the trigger is timeframe-sensitive."""
+    least one IndicatorNode, or a PriceNode with offset > 0 — i.e. the
+    trigger is timeframe-sensitive. A price lookback ('price 1 bar ago')
+    is just as timeframe-sensitive as an indicator: offset=1 means
+    "yesterday's close" on daily bars but "5 minutes ago" on 5m bars,
+    and the DSL has no way to tell which the user meant without this."""
     if isinstance(tree, dict):
         if tree.get("type") == "indicator":
+            return True
+        if tree.get("type") == "price" and int(tree.get("offset") or 0) > 0:
             return True
         return any(_tree_has_indicator(v) for v in tree.values())
     if isinstance(tree, list):
@@ -448,9 +483,10 @@ def _tree_has_indicator(tree: Any) -> bool:
 
 def _apply_interval_to_indicators(tree: Any, interval: str) -> None:
     """Walk a translated DSL tree (still a dict — pre-validation) and
-    set ``timeframe=interval`` on every IndicatorNode that doesn't have
-    one. The LLM grammar prompt doesn't yet know about non-daily
-    intervals, so the user's chat-level choice ('on 15-minute bars')
+    set ``timeframe=interval`` on every IndicatorNode, and on every
+    PriceNode with offset > 0, that doesn't already have one. The LLM
+    grammar prompt doesn't yet know about non-daily intervals, so the
+    user's chat-level choice ('on 15-minute bars', 'every 5 minutes')
     is plumbed in here rather than by re-prompting.
 
     Daily (the default) is a no-op so already-persisted trees and the
@@ -463,6 +499,12 @@ def _apply_interval_to_indicators(tree: Any, interval: str) -> None:
         if isinstance(node, dict):
             if node.get("type") == "indicator" and not node.get("timeframe"):
                 node["timeframe"] = interval
+            elif (
+                node.get("type") == "price"
+                and int(node.get("offset") or 0) > 0
+                and not node.get("timeframe")
+            ):
+                node["timeframe"] = interval
             for v in node.values():
                 _walk(v)
         elif isinstance(node, list):
@@ -474,6 +516,28 @@ def _apply_interval_to_indicators(tree: Any, interval: str) -> None:
 
 # ── backtest_dsl_tree ────────────────────────────────────────────────
 
+# Strip innocuous "short ..." phrases before checking for an actual
+# short-selling intent word: short-term/short of/shortfall, AND "short"
+# used as a crossover-leg adjective ("short SMA/MA/EMA/WMA/MACD crosses
+# the long ..." is THE flagship backtest_dsl_tree use case — a bare
+# indicator-direction word, not a short-sell request).
+_SHORT_BENIGN_RE = re.compile(
+    r"short[\s-]*(?:term|of|fall|sma|ma|ema|wma|macd|period|window|"
+    r"lookback|leg|line|average|moving)\b",
+    re.I,
+)
+_SHORT_INTENT_RE = re.compile(r"\bshort(?:ing|ed|s)?\b", re.I)
+
+
+def _mentions_short(text: str) -> bool:
+    """True if ``text`` reads as a short-selling request ('short X', 'go
+    short', 'sell short', 'shorting', 'short-sell') after stripping the
+    benign 'short-term'/'short of'/'shortfall'/'short SMA'-style
+    crossover-leg phrasings."""
+    if not text:
+        return False
+    return bool(_SHORT_INTENT_RE.search(_SHORT_BENIGN_RE.sub("", text)))
+
 
 async def backtest_dsl_tree(args: dict) -> dict:
     """Run a DSL-tree backtest from a natural-language condition.
@@ -484,7 +548,7 @@ async def backtest_dsl_tree(args: dict) -> dict:
                           ``exit_condition`` — never bake it into this
                           field as an AND, that produces a contradiction.
       primary_symbol    — symbol the trade fires on (e.g. "TCS")
-      start_date        — ISO date (optional; defaults to 3y ago)
+      start_date        — ISO date (optional; defaults to 5y ago)
       end_date          — ISO date (optional; defaults to today)
       interval          — bar interval the backtest runs on
                           (1m/3m/5m/10m/15m/30m/1h/1d/1wk/1mo;
@@ -531,6 +595,27 @@ async def backtest_dsl_tree(args: dict) -> dict:
             "trade fires on, e.g. TCS)."
         )
 
+    # This engine is LONG-ONLY: `_open_position`/`_close_position_at_price`
+    # in workflows/dsl/backtest/engine.py buy at entry and sell at exit —
+    # there is no direction/short mechanism anywhere in BacktestRequest or
+    # the sim loop (P&L, stop-loss bar-low semantics, and peak tracking all
+    # assume a long). Rather than silently running a "short" request long
+    # and narrating it as if shorting had been modeled (a mechanics
+    # fabrication caught in eval), refuse deterministically. Checked via
+    # BOTH the explicit `direction` arg AND a text backstop, because the
+    # chat LLM has been observed to drop "short" language before it ever
+    # reaches this tool's args.
+    direction = str(args.get("direction") or "long").strip().lower()
+    if direction == "short" or _mentions_short(condition) or _mentions_short(
+        exit_condition_text
+    ):
+        raise ValueError(
+            "backtest_dsl_tree only simulates LONG (buy-then-sell) "
+            "positions today — it has no short-selling mechanism, so it "
+            "cannot backtest shorting this. Say so plainly; do not run "
+            "this as a long backtest and describe it as a short."
+        )
+
     # 51-sweep arg-repair: "I hold 50 INFY at 1400 — backtest a 10%
     # trailing stop" arrives with the TRAILING rule in `condition` (the
     # entry slot), which the semantic validator rightly rejects
@@ -564,7 +649,12 @@ async def backtest_dsl_tree(args: dict) -> dict:
             f"could not translate condition into a DSL tree: {exc}"
         ) from None
 
-    # Date window — default to 3 years ending today.
+    # Date window — default to 5 years ending today. (Was 3y; the other two
+    # backtest engines — workflow_backtester + indicator_backtest — already
+    # default to 5y, and 3y starved slow signals: a 50/200 golden cross fired
+    # only 1 trade in 3y → "insufficient data". Kite serves 5y daily fine.
+    # This is only the DEFAULT — an explicit start_date gives any window.)
+    _DEFAULT_WINDOW_DAYS = 365 * 5 + 2
     today = date.today()
     try:
         end_d = (
@@ -577,10 +667,10 @@ async def backtest_dsl_tree(args: dict) -> dict:
         start_d = (
             date.fromisoformat(args["start_date"])
             if args.get("start_date")
-            else end_d - timedelta(days=365 * 3 + 2)
+            else end_d - timedelta(days=_DEFAULT_WINDOW_DAYS)
         )
     except ValueError:
-        start_d = end_d - timedelta(days=365 * 3 + 2)
+        start_d = end_d - timedelta(days=_DEFAULT_WINDOW_DAYS)
     if end_d <= start_d:
         end_d = start_d + timedelta(days=365)
 
@@ -805,49 +895,67 @@ async def backtest_dsl_tree(args: dict) -> dict:
         total_return_pct=float(metrics.total_return_pct),
         n_trades=metrics.total_trades,
     )
-    _bench_txt = (
-        f" Buy-and-hold returned {metrics.benchmark_return_pct:+.1f}%."
-        if metrics.benchmark_return_pct is not None else ""
-    )
-    _sharpe_txt = (
-        f" Sharpe {metrics.sharpe_ratio:.2f}."
-        if metrics.sharpe_ratio is not None else ""
-    )
     _verdict_lead = (
-        f"Verdict — {_verdict_dict['label']}: {_verdict_dict['rationale']} "
+        f"**Verdict — {_verdict_dict['label']}.** {_verdict_dict['rationale']}"
         if _verdict_dict else ""
     )
     _psr = _fs_dict.get("psr") if _fs_dict else None
-    _psr_txt = (
-        f" PSR {_psr:.0%} (confidence the Sharpe is genuinely > 0)."
-        if isinstance(_psr, (int, float)) else ""
-    )
     _nt = (_fs_dict or {}).get("num_trials") or 1
     _dsr = (_fs_dict or {}).get("deflated_sharpe")
-    _dsr_txt = (
-        f" After {_nt} variants this session, deflated-Sharpe DSR {_dsr:.0%}."
-        if _nt > 1 and isinstance(_dsr, (int, float)) else ""
-    )
     _sizing_txt = ""
     if sizing.get("mode") == "vol_target":
-        _sizing_txt = f" Sized to a {sizing.get('target_vol', 0.15):.0%} annualised vol target."
+        _sizing_txt = f"Sized to a {sizing.get('target_vol', 0.15):.0%} annualised vol target."
     elif sizing.get("mode") == "atr_risk":
         _sizing_txt = (
-            f" Sized by ATR risk ({sizing.get('risk_pct', 0.01):.1%}/trade, "
+            f"Sized by ATR risk ({sizing.get('risk_pct', 0.01):.1%}/trade, "
             f"{sizing.get('atr_mult', 2.0):g}×ATR stop)."
         )
     elif sizing.get("mode") == "pct_equity":
-        _sizing_txt = f" Sized at {sizing.get('pct', 0.2):.0%} of equity per entry."
-    _assume_txt = (
-        " Assumptions: " + " ".join(assumptions) if assumptions else ""
+        _sizing_txt = f"Sized at {sizing.get('pct', 0.2):.0%} of equity per entry."
+    _assume_txt = ("Assumptions: " + " ".join(assumptions)) if assumptions else ""
+    # ── Results TABLE (structured, not a run-on paragraph) ──────────────
+    # Verdict + method stay prose; the numbers go in a compact two-column
+    # table. Signed values keep +/- so the FE colours them green / red.
+    # No `**bold**` in table cells — the FE renders cells as raw strings, so
+    # emphasis leaks literal asterisks; signed values get gain/loss colouring.
+    _mrows: list[tuple[str, str]] = [
+        ("Strategy return (whole account)", f"{metrics.total_return_pct:+.1f}%"),
+    ]
+    if metrics.return_on_deployed_pct is not None:
+        # Un-annualized, dollar-weighted return on capital actually put at
+        # risk — distinct from the whole-account figure above, which is
+        # diluted by however long capital sat idle in cash. Shown together
+        # with capital_utilization_pct so a rare-trigger strategy can't
+        # read as "always performs this well" from this row alone.
+        _mrows.append((
+            "Return on capital deployed",
+            f"{metrics.return_on_deployed_pct:+.1f}%",
+        ))
+    if metrics.capital_utilization_pct is not None:
+        _mrows.append((
+            "Capital deployed",
+            f"{metrics.capital_utilization_pct:.0f}% of the window",
+        ))
+    if metrics.benchmark_return_pct is not None:
+        _mrows.append(("Buy & hold", f"{metrics.benchmark_return_pct:+.1f}%"))
+    _mrows.append(("Trades", f"{metrics.total_trades}"))
+    _mrows.append(("Max drawdown", f"{metrics.max_drawdown_pct:.1f}%"))
+    _mrows.append(("Win rate", f"{metrics.win_rate_pct:.0f}%"))
+    if metrics.sharpe_ratio is not None:
+        _mrows.append(("Sharpe", f"{metrics.sharpe_ratio:.2f}"))
+    if isinstance(_psr, (int, float)):
+        _mrows.append(("PSR", f"{_psr:.0%}"))
+    if _nt > 1 and isinstance(_dsr, (int, float)):
+        _mrows.append((f"Deflated Sharpe ({_nt} variants)", f"{_dsr:.0%}"))
+    _table = "| Metric | Value |\n| --- | --- |\n" + "\n".join(
+        f"| {_k} | {_v} |" for _k, _v in _mrows
     )
-    summary = (
-        _verdict_lead +
-        f"Strategy returned {metrics.total_return_pct:+.1f}% across "
-        f"{metrics.total_trades} trade(s). Max drawdown {metrics.max_drawdown_pct:.1f}%. "
-        f"Win rate {metrics.win_rate_pct:.0f}%.{_bench_txt}{_sharpe_txt}{_psr_txt}{_dsr_txt}{_sizing_txt} "
-        f"Results are {_method['costs']}, on {_method['basis']}.{_assume_txt}"
+    _tail_bits = [t for t in (_sizing_txt, _assume_txt) if t]
+    _tail = (" " + " ".join(_tail_bits)) if _tail_bits else ""
+    _method_line = (
+        f"_Results are {_method['costs']}, on {_method['basis']}.{_tail}_"
     )
+    summary = "\n\n".join(p for p in (_verdict_lead, _table, _method_line) if p)
 
     # Build the legacy-shaped signals list (buy + sell as separate
     # entries) AND a richer per-trade list so the card can show
@@ -919,6 +1027,8 @@ async def backtest_dsl_tree(args: dict) -> dict:
             "sortino": metrics.sortino_ratio,
             "n_trades": int(n_trades),
             "n_wins": int(n_wins),
+            "return_on_deployed_pct": metrics.return_on_deployed_pct,
+            "capital_utilization_pct": metrics.capital_utilization_pct,
             "benchmark_return_pct": metrics.benchmark_return_pct,
             "starting_capital": float(request.starting_capital),
             "ending_value": float(metrics.ending_value),
@@ -1004,7 +1114,31 @@ async def propose_dsl_workflow(args: dict) -> dict:
     condition = (args.get("condition") or "").strip()
     primary = (args.get("primary_symbol") or "").strip().upper()
     label = (args.get("name") or "").strip() or f"{primary} compound trigger"
-    action_kind = (args.get("action_kind") or "notify_only").lower()
+    # The default is the one the SCHEMA advertises. It used to be
+    # 'notify_only', which the very next block refuses — so a model that
+    # simply omitted an optional field got a hard refusal telling it not to
+    # build an alert it had never asked to build, and the user got a boundary
+    # statement instead of the order automation they described. The refusal
+    # below still fires for an EXPLICIT notify_only, which is the case it was
+    # written for; omission now means what the field says it means.
+    action_kind = (args.get("action_kind") or "buy_market").lower()
+
+    # Price/condition ALERTS are not available (product decision). A notify-only
+    # DSL workflow has no wired delivery channel, so rather than render a card
+    # that never notifies, refuse deterministically — this closes BOTH the path
+    # where the LLM picks action_kind='notify_only' itself AND the forced-alert
+    # path. An order automation (action_kind='buy_market'/'buy_limit') is
+    # unaffected. Checked here (not just in the prompt) because the LLM has been
+    # observed to draft an alert despite the system-prompt boundary.
+    if action_kind == "notify_only":
+        raise ValueError(
+            "Price/condition ALERTS and notifications aren't available right "
+            "now — Pivot doesn't send alerts, pings, or 'tell me when' "
+            "messages. Do NOT draft an alert/notify workflow. State this "
+            "boundary in one plain line. Only if the user wants to ACT at that "
+            "level, offer a broker-held GTT/threshold ORDER instead — never for "
+            "a 'just alert / don't trade' ask."
+        )
     exit_condition_text = (args.get("exit_condition") or "").strip()
     # User-specified bar interval flows onto every IndicatorNode in the
     # translated entry/exit trees. Default '1d' keeps existing daily
@@ -1211,19 +1345,21 @@ async def propose_dsl_workflow(args: dict) -> dict:
             f"could not translate condition into a DSL tree: {exc}"
         ) from None
 
-    # Always-ask the timeframe: if the user didn't name one (the chat loop
-    # strips a guessed `interval` for this tool when the message has no
-    # timeframe) and the entry tree actually uses an indicator, raise so the
-    # LLM asks — never build an indicator trigger on a silent daily default.
-    raw_interval = (args.get("interval") or "").strip()
-    if not raw_interval and _tree_has_indicator(tree):
-        raise ValueError(
-            "propose_dsl_workflow: timeframe (bar interval) is required for an "
-            "indicator condition. Call ASK_USER first: ask 'Which timeframe — "
-            "1m / 5m / 15m / 30m / 1h / daily / weekly / monthly?'. Do NOT "
-            "default to daily — the indicator period counts BARS of the "
-            "chosen interval."
-        )
+    # Indicator timeframe: DEFAULT to daily when the user didn't name one,
+    # rather than refusing to build — the same call `propose_workflow` already
+    # made. This lane used to raise so the LLM would ask, which meant the two
+    # agent lanes disagreed: "buy INFY when RSI(14)<30" BUILT via the simple
+    # lane on an implicit daily default, while the same rule with an exit
+    # routed here and came back as "daily or 15-min?". The 2026-07-17 eval's
+    # two richest agent builds (A22 entry+TP/SL, A24 MACD+RSI) produced no card
+    # at all for exactly this reason. The bar-interval is the LOWEST-priority
+    # clarify with a safe standard default (system_core clarify priority) and
+    # asking it buries the real gap (quantity/exit). Nothing fires silently:
+    # the card is register-not-execute and the reply states the daily
+    # assumption, so the user can amend the interval before activating.
+    _timeframe_assumed = (
+        not (args.get("interval") or "").strip() and _tree_has_indicator(tree)
+    )
 
     # Overlay the user-specified interval on every IndicatorNode in the
     # translated tree (the LLM grammar prompt doesn't know about it yet,
@@ -1251,35 +1387,33 @@ async def propose_dsl_workflow(args: dict) -> dict:
     exit_tx_meta = None
     exit_readback = None
     if exit_condition_text:
-        # Fast path: parse the common position-exit phrasings deterministically
-        # (no LLM hop). Falls through to the LLM translator only for shapes the
-        # parser doesn't recognise, and that call is TIME-CAPPED so a hung
-        # provider can't stall the turn ~2 minutes. On any failure we fall back
-        # to the deterministic leaf rather than refusing a supported exit shape.
-        exit_tree = _deterministic_position_exit(exit_condition_text)
-        if exit_tree is None:
-            try:
-                exit_tree, exit_tx_meta = await asyncio.wait_for(
-                    translate_condition_to_tree(
-                        exit_condition_text,
-                        allow_position=True,
-                        primary_symbol=primary,
-                        cache_key="dsl.chat.propose.exit.v1",
-                    ),
-                    timeout=25,
-                )
-            except (TranslationError, asyncio.TimeoutError, Exception) as exc:  # noqa: BLE001
-                exit_tree = _deterministic_position_exit(
-                    exit_condition_text, force=True,
-                )
-                if exit_tree is None:
-                    raise ValueError(
-                        f"could not translate exit_condition into a DSL tree: {exc}"
-                    ) from None
-                logger.info(
-                    "exit translate failed (%s); used deterministic leaf for %r",
-                    type(exc).__name__, exit_condition_text[:60],
-                )
+        # The TRANSLATOR owns exit interpretation — always. It is a small
+        # dedicated call (minimal effort, 1.2k out, its own prompt-cache key),
+        # not a main-loop hop, so there is nothing meaningful to save by
+        # regexing ahead of it, and what the regex fast path bought instead was
+        # two dropped stop-losses. It is TIME-CAPPED so a hung provider can't
+        # stall the turn; only on genuine failure do we fall back, and then
+        # only to an unambiguous single leg (see _fallback_position_exit).
+        try:
+            exit_tree, exit_tx_meta = await asyncio.wait_for(
+                translate_condition_to_tree(
+                    exit_condition_text,
+                    allow_position=True,
+                    primary_symbol=primary,
+                    cache_key="dsl.chat.propose.exit.v1",
+                ),
+                timeout=25,
+            )
+        except (TranslationError, asyncio.TimeoutError, Exception) as exc:  # noqa: BLE001
+            exit_tree = _fallback_position_exit(exit_condition_text)
+            if exit_tree is None:
+                raise ValueError(
+                    f"could not translate exit_condition into a DSL tree: {exc}"
+                ) from None
+            logger.info(
+                "exit translate failed (%s); used fallback leaf for %r",
+                type(exc).__name__, exit_condition_text[:60],
+            )
         # Overlay user-specified interval on indicator leaves in the
         # exit tree too (same defence-in-depth as the entry tree above).
         _apply_interval_to_indicators(exit_tree, interval)
@@ -1287,8 +1421,8 @@ async def propose_dsl_workflow(args: dict) -> dict:
             parsed_exit = TypeAdapter(Tree).validate_python(exit_tree)
             semantic_validate(parsed_exit, allow_position=True)
         except (DSLValidationError, ValidationError) as exc:
-            # Last-ditch deterministic leaf before refusing.
-            fb = _deterministic_position_exit(exit_condition_text, force=True)
+            # Translator produced an unusable tree — last-ditch single leaf.
+            fb = _fallback_position_exit(exit_condition_text)
             if fb is not None and fb is not exit_tree:
                 try:
                     _apply_interval_to_indicators(fb, interval)
@@ -1309,6 +1443,19 @@ async def propose_dsl_workflow(args: dict) -> dict:
     #   buy_limit    → action.place_order(side=buy, order_type=limit)
     if action_kind not in ("notify_only", "buy_market", "buy_limit"):
         action_kind = "notify_only"
+
+    # There is no short/sell ENTRY action in this v1 schema (only buy_
+    # market/buy_limit/notify_only) — the same long-only gap already
+    # refused honestly in backtest_dsl_tree (task #6, 2026-07-14). A
+    # "short X" entry condition must never silently register a BUY.
+    if (action_kind in ("buy_market", "buy_limit")
+            and (_mentions_short(condition) or _mentions_short(label))):
+        raise ValueError(
+            "propose_dsl_workflow: this entry action would place a BUY "
+            "order, but the request describes a SHORT/sell entry — "
+            "short-entry automations aren't supported yet. Do not "
+            "silently register a buy for a short ask."
+        )
 
     # Refuse silent qty=1 default for buy actions. The user must
     # have specified a quantity (the LLM should have asked first).
@@ -1416,25 +1563,35 @@ async def propose_dsl_workflow(args: dict) -> dict:
     if exit_readback:
         description += f" · Exit: {exit_readback}"
 
-    # GAN R2 R10: regenerate the card title from the CURRENT DSL readback
-    # rather than trusting the LLM-supplied `name`. A stale/mis-rendered
-    # free-text name (the "4%" → "AXISBANK price below ₹4" freeze) was
-    # surviving DSL mutations because the title was never re-derived from
-    # the tree. The readback is the single source of truth for the title.
-    _readback_title = readback.strip()
-    if exit_readback:
-        _readback_title = f"{_readback_title} → {exit_readback.strip()}"
-    # Keep it a short label: prefix the symbol if not already present.
-    if primary and primary.upper() not in _readback_title.upper():
-        _readback_title = f"{primary}: {_readback_title}"
-    label = _word_cap(_readback_title, 90) or label
+    # Title: the MODEL-authored `name` wins (short human label — the card
+    # subtitle carries the exact regenerated readback, so a friendly name
+    # can't hide the conditions). The R10 readback title is the FALLBACK
+    # for calls that omitted a name — the "AXISBANK price below ₹4"
+    # stale-name freeze can't recur because description/readback below
+    # are always re-derived from the tree.
+    _model_name = str(args.get("name") or "").strip()
+    if _model_name:
+        label = _word_cap(_model_name, 60)
+    else:
+        _readback_title = readback.strip()
+        if exit_readback:
+            _readback_title = f"{_readback_title} → {exit_readback.strip()}"
+        # Keep it a short label: prefix the symbol if not already present.
+        if primary and primary.upper() not in _readback_title.upper():
+            _readback_title = f"{primary}: {_readback_title}"
+        label = _word_cap(_readback_title, 90) or label
 
     valid_until_raw = (args.get("valid_until") or "").strip() or None
+    _model_summary = str(args.get("summary") or "").strip()
     draft = {
         "_render_hint": "workflow_draft_card",
         "draft_id": str(uuid.uuid4()),
         "name": label,
         "description": description,
+        **({"summary": _model_summary[:400]} if _model_summary else {}),
+        # The reply must state a defaulted bar-interval (we build on daily
+        # rather than asking; the user amends before activating).
+        **({"timeframe_assumed": "daily"} if _timeframe_assumed else {}),
         "steps": steps,
         "readback": readback,
         "exit_readback": exit_readback,

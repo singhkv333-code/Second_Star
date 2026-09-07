@@ -1,0 +1,85 @@
+- generic [ref=e1]:
+  - dialog [ref=e2]:
+    - generic [ref=e3]:
+      - generic "Pivot" [ref=e4]: Pivot.
+      - generic [ref=e7]: Markets, in conversation
+      - generic [ref=e8]: Data & analysis only. Not financial advice.
+    - generic [ref=e9]:
+      - generic [ref=e11]:
+        - generic [ref=e12]:
+          - heading "Sign in to Pivot" [level=1] [ref=e13]
+          - paragraph [ref=e14]: Enter your email and password to access your account.
+        - generic [ref=e15]:
+          - generic [ref=e16]:
+            - generic [ref=e17]:
+              - generic [ref=e18]: Email
+              - textbox "Email" [active] [ref=e19]:
+                - /placeholder: you@example.com
+            - generic [ref=e20]:
+              - generic [ref=e21]:
+                - generic [ref=e22]: Password
+                - generic [ref=e23]: Forgot? Contact support
+              - generic [ref=e24]:
+                - textbox "Password" [ref=e25]:
+                  - /placeholder: ••••••••
+                - button "Show password" [ref=e26] [cursor=pointer]
+          - generic [ref=e30]:
+            - button "Sign in" [ref=e31] [cursor=pointer]
+            - generic [ref=e32]:
+              - text: New to Pivot?
+              - button "Create an account" [ref=e33] [cursor=pointer]
+      - generic [ref=e34]:
+        - button "Continue without an account" [ref=e35] [cursor=pointer]
+        - text: — your work stays in this browser only.
+  - banner [ref=e36]:
+    - generic [ref=e37]: Pivot.
+    - generic "Search companies" [ref=e39] [cursor=pointer]:
+      - generic [ref=e40]: RELIANCE
+      - generic [ref=e41]: NSE
+    - button "5m" [ref=e44] [cursor=pointer]
+    - button [ref=e47] [cursor=pointer]
+    - button "Undo" [disabled] [ref=e49]
+    - button "Redo" [disabled] [ref=e50]
+    - button "Chart settings" [ref=e51] [cursor=pointer]
+    - button "Unnamed" [ref=e53] [cursor=pointer]
+    - button "Chart layout" [ref=e58] [cursor=pointer]
+    - button "Screenshot the chart for the chat" [ref=e60] [cursor=pointer]
+    - button [ref=e61] [cursor=pointer]
+    - button "Paper book" [ref=e62] [cursor=pointer]
+    - button "Account" [ref=e64] [cursor=pointer]
+  - generic [ref=e65]:
+    - generic:
+      - generic: RELIANCE
+      - generic "Price scale currency"
+      - generic "Chart timezone"
+    - separator "Chat width" [ref=e67]
+    - complementary [ref=e68]:
+      - toolbar "Conversation actions" [ref=e69]:
+        - radiogroup "Conversation mode" [ref=e70]:
+          - radio "Research" [checked] [ref=e71] [cursor=pointer]
+          - radio "Execution" [ref=e72] [cursor=pointer]
+        - button "New conversation" [ref=e73] [cursor=pointer]
+        - button "Chat history" [ref=e75] [cursor=pointer]
+      - generic [ref=e80]:
+        - generic [ref=e81]: START ASKING WITH
+        - generic [ref=e82]:
+          - button "Levels" [ref=e83] [cursor=pointer]
+          - button "Patterns" [ref=e93] [cursor=pointer]
+          - button "Trends" [ref=e99] [cursor=pointer]
+          - button "Indicators" [ref=e105] [cursor=pointer]
+          - button "Screenshot" [ref=e111] [cursor=pointer]
+          - button "Why it moved" [ref=e120] [cursor=pointer]
+          - button "Plan" [ref=e128] [cursor=pointer]
+          - button "Evidence" [ref=e133] [cursor=pointer]
+          - button "Screen" [ref=e139] [cursor=pointer]
+          - button "Compare" [ref=e148] [cursor=pointer]
+          - button "Alert" [ref=e154] [cursor=pointer]
+          - button "Earnings" [ref=e161] [cursor=pointer]
+      - generic [ref=e174]:
+        - textbox "Ask about this chart…" [ref=e175]
+        - generic [ref=e176]:
+          - button "RELIANCE" [ref=e177] [cursor=pointer]
+          - button "Speak instead of typing" [ref=e179] [cursor=pointer]
+          - button "Send (Enter)" [ref=e183] [cursor=pointer]
+  - complementary [aria-hidden] [ref=e186]
+  - status

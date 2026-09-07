@@ -1,0 +1,371 @@
+- generic [ref=e1]:
+  - generic [ref=e4]:
+    - generic [ref=e5]:
+      - link "Terminal" [ref=e8] [cursor=pointer]:
+        - /url: /futures-and-options/user/explore
+      - generic [ref=e14]:
+        - textbox "Search for Stocks, F&O, Indices etc." [ref=e21]
+        - button "Login/Sign up" [ref=e23] [cursor=pointer]
+    - generic [ref=e25]:
+      - generic [ref=e26]:
+        - generic [ref=e27] [cursor=pointer]:
+          - generic [ref=e28]: NIFTY
+          - generic [ref=e29]:
+            - generic [ref=e30]: 24,654.15
+            - generic [ref=e31]: 29.50 (+0.12%)
+        - generic [ref=e32] [cursor=pointer]:
+          - generic [ref=e33]: SENSEX
+          - generic [ref=e34]:
+            - generic [ref=e35]: 78,833.68
+            - generic [ref=e36]: 252.68 (+0.32%)
+        - generic [ref=e37] [cursor=pointer]:
+          - generic [ref=e38]: BANKNIFTY
+          - generic [ref=e39]:
+            - generic [ref=e40]: 57,961.25
+            - generic [ref=e41]: 221.30 (+0.38%)
+        - generic [ref=e42] [cursor=pointer]:
+          - generic [ref=e43]: BANKEX
+          - generic [ref=e44]:
+            - generic [ref=e45]: 65,699.28
+            - generic [ref=e46]: 366.05 (+0.56%)
+        - generic [ref=e47] [cursor=pointer]:
+          - generic [ref=e48]: FINNIFTY
+          - generic [ref=e49]:
+            - generic [ref=e50]: 26,890.50
+            - generic [ref=e51]: 46.60 (+0.17%)
+        - generic [ref=e52] [cursor=pointer]:
+          - generic [ref=e53]: MIDCPNIFTY
+          - generic [ref=e54]:
+            - generic [ref=e55]: 14,894.70
+            - generic [ref=e56]: 14.40 (+0.10%)
+        - generic [ref=e58] [cursor=pointer]
+      - generic [ref=e62] [cursor=pointer]
+      - generic:
+        - generic:
+          - generic:
+            - generic:
+              - generic: Pin items to list
+              - generic: 6/10 items pinned
+          - generic:
+            - generic:
+              - generic:
+                - generic:
+                  - generic: NIFTY 50
+                  - generic:
+                    - text: 24,654.15
+                    - generic: 29.50 (0.12%)
+              - generic:
+                - generic:
+                  - generic: SENSEX
+                  - generic:
+                    - text: 78,833.68
+                    - generic: 252.68 (0.32%)
+              - generic:
+                - generic:
+                  - generic: NIFTY BANK
+                  - generic:
+                    - text: 57,961.25
+                    - generic: 221.30 (0.38%)
+              - generic:
+                - generic:
+                  - generic: BANKEX
+                  - generic:
+                    - text: 65,699.28
+                    - generic: 366.05 (0.56%)
+              - generic:
+                - generic:
+                  - generic: FINNIFTY
+                  - generic:
+                    - text: 26,890.50
+                    - generic: 46.60 (0.17%)
+              - generic:
+                - generic:
+                  - generic: Nifty Midcap Select
+                  - generic:
+                    - text: 14,894.70
+                    - generic: 14.40 (0.10%)
+            - log
+    - generic [ref=e66]:
+      - button [disabled] [ref=e68]:
+        - iframe [active] [ref=e70]:
+          - generic [ref=f1e1]:
+            - contentinfo:
+              - paragraph: TradingView is interactive and has commands to use with a screen reader. The following is a list of keyboard commands available to interact on the platform
+              - list:
+                - listitem: Start using keyboard navigation mode. Press Alt + Z
+                - listitem: Quick search. Press Ctrl + K
+                - listitem: Change symbol. Start typing symbol name
+                - listitem: Change interval. Press number or comma
+                - listitem: Indicators, Metrics and Strategies. Press slash
+                - listitem: Open layout. Press period
+            - generic [ref=f1e2]:
+              - toolbar [ref=f1e6]:
+                - generic [ref=f1e10]:
+                  - generic [ref=f1e11]:
+                    - button "Symbol Search" [ref=f1e12]:
+                      - generic [ref=f1e16]: TCS
+                    - button "Compare or Add Symbol" [ref=f1e17]
+                  - button "5 minutes" [ref=f1e26]:
+                    - generic [ref=f1e27]: 5m
+                  - button "Candles" [ref=f1e33]
+                  - button "Indicators & Strategies" [ref=f1e45]:
+                    - generic [ref=f1e49]: Indicators
+                  - generic [ref=f1e53]:
+                    - button "Undo apply chart theme" [ref=f1e380]
+                    - button [disabled] [ref=f1e58]
+                  - button "Layout setup" [ref=f1e64]
+                  - generic [ref=f1e68]:
+                    - button "Quick Search" [ref=f1e69]
+                    - button "Settings" [ref=f1e74]
+                    - button "Take a snapshot" [ref=f1e79]
+                  - generic [ref=f1e90]:
+                    - generic [ref=f1e91] [cursor=pointer]: B
+                    - generic [ref=f1e92] [cursor=pointer]: S
+                  - generic "Open chart in new tab" [ref=f1e97]:
+                    - img "open chart in new tab" [ref=f1e99] [cursor=pointer]
+              - generic [ref=f1e100]:
+                - toolbar [ref=f1e101]:
+                  - generic [ref=f1e105]:
+                    - generic [ref=f1e106]:
+                      - generic [ref=f1e109]:
+                        - button "Cross" [ref=f1e111]
+                        - button "Cursors" [pressed] [ref=f1e117]
+                      - generic [ref=f1e123]:
+                        - button "Trend Line" [ref=f1e125]
+                        - button "Trend line tools" [ref=f1e131]
+                      - generic [ref=f1e137]:
+                        - button "Fib Retracement" [ref=f1e139]
+                        - button "Gann and Fibonacci tools" [ref=f1e148]
+                      - generic [ref=f1e154]:
+                        - button "XABCD Pattern" [ref=f1e156]
+                        - button "Patterns" [ref=f1e162]
+                      - generic [ref=f1e168]:
+                        - button "Long Position" [ref=f1e170]
+                        - button "Forecasting and measurement tools" [ref=f1e175]
+                      - generic [ref=f1e181]:
+                        - button "Brush" [ref=f1e183]
+                        - button "Geometric shapes" [ref=f1e189]
+                      - generic [ref=f1e195]:
+                        - button "Text" [ref=f1e197]
+                        - button "Annotation tools" [ref=f1e201]
+                      - generic [ref=f1e206]:
+                        - button "Icon" [ref=f1e208]
+                        - button "Icons" [ref=f1e212]
+                    - generic [ref=f1e216]:
+                      - button "Measure" [ref=f1e217]
+                      - button "Zoom In" [ref=f1e221]
+                    - generic [ref=f1e228]:
+                      - generic [ref=f1e231]:
+                        - button "Magnet Mode snaps drawings placed near price bars to the closest OHLC value" [ref=f1e233]
+                        - button "Magnets" [ref=f1e239]
+                      - button "Keep drawing" [ref=f1e243]
+                      - button "Lock all drawings" [ref=f1e247]
+                      - generic [ref=f1e252]:
+                        - button "Hide all drawings" [ref=f1e254]
+                        - button "Hide options" [ref=f1e258]
+                    - generic [ref=f1e264]:
+                      - button "Remove 0 drawings" [ref=f1e266]
+                      - button "Remove options" [ref=f1e270]
+                    - button "Show Object Tree" [ref=f1e276]
+                - button "Hide Drawings Toolbar" [ref=f1e283]
+              - generic [ref=f1e288]:
+                - 'region "Chart #1" [ref=f1e291]':
+                  - generic [ref=f1e295]:
+                    - generic:
+                      - generic:
+                        - toolbar:
+                          - generic:
+                            - generic [ref=f1e296]:
+                              - generic "Change symbol" [ref=f1e297]:
+                                - button "Change symbol" [ref=f1e298]: TCS
+                              - generic "Change interval" [ref=f1e299]:
+                                - text: ·
+                                - button "Change interval" [ref=f1e300]: "5"
+                              - generic [ref=f1e301]:
+                                - text: ·
+                                - generic [ref=f1e302]: NSE
+                            - generic:
+                              - generic:
+                                - button "More"
+                          - generic [ref=f1e304]:
+                            - generic [ref=f1e305]:
+                              - generic [ref=f1e306]: O
+                              - generic [ref=f1e307]: 2,399.70
+                            - generic [ref=f1e308]:
+                              - generic [ref=f1e309]: H
+                              - generic [ref=f1e310]: 2,401.10
+                            - generic [ref=f1e311]:
+                              - generic [ref=f1e312]: L
+                              - generic [ref=f1e313]: 2,399.70
+                            - generic [ref=f1e314]:
+                              - generic [ref=f1e315]: C
+                              - generic [ref=f1e316]: 2,400.70
+                            - generic [ref=f1e317]: +0.60 (+0.02%)
+                      - generic:
+                        - button "Hide indicator legend" [ref=f1e324]
+                        - generic:
+                          - toolbar:
+                            - generic:
+                              - generic [ref=f1e328]: Volume
+                              - generic:
+                                - generic:
+                                  - button "Hide"
+                                  - button "Settings"
+                                  - button "Remove"
+                                  - button "More"
+                            - generic "Volume" [ref=f1e383]: 2.33 K
+                    - generic "Chart for NSE:TCS:TATA-CONSULTANCY-SERVICES-LTD:CASH:STOCKS, 5 minutes" [ref=f1e338]
+                - toolbar [ref=f1e352]:
+                  - generic [ref=f1e354]:
+                    - generic [ref=f1e384]:
+                      - button "5 years in 1 week intervals" [ref=f1e385]:
+                        - generic [ref=f1e386]: 5y
+                      - button "1 year in 1 week intervals" [ref=f1e387]:
+                        - generic [ref=f1e388]: 1y
+                      - button "3 months in 1 hour intervals" [ref=f1e389]:
+                        - generic [ref=f1e390]: 3m
+                      - button "1 month in 30 minutes intervals" [ref=f1e391]:
+                        - generic [ref=f1e392]: 1m
+                      - button "5 days in 5 minutes intervals" [ref=f1e393]:
+                        - generic [ref=f1e394]: 5d
+                      - button "1 day in 1 minute intervals" [ref=f1e395]:
+                        - generic [ref=f1e396]: 1d
+                    - button "Go to" [ref=f1e355]
+                  - generic [ref=f1e359]:
+                    - button "Timezone" [ref=f1e362]:
+                      - generic [ref=f1e363]: 12:18:37 UTC+5:30
+                    - button "Toggle Percentage" [ref=f1e367]
+                    - button "Toggle Log Scale" [ref=f1e375]:
+                      - generic [ref=f1e376]: log
+                    - button "Toggle Auto Scale" [pressed] [ref=f1e378]:
+                      - generic [ref=f1e379]: auto
+            - generic: Layout setup
+            - alert
+            - generic [ref=f1e527]:
+              - menu [ref=f1e529]:
+                - group [ref=f1e530]:
+                  - generic [ref=f1e531]:
+                    - generic [ref=f1e532]: "1"
+                    - menuitemradio "s" [checked] [ref=f1e534]
+                  - separator [ref=f1e539]
+                - group [ref=f1e540]:
+                  - generic [ref=f1e541]:
+                    - generic [ref=f1e542]: "2"
+                    - generic [ref=f1e543]:
+                      - menuitemradio "2h" [ref=f1e544]
+                      - menuitemradio "2v" [ref=f1e549]
+                  - separator [ref=f1e554]
+                - group [ref=f1e555]:
+                  - generic [ref=f1e556]:
+                    - generic [ref=f1e557]: "3"
+                    - generic [ref=f1e558]:
+                      - menuitemradio "3h" [ref=f1e559]
+                      - menuitemradio "3v" [ref=f1e564]
+                      - menuitemradio "3s" [ref=f1e569]
+                      - menuitemradio "3r" [ref=f1e574]
+                      - menuitemradio "2-1" [ref=f1e579]
+                      - menuitemradio "1-2" [ref=f1e584]
+                  - separator [ref=f1e589]
+                - group [ref=f1e590]:
+                  - generic [ref=f1e591]:
+                    - generic [ref=f1e592]: "4"
+                    - generic [ref=f1e593]:
+                      - menuitemradio "4" [ref=f1e594]
+                      - menuitemradio "4v" [ref=f1e599]
+                      - menuitemradio "4h" [ref=f1e604]
+                      - menuitemradio "4s" [ref=f1e609]
+                      - menuitemradio "4s-l" [ref=f1e614]
+                      - menuitemradio "1-3" [ref=f1e619]
+                      - menuitemradio "3-1" [ref=f1e624]
+                      - menuitemradio "2-2-l" [ref=f1e629]
+                      - menuitemradio "2-2-r" [ref=f1e634]
+                      - menuitemradio "2-2" [ref=f1e639]
+                  - separator [ref=f1e644]
+                - group [ref=f1e645]:
+                  - generic [ref=f1e646]:
+                    - generic [ref=f1e647]: "5"
+                    - generic [ref=f1e648]:
+                      - menuitemradio "1-4" [ref=f1e649]
+                      - menuitemradio "5h" [ref=f1e654]
+                      - menuitemradio "5v" [ref=f1e659]
+                      - menuitemradio "5s" [ref=f1e664]
+                      - menuitemradio "5s-l" [ref=f1e669]
+                      - menuitemradio "2-3" [ref=f1e674]
+                      - menuitemradio "3-2" [ref=f1e679]
+                      - menuitemradio "4-1" [ref=f1e684]
+                      - menuitemradio "2-3-l" [ref=f1e689]
+                      - menuitemradio "2-3-r" [ref=f1e694]
+                  - separator [ref=f1e699]
+                - group [ref=f1e700]:
+                  - generic [ref=f1e701]:
+                    - generic [ref=f1e702]: "6"
+                    - generic [ref=f1e703]:
+                      - menuitemradio "6" [ref=f1e704]
+                      - menuitemradio "6h" [ref=f1e709]
+                      - menuitemradio "6v" [ref=f1e714]
+                      - menuitemradio "6c" [ref=f1e723]
+                      - menuitemradio "2-4" [ref=f1e728]
+                      - menuitemradio "4-2" [ref=f1e733]
+                  - separator [ref=f1e738]
+                - group [ref=f1e739]:
+                  - generic [ref=f1e740]:
+                    - generic [ref=f1e741]: "7"
+                    - generic [ref=f1e742]:
+                      - menuitemradio "4-3" [ref=f1e743]
+                      - menuitemradio "7h" [ref=f1e748]
+                      - menuitemradio "7s" [ref=f1e758]
+                  - separator [ref=f1e768]
+                - group [ref=f1e769]:
+                  - generic [ref=f1e770]:
+                    - generic [ref=f1e771]: "8"
+                    - generic [ref=f1e772]:
+                      - menuitemradio "8" [ref=f1e773]
+                      - menuitemradio "8c" [ref=f1e778]
+                      - menuitemradio "8h" [ref=f1e783]
+                      - menuitemradio "8v" [ref=f1e793]
+              - generic [ref=f1e802]:
+                - generic [ref=f1e803]: Sync in layout
+                - grid [ref=f1e804]:
+                  - row [ref=f1e805]:
+                    - generic [ref=f1e808]:
+                      - rowheader "Symbol" [ref=f1e809]
+                      - cell "Symbol changes on all charts within the layout" [ref=f1e810]
+                    - switch "Symbol Symbol changes on all charts within the layout" [disabled] [ref=f1e816]
+                  - row [ref=f1e821]:
+                    - generic [ref=f1e824]:
+                      - rowheader "Interval" [ref=f1e825]
+                      - cell "Interval changes on all charts within the layout" [ref=f1e826]
+                    - switch "Interval Interval changes on all charts within the layout" [disabled] [ref=f1e832]
+                  - row [selected] [ref=f1e837]:
+                    - generic [ref=f1e840]:
+                      - rowheader "Crosshair" [ref=f1e841]
+                      - cell "Crosshair is synced across all charts within the layout" [ref=f1e842]
+                    - switch "Crosshair Crosshair is synced across all charts within the layout" [checked] [disabled] [ref=f1e848]
+                  - row [ref=f1e853]:
+                    - generic [ref=f1e856]:
+                      - rowheader "Time" [ref=f1e857]
+                      - cell "When a chart is clicked, all charts within the layout display the same point of time" [ref=f1e858]
+                    - switch "Time When a chart is clicked, all charts within the layout display the same point of time" [disabled] [ref=f1e864]
+                  - row [ref=f1e869]:
+                    - generic [ref=f1e872]:
+                      - rowheader "Date range" [ref=f1e873]
+                      - cell "Date range changes on all charts within the layout" [ref=f1e874]
+                    - switch "Date range Date range changes on all charts within the layout" [disabled] [ref=f1e880]
+      - generic [ref=e71]:
+        - generic [ref=e72]:
+          - generic [ref=e73] [cursor=pointer]: Positions
+          - generic [ref=e82] [cursor=pointer]: Chain
+          - generic [ref=e89] [cursor=pointer]: Orders
+          - generic [ref=e95] [cursor=pointer]: Watchlist
+          - generic [ref=e101] [cursor=pointer]: Depth
+          - generic [ref=e107] [cursor=pointer]: Holdings
+          - generic [ref=e113] [cursor=pointer]: Balance
+        - generic [ref=e121]:
+          - generic [ref=e122]:
+            - generic [ref=e123] [cursor=pointer]
+            - generic [ref=e130]: Layout
+          - generic:
+            - generic: Select a panel layout
+            - generic: Hide panels
+      - status [ref=e131]
+  - alert [ref=e132]

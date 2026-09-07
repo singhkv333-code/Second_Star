@@ -10,7 +10,11 @@ from __future__ import annotations
 
 from fastapi import Depends, Header
 
-from backend.auth.jwt_handler import get_jti_from_token, verify_token
+from backend.auth.jwt_handler import (
+    get_jti_from_token,
+    get_user_id_from_token,
+    verify_token,
+)
 from backend.auth.revocation import is_revoked
 from backend.routers._errors import http_error, unauthenticated
 
@@ -33,6 +37,13 @@ def require_user(authorization: str = Header(default=None)) -> int:
     token = authorization.replace("Bearer ", "", 1)
     payload = verify_token(token, "access")
     if not payload:
+        # Not a Pivot JWT — it may be a Charto session. `get_user_id_from_token`
+        # already knows how to resolve one (and is the single place that does,
+        # shared with the nine routers that roll their own dependency), so ask
+        # it rather than growing a second copy of the same fallback here.
+        charto_uid = get_user_id_from_token(token)
+        if charto_uid is not None:
+            return charto_uid
         raise unauthenticated("invalid token")
     jti = get_jti_from_token(token)
     if jti and is_revoked(jti):

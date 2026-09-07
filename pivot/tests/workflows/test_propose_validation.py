@@ -153,3 +153,107 @@ async def test_canonical_demo_quality_attributes() -> None:
     assert notify.config["channel"] == "push"
     # Must read naturally — "Bought" not "Buyed".
     assert "Bought" in notify.config["template"]
+
+
+# ── MCX commodity exchange resolution (regression: exchange defaulted
+# to a hardcoded "NSE" for any symbol, silently mis-routing MCX
+# commodity triggers) ─────────────────────────────────────────────────
+
+
+def test_mcx_commodity_trigger_resolves_exchange() -> None:
+    """A commodity trigger with no explicit `exchange` must resolve to
+    MCX — not silently default to NSE, where no such contract exists."""
+    raw = {
+        "name": "Gold alert",
+        "description": "Alert me when GOLD crosses 75000",
+        "steps": [
+            {
+                "step_type": "trigger.price",
+                "label": "GOLD > 75000",
+                "config": {"symbol": "GOLD", "operator": ">", "value": 75000},
+            },
+            {"step_type": "notify.message", "label": "Notify", "config": {}},
+        ],
+        "rationale": "test",
+    }
+    draft = validate_draft_against_registry(raw)
+    assert draft.steps[0].config["exchange"] == "MCX"
+
+
+@pytest.mark.parametrize(
+    "symbol", ["CRUDEOIL", "SILVER", "NATURALGAS", "crude oil"],
+)
+def test_mcx_commodity_aliases_resolve_exchange(symbol: str) -> None:
+    """Aliases / free-text forms ('crude oil') route the same as the
+    canonical MCX symbol."""
+    raw = {
+        "name": "Commodity alert",
+        "description": f"Alert me when {symbol} crosses a level",
+        "steps": [
+            {
+                "step_type": "trigger.price",
+                "label": f"{symbol} level",
+                "config": {"symbol": symbol, "operator": ">", "value": 100},
+            },
+            {"step_type": "notify.message", "label": "Notify", "config": {}},
+        ],
+        "rationale": "test",
+    }
+    draft = validate_draft_against_registry(raw)
+    assert draft.steps[0].config["exchange"] == "MCX"
+
+
+def test_nse_equity_trigger_stays_nse() -> None:
+    """Regression guard: the MCX auto-routing must not misfire on an
+    ordinary NSE equity symbol."""
+    raw = {
+        "name": "Reliance alert",
+        "description": "Alert me when RELIANCE crosses 3000",
+        "steps": [
+            {
+                "step_type": "trigger.price",
+                "label": "RELIANCE > 3000",
+                "config": {"symbol": "RELIANCE", "operator": ">", "value": 3000},
+            },
+            {"step_type": "notify.message", "label": "Notify", "config": {}},
+        ],
+        "rationale": "test",
+    }
+    draft = validate_draft_against_registry(raw)
+    assert draft.steps[0].config["exchange"] == "NSE"
+
+
+# ── Notify-channel honesty (regression: an explicit email/WhatsApp
+# channel request was silently downgraded to "push" with zero
+# disclosure — the repair notes were computed and then discarded) ────
+
+
+@pytest.mark.parametrize("requested_channel", ["email", "whatsapp", "sms"])
+def test_unsupported_notify_channel_downgrades_with_disclosure(
+    requested_channel: str,
+) -> None:
+    """An explicit email/WhatsApp/SMS channel request must downgrade to
+    push (the only wired v1 channel) AND surface an honest disclosure in
+    `draft.warnings` — never a silent substitution."""
+    raw = {
+        "name": "Notify test",
+        "description": f"Notify me by {requested_channel} when RELIANCE crosses 3000",
+        "steps": [
+            {
+                "step_type": "trigger.price",
+                "label": "RELIANCE > 3000",
+                "config": {"symbol": "RELIANCE", "operator": ">", "value": 3000},
+            },
+            {
+                "step_type": "notify.message",
+                "label": "Notify",
+                "config": {"channel": requested_channel, "template": "Alert"},
+            },
+        ],
+        "rationale": "test",
+    }
+    draft = validate_draft_against_registry(raw)
+    assert draft.steps[1].config["channel"] == "push"
+    assert any(
+        requested_channel in w and "push" in w for w in draft.warnings
+    ), f"expected an honest channel-downgrade disclosure, got {draft.warnings!r}"

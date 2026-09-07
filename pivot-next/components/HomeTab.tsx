@@ -10,11 +10,12 @@
  * check isn't enough — OS scaling, tab/bookmarks bars, etc. all shrink the
  * usable height differently). It gathers the six things a user most often
  * wants on arrival into one scannable board, each cell a doorway into the
- * deeper tab:
+ * deeper tab. (Row 2 held an Opinions teaser beside Strategies until the
+ * opinion-markets surface was retired on 2026-09-05; Strategies now spans it.)
  *
  *   ┌──────── indices (NIFTY / SENSEX / BANK NIFTY / MIDCAP) ────────┐
  *   ├───── Portfolio ─────┬──── Watchlist ────┬──── Chat prompts ────┤
- *   ├──── Prebuilt strategies ────┴──────── Not sure? (Views) ───────┤
+ *   ├─────────────── Prebuilt strategies ────────────────────────────┤
  *   └────────────────────────────────────────────────────────────────┘
  *
  * DESIGN: borders-only cards on the paper surface, radius tokens, theme-aware
@@ -27,7 +28,8 @@
  */
 
 import Link from "next/link";
-import { useEffect, useId, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   Activity,
   ArrowRight,
@@ -42,7 +44,6 @@ import {
   Repeat,
   Scale,
   Sparkles,
-  Telescope,
   TrendingUp,
   Wallet,
 } from "lucide-react";
@@ -64,16 +65,7 @@ import { useWatchlists, setActiveWatchlist, type Watchlist } from "@/lib/watchli
 import { useCompanyLogos } from "@/hooks/useCompanyLogos";
 import { Panel } from "@/components/ds/surfaces";
 import { CompanyLogo } from "@/components/CompanyLogo";
-import { ViewCard } from "@/components/views/ViewCard";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { ViewSummary } from "@/lib/types";
-import packSummariesRaw from "@/components/views/pack/viewpack01.summaries.json";
-import pack2SummariesRaw from "@/components/views/pack/viewpack02.summaries.json";
-
-const PACK_SUMMARIES = [
-  ...(packSummariesRaw as unknown as ViewSummary[]),
-  ...(pack2SummariesRaw as unknown as ViewSummary[]),
-];
 
 // ---------------------------------------------------------------------------
 // Props
@@ -81,7 +73,7 @@ const PACK_SUMMARIES = [
 
 export type HomeTabProps = {
   /** Switch the shell to another top-level tab. */
-  onGoTab: (tab: "chat" | "portfolio" | "screener" | "views" | "agents") => void;
+  onGoTab: (tab: "chat" | "portfolio" | "screener" | "agents") => void;
   /** Drop a prompt into the chat composer and auto-submit it. */
   onSendPrompt: (prompt: string) => void;
   /**
@@ -145,26 +137,13 @@ const TODAY_FMT = new Intl.DateTimeFormat("en-IN", {
   month: "long",
 });
 
-/** Which physical device is this — the 2560×1440 design monitor or the
- *  ~1920×1080 laptop? Keys off the screen's PHYSICAL pixel count
- *  (`screen.width × devicePixelRatio`), NOT the CSS viewport, because OS
- *  display scaling and browser chrome shrink the CSS width/height
- *  unpredictably — a scaled 2560 monitor reports a CSS viewport small enough
- *  that width- or height-based media queries wrongly treat it as a laptop.
- *  Physical pixels are scaling-invariant. SSR-safe: defaults to "monitor". */
-function useDevice(): "monitor" | "laptop" {
-  const [device, setDevice] = useState<"monitor" | "laptop">("monitor");
-  useEffect(() => {
-    const compute = (): void => {
-      const dpr = window.devicePixelRatio || 1;
-      setDevice(window.screen.width * dpr >= 2200 ? "monitor" : "laptop");
-    };
-    compute();
-    window.addEventListener("resize", compute);
-    return () => window.removeEventListener("resize", compute);
-  }, []);
-  return device;
-}
+// NOTE: the home board no longer classifies "monitor vs laptop" from physical
+// pixel counts — that guess mis-sized Retina laptops (small screen, huge pixel
+// count) and 1920 monitors, causing overflow and wrong prompt/strategy counts.
+// The rich-vs-compact decision is now made from actual available space: the
+// chat prompts measure their card height (ChatPromptsCard / promptsThatFit),
+// and the strategies compaction keys off `@media (max-height)` in
+// globals.css — both scaling-honest, unlike a device guess.
 
 /** Rough NSE session check in IST — Mon–Fri, 09:15–15:30. Presentational only
  *  (a calm status chip); never gates any data or action. */
@@ -313,17 +292,17 @@ function makeDraft(
 const PREBUILT_STRATEGIES: StrategyTile[] = [
   {
     kind: "agent",
-    title: "RELIANCE 3:55 PM buy",
+    title: "RELIANCE 3:15 PM buy",
     subtitle: "Weekday buy when buying power is high",
     tag: "Automation",
-    matchName: "RELIANCE 3:55 PM weekday buy",
+    matchName: "RELIANCE 3:15 PM weekday buy",
     Icon: TrendingUp,
     draft: makeDraft(
-      "reliance-355",
-      "RELIANCE 3:55 PM weekday buy",
-      "Every weekday at 3:55 PM IST, buy 10 RELIANCE if buying power > ₹50,000.",
+      "reliance-315",
+      "RELIANCE 3:15 PM weekday buy",
+      "Every weekday at 3:15 PM IST, buy 10 RELIANCE if buying power > ₹50,000.",
       [
-        { step_type: "trigger.schedule", label: "Every weekday at 3:55 PM IST", config: { cron: "55 15 * * 1-5", timezone: "Asia/Kolkata" } },
+        { step_type: "trigger.schedule", label: "Every weekday at 3:15 PM IST", config: { cron: "15 15 * * 1-5", timezone: "Asia/Kolkata" } },
         { step_type: "fetch.portfolio", label: "Get portfolio", config: {} },
         { step_type: "condition.numeric", label: "Buying power > ₹50,000", config: { left: { ref: "portfolio.cash" }, operator: ">", right: 50000 } },
         { step_type: "action.place_order", label: "Buy 10 RELIANCE", config: { symbol: "RELIANCE", side: "buy", quantity: 10, order_type: "market", requires_approval: false } },
@@ -379,9 +358,11 @@ type ChatPrompt = {
   Icon: React.ComponentType<{ size?: number; strokeWidth?: number; style?: React.CSSProperties }>;
 };
 
-// Six seeds; the last two are hidden on short (laptop) heights via the
-// .home-chat-prompts nth-child rule in globals.css, leaving four that fill
-// the card without spilling. The tall monitor shows all six.
+// Six seeds. ChatPromptsCard measures the card's real height and shows as
+// many as fit without cramping (a tall monitor takes all six; a short laptop
+// or a small-screen MacBook trims to what stays readable) — see PROMPT_ROW_MIN
+// and the ResizeObserver there. Measured space, not a physical-pixel device
+// guess, which used to mis-size Retina laptops and 1920 monitors.
 const CHAT_PROMPTS: ChatPrompt[] = [
   { label: "Give me a market pulse for today.", Icon: Activity },
   { label: "Analyse TCS — technicals, fundamentals and a view.", Icon: BarChart2 },
@@ -397,7 +378,7 @@ const CHAT_PROMPTS: ChatPrompt[] = [
 
 export function HomeTab({ onGoTab, onSendPrompt, onOpenAgent, onOpenStrategies }: HomeTabProps): React.ReactElement {
   const [greetName, setGreetName] = useState<string | null>(null);
-  const device = useDevice();
+  const router = useRouter();
 
   useEffect(() => {
     getMe().then((r) => {
@@ -423,10 +404,6 @@ export function HomeTab({ onGoTab, onSendPrompt, onOpenAgent, onOpenStrategies }
       className="mx-auto flex h-full min-h-0 w-full flex-col overflow-y-auto"
       style={{ maxWidth: 1760, gap: "clamp(8px, 1.4vh, 14px)" }}
       data-testid="home-tab"
-      // "monitor" (2560-class physical screen) vs "laptop" (1920-class) — drives
-      // the [data-device] rules in globals.css: the prompt/strategy COUNT (six
-      // vs four) and full-size vs compact Views teaser cards. See useDevice().
-      data-device={device}
     >
       {/* ── Greeting + indices (fixed header band) ───────────────────── */}
       <div className="flex shrink-0 flex-col" style={{ gap: "clamp(8px, 1.4vh, 14px)" }}>
@@ -465,7 +442,9 @@ export function HomeTab({ onGoTab, onSendPrompt, onOpenAgent, onOpenStrategies }
           </div>
         </div>
 
-        <IndicesStrip />
+        <IndicesStrip
+          onSelect={(idx) => router.push(`/stock/${encodeURIComponent(idx.symbol)}`)}
+        />
       </div>
 
       {/* ── Bento grid (fills remaining height at lg+) ───────────────── */}
@@ -485,11 +464,11 @@ export function HomeTab({ onGoTab, onSendPrompt, onOpenAgent, onOpenStrategies }
         </div>
 
         {/* Row 2 */}
-        <div className="lg:col-span-3 lg:col-start-1 lg:row-start-2 min-h-0">
+        {/* Row 2 was a half-width Strategies card beside an Opinions teaser.
+            The opinion-markets surface was retired 2026-09-05, so Strategies
+            takes the full row rather than leaving a hole in the board. */}
+        <div className="lg:col-span-6 lg:col-start-1 lg:row-start-2 min-h-0">
           <StrategiesCard onOpenAgent={onOpenAgent} onOpenStrategies={onOpenStrategies} />
-        </div>
-        <div className="lg:col-span-3 lg:col-start-4 lg:row-start-2 min-h-0">
-          <ViewsCard onGoTab={onGoTab} />
         </div>
       </div>
     </div>
@@ -631,7 +610,11 @@ type IndicesState =
   | { kind: "ok"; items: IndexQuote[] }
   | { kind: "empty" };
 
-function IndicesStrip(): React.ReactElement {
+function IndicesStrip({
+  onSelect,
+}: {
+  onSelect: (idx: IndexQuote) => void;
+}): React.ReactElement {
   const [state, setState] = useState<IndicesState>({ kind: "loading" });
   const [sparks, setSparks] = useState<Record<string, number[]>>({});
 
@@ -674,7 +657,7 @@ function IndicesStrip(): React.ReactElement {
             </Panel>
           ))
         : state.items.map((idx) => (
-            <IndexCard key={idx.symbol} idx={idx} spark={sparks[idx.symbol]} />
+            <IndexCard key={idx.symbol} idx={idx} spark={sparks[idx.symbol]} onSelect={onSelect} />
           ))}
     </div>
   );
@@ -731,10 +714,32 @@ function IndexEmblem({ name }: { name: string }): React.ReactElement {
   );
 }
 
-function IndexCard({ idx, spark }: { idx: IndexQuote; spark?: number[] }): React.ReactElement {
+function IndexCard({
+  idx,
+  spark,
+  onSelect,
+}: {
+  idx: IndexQuote;
+  spark?: number[];
+  onSelect: (idx: IndexQuote) => void;
+}): React.ReactElement {
   const up = idx.change >= 0;
   const color = up ? "var(--color-profit)" : "var(--color-loss)";
   return (
+    <div
+      role="button"
+      tabIndex={0}
+      aria-label={`Open ${idx.name}`}
+      className="home-index-card"
+      onClick={() => onSelect(idx)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect(idx);
+        }
+      }}
+      style={{ cursor: "pointer" }}
+    >
     <Panel
       pad={12}
       className="flex flex-col"
@@ -811,6 +816,7 @@ function IndexCard({ idx, spark }: { idx: IndexQuote; spark?: number[] }): React
         </div>
       </div>
     </Panel>
+    </div>
   );
 }
 
@@ -848,12 +854,13 @@ function PortfolioSummaryCard({
     // Re-fetch when the trading mode flips (real ↔ paper).
   }, [mode]);
 
-  // Today's best/worst mover by day-change % — null when there are no
-  // holdings, or a single tile when only one holding exists (gainer === loser).
+  // Best/worst holding by OVERALL return since entry (not today's move, which
+  // is 0 when the market is closed) — null when there are no holdings, or a
+  // single tile when only one holding exists (gainer === loser).
   const movers = useMemo(() => {
     if (state.kind !== "ok" || state.holdings.length === 0) return null;
     const sorted = [...state.holdings].sort(
-      (a, b) => b.day_change_percentage - a.day_change_percentage,
+      (a, b) => overallReturnPct(b) - overallReturnPct(a),
     );
     const gainer = sorted[0]!;
     const loser = sorted[sorted.length - 1]!;
@@ -910,7 +917,13 @@ function PortfolioSummaryCard({
       ) : state.kind === "empty" ? (
         <EmptyHint
           icon={PieChart}
-          text="Connect a broker to see your holdings and P&L here."
+          // Paper trading never touches a broker, so prompting to connect one
+          // is asking for something the mode does not use.
+          text={
+            mode === "paper"
+              ? "No paper positions yet. Your simulated holdings and P&L will show here."
+              : "Connect a broker to see your holdings and P&L here."
+          }
           cta="Go to Portfolio"
           onClick={() => onGoTab("portfolio")}
         />
@@ -965,7 +978,7 @@ function PortfolioSummaryCard({
               }}
             >
               <MoverTile
-                label={movers.loser ? "Top gainer" : "Today's mover"}
+                label={movers.loser ? "Top gainer" : "Your holding"}
                 holding={movers.gainer}
                 logoUrl={moverLogos[movers.gainer.tradingsymbol.toUpperCase()] ?? null}
               />
@@ -1081,8 +1094,19 @@ function SignedStat({
   );
 }
 
-/** Today's best/worst holding by day-change % — logo, symbol, and the signed
- *  move, matching the watchlist row's visual grammar at a smaller scale. */
+/** Overall return since entry for a holding: unrealised P&L over cost basis.
+ *  Reads the actual P&L (not last−avg) so it's right even for unmarked paper
+ *  lots. 0 when there's no cost basis. */
+function overallReturnPct(h: Holding): number {
+  // |cost basis| so a profitable SHORT (negative quantity) reads as a positive
+  // return, not a sign-flipped one.
+  const cost = Math.abs(h.average_price * h.quantity);
+  return cost > 0 ? (h.pnl / cost) * 100 : 0;
+}
+
+/** Best/worst holding by OVERALL return since entry — logo, symbol, and the
+ *  signed return, matching the watchlist row's visual grammar at a smaller
+ *  scale. */
 function MoverTile({
   label,
   holding,
@@ -1092,7 +1116,8 @@ function MoverTile({
   holding: Holding;
   logoUrl: string | null;
 }): React.ReactElement {
-  const pos = holding.day_change_percentage >= 0;
+  const ret = overallReturnPct(holding);
+  const pos = ret >= 0;
   const color = pos ? "var(--color-profit)" : "var(--color-loss)";
   return (
     <Link
@@ -1132,7 +1157,7 @@ function MoverTile({
             className="tabular-nums"
             style={{ fontFamily: "var(--font-display)", fontSize: 11.5, fontWeight: 600, color }}
           >
-            {fmtSignedPct(holding.day_change_percentage)}
+            {fmtSignedPct(ret)}
           </span>
         </div>
       </div>
@@ -1165,12 +1190,17 @@ function ChangePill({ amount, suffix }: { amount: number; suffix?: string }): Re
   );
 }
 
-/** A slim invested→current bar with the unrealised gain/loss, filling the
- *  portfolio card's middle band with something meaningful rather than a void. */
+/** A slim invested→current-holdings bar with the unrealised gain/loss, filling
+ *  the portfolio card's middle band with something meaningful rather than a
+ *  void. The gain is the REAL unrealised P&L (`total_pnl`) — NOT
+ *  `total_value − invested`, which wrongly folds in uninvested cash (total_value
+ *  = holdings mark + cash), so a down book was showing a fake positive number.
+ *  Current holdings value = invested + total_pnl, so the bar reflects cost vs
+ *  what those holdings are worth now, consistent with the Total P&L below. */
 function InvestedBar({ summary }: { summary: PortfolioSummary }): React.ReactElement {
   const invested = Math.max(summary.invested_value, 0);
-  const value = Math.max(summary.total_value, 0);
-  const gain = value - invested;
+  const gain = summary.total_pnl;
+  const value = Math.max(invested + gain, 0);
   const pos = gain >= 0;
   // Fraction of the bar that is "principal"; the remainder is gain (or the
   // whole bar shrinks toward the value on a loss). Clamp to [0,1].
@@ -1436,6 +1466,24 @@ function WatchlistRow({ row, last }: { row: WlRow; last: boolean }): React.React
 // Chat prompts card
 // ---------------------------------------------------------------------------
 
+// Smallest height (px) a single prompt row can take before its one line of
+// text + icon start to look cramped against the row border. The fit maths
+// below never lets a visible row fall below this, so rows always read cleanly.
+const PROMPT_ROW_MIN = 38;
+// Inter-row gap in px — the resolved midpoint of the clamp() on the list below.
+// Used only to size the fit; the real gap is still the clamp.
+const PROMPT_ROW_GAP = 8;
+
+/** How many prompt rows fit in `height` px without any row dropping below
+ *  PROMPT_ROW_MIN. n flex rows share `height` with (n-1) gaps between them, so
+ *  the tallest n that keeps every row ≥ min is floor((height+gap)/(min+gap)).
+ *  Clamped to [3, total] — never blank, never more than we have. */
+function promptsThatFit(height: number, total: number): number {
+  if (height <= 0) return total;
+  const n = Math.floor((height + PROMPT_ROW_GAP) / (PROMPT_ROW_MIN + PROMPT_ROW_GAP));
+  return Math.max(3, Math.min(total, n));
+}
+
 function ChatPromptsCard({
   onGoTab,
   onSend,
@@ -1443,6 +1491,37 @@ function ChatPromptsCard({
   onGoTab: HomeTabProps["onGoTab"];
   onSend: (prompt: string) => void;
 }): React.ReactElement {
+  const listRef = useRef<HTMLDivElement | null>(null);
+  // How many prompts to render. Measured from the card's real height rather
+  // than guessed from the device: the tall monitor holds all six, a laptop or
+  // small MacBook trims to what stays readable — no overflow on either, and no
+  // dependence on physical-pixel counts (which mis-sized both). Starts at four
+  // (always safe — never overflows on first paint) and the observer corrects
+  // it up or down once the card has a measured height.
+  const [visible, setVisible] = useState(4);
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    // Only the lg+ bento fixes the card to a viewport-derived height where the
+    // fit maths is stable; below lg the board is a single scrolling column, so
+    // the card sizes to its own content and there's room for all six.
+    const lg = window.matchMedia("(min-width: 1024px)");
+    const measure = (): void => {
+      setVisible(lg.matches ? promptsThatFit(el.clientHeight, CHAT_PROMPTS.length) : CHAT_PROMPTS.length);
+    };
+    measure();
+    // The list is flex-1, so at lg its height tracks the card (which the bento
+    // grid sizes from the viewport) independently of how many rows we render —
+    // the measurement is stable, not circular, and re-fires on any resize/zoom.
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    lg.addEventListener("change", measure);
+    return () => {
+      ro.disconnect();
+      lg.removeEventListener("change", measure);
+    };
+  }, []);
+
   return (
     <CardShell
       Icon={MessageSquare}
@@ -1455,11 +1534,16 @@ function ChatPromptsCard({
     >
       {/* No inner scroll — each prompt grows to an equal share of the card
           height (flex-1), so they read as one evenly-spaced stack that fills
-          the card rather than floating apart. Six on the tall monitor; the
-          last two are hidden on short laptop heights (globals.css). The small
-          vertical padding keeps the top/bottom rows' hover highlight visible. */}
-      <div className="home-chat-prompts flex flex-1 flex-col" style={{ gap: "clamp(6px, 1.1vh, 10px)", paddingBlock: 2 }}>
-        {CHAT_PROMPTS.map((p) => (
+          the card rather than floating apart. `visible` (measured above) keeps
+          six on a tall monitor and trims on shorter screens so no row is
+          cramped. The small vertical padding keeps the top/bottom rows' hover
+          highlight visible. */}
+      <div
+        ref={listRef}
+        className="home-chat-prompts flex flex-1 flex-col"
+        style={{ gap: "clamp(6px, 1.1vh, 10px)", paddingBlock: 2 }}
+      >
+        {CHAT_PROMPTS.slice(0, visible).map((p) => (
           <PromptRow key={p.label} label={p.label} Icon={p.Icon} onClick={() => onSend(p.label)} />
         ))}
       </div>
@@ -1611,36 +1695,18 @@ function StrategyCard({
         <Icon size={16} strokeWidth={1.8} />
       </div>
       <div className="flex min-w-0 flex-1 flex-col" style={{ gap: 3 }}>
-        <div className="flex items-center" style={{ gap: 8 }}>
-          <span
-            style={{
-              fontFamily: "var(--font-ui)",
-              fontSize: 13,
-              fontWeight: 600,
-              color: "var(--text-primary)",
-              letterSpacing: "-0.01em",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {tile.title}
-          </span>
-          <span
-            style={{
-              fontFamily: "var(--font-ui)",
-              fontSize: 9.5,
-              fontWeight: 700,
-              letterSpacing: "0.05em",
-              textTransform: "uppercase",
-              color: "var(--text-tertiary)",
-              border: "1px solid var(--glass-border)",
-              borderRadius: "var(--radius-pill)",
-              padding: "1.5px 7px",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {tile.tag}
-          </span>
-        </div>
+        <span
+          style={{
+            fontFamily: "var(--font-ui)",
+            fontSize: 13,
+            fontWeight: 600,
+            color: "var(--text-primary)",
+            letterSpacing: "-0.01em",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {tile.title}
+        </span>
         <span
           style={{
             fontFamily: "var(--font-ui)",
@@ -1660,39 +1726,6 @@ function StrategyCard({
         aria-hidden
       />
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Views card ("Not sure what to trade?")
-// ---------------------------------------------------------------------------
-
-function ViewsCard({
-  onGoTab,
-}: {
-  onGoTab: HomeTabProps["onGoTab"];
-}): React.ReactElement {
-  return (
-    <CardShell
-      Icon={Telescope}
-      title="Not sure what to trade?"
-      actionLabel="Browse opinions"
-      onAction={() => onGoTab("views")}
-      // Never scroll — every teaser card's full content (question, timeline,
-      // return, Yes/No) must be visible at once. The vh-clamped ViewCard
-      // sizing (see .home-views-grid rules in globals.css) shrinks the cards
-      // to fit whatever height the row-2 cell has.
-      scroll={false}
-    >
-      {/* The real View-Markets ViewCard — question · timeline · honest best-run
-          return · Yes/No stance buttons. Two across, since the Home cell is
-          ~half the board width (the Views tab gives each card a full third). */}
-      <div className="home-views-grid grid grid-cols-1 sm:grid-cols-2" style={{ gap: 12, height: "100%" }}>
-        {PACK_SUMMARIES.slice(0, 2).map((v) => (
-          <ViewCard key={v.id} view={v} onOpen={() => onGoTab("views")} sans />
-        ))}
-      </div>
-    </CardShell>
   );
 }
 

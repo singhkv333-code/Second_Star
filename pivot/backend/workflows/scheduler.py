@@ -85,15 +85,6 @@ _IPO_OPEN_WATCHER_JOB_ID = "pivot_workflows_ipo_open_watcher"
 _IPO_LISTING_CREDIT_INTERVAL_SECONDS = 3600
 _IPO_LISTING_CREDIT_JOB_ID = "pivot_workflows_ipo_listing_credit"
 
-# Scheduled-macro watcher cadence. Macro releases (RBI MPC ~10:00 IST,
-# FOMC ~00:30 IST, CPI prints ~18:00/00:30 IST) fire on KNOWN dates and
-# their verify windows span hours, so a 5-minute poll fires close to the
-# release without hammering the official feeds. Like the IPO watcher,
-# this is NOT gated on NSE market hours — FOMC / US-CPI land when the
-# Indian market is closed and MUST still fire.
-_MACRO_WATCHER_INTERVAL_SECONDS = 300
-_MACRO_WATCHER_JOB_ID = "pivot_workflows_macro_watcher"
-
 # Global-price watcher (trigger.global_price) cadence. Crypto / forex /
 # global-commodity quotes come from public APIs OUTSIDE Kite (Kraken,
 # CoinGecko, Twelve Data, Frankfurter, yfinance futures). The default
@@ -367,6 +358,68 @@ def _is_one_time_schedule(step: Any) -> bool:
     return bool(cfg.get("run_at")) and not cfg.get("cron")
 
 
+def _is_subdaily_cron(cron: str) -> bool:
+    """True when a 5-field cron fires MORE THAN ONCE per day — i.e. its
+    minute or hour field is a wildcard, step, list, or range that spans
+    many times of day (``*/5 * * * *`` every 5 min, ``0 * * * *`` hourly,
+    ``0 9-15 * * 1-5`` top-of-hour through the session).
+
+    A fixed single ``minute hour`` (``15 15 * * 1-5`` = 3:15 PM once a day,
+    a weekly/monthly SIP, or a resolved market-relative-time trigger) is
+    once-daily and returns False — it fires at its intended wall-clock time
+    and must never be second-guessed by a market-hours gate.
+    """
+    parts = str(cron or "").split()
+    if len(parts) != 5:
+        return False
+    minute, hour = parts[0], parts[1]
+
+    def _multi(f: str) -> bool:
+        return f == "*" or f.startswith("*/") or "," in f or "-" in f
+
+    # Hour spans many values → fires across the day. Fixed hour but a
+    # multi-minute field → fires many times within that hour.
+    return _multi(hour) or _multi(minute)
+
+
+def _first_order_symbol(workflow: Workflow) -> Optional[str]:
+    """The symbol of the workflow's first ``action.place_order`` step (upper),
+    or None when the workflow places no order. Used to pick the right venue
+    calendar for the intraday market-hours gate."""
+    for s in sorted(workflow.steps, key=lambda s: int(s.step_index)):
+        if s.step_type == "action.place_order":
+            sym = (s.config or {}).get("symbol")
+            if sym:
+                return str(sym).upper()
+    return None
+
+
+def _intraday_schedule_gated(workflow: Workflow, step: Any) -> bool:
+    """True when a scheduled fire should be SKIPPED because it's an intraday
+    (sub-daily) TRADING schedule and the venue for the order's symbol is
+    currently closed.
+
+    Only sub-daily crons that place an order are gated — so "every 5 min"
+    on GOLDBEES pauses overnight/weekends instead of firing ~200 dead ticks
+    a day (each resting or rejecting), while a 3:15 PM weekday SIP is
+    untouched. Venue is per-symbol (NSE / US / crypto via
+    is_market_open_for_symbol), so a US or crypto agent isn't gated on the
+    NSE clock. Fail-open: any classification error → NOT gated (never
+    silently swallow a fire the user asked for).
+    """
+    try:
+        cfg = step.config or {}
+        if not _is_subdaily_cron(str(cfg.get("cron") or "")):
+            return False
+        symbol = _first_order_symbol(workflow)
+        if symbol is None:
+            return False
+        from backend.market.market_hours import is_market_open_for_symbol
+        return not is_market_open_for_symbol(symbol)
+    except Exception:  # noqa: BLE001 — defensive: never block a fire on error
+        return False
+
+
 def upsert_workflow_schedule(db: Session, workflow: Workflow) -> None:
     """Recompute per-step ``next_run_at`` for every ``trigger.schedule``
     step, plus the workflow-level ``next_run_at`` summary.
@@ -555,6 +608,25 @@ async def _fire_one(
                     st.next_run_at = None  # type: ignore[assignment]
                 db.commit()
                 return None
+            # Intraday market-hours gate: an every-N-minutes/hours TRADING
+            # schedule shouldn't fire when its venue is closed (the order
+            # would only rest or reject). Skip THIS tick but advance
+            # next_run_at to the next cron tick, so it keeps stepping forward
+            # and fires cleanly on the first tick after the market reopens.
+            # A once-daily fixed-time cron / SIP is never gated.
+            trig_step = next(
+                (s for s in wf.steps if int(s.step_index) == triggered_step_index),
+                None,
+            )
+            if trig_step is not None and _intraday_schedule_gated(wf, trig_step):
+                try:
+                    upsert_workflow_schedule(db, wf)
+                except InvalidCronError:
+                    wf.next_run_at = None  # type: ignore[assignment]
+                    for st in _trigger_schedule_steps(wf):
+                        st.next_run_at = None  # type: ignore[assignment]
+                db.commit()
+                return None
             run = WorkflowRun(
                 workflow_id=wf.id,
                 workflow_version=int(wf.version),
@@ -676,6 +748,9 @@ def register_workflow_scheduler(scheduler: AsyncIOScheduler) -> None:
             replace_existing=True,
             max_instances=1,
             coalesce=True,
+            # Tolerate a scheduler that's busy/slightly late at the cron instant
+            # (boot warmup, GC) so the morning mint isn't silently skipped.
+            misfire_grace_time=1800,
         )
     # Hourly catch-up (2026-07-10): a token that dies INTRADAY (Kite login
     # elsewhere, api_key rotation, transient failure at 07:40) used to stay
@@ -693,29 +768,21 @@ def register_workflow_scheduler(scheduler: AsyncIOScheduler) -> None:
         replace_existing=True,
         max_instances=1,
         coalesce=True,
+        # WHY misfire_grace_time (2026-07-11): the startup self-heal is armed
+        # for start+30s, but that instant lands mid-boot warmup (DB/LLM/cache
+        # init) when the event loop is busy. With APScheduler's default ~1s
+        # grace the run MISFIRES and is silently skipped — so a restart did NOT
+        # self-heal a dead token (observed live). 10-min grace lets the startup
+        # run (and any hourly tick that slipped) actually execute.
+        misfire_grace_time=600,
         next_run_time=_dt.now() + _td(seconds=30),
     )
 
-    # Scheduled-macro watcher — only when the feature flag is on. Gated at
-    # registration (not self-gated inside) so the job doesn't even exist
-    # when disabled; tests call `_poll_scheduled_macro_triggers` directly.
-    from backend.config import settings as _settings
-    macro_on = bool(getattr(_settings, "macro_events_enabled", False))
-    if macro_on:
-        scheduler.add_job(
-            _poll_scheduled_macro_triggers,
-            trigger="interval",
-            seconds=_MACRO_WATCHER_INTERVAL_SECONDS,
-            id=_MACRO_WATCHER_JOB_ID,
-            name="Pivot Workflows — scheduled-macro watcher",
-            replace_existing=True,
-            max_instances=1,
-            coalesce=True,
-        )
-
     # Global-price watcher (trigger.global_price) — only when the feature
-    # flag is on. Same registration-time gating pattern as the macro
-    # watcher: tests call `_poll_global_price_triggers` directly.
+    # flag is on. Registration-time gating pattern so the job doesn't
+    # even exist when disabled; tests call `_poll_global_price_triggers`
+    # directly.
+    from backend.config import settings as _settings
     global_price_on = bool(
         getattr(_settings, "global_price_triggers_enabled", False)
     )
@@ -750,11 +817,10 @@ def register_workflow_scheduler(scheduler: AsyncIOScheduler) -> None:
         )
     logger.info(
         "[workflow-scheduler] registered poll job (%ss) + watcher (%ss) "
-        "+ ipo-open watcher (%ss) + ipo-listing-credit (%ss)%s%s%s",
+        "+ ipo-open watcher (%ss) + ipo-listing-credit (%ss)%s%s",
         _POLL_INTERVAL_SECONDS, _WATCHER_INTERVAL_SECONDS,
         _IPO_OPEN_WATCHER_INTERVAL_SECONDS,
         _IPO_LISTING_CREDIT_INTERVAL_SECONDS,
-        f" + macro watcher ({_MACRO_WATCHER_INTERVAL_SECONDS}s)" if macro_on else "",
         f" + global-price watcher ({global_price_seconds}s)" if global_price_on else "",
         f" + earnings watcher ({_EARNINGS_WATCHER_INTERVAL_SECONDS}s)" if earnings_on else "",
     )
@@ -768,13 +834,42 @@ def register_workflow_scheduler(scheduler: AsyncIOScheduler) -> None:
 # next tick. Stored as a JSON-friendly float; absent on the first tick.
 _LAST_PRICE_KEY = "_last_price"
 _LAST_VALUE_KEY = "_last_value"  # for indicator triggers
-_LAST_FIRED_EVENT_KEY = "_last_fired_event_guid"  # dedup for trigger.event
-_RBI_RSS_SOURCE_ID = "rbi_press_releases"
-_EVENT_GENERIC_ORG_TOKENS = frozenset({
-    "rbi", "reserve bank", "reserve bank of india",
-})
+# Rising-edge fire latch for level/compound ENTRY triggers. Without it, a
+# `price > X` / `RSI < Y` / compound-tree condition that STAYS true fires a
+# fresh run — and a fresh order (each run gets a new run_id → a new
+# idempotency key, so the broker can't dedup) — on EVERY 60s tick. The latch
+# converts "fires while true" into "fires once on the transition into true,
+# re-arms when it goes false" (matches how crosses_* already behaves and how
+# the exit path's one_shot latch works). See _edge_should_fire.
+_MATCHED_LATCH_KEY = "_armed_matched"
 
 
+async def _edge_should_fire(
+    workflow_id: str, step_index: int, cfg: dict, matched: bool,
+) -> bool:
+    """Return True only on the rising edge of ``matched`` (not-matched →
+    matched), persisting the latch state so the next tick sees it. On the
+    falling edge (matched → not-matched) it re-arms. This is the fix for the
+    entry-trigger refire loop: a level condition that stays true fires ONCE,
+    not once per poll. Crash-safe: the latch is committed BEFORE the caller
+    creates the run, so a crash after latch-before-fire won't double-fire
+    (at-most-once), matching the exit path's ordering.
+
+    ``crosses_above`` / ``crosses_below`` are unaffected — their ``matched``
+    is already momentary (true only on the crossing tick), so the edge gate
+    passes them through once per genuine cross.
+    """
+    prev = bool(cfg.get(_MATCHED_LATCH_KEY))
+    if matched and not prev:
+        await asyncio.to_thread(
+            _persist_last_value, workflow_id, step_index, _MATCHED_LATCH_KEY, 1.0,
+        )
+        return True
+    if not matched and prev:
+        await asyncio.to_thread(
+            _persist_last_value, workflow_id, step_index, _MATCHED_LATCH_KEY, 0.0,
+        )
+    return False
 async def _poll_watch_triggers() -> None:
     """Polled every 60s. During NSE market hours, scans active workflows
     whose first step is `trigger.price` or `trigger.indicator`,
@@ -823,9 +918,6 @@ async def _poll_watch_triggers() -> None:
                             # but only fires when the workflow has an
                             # open position from a prior entry fire.
                             "trigger.exit_compound",
-                            # RBI-autofire: news-event triggers fetch the
-                            # RBI RSS feed and keyword-match per tick.
-                            "trigger.event",
                             # F&O P3: expiry-day trigger — DTE from
                             # the instrument master, per-expiry
                             # fire-once latch.
@@ -879,8 +971,6 @@ async def _poll_watch_triggers() -> None:
                 await _evaluate_compound_trigger(wf_id, step_idx, cfg, fired_at)
             elif step_type == "trigger.exit_compound":
                 await _evaluate_exit_compound_trigger(wf_id, step_idx, cfg, fired_at)
-            elif step_type == "trigger.event":
-                await _evaluate_event_trigger(wf_id, step_idx, cfg, fired_at)
             elif step_type == "trigger.expiry_day":
                 await _evaluate_expiry_day_trigger(wf_id, step_idx, cfg, fired_at)
         except Exception:
@@ -1054,7 +1144,9 @@ async def _evaluate_price_trigger(
         _persist_last_value, workflow_id, step_index, _LAST_PRICE_KEY, current,
     )
 
-    if matched:
+    # Rising-edge gate: fire once on entry into the matched region, not every
+    # tick it stays true (refire-loop fix).
+    if await _edge_should_fire(workflow_id, step_index, cfg, matched):
         await _fire_watch_run(workflow_id, step_index, "price_alert", fired_at)
 
 
@@ -1096,7 +1188,8 @@ async def _evaluate_indicator_trigger(
         _persist_last_value, workflow_id, step_index, _LAST_VALUE_KEY, value,
     )
 
-    if matched:
+    # Rising-edge gate (refire-loop fix) — see _evaluate_price_trigger.
+    if await _edge_should_fire(workflow_id, step_index, cfg, matched):
         await _fire_watch_run(workflow_id, step_index, "indicator_alert", fired_at)
 
 
@@ -1170,7 +1263,10 @@ async def _evaluate_compound_trigger(
             workflow_id, step_index, "_last_values", new_state,
         )
 
-    if matched:
+    # Rising-edge gate (refire-loop fix): a compound tree that stays TRUE
+    # fires ONCE on entry into TRUE, not every 60s tick. crosses_* leaves are
+    # already momentary so this passes them through per genuine cross.
+    if await _edge_should_fire(workflow_id, step_index, cfg, matched):
         # Pick the most-specific triggered_by value we can. The CHECK
         # constraint allows price_alert / indicator_alert / event_alert;
         # compound triggers most resemble indicator_alert (heavy use
@@ -1424,6 +1520,34 @@ async def _evaluate_exit_compound_trigger(
     if position is None:
         return  # Nothing to exit — quietly skip.
 
+    # PEAK TRACKING (fixes trailing/drawdown-from-peak exits, which were dead
+    # because peak_close was never populated). Maintain a RUNNING peak on the
+    # step config: max(prior peak, entry, current price) each tick — O(1), no
+    # per-tick history fetch. It captures every observation while the position
+    # is open, so "exit when drawdown from peak > X%" can finally evaluate.
+    try:
+        _px_map = await asyncio.to_thread(
+            _batch_fetch_prices, [f"NSE:{position.symbol}"],
+        )
+        _cur_px = _px_map.get(f"NSE:{position.symbol}")
+    except Exception:  # noqa: BLE001
+        _cur_px = None
+    _prev_peak_raw = cfg.get(_PEAK_CLOSE_KEY)
+    _prev_peak = (
+        float(_prev_peak_raw) if isinstance(_prev_peak_raw, (int, float)) else None
+    )
+    _candidates = [
+        v for v in (_prev_peak, position.entry_price, _cur_px) if v is not None
+    ]
+    if _candidates:
+        _new_peak = max(_candidates)
+        position.peak_close = _new_peak
+        if _new_peak != _prev_peak:
+            await asyncio.to_thread(
+                _persist_last_value,
+                workflow_id, step_index, _PEAK_CLOSE_KEY, _new_peak,
+            )
+
     last_values_raw = cfg.get("_last_values")
     prev_state: dict[str, float] = (
         {k: float(v) for k, v in last_values_raw.items()
@@ -1482,14 +1606,16 @@ async def _evaluate_exit_compound_trigger(
 
 # Track C #5: per-branch fire-once latch for staged scale-out exits.
 _EXIT_FIRED_KEY = "_exit_branch_fired"
+# Running peak-close for trailing / drawdown-from-peak exit conditions.
+_PEAK_CLOSE_KEY = "_peak_close"
 
 
 def _persist_config_str(
     workflow_id: str, step_index: int, key: str, value: str,
 ) -> None:
     """Persist an arbitrary string key on a step's config (copy-and-
-    reassign so SQLA tracks the JSON change). Generic sibling of
-    ``_persist_event_guid`` for fire-once latches."""
+    reassign so SQLA tracks the JSON change). Used for fire-once
+    latches (e.g. per-occurrence firing dedup)."""
     db = SessionLocal()
     try:
         step = (
@@ -1691,122 +1817,6 @@ async def _fire_watch_run(
     return run_id
 
 
-def _persist_event_guid(
-    workflow_id: str, step_index: int, guid: str,
-) -> None:
-    """Persist the last-fired event guid (a string) on the firing step so
-    the next tick dedups. _persist_last_value only accepts float/dict, so
-    trigger.event needs its own string-capable writer."""
-    db = SessionLocal()
-    try:
-        step = (
-            db.query(WorkflowStep)
-            .filter(
-                WorkflowStep.workflow_id == workflow_id,
-                WorkflowStep.step_index == step_index,
-            )
-            .first()
-        )
-        if step is None:
-            return
-        cfg = dict(step.config or {})
-        cfg[_LAST_FIRED_EVENT_KEY] = str(guid)
-        step.config = cfg  # type: ignore[assignment]
-        db.commit()
-    finally:
-        db.close()
-
-
-async def _evaluate_event_trigger(
-    workflow_id: str,
-    step_index: int,
-    cfg: dict,
-    fired_at: datetime,
-) -> None:
-    """RBI-autofire: fetch the RBI press-release RSS feed and fire when a
-    real rate-decision headline matches the step's keywords.
-
-    Detection uses the live RBI RSS adapter (NOT the keyless NewsAPI path
-    in execute_fetch_news) so it works with NEWSAPI_KEY empty and
-    news_events_enabled=False — the adapter/registry import fine with the
-    master flag off; that flag only gates the news_events router/jobs.
-
-    Specificity guard: a bare org-name token ("RBI") alone never fires —
-    at least one specific policy keyword (repo rate / MPC / rate cut / ...)
-    must hit. Verified against the live feed: 0/10 false fires on today's
-    money-market / penalty / annual-report noise, fires on a real
-    rate-cut headline.
-
-    Dedup: the fired item's guid/url is persisted under
-    _LAST_FIRED_EVENT_KEY so a press release that stays in the feed for
-    many ticks fires exactly once.
-    """
-    keywords_raw = cfg.get("keywords") or []
-    if not isinstance(keywords_raw, list):
-        return
-    keywords = [str(k) for k in keywords_raw if isinstance(k, str) and k.strip()]
-    if not keywords:
-        return
-
-    # Lazy imports keep watcher startup cheap and avoid a hard dependency
-    # on the news_events package at module load.
-    try:
-        from backend.news_events.config import get_source
-        from backend.news_events.sources.rss import RSSAdapter
-    except Exception:  # pragma: no cover — defensive
-        return
-
-    src = get_source(_RBI_RSS_SOURCE_ID)
-    if src is None:
-        return
-    try:
-        items = await RSSAdapter(
-            source_id=src.source_id, feed_url=src.feed_url,
-        ).fetch()
-    except Exception:
-        # Transient fetch/parse error — try again next tick.
-        return
-    if not items:
-        return
-
-    kw_lower = [k.lower() for k in keywords]
-    last_fired_raw = cfg.get(_LAST_FIRED_EVENT_KEY)
-    last_fired_guid = str(last_fired_raw) if isinstance(last_fired_raw, str) else ""
-
-    for item in items:  # RSS feed is newest-first
-        hay = ((item.title or "") + " " + (item.summary or "")).lower()
-        hits = [k for k in kw_lower if k in hay]
-        specific = [k for k in hits if k not in _EVENT_GENERIC_ORG_TOKENS]
-        if not specific:
-            continue
-        meta = item.raw_metadata or {}
-        guid = str(meta.get("guid") or item.url or item.title or "")
-        if guid and guid == last_fired_guid:
-            # Same press release we already fired on — dedup.
-            return
-        # Persist guid BEFORE firing so a crash between fire and persist
-        # re-fires (at-least-once) rather than silently dropping.
-        await asyncio.to_thread(
-            _persist_event_guid, workflow_id, step_index, guid,
-        )
-        await fire_external_event(
-            workflow_id=workflow_id,
-            triggered_step_index=step_index,
-            fired_at=fired_at,
-            audit_context={
-                "source": _RBI_RSS_SOURCE_ID,
-                "title": item.title,
-                "url": item.url,
-                "matched_keywords": specific,
-                "published_at": (
-                    item.published_at.isoformat()
-                    if item.published_at else None
-                ),
-            },
-        )
-        return  # one fire per tick
-
-
 async def fire_external_event(
     *,
     workflow_id: str,
@@ -1814,18 +1824,12 @@ async def fire_external_event(
     fired_at: datetime,
     audit_context: dict,
 ) -> Optional[str]:
-    """Public seam for the Phase-5 news_events firing path.
+    """Public seam for the corporate-schedule (earnings) firing path.
 
     Thin wrapper around ``_fire_watch_run`` that always uses
     ``triggered_by='event_alert'`` (already allowed by the
-    workflow_runs CHECK constraint) and forces ``audit_context``
-    to non-empty. Returns the newly-created ``workflow_run.id`` so
-    the caller can persist the link in ``news_fired_events.workflow_run_id``.
-
-    This is the ONLY new public function added to the workflows
-    package in the entire news_events build — every other touch
-    is inside ``backend/news_events/``. See
-    ``docs/news_events_phase0_plan.md`` §3.5 Touch 1.
+    workflow_runs CHECK constraint) and forces ``audit_context`` to
+    non-empty. Returns the newly-created ``workflow_run.id``.
     """
     if not audit_context:
         raise ValueError("audit_context must be non-empty for external events")
@@ -1838,224 +1842,20 @@ async def fire_external_event(
     )
 
 
-# ── Scheduled-macro watcher (trigger.scheduled_macro) ────────────────
-
-
-# Per-occurrence fire-once latch. Stores the event instance key
-# (e.g. "rbi_mpc:2026-06-06") so the workflow fires once per release and
-# re-arms automatically for the NEXT calendar occurrence.
-_MACRO_FIRED_KEY = "_macro_fired_for"
-
-
-def _persist_macro_fired(
-    workflow_id: str, step_index: int, instance_key: str,
-) -> None:
-    """Persist the per-occurrence latch on a trigger.scheduled_macro step.
-    Mirrors _persist_ipo_fired (string-capable JSON writer). Runs in a
-    worker thread."""
-    db = SessionLocal()
-    try:
-        step = (
-            db.query(WorkflowStep)
-            .filter(
-                WorkflowStep.workflow_id == workflow_id,
-                WorkflowStep.step_index == step_index,
-            )
-            .first()
-        )
-        if step is None:
-            return
-        cfg = dict(step.config or {})
-        cfg[_MACRO_FIRED_KEY] = str(instance_key)
-        step.config = cfg  # type: ignore[assignment]
-        db.commit()
-    finally:
-        db.close()
-
-
-def _clear_macro_fired(workflow_id: str, step_index: int) -> None:
-    """Remove the per-occurrence latch. Called when a fire was persisted
-    but ``fire_external_event`` did NOT create a run (e.g. the workflow
-    was paused/deactivated in the tiny window between persist and fire),
-    so the occurrence stays re-armable instead of being silently skipped
-    forever."""
-    db = SessionLocal()
-    try:
-        step = (
-            db.query(WorkflowStep)
-            .filter(
-                WorkflowStep.workflow_id == workflow_id,
-                WorkflowStep.step_index == step_index,
-            )
-            .first()
-        )
-        if step is None:
-            return
-        cfg = dict(step.config or {})
-        if cfg.pop(_MACRO_FIRED_KEY, None) is not None:
-            step.config = cfg  # type: ignore[assignment]
-            db.commit()
-    finally:
-        db.close()
-
-
-def _scan_active_macro_triggers() -> list[tuple[str, int, dict[str, object]]]:
-    """Return (workflow_id, step_index, config_copy) for every active
-    workflow with a trigger.scheduled_macro step. Multi-trigger: every
-    such step is read independently (own latch)."""
-    db = SessionLocal()
-    try:
-        rows = (
-            db.query(Workflow, WorkflowStep)
-            .join(WorkflowStep, WorkflowStep.workflow_id == Workflow.id)
-            .filter(
-                Workflow.status == WorkflowStatus.active,
-                WorkflowStep.step_type == "trigger.scheduled_macro",
-            )
-            .all()
-        )
-        return [
-            (str(wf.id), int(step.step_index), dict(step.config or {}))
-            for wf, step in rows
-        ]
-    finally:
-        db.close()
-
-
-async def _poll_scheduled_macro_triggers() -> None:
-    """Polled every 5 minutes. For each active trigger.scheduled_macro
-    step whose calendar occurrence is currently inside its verify window,
-    run the layered outcome verifier and fire ONCE on a confident match.
-
-    NOT gated on NSE market hours: FOMC (~00:30 IST) and US CPI
-    (~18:00 IST) land when the Indian market is closed and must still
-    fire. Fail-safe: the verifier returns ``unknown`` on any uncertainty
-    (no headline / low confidence / evidence-guard tripped / feed down),
-    and we only fire when ``result.matched`` is True — a stale calendar
-    date therefore causes a missed/late fire, never a false one.
-
-    Fire-once is per-occurrence: the latch stores the event instance key
-    (kind:date), persisted BEFORE firing so a crash re-fires at-most-once
-    (engine runs are idempotent), and the workflow re-arms for the next
-    occurrence automatically.
-    """
-    fired_at = datetime.now(timezone.utc)
-
-    try:
-        triggers = await asyncio.to_thread(_scan_active_macro_triggers)
-    except Exception:
-        logger.exception("[watcher.macro] scan failed")
-        return
-    if not triggers:
-        return
-
-    from backend.config import settings
-    from backend.macro_events.calendar import due_event
-    from backend.macro_events.verifier import verify_macro_outcome
-
-    global_floor = float(getattr(settings, "macro_verifier_min_confidence", 0.85))
-
-    for wf_id, step_idx, cfg in triggers:
-        try:
-            kind = str(cfg.get("kind", "")).strip()
-            expected = str(cfg.get("expected_outcome", "")).strip()
-            if not kind or not expected:
-                continue
-
-            # Only act while a known occurrence is inside its verify window.
-            due = due_event(kind, fired_at)
-            if due is None:
-                continue
-            # Already fired for THIS occurrence?
-            if str(cfg.get(_MACRO_FIRED_KEY, "")) == due.instance_key():
-                continue
-
-            try:
-                step_min = float(cfg.get("min_confidence", 0.85))
-            except (TypeError, ValueError):
-                step_min = 0.85
-            eff_min = max(step_min, global_floor)
-
-            comparison = cfg.get("comparison")
-            threshold = cfg.get("threshold")
-            allow_pm = bool(cfg.get("allow_prediction_market_fallback", True))
-
-            result = await verify_macro_outcome(
-                kind, expected,
-                min_confidence=eff_min,
-                comparison=str(comparison) if comparison is not None else None,
-                threshold=float(threshold) if threshold is not None else None,
-                allow_prediction_market_fallback=allow_pm,
-            )
-            if not result.matched:
-                logger.info(
-                    "[watcher.macro] no fire wf=%s step=%d kind=%s "
-                    "expected=%s decision=%s tier=%s reason=%s",
-                    wf_id, step_idx, kind, expected,
-                    result.decision, result.tier,
-                    (result.audit or {}).get("reason", ""),
-                )
-                continue
-
-            # Fire-once: persist the per-occurrence latch BEFORE firing
-            # (at-most-once — a real order must never double-register).
-            await asyncio.to_thread(
-                _persist_macro_fired, wf_id, step_idx, due.instance_key(),
-            )
-            run_id = await fire_external_event(
-                workflow_id=wf_id,
-                triggered_step_index=step_idx,
-                fired_at=fired_at,
-                audit_context={
-                    "source": "scheduled_macro_watcher",
-                    "kind": kind,
-                    "expected_outcome": expected,
-                    "decision": result.decision,
-                    "tier": result.tier,
-                    "confidence": result.confidence,
-                    "evidence": result.evidence,
-                    "event_instance": due.instance_key(),
-                    "label": due.label,
-                    **(result.audit or {}),
-                },
-            )
-            if run_id is None:
-                # The fire didn't create a run (workflow paused/deactivated
-                # in the persist→fire window). Re-arm so the occurrence
-                # isn't silently lost.
-                await asyncio.to_thread(_clear_macro_fired, wf_id, step_idx)
-                logger.info(
-                    "[watcher.macro] fire produced no run wf=%s step=%d — "
-                    "latch cleared, will retry", wf_id, step_idx,
-                )
-                continue
-            logger.info(
-                "[watcher.macro] fired wf=%s step=%d kind=%s outcome=%s "
-                "tier=%s run=%s",
-                wf_id, step_idx, kind, result.decision, result.tier, run_id,
-            )
-        except Exception:
-            logger.exception(
-                "[watcher.macro] failed to evaluate wf=%s step=%d",
-                wf_id, step_idx,
-            )
-
-
 # ── IPO-open watcher ─────────────────────────────────────────────────
 
 
 # Fire-once latch for trigger.ipo_open. Stored on the step's config as
 # the string "1" once the watcher has fired. _persist_last_value can
-# only carry float/dict, so we mirror _persist_event_guid's string-
-# capable writer.
+# only carry float/dict, so a string-capable writer is used.
 _IPO_OPEN_FIRED_KEY = "_ipo_open_fired"
 
 
 def _persist_ipo_fired(workflow_id: str, step_index: int) -> None:
     """Persist the fire-once latch on a trigger.ipo_open step.
 
-    Mirrors _persist_event_guid's shape: copy-and-reassign the JSON dict
-    so SQLA tracks the change. Runs in a worker thread via to_thread.
+    Copy-and-reassign the JSON dict so SQLA tracks the change. Runs in
+    a worker thread via to_thread.
     """
     db = SessionLocal()
     try:
@@ -2537,10 +2337,10 @@ async def _poll_global_price_triggers() -> None:
 # ── Earnings watcher (trigger.earnings) ──────────────────────────────
 
 
-# Per-occurrence fire-once latch for trigger.earnings. Mirrors
-# ``_MACRO_FIRED_KEY``: stores the event instance key (e.g.
-# "INFY:2026-07-15") so the workflow fires once per quarter and re-arms
-# automatically for the NEXT scheduled earnings date.
+# Per-occurrence fire-once latch for trigger.earnings. Stores the event
+# instance key (e.g. "INFY:2026-07-15") so the workflow fires once per
+# quarter and re-arms automatically for the NEXT scheduled earnings
+# date.
 _EARNINGS_FIRED_KEY = "_earnings_fired_for"
 
 
@@ -2549,9 +2349,8 @@ def _persist_earnings_fired(
 ) -> None:
     """Persist the per-occurrence latch on a ``trigger.earnings`` step.
 
-    Mirrors ``_persist_macro_fired`` — copy-and-reassign the JSON dict
-    so SQLA tracks the change. Runs in a worker thread via
-    ``asyncio.to_thread``.
+    Copy-and-reassign the JSON dict so SQLA tracks the change. Runs in a
+    worker thread via ``asyncio.to_thread``.
     """
     db = SessionLocal()
     try:
@@ -2578,7 +2377,7 @@ def _clear_earnings_fired(workflow_id: str, step_index: int) -> None:
     was persisted but ``fire_external_event`` did NOT create a run (e.g.
     the workflow was paused in the persist→fire window), so the
     occurrence stays re-armable instead of being silently skipped
-    forever. Mirrors ``_clear_macro_fired``.
+    forever.
     """
     db = SessionLocal()
     try:
@@ -2603,8 +2402,7 @@ def _clear_earnings_fired(workflow_id: str, step_index: int) -> None:
 def _scan_active_earnings_triggers() -> list[tuple[str, int, dict[str, object]]]:
     """Return (workflow_id, step_index, config_copy) for every active
     workflow with a ``trigger.earnings`` step. Multi-trigger: every such
-    step is read independently (own per-occurrence latch). Mirrors
-    ``_scan_active_macro_triggers``.
+    step is read independently (own per-occurrence latch).
     """
     db = SessionLocal()
     try:
@@ -2629,8 +2427,6 @@ async def _poll_earnings_triggers() -> None:
     """Polled every 30 minutes. For each active ``trigger.earnings`` step
     whose calendar occurrence is currently inside its verify window, run
     the EPS/revenue outcome verifier and fire ONCE on a confident match.
-
-    Mirrors ``_poll_scheduled_macro_triggers`` exactly in shape:
 
       * NOT gated on NSE market hours — US ADR earnings (and yfinance's
         post-print estimate updates) can land overnight.

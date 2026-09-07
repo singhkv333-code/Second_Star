@@ -12,7 +12,7 @@ import pytest
 from backend.services.fast_path import try_fast_path
 
 
-class TestGreetings:
+class TestConversationalTurnsPassThrough:
     @pytest.mark.parametrize("message", [
         "hi", "Hi", "HI",
         "hello", "Hello.",
@@ -23,21 +23,15 @@ class TestGreetings:
         "good evening", "Good evening.",
         "good night",
     ])
-    def test_matches_pure_greeting(self, message: str) -> None:
-        result = try_fast_path(message)
-        assert result is not None
-        assert "build an agent" in result.lower() or "check a price" in result.lower()
+    def test_greetings_reach_adaptive_reply_policy(self, message: str) -> None:
+        assert try_fast_path(message) is None
 
-
-class TestThanks:
     @pytest.mark.parametrize("message", [
         "thanks", "Thanks!", "thank you", "thx", "ty", "cheers",
         "appreciate it",
     ])
-    def test_matches_thanks(self, message: str) -> None:
-        result = try_fast_path(message)
-        assert result is not None
-        assert "anytime" in result.lower()
+    def test_thanks_reach_adaptive_reply_policy(self, message: str) -> None:
+        assert try_fast_path(message) is None
 
 
 class TestHelpQueries:
@@ -48,11 +42,8 @@ class TestHelpQueries:
         "what is pivot",
         "capabilities",
     ])
-    def test_matches_help(self, message: str) -> None:
-        result = try_fast_path(message)
-        assert result is not None
-        assert "indian stocks" in result.lower()
-        assert "agents" in result.lower()
+    def test_reaches_adaptive_reply_policy(self, message: str) -> None:
+        assert try_fast_path(message) is None
 
 
 class TestRealQueriesPassThrough:
@@ -88,11 +79,10 @@ class TestNormalization:
         assert try_fast_path("   ") is None
         assert try_fast_path(None) is None  # type: ignore[arg-type]
 
-    def test_trailing_punctuation_does_not_break_match(self) -> None:
+    def test_trailing_punctuation_still_passes_through(self) -> None:
         for variant in ["hi!", "hi.", "hi?", "hi!!!", "hi ,"]:
-            assert try_fast_path(variant) is not None, variant
+            assert try_fast_path(variant) is None, variant
 
     def test_extra_internal_whitespace_collapses(self) -> None:
-        # "good   morning" → "good morning" → match
-        assert try_fast_path("good   morning") is not None
-        assert try_fast_path("good\tmorning") is not None
+        assert try_fast_path("good   morning") is None
+        assert try_fast_path("good\tmorning") is None

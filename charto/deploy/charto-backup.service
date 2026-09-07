@@ -1,0 +1,18 @@
+[Unit]
+Description=Charto: back up the user database to blob
+After=network-online.target data.mount
+Requires=data.mount
+
+[Service]
+Type=oneshot
+User=azureuser
+WorkingDirectory=/data/app
+ExecStart=/data/app/charto/deploy/backup_users.sh
+TimeoutStartSec=10min
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+StandardOutput=journal
+StandardError=journal

@@ -1,0 +1,110 @@
+- generic [ref=f9e1]:
+  - banner [ref=f9e34]:
+    - generic [ref=f9e35]: Charto.
+    - generic "Search companies" [ref=f9e37] [cursor=pointer]:
+      - generic [ref=f9e38]: RELIANCE
+      - generic [ref=f9e39]: NSE
+    - button "15m" [ref=f9e42] [cursor=pointer]
+    - button "Indicators" [ref=f9e45] [cursor=pointer]
+    - generic [ref=f9e51]: 8 drawn by chat
+    - button "Clear what the chat drew" [ref=f9e52] [cursor=pointer]
+    - button "Layout — Single chart" [ref=f9e57] [cursor=pointer]
+    - button "Screenshot the chart for the chat" [ref=f9e61] [cursor=pointer]
+    - button "Switch to dark" [ref=f9e65] [cursor=pointer]
+    - button "Chat" [ref=f9e68] [cursor=pointer]
+    - generic [ref=f9e71]:
+      - button "Sign in to Charto" [expanded] [active] [ref=f9e72] [cursor=pointer]
+      - menu [ref=f9e233]:
+        - generic [ref=f9e239]:
+          - generic [ref=f9e240]: Not signed in
+          - generic [ref=f9e241]: Working in this browser
+        - generic [ref=f9e242] [cursor=pointer]: Sign in
+        - generic [ref=f9e244] [cursor=pointer]: Create an account
+        - generic [ref=f9e247]: Your charts, drawings and chats stay in this browser until you sign in.
+  - generic [ref=f9e76]:
+    - generic [ref=f9e77]:
+      - button "Cursor / select" [ref=f9e78] [cursor=pointer]
+      - button "Lines" [ref=f9e83] [cursor=pointer]
+      - button "Channels" [ref=f9e89] [cursor=pointer]
+      - button "Fibonacci" [ref=f9e95] [cursor=pointer]
+      - button "Shapes" [ref=f9e98] [cursor=pointer]
+      - button "Measure" [ref=f9e102] [cursor=pointer]
+      - button "Position" [ref=f9e110] [cursor=pointer]
+      - button "Annotations" [ref=f9e115] [cursor=pointer]
+      - button "Magnet — snap to OHLC" [ref=f9e119] [cursor=pointer]
+      - button "Export drawings JSON" [ref=f9e124] [cursor=pointer]
+      - button "Clear all drawings" [ref=f9e128] [cursor=pointer]
+    - generic [ref=f9e133]:
+      - table [ref=f9e136]:
+        - row "R 1,312.02 · held 4/4 R 1,294.40 · held 3/3 R 1,276.63 · held 2/2 R 1,316.73 · held 2/2 S 1,249.80 · 1 touch falling wedge · width 2.78 · unresolved bear flag · pole -6.00 · confirmed double top · neckline 1,271.00 · confirmed" [ref=f9e206]:
+          - cell
+          - cell [ref=f9e207]
+          - cell [ref=f9e147]
+          - generic:
+            - generic [ref=f9e208]: R 1,312.02 · held 4/4
+            - generic [ref=f9e209]: R 1,294.40 · held 3/3
+            - generic [ref=f9e210]: R 1,276.63 · held 2/2
+            - generic [ref=f9e211]: R 1,316.73 · held 2/2
+            - generic [ref=f9e212]: S 1,249.80 · 1 touch
+            - generic [ref=f9e213]: falling wedge · width 2.78 · unresolved
+            - generic [ref=f9e214]: bear flag · pole -6.00 · confirmed
+            - generic [ref=f9e215]: double top · neckline 1,271.00 · confirmed
+        - row [ref=f9e216]:
+          - cell [ref=f9e217]
+        - row [ref=f9e219]:
+          - cell
+          - cell [ref=f9e220]:
+            - link "Charting by TradingView" [ref=f9e224] [cursor=pointer]:
+              - /url: https://www.tradingview.com/?utm_medium=lwc-link&utm_campaign=lwc-chart&utm_source=127.0.0.1/
+          - cell [ref=f9e229]
+        - row [ref=f9e151]:
+          - cell
+          - cell [ref=f9e152]
+          - cell [ref=f9e156]
+      - generic:
+        - generic:
+          - generic "Change instrument" [ref=f9e159] [cursor=pointer]: RELIANCE
+          - generic: ·
+          - text: 15m
+          - generic: ·
+          - generic: NSE
+        - generic:
+          - generic: O 1,267.7
+          - generic: H 1,267.7
+          - generic: L 1,267.7
+          - generic: C 1,267.7
+          - generic: V 0
+          - text: "-3.9 (-0.31%)"
+        - generic:
+          - generic [ref=f9e160] [cursor=pointer]:
+            - generic [ref=f9e161]: SMA 20
+            - generic [ref=f9e162]: ·1,271.97
+          - generic [ref=f9e163] [cursor=pointer]:
+            - generic [ref=f9e164]: EMA 21
+            - generic [ref=f9e165]: ·1,271.88
+          - generic [ref=f9e166] [cursor=pointer]:
+            - generic [ref=f9e167]: Supertrend 10 3
+            - generic [ref=f9e168]: ·1,274.23
+          - button "Hide indicators" [ref=f9e169] [cursor=pointer]
+      - generic [ref=f9e172] [cursor=pointer]:
+        - generic [ref=f9e173]: MACD 12 26 9
+        - generic [ref=f9e174]: ·-2.08 -1.96
+    - toolbar "Panels" [ref=f9e175]:
+      - button "Watchlist" [ref=f9e176] [cursor=pointer]
+      - button "Alerts" [ref=f9e178] [cursor=pointer]
+    - generic "Drag to resize · double-click to reset" [ref=f9e182]
+    - complementary [ref=f9e183]:
+      - generic [ref=f9e184]: Ask about what you're looking at.The model sees the visible chart.
+      - generic [ref=f9e188]:
+        - generic [ref=f9e189]:
+          - textbox "Ask about this chart…" [ref=f9e190]
+          - generic [ref=f9e191]:
+            - button "Conversation options" [ref=f9e193] [cursor=pointer]
+            - button "RELIANCE" [ref=f9e195] [cursor=pointer]
+            - button "Send (Enter)" [ref=f9e197] [cursor=pointer]
+        - generic [ref=f9e200]: Enter to send · Shift+Enter for a new line
+  - contentinfo [ref=f9e201]:
+    - generic [ref=f9e202]: "15m: 501 bars in 103ms · last ₹1,267.7"
+    - generic [ref=f9e203]: local store · kite 1-min
+    - generic [ref=f9e204]: ·
+    - generic [ref=f9e205]: 501 × 15m

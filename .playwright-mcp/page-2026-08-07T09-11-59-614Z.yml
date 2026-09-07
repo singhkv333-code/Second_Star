@@ -1,0 +1,77 @@
+- generic [active] [ref=f7e1]:
+  - banner [ref=f7e2]:
+    - generic [ref=f7e3]: Charto.
+    - generic "Search companies" [ref=f7e5] [cursor=pointer]:
+      - generic [ref=f7e6]: RELIANCE
+      - generic [ref=f7e7]: NSE
+    - button "1h" [ref=f7e10] [cursor=pointer]
+    - button "Indicators" [ref=f7e13] [cursor=pointer]
+    - button "Undo" [disabled] [ref=f7e20]
+    - button "Redo" [disabled] [ref=f7e24]
+    - button "Layout — Single chart" [ref=f7e29] [cursor=pointer]
+    - button "Screenshot the chart for the chat" [ref=f7e33] [cursor=pointer]
+    - group "Panels" [ref=f7e38]:
+      - button "Watchlist" [ref=f7e39] [cursor=pointer]
+      - button "Alerts" [ref=f7e43] [cursor=pointer]
+    - button "Switch to light" [ref=f7e49] [cursor=pointer]
+    - button "Chat" [ref=f7e56] [cursor=pointer]
+    - button "Sign in to Charto" [ref=f7e60] [cursor=pointer]
+  - generic [ref=f7e64]:
+    - generic [ref=f7e65]:
+      - button "Cursor / select" [ref=f7e66] [cursor=pointer]
+      - button "Lines" [ref=f7e71] [cursor=pointer]
+      - button "Fibonacci" [ref=f7e77] [cursor=pointer]
+      - button "Shapes" [ref=f7e80] [cursor=pointer]
+      - button "Measure" [ref=f7e84] [cursor=pointer]
+      - button "Position" [ref=f7e92] [cursor=pointer]
+      - button "Annotations" [ref=f7e97] [cursor=pointer]
+      - button "Magnet — snap to OHLC" [ref=f7e101] [cursor=pointer]
+      - button "Export drawings JSON" [ref=f7e106] [cursor=pointer]
+      - button "Clear all drawings" [ref=f7e110] [cursor=pointer]
+    - generic [ref=f7e115]:
+      - table [ref=f7e118]:
+        - row [ref=f7e119]:
+          - cell
+          - cell [ref=f7e120]:
+            - link "Charting by TradingView" [ref=f7e124] [cursor=pointer]:
+              - /url: https://www.tradingview.com/?utm_medium=lwc-link&utm_campaign=lwc-chart&utm_source=127.0.0.1/
+          - cell [ref=f7e129]
+          - button "Hide 1 drawing — nothing is deleted" [ref=f7e133] [cursor=pointer]
+        - row [ref=f7e136]:
+          - cell
+          - cell [ref=f7e137]
+          - cell [ref=f7e141]
+      - generic:
+        - generic:
+          - generic "Change instrument" [ref=f7e144] [cursor=pointer]: RELIANCE
+          - generic: ·
+          - text: 1h
+          - generic: ·
+          - generic: NSE
+        - generic:
+          - generic: O 1,268.5
+          - generic: H 1,272
+          - generic: L 1,266.9
+          - generic: C 1,267.7
+          - generic: V 18,40,260
+          - text: "-0.9 (-0.07%)"
+    - generic "Drag to resize · double-click to reset" [ref=f7e145]
+    - complementary [ref=f7e146]:
+      - generic [ref=f7e148]:
+        - generic [ref=f7e149]:
+          - generic [ref=f7e150]: old thread
+          - generic [ref=f7e152]:
+            - generic "8/6/2026, 10:29:29 PM" [ref=f7e153]: 06 Aug
+            - button "Retry" [ref=f7e154] [cursor=pointer]
+            - button "Copy prompt" [ref=f7e158] [cursor=pointer]
+        - generic [ref=f7e162]:
+          - paragraph [ref=f7e164]: An answer from before.
+          - generic [ref=f7e165]:
+            - button "Copy reply" [ref=f7e166] [cursor=pointer]
+            - generic [ref=f7e170]: 2.4s
+      - generic [ref=f7e173]:
+        - textbox "Ask about this chart…" [ref=f7e174]
+        - generic [ref=f7e175]:
+          - button "Conversation options" [ref=f7e177] [cursor=pointer]
+          - button "RELIANCE" [ref=f7e179] [cursor=pointer]
+          - button "Send (Enter)" [ref=f7e181] [cursor=pointer]

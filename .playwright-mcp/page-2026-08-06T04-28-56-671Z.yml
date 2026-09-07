@@ -1,0 +1,172 @@
+- generic [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]: Charto.
+    - generic "Search companies" [ref=e5] [cursor=pointer]:
+      - generic [ref=e6]: RELIANCE
+      - generic [ref=e7]: NSE
+    - generic [ref=e9]:
+      - button "1m" [ref=e10] [cursor=pointer]
+      - button "5m" [ref=e11] [cursor=pointer]
+      - button "15m" [ref=e12] [cursor=pointer]
+      - button "30m" [ref=e13] [cursor=pointer]
+      - button "1h" [ref=e14] [cursor=pointer]
+      - button "D" [ref=e15] [cursor=pointer]
+      - button "W" [ref=e16] [cursor=pointer]
+      - button "M" [ref=e17] [cursor=pointer]
+    - button "Indicators" [ref=e20] [cursor=pointer]
+    - generic [ref=e201]: 8 drawn by chat
+    - button "Clear what the chat drew" [ref=e202] [cursor=pointer]
+    - button "Layout — Single chart" [ref=e27] [cursor=pointer]
+    - button "Screenshot the chart for the chat" [ref=e31] [cursor=pointer]
+    - button "Switch to light" [ref=e35] [cursor=pointer]
+    - button "Chat" [ref=e42] [cursor=pointer]
+  - generic [ref=e45]:
+    - generic [ref=e46]:
+      - button "Cursor / select" [ref=e47] [cursor=pointer]
+      - button "Lines" [ref=e52] [cursor=pointer]
+      - button "Channels" [ref=e58] [cursor=pointer]
+      - button "Fibonacci" [ref=e64] [cursor=pointer]
+      - button "Shapes" [ref=e67] [cursor=pointer]
+      - button "Measure" [ref=e71] [cursor=pointer]
+      - button "Position" [ref=e79] [cursor=pointer]
+      - button "Annotations" [ref=e84] [cursor=pointer]
+      - button "Magnet — snap to OHLC" [ref=e88] [cursor=pointer]
+      - button "Export drawings JSON" [ref=e93] [cursor=pointer]
+      - button "Clear all drawings" [ref=e97] [cursor=pointer]
+    - generic [ref=e102]:
+      - table [ref=e207]:
+        - row "R 1,312.02 · held 4/4 R 1,294.40 · held 3/3 R 1,276.63 · held 2/2 R 1,316.73 · held 2/2 S 1,249.80 · 1 touch falling wedge · width 2.78 · unresolved bear flag · pole -6.00 · confirmed double top · neckline 1,271.00 · confirmed" [ref=e208]:
+          - cell
+          - cell [ref=e209]
+          - cell [ref=e213]
+          - generic:
+            - generic [ref=e217]: R 1,312.02 · held 4/4
+            - generic [ref=e218]: R 1,294.40 · held 3/3
+            - generic [ref=e219]: R 1,276.63 · held 2/2
+            - generic [ref=e220]: R 1,316.73 · held 2/2
+            - generic [ref=e221]: S 1,249.80 · 1 touch
+            - generic [ref=e222]: falling wedge · width 2.78 · unresolved
+            - generic [ref=e223]: bear flag · pole -6.00 · confirmed
+            - generic [ref=e224]: double top · neckline 1,271.00 · confirmed
+        - row [ref=e225]:
+          - cell [ref=e226]
+        - row [ref=e228]:
+          - cell
+          - cell [ref=e229]:
+            - link "Charting by TradingView" [ref=e233] [cursor=pointer]:
+              - /url: https://www.tradingview.com/?utm_medium=lwc-link&utm_campaign=lwc-chart&utm_source=127.0.0.1/index.html
+          - cell [ref=e238]
+        - row [ref=e242]:
+          - cell
+          - cell [ref=e243]
+          - cell [ref=e247]
+      - generic:
+        - generic:
+          - generic "Change instrument" [ref=e250] [cursor=pointer]: RELIANCE
+          - generic: ·
+          - text: 15m
+          - generic: ·
+          - generic: NSE
+        - generic:
+          - generic: O 1,267.7
+          - generic: H 1,267.7
+          - generic: L 1,267.7
+          - generic: C 1,267.7
+          - generic: V 0
+          - text: "-3.9 (-0.31%)"
+        - generic:
+          - generic [ref=e251] [cursor=pointer]:
+            - generic [ref=e252]: SMA 20
+            - generic [ref=e253]: ·1,271.97
+          - generic [ref=e254] [cursor=pointer]:
+            - generic [ref=e255]: EMA 21
+            - generic [ref=e256]: ·1,271.88
+          - generic [ref=e257] [cursor=pointer]:
+            - generic [ref=e258]: Supertrend 10 3
+            - generic [ref=e259]: ·1,274.23
+          - button "Hide indicators" [ref=e260] [cursor=pointer]
+      - generic [ref=e263] [cursor=pointer]:
+        - generic [ref=e264]: MACD 12 26 9
+        - generic [ref=e265]: ·-2.08 -1.96
+    - toolbar "Panels" [ref=e112]:
+      - button "Watchlist" [ref=e113] [cursor=pointer]
+      - button "Alerts" [ref=e115] [cursor=pointer]
+    - generic "Drag to resize · double-click to reset" [ref=e119]
+    - complementary [ref=e120]:
+      - generic [ref=e122]:
+        - generic [ref=e123]:
+          - generic [ref=e124]: What is RSI telling me on this chart?
+          - generic [ref=e126]:
+            - generic "8/5/2026, 11:38:42 PM" [ref=e127]: Yesterday, 11:38 PM
+            - button "Copy prompt" [ref=e128] [cursor=pointer]
+        - generic [ref=e132]:
+          - generic [ref=e133]:
+            - paragraph [ref=e134]:
+              - text: RSI(14) sits at
+              - strong [ref=e135]: "41.2"
+              - text: ", below its midline and falling."
+            - table [ref=e137]:
+              - rowgroup [ref=e138]:
+                - row [ref=e139]:
+                  - columnheader "Reading" [ref=e140]
+                  - columnheader "Value" [ref=e141]
+              - rowgroup [ref=e142]:
+                - row [ref=e143]:
+                  - cell "RSI(14)" [ref=e144]
+                  - cell "41.2" [ref=e145]
+                - row [ref=e146]:
+                  - cell "Close" [ref=e147]
+                  - cell "1,264.8" [ref=e148]
+            - paragraph [ref=e149]: Momentum is soft but not oversold.
+          - generic [ref=e150]:
+            - button "Copy reply" [ref=e151] [cursor=pointer]
+            - generic [ref=e155]: 2.4s · 1,204 in / 318 out
+            - button "· 1 on chart" [ref=e156] [cursor=pointer]:
+              - text: ·
+              - generic [ref=e157]: 1 on chart
+        - generic [ref=e160]:
+          - generic [ref=e161]: And where is the nearest support?
+          - generic [ref=e163]:
+            - generic "8/5/2026, 11:39:32 PM" [ref=e164]: Yesterday, 11:39 PM
+            - button "Copy prompt" [ref=e165] [cursor=pointer]
+        - generic [ref=e169]:
+          - paragraph [ref=e171]: The 1,240 shelf held three times since May.
+          - generic [ref=e172]:
+            - button "Copy reply" [ref=e173] [cursor=pointer]
+            - generic [ref=e177]: 1.9s
+            - button "· 1 on chart" [ref=e178] [cursor=pointer]:
+              - text: ·
+              - generic [ref=e179]: 1 on chart
+      - generic [ref=e183]:
+        - generic [ref=e184]:
+          - textbox "Ask about this chart…" [ref=e185]
+          - generic [ref=e186]:
+            - button "Conversation options" [ref=e188] [cursor=pointer]
+            - button "RELIANCE" [ref=e190] [cursor=pointer]
+            - button "Send (Enter)" [ref=e192] [cursor=pointer]
+        - generic [ref=e195]: Enter to send · Shift+Enter for a new line
+      - generic [ref=e295]:
+        - generic [ref=e296]:
+          - text: Conversations
+          - generic [ref=e297]:
+            - button "New" [ref=e298] [cursor=pointer]
+            - button "Close" [ref=e299] [cursor=pointer]
+        - searchbox "Search conversations" [active] [ref=e304]
+        - generic [ref=e305]:
+          - button "What is RSI telling me on this chart? Current · 4 messages · 10h ago" [ref=e306] [cursor=pointer]:
+            - generic [ref=e307]: What is RSI telling me on this chart?
+            - generic [ref=e308]: Current · 4 messages · 10h ago
+            - button "Delete this conversation" [ref=e309]
+          - button "Draw the support levels from the last three months and tell me which one held most often. 4 messages · 13h ago" [ref=e313] [cursor=pointer]:
+            - generic [ref=e314]: Draw the support levels from the last three months and tell me which one held most often.
+            - generic [ref=e315]: 4 messages · 13h ago
+            - button "Delete this conversation" [ref=e316]
+          - button "Compare this with the Nifty over six months. 2 messages · 3d ago" [ref=e320] [cursor=pointer]:
+            - generic [ref=e321]: Compare this with the Nifty over six months.
+            - generic [ref=e322]: 2 messages · 3d ago
+            - button "Delete this conversation" [ref=e323]
+  - contentinfo [ref=e196]:
+    - generic [ref=e197]: "15m: 501 bars in 276ms · last ₹1,267.7"
+    - generic [ref=e198]: local store · kite 1-min
+    - generic [ref=e199]: ·
+    - generic [ref=e200]: 501 × 15m

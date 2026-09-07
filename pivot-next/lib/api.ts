@@ -29,11 +29,9 @@ import type {
   BrokerLoginUrl,
   BrokersResponse,
   BrokerStatus,
-  CompareResult,
   CreateWorkflowRequest,
   Diagnostic,
   ErrorBody,
-  ExpressionScores,
   IpoApplicationsListResponse,
   IpoCalendarResponse,
   IpoRegisterRequest,
@@ -51,9 +49,6 @@ import type {
   RunSummary,
   StepTypeCatalog,
   UpdateWorkflowRequest,
-  ViewDetail,
-  ViewPositionItem,
-  ViewSummary,
   Workflow,
   WorkflowStatus,
   WorkflowSummary,
@@ -61,6 +56,7 @@ import type {
 import { isError } from "@/lib/types";
 import type { DslNode, DslSchema, DslDescribeResult } from "@/lib/types";
 import { getTradingMode } from "@/lib/trading-mode";
+import { refreshAccessToken } from "@/lib/authToken";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -575,6 +571,7 @@ export function backtestDraftWorkflow(body: {
   description?: string | null;
   steps: Array<{ step_type: string; label: string | null; config: Record<string, unknown> }>;
   period?: string;
+  interval?: string;
 }): Promise<ApiResult<BacktestDraftResponse>> {
   return request<BacktestDraftResponse>("/workflows/backtest-draft", {
     method: "POST",
@@ -798,7 +795,7 @@ export type ScheduledRun = {
   trigger_type: "trigger.schedule" | "trigger.event";
   /** ISO 8601 UTC */
   fire_time: string;
-  /** Pre-formatted in trigger's tz, e.g. "3:55 PM IST" */
+  /** Pre-formatted in trigger's tz, e.g. "3:15 PM IST" */
   fire_time_local: string;
 };
 
@@ -815,8 +812,14 @@ export type Holding = {
   average_price: number;
   last_price: number;
   pnl: number;
+  /** PER-SHARE day move (LTP − prev close). NOT the position's total day P&L.
+   *  Callers derive prev close as `last_price − day_change`. */
   day_change: number;
   day_change_percentage: number;
+  /** Rich sector label from the backend (hand-map → screener universe →
+   *  "Other"); F&O contracts read "F&O", ETFs "ETF". Present on both the live
+   *  `/portfolio/holdings` and paper `/paper/holdings` reads. */
+  sector?: string | null;
   /** "large" | "mid" | "small" | null — same thresholds as the screener's
    *  market-cap tiers; null when the symbol has no market-cap data. */
   market_cap_tier?: "large" | "mid" | "small" | null;
@@ -829,6 +832,10 @@ export type PortfolioSummary = {
   total_pnl_pct: number;
   day_pnl: number;
   num_holdings: number;
+  /** Free cash (buying power). Present in paper mode; may be undefined for a
+   *  real/Kite summary that doesn't carry a margin figure — render only when
+   *  defined so we never show a fake ₹0 cash. */
+  cash_available?: number;
 };
 
 /** `GET /portfolio/summary` — backed by Kite (mock when KITE_API_KEY is empty).
@@ -873,6 +880,7 @@ function adaptPaperSummary(p: PaperSummary): PortfolioSummary {
       total_pnl_pct: 0,
       day_pnl: 0,
       num_holdings: 0,
+      cash_available: 0,
     };
   }
   return {
@@ -882,6 +890,7 @@ function adaptPaperSummary(p: PaperSummary): PortfolioSummary {
     total_pnl_pct: p.total_pnl_pct,
     day_pnl: p.day_pnl,
     num_holdings: p.num_positions,
+    cash_available: p.cash_available, // free buying power (₹ not deployed)
   };
 }
 
@@ -890,12 +899,21 @@ function adaptPaperHolding(h: PaperHolding): Holding {
     tradingsymbol: h.symbol,
     exchange: "NSE", // paper book has no exchange field; it is NSE-only
     quantity: h.quantity,
-    average_price: h.avg_cost,
-    last_price: h.last_price ?? h.avg_cost, // unmarked lot → book cost
+    // Show the price actually PAID (ex-charges), not the charge-inclusive cost
+    // basis — so a fresh buy reads Avg == LTP (P&L ≈ 0) instead of an instant
+    // "loss" equal to the entry charges. Falls back to avg_cost pre-upgrade.
+    average_price: h.buy_price ?? h.avg_cost,
+    last_price: h.last_price ?? h.buy_price ?? h.avg_cost, // unmarked lot → book
     pnl: h.unrealized_pnl,
-    day_change: h.day_pnl,
+    // `Holding.day_change` is PER-SHARE (matches the live `/portfolio/holdings`
+    // shape, which the Portfolio table uses to back out prev close as
+    // `last_price − day_change`). The paper book's `day_pnl` is the position's
+    // TOTAL day move, so divide by quantity — otherwise the table's Day P&L is
+    // off by a factor of `quantity` (a 10-share lot showed ~10× the real move).
+    day_change: h.quantity !== 0 ? h.day_pnl / h.quantity : 0,
     day_change_percentage:
       h.invested !== 0 ? (h.day_pnl / h.invested) * 100 : 0,
+    sector: h.sector,
   };
 }
 
@@ -964,6 +982,131 @@ export function getFinancials(symbol: string): Promise<ApiResult<FinancialsRespo
   return request<FinancialsResponse>(`/financials/${encodeURIComponent(symbol)}`);
 }
 
+/** One balance-sheet line item across every fetched fiscal year. `section`
+ *  is set on the row immediately following a section header (e.g.
+ *  "SHAREHOLDER'S FUNDS") and null for plain line items. */
+export type BalanceSheetRow = {
+  section: string | null;
+  line_item: string;
+  values: Record<string, number | null>;
+  value_texts: Record<string, string | null>;
+};
+
+export type BalanceSheetResponse = {
+  available: boolean;
+  company: FinancialsCompany | null;
+  basis: "consolidated" | "standalone";
+  unit: string | null;
+  periods: string[];
+  rows: BalanceSheetRow[];
+  source: string;
+};
+
+/** `GET /api/financials/{symbol}/balance_sheet` — full MC balance sheet grid
+ *  (every line item, section headers, multi-year), sourced only from a real
+ *  Moneycontrol scrape — never yfinance, never derived. */
+export function getBalanceSheet(
+  symbol: string,
+  basis: "consolidated" | "standalone" = "consolidated",
+): Promise<ApiResult<BalanceSheetResponse>> {
+  return request<BalanceSheetResponse>(
+    `/financials/${encodeURIComponent(symbol)}/balance_sheet?basis=${basis}`,
+  );
+}
+
+/** The four line-item grids MC publishes. All four share the balance sheet's
+ *  shape, so one table component reads every one of them. */
+export type StatementType = "balance_sheet" | "profit_loss" | "cash_flow" | "ratios";
+
+export type StatementResponse = BalanceSheetResponse & { statement: StatementType };
+
+/** `GET /api/financials/{symbol}/statement` — one full statement grid.
+ *
+ *  `ratios` is in here rather than in a computed-metrics endpoint because MC
+ *  files its ratio sheet as a line-item statement like any other: thirty-odd
+ *  ratios under Per Share / Profitability / Liquidity / Coverage / Valuation,
+ *  already sectioned, already multi-year. Nothing is derived on the client. */
+export function getStatement(
+  symbol: string,
+  type: StatementType,
+  basis: "consolidated" | "standalone" = "consolidated",
+  years = 10,
+): Promise<ApiResult<StatementResponse>> {
+  return request<StatementResponse>(
+    `/financials/${encodeURIComponent(symbol)}/statement`
+      + `?type=${type}&basis=${basis}&years=${years}`,
+  );
+}
+
+/** One cell of the solvency-and-value matrix: a model, its number, and the
+ *  fields that model happens to carry (Altman's five terms, Ohlson's implied
+ *  probability, Graham's EPS and book value, DuPont's three legs). A cell with
+ *  `value: null` carries the reason instead — a bank has no working capital,
+ *  so Altman is not a gap in the data but a model that does not apply. */
+export type ScoreQuadrant = {
+  key: string;
+  label: string;
+  caption: string;
+  format: "plain" | "pct" | "rupees";
+  value: number | null;
+  band?: "good" | "watch" | "risk";
+  verdict?: string;
+  unavailable_reason: string | null;
+  /** The spokes for THIS score — the inputs of its own formula. Falls back to
+   *  the company radar when a score's inputs are too patchy to draw. */
+  radar: ScoreAxis[];
+  terms?: Record<string, number>;
+  probability_pct?: number;
+  eps?: number;
+  book_value_per_share?: number;
+  delta_pp?: number;
+  margin_pct?: number;
+  asset_turnover?: number;
+  equity_multiplier?: number;
+};
+
+/** One spoke of the radar: a filed ratio, its own display string, and where it
+ *  sits against the ceiling that spoke is scaled to. */
+export type ScoreAxis = {
+  key: string;
+  label: string;
+  detail: string;
+  value: number | null;
+  display: string;
+  cap: number;
+  scaled: number | null;
+};
+
+export type AnalystConsensus = { symbol: string; available: boolean; score: number | null; target: number | null; analysts: number | null; source: string; retrieved_at: string };
+export function getAnalystConsensus(symbol: string): Promise<ApiResult<AnalystConsensus>> {
+  return request<AnalystConsensus>(`/financials/${encodeURIComponent(symbol)}/analyst-consensus`);
+}
+
+export type CompanyScores = {
+  available: boolean;
+  symbol: string;
+  kind: "corporate" | "bank";
+  basis: "consolidated" | "standalone";
+  period: string;
+  unit: string;
+  quadrants: ScoreQuadrant[];
+  radar: ScoreAxis[];
+  source: string;
+  reason?: string;
+};
+
+/** `GET /api/financials/{symbol}/scores` — Altman Z, Ohlson O, Graham and
+ *  DuPont, plus the five ratios they are built from, every term read out of
+ *  ONE period of ONE basis of the same statements the page already quotes. */
+export function getCompanyScores(
+  symbol: string,
+  basis: "consolidated" | "standalone" = "consolidated",
+): Promise<ApiResult<CompanyScores>> {
+  return request<CompanyScores>(
+    `/financials/${encodeURIComponent(symbol)}/scores?basis=${basis}`,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Orders — chat-confirm register flow (POST /orders/register)
 //
@@ -1014,6 +1157,10 @@ export type RegisteredOrder = {
   price: number | null;
   trigger_price: number | null;
   status: string;
+  /** True when the market was closed at placement, so the order is queued as
+   *  an after-market order (AMO) and will execute at the next open rather
+   *  than filling now. */
+  queued?: boolean;
   placed_at: string;
   // Bracket exits — present on single-leg registrations that asked for them.
   exits?: {
@@ -1026,9 +1173,18 @@ export type RegisteredOrder = {
   exits_error?: string | null;
 };
 
+/** Market-session context the register endpoint echoes back so the UI can
+ *  tell the user *when* a queued order will run. Present on both response
+ *  shapes. */
+export type OrderMarketContext = {
+  market_open?: boolean;
+  /** Human IST label for the next open, e.g. "16 Jul 2026, 09:15 IST". */
+  next_open?: string;
+};
+
 export type RegisterOrderResponse =
-  | RegisteredOrder
-  | { registered: RegisteredOrder[]; count: number };
+  | (RegisteredOrder & OrderMarketContext)
+  | ({ registered: RegisteredOrder[]; count: number } & OrderMarketContext);
 
 /** `POST /orders/register` — persist a chat LogicCard intent. In paper mode
  *  the backend also routes it through the paper broker (fills the paper book). */
@@ -1054,14 +1210,15 @@ export type OrderHistoryRow = {
  *  mode this returns the paper fills journal adapted to the same row shape. */
 export function getOrderHistory(
   limit = 20,
+  offset = 0,
 ): Promise<ApiResult<OrderHistoryRow[]>> {
   if (getTradingMode() === "paper") {
-    return getPaperFills(limit).then((r) =>
+    return getPaperFills(limit, offset).then((r) =>
       isError(r) ? r : { data: r.data.map(adaptPaperFill) },
     );
   }
   return requestLegacy<OrderHistoryRow[]>("/orders/history", {
-    query: { limit },
+    query: { limit, offset },
   });
 }
 
@@ -1074,6 +1231,94 @@ function adaptPaperFill(f: PaperFillRow): OrderHistoryRow {
     status: "filled", // the fills journal contains executed fills only
     placed_at: f.filled_at ?? "",
   };
+}
+
+// ── Open (pending / cancellable) orders ───────────────────────────────────
+// Orders that haven't executed yet: AMOs queued while the market was closed,
+// resting LIMIT / trigger orders, and anything the broker still reports as
+// not-yet-complete. Powers the Portfolio → Orders tab. Mode-aware, like the
+// history helpers: live reads /orders/open (the TradeLog blotter), paper reads
+// /paper/orders (the resting paper book) adapted to the same row shape.
+
+/** A still-open order the user can cancel before it executes. `id` is a string
+ *  so the same shape serves both books (live: numeric TradeLog id; paper:
+ *  uuid). */
+export type OpenOrder = {
+  id: string;
+  symbol: string;
+  exchange: string;
+  transaction_type: string; // "BUY" | "SELL"
+  order_type: string; // MARKET | LIMIT | SL | GTT | ...
+  quantity: number;
+  price: number | null;
+  trigger_price: number | null;
+  status: string;
+  /** True when queued as an after-market order (placed while market closed). */
+  queued: boolean;
+  placed_at: string;
+};
+
+/** Live-mode `/orders/open` row (numeric id). */
+type OpenOrderLive = Omit<OpenOrder, "id"> & { id: number };
+
+/** `GET /orders/open` (live) or `GET /paper/orders` (paper) — the open-order
+ *  blotter, newest first. */
+export function getOpenOrders(): Promise<ApiResult<OpenOrder[]>> {
+  if (getTradingMode() === "paper") {
+    return getPaperOpenOrders().then((r) =>
+      isError(r) ? r : { data: r.data.map(adaptPaperOpenOrder) },
+    );
+  }
+  return requestLegacy<OpenOrderLive[]>("/orders/open").then((r) =>
+    isError(r)
+      ? r
+      : { data: r.data.map((o) => ({ ...o, id: String(o.id) })) },
+  );
+}
+
+function adaptPaperOpenOrder(o: PaperOpenOrder): OpenOrder {
+  const st = o.status.toLowerCase();
+  // A "resting" MARKET order rests because the market was CLOSED at
+  // placement (paper/broker.py's market-hours gate) — that's the same
+  // "queued for next open" state as a live AMO. A resting LIMIT/SL order
+  // rests for a different reason (price not hit yet), so it stays "Open".
+  const queued =
+    st === "queued" ||
+    st === "pending" ||
+    (st === "resting" && o.order_type.toUpperCase() === "MARKET");
+  return {
+    id: o.id,
+    symbol: o.symbol,
+    exchange: "NSE",
+    transaction_type: o.side,
+    order_type: o.order_type,
+    quantity: o.quantity,
+    price: o.limit_price,
+    trigger_price: o.trigger_price,
+    status: o.status,
+    queued,
+    placed_at: o.created_at ?? "",
+  };
+}
+
+export type CancelOrderResponse = {
+  id: number | string;
+  symbol: string;
+  status: string;
+  /** Set when the local row was cancelled but the broker couldn't confirm. */
+  broker_note?: string | null;
+};
+
+/** `POST /orders/{id}/cancel` (live) or `POST /paper/orders/{id}/cancel`
+ *  (paper) — pull an open order before it executes. */
+export function cancelOrder(
+  id: string,
+): Promise<ApiResult<CancelOrderResponse>> {
+  const base = getTradingMode() === "paper" ? "/paper/orders" : "/orders";
+  return requestLegacy<CancelOrderResponse>(
+    `${base}/${encodeURIComponent(id)}/cancel`,
+    { method: "POST" },
+  );
 }
 
 // ── Account trading mode (real/live vs paper) ─────────────────────────────
@@ -1156,6 +1401,13 @@ export type StockQuote = {
   live?: boolean;
   /** Phase 2: which data source produced this quote. */
   source?: "kite_ws" | "kite_rest" | "yfinance";
+  /**
+   * True for a benchmark index (NIFTY 50, SENSEX, BANKNIFTY, INDIAVIX, …).
+   * Indices are not tradeable as cash equity — there is no order path — so the
+   * detail page renders price + chart only and hides every trade affordance.
+   * Absent on older payloads → treat as not-an-index.
+   */
+  is_index?: boolean;
 };
 
 export type SparklinePoint = { t: string; v: number };
@@ -1222,6 +1474,7 @@ export type OhlcResponse = {
   interval: string;
   source: "kite" | "yfinance";
   bars: OhlcBar[];
+  price_basis?: "provider" | "unadjusted";
 };
 
 /** `GET /api/markets/ohlc/{symbol}?range=...&exchange=NSE|BSE` — OHLCV bars for candlesticks. */
@@ -1233,6 +1486,15 @@ export function getOhlc(
   return request<OhlcResponse>(
     `/markets/ohlc/${encodeURIComponent(symbol)}`,
     { query: exchange ? { range, exchange } : { range } },
+  );
+}
+
+/** Daily closes on a consistent, explicit price basis for research comparisons. */
+export function getResearchPrices(symbol: string, exchange: "NSE" | "BSE" = "NSE", provider: "auto" | "yfinance" = "auto"): Promise<ApiResult<OhlcResponse>> {
+  return cached(`research-prices:${provider}:${exchange}:${symbol}`, 5 * 60_000, () =>
+    request<OhlcResponse>(`/markets/ohlc/${encodeURIComponent(symbol)}`, {
+      query: { range: "5Y", exchange, provider, price_basis: "unadjusted" },
+    }),
   );
 }
 
@@ -1586,8 +1848,12 @@ export async function refreshAccess(): Promise<ApiResult<AuthResponse>> {
  * _doRequest which is defined earlier in this module.
  */
 async function _tryRefresh(): Promise<boolean> {
-  const result = await refreshAccess();
-  return !("error" in result);
+  // Route through the shared, deduped refresh gate in authToken so the 401
+  // retry here and the proactive refreshes from the data modules can never
+  // fire two concurrent /auth/refresh calls (which would race on refresh-
+  // token rotation and log the user out).
+  const token = await refreshAccessToken();
+  return token !== null;
 }
 
 /** `POST /auth/logout` — best-effort server-side session revocation. */
@@ -2024,6 +2290,8 @@ export type PaperHolding = {
   symbol: string;
   quantity: number;
   avg_cost: number;
+  /** Clean weighted-average BUY price (ex-charges) — what to show as "Avg". */
+  buy_price?: number;
   last_price: number | null;
   market_value: number;
   unrealized_pnl: number;
@@ -2095,8 +2363,13 @@ export function getPaperOpenOrders(): Promise<ApiResult<PaperOpenOrder[]>> {
 }
 
 /** `GET /paper/fills` — the trade journal (newest first). */
-export function getPaperFills(limit = 50): Promise<ApiResult<PaperFillRow[]>> {
-  return requestLegacy<PaperFillRow[]>("/paper/fills", { query: { limit } });
+export function getPaperFills(
+  limit = 50,
+  offset = 0,
+): Promise<ApiResult<PaperFillRow[]>> {
+  return requestLegacy<PaperFillRow[]>("/paper/fills", {
+    query: { limit, offset },
+  });
 }
 
 /** `GET /paper/nav` — the equity curve (oldest first). */
@@ -2324,218 +2597,421 @@ export function listOptionStrategies(): Promise<
 }
 
 // ---------------------------------------------------------------------------
-// Views — View Markets V2  (GET /api/views, GET /api/views/{id}, …)
+// Stock detail — deep sections (/api/stock/{symbol}/*)
 //
-// All reads are GLOBAL (curated content; no per-user filtering). Follow is
-// per-user best-effort. Endpoints are flag-gated on settings.view_markets_enabled
-// on the backend — the FE receives a 404 { error } when the flag is off.
+// Everything below the fold on the stock page: quarters, annual-report facts,
+// segment mixes, ownership, documents. Served by backend/routers/stock_detail.py
+// across three databases.
+//
+// `getStockSections` comes first and decides the rest: coverage for these
+// assets runs from 99% of the universe down to 12%, so the page asks what a
+// symbol HAS before it renders a single panel. A section with a zero count is
+// not drawn at all — an empty panel reads as a broken page, not as absent data.
 // ---------------------------------------------------------------------------
 
-/**
- * `GET /api/views` — list curated views (newest first, non-archived by default).
- *
- * @param params - optional filters mirroring the query params the backend accepts.
- */
-export function listViews(params?: {
-  status?: string;
-  view_type?: string;
-  category?: string;
-}): Promise<ApiResult<{ items: ViewSummary[] }>> {
-  return request<{ items: ViewSummary[] }>("/views", { query: params });
-}
+export type SectionCoverage = {
+  quarters: { count: number; latest: string | null; bases: number };
+  annual_report: {
+    count: number; tasks: number; documents: number; latest_period: string | null;
+  };
+  revenue_mix: { count: number; market_share?: number };
+  ownership: { count: number };
+  documents: { count: number };
+};
 
-/**
- * `GET /api/views/{view_id}` — full view detail including transmission,
- * expectations, confidence evidence, and expression ladder.
- */
-export function getView(id: string): Promise<ApiResult<ViewDetail>> {
-  return request<ViewDetail>(`/views/${encodeURIComponent(id)}`);
-}
-
-/**
- * `POST /api/views/expressions/{expression_id}/deploy`
- *
- * Links (or creates) a workflow draft from the expression. If the expression
- * already has a `workflow_id` and re-arming isn't requested, returns the
- * existing workflow id. The caller then opens the AgentPanel draft editor
- * via `onOpenWorkflowById` — no order fires until the user approves.
- */
-export function deployExpression(
-  expressionId: string,
-  body?: { activate?: boolean; timing_mode?: string; capital_inr?: number },
-): Promise<
-  ApiResult<{
-    workflow_id: string;
-    status: string;
-    steps_count: number;
-    activated: boolean;
-  }>
-> {
-  return request<{
-    workflow_id: string;
-    status: string;
-    steps_count: number;
-    activated: boolean;
-  }>(`/views/expressions/${encodeURIComponent(expressionId)}/deploy`, {
-    method: "POST",
-    body: body ?? {},
-  });
-}
-
-/** One placed leg reported by POST /api/views/expressions/{id}/place. */
-export type ViewPlacedLeg = {
-  id: number;
+export type StockSections = {
   symbol: string;
-  exchange: string;
-  transaction_type: string;
-  order_type: string;
-  quantity: number;
+  isin: string | null;
+  sc_id: string | null;
+  name: string | null;
+  bse_scripcode: string | null;
+  coverage: SectionCoverage;
+};
+
+export function getStockSections(symbol: string): Promise<ApiResult<StockSections>> {
+  return request<StockSections>(`/stock/${encodeURIComponent(symbol)}/sections`);
+}
+
+/** One row of `quarterly_metrics`. Every field is PRECOMPUTED in the database —
+ *  margins, YoY, QoQ and TTM included — so nothing here is derived on the
+ *  client. Deriving it twice is how two parts of a product end up quoting
+ *  different numbers for the same quarter. Nulls are common and real:
+ *  operating_margin_pct is filled for ~59% of recent rows, EBITDA ~64%. */
+export type QuarterRow = {
+  period_end: string;
+  period_label: string | null;
+  basis: string;
+  revenue: number | null;
+  total_income: number | null;
+  other_income: number | null;
+  ebitda: number | null;
+  ebit: number | null;
+  depreciation: number | null;
+  interest: number | null;
+  employee_cost: number | null;
+  raw_material: number | null;
+  other_expenses: number | null;
+  provisions: number | null;
+  exceptional: number | null;
+  pbt: number | null;
+  tax: number | null;
+  net_profit: number | null;
+  eps_basic: number | null;
+  eps_diluted: number | null;
+  operating_margin_pct: number | null;
+  ebitda_margin_pct: number | null;
+  net_margin_pct: number | null;
+  pbt_margin_pct: number | null;
+  tax_rate_pct: number | null;
+  interest_coverage: number | null;
+  revenue_yoy_pct: number | null;
+  net_profit_yoy_pct: number | null;
+  ebitda_yoy_pct: number | null;
+  revenue_qoq_pct: number | null;
+  net_profit_qoq_pct: number | null;
+  operating_margin_yoy_bps: number | null;
+  net_margin_yoy_bps: number | null;
+  rev_ttm: number | null;
+  np_ttm: number | null;
+  eps_ttm: number | null;
+  rev_ttm_yoy_pct: number | null;
+  np_ttm_yoy_pct: number | null;
+  gross_npa_pct: number | null;
+  net_npa_pct: number | null;
+  roa_pct: number | null;
+};
+
+export type QuartersResponse = {
+  symbol: string;
+  basis: string;
+  matched_on: "isin" | "sc_id";
+  bases_available: string[];
+  quarters: QuarterRow[];
+};
+
+export function getStockQuarters(
+  symbol: string,
+  basis: "consolidated" | "standalone" = "consolidated",
+  limit = 20,
+): Promise<ApiResult<QuartersResponse>> {
+  return request<QuartersResponse>(
+    `/stock/${encodeURIComponent(symbol)}/quarters?basis=${basis}&limit=${limit}`,
+  );
+}
+
+/** A single extracted fact. `page` + `quote` are the point of the section —
+ *  they are what lets a reader check the number against the filed document.
+ *
+ *  `unit_agrees` is a STRING verdict, not a boolean: "agree", "n/a", or
+ *  "DISAGREE model=crore deterministic=million". A disagreement means two
+ *  independent readings of the unit differ — the same class of error that
+ *  produced a 10,000x mistake elsewhere — so it is surfaced, never hidden. */
+export type FilingFact = {
+  task: string;
+  grp: string | null;
+  label: string | null;
+  value_text: string | null;
+  unit_text: string | null;
+  value_crore: number | null;
+  period: string | null;
+  basis: string | null;
+  page: number | null;
+  quote: string | null;
+  grounding: string | null;
+  unit_agrees: string | null;
+  rollup: string | null;
+  note: string | null;
+  doc_sha: string | null;
+};
+
+export type FilingDocument = {
+  sha256: string;
+  title: string | null;
+  period: string | null;
+  filed_at: string | null;
+  url: string | null;
+  pages: number | null;
+};
+
+export type AnnualReportResponse = {
+  symbol: string;
+  documents: FilingDocument[];
+  tasks: {
+    task: string;
+    label: string;
+    count: number;
+    groups: { grp: string; facts: FilingFact[] }[];
+  }[];
+  truncated: boolean;
+};
+
+export function getStockAnnualReport(
+  symbol: string,
+): Promise<ApiResult<AnnualReportResponse>> {
+  return request<AnnualReportResponse>(
+    `/stock/${encodeURIComponent(symbol)}/annual-report`,
+  );
+}
+
+/** Segment splits. `charts` is a LIST because a company has several — Reliance
+ *  carries seven (product, location, operating profit, capex, assets). Each
+ *  carries a current snapshot AND a series per segment, which is what makes it
+ *  worth a chart rather than a donut. */
+export type MixChart = {
+  id: number | null;
+  title: string;
+  current: { name: string; pct: number }[];
+  series: { name: string; points: { t: number; pct: number }[] }[];
+};
+
+export type MixResponse = {
+  symbol: string;
+  available: boolean;
+  source_name?: string | null;
+  charts: MixChart[];
+  market_share?: { name: string; points: { t: number; pct: number }[] }[];
+};
+
+export function getStockMix(symbol: string): Promise<ApiResult<MixResponse>> {
+  return request<MixResponse>(`/stock/${encodeURIComponent(symbol)}/mix`);
+}
+
+export type PeerMetric = {
+  id: string;
+  label: string;
+  unit: "inr" | "crore" | "percent" | "multiple" | "rupee";
+};
+
+/** Price facts for one peer, computed server-side from a year of daily closes.
+ *  Every field is nullable: a window the listing is too young to cover, or a
+ *  price feed that failed, prints an em-dash rather than a fabricated zero. */
+export type PeerPrice = {
   price: number | null;
-  status: string;
-  placed_at: string;
+  change_pct: number | null;
+  ret_1m: number | null;
+  ret_3m: number | null;
+  ret_6m: number | null;
+  ret_1y: number | null;
+  rsi14: number | null;
+  vs_50dma: number | null;
+  vs_200dma: number | null;
+  from_52w_high: number | null;
 };
 
-export type ViewPlaceResponse = {
-  registered: ViewPlacedLeg[];
-  count: number;
-  /** "broker" (live, placed through the connected broker) or "paper". */
-  routed_to: "broker" | "paper";
+export type PeerComparisonResponse = {
+  symbol: string;
+  available: boolean;
+  sector: string | null;
+  fields: PeerMetric[];
+  catalog: PeerMetric[];
+  peers: {
+    sc_id: string;
+    symbol: string;
+    name: string;
+    is_current: boolean;
+    values: Record<string, number | null>;
+    periods: Record<string, string | null>;
+    price?: PeerPrice;
+  }[];
+  source?: string;
 };
 
-/**
- * `POST /api/views/expressions/{expression_id}/place`
- *
- * Places the strategy's concrete, affordable whole-share basket through the
- * user's CONNECTED BROKER (live account) or the paper book — the same routing
- * seam the chat order-confirm uses. User-initiated (register-not-execute): a
- * live account with no broker session gets a 409 asking to connect one. Only
- * equity/ETF baskets are placeable; option/unaffordable strategies return a
- * 422 and the caller falls back to the automation `deployExpression`.
- */
-export function placeExpression(
-  expressionId: string,
-  body?: {
-    capital_inr?: number;
-    conversation_id?: string;
-    /** Per-company share counts from the deploy confirmation modal. Each
-     *  symbol must be one of the strategy's own entry names; qty 0 drops it. */
-    legs?: { symbol: string; quantity: number }[];
-  },
-): Promise<ApiResult<ViewPlaceResponse>> {
-  return request<ViewPlaceResponse>(
-    `/views/expressions/${encodeURIComponent(expressionId)}/place`,
-    { method: "POST", body: body ?? {} },
+export function getStockPeers(symbol: string, fields: string[]): Promise<ApiResult<PeerComparisonResponse>> {
+  return request<PeerComparisonResponse>(
+    `/stock/${encodeURIComponent(symbol)}/peers?fields=${encodeURIComponent(fields.join(","))}`,
   );
 }
 
-/**
- * `POST /api/views/{view_id}/compare`
- *
- * Ranks the three tiers and returns a `recommended_tier` with rationale.
- * The FE highlights the recommended ExpressionCard.
- */
-export function compareViewTiers(
-  viewId: string,
-): Promise<ApiResult<CompareResult>> {
-  return request<CompareResult>(
-    `/views/${encodeURIComponent(viewId)}/compare`,
-    { method: "POST", body: {} },
+export type OwnershipResponse = {
+  symbol: string;
+  available: boolean;
+  long_business_summary?: string | null;
+  website?: string | null;
+  full_time_employees?: number | null;
+  held_percent_institutions?: number | null;
+  held_percent_insiders?: number | null;
+  institutions_count?: number | null;
+  institutions_float_percent?: number | null;
+  sector?: string | null;
+  industry?: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  exchange?: string | null;
+};
+
+export function getStockOwnership(
+  symbol: string,
+): Promise<ApiResult<OwnershipResponse>> {
+  return request<OwnershipResponse>(`/stock/${encodeURIComponent(symbol)}/ownership`);
+}
+
+export type CompanyDocument = {
+  doc_type: string;
+  category: string | null;
+  subcategory: string | null;
+  title: string | null;
+  doc_date: string | null;
+  fin_year: string | null;
+  quarter: string | null;
+  url: string | null;
+  attach_size: string | null;
+};
+
+export type DocumentsResponse = {
+  symbol: string;
+  available: boolean;
+  types: { doc_type: string; n: number }[];
+  documents: CompanyDocument[];
+};
+
+export function getStockDocuments(
+  symbol: string,
+  docType = "",
+  limit = 60,
+): Promise<ApiResult<DocumentsResponse>> {
+  const t = docType ? `&doc_type=${encodeURIComponent(docType)}` : "";
+  return request<DocumentsResponse>(
+    `/stock/${encodeURIComponent(symbol)}/documents?limit=${limit}${t}`,
   );
 }
 
-/**
- * `POST /api/views/expressions/{expression_id}/backtest`
- *
- * Triggers a backtest run for the expression and persists the result.
- * The returned `ExpressionScores` can be merged into local component state
- * so the `RiskReturnPanel` refreshes without a full page reload.
- */
-export function backtestExpression(
-  expressionId: string,
-): Promise<ApiResult<ExpressionScores>> {
-  return request<ExpressionScores>(
-    `/views/expressions/${encodeURIComponent(expressionId)}/backtest`,
-    { method: "POST", body: {} },
+// ── shareholding (shp.* XBRL filings) ───────────────────────────────────────
+
+/** One quarter of the stacked series. The top-level bucket keys are dynamic —
+ *  a company with no promoter never emits a "Promoters" key at all — so the
+ *  row is indexed rather than typed field by field. */
+export type ShareholdingQuarter = {
+  quarter: string;
+  pledge_pct: number | null;
+  [bucket: string]: string | number | null;
+};
+
+export type ShareholdingGroup = {
+  label: string;
+  pct: number;
+  children: { label: string; pct: number }[];
+};
+
+export type ShareholdingHolder = {
+  name: string;
+  bucket: string | null;
+  pct: number | null;
+  shares: number | null;
+};
+
+export type ShareholdingResponse = {
+  symbol: string;
+  available: boolean;
+  quarter?: string;
+  quarters: ShareholdingQuarter[];
+  groups?: ShareholdingGroup[];
+  pledge_pct?: number | null;
+  promoter_pct?: number | null;
+  holders: ShareholdingHolder[];
+};
+
+export function getShareholding(
+  symbol: string,
+): Promise<ApiResult<ShareholdingResponse>> {
+  return request<ShareholdingResponse>(
+    `/stock/${encodeURIComponent(symbol)}/shareholding`,
   );
 }
 
-// ── My Views — the per-user position ledger ─────────────────────────────────
+// ── flows: delivery % and futures open interest ─────────────────────────────
 
-/**
- * `GET /api/views/positions` — every view the user has put a position behind
- * (open first, newest first), each with its live return since entry.
- */
-export function listViewPositions(): Promise<
-  ApiResult<{ items: ViewPositionItem[] }>
-> {
-  return request<{ items: ViewPositionItem[] }>("/views/positions");
-}
+export type DeliveryRow = {
+  d: string;
+  close: number | null;
+  qty: number | null;
+  deliv_qty: number | null;
+  deliv_per: number | null;
+  trades: number | null;
+};
 
-/**
- * `PATCH /api/views/positions/{position_id}` — edit the exit plan
- * (take-profit / stop-loss %) or the declared position size. Send an explicit
- * `null` to clear a level. Ledger levels only — nothing is auto-executed.
- */
-export function updateViewPosition(
-  positionId: string,
-  body: {
-    take_profit_pct?: number | null;
-    stop_loss_pct?: number | null;
-    capital_inr?: number | null;
-  },
-): Promise<ApiResult<ViewPositionItem>> {
-  return request<ViewPositionItem>(
-    `/views/positions/${encodeURIComponent(positionId)}`,
-    { method: "PATCH", body },
+export type OiRow = { d: string; oi: number | null; oi_chg: number | null };
+
+export type FlowsResponse = {
+  symbol: string;
+  available: boolean;
+  summary: {
+    date: string | null;
+    delivery_pct: number | null;
+    delivery_median_20d: number | null;
+    volume: number | null;
+    delivered: number | null;
+    trades: number | null;
+    oi: number | null;
+    oi_chg: number | null;
+    close: number | null;
+  } | null;
+  delivery: DeliveryRow[];
+  oi: OiRow[];
+};
+
+export function getFlows(
+  symbol: string,
+  days = 180,
+): Promise<ApiResult<FlowsResponse>> {
+  return request<FlowsResponse>(
+    `/stock/${encodeURIComponent(symbol)}/flows?days=${days}`,
   );
 }
 
-/**
- * `POST /api/views/positions/{position_id}/exit` — record a partial
- * (pct < 100) or full exit of the OPEN fraction at current marks.
- * Register-not-execute: the response's `note` reminds the user to place the
- * actual exit orders in their own broker app.
- */
-export function exitViewPosition(
-  positionId: string,
-  pct: number,
-): Promise<
-  ApiResult<{ position: ViewPositionItem; exited_pct: number; note: string }>
-> {
-  return request<{
-    position: ViewPositionItem;
-    exited_pct: number;
-    note: string;
-  }>(`/views/positions/${encodeURIComponent(positionId)}/exit`, {
-    method: "POST",
-    body: { pct },
-  });
-}
+// ── bulk and block deals ────────────────────────────────────────────────────
 
-/**
- * `POST /api/views/{view_id}/follow` — follow a view (per-user, best-effort).
- *
- * Callers should apply the result optimistically and silently revert on error.
- */
-export function followView(
-  viewId: string,
-): Promise<ApiResult<{ is_following: boolean; follower_count: number }>> {
-  return request<{ is_following: boolean; follower_count: number }>(
-    `/views/${encodeURIComponent(viewId)}/follow`,
-    { method: "POST", body: {} },
+export type Deal = {
+  d: string;
+  kind: string;
+  client: string;
+  side: string;
+  qty: number | null;
+  price: number | null;
+  value: number | null;
+};
+
+export type DealsResponse = { symbol: string; available: boolean; deals: Deal[] };
+
+export function getDeals(
+  symbol: string,
+  limit = 60,
+): Promise<ApiResult<DealsResponse>> {
+  return request<DealsResponse>(
+    `/stock/${encodeURIComponent(symbol)}/deals?limit=${limit}`,
   );
 }
 
-/**
- * `DELETE /api/views/{view_id}/follow` — unfollow a view (per-user, best-effort).
- *
- * Callers should apply the result optimistically and silently revert on error.
- */
-export function unfollowView(
-  viewId: string,
-): Promise<ApiResult<{ is_following: boolean; follower_count: number }>> {
-  return request<{ is_following: boolean; follower_count: number }>(
-    `/views/${encodeURIComponent(viewId)}/follow`,
-    { method: "DELETE" },
+// ── pattern statistics (universe base rates, with a control) ────────────────
+
+export type PatternStat = {
+  kind: string;
+  family: string;
+  interval: string;
+  horizon: number;
+  n: number;
+  n_symbols: number;
+  rate: number | null;
+  control: number | null;
+  edge: number | null;
+  se: number | null;
+  move: number | null;
+};
+
+export type PatternsResponse = {
+  available: boolean;
+  interval: string;
+  horizon: number;
+  options: { interval: string; horizon: number }[];
+  patterns: PatternStat[];
+};
+
+export function getPatterns(
+  symbol: string,
+  interval = "1d",
+  horizon = 20,
+): Promise<ApiResult<PatternsResponse>> {
+  return request<PatternsResponse>(
+    `/stock/${encodeURIComponent(symbol)}/patterns?interval=${encodeURIComponent(interval)}&horizon=${horizon}`,
   );
 }

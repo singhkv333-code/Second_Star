@@ -27,6 +27,9 @@ import { ArrowDown, ArrowUp, ArrowUpDown, Loader2 } from "lucide-react";
 import { searchCompanies } from "@/lib/api";
 import { isError } from "@/lib/types";
 import { StockHoverActions } from "@/components/StockHoverActions";
+import { CompanyLogo } from "@/components/CompanyLogo";
+import { useCompanyLogos } from "@/hooks/useCompanyLogos";
+import { colorizeGainLoss } from "@/components/chat/AssistantMessage";
 
 // ── hast extraction (minimal local typing — we only walk tag + children) ──
 
@@ -67,19 +70,52 @@ function extractTable(node: HastNode): { header: string[]; rows: string[][] } {
 
 // ── Column semantics ─────────────────────────────────────────────────────
 
-const NAME_HEADER_RE = /^(name|company|companies|stock|scrip)s?$/i;
-const TICKER_HEADER_RE = /^(symbol|ticker)s?$/i;
+// A company/name column, by header word. Kept broad because the model
+// labels this column many ways ("Holding", "Instrument", "Constituent"…);
+// whatever it misses, the CONTENT-based fallback in `plan` still catches.
+const NAME_HEADER_RE =
+  /^(names?|company|companies|stocks?|scrips?|holdings?|instruments?|securit(y|ies)|assets?|constituents?|positions?|funds?|etfs?)$/i;
+// "NSE symbol", "BSE code", "Scrip" — the qualified forms a model reaches for
+// when it is being helpful about WHICH symbol it means. Unqualified
+// symbol/ticker was the only form the deterministic screen ever emitted, so
+// the qualified ones fell through, the column was never folded into the name,
+// and every row paid a searchCompanies round-trip on hover to recover a
+// ticker that was sitting in the table already.
+const TICKER_HEADER_RE =
+  /^((nse|bse)\s*)?(symbol|ticker|code|scrip)s?$/i;
+const RANK_HEADER_RE = /^(rank|#|sr\.?(\s*no\.?)?)$/i;
 const TICKER_RE = /^[A-Z0-9&.\-]{2,20}$/;
+// "Bank of Maharashtra (MAHABANK)" — the ticker the deterministic screen
+// render appends in parens, resolvable statically (no search round-trip).
+const PAREN_TICKER_RE = /\(([A-Z][A-Z0-9.&-]{1,19})\)\s*$/;
+// "TVSMOTOR TVS Motor Company Limited" — some models PREPEND the ticker to the
+// full legal name instead of appending "(TICKER)". Captures the leading token
+// when it is followed by a mixed-case name (the trailing lowercase letter is
+// the tell that the rest is a real name, not an all-caps phrase like
+// "TATA MOTORS"). Strength is gated at the call site so short all-caps name
+// prefixes (HDFC Bank, TCS, ITC) aren't mistaken for a ticker.
+const LEAD_TICKER_RE = /^([A-Z][A-Z0-9&.-]{1,19})\s+.*[a-z]/;
 
 function isBlank(v: string): boolean {
   return v === "" || v === "—" || v === "-" || v === "–";
 }
 
-/** Parse "₹1,234.56", "12.5%", "(3.2)" → number; NaN when not numeric. */
+/** Parse "₹1,234.56", "12.5%", "(3.2)", "0.42×", "24,945 cr" → number;
+ * NaN when not numeric.
+ *
+ * The trailing-unit forms matter more than they look. A column of "0.42×"
+ * multiples or "₹1,234 cr" figures parsed as NaN, which failed the 60%
+ * threshold in isNumericColumn, which meant the column was treated as TEXT —
+ * left-aligned and unsortable. The reading is silently worse for exactly the
+ * columns a screen exists to rank on (D/E, EV/EBITDA, market cap). Units
+ * belong in the header, and the emitter is told so, but a model that puts
+ * them in the cell should not cost the user sorting.
+ */
 function parseNum(s: string): number {
   const cleaned = s
     .replace(/[₹$,%]/g, "")
     .replace(/,/g, "")
+    .replace(/\s*(?:x|×|bps|cr|crore|crores|lakhs?|mn|bn|days?|yrs?|years?)\s*$/i, "")
     .replace(/^\((.*)\)$/, "-$1")
     .trim();
   if (!cleaned || /[^0-9+\-.eE]/.test(cleaned)) return NaN;
@@ -113,6 +149,7 @@ export function SmartMarkdownTable({ node }: { node: unknown }): React.ReactElem
   const resolvedRef = useRef<Map<string, { symbol: string; name: string } | null>>(
     new Map(),
   );
+  const inFlightRef = useRef<Set<string>>(new Set());
   const [, bumpResolved] = useState(0);
 
   // ── Column plan ────────────────────────────────────────────────────
@@ -122,6 +159,30 @@ export function SmartMarkdownTable({ node }: { node: unknown }): React.ReactElem
     const tickerCol = header.findIndex((h) => TICKER_HEADER_RE.test(h.trim()));
     // A ticker-only table: the symbol column IS the display column.
     if (nameCol === -1) nameCol = tickerCol;
+    // CONTENT-based fallback — the uniform funnel. When no header matched but
+    // a text column's cells are shaped "Name (TICKER)" (the ticker-in-parens
+    // form the model emits), that column IS the company column regardless of
+    // its header word. Picks the highest-signal such column; the paren form
+    // is unambiguous (sectors/metrics never carry a trailing "(TICKER)"), so
+    // this never misfires on a Sector/Weight column.
+    if (nameCol === -1) {
+      let best = -1;
+      let bestScore = 0.5; // require a majority to claim the column
+      header.forEach((_, i) => {
+        if (numeric[i]) return;
+        const cells = rows
+          .map((r) => (r[i] ?? "").trim())
+          .filter((v) => !isBlank(v));
+        if (cells.length === 0) return;
+        const score =
+          cells.filter((v) => PAREN_TICKER_RE.test(v)).length / cells.length;
+        if (score >= bestScore) {
+          best = i;
+          bestScore = score;
+        }
+      });
+      if (best !== -1) nameCol = best;
+    }
     const hidden = new Set<number>();
     header.forEach((_, i) => {
       // Drop columns with no data at all (the empty "Flag" column class).
@@ -171,29 +232,88 @@ export function SmartMarkdownTable({ node }: { node: unknown }): React.ReactElem
     );
   };
 
-  /** The ticker for a row: the (folded) symbol column when present, else a
-   * ticker-looking name, else whatever the hover-resolution cached. */
-  const tickerFor = (row: string[]): string | null => {
+  /** Ticker resolvable WITHOUT any lookup: the (folded) symbol column, the
+   * "(SYMBOL)" the screen render appends to the name, or a ticker-looking
+   * bare name. Null when only a hover-time search could resolve it. */
+  const staticTickerFor = (row: string[]): string | null => {
     if (plan.tickerCol !== -1) {
       const t = (row[plan.tickerCol] ?? "").trim();
       if (t) return t.toUpperCase();
     }
     const name = (row[plan.nameCol] ?? "").trim();
+    const paren = PAREN_TICKER_RE.exec(name);
+    if (paren?.[1]) return paren[1];
+    // Leading-ticker form: "TVSMOTOR TVS Motor Company Limited". Trust the lead
+    // token as the symbol only on a STRONG ticker signal — 5+ chars, or a
+    // digit/&/hyphen — so a short all-caps name prefix ("HDFC Bank", "ITC")
+    // isn't mislinked. Weaker cases fall through to hover resolution.
+    const lead = LEAD_TICKER_RE.exec(name);
+    if (lead?.[1]) {
+      const t = lead[1];
+      if ((t.length >= 5 || /[0-9&-]/.test(t)) && TICKER_RE.test(t)) return t;
+    }
     if (TICKER_RE.test(name) && name === name.toUpperCase()) return name;
+    return null;
+  };
+
+  /** The ticker for a row: static when possible, else whatever the
+   * hover-resolution cached. */
+  const tickerFor = (row: string[]): string | null => {
+    const t = staticTickerFor(row);
+    if (t) return t;
+    const name = (row[plan.nameCol] ?? "").trim();
     return resolvedRef.current.get(name)?.symbol ?? null;
   };
+
+  // Company logos for every statically-resolvable row, one batched request
+  // through the module-level cache (same source as the Screener tab).
+  const logoSymbols = useMemo(
+    () =>
+      plan.nameCol === -1
+        ? []
+        : rows.map((r) => staticTickerFor(r)).filter((t): t is string => !!t),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rows, plan.nameCol, plan.tickerCol],
+  );
+  const logos = useCompanyLogos(logoSymbols);
+
+  // Frozen lead columns: Rank (when it leads) + the name column stay pinned
+  // while the metric columns scroll horizontally underneath.
+  const firstVis = plan.visible[0];
+  const rankLeads =
+    firstVis !== undefined && RANK_HEADER_RE.test((header[firstVis] ?? "").trim());
+  const nameVisIdx = plan.visible.indexOf(plan.nameCol);
+  const stickyCount =
+    plan.nameCol !== -1 && (nameVisIdx === 0 || (rankLeads && nameVisIdx === 1))
+      ? nameVisIdx + 1
+      : rankLeads
+        ? 1
+        : 0;
+  const RANK_W = 52; // px — fixed so the name column's sticky offset is exact
+  const stickyStyle = (vi: number): React.CSSProperties | undefined =>
+    vi < stickyCount
+      ? {
+          position: "sticky",
+          left: vi === 0 ? 0 : rankLeads ? RANK_W : 0,
+          zIndex: 2,
+          background: "hsl(var(--background))",
+          ...(vi === 0 && rankLeads ? { width: RANK_W, minWidth: RANK_W } : {}),
+        }
+      : undefined;
 
   const resolveForHover = (row: string[]): void => {
     if (tickerFor(row)) return; // already resolvable
     const name = (row[plan.nameCol] ?? "").trim();
-    if (!name || resolvedRef.current.has(name)) return;
-    resolvedRef.current.set(name, null); // in flight
+    // In-flight is tracked separately from the result cache: a failed lookup
+    // used to cache `null`, which the `has(name)` guard then read as "already
+    // answered" — so one network blip hid that row's action bar for good.
+    // Misses stay uncached, so the next hover retries.
+    if (!name || inFlightRef.current.has(name)) return;
+    inFlightRef.current.add(name);
     void searchCompanies(name, 1).then((res) => {
       const hit = !isError(res) ? res.data.results[0] : undefined;
-      resolvedRef.current.set(
-        name,
-        hit ? { symbol: hit.symbol, name: hit.name } : null,
-      );
+      inFlightRef.current.delete(name);
+      if (hit) resolvedRef.current.set(name, { symbol: hit.symbol, name: hit.name });
       bumpResolved((n) => n + 1);
     });
   };
@@ -225,7 +345,9 @@ export function SmartMarkdownTable({ node }: { node: unknown }): React.ReactElem
 
   return (
     <div className="overflow-x-auto rounded-lg border border-border">
-      <table className="w-full border-collapse text-sm">
+      {/* border-separate (not collapse): collapsed borders detach from
+          position:sticky cells and smear while the rest scrolls. */}
+      <table className="w-full border-separate border-spacing-0 text-sm">
         <thead>
           <tr>
             {plan.visible.map((i, vi) => {
@@ -238,9 +360,16 @@ export function SmartMarkdownTable({ node }: { node: unknown }): React.ReactElem
                   aria-sort={
                     active ? (sort!.dir === "asc" ? "ascending" : "descending") : undefined
                   }
-                  style={isName ? { width: "44%", minWidth: 220 } : undefined}
+                  style={{
+                    ...(isName ? { width: "44%", minWidth: 220 } : {}),
+                    ...(stickyStyle(vi) ?? {}),
+                    // Sticky header cells need an OPAQUE fill (muted/60 lets
+                    // scrolled columns bleed through underneath).
+                    ...(vi < stickyCount ? { background: "hsl(var(--muted))" } : {}),
+                  }}
                   className={[
-                    "border-b-2 border-border bg-muted/60 px-3 py-2",
+                    "border-b-2 border-border px-3 py-2",
+                    vi < stickyCount ? "" : "bg-muted/60",
                     // Ink-black header — the row must read as the table's
                     // anchor, not another data row.
                     "text-[13px] font-semibold text-foreground",
@@ -287,67 +416,88 @@ export function SmartMarkdownTable({ node }: { node: unknown }): React.ReactElem
                 const cell = row[ci] ?? "";
                 const isName = ci === plan.nameCol && cell.trim() !== "";
                 const ticker = isName ? tickerFor(row) : null;
+                const showActions = isName && hoverRow === ri && !!ticker;
                 return (
                   <td
                     key={ci}
+                    style={stickyStyle(vi)}
                     className={[
                       "border-b border-border/50 px-3 py-2 align-middle",
                       vi < plan.visible.length - 1 ? "border-r border-border/40" : "",
                       plan.numeric[ci]
                         ? "text-right tabular-nums text-foreground"
                         : "text-foreground",
-                      // Positioning context for the pinned quick-action bar.
-                      isName ? "relative" : "",
                     ].join(" ")}
                   >
                     {isName ? (
                       <>
-                        <button
-                          type="button"
-                          onClick={() => void openCompany(row)}
-                          title={`Open ${cell}`}
-                          className="inline-flex items-center gap-1.5 font-semibold text-foreground underline-offset-2 hover:text-primary hover:underline"
-                          style={{
-                            background: "none",
-                            border: "none",
-                            padding: 0,
-                            cursor: "pointer",
-                            font: "inherit",
-                            fontWeight: 600,
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {cell}
-                          {resolving === cell.trim() && (
-                            <Loader2
-                              size={11}
-                              className="animate-spin"
-                              aria-hidden="true"
+                        {ticker && (
+                          <span className="mr-2 inline-block align-middle">
+                            <CompanyLogo
+                              logoUrl={logos[ticker] ?? null}
+                              name={cell.replace(PAREN_TICKER_RE, "").trim() || ticker}
+                              symbol={ticker}
+                              size={22}
+                            />
+                          </span>
+                        )}
+                        {/* The name and the quick-action bar share one box:
+                            hovering FLIPS the name out and the bar in, so the
+                            bar lands exactly where the name was instead of
+                            floating over it. A right-pinned bar covered long
+                            names (129px bar vs 57px of free space) while
+                            clearing short ones — the same row reading as
+                            broken or fine purely by name length. `visibility`
+                            (not `display`) keeps the name's width reserved, so
+                            the column never reflows on hover. */}
+                        <span className="relative inline-flex items-center align-middle">
+                          <button
+                            type="button"
+                            onClick={() => void openCompany(row)}
+                            title={`Open ${cell}`}
+                            aria-hidden={showActions}
+                            tabIndex={showActions ? -1 : undefined}
+                            className="inline-flex items-center gap-1.5 font-semibold text-foreground underline-offset-2 hover:text-primary hover:underline"
+                            style={{
+                              background: "none",
+                              border: "none",
+                              padding: 0,
+                              cursor: "pointer",
+                              font: "inherit",
+                              fontWeight: 600,
+                              whiteSpace: "nowrap",
+                              visibility: showActions ? "hidden" : "visible",
+                            }}
+                          >
+                            {cell}
+                            {resolving === cell.trim() && (
+                              <Loader2
+                                size={11}
+                                className="animate-spin"
+                                aria-hidden="true"
+                              />
+                            )}
+                          </button>
+                          {showActions && ticker && (
+                            <StockHoverActions
+                              symbol={ticker}
+                              name={cell.trim()}
+                              className="absolute"
+                              style={{
+                                // Anchored to the name's own left edge — the
+                                // bar occupies the name's slot exactly.
+                                left: 0,
+                                top: "50%",
+                                marginTop: -14,
+                                padding: 2,
+                                zIndex: 5,
+                              }}
                             />
                           )}
-                        </button>
-                        {/* Quick actions — PINNED to the name column's right
-                            edge (same X on every row, Kite-style) and
-                            absolutely positioned so the row height never
-                            changes when it appears. */}
-                        {hoverRow === ri && ticker && (
-                          <StockHoverActions
-                            symbol={ticker}
-                            name={cell.trim()}
-                            className="absolute"
-                            style={{
-                              // Pinned to the name column's right edge —
-                              // one constant axis for every row, never
-                              // crossing into the next column's values.
-                              right: 8,
-                              top: "50%",
-                              marginTop: -14,
-                              padding: 2,
-                              zIndex: 5,
-                            }}
-                          />
-                        )}
+                        </span>
                       </>
+                    ) : plan.numeric[ci] ? (
+                      colorizeGainLoss(cell, `cell-${ri}-${ci}`)
                     ) : (
                       cell
                     )}

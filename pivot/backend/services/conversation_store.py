@@ -70,6 +70,10 @@ CLARIFY_PREFIX = "chat:clarify:"
 # activate flows without bleeding across topic shifts.
 ACTIVE_DRAFT_TTL_SECONDS = 60 * 10
 ACTIVE_DRAFT_PREFIX = "chat:active_draft:"
+# Session artifact ledger: one compact line per card/draft this
+# conversation produced (baskets, agent drafts, backtests, orders).
+ARTIFACT_LEDGER_PREFIX = "chat:artifacts:"
+ARTIFACT_LEDGER_MAX = 24
 # Addressable multi-draft map (Track C): per-symbol drafts in one
 # conversation. The single active_draft slot stays the "most recent"
 # pointer (back-compat with every existing call site); the map lets a
@@ -277,8 +281,41 @@ class ConversationStore:
         try:
             redis_client.delete(self._key(conv_id))
             redis_client.delete(f"chat:last_tools:{conv_id}")
+            redis_client.delete(f"{ARTIFACT_LEDGER_PREFIX}{conv_id}")
         except Exception as e:
             logger.warning("conv history clear failed: %s", e)
+
+    # ── Session artifact ledger (container eval 2026-07-19) ─────────
+    # One compact line per card/draft the conversation produced. Pure
+    # BOOKKEEPING — deterministic code records, only the model interprets.
+    # Injected each turn as "## Artifacts created in THIS conversation" so
+    # a built basket/draft stays visible past the 6-turn history window
+    # and the 600-char clamp (live fail: the chat asked for the tickers of
+    # a basket it built ONE turn earlier).
+    def note_artifact(self, conv_id: str, line: str) -> None:
+        if not conv_id or not line:
+            return
+        try:
+            key = f"{ARTIFACT_LEDGER_PREFIX}{conv_id}"
+            redis_client.rpush(key, line[:240])
+            redis_client.ltrim(key, -ARTIFACT_LEDGER_MAX, -1)
+            redis_client.expire(key, CONV_TTL_SECONDS)
+        except Exception as e:
+            logger.warning("artifact ledger append failed: %s", e)
+
+    def get_artifacts(self, conv_id: str) -> list[str]:
+        if not conv_id:
+            return []
+        try:
+            raw = redis_client.lrange(
+                f"{ARTIFACT_LEDGER_PREFIX}{conv_id}", 0, -1)
+            return [
+                x.decode("utf-8", "replace") if isinstance(x, bytes) else str(x)
+                for x in raw if x
+            ]
+        except Exception as e:
+            logger.warning("artifact ledger fetch failed: %s", e)
+            return []
 
     # ── Last-turn tools (chat-kernel round 3, 2026-07-10) ───────────
     # A bare amendment turn ("make it 10 years") carries none of the

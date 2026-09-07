@@ -92,6 +92,48 @@ def test_resolve_expiry_nearest_and_explicit(master):
     assert resolve_expiry(master, "UNKNOWN") is None
 
 
+def test_list_expiries_excludes_todays_already_closed_session(master, monkeypatch):
+    """Reported 2026-07-14 (live): asking for a NIFTY option strategy
+    after-hours ON NIFTY's own weekly expiry date resolved to that SAME
+    dead, already-settled contract (t_years=0.0, spot=None, no solvable
+    IV) instead of the next real expiry. `list_expiries` must stop
+    counting "today" as tradable once NSE market hours (15:30 IST) have
+    passed."""
+    import datetime as _dt
+
+    from backend.market import instrument_master as im
+
+    today_expiries = [e["expiry"] for e in list_expiries(master, "NIFTY")]
+    first_expiry = today_expiries[0]
+
+    class _FixedNow:
+        @staticmethod
+        def now_ist():
+            # 21:00 IST on the day of the nearest listed expiry — well
+            # past market close.
+            d = _dt.date.fromisoformat(first_expiry)
+            return _dt.datetime(d.year, d.month, d.day, 21, 0)
+
+    monkeypatch.setattr(
+        "backend.utils.time_utils.now_ist", _FixedNow.now_ist,
+    )
+    after_hours = [e["expiry"] for e in list_expiries(master, "NIFTY")]
+    assert first_expiry not in after_hours
+    assert after_hours[0] > first_expiry
+
+    class _BeforeClose:
+        @staticmethod
+        def now_ist():
+            d = _dt.date.fromisoformat(first_expiry)
+            return _dt.datetime(d.year, d.month, d.day, 10, 0)
+
+    monkeypatch.setattr(
+        "backend.utils.time_utils.now_ist", _BeforeClose.now_ist,
+    )
+    during_hours = [e["expiry"] for e in list_expiries(master, "NIFTY")]
+    assert first_expiry in during_hours
+
+
 def test_chain_instruments_strike_ordered_pairs(master):
     expiry = resolve_expiry(master, "NIFTY")
     rows = chain_instruments(master, "NIFTY", expiry)
@@ -100,6 +142,54 @@ def test_chain_instruments_strike_ordered_pairs(master):
     assert strikes == sorted(strikes)
     kinds = {r.instrument_type for r in rows}
     assert kinds == {"CE", "PE"}
+
+
+def test_chain_instruments_drops_stale_mock_duplicate(master):
+    """Regression: a stale, incompletely-purged synthetic-dump row (token
+    in the reserved mock band, see instrument_master._MOCK_TOKEN_LOW/HIGH)
+    must never coexist with a real row for the same (strike, type,
+    expiry) — that's exactly how a live quote fetch keyed off the mock
+    row's tradingsymbol silently resolved to a genuinely different, real
+    contract, mixing another expiry's premium into this chain (2026-07-14
+    50-prompt eval: inverted put pricing in a NIFTY chain)."""
+    expiry = resolve_expiry(master, "NIFTY")
+    rows = chain_instruments(master, "NIFTY", expiry)
+    assert rows
+    target = rows[0]  # a genuine mock-mode row (all rows are mock here)
+    real_token = 90_000_001  # well outside the reserved mock band
+    master.add(InstrumentMaster(
+        instrument_token=real_token,
+        first_seen=date.today(), last_seen=date.today(),
+        refreshed_on=date.today(),
+        tradingsymbol="DUPLICATE_REAL_ROW",
+        name="NIFTY", underlying="NIFTY",
+        exchange=target.exchange, segment=target.segment,
+        instrument_type=target.instrument_type,
+        strike=target.strike, expiry=target.expiry,
+        expiry_kind=target.expiry_kind, lot_size=target.lot_size,
+    ))
+    master.commit()
+
+    dupes = [
+        r for r in master.query(InstrumentMaster).filter(
+            InstrumentMaster.underlying == "NIFTY",
+            InstrumentMaster.strike == target.strike,
+            InstrumentMaster.instrument_type == target.instrument_type,
+            InstrumentMaster.expiry == expiry,
+        ).all()
+    ]
+    assert len(dupes) == 2  # the collision now genuinely exists in the DB
+
+    deduped = chain_instruments(master, "NIFTY", expiry)
+    matches = [
+        r for r in deduped
+        if float(r.strike) == float(target.strike)
+        and r.instrument_type == target.instrument_type
+    ]
+    # Exactly one row survives per (strike, type) — the real one, not
+    # the mock-band row that was already present.
+    assert len(matches) == 1
+    assert matches[0].instrument_token == real_token
 
 
 def test_disappeared_contract_keeps_row_with_stale_last_seen(master):

@@ -163,10 +163,19 @@ def execute_option_leg_fill(
     fill_price: float,
     iv_at_fill: Optional[float],
     conversation_id: Optional[str],
+    crid_suffix: str = "",
 ) -> PaperFill:
     """One leg: order row → premium cashflow → fill → signed position →
-    ledger. Idempotent via the leg's client_request_id."""
+    ledger. Idempotent via the leg's client_request_id.
+
+    ``crid_suffix`` distinguishes an EXIT fill from the original ENTRY fill
+    for the same ``leg_index`` (e.g. ``"close"``) — without it, closing a
+    leg would collide with the entry's client_request_id and the idempotency
+    check would just return the original entry fill instead of filling the
+    exit."""
     crid = f"optstrat:{strategy.id}:leg{leg_index}"
+    if crid_suffix:
+        crid = f"{crid}:{crid_suffix}"
     existing = (
         db.query(PaperOrder)
         .filter(
@@ -332,29 +341,82 @@ def submit_option_strategy(
             "iv": q.get("iv"),
         })
 
-    # Margin reserve for short legs (strategy-level, once — idempotent
-    # via the reserve note + strategy status flip below).
     has_shorts = any(p["leg"].side == "SELL" for p in plans)
     margin = to_money(strategy.margin_estimate or 0)
+
+    # P0: a short option leg with NO margin estimate must NOT fill. Otherwise
+    # the paper book sells premium with ZERO reserve — NAV rises by the credit
+    # and the account carries unlimited (unbacked) short risk. The builder
+    # populates margin_estimate for every template, so a null/≤0 here means a
+    # broken or genuinely naked construction; refuse honestly.
+    if has_shorts and margin <= 0:
+        return {
+            "success": False, "fills": [],
+            "error": (
+                "cannot fill short option leg(s) without a margin estimate — "
+                "reserve can't be computed. Rebuild the strategy so its margin "
+                "is set (paper won't sell premium unbacked)."
+            ),
+        }
+
+    # P1: ALL-legs affordability pre-check BEFORE filling any leg, so a BUY leg
+    # that can't be afforded can't leave already-filled legs as a naked /
+    # mis-hedged book (e.g. short leg filled, protective long rejected). Needs
+    # short-leg margin + every BUY leg's debit to fit the available cash.
+    from backend.services.trading_costs import option_buy_cost
+    _seg = str(strategy.segment).upper()
+    _buy_debit = 0.0
+    for p in plans:
+        lg = p["leg"]
+        if lg.side == "BUY":
+            _qty = int(lg.qty_lots) * int(lg.lot_size)
+            _net, _ = option_buy_cost(float(p["price"]), _qty, segment=_seg)
+            _buy_debit += abs(float(_net))
+    _reserve_needed = float(margin) if has_shorts else 0.0
+    _need = _buy_debit + _reserve_needed
+    if _need > float(to_money(account.cash_available)):
+        return {
+            "success": False, "fills": [],
+            "error": (
+                f"insufficient paper cash for the full strategy: needs "
+                f"₹{_need:,.0f} (buy-leg debits + short-leg margin) vs "
+                f"available ₹{float(to_money(account.cash_available)):,.0f}"
+            ),
+        }
+
+    # Margin reserve for short legs — idempotent across engine retries via a
+    # ledger-row existence check (status stays 'registered' until the LAST leg
+    # fills, so a mid-loop failure + retry must not re-reserve the margin).
     if has_shorts and margin > 0 and strategy.status == "registered":
-        if margin > to_money(account.cash_available):
-            return {
-                "success": False, "fills": [],
-                "error": (
-                    f"insufficient paper cash to reserve margin "
-                    f"₹{margin:,.2f} for the short leg(s)"
-                ),
-            }
-        account.cash_available = to_money(account.cash_available) - margin
-        account.cash_reserved = to_money(account.cash_reserved) + margin
-        db.add(PaperLedgerEntry(
-            account_id=account.id,
-            kind="reserve",
-            amount=-margin,
-            balance_after=to_money(account.cash_available),
-            note=f"reserve margin optstrat:{strategy.id}",
-        ))
-        db.flush()
+        _already_reserved = (
+            db.query(PaperLedgerEntry)
+            .filter(
+                PaperLedgerEntry.account_id == account.id,
+                PaperLedgerEntry.kind == "reserve",
+                PaperLedgerEntry.note == f"reserve margin optstrat:{strategy.id}",
+            )
+            .first()
+            is not None
+        )
+        if not _already_reserved:
+            if margin > to_money(account.cash_available):
+                return {
+                    "success": False, "fills": [],
+                    "error": (
+                        f"insufficient paper cash to reserve margin "
+                        f"₹{margin:,.2f} for the short leg(s)"
+                    ),
+                }
+            account.cash_available = to_money(account.cash_available) - margin
+            account.cash_reserved = to_money(account.cash_reserved) + margin
+            db.add(PaperLedgerEntry(
+                account_id=account.id,
+                kind="reserve",
+                amount=-margin,
+                balance_after=to_money(account.cash_available),
+                note=f"reserve margin optstrat:{strategy.id}",
+            ))
+            db.flush()
 
     fills: list[PaperFill] = []
     try:
@@ -392,6 +454,165 @@ def submit_option_strategy(
     db.flush()
     logger.info(
         "[optstrat] %s ACTIVE — %d legs filled in paper book", strategy.id, len(fills),
+    )
+    return {
+        "success": True,
+        "fills": [
+            {"symbol": f.symbol, "side": f.transaction_type,
+             "price": f.fill_price, "qty": f.quantity,
+             "iv": f.iv_at_fill}
+            for f in fills
+        ],
+        "error": None,
+    }
+
+
+def close_option_strategy(
+    db: Session, user_id: int, strategy: OptionStrategy,
+) -> dict[str, Any]:
+    """Exit every leg of an ACTIVE paper-book strategy at the live chain (the
+    OPPOSITE side of its entry), release any reserved short-leg margin, and
+    flip status to 'closed'. Paper-book only — a live strategy never reaches
+    'active' (register-not-execute: it stays a registered intent forever,
+    per the module docstring), so this only ever runs against paper rows.
+
+    Mirrors submit_option_strategy's structure (chain lookup, market-hours
+    gate, all-legs-affordable precheck, per-leg fill) but reversed: each
+    exit leg is quoted/filled at the opposite side of its entry, and instead
+    of RESERVING margin, this RELEASES whatever was reserved on entry.
+    Caller owns commit."""
+    from backend.market.option_chain import get_chain
+
+    if strategy.book != "paper":
+        raise OptionFillError("close_option_strategy is paper-book only")
+    if strategy.status != "active":
+        raise OptionFillError(
+            f"cannot close a strategy in status '{strategy.status}' — only an "
+            "active (filled) strategy can be closed"
+        )
+
+    from backend.config import settings as _settings
+    from backend.utils.time_utils import is_market_open
+
+    if getattr(_settings, "paper_respect_market_hours", True) and not is_market_open():
+        return {
+            "success": False, "fills": [],
+            "error": (
+                "market closed — F&O paper legs close only during NSE hours "
+                "(09:15–15:30 IST, Mon–Fri)."
+            ),
+        }
+
+    chain = get_chain(
+        db, strategy.underlying, strategy.expiry.isoformat(), width=25,
+    )
+    if chain is None:
+        return {
+            "success": False, "fills": [],
+            "error": "option chain unavailable — cannot close paper legs",
+        }
+
+    account = get_or_create_account(db, user_id)
+    legs = sorted(strategy.legs, key=lambda l: l.leg_index)
+
+    # Pre-check every leg's quote before touching cash. Exit side is the
+    # OPPOSITE of the leg's entry side (closing a long BUY = SELL to exit;
+    # closing a short SELL = BUY to cover).
+    plans: list[dict] = []
+    for leg in legs:
+        exit_side = "SELL" if leg.side == "BUY" else "BUY"
+        q = _leg_quote(chain, leg.tradingsymbol)
+        if q is None or q.get("iv_status") in ("illiquid", "stale"):
+            return {
+                "success": False, "fills": [],
+                "error": (
+                    f"leg {leg.tradingsymbol or leg.strike} has no tradable "
+                    "quote right now"
+                ),
+            }
+        plans.append({"leg": leg, "exit_side": exit_side, "price": _fill_price(q, exit_side), "iv": q.get("iv")})
+
+    # Affordability precheck: only exit BUYs (covering a short) debit cash;
+    # exit SELLs (closing a long) always credit, so they never block a close.
+    from backend.services.trading_costs import option_buy_cost
+    _seg = str(strategy.segment).upper()
+    _buy_debit = 0.0
+    for p in plans:
+        if p["exit_side"] == "BUY":
+            qty = int(p["leg"].qty_lots) * int(p["leg"].lot_size)
+            net, _ = option_buy_cost(float(p["price"]), qty, segment=_seg)
+            _buy_debit += abs(float(net))
+    if _buy_debit > float(to_money(account.cash_available)):
+        return {
+            "success": False, "fills": [],
+            "error": (
+                f"insufficient paper cash to close short leg(s): needs "
+                f"₹{_buy_debit:,.0f} vs available "
+                f"₹{float(to_money(account.cash_available)):,.0f}"
+            ),
+        }
+
+    fills: list[PaperFill] = []
+    try:
+        for i, plan in enumerate(plans):
+            leg = plan["leg"]
+            fills.append(execute_option_leg_fill(
+                db,
+                account=account,
+                user_id=user_id,
+                strategy=strategy,
+                leg_index=i,
+                tradingsymbol=leg.tradingsymbol,
+                segment=strategy.segment,
+                side=plan["exit_side"],
+                quantity=int(leg.qty_lots) * int(leg.lot_size),
+                fill_price=plan["price"],
+                iv_at_fill=plan["iv"],
+                conversation_id=strategy.conversation_id,
+                crid_suffix="close",
+            ))
+    except OptionFillError as exc:
+        logger.warning("[optstrat] %s close leg fill failed: %s", strategy.id, exc)
+        return {
+            "success": False,
+            "fills": [
+                {"symbol": f.symbol, "side": f.transaction_type,
+                 "price": f.fill_price, "qty": f.quantity}
+                for f in fills
+            ],
+            "error": str(exc),
+        }
+
+    # Release any short-leg margin reserved on entry — idempotent via a
+    # ledger-row existence check, mirroring the reserve-side check above.
+    margin = to_money(strategy.margin_estimate or 0)
+    if margin > 0:
+        already_released = (
+            db.query(PaperLedgerEntry)
+            .filter(
+                PaperLedgerEntry.account_id == account.id,
+                PaperLedgerEntry.kind == "release",
+                PaperLedgerEntry.note == f"release margin optstrat:{strategy.id}",
+            )
+            .first()
+            is not None
+        )
+        if not already_released:
+            account.cash_reserved = to_money(account.cash_reserved) - margin
+            account.cash_available = to_money(account.cash_available) + margin
+            db.add(PaperLedgerEntry(
+                account_id=account.id,
+                kind="release",
+                amount=margin,
+                balance_after=to_money(account.cash_available),
+                note=f"release margin optstrat:{strategy.id}",
+            ))
+            db.flush()
+
+    strategy.status = "closed"
+    db.flush()
+    logger.info(
+        "[optstrat] %s CLOSED — %d legs exited in paper book", strategy.id, len(fills),
     )
     return {
         "success": True,

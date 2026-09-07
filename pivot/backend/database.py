@@ -19,6 +19,18 @@ else:
     # portfolio page down twice on 2026-07-10. pool_use_lifo lets idle
     # overflow connections age out via pool_recycle instead of being kept
     # warm forever.
+    # App-scoped server timeouts (NOT role-level, so migrations/backfill
+    # scripts that legitimately run long are unaffected): statement_timeout
+    # bounds a runaway query at 60s on a 50-connection instance where an
+    # unbounded one pins a slot forever; idle_in_transaction_session_timeout
+    # reaps sessions left "idle in transaction" (two were found sitting live
+    # 2026-07-23 — they block vacuum and waste slots). Long-running jobs that
+    # genuinely need more (e.g. the growth materializer) SET LOCAL a higher
+    # value inside their own transaction.
+    _APP_PG_OPTIONS = (
+        "-c statement_timeout=60000 "
+        "-c idle_in_transaction_session_timeout=300000"
+    )
     engine = create_engine(
         settings.database_url,
         poolclass=QueuePool,
@@ -29,6 +41,7 @@ else:
         pool_pre_ping=True,   # cloud DB: reconnect if a pooled conn was reaped/dropped
         pool_recycle=900,
         echo=False,
+        connect_args={"options": _APP_PG_OPTIONS},
     )
 
 SessionLocal = sessionmaker(
@@ -61,6 +74,7 @@ else:
         pool_pre_ping=True,   # cloud DB: reconnect if a pooled conn was reaped/dropped
         pool_recycle=900,
         echo=False,
+        connect_args={"options": _APP_PG_OPTIONS},
     )
 
 FinancialsSessionLocal = sessionmaker(
@@ -88,6 +102,7 @@ else:
         pool_pre_ping=True,   # cloud DB: reconnect if a pooled conn was reaped/dropped
         pool_recycle=900,
         echo=False,
+        connect_args={"options": _APP_PG_OPTIONS},
     )
     EnrichSessionLocal = sessionmaker(
         autocommit=False,

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-label="Rain cloud over farmland">
+  <rect width="200" height="200" fill="#16303f"/>
+  <!-- cloud -->
+  <path d="M56 74a26 26 0 0 1 50-9 22 22 0 0 1 32 9 22 22 0 0 1-2 44H58a24 24 0 0 1-2-44Z" fill="#dfe9ef"/>
+  <path d="M56 74a26 26 0 0 1 22-25 30 30 0 0 0-6 69h-14a24 24 0 0 1-2-44Z" fill="#b9cbd6"/>
+  <!-- rain -->
+  <g stroke="#5fb2e0" stroke-width="7" stroke-linecap="round">
+    <path d="M62 130l-8 20M96 130l-8 20M130 130l-8 20M79 132l-6 14M113 132l-6 14"/>
+  </g>
+  <!-- field rows -->
+  <path d="M0 168h200v32H0Z" fill="#2f7a4f"/>
+  <g stroke="#1d5a37" stroke-width="5" stroke-linecap="round">
+    <path d="M18 200l10-24M62 200l10-24M106 200l10-24M150 200l10-24"/>
+  </g>
+</svg>

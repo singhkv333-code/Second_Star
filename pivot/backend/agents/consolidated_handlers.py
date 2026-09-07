@@ -77,8 +77,50 @@ tool(
 )
 
 
+# Words the model occasionally passes as `symbol` that are never tickers.
+# The error is SELF-DESCRIBING so the model re-routes in the same turn
+# (container eval 2026-07-19 #27: sector "IT" → get_market_data("IT") →
+# "double-check the ticker", and the pair-trade was never attempted).
+# Environment fix, not an interpretation layer: the tool names its own
+# correct alternative; the model still decides what to do.
+_SECTOR_WORDS: dict[str, str] = {
+    "IT": "Information Technology", "FMCG": "FMCG", "PHARMA": "Pharmaceuticals",
+    "AUTO": "Automobiles", "BANKING": "Banking", "BANKS": "Banking",
+    "METALS": "Metals & Mining", "METAL": "Metals & Mining",
+    "REALTY": "Real Estate", "INFRA": "Infrastructure",
+}
+_CURRENCY_WORDS: frozenset = frozenset({
+    "RUPEES", "RUPEE", "RS", "INR", "LAKH", "LAKHS", "CRORE", "CRORES",
+})
+
+
+def _non_ticker_error(sym: str) -> dict | None:
+    """Structured error when `sym` is a sector/currency word, else None."""
+    if sym in _SECTOR_WORDS:
+        sec = _SECTOR_WORDS[sym]
+        return {"success": False, "data": {}, "logiccard": None, "error": (
+            f"'{sym}' is a SECTOR, not a ticker. For sector exposure use "
+            f"screen_fundamentals(sector='{sec}') to get its stocks, or an "
+            f"index/ETF proxy (e.g. NIFTYIT for IT). For a sector-vs-index "
+            "view, build it from those constituents — do not retry this "
+            "symbol."
+        )}
+    if sym in _CURRENCY_WORDS:
+        return {"success": False, "data": {}, "logiccard": None, "error": (
+            f"'{sym}' is a currency/amount word, not a ticker. Re-read the "
+            "user's message: the rupee figure is the BUDGET; the instrument "
+            "is named elsewhere in it. Call again with the real symbol."
+        )}
+    return None
+
+
 async def _get_market_data(a: dict, kt: str, db, uid: int) -> dict:
     from backend.agents import tool_executor as tx
+
+    _sym0 = str(a.get("symbol") or "").strip().upper()
+    _nt = _non_ticker_error(_sym0)
+    if _nt is not None:
+        return _nt
 
     view = (a.get("view") or "").strip().lower()
     if view == "quote":

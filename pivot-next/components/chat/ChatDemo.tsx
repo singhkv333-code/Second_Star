@@ -13,7 +13,7 @@
  * Conversations sidebar is wired in AppShell via GET /api/conversations.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ArrowUp,
   Bot,
@@ -52,6 +52,7 @@ import {
   type SyntheticSecurityPayload,
 } from "@/components/chat/SyntheticSecurityCard";
 import { InlineRunCard } from "@/components/chat/InlineRunCard";
+import { CardErrorBoundary } from "@/components/chat/CardErrorBoundary";
 import { VoiceInputButton } from "@/components/VoiceInputButton";
 import AssistantMessage from "@/components/chat/AssistantMessage";
 import { IpoApplicationCard } from "@/components/chat/IpoApplicationCard";
@@ -74,201 +75,28 @@ import {
 import type { CompanySearchResult } from "@/lib/api";
 import type { Workflow, IpoApplicationPayload, IpoListPayload, IpoListedPayload, OptionChainPayload, OptionStrategyPayload, PortfolioGreeksPayload, ClarifyCard as ClarifyCardData, StrategyBuilderCard as StrategyBuilderCardData, ClarifyAnswerRecord } from "@/lib/types";
 import { useActiveDraft } from "@/components/agent-panel/active-draft-context";
+import { getAccessToken } from "@/lib/authToken";
+import {
+  streamChat,
+  type ChatDonePayload,
+  type ChatHistoryMessage,
+  type ChatMode,
+  type SseEvent,
+} from "@/lib/chatStream";
 
 // ---------------------------------------------------------------------------
-// Backend chat types
+// Backend chat types + the SSE client
+//
+// Both live in lib/chatStream.ts now — the stock page's ask bar posts the same
+// turns to the same endpoint, and a second copy of the parser is how the two
+// drift apart. Re-exported here because this file was their public address.
 // ---------------------------------------------------------------------------
 
-type ChatHistoryMessage = {
-  role: "user" | "assistant";
-  content: string;
-};
-
-/** Shape of the `done` event payload — identical to POST /chat response. */
-type ChatDonePayload = {
-  response: string;
-  tools_called?: string[];
-  logiccard?: LogicCard | null;
-  raw_data?:
-    | (Record<string, unknown> & { _render_hint?: string })
-    | null;
-  latency_ms?: number;
-  latency_breakdown?: Record<string, unknown>;
-};
-
-// SSE event discriminated union -----------------------------------------------
-
-type SseStart = { type: "start" };
-type SseToolStart = { type: "tool_start"; name: string };
-type SseToolDone = { type: "tool_done"; name: string; ok: boolean; error: string | null };
-type SseDelta = { type: "delta"; text: string };
-type SseReplace = { type: "replace"; text: string };
-type SseError = { type: "error"; message: string };
-type SseDone = { type: "done" } & ChatDonePayload;
-
-type SseEvent =
-  | SseStart
-  | SseToolStart
-  | SseToolDone
-  | SseDelta
-  | SseReplace
-  | SseError
-  | SseDone;
-
-// ---------------------------------------------------------------------------
-// Streaming chat via POST /chat/stream (SSE)
-// ---------------------------------------------------------------------------
-
-/**
- * Connects to POST /chat/stream and yields parsed SseEvent objects.
- * The caller owns the AbortController so it can cancel mid-stream.
- * On 401 this function wipes the JWT and reloads (same guard as callChat).
- */
-/** Optional mode hint the FE attaches to a chat request. The backend
- * uses this to deterministically route tool selection — picking
- * Automation forces the immediate-order family, Agent forces
- * propose_workflow, Backtest forces the backtester paths.  When
- * `null` the backend falls back to its inferred classifier. */
-export type ChatMode = "automation" | "agent" | "backtest" | null;
-
-async function* streamChat(
-  userMessage: string,
-  history: ChatHistoryMessage[],
-  token: string | null,
-  signal: AbortSignal,
-  conversationId: string,
-  mode: ChatMode,
-  /** When the user replied-by-selecting a snippet of a prior assistant
-   * answer, the highlighted excerpt is sent here so the backend can
-   * thread it into the prompt as the thing being replied to. */
-  quotedText: string | null,
-  /**
-   * The unsaved draft currently open in the editor (if any). Sent to
-   * the backend so it amends exactly what the user sees, not its own
-   * Redis copy. Absent when the editor is closed or showing a saved
-   * workflow — in that case the backend falls back to its Redis state.
-   */
-  editorDraft?: WorkflowDraft | null,
-  /**
-   * Composer context attachments (the "+" menu / "@" mentions) — the
-   * securities, positions and agents the user tagged. The backend weaves
-   * them into the prompt as a grounding block. Empty/absent = none.
-   */
-  attachments?: Array<Record<string, unknown>> | null,
-): AsyncGenerator<SseEvent> {
-  const base =
-    (typeof process !== "undefined" && process.env.NEXT_PUBLIC_PIVOT_API_BASE) ||
-    "/api";
-  const legacyBase = base.replace(/\/api\/?$/, "");
-  const url = `${legacyBase}/chat/stream`;
-
-  const messages: ChatHistoryMessage[] = [
-    ...history,
-    { role: "user", content: userMessage },
-  ];
-
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    Accept: "text/event-stream",
-  };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      messages,
-      include_portfolio_context: true,
-      // Per-session conversation_id — generated once per ChatDemo
-      // mount in the React tree. The backend keys its Redis-stored
-      // active draft / pending clarification under this id, so a
-      // fresh session id ensures we never inherit yesterday's draft.
-      conversation_id: conversationId,
-      // Optional mode hint. When the user clicks Automation / Agent /
-      // Backtest below the composer, we pass that intent to the
-      // backend deterministically. Null = classifier decides.
-      mode,
-      // Reply-by-selecting: the highlighted excerpt the user is
-      // replying to. Omitted entirely when there's no active quote.
-      ...(quotedText ? { quoted_text: quotedText } : {}),
-      // Editor-draft sync: when the editor is open on an unsaved draft,
-      // send it so the backend amends exactly what the user sees.
-      ...(editorDraft ? { editor_draft: editorDraft } : {}),
-      // Composer context attachments — omitted entirely when none.
-      ...(attachments && attachments.length ? { attachments } : {}),
-    }),
-    cache: "no-store",
-    signal,
-  });
-
-  if (!res.ok) {
-    if (res.status === 401 && typeof window !== "undefined") {
-      try { window.localStorage.removeItem("pivot_jwt"); } catch { /* ignore */ }
-      window.location.reload();
-    }
-    const text = await res.text();
-    throw new Error(`Stream error ${res.status}: ${text.slice(0, 200)}`);
-  }
-
-  if (!res.body) {
-    throw new Error("No response body — SSE stream unavailable");
-  }
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder("utf-8", { fatal: false });
-  let buffer = "";
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-
-      // SSE events are separated by double-newline.
-      const parts = buffer.split("\n\n");
-      // Last element may be a partial event — keep it in the buffer.
-      buffer = parts.pop() ?? "";
-
-      for (const part of parts) {
-        // Each part may contain multiple "data:" lines — our backend
-        // always emits single-line JSON so we just find the data line.
-        const dataLine = part
-          .split("\n")
-          .find((l) => l.startsWith("data:"));
-        if (!dataLine) continue;
-
-        const jsonStr = dataLine.slice("data:".length).trim();
-        if (!jsonStr) continue;
-
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(jsonStr);
-        } catch {
-          // Malformed chunk — skip silently.
-          continue;
-        }
-
-        yield parsed as SseEvent;
-      }
-    }
-  } finally {
-    reader.releaseLock();
-  }
-}
+export type { ChatMode } from "@/lib/chatStream";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function getToken(): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return localStorage.getItem("pivot_jwt");
-  } catch {
-    return null;
-  }
-}
 
 const PLACEHOLDER_TEXT =
   "Ask Pivot anything about your portfolio, markets, or strategies…";
@@ -283,7 +111,7 @@ const PLACEHOLDER_TEXT_MOBILE = "Ask Pivot anything…";
 const MAX_TEXTAREA_PX = 200;
 
 const EXAMPLE_PROMPT =
-  "Every weekday at 3:55 PM IST, if my buying power is over ₹50,000, buy 10 shares of RELIANCE and notify me by email.";
+  "Every weekday at 3:15 PM IST, if my buying power is over ₹50,000, buy 10 shares of RELIANCE and notify me by email.";
 
 // ---------------------------------------------------------------------------
 // Message types
@@ -640,17 +468,32 @@ function hintToMessage(
   }
 
   if (hint === "indicator_backtest_chart" && rawData) {
+    const r = rawData as unknown as IndicatorBacktestPayload;
+    // A resumed conversation can carry a truncated/hint-only card (the
+    // backend down-samples large series but still guards against a
+    // malformed payload); these arrays are destructured with no
+    // defaults downstream and crash the render on `undefined` instead
+    // of degrading gracefully — reported 2026-07-14 as "This card
+    // couldn't be shown". Fall back to plain text rather than a
+    // guaranteed-to-throw payload.
+    if (!Array.isArray(r.equity_curve) || !Array.isArray(r.price_curve)) {
+      return { kind: "assistant", text: responseText };
+    }
     return {
       kind: "indicator_backtest",
-      payload: rawData as unknown as IndicatorBacktestPayload,
+      payload: r,
       intro: responseText,
     };
   }
 
   if (hint === "financial_backtest_chart" && rawData) {
+    const r = rawData as unknown as FinancialBacktestPayload;
+    if (!Array.isArray(r.equity_curve) || !Array.isArray(r.benchmark_curve)) {
+      return { kind: "assistant", text: responseText };
+    }
     return {
       kind: "financial_backtest",
-      payload: rawData as unknown as FinancialBacktestPayload,
+      payload: r,
       intro: responseText,
     };
   }
@@ -846,6 +689,14 @@ export function ChatDemo({
    * submit so it can't bleed into an unrelated later message.
    */
   const seededEditDraftRef = useRef<WorkflowDraft | null>(null);
+  /**
+   * Basket ids whose HOLDINGS have already been sent this session. A basket
+   * chip stays docked across turns, but its legs are a snapshot of the SAVED
+   * basket — re-asserting them every turn makes the stale copy beat an
+   * amendment made in chat. Sent once, then identity-only. Reset on remount
+   * (the chat surface is keyed by AppShell's chatResetKey).
+   */
+  const sentBasketLegsRef = useRef<Set<number>>(new Set());
   /**
    * Index of the active clarify message in `messages`. Used to UPDATE the
    * same message in-place when a clarify answer returns another clarify card
@@ -1188,6 +1039,10 @@ export function ChatDemo({
   // the view pinned to the bottom through all of it, so the user never has to
   // scroll down manually — unless they've deliberately scrolled up to read,
   // in which case stickToBottomRef is false and we leave them where they are.
+  //
+  // deps include messages.length so the observer is (re-)attached once the
+  // messages div is first rendered — it only mounts when messages.length > 0,
+  // meaning a [] dep would find messagesRef.current === null on first run.
   useEffect(() => {
     const el = scrollRef.current;
     const inner = messagesRef.current;
@@ -1198,7 +1053,7 @@ export function ChatDemo({
     });
     ro.observe(inner);
     return () => ro.disconnect();
-  }, []);
+  }, [messages.length]);
 
   /**
    * Dispatch the final `done` payload to the right Message kind and replace
@@ -1297,7 +1152,7 @@ export function ChatDemo({
     abortRef.current = abortCtrl;
 
     try {
-      const token = getToken();
+      const token = await getAccessToken();
 
       // Append the transient streaming bubble and capture its index.
       // `startedAt` drives the elapsed-time counter in the status bar.
@@ -1340,6 +1195,21 @@ export function ChatDemo({
       // Consume the one-shot seed so it never leaks into a later, unrelated turn.
       seededEditDraftRef.current = null;
 
+      // Context attachments ride every turn while their chips are active —
+      // the backend grounds the LLM on them. A basket's HOLDINGS go once (see
+      // toWireAttachment): after the first turn the chip is identity-only, so
+      // a chat amendment isn't overridden by the saved copy next turn.
+      const wireAttachments = attachments.map((a) =>
+        a.kind === "basket"
+          ? toWireAttachment(a, {
+              basketLegs: !sentBasketLegsRef.current.has(a.basket_id),
+            })
+          : toWireAttachment(a),
+      );
+      for (const a of attachments) {
+        if (a.kind === "basket") sentBasketLegsRef.current.add(a.basket_id);
+      }
+
       const gen = streamChat(
         trimmed,
         historyRef.current,
@@ -1352,9 +1222,7 @@ export function ChatDemo({
         modeOverride ?? mode,
         quote,
         editorDraft,
-        // Context attachments ride every turn while their chips are
-        // active — the backend grounds the LLM on them.
-        attachments.map(toWireAttachment),
+        wireAttachments,
       );
 
       for await (const event of gen) {
@@ -1549,7 +1417,7 @@ export function ChatDemo({
                 onClick={handleExampleClick}
                 data-testid="example-prompt-btn"
               >
-                Try: RELIANCE 3:55 PM buy example
+                Try: RELIANCE 3:15 PM buy example
               </button>
             </div>
           )}
@@ -1574,6 +1442,11 @@ export function ChatDemo({
               ? () => void submit(priorUserMessage)
               : null;
 
+            // Each message renders inside a per-card error boundary so one
+            // malformed payload can never crash the whole /#chat route
+            // (see CardErrorBoundary). The branch logic below is unchanged;
+            // it just feeds its node through the boundary at the bottom.
+            const _rendered: ReactNode = (() => {
             if (msg.kind === "user") {
               return (
                 <UserBubble
@@ -1636,21 +1509,16 @@ export function ChatDemo({
                   <div className="flex justify-start">
                     <WorkflowDraftCard
                       draft={msg.draft}
-                      onOpenEditor={(draft) => onOpenEditor(draftToWorkflow(draft))}
-                      onActivatedAndRunning={(info) => {
-                        // Append a live-run card right after the draft so
-                        // the user sees the workflow's first run streaming
-                        // step-by-step in the same chat thread.
-                        setMessages((prev) => [
-                          ...prev,
-                          {
-                            kind: "live_run",
-                            runId: info.runId,
-                            workflowName: info.workflowName,
-                            workflowId: info.workflowId,
-                          },
-                        ]);
-                      }}
+                      onOpenEditor={(draft, saved) =>
+                        onOpenEditor(
+                          draftToWorkflow(
+                            draft,
+                            saved
+                              ? { id: saved.workflowId, status: "active" }
+                              : undefined,
+                          ),
+                        )
+                      }
                     />
                   </div>
                 </div>
@@ -1769,15 +1637,6 @@ export function ChatDemo({
                   <div className="flex justify-start">
                     <IpoListCard
                       payload={msg.payload}
-                      onSelectIpo={(sym) =>
-                        void submit(`apply for the ${sym} IPO`)
-                      }
-                      onRemindIpo={(sym) =>
-                        void submit(
-                          `set up open-day reminders for the ${sym} IPO`,
-                          "agent",
-                        )
-                      }
                       onKnowMore={(sym) =>
                         void submit(`tell me about the ${sym} IPO`)
                       }
@@ -1968,6 +1827,12 @@ export function ChatDemo({
                 </div>
               </div>
             );
+            })();
+            return (
+              <CardErrorBoundary key={idx} label={msg.kind}>
+                {_rendered}
+              </CardErrorBoundary>
+            );
           })}
 
           {/* Pre-stream loading bubble — shown only when loading=true but no
@@ -2027,7 +1892,7 @@ export function ChatDemo({
           behind the pill (ChatGPT-style) instead of hard-stopping against
           a flat white band. Tighter bottom padding on phones so the pill
           doesn't dominate the landing surface. */}
-      <div className="relative z-10 -mt-6 shrink-0 bg-gradient-to-t from-background via-background to-transparent pb-3 pt-6 sm:pb-5 sm:pt-7">
+      <div className="composer-dock relative z-10 -mt-6 shrink-0 bg-gradient-to-t from-background via-background to-transparent pt-6 sm:pt-7">
         <ChatComposer
           textareaRef={textareaRef}
           value={intent}

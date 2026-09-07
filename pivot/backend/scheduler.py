@@ -129,6 +129,20 @@ def _register_jobs():
         replace_existing=True,
     )
 
+    # Screener growth-metrics materialization. 02:10 IST daily — well off
+    # market hours and clear of the other overnight jobs; growth numbers
+    # move only when new filings land, so nightly freshness is ample.
+    scheduler.add_job(
+        rebuild_growth_metrics,
+        trigger=CronTrigger(
+            hour=2, minute=10, second=0,
+            timezone=IST,
+        ),
+        id="rebuild_growth_metrics",
+        name="Rebuild screener growth metrics at 02:10 IST",
+        replace_existing=True,
+    )
+
     # F&O P0: instrument-master refresh + dynamic universe selection.
     # 08:35 IST — after Kite regenerates the daily instruments dump
     # (~08:30) and before market open, so lot-size revisions and new
@@ -177,12 +191,42 @@ def _register_jobs():
             name="Paper: mark open positions intraday (every 5m, market hours IST)",
             replace_existing=True,
         )
+        # Force-cover every open intraday (MIS) short at EOD — India bans
+        # naked short delivery, so a paper short (see paper/fills.py) must
+        # not survive past the close. 15:32, after the 15:30 close and
+        # OFF the */5 resting-tick boundary, before the NAV snapshot so
+        # the day's NAV reflects the closed-out book.
+        scheduler.add_job(
+            squareoff_intraday_shorts_eod,
+            trigger=CronTrigger(
+                hour=15, minute=32, second=0,
+                day_of_week="mon-fri", timezone=IST,
+            ),
+            id="paper_squareoff_intraday_shorts",
+            name="Paper: force-cover intraday shorts at 15:32 IST",
+            replace_existing=True,
+        )
+        # F&O: cash-settle expired option strategies at intrinsic. 15:34 —
+        # after the 15:32 short squareoff, before the 15:37 NAV snapshot, so
+        # the day's NAV reflects the settled book + released short-leg margin.
+        # Module-level callable (jobstore serializes by textual ref).
+        scheduler.add_job(
+            settle_expired_options_eod,
+            trigger=CronTrigger(
+                hour=15, minute=34, second=0,
+                day_of_week="mon-fri", timezone=IST,
+            ),
+            id="paper_option_expiry_settlement",
+            name="Paper: cash-settle expired option strategies at 15:34 IST",
+            replace_existing=True,
+        )
         scheduler.add_job(
             snapshot_paper_navs,
             trigger=CronTrigger(
                 # 15:37 — deliberately OFF the */5 resting-tick boundary so
                 # the two jobs never coincide; after the 15:30 close + the
-                # last tick, so the snapshot sees the final marks.
+                # last tick, so the snapshot sees the final marks (and after
+                # the 15:32 short squareoff, above).
                 hour=15, minute=37, second=0,
                 day_of_week="mon-fri", timezone=IST,
             ),
@@ -270,6 +314,26 @@ async def refresh_fno_instruments():
     await refresh_instrument_master_job()
 
 
+async def rebuild_growth_metrics():
+    """Nightly rebuild of mc.growth_metrics_mat — the screener's growth
+    fast path (each live growth CTE costs 20-55s; the mat read is <1s).
+    Runs off-hours; each shard has its own transaction, one failure never
+    kills the rest, and the screener fails open to the live CTE anyway."""
+    import asyncio
+
+    def _run() -> None:
+        from backend.services.growth_materialize import build_growth_metrics
+        stats = build_growth_metrics()
+        errs = {k: v for k, v in stats.items() if "error" in v}
+        logger.info("[growth-mat] rebuilt %d shards (%d errors)%s",
+                    len(stats), len(errs), f": {errs}" if errs else "")
+
+    try:
+        await asyncio.to_thread(_run)
+    except Exception:
+        logger.exception("[growth-mat] nightly rebuild failed")
+
+
 async def snapshot_paper_greeks_eod():
     """F&O P2: EOD portfolio-Greeks snapshot per paper account."""
     import asyncio
@@ -335,6 +399,57 @@ async def mark_paper_positions_intraday():
     except Exception:
         db.rollback()
         logger.exception("paper intraday marking failed")
+    finally:
+        db.close()
+
+
+async def squareoff_intraday_shorts_eod():
+    """Force-cover every open equity short (MIS, opened by a sell past the
+    held quantity — see paper/fills.py) across every active paper account.
+    Runs at 15:32 IST, right after the close and before the NAV snapshot."""
+    from backend.database import SessionLocal
+    from backend.paper.jobs import squareoff_intraday_shorts
+
+    db = SessionLocal()
+    try:
+        summary = squareoff_intraday_shorts(db)
+        db.commit()
+        if summary["covered"]:
+            logger.info(
+                f"[paper] EOD short squareoff: covered "
+                f"{len(summary['covered'])} leg(s) across "
+                f"{summary['accounts']} account(s)"
+            )
+        if summary["failed"]:
+            logger.warning(
+                f"[paper] EOD short squareoff failed for accounts: "
+                f"{summary['failed']}"
+            )
+    except Exception:
+        db.rollback()
+        logger.exception("paper EOD short squareoff failed")
+    finally:
+        db.close()
+
+
+async def settle_expired_options_eod():
+    """Cash-settle every ACTIVE paper option strategy whose expiry has
+    arrived — each leg booked at intrinsic vs the underlying's live
+    settlement price, short-leg margin released, status flipped to
+    'expired'. Runs at 15:34 IST: after the 15:32 short squareoff and
+    BEFORE the 15:37 NAV snapshot, so the day's NAV already reflects the
+    settled (and freed-margin) book. Commits per-strategy internally."""
+    from backend.database import SessionLocal
+    from backend.paper.option_settlement import settle_expired_options
+
+    db = SessionLocal()
+    try:
+        summary = settle_expired_options(db)
+        if summary["candidates"]:
+            logger.info(f"[paper] EOD option expiry settlement: {summary}")
+    except Exception:
+        db.rollback()
+        logger.exception("paper EOD option expiry settlement failed")
     finally:
         db.close()
 

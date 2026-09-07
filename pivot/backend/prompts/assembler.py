@@ -72,6 +72,10 @@ class UserContext:
         today's only path is a live Kite margins call, which costs a
         broker round-trip. Always `None` in the current build.
       - `watchlist_symbols`: at most 3 symbol strings, newest first.
+      - `saved_baskets`: at most 10 dicts, each
+        `{id, name, symbols: [str], n: int}` — the user's saved equity
+        baskets. Lets the model answer "rebalance my oil basket" /
+        "backtest my defensive basket" without a discovery round-trip.
     """
     user_id: int
     full_name: Optional[str] = None
@@ -83,6 +87,7 @@ class UserContext:
     kite_connected: Optional[bool] = None
     cash_buffer_inr: Optional[float] = None
     watchlist_symbols: Optional[list[str]] = None
+    saved_baskets: Optional[list[dict[str, Any]]] = None
 
 
 # ── Role-specific instructions ──────────────────────────────────────
@@ -147,10 +152,11 @@ def _load_chat_system_md() -> str:
     Since 2026-07-03 the monolithic system.md was split into a lean
     ``system_core.md`` (identity + routing doctrine + decision hierarchy,
     always loaded) plus per-intent packs in ``modules/*.md`` that are
-    injected only on the relevant turn (see ``load_prompt_modules``). We
-    prefer system_core.md; fall back to the old monolith, then the inline
-    fallback, so the prompt still builds in any environment."""
-    for name in ("system_core.md", "system.md"):
+    injected only on the relevant turn (see ``load_prompt_modules``). The
+    monolith was deleted 2026-09-05, unread since the split; the inline
+    ``_CHAT_FALLBACK`` remains so the prompt still builds in any
+    environment."""
+    for name in ("system_core.md",):
         p = PROMPTS_DIR / name
         if p.exists():
             return p.read_text(encoding="utf-8").strip()
@@ -325,7 +331,14 @@ def _format_user_context(ctx: UserContext) -> str:
     # ~every turn where the user references "that agent" / "pause it".
     if ctx.active_workflows:
         n = len(ctx.active_workflows)
-        bits.append(f"- Active automations ({n}):")
+        # Provenance label matters: without it the model conflated these
+        # ACCOUNT-level saves with drafts from the current conversation
+        # ("which automations did we draft today?" answered from here —
+        # container eval 2026-07-19 #29). This-conversation artifacts
+        # arrive separately via the session artifact ledger block.
+        bits.append(
+            f"- Active automations ({n}) — saved on the ACCOUNT from "
+            "earlier sessions, NOT drafted in this conversation:")
         for wf in ctx.active_workflows[:10]:
             name = wf.get("name") or "(unnamed)"
             wid = wf.get("id") or "?"
@@ -341,12 +354,53 @@ def _format_user_context(ctx: UserContext) -> str:
         # older caller), render that rather than nothing.
         bits.append(f"- Active automations: {ctx.active_workflows_count}")
 
+    # ── Saved equity baskets ────────────────────────────────────────
+    # So "rebalance / backtest / deploy my <name> basket" resolves without
+    # a discovery round-trip. Compact: name + constituent symbols.
+    if ctx.saved_baskets:
+        n = len(ctx.saved_baskets)
+        bits.append(f"- Saved baskets ({n}) — saved earlier, not from "
+                    "this conversation:")
+        for b in ctx.saved_baskets[:10]:
+            name = b.get("name") or "(unnamed)"
+            bid = b.get("id") or "?"
+            syms = b.get("symbols") or []
+            nsym = b.get("n") or len(syms)
+            preview = ", ".join(str(s) for s in syms[:6])
+            more = f" +{nsym - 6} more" if nsym > 6 else ""
+            bits.append(f'  • "{name}" id={bid} ({nsym}): {preview}{more}')
+
     # ── Watchlist (compact one-liner) ───────────────────────────────
     if ctx.watchlist_symbols:
         wl = ", ".join(ctx.watchlist_symbols[:3])
         bits.append(f"- Watchlist (newest 3): {wl}")
 
     return "\n".join(bits) if len(bits) > 1 else ""
+
+
+def _current_date_line() -> str:
+    """A real, always-fresh "today" fact — computed per call, never
+    cached (unlike the file loaders above, which cache static content).
+
+    Without this, the ONLY date-shaped text anywhere in the assembled
+    prompt was a worked-example table in system_core.md illustrating
+    `valid_until` resolution, headed "assume today is 2026-05-28" — the
+    model had nothing else to anchor "today" to, so it read that
+    illustrative placeholder as fact (reproduced live 2026-07-14: asked
+    directly, it answered "May 28, 2026"). Fixing it here, dynamically,
+    means it can't go stale again the way a hardcoded prompt string does.
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    now = datetime.now(ZoneInfo("Asia/Kolkata"))
+    return (
+        "## Current date\n"
+        f"Today is {now.strftime('%Y-%m-%d')} ({now.strftime('%A')}), "
+        "Asia/Kolkata. Use this — not any date in an illustrative example "
+        "elsewhere in this prompt — for every relative-date resolution "
+        "(valid_until, \"this week\", \"tomorrow\", expiries, schedules)."
+    )
 
 
 def build_system_prompt(
@@ -360,8 +414,14 @@ def build_system_prompt(
       1. Role identity + instructions (from system.md for 'chat',
          else from ROLE_INSTRUCTIONS).
       2. Domain primer (always included).
-      3. User context (only when provided).
-      4. Extra context (only when provided) — caller-injected text,
+      3. Current date (always included, computed fresh every call) —
+         placed AFTER the large stable blocks above so the prompt-cache
+         prefix (role instructions + calibration examples + domain
+         primer, thousands of tokens, rarely changes) survives the
+         once-a-day rollover; only this line and whatever follows it
+         needs revalidating at midnight IST.
+      4. User context (only when provided).
+      5. Extra context (only when provided) — caller-injected text,
          e.g. catalog summary for propose_workflow.
 
     Returns a single newline-joined string ready to send as the system
@@ -382,6 +442,7 @@ def build_system_prompt(
         parts.append(ROLE_INSTRUCTIONS.get(role, _CHAT_FALLBACK).strip())
 
     parts.append(_load_domain_primer())
+    parts.append(_current_date_line())
 
     if user_context:
         block = _format_user_context(user_context)

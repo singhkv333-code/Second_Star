@@ -1,0 +1,122 @@
+[
+  {
+    "id": "92d7a2c0-4aa1-49b3-bc4b-065c0b4c378f",
+    "view_id": "4f40f896-0953-4d66-bf6f-1932667b531e",
+    "seq": 0,
+    "from_node": "IT_weak_guidance",
+    "to_node": "defensive_outperformance",
+    "edge_label": "margin_compression \u2192 defensive_rotation",
+    "strength": 0.6,
+    "evidence": "CAAR event-study: defensive +0.60% t=2.00 p=0.046 on 8 analogs"
+  },
+  {
+    "id": "2a57ad0f-b316-4efc-a9cd-e2cd5ea92ce9",
+    "view_id": "4f40f896-0953-4d66-bf6f-1932667b531e",
+    "seq": 1,
+    "from_node": "IT_weak_guidance",
+    "to_node": "INFY_downside",
+    "edge_label": "IT_sector_drag",
+    "strength": 0.4,
+    "evidence": "INFY instrument CAAR -0.82% but t=-0.46 p=0.65 (not significant)"
+  },
+  {
+    "id": "650d5233-21af-4d1d-b1bb-f50e748fe76c",
+    "view_id": "81809245-feeb-4ead-9f35-eb8166757cb7",
+    "seq": 0,
+    "from_node": "IMD_monsoon_forecast",
+    "to_node": "rural_discretionary_demand",
+    "edge_label": "sowing_intent -> tractor+2W demand",
+    "strength": 0.75,
+    "evidence": "Forecast run-up: CAAR +7.46% t=2.83 p=0.005 (Apr15-Jun15, 16yr)"
+  },
+  {
+    "id": "e3a9f4ae-2955-4c17-95e7-9ab37f0b12b9",
+    "view_id": "81809245-feeb-4ead-9f35-eb8166757cb7",
+    "seq": 1,
+    "from_node": "normal_monsoon_LPA",
+    "to_node": "agri_input_demand",
+    "edge_label": "LPA>=96 -> fertiliser+agrochemical spend",
+    "strength": 0.6,
+    "evidence": "Agri-input basket: 7/9 wins in confirmed-normal years (IMD LPA>=96)"
+  },
+  {
+    "id": "fcc36a28-a921-45b8-bb1f-1146f9a562c5",
+    "view_id": "81809245-feeb-4ead-9f35-eb8166757cb7",
+    "seq": 2,
+    "from_node": "rural_discretionary_demand",
+    "to_node": "M&M_stock_performance",
+    "edge_label": "rural_income -> M&M tractor segment",
+    "strength": 0.55,
+    "evidence": "M&M monsoon-beta t=1.1 (weak individual stock signal; pair strips it)"
+  },
+  {
+    "id": "5e7c95c9-c05f-436a-9cf8-3a59d691774e",
+    "view_id": "19f04e99-b704-4166-b99a-697049885d44",
+    "seq": 0,
+    "from_node": "Brent_crude_decline_10d_minus8pct",
+    "to_node": "importer_margin_expansion",
+    "edge_label": "lower_input_costs -> margin",
+    "strength": 0.65,
+    "evidence": "Expression B/78: CAAR alignment 80%, p=0.012, cost-survival 67%. 67 episodes 2010-2026."
+  },
+  {
+    "id": "4a814313-dcf6-4867-8fe3-9a133893a653",
+    "view_id": "19f04e99-b704-4166-b99a-697049885d44",
+    "seq": 1,
+    "from_node": "geopolitical_de_escalation",
+    "to_node": "Brent_crude_decline_10d_minus8pct",
+    "edge_label": "risk_premium_unwind",
+    "strength": 0.5,
+    "evidence": "Geopolitical triggers are one pathway; demand slowdown / supply glut also fire the signal."
+  },
+  {
+    "id": "59dc3601-e650-4e89-96d8-4d4751d9a7c7",
+    "view_id": "900ccd89-0a2e-4201-8c02-1bd70c6eca47",
+    "seq": 0,
+    "from_node": "an RBI rate-cut cycle",
+    "to_node": "HDFCBANK",
+    "edge_label": "Credit-growth + treasury-gain beneficiary, top private bank",
+    "strength": null,
+    "evidence": "A rate-cut cycle lowers funding costs and supports credit growth and EMI-sensitive demand \u2014 banks/NBFCs (loan growth, treasury gains), autos and rate-sensitive realty lead, while NIM-compression-prone lenders lag. Confirm: successive MPC cuts / dovish guidance, falling system deposit/lending rates, reviving credit growth"
+  },
+  {
+    "id": "e8d2bc0f-636f-46b2-904c-c92411c70255",
+    "view_id": "900ccd89-0a2e-4201-8c02-1bd70c6eca47",
+    "seq": 1,
+    "from_node": "an RBI rate-cut cycle",
+    "to_node": "ICICIBANK",
+    "edge_label": "Same loan-growth tailwind, strong franchise",
+    "strength": null,
+    "evidence": "A rate-cut cycle lowers funding costs and supports credit growth and EMI-sensitive demand \u2014 banks/NBFCs (loan growth, treasury gains), autos and rate-sensitive realty lead, while NIM-compression-prone lenders lag. Confirm: successive MPC cuts / dovish guidance, falling system deposit/lending rates, reviving credit growth"
+  },
+  {
+    "id": "c03b48bc-a4b1-4446-a96e-f70bddf67407",
+    "view_id": "900ccd89-0a2e-4201-8c02-1bd70c6eca47",
+    "seq": 2,
+    "from_node": "an RBI rate-cut cycle",
+    "to_node": "BAJFINANCE",
+    "edge_label": "NBFC \u2014 funding cost falls, lending spread/AUM growth",
+    "strength": null,
+    "evidence": "A rate-cut cycle lowers funding costs and supports credit growth and EMI-sensitive demand \u2014 banks/NBFCs (loan growth, treasury gains), autos and rate-sensitive realty lead, while NIM-compression-prone lenders lag. Confirm: successive MPC cuts / dovish guidance, falling system deposit/lending rates, reviving credit growth"
+  },
+  {
+    "id": "d8931c66-7522-4403-8340-dc03df8f06c3",
+    "view_id": "900ccd89-0a2e-4201-8c02-1bd70c6eca47",
+    "seq": 3,
+    "from_node": "an RBI rate-cut cycle",
+    "to_node": "MARUTI",
+    "edge_label": "Lower EMIs lift auto demand",
+    "strength": null,
+    "evidence": "A rate-cut cycle lowers funding costs and supports credit growth and EMI-sensitive demand \u2014 banks/NBFCs (loan growth, treasury gains), autos and rate-sensitive realty lead, while NIM-compression-prone lenders lag. Confirm: successive MPC cuts / dovish guidance, falling system deposit/lending rates, reviving credit growth"
+  },
+  {
+    "id": "300a308f-5a27-452b-b56c-d899d5f0927d",
+    "view_id": "900ccd89-0a2e-4201-8c02-1bd70c6eca47",
+    "seq": 4,
+    "from_node": "an RBI rate-cut cycle",
+    "to_node": "HDFCLIFE",
+    "edge_label": "avoid: Lower yields pressure investment income for insurers",
+    "strength": null,
+    "evidence": "A rate-cut cycle lowers funding costs and supports credit growth and EMI-sensitive demand \u2014 banks/NBFCs (loan growth, treasury gains), autos and rate-sensitive realty lead, while NIM-compression-prone lenders lag. Invalidate: a hawkish pivot on sticky inflation, a pause, or a liquidity squeeze that re-widens funding costs"
+  }
+]

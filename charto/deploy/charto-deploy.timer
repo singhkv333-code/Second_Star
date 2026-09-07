@@ -1,0 +1,15 @@
+[Unit]
+Description=Poll charto-deploy every 30s
+
+[Timer]
+OnBootSec=60
+OnUnitActiveSec=30
+# The poll is a fetch against GitHub; a fleet of these starting on the same
+# second is what makes a poller look like traffic. One box, but it costs
+# nothing to be well behaved.
+RandomizedDelaySec=5
+AccuracySec=1s
+Unit=charto-deploy.service
+
+[Install]
+WantedBy=timers.target

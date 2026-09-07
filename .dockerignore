@@ -1,0 +1,28 @@
+# Repo-root build context (the backend image builds from here so it can
+# include the sibling pivot-backtester package). Keep the context lean —
+# without these excludes it would ship node_modules (~556M) + .venv (~783M).
+
+# Frontend — not part of the backend image
+pivot-next
+
+# VCS / agent harness
+.git
+.agents
+.claude
+skills-lock.json
+Markdowns
+
+# Python venvs / caches
+**/.venv
+.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+
+# Secrets / local state (never bake into the image)
+**/.env
+**/.env.*
+!**/.env.example
+*.db

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-label="Electric car with charge bolt">
+  <rect width="200" height="200" fill="#14283a"/>
+  <!-- car body -->
+  <path d="M26 128l10-30a14 14 0 0 1 13-9h50a14 14 0 0 1 11 5l20 24 32 6a10 10 0 0 1 8 10v14H26Z" fill="#4a9fd8"/>
+  <path d="M52 96l-6 21h40V96Zm42 0v21h38l-17-21Z" fill="#cfe6f5"/>
+  <rect x="20" y="142" width="160" height="8" rx="4" fill="#2c5a7a"/>
+  <!-- wheels -->
+  <circle cx="62" cy="150" r="18" fill="#0d1a26"/>
+  <circle cx="62" cy="150" r="7" fill="#7fb8dc"/>
+  <circle cx="144" cy="150" r="18" fill="#0d1a26"/>
+  <circle cx="144" cy="150" r="7" fill="#7fb8dc"/>
+  <!-- charge bolt -->
+  <path d="M104 18l-30 44h22l-8 34 32-46h-22Z" fill="#7ee08a" stroke="#14283a" stroke-width="4" stroke-linejoin="round"/>
+</svg>

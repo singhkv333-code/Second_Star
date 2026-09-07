@@ -5,13 +5,12 @@ just-announced quarter's ``metric`` (EPS or revenue) ``beat`` / ``miss``
 / ``meet`` consensus estimate?* This is the safety-critical gate between
 "the calendar says a release window is open" and "fire a real action".
 
-Unlike :func:`backend.macro_events.verifier.verify_macro_outcome`, there
-is no LLM tier here: yfinance returns the *reported* and *estimate*
+There is no LLM tier here: yfinance returns the *reported* and *estimate*
 numbers DIRECTLY, so the comparison is plain arithmetic. Confidence is
 therefore 1.0 whenever both numbers are concrete; absent data fails
 closed to :py:meth:`EarningsOutcome.unknown`.
 
-Fail-safe philosophy (matches the macro verifier):
+Fail-safe philosophy:
 
   * No estimate or reported number for the latest quarter → ``unknown``.
   * Revenue estimate / reported coverage is thin in yfinance's

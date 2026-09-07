@@ -177,19 +177,61 @@ Output ONLY valid JSON matching this schema (no prose, no markdown fences):
 Rules:
   - Indian stocks default to exchange "NSE", currency INR.
   - "every weekday" → cron with day_of_week 1-5.
+  - BOUNDED recurring window ("every 5 min FOR THE NEXT HOUR", "buy every 10 min for the next 30 minutes", "each hour for the next 2 hours") → keep the `cron` for the cadence AND set `duration_minutes` on the SAME trigger.schedule config to the window length (1 hour → 60, 30 minutes → 30, 2 hours → 120). The window is measured from activation and the agent auto-stops after it. Omit `duration_minutes` for an open-ended schedule with no stated end ("every weekday at 3:15 PM"). Never fold the window into the cron — a cron cannot express "stop after an hour", so dropping it makes the agent fire forever.
   - Times default to "Asia/Kolkata" unless the user specifies otherwise.
   - "if my buying power is over X" → fetch.portfolio THEN condition.numeric on context.<idx>.buying_power.
   - Order placement that mentions confirmation / approval / "ask me first" → action.place_order with requires_approval=true.
-  - "notify me" / "alert me" → notify.message at the end.
+  - Price/condition ALERTS are NOT available: a workflow whose only action is an in-app notify.message (a "just alert me / notify me / ping me" ask with no order) will be REJECTED. Do not build a notify-only alert workflow. (notify.message may still accompany an ORDER action as a fire confirmation, and notify.webhook remains valid for an explicit external POST.)
   - If the user's intent is ambiguous, prefer the SIMPLER 2-3 step workflow over inventing fields.
   - Indicator timeframe: trigger.indicator / trigger.compound / trigger.exit_compound / condition.compound accept an optional `timeframe: "daily" | "weekly"`. Default is `daily`. If the user says "weekly RSI", "on weekly bars", "weekly chart", "W/F-close", etc., set `timeframe: "weekly"` on the indicator config (or on every IndicatorNode leaf inside a compound tree). Do NOT invent a non-default timeframe when the user did not ask for it.
 
-EVENT / EXTERNAL TRIGGERS — pick the right one (these are wired and should NOT be refused):
-  - trigger.scheduled_macro — RBI / Fed / CPI calendar outcomes (allowed kinds only: rbi_mpc, us_fomc, india_cpi, us_cpi).
-  - trigger.polymarket / trigger.kalshi — listed prediction-market resolutions/thresholds.
-  - trigger.earnings — a NAMED company's quarterly EPS print vs the consensus estimate.
-       Fields: symbol (NSE ticker like INFY/TCS); metric: "eps" (revenue is roadmap-only, refuse politely if asked); condition: "beat" | "miss" | "meet"; optional surprise_threshold_pct (number, e.g. 5 for "beats by >=5%"); optional min_confidence (default 0.85).
-       USE for asks like "alert me when INFY beats earnings", "if TCS misses EPS estimate notify me", "ping me if RELIANCE beats by 5%". Source is the yfinance earnings calendar; scheduler opens a 48h verify window around the reported date and fires fail-safe (only when matched).
+COMPOUND / EXIT TREE GRAMMAR — trigger.compound and trigger.exit_compound take `entry`: a condition TREE, not an opaque object. Node types:
+  {{ "type":"comparison", "op":">="|"<="|">"|"<", "left":<node>, "right":<node> }}
+  {{ "type":"logic", "op":"and"|"or", "operands":[<node>,...] }}
+  {{ "type":"price", "symbol":"<SYM>", "basis":"close"|"open"|"high"|"low" }}   {{ "type":"constant", "value":<number> }}
+  {{ "type":"indicator", "indicator":"rsi"|"sma"|"ema"|"atr"|..., "symbol":"<SYM>", "period":<n> }}
+  {{ "type":"position", "field":"entry_price"|"unrealised_pct"|"unrealised_abs"|"bars_held"|"peak_unrealised_pct"|"drawdown_from_peak_pct", "basis":"close"|"low"|"high" }}   (exit trees only; percent fields are FRACTIONS: +5% = 0.05)
+  trigger.exit_compound config also takes: "target_symbol": "<SYM>", "one_shot": true (fire once, then disarm).
+
+PERCENT-FROM-ENTRY EXITS ARE FULLY SUPPORTED — never approximate them. "Sell 3 at +5% from entry" is ONE exit branch:
+  {{ "step_type":"trigger.exit_compound", "config": {{ "entry": {{ "type":"comparison", "op":">=", "left": {{ "type":"position", "field":"unrealised_pct", "basis":"high" }}, "right": {{ "type":"constant", "value":0.05 }} }}, "target_symbol":"<SYM>", "one_shot":true }} }}
+followed by its action.place_order sell step.
+
+STAGED SCALE-OUT — THE STOP MUST BE ARMED AT EVERY STAGE. Steps run STRICTLY IN
+ORDER: the engine does not evaluate step 6 until step 4 has fired. So a stop
+branch appended AFTER the profit tranches cannot fire until every target above
+it has already hit — it is disarmed on exactly the path it exists for (a
+gap-down straight after entry). Do NOT lay it out that way. OR the stop leaf
+into EACH tranche's trigger, so any stage can exit on the downside, then add a
+final stop branch for whatever quantity is left.
+  "buy 9 SYM at open, sell 3 at +5%, 3 at +10%, all out at -3%":
+    1. trigger.market_relative_time anchor="open"     2. action.place_order buy 9
+    3. trigger.exit_compound {{ "entry": {{ "type":"logic","op":"or","operands":[
+         {{ "type":"comparison","op":">=","left":{{ "type":"position","field":"unrealised_pct","basis":"high" }},"right":{{ "type":"constant","value":0.05 }} }},
+         {{ "type":"comparison","op":"<=","left":{{ "type":"position","field":"unrealised_pct","basis":"low"  }},"right":{{ "type":"constant","value":-0.03 }} }} ]}},
+       "target_symbol":"SYM", "one_shot":true }}                4. action.place_order sell 3
+    5. SAME or-tree but with 0.10 as the target                  6. action.place_order sell 3
+    7. trigger.exit_compound on the bare stop leaf (-0.03)       8. action.place_order sell 3 (the REMAINDER)
+  The final sell is the remainder — entry_qty minus everything the tranches
+  already sold (9 - 3 - 3 = 3), NOT the full entry quantity: selling 9 when 6
+  are gone opens a SHORT. Same rule for the take-profit ladder: the quantities
+  must sum to the entry, never exceed it.
+
+NEVER approximate a price / percent / at-open / at-close condition with trigger.schedule. A "check daily at 09:30" cron is NOT a level trigger — it misses intraday moves and lies about the mechanics. "At the open/close" = trigger.market_relative_time(anchor="open"|"close"). trigger.schedule is ONLY for genuinely time-based asks ("every Friday", "on the 5th monthly").
+
+NOT AVAILABLE — DO NOT DRAFT THESE, under any phrasing:
+  - Prediction-market triggers (Polymarket, Kalshi, "what's priced in", odds/contract resolutions).
+  - News- or headline-driven triggers ("when there's news about X", "if there's a war/tariff announcement", "if SEBI probes Y").
+  - Macro-outcome triggers ("if the RBI cuts", "on an FOMC decision", "when the CPI print lands").
+{earnings_unavailable}  A claim about the WORLD is not a trigger we can fire on — we watch prices and
+  indicators, not events. If the user asks for one, say so in ONE plain line and
+  offer the nearest thing that IS wired: a PRICE or INDICATOR level on the
+  instrument the event would move ("NIFTYBEES below X", "RSI(14) under 30"), or
+  a SCHEDULE if their ask was really about timing. Never draft one of these
+  steps, and never imply we watch headlines.
+
+{earnings_block}
+EXTERNAL TRIGGERS — this one IS wired and should NOT be refused:
   - trigger.global_price — USD-denominated CRYPTO / FOREX / global COMMODITY prices NOT served by Kite.
        Fields: asset_class: "crypto" | "forex" | "commodity"; symbol: canonical upper-case (e.g. "BTC", "ETH", "EURUSD", "USDINR", "WTI", "BRENT", "XAUUSD", "XAGUSD"); operator: ">" | "<" | "crosses_above" | "crosses_below"; value: numeric threshold in the asset's quote currency; optional quote_currency.
        USE for asks like "alert me when BTC crosses $100k", "tell me if USDINR goes above 87", "buy NIFTYBEES when WTI crude drops below 60".
@@ -205,20 +247,13 @@ INSTRUMENT SELECTION FOR THEMATIC / DIRECTIONAL REQUESTS (HARD RULES — getting
 
   1. When the user expresses a THEMATIC view ("profits from rising oil", "benefits from a weaker rupee", "plays the AI boom") DO NOT pick a single arbitrary stock. Pick a small BASKET (3-5 names) of the actual beneficiaries and prefer the basket macro shape (action.allocate_notional over a fetch.screener) when the catalog supports it. A single-name SIP into one arbitrary ticker is almost always wrong for a thematic ask.
 
-  2. You must reason about WHO ACTUALLY BENEFITS from the move the user describes — this is not the same as "stocks in the same sector". The most important Indian examples to internalize:
+  2. You must reason about WHO ACTUALLY BENEFITS from the move the user describes — this is not the same as "stocks in the same sector". Trace the transmission: who SELLS what gets pricier, who BUYS what gets cheaper, whose margins are administered vs market-set. Two worked examples of the reasoning pattern (apply the same rigor to ANY theme):
 
-       - "Profits from RISING crude / oil prices" → UPSTREAM PRODUCERS who sell crude they pull out of the ground: ONGC, OIL India (Oil India Ltd). Optionally Reliance (integrated; upstream exposure partially offset by refining). Cairn / Vedanta has crude exposure too.
-         EXPLICITLY WRONG for this view: IOC, BPCL, HPCL. These are refiners / oil MARKETING companies; their gross refining margins COMPRESS when crude rises because retail fuel prices are politically administered and they can't pass through the cost in real time. Picking IOC for "profits from rising oil" is a textbook backwards trade.
+       - "Profits from RISING crude / oil prices" → UPSTREAM PRODUCERS who sell crude they pull out of the ground: ONGC, OIL India. EXPLICITLY WRONG: IOC, BPCL, HPCL — refiners/marketers whose margins COMPRESS when crude rises because retail fuel prices are politically administered. Picking IOC for "profits from rising oil" is a textbook backwards trade. (Falling crude → flip it.)
 
-       - "Profits from FALLING crude / oil prices" → flip it: refiners/marketers (IOC, BPCL, HPCL) and heavy crude-input consumers (paints: ASIANPAINT/BERGEPAINT; aviation: INDIGO; tyres) benefit. Upstream producers (ONGC, OIL India) suffer.
+       - "Benefits from a WEAKER rupee" (USD/INR up) → exporters earning in USD (IT, pharma); NOT importers, NOT oil marketers (their import bill rises).
 
-       - "Benefits from a WEAKER rupee" (USD/INR up) → IT exporters (TCS, INFY, HCLTECH, WIPRO), pharma exporters (SUNPHARMA, DRREDDY), some auto exporters. NOT importers, NOT oil marketers (their import bill rises).
-
-       - "Benefits from RBI rate CUTS" → rate-sensitive: NBFCs, housing finance, autos, real estate. NOT banks straightforwardly (NIMs compress).
-
-       - "Benefits from gold rising" → gold financiers (MUTHOOTFIN, MANAPPURAM) and gold jewellers/ETFs; NOT generic "metals" stocks.
-
-     If the user's thematic view falls outside these and you are not confident in WHO benefits, say so in the rationale and pick the most defensible small basket plus a clear caveat — never fabricate confidence.
+     Reason every other theme out the same way from first principles. If you are not confident in WHO benefits, say so in the rationale and pick the most defensible small basket plus a clear caveat — never fabricate confidence.
 
   3. RISK-NEUTRAL / HEDGED / MARKET-NEUTRAL constraints. If the user says "risk neutral", "hedged", "market neutral", "delta neutral", "pair trade", "long-short", or any equivalent: a long-only SIP / long-only basket is NOT a hedge and is NOT risk-neutral. You MUST either:
        (a) propose a structurally hedged shape — e.g. a long basket of the beneficiaries paired with a short on a broad index (NIFTY/BANKNIFTY) or a paired short of the natural anti-beneficiary, OR an options-defined-risk structure if the catalog supports option steps, OR
@@ -228,8 +263,34 @@ INSTRUMENT SELECTION FOR THEMATIC / DIRECTIONAL REQUESTS (HARD RULES — getting
 """
 
 
+_EARNINGS_WIRED_BLOCK = """EVENT TRIGGERS:
+  - trigger.earnings — a NAMED company's quarterly EPS print vs the consensus estimate.
+       Fields: symbol (NSE ticker like INFY/TCS); metric: "eps" (revenue is roadmap-only, refuse politely if asked); condition: "beat" | "miss" | "meet"; optional surprise_threshold_pct (number, e.g. 5 for "beats by >=5%"); optional min_confidence (default 0.85).
+       USE for asks like "alert me when INFY beats earnings", "if TCS misses EPS estimate notify me". Source is the yfinance earnings calendar; scheduler opens a 48h verify window around the reported date and fires fail-safe (only when matched).
+
+"""
+
+_EARNINGS_UNAVAILABLE_LINE = (
+    '  - Earnings-outcome triggers ("when INFY beats EPS", "if TCS misses '
+    'estimates"). The step type exists but its watcher is switched off, so the '
+    "agent would arm and then never fire — worse than a refusal, because it "
+    "looks like it is working.\n"
+)
+
+
 def build_system_prompt() -> str:
-    return _SYSTEM_PROMPT_TEMPLATE.format(catalog=_build_catalog_summary())
+    """Assemble the planner prompt for the CURRENT capability set.
+
+    The earnings lane is described as available or refused depending on
+    `earnings_events_enabled`, rather than being asserted wired in prose that
+    then drifts from reality (it had: the prompt promised a trigger whose
+    watcher has been flag-off, so those agents never fired)."""
+    on = getattr(settings, "earnings_events_enabled", False)
+    return _SYSTEM_PROMPT_TEMPLATE.format(
+        catalog=_build_catalog_summary(),
+        earnings_block=_EARNINGS_WIRED_BLOCK if on else "",
+        earnings_unavailable="" if on else _EARNINGS_UNAVAILABLE_LINE,
+    )
 
 
 # ── Validation ────────────────────────────────────────────────────────
@@ -237,6 +298,97 @@ def build_system_prompt() -> str:
 
 class ProposalValidationError(ValueError):
     """Raised when the LLM returns a draft that doesn't validate."""
+
+
+# World-claim triggers: they fire on something happening OUT THERE (a headline,
+# a rate decision, a contract resolving) rather than on a number on a chart.
+# Pivot does not support that lane for now (2026-07-17).
+#
+# Four of these are not even in the step registry, so a draft naming one
+# already died — but with a generic "unknown step type", which tells the model
+# nothing about what to do instead. The fifth is worse: `trigger.earnings` IS
+# registered, so it validates and activates cleanly while its watcher sits
+# behind `earnings_events_enabled` (default False) and never polls. That agent
+# is indistinguishable from one patiently waiting — it just never fires.
+# Silence is the failure mode here, so refuse EARLY and say why.
+_WORLD_CLAIM_TRIGGERS: dict[str, str] = {
+    "trigger.polymarket": "prediction-market (Polymarket)",
+    "trigger.kalshi": "prediction-market (Kalshi)",
+    "trigger.scheduled_macro": "macro-calendar outcome (RBI/Fed/CPI)",
+    "trigger.event": "news/headline event",
+    "trigger.earnings": "earnings-print outcome",
+}
+
+
+def _unavailable_triggers() -> dict[str, str]:
+    """The world-claim triggers that are off RIGHT NOW. Earnings drops out of
+    the list the moment its watcher is switched on, so the boundary tracks the
+    real capability instead of hard-coding today's answer.
+
+    ``trigger.global_price`` joins them for the same reason and by the same
+    test: it is registered, so "buy 20 ONGC when crude oil goes above $80"
+    validated and activated cleanly while ``_poll_global_price_triggers`` sat
+    behind a flag that is off by default and never polled. An agent that
+    cannot fire is indistinguishable from one still waiting — which is the
+    failure this whole function exists to refuse early and out loud.
+    """
+    out = dict(_WORLD_CLAIM_TRIGGERS)
+    if getattr(settings, "earnings_events_enabled", False):
+        out.pop("trigger.earnings", None)
+    if not getattr(settings, "global_price_triggers_enabled", False):
+        out["trigger.global_price"] = (
+            "global crypto / forex / USD-commodity price level"
+        )
+    return out
+
+
+def _reject_unavailable_triggers(draft):
+    """Refuse news / macro-outcome / prediction-market / earnings triggers.
+
+    Takes the RAW draft (dict or model) and runs BEFORE registry validation, so
+    the model gets an instruction it can act on rather than "unknown step type".
+    """
+    steps = (
+        draft.get("steps") if isinstance(draft, dict)
+        else getattr(draft, "steps", None)
+    ) or []
+    unavailable = _unavailable_triggers()
+    hit: set[str] = set()
+    for s in steps:
+        t = s.get("step_type") if isinstance(s, dict) else getattr(s, "step_type", "")
+        if t in unavailable:
+            hit.add(unavailable[t])
+    if hit:
+        raise ProposalValidationError(
+            f"{', '.join(sorted(hit))} triggers are NOT available — Pivot does "
+            "not watch news, macro outcomes, earnings prints or prediction "
+            "markets, so this workflow could never fire. Do NOT draft one. "
+            "State the boundary in one plain line, then offer the nearest WIRED "
+            "trigger: a PRICE or INDICATOR level on the instrument that view "
+            "would move, or a SCHEDULE if the ask was really about timing."
+        )
+    return draft
+
+
+def _reject_notify_only(draft):
+    """Refuse a pure ALERT workflow (in-app `notify.message` with no order
+    action) — price/condition alerts aren't available (product decision), so a
+    card that only pushes an alert would never actually notify. Order
+    automations (any `action.*` step) and explicit `notify.webhook`
+    integrations pass through untouched. Returns the draft or raises."""
+    steps = getattr(draft, "steps", None) or []
+    types = [getattr(s, "step_type", "") for s in steps]
+    has_inapp_alert = any(t == "notify.message" for t in types)
+    has_order = any(t.startswith("action.") for t in types)
+    if has_inapp_alert and not has_order:
+        raise ProposalValidationError(
+            "Price/condition ALERTS and notifications aren't available right "
+            "now — Pivot doesn't send alerts, pings, or 'tell me when' "
+            "messages. Do NOT draft an alert/notify workflow; state this "
+            "boundary in one plain line. Only if the user wants to ACT at that "
+            "level, offer a broker-held GTT/threshold ORDER instead."
+        )
+    return draft
 
 
 async def resolve_polymarket_event_descriptions(raw: dict[str, Any]) -> None:
@@ -580,13 +732,40 @@ def validate_draft_against_registry(raw: dict[str, Any]) -> WorkflowDraft:
         # in-place so the validated step + downstream executor see
         # the repaired config. Saves an LLM retry hop on common
         # LLM mistakes ("quantity": "ten", "channel": "email", etc.).
+        #
+        # The channel collapse is a SILENT downgrade unless we disclose
+        # it: a user who asked for "notify me by email/WhatsApp" gets a
+        # step that validates fine (channel -> "push") with nothing in
+        # the response telling them their stated channel wasn't honored
+        # (Pivot v1 only delivers in-app push — email/SMS/WhatsApp/Slack
+        # aren't wired). Capture the pre-repair value here and, if it
+        # actually got collapsed, surface it via `draft.warnings` — the
+        # same field the FE's WorkflowDraftCard already renders as a
+        # visible warning badge (see e.g. the top-movers template's
+        # budget/universe warnings above).
+        requested_channel = (
+            (step.config or {}).get("channel")
+            if step.step_type == "notify.message" else None
+        )
         from backend.services.arg_repair import repair_step_config
         repaired_cfg, _notes = repair_step_config(step.step_type, step.config or {})
         if repaired_cfg is not step.config:
             step.config = repaired_cfg
+        if (
+            step.step_type == "notify.message"
+            and isinstance(requested_channel, str)
+            and requested_channel.strip().lower() != "push"
+            and step.config.get("channel") == "push"
+        ):
+            draft.warnings.append(
+                f"You asked for \"{requested_channel.strip()}\" notifications, "
+                "but Pivot v1 only delivers in-app push — email/SMS/WhatsApp/"
+                "Slack aren't wired yet. This step will send a push alert "
+                "instead."
+            )
 
         try:
-            defn.config_model.model_validate(step.config)
+            validated_cfg = defn.config_model.model_validate(step.config)
         except ValidationError as e:
             first = e.errors()[0]
             field = ".".join(str(p) for p in first.get("loc", []))
@@ -594,7 +773,27 @@ def validate_draft_against_registry(raw: dict[str, Any]) -> WorkflowDraft:
                 f"step {idx} ({step.step_type}) config invalid: "
                 f"{field}: {first.get('msg', 'unknown')}"
             ) from e
+        # Persist the resolved `exchange` back onto the stored step
+        # config. `_Strict._resolve_commodity_exchange` (schemas.py) only
+        # mutates the transient validated model above; the live watcher
+        # (workflows/scheduler.py) reads `cfg.get("exchange", "NSE")`
+        # straight off the JSON config dict, not a re-validated model.
+        # Without writing it back, an MCX commodity trigger with no
+        # explicit `exchange` in the LLM's emitted config would still
+        # persist with a missing/NSE exchange and silently mis-fire.
+        if hasattr(validated_cfg, "exchange"):
+            step.config["exchange"] = validated_cfg.exchange
         prev_was_trigger = is_trigger
+
+    # Triggers whose watcher is switched OFF right now. This lived only on
+    # the `propose_workflow_async` path, which the chat has not used since the
+    # hop started emitting steps[] directly — so the whole flag-gated boundary
+    # (prediction markets, macro outcomes, news, earnings, global price) was
+    # unenforced on the path that actually runs. A "buy ONGC when crude goes
+    # above $80" draft validated and activated cleanly against a poll loop
+    # that is off by default: an agent that can never fire looks exactly like
+    # one still waiting. Enforced HERE so both paths share one answer.
+    _reject_unavailable_triggers(draft)
 
     # Conservative-beta event-trigger allow-list. Runs after per-step
     # registry validation (so configs are already Pydantic-valid) and
@@ -1159,6 +1358,223 @@ def _mock_propose(user_intent: str) -> WorkflowDraft:
     )
 
 
+# ── Top gainers / losers deterministic template ──────────────────────
+#
+# The engine already has a complete top-movers chain: fetch.top_movers
+# (Kite-primary NIFTY-50 movers, yfinance + seed fallback) feeding
+# action.allocate_notional (equal ₹ split, one order per name), plus an
+# optional close-leg action.squareoff. But the free-form LLM planner was
+# unreliable at COMPOSING it — for "buy the top gainers after the open
+# and sell before the close" it fell back to a single arbitrary symbol or
+# failed validation, so the agent refused to build. This deterministic
+# builder recognises the pattern and emits the exact valid draft, so the
+# capability the user already has actually fires. It runs BEFORE the LLM
+# in both mock and live modes.
+
+_TOP_MOVERS_RE = re.compile(
+    r"\btop\s+(?:\d+\s+)?(?:gainers?|losers?|movers?)\b"
+    r"|\bbiggest\s+(?:\d+\s+)?(?:gainers?|losers?|movers?)\b"
+    r"|\bday'?s?\s+(?:top|biggest)\s+(?:gainers?|losers?|movers?)\b",
+    re.IGNORECASE,
+)
+
+# A buy/trade verb must be present — a pure READ ("show me today's top
+# gainers") is a chat-tool question (get_top_movers), not an agent.
+_TRADE_VERB_RE = re.compile(
+    r"\b(?:buy|buys|buying|purchase|purchasing|long|short|trade|trading|"
+    r"invest|investing|deploy|allocate|allocating|scoop|enter|"
+    r"accumulate|accumulating|pick\s+up)\b",
+    re.IGNORECASE,
+)
+
+
+def _parse_rupee_budget(text: str, default: float) -> tuple[float, bool]:
+    """Parse a rupee budget from free text, honouring the Indian k / L /
+    cr suffixes. Returns (amount, was_defaulted).
+
+    '₹10,000' / '10k' → 10000 · '1L' / '1 lakh' → 100000 · '2cr' → 2e7.
+    Only matches amounts carrying a currency marker (₹ / rs) OR a
+    magnitude suffix OR a capital-context word, so the bare "5" in
+    "top 5 gainers" is never mistaken for a budget."""
+    low = text.lower().replace(",", "")
+    mult = {"k": 1_000, "l": 100_000, "lac": 100_000, "lakh": 100_000,
+            "cr": 10_000_000, "crore": 10_000_000}
+    # Currency- or capital-anchored amount, optional magnitude suffix.
+    m = re.search(
+        r"(?:₹|rs\.?\s*|capital[^0-9₹]{0,20}|budget[^0-9₹]{0,20}|"
+        r"deploy[^0-9₹]{0,20}|invest[^0-9₹]{0,20}|use\s+)"
+        r"₹?\s*(\d+(?:\.\d+)?)\s*(k|lac|lakh|l|cr|crore)?\b",
+        low,
+    )
+    if not m:
+        # Bare magnitude-suffixed amount anywhere ("10k", "5l").
+        m = re.search(r"\b(\d+(?:\.\d+)?)\s*(k|lac|lakh|l|cr|crore)\b", low)
+    if m:
+        try:
+            base = float(m.group(1))
+            suffix = (m.group(2) or "").strip()
+            return base * mult.get(suffix, 1), False
+        except ValueError:
+            pass
+    return default, True
+
+
+def _top_movers_template(user_intent: str) -> Optional[WorkflowDraft]:
+    """Build a validated top-gainers/losers agent draft, or None when the
+    intent isn't a tradeable top-movers ask.
+
+    Shapes produced:
+      buy-only  → trigger(open) · fetch.top_movers · allocate_notional
+      open→close→ + trigger(close) · squareoff(all)   (when the user asks
+                  to sell / exit / square off before the close)"""
+    low = user_intent.lower()
+    if not _TOP_MOVERS_RE.search(low) or not _TRADE_VERB_RE.search(low):
+        return None
+
+    # Explicit SHORT of a dynamic basket isn't a wired capability (live
+    # basket shorts aren't supported). Never silently build a LONG basket
+    # of those names — that would be a correctness failure. Bail so the
+    # normal planner can handle / honestly decline it.
+    if re.search(r"\bshort\b", low) and not re.search(r"\b(buy|long)\b", low):
+        return None
+
+    direction = (
+        "losers"
+        if re.search(r"\blosers?|laggards?|decliners?|worst\b", low)
+        else "gainers"
+    )
+
+    # N names: "top 5", "5 names/gainers/stocks". Default 5, bounded 1-20.
+    mlim = re.search(
+        r"\btop\s+(\d+)\b|\b(\d+)\s+(?:names?|gainers?|losers?|movers?|stocks?)\b",
+        low,
+    )
+    limit = 5
+    if mlim:
+        try:
+            limit = max(1, min(int(mlim.group(1) or mlim.group(2)), 20))
+        except (ValueError, TypeError):
+            limit = 5
+
+    total_inr, budget_defaulted = _parse_rupee_budget(user_intent, default=25_000.0)
+
+    # Entry timing. Explicit clock time → schedule cron; otherwise anchor
+    # to the market open (default 15 min after, so early-auction noise has
+    # settled). "at the open" → +0.
+    cron, tz = _parse_cron_from_text(user_intent)
+    used_cron = bool(re.search(r"\b\d{1,2}[:.]?\d{0,2}\s*(am|pm)\b|\bat\s+\d", low))
+    if used_cron:
+        entry_trigger = DraftStep(
+            step_type="trigger.schedule",
+            label=f"On {cron} {tz}",
+            config={"cron": cron, "timezone": tz},
+        )
+    else:
+        after_open = 0 if re.search(r"\bat\s+(the\s+)?open\b", low) else 15
+        entry_trigger = DraftStep(
+            step_type="trigger.market_relative_time",
+            label="At the open" if after_open == 0 else f"{after_open}m after open",
+            config={"anchor": "open", "offset_minutes": after_open},
+        )
+
+    steps: list[DraftStep] = [
+        entry_trigger,
+        DraftStep(
+            step_type="fetch.top_movers",
+            label=f"Top {limit} {direction} (NIFTY 50)",
+            config={"direction": direction, "universe": "nifty50", "limit": limit},
+        ),
+        DraftStep(
+            step_type="action.allocate_notional",
+            label=f"Buy top {limit} {direction} · ₹{int(total_inr):,}",
+            config={
+                # Consume the movers list produced one step up.
+                "symbols": "{{ context.1.symbols }}",
+                "side": "buy",
+                "total_inr": total_inr,
+                "strategy": "equal",
+                "order_type": "market",
+            },
+        ),
+    ]
+
+    # Exit leg — only when the user asks to sell / exit / square off, and
+    # ties it to the close / EOD / "same day" / "intraday".
+    # Suffix-tolerant on purpose: "sell" / "sells" / "selling" / "square
+    # off" / "squaring" / "exit" / "exiting" all count.
+    wants_exit = bool(
+        re.search(
+            r"\b(?:sell|exit|squar|flatten|offload|liquidat|"
+            r"close\s+(?:them|out)|book\s+profit)",
+            low,
+        )
+        and re.search(
+            r"\b(?:before\s+(?:the\s+)?close|at\s+(?:the\s+)?close|"
+            r"eod|end\s+of\s+day|same\s+day|intraday|by\s+close)\b",
+            low,
+        )
+    )
+    if wants_exit:
+        steps.append(DraftStep(
+            step_type="trigger.market_relative_time",
+            label="10m before close",
+            config={"anchor": "close", "offset_minutes": -10},
+        ))
+        steps.append(DraftStep(
+            step_type="action.squareoff",
+            label="Sell everything before close",
+            config={"scope": "all"},
+        ))
+
+    dir_word = "gainers" if direction == "gainers" else "losers"
+    name = (
+        f"Top {limit} {dir_word} — open to close"
+        if wants_exit
+        else f"Buy top {limit} {dir_word} at the open"
+    )
+
+    warnings: list[str] = [
+        "Universe is NIFTY 50 only (the wired top-movers set) — not the "
+        "whole market.",
+        "Movers are read live from Kite (yfinance backup); if no live "
+        "session is available a labelled seed list is used, so review the "
+        "names before activating.",
+    ]
+    if wants_exit:
+        warnings.append(
+            "The close leg squares off ALL open positions in the account, "
+            "not just this basket — run it in a dedicated agent / paper book."
+        )
+    if budget_defaulted:
+        warnings.append(
+            f"No capital was specified, so ₹{int(total_inr):,} is assumed — "
+            "edit the budget before activating."
+        )
+
+    rationale = (
+        f"Each trading day this ranks the NIFTY-50 {dir_word} live (Kite-"
+        f"primary, yfinance fallback) and spreads ₹{int(total_inr):,} "
+        f"equally across the top {limit}, one market order per name. "
+        + (
+            "A second leg fires ~10 minutes before the close and squares "
+            "off the open positions, so nothing is held overnight. "
+            if wants_exit else
+            "It enters only — add a sell/close leg if you want an intraday "
+            "exit. "
+        )
+        + "This automates your instruction and registers the orders — it "
+        "does not place them live in your broker."
+    )
+
+    return WorkflowDraft(
+        name=name,
+        description=user_intent.strip()[:200],
+        steps=steps,
+        rationale=rationale,
+        warnings=warnings,
+    )
+
+
 # ── Public entry point ───────────────────────────────────────────────
 
 
@@ -1187,16 +1603,34 @@ async def propose_workflow_async(user_intent: str) -> WorkflowDraft:
     if not user_intent:
         raise ProposalValidationError("user_intent is empty")
 
+    # Deterministic fast paths FIRST — reliable in both mock and live mode.
+    # The top-movers builder recognises "buy the top gainers/losers …
+    # [sell before close]" and emits the exact valid draft over the wired
+    # fetch.top_movers → action.allocate_notional chain, instead of leaving
+    # it to LLM luck (which used to collapse it to a single symbol or fail).
+    tm_draft = _top_movers_template(user_intent)
+    if tm_draft is not None:
+        try:
+            return _reject_notify_only(validate_draft_against_registry(
+                _reject_unavailable_triggers(tm_draft.model_dump())))
+        except ProposalValidationError:
+            # Template drifted from the registry — fall through to the LLM
+            # rather than hard-failing a request we can still try to build.
+            logger.warning("top-movers template failed validation; "
+                           "falling through to LLM", exc_info=True)
+
     if _is_mock_mode():
         # Genuine offline mode (no OpenAI, no Azure). The mock path
         # is the demo recording's deterministic fallback — kept so CI
         # and screencast runs work without network. NOT a graceful
         # degradation when an LLM call fails.
         draft = _mock_propose(user_intent)
-        return validate_draft_against_registry(draft.model_dump())
+        return _reject_notify_only(validate_draft_against_registry(
+            _reject_unavailable_triggers(draft.model_dump())))
 
     # LLM is configured — propose for real, no safety net. If the model
     # can't produce a valid draft after one retry, the caller (chat
     # service / propose endpoint) gets the validation error and is
     # responsible for telling the user what's missing.
-    return await _propose_via_llm(user_intent)
+    return _reject_notify_only(_reject_unavailable_triggers(
+        await _propose_via_llm(user_intent)))

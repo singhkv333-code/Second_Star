@@ -145,6 +145,10 @@ def get_indicator(
     # that interval, so e.g. RSI(14) on 15m has enough bars to settle.
     if is_intraday(norm_interval) and history_period == "6mo":
         history_period = default_period_for(norm_interval)
+    # Long daily lookbacks (e.g. SMA(200)) need more bars than the ~125
+    # in the default 6mo window — widen so the value can actually settle.
+    elif history_period == "6mo" and period > 75:
+        history_period = "2y"
     try:
         df = get_ohlcv(sym, period=history_period, interval=norm_interval)
     except DataUnavailableError as e:
@@ -176,21 +180,68 @@ def get_multiple_indicators(
     indicators: list[str],
     history_period: str = "6mo",
     interval: str = "1d",
+    period: int | None = None,
 ) -> dict[str, Any]:
     """Compute several indicators for one ticker in a single call.
 
     Use for: "give me RSI, MACD, and Bollinger for ETERNAL". Saves a
     chat round-trip vs calling get_indicator three times. All indicators
     are computed on the same ``interval`` (period counts BARS of it).
+    ``period`` applies to every requested indicator; omit for defaults.
     """
     sym = _normalise_symbol(symbol)
     if not indicators:
         return _err("indicators list is empty", symbol=sym)
     results: dict[str, Any] = {"symbol": sym, "indicators": {}, "interval": interval}
+    kw = {"period": int(period)} if period else {}
+    # A single scalar `period` can't size every indicator in a multi-
+    # indicator call: "RSI, 50-day SMA" arrives as period=50, meant for
+    # the SMA — it must NOT override RSI(14). So when >1 indicator is
+    # requested, RSI keeps its canonical default; a lone "RSI over 21
+    # days" (single indicator) still honours the period.
+    multi = len(indicators) > 1
     for ind in indicators:
+        ind_kw = {} if (multi and (ind or "").strip().lower() == "rsi") else kw
         results["indicators"][ind] = get_indicator(
-            sym, ind, history_period=history_period, interval=interval,
+            sym, ind, history_period=history_period, interval=interval, **ind_kw,
         )
+    # Price CONTEXT alongside the indicator values. "Is RELIANCE above its
+    # 200-DMA?" is one question, but without the last close (and the gap to
+    # each level) the caller had to fetch the quote and then run a compute hop
+    # just to subtract two numbers — 4 hops and ~20s for a yes/no read
+    # (2026-07-17 eval, R43). Levels the price can be compared against get a
+    # signed %-distance here; oscillators (RSI/MACD/…) are left alone.
+    _levels = {"sma", "ema", "wma", "vwap", "supertrend"}
+    _last = None
+    for v in results["indicators"].values():
+        if isinstance(v, dict) and v.get("last_close") is not None:
+            _last = float(v["last_close"])
+            break
+    if _last is None:
+        try:
+            _series = get_close_series(sym, period="1mo")
+            _last = float(_series.iloc[-1]) if len(_series) else None
+        except Exception:  # price context is a bonus — never fail the call
+            _last = None
+    if _last is not None:
+        results["last_close"] = round(_last, 2)
+        for name, v in results["indicators"].items():
+            if not isinstance(v, dict) or v.get("error"):
+                continue
+            val = v.get("current_value")
+            if name.split("_")[0].lower() in _levels and isinstance(val, (int, float)) and val:
+                v["last_close"] = round(_last, 2)
+                v["pct_vs_last_close"] = round((_last - float(val)) / float(val) * 100.0, 2)
+                v["price_is_above"] = _last > float(val)
+
+    # Self-describing terminal state: name what failed and why, so the
+    # caller reports it instead of retrying other routes.
+    errs = [f"{k} unavailable ({v['error']})"
+            for k, v in results["indicators"].items()
+            if isinstance(v, dict) and v.get("error")]
+    if errs:
+        results["data_status"] = ("degraded — " + "; ".join(errs)
+                                  + ". No alternative source this turn.")
     return results
 
 
@@ -303,8 +354,14 @@ def compare_performance(
     per-symbol row in one call, so nothing gets silently dropped.
     """
     syms = [_normalise_symbol(s) for s in symbols if s]
-    if len(syms) < 2:
-        return _err("need at least 2 symbols", symbols=syms)
+    if not syms:
+        return _err("need at least 1 symbol", symbols=syms)
+    if len(syms) == 1:
+        # "reliance performance" routinely lands here with a single symbol.
+        # The pipeline is single-shot (no tool retry), so an arg-shape error
+        # surfaces as a bogus "data unavailable" apology. Serve the
+        # single-symbol answer instead of refusing.
+        return get_performance_metrics(syms[0], period=period)
     try:
         price_dict = get_close_dict(syms, period=period)
     except Exception as e:

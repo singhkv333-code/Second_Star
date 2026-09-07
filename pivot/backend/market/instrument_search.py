@@ -6,9 +6,9 @@ the ONE search endpoint every FE search box already uses (global bar, chart
 `mc.companies` equities.
 
 Sources (all already in the repo — nothing fetched at runtime):
-  * ETFs        → backend/view_markets/etf_catalog.json (38 categories with
+  * ETFs        → backend/market/etf_catalog.json (38 categories with
                   primaries + alternates, keyword `matches`, `tracks` label).
-  * Commodities → backend.view_markets.expressions.commodities.MCX_COMMODITIES
+  * Commodities → backend.market.commodities.MCX_COMMODITIES
                   (register-not-execute tradeable per the India scope).
   * Indices     → small static list (NIFTY / BANKNIFTY / SENSEX / FINNIFTY).
 
@@ -29,7 +29,7 @@ from functools import lru_cache
 from pathlib import Path
 
 _ETF_CATALOG_PATH = (
-    Path(__file__).resolve().parent.parent / "view_markets" / "etf_catalog.json"
+    Path(__file__).resolve().parent.parent / "market" / "etf_catalog.json"
 )
 
 
@@ -87,7 +87,7 @@ def _catalog() -> tuple[InstrumentHit, ...]:
 
     # ── MCX commodities ───────────────────────────────────────────────
     try:
-        from backend.view_markets.expressions.commodities import MCX_COMMODITIES
+        from backend.market.commodities import MCX_COMMODITIES
 
         for spec in MCX_COMMODITIES.values():
             hits.append(InstrumentHit(

@@ -84,6 +84,13 @@ class LLMResponse(BaseModel):
 
     finish_reason: FinishReason = "stop"
 
+    citations: list[dict[str, Any]] = Field(default_factory=list)
+    """URL citations from a provider-hosted web_search call, each
+    {url, title, start_index?, end_index?}. Empty for turns that didn't
+    web-search. The model already inlines these in `content`; the
+    structured list lets the chat layer render/verify sources and enforce
+    'cite only what the tool returned'."""
+
     input_tokens: int = 0
     output_tokens: int = 0
     reasoning_tokens: int = 0
@@ -129,6 +136,7 @@ class LLMClient(ABC):
         temperature: float = 0.2,
         response_format: Optional[Literal["json_object"]] = None,
         prompt_cache_key: Optional[str] = None,
+        hosted_tools: Optional[list[dict[str, Any]]] = None,
     ) -> LLMResponse:
         """Run a single completion.
 

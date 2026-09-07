@@ -1,0 +1,120 @@
+- generic [ref=f1e1]:
+  - dialog [ref=f1e2]:
+    - generic [ref=f1e3]:
+      - generic "Pivot" [ref=f1e4]: Pivot.
+      - generic [ref=f1e7]: Markets, in conversation
+      - generic [ref=f1e8]: Data & analysis only. Not financial advice.
+    - generic [ref=f1e9]:
+      - generic [ref=f1e11]:
+        - generic [ref=f1e12]:
+          - heading "Sign in to Pivot" [level=1] [ref=f1e13]
+          - paragraph [ref=f1e14]: Enter your email and password to access your account.
+        - generic [ref=f1e15]:
+          - generic [ref=f1e16]:
+            - generic [ref=f1e17]:
+              - generic [ref=f1e18]: Email
+              - textbox "Email" [active] [ref=f1e19]:
+                - /placeholder: you@example.com
+            - generic [ref=f1e20]:
+              - generic [ref=f1e21]:
+                - generic [ref=f1e22]: Password
+                - generic [ref=f1e23]: Forgot? Contact support
+              - generic [ref=f1e24]:
+                - textbox "Password" [ref=f1e25]:
+                  - /placeholder: ••••••••
+                - button "Show password" [ref=f1e26] [cursor=pointer]
+          - generic [ref=f1e30]:
+            - button "Sign in" [ref=f1e31] [cursor=pointer]
+            - generic [ref=f1e32]:
+              - text: New to Pivot?
+              - button "Create an account" [ref=f1e33] [cursor=pointer]
+      - generic [ref=f1e34]:
+        - button "Continue without an account" [ref=f1e35] [cursor=pointer]
+        - text: — your work stays in this browser only.
+  - banner [ref=f1e36]:
+    - generic [ref=f1e37]: Pivot.
+    - generic "Search companies" [ref=f1e39] [cursor=pointer]:
+      - generic [ref=f1e40]: RELIANCE
+      - generic [ref=f1e41]: NSE
+    - button "5m" [ref=f1e44] [cursor=pointer]
+    - button "Indicators" [ref=f1e47] [cursor=pointer]
+    - button "Undo" [disabled] [ref=f1e54]
+    - button "Redo" [disabled] [ref=f1e58]
+    - button "Chart settings" [ref=f1e62] [cursor=pointer]
+    - button "Unnamed" [ref=f1e67] [cursor=pointer]
+    - button "Layout — Single chart" [ref=f1e72] [cursor=pointer]
+    - button "Screenshot the chart for the chat" [ref=f1e76] [cursor=pointer]
+    - button "Chat" [ref=f1e80] [cursor=pointer]
+    - button "Paper book" [ref=f1e83] [cursor=pointer]
+    - button "Sign in to Pivot" [ref=f1e89] [cursor=pointer]
+  - generic [ref=f1e93]:
+    - generic [ref=f1e94]:
+      - button "Cursor / select" [ref=f1e95] [cursor=pointer]
+      - button "Lines" [ref=f1e100] [cursor=pointer]
+      - button "Fibonacci" [ref=f1e106] [cursor=pointer]
+      - button "Shapes" [ref=f1e109] [cursor=pointer]
+      - button "Measure" [ref=f1e113] [cursor=pointer]
+      - button "Position" [ref=f1e121] [cursor=pointer]
+      - button "Annotations" [ref=f1e126] [cursor=pointer]
+      - button "Magnet — snap to OHLC" [ref=f1e130] [cursor=pointer]
+      - button "Watchlist" [ref=f1e136] [cursor=pointer]
+      - button "Alerts" [ref=f1e139] [cursor=pointer]
+      - button "Journal" [ref=f1e143] [cursor=pointer]
+      - button "Export drawings JSON" [ref=f1e148] [cursor=pointer]
+      - button "Remove objects…" [disabled] [ref=f1e152]
+    - generic [ref=f1e157]:
+      - table [ref=f1e160]:
+        - row [ref=f1e161]:
+          - cell
+          - cell [ref=f1e162]
+          - cell [ref=f1e166]
+        - row [ref=f1e170]:
+          - cell
+          - cell [ref=f1e171]
+          - cell [ref=f1e175]
+      - generic:
+        - generic:
+          - generic "Change instrument" [ref=f1e178] [cursor=pointer]: RELIANCE
+          - generic: ·
+          - text: 5m
+          - generic: ·
+          - generic: NSE
+        - generic:
+          - generic: O 1,329
+          - generic: H 1,329
+          - generic: L 1,322
+          - generic: C 1,322
+          - generic: V 6,35,236
+          - text: "-5.4 (-0.41%)"
+      - generic "Price scale currency": INR
+      - generic "Chart timezone": 20:40:02 (UTC+5:30)
+    - separator "Chat width" [ref=f1e179]:
+      - generic [aria-hidden]: 30% · 480px
+    - complementary [ref=f1e180]:
+      - toolbar "Conversation actions" [ref=f1e181]:
+        - radiogroup "Conversation mode" [ref=f1e182]:
+          - radio "Research" [checked] [ref=f1e183] [cursor=pointer]
+          - radio "Execution" [ref=f1e184] [cursor=pointer]
+        - button "New conversation" [ref=f1e185] [cursor=pointer]
+        - button "Chat history" [ref=f1e187] [cursor=pointer]
+      - generic [ref=f1e193]:
+        - button "Levels" [ref=f1e194] [cursor=pointer]
+        - button "Patterns" [ref=f1e204] [cursor=pointer]
+        - button "Trends" [ref=f1e210] [cursor=pointer]
+        - button "Indicators" [ref=f1e216] [cursor=pointer]
+        - button "Screenshot" [ref=f1e222] [cursor=pointer]
+        - button "Why it moved" [ref=f1e231] [cursor=pointer]
+        - button "Plan" [ref=f1e239] [cursor=pointer]
+        - button "Evidence" [ref=f1e244] [cursor=pointer]
+        - button "Screen" [ref=f1e250] [cursor=pointer]
+        - button "Compare" [ref=f1e259] [cursor=pointer]
+        - button "Alert" [ref=f1e265] [cursor=pointer]
+        - button "Earnings" [ref=f1e272] [cursor=pointer]
+      - generic [ref=f1e285]:
+        - textbox "Ask about this chart…" [ref=f1e286]
+        - generic [ref=f1e287]:
+          - button "RELIANCE" [ref=f1e288] [cursor=pointer]
+          - button "Speak instead of typing" [ref=f1e290] [cursor=pointer]
+          - button "Send (Enter)" [ref=f1e294] [cursor=pointer]
+  - complementary [aria-hidden] [ref=f1e297]
+  - status

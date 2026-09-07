@@ -24,6 +24,7 @@ from typing import Iterable, Optional
 
 from backend.workflows.dsl.schema import (
     AggregateNode,
+    AlwaysNode,
     ComparisonNode,
     ConditionalNode,
     ConstantNode,
@@ -61,6 +62,7 @@ def semantic_validate(tree, *, allow_position: bool = False) -> None:
     _check_depth(tree)
     _check_indicator_registry(tree)
     _check_indicator_component(tree)
+    _check_indicator_settings(tree)
     if not allow_position:
         _check_no_position_leaf(tree)
     _check_position_basis(tree)
@@ -78,12 +80,13 @@ def _check_root_shape(node) -> None:
     not a number. A leaf node alone (e.g. just an IndicatorNode) at
     the root would evaluate to a float and the engine wouldn't know
     when to fire."""
-    if isinstance(node, (ComparisonNode, LogicNode)):
+    if isinstance(node, (ComparisonNode, LogicNode, AlwaysNode)):
         return
     raise DSLValidationError(
-        "Tree root must be a 'comparison' or 'logic' node — a leaf "
-        "by itself doesn't tell the engine when to fire. Wrap it in "
-        "a comparison, e.g. {indicator} > {constant}."
+        "Tree root must be a 'comparison', 'logic', or 'always' node "
+        "— a leaf by itself doesn't tell the engine when to fire. "
+        "Wrap it in a comparison (e.g. {indicator} > {constant}), or "
+        "use {'type': 'always'} for a genuinely unconditional trigger."
     )
 
 
@@ -172,6 +175,24 @@ def _check_indicator_component(node) -> None:
                 f"Unknown component '{n.component}' for indicator "
                 f"'{n.indicator}'. Allowed: {', '.join(allowed)}."
             )
+
+
+def _check_indicator_settings(node) -> None:
+    """Validate custom indicator parameters against the computation registry.
+
+    The model is free to choose settings, but it may not invent a plausible
+    parameter name that the live/backtest implementation would ignore. Both
+    paths consume this same registry contract.
+    """
+    from backend.services.backtest_indicators import validate_indicator_settings
+
+    for n in _walk_all(node):
+        if not isinstance(n, IndicatorNode):
+            continue
+        try:
+            validate_indicator_settings(n.indicator, n.settings)
+        except ValueError as exc:
+            raise DSLValidationError(str(exc)) from exc
 
 
 # ── Position leaf placement ─────────────────────────────────────────

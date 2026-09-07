@@ -1,0 +1,816 @@
+[
+  {
+    "idx": 0,
+    "category": "automation",
+    "prompt": "Alert me by SMS if NIFTY's dividend yield crosses above 1.5%.",
+    "response": "That didn't go through — not because anything in what you said was unclear, but because I hit an internal snag putting the automation together. Could you try again? If it still doesn't work, try breaking it into one condition at a time (e.g. just the profit target first) and I'll build that piece.",
+    "tools_called": [
+      "find_tool",
+      "propose_dsl_workflow"
+    ],
+    "wall_s": 29.4,
+    "input_tokens": 98033,
+    "output_tokens": 452,
+    "reasoning_tokens": 344,
+    "raw_data_keys": [
+      "_render_hint"
+    ]
+  },
+  {
+    "idx": 1,
+    "category": "automation",
+    "prompt": "Build an alert for SILVER on MCX — notify me on WhatsApp when it drops 3% in a day.",
+    "response": "Here's a draft for **1-bar % change of SILVER ≤ -0.03** — it sends you a notification on its trigger. No order is placed — this only alerts you. Review the steps below and click Activate when you're happy with it.",
+    "tools_called": [
+      "propose_dsl_workflow"
+    ],
+    "wall_s": 14.83,
+    "input_tokens": 50221,
+    "output_tokens": 167,
+    "reasoning_tokens": 105,
+    "raw_data_keys": [
+      "propose_dsl_workflow"
+    ]
+  },
+  {
+    "idx": 2,
+    "category": "automation",
+    "prompt": "Set up an automation: sell my HDFCBANK position if it's held for more than 20 trading days, no matter what the price does.",
+    "response": "Here's a draft for **HDFCBANK: AlwaysNode(type='always') → bars held > 20** — it sends you a notification on its trigger. No order is placed — this only alerts you. Review the steps below and click Activate when you're happy with it.",
+    "tools_called": [
+      "propose_dsl_workflow"
+    ],
+    "wall_s": 20.33,
+    "input_tokens": 48411,
+    "output_tokens": 415,
+    "reasoning_tokens": 334,
+    "raw_data_keys": [
+      "propose_dsl_workflow"
+    ]
+  },
+  {
+    "idx": 3,
+    "category": "automation",
+    "prompt": "I want to buy 15 shares of TATAPOWER whenever it closes above its 20-day high OR its RSI crosses above 70, whichever happens first.",
+    "response": "Here's a draft for **price of TATAPOWER ≥ highest(high of TATAPOWER (1 bar ago)) over last 20 bars OR RSI(14)…** — it buys 15 TATAPOWER at market on its trigger. Review the steps below and click Activate when you're happy with it.",
+    "tools_called": [
+      "propose_dsl_workflow"
+    ],
+    "wall_s": 21.83,
+    "input_tokens": 48619,
+    "output_tokens": 215,
+    "reasoning_tokens": 143,
+    "raw_data_keys": [
+      "propose_dsl_workflow"
+    ]
+  },
+  {
+    "idx": 4,
+    "category": "automation",
+    "prompt": "Automate booking profits on my WIPRO holding at +10%, and separately cut losses at -6% — two independent exits.",
+    "response": "Here's a draft for **WIPRO independent profit and loss exits** — it sells WIPRO at market on its trigger. Review the steps below and click Activate when you're happy with it.",
+    "tools_called": [
+      "propose_workflow"
+    ],
+    "wall_s": 18.98,
+    "input_tokens": 100781,
+    "output_tokens": 913,
+    "reasoning_tokens": 322,
+    "raw_data_keys": [
+      "propose_workflow"
+    ]
+  },
+  {
+    "idx": 5,
+    "category": "automation",
+    "prompt": "Set up something for my portfolio so I don't lose too much if the market crashes.",
+    "response": "Do you want crash protection mainly by reducing equity exposure, adding a gold/defensive allocation, or using a hedge that can lose value over time? Also, should I design it for a conservative, balanced, or aggressive risk profile?",
+    "tools_called": [
+      "ASK_USER"
+    ],
+    "wall_s": 15.56,
+    "input_tokens": 99193,
+    "output_tokens": 447,
+    "reasoning_tokens": 325,
+    "raw_data_keys": [
+      "_render_hint"
+    ]
+  },
+  {
+    "idx": 6,
+    "category": "automation",
+    "prompt": "Email me every Friday at 3:00 PM with NIFTY BANK's closing level.",
+    "response": "Pivot can’t send emails. Also, NIFTY BANK’s closing level is finalized after the 3:30 PM IST market close, not at 3:00 PM. I can set an in-app alert every Friday at 3:35 PM IST with the latest BANKNIFTY closing level. Want that instead?",
+    "tools_called": [
+      "ASK_USER"
+    ],
+    "wall_s": 17.95,
+    "input_tokens": 144136,
+    "output_tokens": 507,
+    "reasoning_tokens": 268,
+    "raw_data_keys": [
+      "_render_hint"
+    ]
+  },
+  {
+    "idx": 7,
+    "category": "automation",
+    "prompt": "Create a workflow that buys 25 shares of IRCTC if it drops 5% AND volume is more than twice the 20-day average, then auto-sells after 15 trading days.",
+    "response": "Here's a draft for **1-bar % change of IRCTC ≤ -0.05 AND volume of IRCTC > (2 × VOLUME_MA(20) of IRCTC) →…** — it buys 25 IRCTC at market on its trigger. Review the steps below and click Activate when you're happy with it.",
+    "tools_called": [
+      "propose_dsl_workflow"
+    ],
+    "wall_s": 15.57,
+    "input_tokens": 47217,
+    "output_tokens": 171,
+    "reasoning_tokens": 85,
+    "raw_data_keys": [
+      "propose_dsl_workflow"
+    ]
+  },
+  {
+    "idx": 8,
+    "category": "automation",
+    "prompt": "Alert me on WhatsApp when CRUDEOIL on MCX crosses below its 50-day moving average.",
+    "response": "Here's a draft for **price of CRUDEOIL crosses below SMA(50) of CRUDEOIL** — it sends you a notification on its trigger. No order is placed — this only alerts you. Review the steps below and click Activate when you're happy with it.",
+    "tools_called": [
+      "propose_dsl_workflow"
+    ],
+    "wall_s": 9.91,
+    "input_tokens": 48041,
+    "output_tokens": 175,
+    "reasoning_tokens": 106,
+    "raw_data_keys": [
+      "propose_dsl_workflow"
+    ]
+  },
+  {
+    "idx": 9,
+    "category": "backtest",
+    "prompt": "Backtest staying long on NIFTYBEES only while it's trading above its 200-day moving average, over the last 5 years — how many separate holding periods were there?",
+    "response": "Backtest result: **11 separate holding periods** for `NIFTYBEES` from **July 15, 2021 to July 15, 2026**, using daily bars.\n\nThe rule entered when price crossed above the 200-day moving average and exited when it crossed below. Strategy return was **+0.6%**, versus **+59.1%** for buy-and-hold, after estimated costs.",
+    "tools_called": [
+      "backtest_dsl_tree"
+    ],
+    "wall_s": 30.21,
+    "input_tokens": 109266,
+    "output_tokens": 513,
+    "reasoning_tokens": 308,
+    "raw_data_keys": [
+      "backtest_dsl_tree"
+    ]
+  },
+  {
+    "idx": 10,
+    "category": "backtest",
+    "prompt": "What would shorting IDEA (Vodafone Idea) have returned if I shorted every time it rallied more than 8% in a week, over the last 3 years?",
+    "response": "What holding period should each short use after a weekly rally above 8%—for example, exit after 1 week, 2 weeks, or when the position returns to breakeven?",
+    "tools_called": [
+      "ASK_USER"
+    ],
+    "wall_s": 79.56,
+    "input_tokens": 100525,
+    "output_tokens": 237,
+    "reasoning_tokens": 104,
+    "raw_data_keys": [
+      "_render_hint"
+    ]
+  },
+  {
+    "idx": 11,
+    "category": "backtest",
+    "prompt": "Simulate investing ₹10,000 every month into NIFTYBEES for the last 4 years and tell me my XIRR.",
+    "response": "I couldn’t complete the calculation because the monthly investment timing is unclear. For NIFTYBEES over the last 4 years, should ₹10,000 be invested on the first trading day of each month or the last trading day?",
+    "tools_called": [
+      "backtest_workflow"
+    ],
+    "wall_s": 24.4,
+    "input_tokens": 106298,
+    "output_tokens": 416,
+    "reasoning_tokens": 160,
+    "raw_data_keys": [
+      "_render_hint"
+    ]
+  },
+  {
+    "idx": 12,
+    "category": "backtest",
+    "prompt": "Backtest a 3-stock rotation: hold whichever of RELIANCE, TCS, or HDFCBANK had the best 20-day return, rebalancing weekly, over 2 years.",
+    "response": "The backtest ran the weekly top-1 rotation across `RELIANCE`, `TCS`, and `HDFCBANK` for 2 years, but the engine used its default **252-day momentum lookback with a 21-day skip**, not an exact 20-day return signal.\n\n## Result\n\n| Metric | Outcome |\n|---|---:|\n| Portfolio | Best 1 of 3 |\n| Rebalancing | Weekly |\n| Period | 2 years |\n| Rebalances | 49 |\n| Total return | **-18.1%** |\n| Maximum drawdown | **-21.0%** |\n| Turnover | 3.0× |\n| Trust verdict | **No demonstrable edge** |\n\nThe tested default momentum rotation lost 18.1% and had only a 17% probability of representing genuine positive skill after accounting for statistical uncertainty. This result should not be treated as a valid test of the specific **20-day-return** rule you requested.",
+    "tools_called": [
+      "backtest_portfolio"
+    ],
+    "wall_s": 33.23,
+    "input_tokens": 114294,
+    "output_tokens": 484,
+    "reasoning_tokens": 227,
+    "raw_data_keys": [
+      "backtest_portfolio"
+    ]
+  },
+  {
+    "idx": 13,
+    "category": "backtest",
+    "prompt": "Test buying LT whenever its MACD line crosses above the signal line, and selling when it crosses back below, over the last 3 years.",
+    "response": "**Verdict — No demonstrable edge.** Confidence the Sharpe is genuinely positive (PSR) is only 42% — indistinguishable from no skill after costs.\n\n| Metric | Value |\n| --- | --- |\n| Strategy return | -0.0% (CAGR -0.0%/yr) |\n| Return on capital deployed | -0.2% |\n| Capital deployed | 47% of the window |\n| Buy & hold | +55.4% |\n| Trades | 72 on LT over ~3.0y |\n| Sharpe | -0.11 |\n| PSR | 42% |\n| Monte-Carlo 5%-worst drawdown | -0% |\n| P(end in loss) | 59% |\n\n_Method: results are after costs (~32 bps round-trip incl. ~5 bps slippage, STT, exchange, GST, stamp), on daily-bar OHLCV (Kite primary, yfinance fallback; split-adjusted, dividends not reinvested). Window 2023-07-17 → 2026-07-14 · 742 daily bars (partial-day bar excluded)._",
+    "tools_called": [
+      "find_tool",
+      "backtest_workflow"
+    ],
+    "wall_s": 24.65,
+    "input_tokens": 147992,
+    "output_tokens": 793,
+    "reasoning_tokens": 421,
+    "raw_data_keys": [
+      "find_tool",
+      "backtest_workflow"
+    ]
+  },
+  {
+    "idx": 14,
+    "category": "backtest",
+    "prompt": "I have ₹1.5 lakh — backtest putting it all into BAJFINANCE and selling half whenever it's up 15%, over the last 3 years.",
+    "response": "Backtested `BAJFINANCE` from July 15, 2023 to July 15, 2026 with ₹1,50,000 deployed.\n\nResult: **+41.7%**, ending value **₹2,12,617**, versus **+33.6%** for buy-and-hold. Maximum drawdown was **-26.2%**, with 3 recorded trades and a 0.59 Sharpe ratio.\n\nImportant caveat: the engine did not faithfully model repeated “sell half” actions—the translated entry was effectively always active—so treat this as an indicative result, not a valid test of the exact scaling-out rule. Verdict: **Unproven**.",
+    "tools_called": [
+      "find_tool",
+      "backtest_dsl_tree"
+    ],
+    "wall_s": 28.84,
+    "input_tokens": 162851,
+    "output_tokens": 930,
+    "reasoning_tokens": 606,
+    "raw_data_keys": [
+      "find_tool",
+      "backtest_dsl_tree"
+    ]
+  },
+  {
+    "idx": 15,
+    "category": "backtest",
+    "prompt": "Backtest a strategy: on the 15-minute chart, buy TATASTEEL when RSI(14) is below 30, but only take the trade if the daily trend (price above 50-day SMA) is also bullish. Last 6 months.",
+    "response": "## Backtest result\n\n**0 trades — the strategy never fired in the available 15-minute window.** The requested six-month period, **January 15–July 15, 2026**, was clipped to **May 16–July 15, 2026** because 15-minute history was available only from May 16.\n\n| Metric | Result |\n|---|---:|\n| Strategy return | +0.0% |\n| Trades | 0 |\n| Win rate | 0% |\n| Max drawdown | 0.0% |\n| Capital deployed | 0% |\n| Buy-and-hold benchmark | -10.0% |\n\nThe result is **insufficient to judge the strategy**: no RSI-below-30 signals passed the trend filter during the available sample. The engine interpreted the filter as `TATASTEEL` price above its 50-period SMA; because the run used 15-minute bars, this does not provide a full six-month validation of a separate daily 50-day SMA filter.",
+    "tools_called": [
+      "backtest_dsl_tree"
+    ],
+    "wall_s": 16.49,
+    "input_tokens": 111485,
+    "output_tokens": 738,
+    "reasoning_tokens": 401,
+    "raw_data_keys": [
+      "backtest_dsl_tree"
+    ]
+  },
+  {
+    "idx": 16,
+    "category": "backtest",
+    "prompt": "Backtest buying ONGC whenever its volume is more than 3x the 20-day average volume and the price is up on the day, holding for 5 days, over the last 2 years.",
+    "response": "Backtested `ONGC`: volume >3× its 20-day average **and** price up on the day, with a 5-day hold, from July 15, 2024 to July 15, 2026.\n\n**3 trades, 0% win rate, -0.1% strategy return, -0.8% on deployed capital.** Buy-and-hold returned -17.4% over the same period. Maximum drawdown was -0.3%; Sharpe was -0.17, with a **“no demonstrable edge”** verdict. Results include estimated trading costs and use daily OHLCV data.",
+    "tools_called": [
+      "backtest_dsl_tree"
+    ],
+    "wall_s": 13.54,
+    "input_tokens": 107793,
+    "output_tokens": 312,
+    "reasoning_tokens": 89,
+    "raw_data_keys": [
+      "backtest_dsl_tree"
+    ]
+  },
+  {
+    "idx": 17,
+    "category": "backtest",
+    "prompt": "What if I'd bought GOLDBEES every time gold fell 4% from its recent high, over the last 5 years — how does that compare to just buying and holding?",
+    "response": "## Head-to-head\n\nThe backtest’s **literal translation was not a reliable test of “buy every 4% fall.”** It interpreted “recent high” as the **20-day high** and generated only **1 trade** over the five-year window.\n\n| Metric | 4% below 20-day high strategy | Buy and hold `GOLDBEES` | Winner |\n|---|---:|---:|---|\n| Period | Jul 15, 2021–Jul 15, 2026 | Jul 15, 2021–Jul 15, 2026 | — |\n| Whole-account return | **+0.7%** | **+175.4%** | Buy and hold |\n| Return on deployed capital | +179.4% | Not comparable | — |\n| CAGR | +14.9% | Not provided by the engine | — |\n| Maximum drawdown | -0.4% | Not provided | Strategy, but misleading |\n| Sharpe ratio | 0.81 | Not provided | — |\n| Trades | 1 | Continuous exposure | Buy and hold |\n\n## What separates them\n\nThe strategy’s **+179.4% return on deployed capital** looks impressive, but it reflects the return on a small position rather than the performance of the full ₹1,00,000 account. Since only one trade was made, just **₹744.90** was added to the account, producing the reported **+0.7% whole-account return**.\n\nBy contrast, buy-and-hold kept capital invested throughout the period and gained **+175.4%**. Therefore, the comparison is not capital-matched: the strategy used approximately 98% of the test window’s time but apparently did not allocate the account in a way that replicated repeated purchases.\n\n## Verdict\n\nOn the results produced, **buy and hold clearly wins**, but I would not treat this as evidence against the dip-buying idea. The test did not capture the intended “every time” behaviour: it found only one qualifying entry, and the engine used a default position size because no amount per signal was specified.\n\nA proper comparison needs two explicit assumptions:\n\n1. What “recent high” means — for example, the **20-day, 60-day, or 252-day high**.\n2. How much to invest per signal — for example, ₹10,000 each time or a fixed percentage of capital.\n\nWith those specified, the comparison can measure repeated deployments, cash drag, drawdowns, and total rupee wealth fairly. This is analysis, not financial advice.",
+    "tools_called": [
+      "backtest_dsl_tree"
+    ],
+    "wall_s": 44.25,
+    "input_tokens": 102962,
+    "output_tokens": 1463,
+    "reasoning_tokens": 841,
+    "raw_data_keys": [
+      "backtest_dsl_tree"
+    ]
+  },
+  {
+    "idx": 18,
+    "category": "basket",
+    "prompt": "Build me a basket of exactly 5 companies benefiting from India's data-center and cloud infrastructure buildout, with 4 lakh rupees.",
+    "response": "## Infra — ranked by ROE\n\nRanked by return on equity — a profitability screen, not a buy list.\n\n| Rank | Company | ROE | Market cap |\n|---:|---|---:|---:|\n| 1 | Signatureglobal (India) Limited (`SIGNATURE`) | 84.88% | ₹11,224 Cr |\n| 2 | GE Power India Limited (`GVPIL`) | 71.70% | ₹7,076 Cr |\n| 3 | Ashoka Buildcon Limited (`ASHOKA`) | 47.99% | ₹3,794 Cr |\n| 4 | Raymond Realty Limited (`RAYMONDREL`) | 37.72% | ₹4,217 Cr |\n| 5 | Bondada Engineering Ltd (`BONDADA`) | 34.91% | ₹3,929 Cr |\n| 6 | Cemindia Projects Limited (`CEMPRO`) | 28.24% | ₹21,508 Cr |\n| 7 | ADITYA INFOTECH LIMITED (`CPPLUS`) | 25.42% | ₹42,872 Cr |\n| 8 | NBCC (India) Limited (`NBCC`) | 25.23% | ₹30,091 Cr |\n| 9 | INDIABULLS LIMITED (`IBULLSLTD`) | 24.45% | ₹5,934 Cr |\n| 10 | AGI Infra Limited (`AGIIL`) | 24.34% | ₹4,696 Cr |\n| 11 | Engineers India Limited (`ENGINERSIN`) | 23.79% | ₹14,093 Cr |\n| 12 | Dilip Buildcon Limited (`DBL`) | 22.89% | ₹7,139 Cr |\n| 13 | Kesar India Limited (`KESAR`) | 20.03% | ₹3,723 Cr |\n| 14 | TRANSRAIL LIGHTING LTD (`TRANSRAILL`) | 19.39% | ₹6,816 Cr |\n| 15 | Grindwell Norton Limited (`GRINDWELL`) | 17.30% | ₹23,659 Cr |\n\n**Highest ROE:** `SIGNATURE` at 84.88% ROE.\n\n_showing names above ~₹3,000 Cr market cap (say 'include small caps' to widen); sector + P/E from company profiles (yfinance) — not the MC ratios DB_",
+    "tools_called": [
+      "screen_fundamentals"
+    ],
+    "wall_s": 6.56,
+    "input_tokens": 48037,
+    "output_tokens": 209,
+    "reasoning_tokens": 121,
+    "raw_data_keys": [
+      "screen_fundamentals"
+    ]
+  },
+  {
+    "idx": 19,
+    "category": "basket",
+    "prompt": "Construct a basket for the PLI scheme in electronics manufacturing, excluding any company with debt-to-equity above 1, with 6 lakh rupees.",
+    "response": "## It — ranked by Market Cap\n\nRanked by market cap (₹ crore, current) — a size screen, not a buy list.\n\nFilters applied: D/E <= 1\n\n| Rank | Company | Market Cap | D/E |\n|---:|---|---:|---:|\n| 1 | Oracle Fin Serv (`OFSS`) | ₹83,917 Cr | 0.00 |\n| 2 | MphasiS (`MPHASIS`) | ₹43,268 Cr | 0.12 |\n| 3 | BLACK BOX (`BBOX`) | ₹18,168 Cr | 0.86 |\n| 4 | Firstsource Sol (`FSL`) | ₹16,893 Cr | 0.37 |\n| 5 | eClerx Services (`ECLERX`) | ₹13,221 Cr | 0.00 |\n| 6 | Zensar Tech (`ZENSARTECH`) | ₹10,156 Cr | 0.00 |\n| 7 | Birlasoft (`BSOFT`) | ₹9,122 Cr | 0.00 |\n| 8 | Avantel (`AVANTEL`) | ₹4,781 Cr | 0.10 |\n| 9 | Datamatics Glob (`DATAMATICS`) | ₹4,737 Cr | 0.12 |\n| 10 | Cigniti Tech (`CIGNITITEC`) | ₹3,471 Cr | 0.00 |\n| 11 | 63 Moons Tech (`63MOONS`) | ₹3,089 Cr | 0.00 |\n| 12 | Hinduja Global (`HGS`) | ₹1,977 Cr | 0.15 |\n| 13 | Hypersoft Techn (`HYPERSOFT`) | ₹1,723 Cr | 0.00 |\n| 14 | Aurum Proptech (`AURUM`) | ₹1,555 Cr | 0.00 |\n| 15 | BHARAT GLOBAL (`BGDL`) | ₹1,028 Cr | 0.46 |\n\n**Largest:** `OFSS` at ₹83,917 Cr Market Cap.\n\n_data-quality bounds applied (extreme outliers excluded); latest filing on/after 2023-01-01 (recency floor); basis: consolidated preferred, else standalone_",
+    "tools_called": [
+      "screen_fundamentals"
+    ],
+    "wall_s": 7.77,
+    "input_tokens": 50468,
+    "output_tokens": 223,
+    "reasoning_tokens": 166,
+    "raw_data_keys": [
+      "screen_fundamentals"
+    ]
+  },
+  {
+    "idx": 20,
+    "category": "basket",
+    "prompt": "I want a basket of companies with dividend yield above 3% and ROE above 15%, no PSU banks, with 3 lakh rupees.",
+    "response": "## Fundamental screen — ranked by Payout\n\nRanked by dividend payout ratio (share of profit paid out), not dividend yield.\n\nFilters applied: ROE > 15\n\n| Rank | Company | Payout | ROE |\n|---:|---|---:|---:|\n| 1 | Bayer CropScien (`BAYERCROP`) | 86.04% | 19.92% |\n| 2 | Nirlon (`NIRLON`) | 85.35% | 61.12% |\n| 3 | Ganesh Consumer (`GANESHCP`) | 84.67% | 15.61% |\n| 4 | Ingersoll Rand (`INGERRAND`) | 83.19% | 43.90% |\n| 5 | GlaxoSmithKline (`GLAXO`) | 74.76% | 47.67% |\n| 6 | CAMS (`CAMS`) | 73.36% | 42.03% |\n| 7 | MSTC (`MSTCLTD`) | 70.04% | 55.12% |\n| 8 | Asian Paints (`ASIANPAINT`) | 66.21% | 18.90% |\n| 9 | Foseco Crucible (`FOSECOC`) | 64.26% | 20.90% |\n| 10 | Abbott India (`ABBOTINDIA`) | 61.59% | 33.41% |\n| 11 | MphasiS (`MPHASIS`) | 61.10% | 17.67% |\n| 12 | Guj Intrux (`GUJINTRX`) | 55.13% | 15.87% |\n| 13 | Taparia Tools (`TAPARIA`) | 54.58% | 33.02% |\n| 14 | AstraZeneca (`ASTRAZEN`) | 51.84% | 15.02% |\n| 15 | Hawkins Cooker (`HAWKINCOOK`) | 50.76% | 29.92% |\n\n**Highest payout:** `BAYERCROP` at 86.04% Payout.\n\n_data-quality bounds applied (extreme outliers excluded); latest filing on/after 2023-01-01 (recency floor); basis: consolidated preferred, else standalone_",
+    "tools_called": [
+      "screen_fundamentals"
+    ],
+    "wall_s": 58.06,
+    "input_tokens": 48148,
+    "output_tokens": 432,
+    "reasoning_tokens": 374,
+    "raw_data_keys": [
+      "screen_fundamentals"
+    ]
+  },
+  {
+    "idx": 21,
+    "category": "basket",
+    "prompt": "Build a rural-consumption recovery basket — no urban-focused retail names — with 5 lakh rupees.",
+    "response": "## Fmcg — ranked by Rev Growth\n\nRanked by YoY revenue growth (latest two annual filings) — a growth screen, not a buy list.\n\n| Rank | Company | Rev Growth |\n|---:|---|---:|\n| 1 | United Spirits (`UNITDSPR`) | +119.43% |\n| 2 | Godfrey Phillip (`GODFRYPHLP`) | +20.61% |\n| 3 | ADF Foods (`ADFFOODS`) | +8.20% |\n| 4 | Bajaj Consumer (`BAJAJCON`) | +3.33% |\n| 5 | Colgate (`COLPAL`) | +3.00% |\n| 6 | Jyothy Labs (`JYOTHYLAB`) | +2.02% |\n| 7 | Varun Beverages (`VBL`) | +1.62% |\n| 8 | Nestle (`NESTLEIND`) | +0.00% |\n| 9 | Dabur India (`DABUR`) | +0.00% |\n| 10 | Emami (`EMAMILTD`) | +0.00% |\n| 11 | Manorama Indust (`MANORAMA`) | +0.00% |\n| 12 | Heritage Foods (`HERITGFOOD`) | -0.06% |\n| 13 | Radico Khaitan (`RADICO`) | -0.10% |\n| 14 | Gillette India (`GILLETTE`) | -0.13% |\n| 15 | Hatsun Agro (`HATSUN`) | -0.19% |\n\n**Fastest revenue growth:** `UNITDSPR` at +119.43% Rev Growth.\n\n_showing names above ~₹3,000 Cr market cap (say 'include small caps' to widen); data-quality bounds applied (extreme outliers excluded); latest filing on/after 2023-01-01 (recency floor); basis: consolidated preferred, else standalone_",
+    "tools_called": [
+      "screen_fundamentals"
+    ],
+    "wall_s": 28.82,
+    "input_tokens": 50458,
+    "output_tokens": 116,
+    "reasoning_tokens": 64,
+    "raw_data_keys": [
+      "screen_fundamentals"
+    ]
+  },
+  {
+    "idx": 22,
+    "category": "basket",
+    "prompt": "Make me a basket that's 70% large-cap equity and 30% gold, for someone nearing retirement, with 8 lakh rupees.",
+    "response": "## Important mismatch\n\nThe generated basket card **does not match your instruction**: it shows an 8% gold sleeve rather than 30%. **Do not register that card.**\n\nYour requested allocation should be:\n\n| Holding | Target allocation | Amount |\n|---|---:|---:|\n| Large-cap equity — preferably `NIFTYBEES` | 70% | ₹5,60,000 |\n| Gold — preferably `GOLDBEES` | 30% | ₹2,40,000 |\n| **Total** | **100%** | **₹8,00,000** |\n\n## Why this structure fits\n\nFor someone nearing retirement, the 30% gold allocation provides a meaningful diversification and inflation hedge, while the 70% equity allocation retains growth potential through broad large-cap exposure. Using `NIFTYBEES` keeps the equity sleeve diversified across the Nifty 50 instead of concentrating the portfolio in a few individual stocks.\n\nA more conservative alternative would be to reduce equity to 50–60% and hold the balance in fixed-income instruments, but that would be outside this basket’s equity-and-gold structure. A more growth-oriented alternative would be 80–90% equity, but it would expose retirement capital to larger market drawdowns.\n\nThe current card needs correction before activation. Pivot registers ideas for your review; it does not place the orders automatically. This is analysis and a framework, not personalised financial advice.",
+    "tools_called": [
+      "build_strategy"
+    ],
+    "wall_s": 64.21,
+    "input_tokens": 202039,
+    "output_tokens": 1626,
+    "reasoning_tokens": 903,
+    "raw_data_keys": [
+      "build_strategy"
+    ]
+  },
+  {
+    "idx": 23,
+    "category": "basket",
+    "prompt": "Build a basket of exactly 4 private-sector banks, weighted by ROE, with 2 lakh rupees.",
+    "response": "## Strategy\n\nThis basket holds exactly four private-sector banks and assigns more capital to the banks with higher latest ROE. `ICICIBANK` receives the largest allocation at 28.97%, while `AXISBANK` receives the smallest at 21.72%. The structure is concentrated in one sector by design, so the main risk is banking-sector and credit-cycle exposure rather than diversification across industries.\n\n## Allocation\n\n| Company | Ticker | ROE | Weight | Allocation |\n|---|---|---:|---:|---:|\n| HDFC Bank | `HDFCBANK` | 13.82% | 24.46% | ₹48,920 |\n| ICICI Bank | `ICICIBANK` | 16.36% | 28.97% | ₹57,940 |\n| Kotak Mahindra Bank | `KOTAKBANK` | 14.04% | 24.85% | ₹49,700 |\n| Axis Bank | `AXISBANK` | 12.27% | 21.72% | ₹43,440 |\n| **Total** |  |  | **100.00%** | **₹2,00,000** |\n\nThe weighting is based on the latest available ROE figures; it is not a forecast of future returns. ROE should be reviewed alongside asset quality, capital adequacy, net interest margins, provisions, and valuation.\n\n## Alternatives\n\n- **Fewer names:** A two-bank basket would create stronger conviction but materially increase single-stock risk.\n- **Broader diversification:** Adding non-bank sectors or a broad-market ETF would reduce dependence on the banking cycle, but would no longer be a pure private-bank strategy.\n\nThe basket card contains the four holdings and weights. It registers the idea for your review; no order is executed until you activate and confirm it in your broker. This is automation of your instructions, not financial advice.",
+    "tools_called": [
+      "build_strategy",
+      "screen_fundamentals",
+      "query_financials",
+      "fetch_fundamentals",
+      "compute"
+    ],
+    "wall_s": 118.07,
+    "input_tokens": 410961,
+    "output_tokens": 1858,
+    "reasoning_tokens": 845,
+    "raw_data_keys": [
+      "build_strategy",
+      "screen_fundamentals",
+      "query_financials",
+      "fetch_fundamentals",
+      "compute"
+    ]
+  },
+  {
+    "idx": 24,
+    "category": "basket",
+    "prompt": "Create a monsoon/agri-input basket — fertilizers and agrochemicals only, no FMCG — with 3.5 lakh rupees.",
+    "response": "## Chemicals — ranked by ROE\n\nRanked by return on equity — a profitability screen, not a buy list.\n\n| Rank | Company | ROE | Market cap |\n|---:|---|---:|---:|\n| 1 | Krishana Phoschem Limited (`KRISHANA`) | 38.15% | ₹4,201 Cr |\n| 2 | Madhya Bharat Agro Products Limited (`MBAPL`) | 31.50% | ₹4,933 Cr |\n| 3 | Solar Industries India Limited (`SOLARINDS`) | 31.33% | ₹1,63,353 Cr |\n| 4 | Shaily Engineering Plastics Limited (`SHAILY`) | 26.88% | ₹12,896 Cr |\n| 5 | Raghav Productivity Enhancers Limited (`RPEL`) | 25.01% | ₹5,501 Cr |\n| 6 | Privi Speciality Chemicals Limited (`PRIVISCL`) | 24.76% | ₹13,648 Cr |\n| 7 | Sharda Cropchem Limited (`SHARDACROP`) | 24.16% | ₹8,127 Cr |\n| 8 | Bayer CropScience Limited (`BAYERCROP`) | 23.70% | ₹19,188 Cr |\n| 9 | Pidilite Industries Limited (`PIDILITIND`) | 23.52% | ₹1,60,798 Cr |\n| 10 | Acutaas Chemicals Limited (`ACUTAAS`) | 23.52% | ₹26,577 Cr |\n| 11 | Gulf Oil Lubricants India Limited (`GULFOILLUB`) | 22.14% | ₹5,084 Cr |\n| 12 | Asian Paints Limited (`ASIANPAINT`) | 20.89% | ₹2,61,988 Cr |\n| 13 | Tanfac Industries Limited (`TANFACIND`) | 20.48% | ₹4,568 Cr |\n| 14 | Chambal Fertilisers and Chemicals Limited (`CHAMBLFERT`) | 20.45% | ₹19,400 Cr |\n| 15 | Navin Fluorine International Limited (`NAVINFLUOR`) | 20.11% | ₹38,431 Cr |\n\n**Highest ROE:** `KRISHANA` at 38.15% ROE.\n\n_showing names above ~₹3,000 Cr market cap (say 'include small caps' to widen); sector + P/E from company profiles (yfinance) — not the MC ratios DB_",
+    "tools_called": [
+      "screen_fundamentals"
+    ],
+    "wall_s": 8.89,
+    "input_tokens": 50466,
+    "output_tokens": 134,
+    "reasoning_tokens": 87,
+    "raw_data_keys": [
+      "screen_fundamentals"
+    ]
+  },
+  {
+    "idx": 25,
+    "category": "basket",
+    "prompt": "I want a basket that avoids anything with promoter pledge above 20%, focused on mid-cap manufacturing, with 5 lakh rupees.",
+    "response": "## Important mismatch\n\nThe generated card is **not a valid match for your request**. It could not map “mid-cap manufacturing” to a supported manufacturing universe, so it produced a broad cross-sector basket instead. It also does **not show a verified promoter-pledge screen**, so the “below 20% pledge” requirement has not been demonstrated.\n\nI would **not register this card** as-is.\n\n## What the current card contains\n\n| Holding | Weight | Approx. allocation |\n|---|---:|---:|\n| `NESTLEIND` | 18.39% | ₹91,950 |\n| `BAJAJ-AUTO` | 17.11% | ₹85,550 |\n| `COALINDIA` | 15.95% | ₹79,750 |\n| `BRITANNIA` | 13.02% | ₹65,100 |\n| `ITC` | 12.89% | ₹64,450 |\n| `HCLTECH` | 6.30% | ₹31,500 |\n| `TCS` | 5.94% | ₹29,700 |\n| `INFY` | 5.18% | ₹25,900 |\n| `HINDZINC` | 4.51% | ₹22,550 |\n| `VEDL` | 0.71% | ₹3,550 |\n\nThis is diversified, but it is heavily weighted toward FMCG, IT, and metals—not mid-cap manufacturing. The tiny `VEDL` allocation is also impractical for a ₹5,00,000 basket.\n\n## Better structure\n\nA proper rebuild should use:\n\n- A manufacturing-focused universe, such as **auto components, industrial machinery, capital goods, engineering, or defence manufacturing**.\n- A mid-cap filter rather than simply a quality-ranked large-company pool.\n- An explicit promoter-pledge test: **pledge ≤20%**, with unavailable data flagged rather than assumed.\n- Fewer, meaningful positions—around 6–8 names—so each allocation is economically useful.\n\nPossible trade-offs: a tighter 6-name basket gives stronger manufacturing exposure but increases single-stock risk; an 8–10-name basket reduces concentration but may dilute the theme.\n\nThe current card is only a broad fallback and should not be registered for the stated objective. Pivot registers ideas; you activate them in your broker app. This is analysis and a framework, not personalised financial advice.",
+    "tools_called": [
+      "build_strategy",
+      "compute"
+    ],
+    "wall_s": 37.23,
+    "input_tokens": 163099,
+    "output_tokens": 1736,
+    "reasoning_tokens": 988,
+    "raw_data_keys": [
+      "build_strategy",
+      "compute"
+    ]
+  },
+  {
+    "idx": 26,
+    "category": "fno",
+    "prompt": "What could go wrong with selling a naked put on ADANIENT right before its quarterly results?",
+    "response": "Selling a naked put on **Adani Enterprises (`ADANIENT`)** immediately before results exposes you to concentrated event risk:\n\n- A sharp overnight gap below the strike can create losses far exceeding the premium received.\n- You may be assigned shares at the strike even if the market price collapses.\n- Margin requirements can rise abruptly, forcing a position reduction or liquidation.\n- Implied-volatility crush after results may help, but it cannot offset a sufficiently large price gap.\n- Wide spreads and reduced liquidity can make exits expensive.\n- The result may trigger broader Adani-group or market contagion, increasing volatility.\n\nYour maximum loss is theoretically substantial—approximately the strike price less the premium, multiplied by the lot size, if the stock falls toward zero. A defined-risk put spread limits downside but still carries event and gap risk. This is analysis, not financial advice.",
+    "tools_called": [],
+    "wall_s": 7.59,
+    "input_tokens": 43829,
+    "output_tokens": 234,
+    "reasoning_tokens": 55,
+    "raw_data_keys": []
+  },
+  {
+    "idx": 27,
+    "category": "fno",
+    "prompt": "Critique a calendar spread on BANKNIFTY right now — what's the biggest risk I'm not thinking about?",
+    "response": "The biggest risk is **volatility-term-structure risk**: a calendar spread is long the later expiry’s vega and short the nearer expiry’s vega, so it can lose even if `BANKNIFTY` stays near the strike. A volatility drop—especially in the back-month option—can overwhelm the expected time-decay benefit.\n\nOther risks are:\n\n- **Sharp movement:** the near-term short option’s gamma can create losses quickly.\n- **Expiry-week pinning:** the trade may look profitable before expiry but deteriorate rapidly as the short option approaches settlement.\n- **Forward/dividend mismatch:** BANKNIFTY’s forward is ₹57,520 versus a ₹57,500 ATM strike, so carry assumptions matter.\n- **Liquidity and execution slippage**, particularly when rolling the short leg.\n\nIn short: it is not simply a “theta-positive, range-bound” trade; it is primarily a bet on **relative implied volatility and controlled movement**.\n\n| Metric | Value |\n| --- | --- |\n| Underlying | BANKNIFTY |\n| Spot/forward | ₹57,520 |\n| ATM strike | ₹57,500 |\n| Max pain | ₹58,000 |\n| PCR (OI) | 0.85 |\n| PCR (volume) | 0.98 |\n| Expected move (1σ) | ₹55,669 – ₹59,371 (±3.22%) |\n\n| Side | Strike | Open interest |\n| --- | --- | --- |\n| Call (resistance) | ₹59,000 | 2,199,870 |\n| Call (resistance) | ₹60,000 | 1,705,860 |\n| Call (resistance) | ₹58,000 | 1,460,490 |\n| Put (support) | ₹59,000 | 1,260,750 |\n| Put (support) | ₹58,000 | 1,049,880 |\n| Put (support) | ₹57,000 | 781,770 |\n\nSource: kite; as of 2026-07-15T01:30:02+05:30.",
+    "tools_called": [
+      "get_option_chain"
+    ],
+    "wall_s": 27.95,
+    "input_tokens": 87373,
+    "output_tokens": 393,
+    "reasoning_tokens": 159,
+    "raw_data_keys": [
+      "get_option_chain"
+    ]
+  },
+  {
+    "idx": 28,
+    "category": "fno",
+    "prompt": "Write a covered call on my 500 shares of ITC — show me strikes and expected premium for the monthly expiry.",
+    "response": "Got it — what's the code?",
+    "tools_called": [
+      "compute"
+    ],
+    "wall_s": 23.7,
+    "input_tokens": 92615,
+    "output_tokens": 469,
+    "reasoning_tokens": 397,
+    "raw_data_keys": [
+      "_render_hint"
+    ]
+  },
+  {
+    "idx": 29,
+    "category": "fno",
+    "prompt": "Set up a protective put on 300 shares of MARUTI at the nearest OTM strike.",
+    "response": "The card currently covers **1 lot = 50 shares**, not the requested 300 shares. It uses the nearest OTM `MARUTI` put at ₹13,100, with ₹6,598 maximum loss and ₹12,968 breakeven.\n\nSay **“rebuild for 300 shares”** and I’ll generate the correctly sized 6-lot protective put.\n\n| Leg | Type | Side | Strike | Premium |\n| --- | --- | --- | --- | --- |\n| 1 | PE | BUY | ₹13,100 | ₹132 |\n\nProbability of profit (market-implied): 23.3%.",
+    "tools_called": [
+      "build_option_strategy"
+    ],
+    "wall_s": 44.07,
+    "input_tokens": 140202,
+    "output_tokens": 508,
+    "reasoning_tokens": 344,
+    "raw_data_keys": [
+      "build_option_strategy"
+    ]
+  },
+  {
+    "idx": 30,
+    "category": "fno",
+    "prompt": "Build an iron condor on NIFTY for the current weekly expiry.",
+    "response": "NIFTY **Iron Condor** drafted for the current weekly expiry, **21 July 2026**: sell 23,600 PE / 24,350 CE and buy 23,350 PE / 24,550 CE. Net credit/max profit is **₹3,874**, max loss **₹12,376**, POP **67%**, breakevens **23,540–24,410**, with ₹12,376 capital required. One protective PE has a wide spread; review liquidity before registering. Say **“widen”** or **“next expiry”** to change it.\n\n| Leg | Type | Side | Strike | Premium |\n| --- | --- | --- | --- | --- |\n| 1 | CE | SELL | ₹24,350 | ₹50 |\n| 2 | PE | SELL | ₹23,600 | ₹53 |\n| 3 | CE | BUY | ₹24,550 | ₹21 |\n| 4 | PE | BUY | ₹23,350 | ₹23 |\n\nProbability of profit (market-implied): 67.0%.",
+    "tools_called": [
+      "build_option_strategy"
+    ],
+    "wall_s": 23.85,
+    "input_tokens": 93638,
+    "output_tokens": 256,
+    "reasoning_tokens": 88,
+    "raw_data_keys": [
+      "build_option_strategy"
+    ]
+  },
+  {
+    "idx": 31,
+    "category": "fno",
+    "prompt": "I think SBIN will stay flat for the next month — what option strategy should I use?",
+    "response": "I can’t verify current SBIN price or options data from our feed right now, so I can’t responsibly recommend a specific one-month strategy. If you share the current price, expiry, and option premiums, I can help compare defined-risk neutral approaches such as an iron condor or short strangle with protection.",
+    "tools_called": [
+      "suggest_option_strategy"
+    ],
+    "wall_s": 36.41,
+    "input_tokens": 46772,
+    "output_tokens": 64,
+    "reasoning_tokens": 21,
+    "raw_data_keys": [
+      "_render_hint"
+    ]
+  },
+  {
+    "idx": 32,
+    "category": "fno",
+    "prompt": "Show me the option chain for IDEA and suggest a strategy — I'm not sure it even has decent options liquidity.",
+    "response": "I can’t access the current option-chain data for IDEA right now, so I can’t reliably assess its liquidity or suggest a strategy based on live prices. Please try again later, or share the chain details and I can analyze them.",
+    "tools_called": [
+      "get_option_chain",
+      "suggest_option_strategy"
+    ],
+    "wall_s": 22.97,
+    "input_tokens": 46775,
+    "output_tokens": 126,
+    "reasoning_tokens": 46,
+    "raw_data_keys": [
+      "_render_hint"
+    ]
+  },
+  {
+    "idx": 33,
+    "category": "fno",
+    "prompt": "Why might a bear put spread on ZOMATO be a worse idea than just shorting the stock directly?",
+    "response": "A bear put spread on `ETERNAL` could be worse than shorting the stock directly when:\n\n- The stock falls sharply below your lower strike: the spread’s profit is capped, while a short stock position keeps gaining.\n- The decline happens slowly: both options lose time value, reducing the spread’s payoff.\n- Implied volatility falls after entry: the long put can lose value even if the stock moves down modestly.\n- Bid–ask spreads and brokerage costs are high, especially with a large options lot.\n\nHowever, direct shorting has its own disadvantages: theoretically unlimited loss if the stock rises, margin requirements, borrow constraints, and compulsory intraday square-off for cash-market shorts in India. A bear put spread offers defined risk; shorting offers uncapped downside potential. The better structure depends on expected move, timing, volatility, and capital.\n\n| Metric | Value |\n| --- | --- |\n| Underlying | ETERNAL |\n| Spot/forward | ₹259 |\n| ATM strike | ₹258 |\n| Max pain | — |\n| PCR (OI) | — |\n| PCR (volume) | — |\n\nSource: kite; as of 2026-07-15T01:30:41+05:30.",
+    "tools_called": [
+      "get_option_chain"
+    ],
+    "wall_s": 31.32,
+    "input_tokens": 90923,
+    "output_tokens": 481,
+    "reasoning_tokens": 270,
+    "raw_data_keys": [
+      "get_option_chain"
+    ]
+  },
+  {
+    "idx": 34,
+    "category": "analysis",
+    "prompt": "Has PAYTM's promoter/founder shareholding changed in the last few quarters?",
+    "response": "Yes, but the change appears modest. **Vijay Shekhar Sharma’s direct stake in One 97 Communications (`PAYTM`) was reported at about 9.04% in early 2026, down roughly 0.02 percentage points from the previous quarter**—a small reduction, not a major exit. [Vijay Shekhar Sharma’s Portfolio and Stock Holdings in 2026](https://www.smallcase.com/star-investors/vijay-shekhar-sharma-stock-portfolio/)\n\nThe broader founder/promoter ownership, including holdings through **Resilient Asset Management**, was reported at approximately **19.3%** in January 2026. Recent filings show the company’s promoter shares were not pledged, while the larger ownership shift was among institutional investors: domestic institutional ownership increased to about **23.1%** by March 2026. [Paytm's founder ownership signals long-term commitment in India's ...](https://economictimes.indiatimes.com/tech/technology/paytms-founder-ownership-signals-long-term-commitment-in-indias-public-tech-space/articleshow/127683423.cms)\n\nSo the recent pattern is: **slight founder selling or dilution, broadly stable strategic ownership, and rising domestic institutional participation**. Web-reported figures can differ depending on whether they count only Sharma’s direct holding or associated entities.",
+    "tools_called": [],
+    "wall_s": 15.86,
+    "input_tokens": 64042,
+    "output_tokens": 596,
+    "reasoning_tokens": 361,
+    "raw_data_keys": []
+  },
+  {
+    "idx": 35,
+    "category": "analysis",
+    "prompt": "Which IT services companies are most exposed to US H-1B visa policy changes given their onsite-heavy delivery models?",
+    "response": "The most exposed, directionally, are **Wipro (`WIPRO`), Tech Mahindra (`TECHM`), LTIMindtree (`LTIM`), Infosys (`INFY`) and HCLTech (`HCLTECH`)**—especially where projects depend on moving Indian staff to client sites rather than local US hiring. **TCS (`TCS`)** also faces policy risk but appears relatively better cushioned by its offshore-heavy model and ongoing localisation. [TCS, Wipro, Tech Mahindra hit hard as H-1B approvals fall sharply in FY26](https://www.peoplematters.in/news/business/tcs-wipro-tech-mahindra-hit-hard-as-h-1b-approvals-fall-sharply-in-fy26-49917)\n\nThe key risk is not simply H-1B approval volume: tighter rules and the reported **$100,000 fee for new petitions** could raise delivery costs, delay staffing, accelerate US-local hiring, and pressure margins. Treat this as a **directional exposure ranking**, not a precise onsite-percentage screen; firms increasingly disclose localisation and offshore mix rather than a clean “H-1B sensitivity” metric. [H-1B FAQ | USCIS](https://www.uscis.gov/newsroom/alerts/h-1b-faq)",
+    "tools_called": [],
+    "wall_s": 13.84,
+    "input_tokens": 54387,
+    "output_tokens": 438,
+    "reasoning_tokens": 204,
+    "raw_data_keys": []
+  },
+  {
+    "idx": 36,
+    "category": "analysis",
+    "prompt": "Which paint companies are most exposed to crude-oil-linked raw material cost swings?",
+    "response": "The **highest crude-linked raw-material sensitivity is generally in decorative paints**, where petrochemical derivatives such as solvents, resins and packaging materials are significant inputs.\n\n- **Asian Paints (`ASIANPAINT`)** — high exposure due to its large decorative-paints portfolio and scale of petroleum-derived inputs.\n- **Berger Paints India (`BERGEPAINT`)** — similarly high; margins can respond noticeably to crude-linked input inflation.\n- **Indigo Paints (`INDIGOPNTS`)** — relatively high sensitivity because raw-material costs have a larger bearing on its smaller operating base.\n- **Kansai Nerolac Paints (`KANSAINER`)** — meaningful exposure, though its industrial/automotive mix changes the cost profile.\n- **Akzo Nobel India (`AKZOINDIA`)** — exposed through coatings, but its industrial mix and product positioning may provide some pass-through protection.\n\nThis is a **directional ranking**, not a company-disclosed percentage ranking; exact sensitivity varies with product mix, inventory timing, pricing power and hedging. The crude impact is usually indirect—through petrochemical feedstocks rather than crude purchased directly.",
+    "tools_called": [
+      "find_tool",
+      "screen_fundamentals"
+    ],
+    "wall_s": 30.92,
+    "input_tokens": 157779,
+    "output_tokens": 582,
+    "reasoning_tokens": 260,
+    "raw_data_keys": [
+      "find_tool",
+      "screen_fundamentals"
+    ]
+  },
+  {
+    "idx": 37,
+    "category": "analysis",
+    "prompt": "Which private banks have the highest exposure to unsecured retail lending right now?",
+    "response": "Among Indian private banks, **IDFC First Bank (`IDFCFIRSTB`) and IndusInd Bank (`INDUSINDBK`) appear to have the highest unsecured-retail concentration and sensitivity**, followed by **RBL Bank (`RBLBANK`)**. Their books have historically had greater exposure to personal loans, credit cards, microfinance, and other unsecured segments.\n\nAmong larger private banks, **Axis Bank (`AXISBANK`) and ICICI Bank (`ICICIBANK`) have meaningful exposure**, while **HDFC Bank (`HDFCBANK`) and Kotak Mahindra Bank (`KOTAKBANK`) generally have more diversified, secured-loan-heavy books**. This is a directional ranking: banks do not disclose unsecured-retail exposure on a perfectly comparable basis each quarter.\n\nThe risk is material: private banks accounted for roughly **76% of fresh unsecured-retail slippages** in the RBI’s latest cited review, despite unsecured loans being only about **8.3% of total banking advances**. [RBI flags swelling slippages in unsecured retail lending, particularly ...](https://economictimes.indiatimes.com/news/economy/finance/rbi-flags-swelling-slippages-in-unsecured-retail-lending-particularly-among-private-banks/articleshow/126281197.cms)",
+    "tools_called": [],
+    "wall_s": 17.88,
+    "input_tokens": 58447,
+    "output_tokens": 436,
+    "reasoning_tokens": 196,
+    "raw_data_keys": []
+  },
+  {
+    "idx": 38,
+    "category": "analysis",
+    "prompt": "Give me a full fundamental breakdown of COFORGE — margins, growth, valuation, balance sheet health.",
+    "response": "## Snapshot\n\n**Coforge Limited (`COFORGE`) has strong recent growth and improving margins, but the valuation is not obviously cheap on book value.** Its last close was ₹1,534.50 on July 14, 2026; the stock remains 22.9% below its 1-year high. [Coforge delivers 29.2% YoY Growth for FY26, EBIT margin expands by ...](https://news.coforge.com/newsroom/press-release/coforge-delivers-29-2-yoy-growth-for-fy26-ebit-margin-expands-by-370bps-to-14-4)\n\n## Fundamentals\n\n| Metric | Value | Read |\n|---|---:|---|\n| P/E | 12.48x | Moderate for a growth-oriented IT company; not demanding on earnings |\n| P/B | 5.40x | Rich relative to book value |\n| ROE | 18.6% | Healthy capital efficiency |\n| ROCE | Unavailable | Cannot assess capital returns using this metric |\n| Net margin | 7.66% | Positive, but below the company’s reported EBIT/EBITDA margin levels |\n| Debt-to-equity | 0.08x | Very low leverage |\n| EPS | ₹123 | Supports the current earnings valuation |\n| Dividend payout | 36.05% | Balanced; retains capital for growth |\n| Dividend yield | 1.04% | Growth rather than income profile |\n\n## Growth and margins\n\nGrowth is the strongest part of the thesis. For FY26, `COFORGE` reported **29.2% revenue growth in US-dollar terms**, while INR revenue grew 35.9%. EBITDA rose 68.2% in dollar terms, and EBIT margin expanded by roughly 370 basis points to 14.4%. PAT increased more than 80% in dollar terms. [Coforge delivers 29.2% YoY Growth for FY26, EBIT margin expands by ...](https://news.coforge.com/newsroom/press-release/coforge-delivers-29-2-yoy-growth-for-fy26-ebit-margin-expands-by-370bps-to-14-4)\n\nThe improvement is not only top-line driven: Q4 FY26 EBITDA margin reached 20.6% and EBIT margin 16.6%. Management has indicated an FY27 EBITDA-margin ambition above 20.5%, making execution and margin durability the key tests from here. [Coforge delivers 29.2% YoY Growth for FY26, EBIT margin expands by ...](https://news.coforge.com/newsroom/press-release/coforge-delivers-29-2-yoy-growth-for-fy26-ebit-margin-expands-by-370bps-to-14-4)\n\n## Balance sheet health\n\nThe reported **0.08x debt-to-equity ratio is conservative**, giving `COFORGE` financial flexibility and reducing interest-rate risk. Promoter holding is approximately 21.82%, while institutional ownership is approximately 57.1%; the promoter figure is a yfinance-based proxy, not an exact SEBI promoter-category filing.\n\nHowever, the available dataset does not provide cash, current assets, current liabilities, net debt, free-cash-flow yield, or receivables ageing. Therefore, I would not label the balance sheet “exceptional” solely from D/E; liquidity and cash conversion still need verification from the latest annual report.\n\n## News\n\nRecent company developments include AI platforms for insurers and expanded zero-trust capabilities. The broader IT sector has also faced renewed concern about AI-led disruption, while a reported legal dispute with Mphasis is a risk item to monitor.\n\n## What to watch\n\n1. Whether revenue growth remains above 20% in FY27.\n2. Whether EBITDA margin sustains above 20% without weakening cash conversion.\n3. Client concentration, receivables, acquisition-related liabilities, and free cash flow.\n\n## View\n\n`COFORGE` presents a **high-growth, improving-margin profile with low leverage**. The bull case is continued large-deal wins, AI-led productivity, and margin expansion. The bear case is a slowdown in global IT spending, AI commoditisation, or margin pressure after rapid expansion. On the available numbers, earnings valuation looks reasonable, but the stock is not a clear deep-value opportunity because P/B is elevated and detailed balance-sheet data is incomplete.\n\nThis is analysis, not financial advice.",
+    "tools_called": [
+      "fetch_fundamentals",
+      "get_market_data",
+      "get_symbol_news"
+    ],
+    "wall_s": 31.51,
+    "input_tokens": 107537,
+    "output_tokens": 1541,
+    "reasoning_tokens": 678,
+    "raw_data_keys": [
+      "fetch_fundamentals",
+      "get_market_data",
+      "get_symbol_news"
+    ]
+  },
+  {
+    "idx": 39,
+    "category": "analysis",
+    "prompt": "Compare TRENT and DMART on same-store sales growth and margin trajectory.",
+    "response": "## Snapshot\n\nA clean same-store sales growth comparison is **not available in the retrieved data**, so I would not assign a winner on SSS growth. The margin evidence, however, clearly favors `TRENT` on expansion, while `DMART` has been more stable but largely flat.\n\n## Head-to-head\n\n| Company | 3Y Return | Volatility | Sharpe | Max Drawdown | Risk-adjusted read |\n|---|---:|---:|---:|---:|---|\n| Trent Limited (`TRENT`) | +154.0% | 37.0% | 0.88 | -60.0% | Higher return, substantially higher risk |\n| Avenue Supermarts (`DMART`) | +5.4% | 26.4% | -0.03 | -36.9% | Lower volatility, weak return profile |\n\n## Fundamentals\n\n| Metric | Trent (`TRENT`) | Avenue Supermarts (`DMART`) |\n|---|---:|---:|\n| P/E | 59.39 | 93.24 |\n| ROE | 24.62% | Unavailable |\n| ROCE | 28.49% | Unavailable |\n| Debt/Equity | 0.07 | 0.10 |\n| Net margin | 8.55% | 4.55% |\n| Dividend yield | 0.14% | Unavailable |\n\n## What separates them\n\n`TRENT`’s operating margin increased from 9.74% in FY2022 to 12.09% in FY2026, while EBITDA margin rose from 16.65% to 18.87%—a meaningful improvement despite some recent moderation. This is consistent with the operating leverage potential of its Westside and Zudio formats.\n\nFor `DMART`, operating margin calculated from reported operating profit and revenue was 6.14% in FY2021, peaked at 7.14% in FY2023, and ended at 6.19% in FY2025. Revenue grew strongly, but margin expansion has not followed consistently. Its low-price model protects customer value but structurally limits margins.\n\n## News\n\nRecent `TRENT` headlines referenced subdued demand and growth concerns, followed by a report of profit improvement as tax cuts supported spending. The retrieved `DMART` feed contained no directly relevant recent operating catalyst.\n\n## What to watch\n\n- `TRENT`: whether same-store growth reaccelerates without sacrificing its recent margin gains.\n- `DMART`: whether store additions and revenue growth translate into renewed operating-margin expansion.\n\n## Verdict\n\nFor a **growth-oriented investor accepting substantial volatility**, `TRENT` currently has the stronger operating trajectory and better risk-adjusted three-year performance, although its P/E is lower than `DMART`’s only on the retrieved snapshot—not necessarily cheap. `DMART` is the steadier, more defensive model, but I would want evidence of sustained margin recovery before preferring it. The view would change if `TRENT`’s SSS growth weakens materially or `DMART` demonstrates several quarters of margin expansion.\n\nThis is analysis, not financial advice.",
+    "tools_called": [
+      "compare_performance",
+      "query_financials",
+      "fetch_fundamentals",
+      "get_symbol_news",
+      "compute"
+    ],
+    "wall_s": 82.38,
+    "input_tokens": 211871,
+    "output_tokens": 2079,
+    "reasoning_tokens": 957,
+    "raw_data_keys": [
+      "compare_performance",
+      "query_financials",
+      "fetch_fundamentals",
+      "get_symbol_news",
+      "compute"
+    ]
+  },
+  {
+    "idx": 40,
+    "category": "analysis",
+    "prompt": "Explain what EV/EBITDA tells you that P/E doesn't, using APOLLOHOSP as a live example.",
+    "response": "## Core difference\n\n**P/E** tells you how much investors pay for the company’s **equity earnings**:\n\n\\[\nP/E = \\frac{\\text{Market capitalisation}}{\\text{Net profit}}\n\\]\n\nNet profit comes **after** interest, taxes, depreciation and other financing-related effects.\n\n**EV/EBITDA** values the entire operating business:\n\n\\[\nEV/EBITDA = \\frac{\\text{Enterprise value}}{\\text{EBITDA}}\n\\]\n\nEnterprise value broadly includes equity value plus debt, minus cash. EBITDA measures operating profit before interest, tax, depreciation and amortisation.\n\n| Multiple | What it focuses on | Most affected by |\n|---|---|---|\n| P/E | Equity holders’ earnings | Debt interest, tax rate, depreciation, one-offs |\n| EV/EBITDA | Operating business value | Debt, cash, operating profitability, depreciation intensity |\n\n## `APOLLOHOSP` example\n\nApollo Hospitals Enterprise (`APOLLOHOSP`) currently has:\n\n| Metric | Value | Interpretation |\n|---|---:|---|\n| P/E | **88.12×** | Investors are paying ₹88.12 for every ₹1 of reported earnings |\n| ROE | **21.5%** | Reasonable profitability on shareholder capital |\n| Debt-to-equity | **0.85×** | Debt is material enough that capital structure matters |\n| Net margin | **6.69%** | Healthcare operations are profitable but relatively low-margin |\n| EV/EBITDA | **Unavailable** | The available data does not provide a reliable current figure |\n\nThe **88.12× P/E** makes `APOLLOHOSP` look expensive if judged only against current net profit. But P/E alone does not tell you whether that valuation is driven by Apollo’s operating business, its debt structure, depreciation from hospitals and equipment, taxes, or other below-operating-line items.\n\nEV/EBITDA would provide a complementary view: “How much am I paying for Apollo’s operating assets and cash-generating operations, regardless of whether they are financed with debt or equity?” This is particularly useful when comparing hospital companies with different leverage, depreciation profiles or expansion phases.\n\n## Practical reading\n\n- Use **P/E** when focusing on the return attributable to shareholders.\n- Use **EV/EBITDA** when comparing operating businesses with different debt or cash balances.\n- Neither multiple should be read alone: for `APOLLOHOSP`, also examine occupancy, margins, expansion spending, cash flow, leverage and expected earnings growth.\n\nThe current EV/EBITDA figure for `APOLLOHOSP` is unavailable in the data feed, so it would be incorrect to estimate or substitute one. This is analysis, not financial advice.",
+    "tools_called": [
+      "fetch_fundamentals",
+      "query_financials"
+    ],
+    "wall_s": 39.25,
+    "input_tokens": 147376,
+    "output_tokens": 1124,
+    "reasoning_tokens": 458,
+    "raw_data_keys": [
+      "fetch_fundamentals",
+      "query_financials"
+    ]
+  },
+  {
+    "idx": 41,
+    "category": "analysis",
+    "prompt": "Has SUZLON had any recent insider buying or selling I should know about?",
+    "response": "I found **no recent reported insider-market buying or selling** for Suzlon Energy (`SUZLON`). The latest PIT disclosure I could verify was a **sale of 5,00,000 shares by Pallavi Bagrecha, reported on 5 September 2023, at ₹24.80 per share**. [Insider Trading & SAST disclosures for Suzlon Energy](https://trendlyne.com/equity/insider-trading-sast/all/SUZLON/1337/suzlon-energy-ltd/)\n\nThere was a **promoter-group acquisition of 36.59 crore shares in June 2025**, but it was reported as a SAST transaction and may not represent open-market buying. Recent 2026 filings mainly concern trading-window closures and ESOP share allotments, not insider purchases or sales. [Insider Trading & SAST disclosures for Suzlon Energy](https://trendlyne.com/equity/insider-trading-sast/all/SUZLON/1337/suzlon-energy-ltd/)",
+    "tools_called": [],
+    "wall_s": 9.35,
+    "input_tokens": 54315,
+    "output_tokens": 284,
+    "reasoning_tokens": 103,
+    "raw_data_keys": []
+  },
+  {
+    "idx": 42,
+    "category": "screening",
+    "prompt": "Screen for companies with debt-to-EBITDA below 1.5 and net profit margin above 15%.",
+    "response": "## Fundamental screen — ranked by Net Margin\n\nRanked by Net Margin (descending).\n\nFilters applied: Net Margin > 15\n\n| Rank | Company | Net Margin |\n|---:|---|---:|\n| 1 | Continent Chem (`CONTCHM`) | 195.95% |\n| 2 | Starlog Enter (`STARLOG`) | 188.85% |\n| 3 | Arihants Sec (`ARISE`) | 183.46% |\n| 4 | Dhoot Ind Fin (`DHOOTIN`) | 167.67% |\n| 5 | Consol Finvest (`CONSOFINVT`) | 159.95% |\n| 6 | MSTC (`MSTCLTD`) | 132.82% |\n| 7 | Gogia Capital (`GOGIACAPGL`) | 130.85% |\n| 8 | Ashirwad Steel (`ASHSI`) | 127.27% |\n| 9 | DHP (`DHPIND`) | 115.16% |\n| 10 | Sodhani Academy (`SAFE`) | 108.39% |\n| 11 | Diligent Media (`DNAMEDIA`) | 103.23% |\n| 12 | Heads UP Vent (`HEADSUP`) | 98.18% |\n| 13 | Daulat Sec (`DAULAT`) | 97.29% |\n| 14 | Elegant Flori (`ELEFLOR`) | 89.55% |\n| 15 | Escorp Asset Ma (`ESCORP`) | 88.93% |\n\n**Top by Net Margin:** `CONTCHM` at 195.95% Net Margin.\n\n_data-quality bounds applied (extreme outliers excluded); latest filing on/after 2023-01-01 (recency floor); basis: consolidated preferred, else standalone_",
+    "tools_called": [
+      "screen_fundamentals"
+    ],
+    "wall_s": 11.58,
+    "input_tokens": 51072,
+    "output_tokens": 132,
+    "reasoning_tokens": 29,
+    "raw_data_keys": [
+      "screen_fundamentals"
+    ]
+  },
+  {
+    "idx": 43,
+    "category": "screening",
+    "prompt": "Find companies that have grown revenue every single year for the last 3 years, with current ROE above 18%.",
+    "response": "## Fundamental screen — ranked by Rev Growth\n\nRanked by YoY revenue growth (latest two annual filings) — a growth screen, not a buy list.\n\nFilters applied: Rev Growth > 0 · ROE > 18\n\n| Rank | Company | Rev Growth | ROE |\n|---:|---|---:|---:|\n| 1 | United Spirits (`UNITDSPR`) | +119.43% | 19.52% |\n| 2 | Sodhani Academy (`SAFE`) | +84.23% | 27.63% |\n| 3 | Narmada Macplas (`NARMP`) | +83.52% | 69.78% |\n| 4 | Silky Overseas (`SILKY-SM`) | +34.62% | 40.67% |\n| 5 | Indiamart Inter (`INDIAMART`) | +19.62% | 25.20% |\n| 6 | Goel Constructi (`GOELCONS`) | +17.83% | 29.12% |\n| 7 | Panorama Studio (`PANORAMA`) | +16.19% | 21.79% |\n| 8 | Cool Caps (`COOLCAPS-SM`) | +13.99% | 21.83% |\n| 9 | EASTINDIA (`EASTINDIA`) | +13.70% | 18.97% |\n| 10 | Mauria Udyog (`MUL`) | +7.32% | 56.53% |\n| 11 | NMDC (`NMDC`) | +6.69% | 22.03% |\n| 12 | Adani Power (`ADANIPOWER`) | +6.68% | 19.76% |\n| 13 | Ecoline Exim (`ECOLINE-SM`) | +6.64% | 32.09% |\n| 14 | Starlog Enter (`STARLOG`) | +5.94% | 43.15% |\n| 15 | Indraprastha (`IGL`) | +5.51% | 26.98% |\n\n**Fastest revenue growth:** `UNITDSPR` at +119.43% Rev Growth.\n\n_data-quality bounds applied (extreme outliers excluded); latest filing on/after 2023-01-01 (recency floor); basis: consolidated preferred, else standalone_",
+    "tools_called": [
+      "screen_fundamentals"
+    ],
+    "wall_s": 16.12,
+    "input_tokens": 50116,
+    "output_tokens": 123,
+    "reasoning_tokens": 56,
+    "raw_data_keys": [
+      "screen_fundamentals"
+    ]
+  },
+  {
+    "idx": 44,
+    "category": "screening",
+    "prompt": "Screen for small-cap companies with price-to-sales below 1 and positive free cash flow.",
+    "response": "## Fundamental screen — ranked by CFO\n\nRanked by CFO (descending).\n\nFilters applied: CFO > 0\n\n| Rank | Company | CFO |\n|---:|---|---:|\n| 1 | Rajesh Exports (`RAJESHEXPO`) | ₹7,738 Cr |\n| 2 | DCB Bank (`DCBBANK`) | ₹6,640 Cr |\n| 3 | JM Financial (`JMFINANCIL`) | ₹5,569 Cr |\n| 4 | Jana SFB (`JSFB`) | ₹4,073 Cr |\n| 5 | Spandana Sphoor (`SPANDANA`) | ₹3,669 Cr |\n| 6 | ESAF SFB (`ESAFSFB`) | ₹3,176 Cr |\n| 7 | Chennai Petro (`CHENNPETRO`) | ₹2,945 Cr |\n| 8 | IndiGrid Infra (`INDIGRID`) | ₹2,902 Cr |\n| 9 | Guj State Petro (`GSPL`) | ₹2,741 Cr |\n| 10 | Centrum Capital (`CENTRUM`) | ₹2,532 Cr |\n| 11 | Rashtriya Chem (`RCF`) | ₹2,364 Cr |\n| 12 | Advent Hotels (`ADVENTHTL`) | ₹2,310 Cr |\n| 13 | Bombay Burmah (`BBTC`) | ₹2,278 Cr |\n| 14 | NAVA (`NAVA`) | ₹2,157 Cr |\n| 15 | Edelweiss (`EDELWEISS`) | ₹2,052 Cr |\n\n**Top by CFO:** `RAJESHEXPO` at ₹7,738 Cr CFO.\n\n_custom ratio 'price_to_sales' skipped (need name + numerator/denominator that resolve to DB line items); unknown field 'price_to_sales' skipped; cannot sort by 'price_to_sales'; restricted to small-cap (< ₹20,000 Cr market cap, ~4529 names); data-quality bounds applied (extreme outliers excluded); latest filing on/after 2023-01-01 (recency floor); basis: consolidated preferred, else standalone_",
+    "tools_called": [
+      "screen_fundamentals"
+    ],
+    "wall_s": 38.49,
+    "input_tokens": 99252,
+    "output_tokens": 400,
+    "reasoning_tokens": 270,
+    "raw_data_keys": [
+      "screen_fundamentals"
+    ]
+  },
+  {
+    "idx": 45,
+    "category": "screening",
+    "prompt": "Top 10 companies by ROCE in the auto ancillary sector, excluding anything with D/E above 0.8.",
+    "response": "## Auto Ancillary — ranked by ROCE\n\nRanked by return on capital employed — a capital-efficiency screen, not a buy list.\n\nFilters applied: D/E <= 0.8\n\n| Rank | Company | ROCE | D/E |\n|---:|---|---:|---:|\n| 1 | Frontier Spring (`FRONTSP`) | 36.08% | 0.05 |\n| 2 | Motherson SWI (`MSUMI`) | 35.47% | 0.11 |\n| 3 | Shanthi Gears (`SHANTIGEAR`) | 32.21% | 0.00 |\n| 4 | Hind Hardy (`HINDHARD`) | 27.90% | 0.26 |\n| 5 | Shriram Pistons (`SHRIPISTON`) | 25.50% | 0.20 |\n| 6 | FIEM Ind (`FIEMIND`) | 25.15% | 0.00 |\n| 7 | Carraro India (`CARRARO`) | 21.58% | 0.38 |\n| 8 | Automotive Axle (`AUTOAXLES`) | 21.38% | 0.00 |\n| 9 | Pricol (`PRICOLLTD`) | 20.10% | 0.12 |\n| 10 | Studds Access (`STUDDS`) | 19.91% | 0.01 |\n\n**Highest ROCE:** `FRONTSP` at 36.08% ROCE.\n\n_data-quality bounds applied (extreme outliers excluded); latest filing on/after 2023-01-01 (recency floor); basis: consolidated preferred, else standalone_",
+    "tools_called": [
+      "screen_fundamentals"
+    ],
+    "wall_s": 31.79,
+    "input_tokens": 50793,
+    "output_tokens": 86,
+    "reasoning_tokens": 25,
+    "raw_data_keys": [
+      "screen_fundamentals"
+    ]
+  },
+  {
+    "idx": 46,
+    "category": "screening",
+    "prompt": "Screen for FMCG companies excluding cigarette/tobacco makers, sorted by revenue growth.",
+    "response": "## Fmcg — ranked by Rev Growth\n\nRanked by YoY revenue growth (latest two annual filings) — a growth screen, not a buy list.\n\n| Rank | Company | Rev Growth |\n|---:|---|---:|\n| 1 | United Spirits (`UNITDSPR`) | +119.43% |\n| 2 | ADF Foods (`ADFFOODS`) | +8.20% |\n| 3 | Bajaj Consumer (`BAJAJCON`) | +3.33% |\n| 4 | Colgate (`COLPAL`) | +3.00% |\n| 5 | Jyothy Labs (`JYOTHYLAB`) | +2.02% |\n| 6 | Varun Beverages (`VBL`) | +1.62% |\n| 7 | Nestle (`NESTLEIND`) | +0.00% |\n| 8 | Dabur India (`DABUR`) | +0.00% |\n| 9 | Emami (`EMAMILTD`) | +0.00% |\n| 10 | Manorama Indust (`MANORAMA`) | +0.00% |\n| 11 | Heritage Foods (`HERITGFOOD`) | -0.06% |\n| 12 | Radico Khaitan (`RADICO`) | -0.10% |\n| 13 | Gillette India (`GILLETTE`) | -0.13% |\n| 14 | Hatsun Agro (`HATSUN`) | -0.19% |\n\n**Fastest revenue growth:** `UNITDSPR` at +119.43% Rev Growth.\n\n_showing names above ~₹3,000 Cr market cap (say 'include small caps' to widen); data-quality bounds applied (extreme outliers excluded); latest filing on/after 2023-01-01 (recency floor); basis: consolidated preferred, else standalone; excluded per your stated preference: dropped 1 name(s) matching ITC, VSTIND, GODFRYPHLP_",
+    "tools_called": [
+      "screen_fundamentals"
+    ],
+    "wall_s": 44.65,
+    "input_tokens": 50553,
+    "output_tokens": 191,
+    "reasoning_tokens": 131,
+    "raw_data_keys": [
+      "screen_fundamentals"
+    ]
+  },
+  {
+    "idx": 47,
+    "category": "screening",
+    "prompt": "Find cheap, high-quality mid-cap industrials — nothing fancy, just solid fundamentals.",
+    "response": "I needed to look up several things and got a bit lost. Could you ask again with more specifics?",
+    "tools_called": [
+      "find_tool",
+      "screen_fundamentals",
+      "fetch_fundamentals"
+    ],
+    "wall_s": 105.84,
+    "input_tokens": 421089,
+    "output_tokens": 1743,
+    "reasoning_tokens": 956,
+    "raw_data_keys": [
+      "_render_hint"
+    ]
+  },
+  {
+    "idx": 48,
+    "category": "screening",
+    "prompt": "Screen for companies with interest coverage above 8 and cash-to-debt above 0.5.",
+    "response": "## Fundamental screen — ranked by Int Cov\n\nRanked by Int Cov (descending).\n\nFilters applied: Int Cov > 8\n\n| Rank | Company | Int Cov |\n|---:|---|---:|\n| 1 | Oracle Fin Serv (`OFSS`) | 1499.20 |\n| 2 | MSTC (`MSTCLTD`) | 1444.68 |\n| 3 | SKF India (`SKFINDIA`) | 1209.73 |\n| 4 | GlaxoSmithKline (`GLAXO`) | 1007.30 |\n| 5 | Multibase India (`MULTIBASE`) | 985.50 |\n| 6 | Guj Toolroom (`GUJTLRM`) | 937.67 |\n| 7 | Concord Biotech (`CONCORDBIO`) | 936.62 |\n| 8 | Maha Rasht Apex (`MAHAPEXLTD`) | 929.00 |\n| 9 | ADC India Comm (`ADCINDIA`) | 926.00 |\n| 10 | Sellwin Traders (`SELLWIN`) | 922.81 |\n| 11 | Wim Plast (`WIMPLAST`) | 856.67 |\n| 12 | Clean Science (`CLEAN`) | 850.36 |\n| 13 | Munjal Showa (`MUNJALSHOW`) | 844.80 |\n| 14 | Career Point (`CPEDU`) | 824.87 |\n| 15 | GEM Enviro Mana (`GEMENVIRO`) | 809.00 |\n\n**Top by Int Cov:** `OFSS` at 1499.20 Int Cov.\n\n_data-quality bounds applied (extreme outliers excluded); latest filing on/after 2023-01-01 (recency floor); basis: consolidated preferred, else standalone_",
+    "tools_called": [
+      "screen_fundamentals"
+    ],
+    "wall_s": 39.94,
+    "input_tokens": 49288,
+    "output_tokens": 255,
+    "reasoning_tokens": 200,
+    "raw_data_keys": [
+      "screen_fundamentals"
+    ]
+  },
+  {
+    "idx": 49,
+    "category": "screening",
+    "prompt": "Which infrastructure companies have order books that have grown for 3 consecutive years?",
+    "response": "A **preliminary list of Indian infrastructure companies with publicly reported order-book growth for at least three consecutive financial years** includes:\n\n- Larsen & Toubro (`LT`)\n- Kalpataru Projects International (`KPIL`)\n- KEC International (`KEC`)\n- NCC (`NCC`)\n\n`LT` reported order-book growth in FY23, FY24 and FY25, reaching ₹5,79,137 crore by March 2025. `KPIL` reported successive growth through FY25, with its order book reaching about ₹64,495 crore. `KEC` and `NCC` also show multi-year expansion in their annual-report disclosures. [Order book of top firms up 18% - The Financial Express](https://www.financialexpress.com/business/industry-order-book-of-top-firms-up-18-3526580/)\n\nThis is a **screening shortlist, not an exhaustive database result**: order-book history is disclosed inconsistently, so verify each company’s FY23–FY25 annual reports before relying on the comparison. A growing order book also needs to be checked against execution, margins, debt and cancellations.",
+    "tools_called": [
+      "find_tool"
+    ],
+    "wall_s": 32.55,
+    "input_tokens": 118577,
+    "output_tokens": 678,
+    "reasoning_tokens": 402,
+    "raw_data_keys": [
+      "find_tool"
+    ]
+  }
+]

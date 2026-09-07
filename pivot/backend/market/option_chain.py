@@ -366,7 +366,12 @@ def get_chain(
                 "pct": round(em / forward * 100.0, 2),
             }
 
-    aggregates = _chain_aggregates(rows)
+    # Max pain / PCR / OI walls must scan the FULL chain, not the
+    # ATM-centred display slice — OI concentrations (and the true
+    # max-pain-minimising strike) routinely sit outside a narrow
+    # +/-width window, and a truncated PCR misrepresents the real
+    # put/call OI balance for the expiry.
+    aggregates = _chain_aggregates(all_rows)
 
     payload = {
         "underlying": underlying,
@@ -389,10 +394,17 @@ def get_chain(
         "top_put_oi": aggregates["top_put_oi"],
         "t_years": round(T, 6),
         "rows": rows,
-        # True when built off the hardcoded _MOCK_SPOTS fallback (no Kite
-        # session at build time) — that spot/chain is synthetic, not a real
-        # quote, and must never be presented or traded as if it were live.
-        "research_only": source == "mock",
+        # Product-level execution block for this underlying (e.g. a
+        # future non-tradeable segment) — see instrument_master.is_
+        # research_only. Currently always False: MCX commodities are
+        # tradeable via register-not-execute (2026-06-29 decision). This
+        # is DELIBERATELY independent of ``source`` below — whether the
+        # quotes are live-Kite or the mock/no-session fallback is a data-
+        # quality signal, not a "can this be registered" signal, and the
+        # two must never be conflated (a mock-sourced NIFTY chain is not
+        # "MCX research-only"; callers that need "don't treat as live"
+        # should check ``source == "mock"`` directly).
+        "research_only": im.is_research_only(db, underlying),
         "source": source,
         "asof": datetime.now(IST).isoformat(timespec="seconds"),
     }

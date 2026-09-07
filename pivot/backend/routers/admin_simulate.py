@@ -9,8 +9,7 @@ Targeted use cases:
     trigger → watching the engine + approval + broker-mock path).
   - Reproduce a production bug locally with a known input.
   - Drive Layer-1 of the test harness (scenario YAML files) — see
-    docs/news_events_phase0_plan.md and the upcoming
-    docs/test_harness.md.
+    the upcoming docs/test_harness.md.
 
 Hard guards (every endpoint):
 
@@ -107,7 +106,7 @@ class SimulateTriggerRequest(BaseModel):
         default_factory=dict,
         description=(
             "Free-form payload merged into workflow_runs.context. Useful "
-            "for handing the engine the same shape news_events.fire_external_event "
+            "for handing the engine the same shape fire_external_event "
             "would have written, e.g. {'news_event': {...}}. Empty by default."
         ),
     )
