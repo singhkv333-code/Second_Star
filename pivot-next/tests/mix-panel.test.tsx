@@ -14,7 +14,19 @@ it("orders the split by share while keeping chart colours attached to names", ()
   expect(option.series[1].data).toEqual([70, 80]);
   expect(option.series[0].type).toBe("bar");
 });
-it("uses a custom selector with shortened breakdown labels", () => {
-  render(<MixPanel data={{ ...data, charts: [...data.charts, { ...data.charts[0]!, id: 2, title: "Operating Profit Break-Up - Organized Retail" }] }} />);
-  expect(screen.getByRole("combobox", { name: "Segment breakdown" }).tagName).toBe("BUTTON");
+it("lays the breakdowns out as a horizontal rail, grouped, with shortened labels", () => {
+  render(<MixPanel data={{ ...data, charts: [...data.charts, { ...data.charts[0]!, id: 2, title: "Operating Profit Break-Up  - Organized Retail" }, { ...data.charts[0]!, id: 3, title: "Loan Break-Up  - Retail banking" }] }} />);
+  const rail = screen.getByRole("tablist", { name: "Segment breakdown" });
+  // Business & geography first, then the separator, then profit & investment —
+  // the raw "Break-Up" wording and its double-spaced nesting dash are gone.
+  expect([...rail.querySelectorAll("button")].map(b => b.textContent)).toEqual(["Products", "Loan \u00b7 Retail banking", "Operating profit \u00b7 Organized Retail"]);
+  expect(rail.querySelectorAll(".mix-rail-sep")).toHaveLength(1);
+  expect(rail.querySelector("[aria-selected=true]")?.textContent).toBe("Products");
+  fireEvent.click(screen.getByRole("tab", { name: "Operating profit \u00b7 Organized Retail" }));
+  expect(rail.querySelector("[aria-selected=true]")?.textContent).toBe("Operating profit \u00b7 Organized Retail");
+});
+
+it("shows no rail when a company has only one breakdown", () => {
+  render(<MixPanel data={data} />);
+  expect(screen.queryByRole("tablist")).toBeNull();
 });

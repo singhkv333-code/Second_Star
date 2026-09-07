@@ -297,11 +297,27 @@ def tool_get_fundamentals(symbol: str = "", fields: list | None = None,
         return _unavailable(exc)
 
 
-def tool_get_balance_sheet(symbol: str = "", basis: str = "consolidated",
-                           years: int = 6) -> dict:
-    """The full balance-sheet grid as MC publishes it, section headers intact."""
+# The four grids MC publishes, and the row counts behind them. `cash_flow`
+# had no way in at all before this argument existed: `get_balance_sheet` hard-
+# coded one of them while the helper underneath it — `financials_db.
+# get_statement` — has taken a `statement` parameter all along, and
+# `get_balance_sheet_statement` is a thin alias over it kept for old callers.
+# Widening the argument rather than writing SQL against `mc.statement_lines`
+# keeps the line-item synonyms, the consolidated->standalone fallback and the
+# recency floor that module encodes, so a cash-flow line here and the same
+# line on the stock page cannot disagree.
+_STATEMENTS = ("balance_sheet", "profit_loss", "cash_flow", "ratios")
+
+
+def tool_get_statement(symbol: str = "", statement: str = "balance_sheet",
+                       basis: str = "consolidated", years: int = 6) -> dict:
+    """One full statement grid as MC publishes it, section headers intact."""
     if not symbol:
         return {"error": "symbol is required"}
+    statement = (statement or "balance_sheet").strip().lower()
+    if statement not in _STATEMENTS:
+        return {"error": f"unknown statement {statement!r}",
+                "available": list(_STATEMENTS)}
     try:
         fdb, _ = _pivot()
     except Exception as exc:                       # noqa: BLE001
@@ -313,20 +329,22 @@ def tool_get_balance_sheet(symbol: str = "", basis: str = "consolidated",
         sc_id = resolve(symbol)
         if sc_id is None:
             return {"error": f"no listed company matches {symbol!r}"}
-        got = fdb.get_balance_sheet_statement(
-            sc_id, basis=basis, years=max(1, min(int(years or 6), 10)))
+        got = fdb.get_statement(
+            sc_id, statement=statement, basis=basis,
+            years=max(1, min(int(years or 6), 10)))
         if got is None:
             return {"error": f"no listed company matches {symbol!r}"}
         if not got.get("rows"):
             # A resolved company with nothing scraped is a real state, not an
-            # error — MC's balance-sheet coverage is thinner than its P&L.
-            return {"symbol": symbol, "basis": got.get("basis", basis),
-                    "rows": [], "_note": ("No balance sheet is published for "
-                                          "this company in the filings "
-                                          "database. Say so.")}
-        return got
+            # error — MC's coverage is thinner for some grids than for P&L.
+            return {"symbol": symbol, "statement": statement,
+                    "basis": got.get("basis", basis), "rows": [],
+                    "_note": (f"No {statement.replace('_', ' ')} is published "
+                              "for this company in the filings database. "
+                              "Say so.")}
+        return {"statement": statement, **got}
     except Exception as exc:                       # noqa: BLE001
-        logging.exception("pivotted: get_balance_sheet failed")
+        logging.exception("pivotted: get_statement failed")
         return _unavailable(exc)
 
 

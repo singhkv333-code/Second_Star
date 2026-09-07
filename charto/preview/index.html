@@ -6147,18 +6147,24 @@ svg.icon.op {
     min-height: 58px; padding: 9px 10px; border-radius: 12px;
   }
   .inst-row .ir-lead { display: flex; align-items: center; gap: 11px; min-width: 0; }
+  /* RAW mark, no container. The plate (background + 10px radius + inset ring)
+     was clipping the corners off square coin artwork and painting a card
+     colour behind every transparent PNG. A logo is already a designed mark;
+     wrapping it in a second shape competes with it. Only the 34px box and
+     object-fit survive, because the column has to stay a column. */
   .inst-row .ir-logo {
-    width: 34px; height: 34px; border-radius: 10px; object-fit: contain;
-    background: var(--card); flex: none;
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 9%, transparent);
+    width: 34px; height: 34px; object-fit: contain; flex: none;
+    background: none; border-radius: 0; box-shadow: none;
   }
   /* A logo that 404s is HIDDEN, not removed. Removing it collapsed the 34px
      slot and every name on that row jumped left — one dead file and the
      column stopped being a column. */
   .inst-row .ir-logo.ir-dead { visibility: hidden; }
+  /* No logo: the initial alone, holding the same 34px slot so names stay
+     aligned. No tile -- a grey square is not more honest than a letter. */
   .inst-row .ir-blank {
-    display: grid; place-items: center; background: var(--muted);
-    font-size: 13px; font-weight: var(--weight-semi); color: var(--muted-foreground);
+    display: grid; place-items: center; background: none;
+    font-size: 15px; font-weight: var(--weight-semi); color: var(--faint);
   }
   .inst-row .ir-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
   .inst-row .ir-tick {
@@ -8331,7 +8337,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./vendor/liquid-glass.js"></script>
   <script src="./js/store.js?v=16"></script>
   <script src="./js/theme.js?v=8"></script>
-  <script src="./js/universe.js?v=6"></script>
+  <script src="./js/universe.js?v=7"></script>
   <script src="./js/icons.js?v=31"></script>
   <!-- after icons.js (every row is drawn with one) and before main.js, which
        builds the chart's three right-click menus out of it -->

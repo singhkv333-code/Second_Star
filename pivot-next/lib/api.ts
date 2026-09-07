@@ -1512,6 +1512,12 @@ export type CompanySearchResult = {
   has_fundamentals: boolean;
   /** Company logo URL (img.logo.dev), or null → render a monogram fallback. */
   logo_url?: string | null;
+  exchange?: string | null;
+  instrument_type?: "Equity" | "ETF" | "Index" | "Commodity" | string;
+  price?: number | null;
+  change_pct?: number | null;
+  currency?: string | null;
+  quote_source?: "kite" | "charto_relay" | string | null;
 };
 
 export type CompanySearchResponse = {
@@ -2078,22 +2084,32 @@ export function getStockAutomations(
 // ---------------------------------------------------------------------------
 
 export type NewsItem = {
-  id: string;
   title: string;
-  source: string;
-  url: string;
-  published_at: string;
+  publisher: string | null;
+  url: string | null;
+  published_at: string | null;
+  thumbnail: string | null;
+  thumbnail_kind?: "article" | "publisher" | null;
   summary: string | null;
+  provider: string;
+  kind: string;
 };
 
-export type NewsResponse = { items: NewsItem[] };
+export type NewsResponse = { symbol: string; items: NewsItem[] };
 
 /**
  * `GET /api/news?symbol=X`
  * Returns top 10 news items for a symbol.
  */
-export function getNews(symbol: string): Promise<ApiResult<NewsResponse>> {
-  return request<NewsResponse>("/news", { query: { symbol } });
+export function getNews(
+  symbol: string,
+  exchange: "NSE" | "BSE" = "NSE",
+  limit = 8,
+  companyName?: string,
+): Promise<ApiResult<NewsResponse>> {
+  return request<NewsResponse>("/news", {
+    query: { symbol, exchange, limit, company_name: companyName },
+  });
 }
 
 // ---------------------------------------------------------------------------

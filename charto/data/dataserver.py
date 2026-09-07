@@ -14860,7 +14860,7 @@ _QUOTE_MIN_TAIL = 3000   # ≥2 sessions of minutes on every venue we carry
 
 _HEAVY_HTTP_PATHS = frozenset({
     "/bars", "/quotes", "/symbols", "/indicator", "/volume_profile",
-    "/patterns/draw", "/company", "/screen", "/peers", "/news",
+    "/patterns/draw", "/company", "/screen", "/screen/features", "/peers", "/news",
     "/profile", "/financials", "/results", "/deals", "/delivery",
     "/fut_oi", "/classification", "/benchmark", "/live", "/replay",
 })
@@ -15465,6 +15465,35 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(400, {
                         "error": f"at most {_QUOTES_MAX} symbols per call"})
                 return self._send(200, {"quotes": quotes_for(want)})
+            if u.path == "/screen/features":
+                # Internal read surface for Pivot's full screener. The values
+                # are the SAME swept daily matrix used by screen_universe; do
+                # not re-compute indicators in the API service and let two
+                # definitions of RSI / ATR / value-area position drift apart.
+                #
+                # This endpoint is intentionally data-only: no filtering,
+                # ranking, patterns or prose. The caller joins these
+                # standardized features to fundamentals and market data, then
+                # applies one combined predicate over the complete result.
+                feats = _screen_features()
+                wanted = {
+                    s.strip().upper()
+                    for s in (q.get("symbols") or "").split(",")
+                    if s.strip()
+                }
+                if wanted:
+                    feats = {s: f for s, f in feats.items() if s in wanted}
+                clean = {
+                    s: {k: f.get(k) for k in SCREEN_FEATURES}
+                    for s, f in feats.items()
+                }
+                return self._send(200, {
+                    "features": clean,
+                    "fields": SCREEN_FEATURE_HELP,
+                    "as_of": (_screen_cache.get("mode_day") or ""),
+                    "coverage": len(clean),
+                    "source": "charto_daily_matrix",
+                })
             if u.path == "/indicators":
                 # the catalogue the chart builds its menu from — one list, so
                 # the menu and the model can never disagree about what exists

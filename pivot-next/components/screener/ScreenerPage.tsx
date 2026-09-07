@@ -27,6 +27,7 @@ import {
   FUND_CATEGORIES,
 } from "./screenerData";
 import { StockTable } from "@/components/screener/StockTable";
+import { ActiveFilterChips, AdvancedFilterDialog } from "@/components/screener/AdvancedFilterDialog";
 import { useLiveQuote } from "@/hooks/useLiveQuote";
 import {
   useWatchlists,
@@ -44,6 +45,7 @@ import {
   type ScreenerSector,
   type ScreenerMcapTier,
   type ScreenerSortBy,
+  type ScreenerFilterClause,
 } from "@/lib/screenerApi";
 
 // ── Formatters ───────────────────────────────────────────
@@ -323,6 +325,7 @@ function buildStockParams(
   filters: StockFilters,
   sort?: StockSort,
   offset = 0,
+  advancedFilters: ScreenerFilterClause[] = [],
 ): ScreenerStocksParams {
   const serverKey = sort ? SERVER_SORT_KEYS[sort.key] : undefined;
   return {
@@ -330,6 +333,7 @@ function buildStockParams(
     mcap_tier: filters.mcap_tier || undefined,
     pe_max: filters.pe_max !== "" ? Number(filters.pe_max) : undefined,
     roe_min: filters.roe_min !== "" ? Number(filters.roe_min) : undefined,
+    filters: advancedFilters.length ? JSON.stringify(advancedFilters) : undefined,
     sort_by: serverKey ?? "market_cap_cr",
     sort_dir: serverKey && sort ? (sort.dir === 1 ? "asc" : "desc") : undefined,
     limit: PAGE_SIZE,
@@ -343,6 +347,7 @@ function stocksCacheKey(p: ScreenerStocksParams): string {
     p.mcap_tier ?? "",
     p.pe_max ?? "",
     p.roe_min ?? "",
+    p.filters ?? "",
     p.sort_by ?? "",
     p.sort_dir ?? "",
     p.offset ?? 0,
@@ -543,6 +548,7 @@ function StocksScreen({
   setMobileFiltersOpen: (fn: (o: boolean) => boolean) => void;
 }): React.ReactElement {
   const [filters, setFilters] = useState<StockFilters>({ ...EMPTY_STOCK_FILTERS });
+  const [advancedFilters, setAdvancedFilters] = useState<ScreenerFilterClause[]>([]);
   const [sort, setSort] = useState<StockSort>({ key: "market_cap_cr", dir: -1 });
 
   // Seed state from the session cache so a return trip to the tab paints the
@@ -593,7 +599,7 @@ function StocksScreen({
   const serverSortKey = SERVER_SORT_KEYS[sort.key] ?? null;
   const serverSortDir = serverSortKey ? sort.dir : null;
   useEffect(() => {
-    const params = buildStockParams(filters, sort, 0);
+    const params = buildStockParams(filters, sort, 0, advancedFilters);
     const key = stocksCacheKey(params);
     const cached = _stocksCache.get(key);
 
@@ -631,13 +637,13 @@ function StocksScreen({
     });
     return () => ctrl.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters, serverSortKey, serverSortDir, reloadTick]);
+  }, [filters, advancedFilters, serverSortKey, serverSortDir, reloadTick]);
 
   // ── Infinite scroll: append the next page when the sentinel shows ──
   const loadMore = useCallback((): void => {
     if (loadingMore || loading) return;
     setLoadingMore(true);
-    const params = buildStockParams(filters, sort, rows.length);
+    const params = buildStockParams(filters, sort, rows.length, advancedFilters);
     getScreenerStocks(params).then((res) => {
       if (!isError(res)) {
         setRows((prev) => {
@@ -652,7 +658,7 @@ function StocksScreen({
       setLoadingMore(false);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters, sort, rows.length, loadingMore, loading, total]);
+  }, [filters, advancedFilters, sort, rows.length, loadingMore, loading, total]);
 
   // Metrics warming poll — the backend serves price/change/1-Y from a cache it
   // fills on a background thread, so a cold grid arrives with those columns
@@ -675,11 +681,11 @@ function StocksScreen({
     const t = setTimeout(() => {
       warmTriesRef.current += 1;
       // Drop the cache entry so the revalidation actually hits the server.
-      _stocksCache.delete(stocksCacheKey(buildStockParams(filters, sort, 0)));
+      _stocksCache.delete(stocksCacheKey(buildStockParams(filters, sort, 0, advancedFilters)));
       setReloadTick((x) => x + 1);
     }, 5000);
     return () => clearTimeout(t);
-  }, [rows, filters, sort]);
+  }, [rows, filters, advancedFilters, sort]);
 
   // Sort: the server orders the whole universe for its supported keys (the
   // loaded pages are already in order); the price-ish columns sort
@@ -711,6 +717,7 @@ function StocksScreen({
 
   const reset = useCallback(() => {
     setFilters({ ...EMPTY_STOCK_FILTERS });
+    setAdvancedFilters([]);
   }, []);
 
   const toggleSort = useCallback((key: StockSortKey) => {
@@ -725,7 +732,7 @@ function StocksScreen({
     (filters.sector ? 1 : 0) +
     (filters.mcap_tier ? 1 : 0) +
     (filters.pe_max !== "" ? 1 : 0) +
-    (filters.roe_min !== "" ? 1 : 0);
+    (filters.roe_min !== "" ? 1 : 0) + advancedFilters.length;
 
   const sectorLabel = (key: string): string =>
     sectors.find((s) => s.sector === key)?.label ?? prettySector(key);
@@ -739,6 +746,8 @@ function StocksScreen({
       mobileOpen={mobileFiltersOpen}
       onMobileClose={() => setMobileFiltersOpen(() => false)}
       resultCount={total}
+      advancedFilters={advancedFilters}
+      setAdvancedFilters={setAdvancedFilters}
     />
   );
 
@@ -774,7 +783,11 @@ function StocksScreen({
         reset={reset}
         sectors={sectors}
         activeFilterCount={activeFilterCount}
+        advancedFilters={advancedFilters}
+        setAdvancedFilters={setAdvancedFilters}
       />
+
+      <ActiveFilterChips value={advancedFilters} onChange={setAdvancedFilters} />
 
       <div
         className="screener-body"
@@ -1652,12 +1665,16 @@ function StockFilterToolbar({
   reset,
   sectors,
   activeFilterCount,
+  advancedFilters,
+  setAdvancedFilters,
 }: {
   filters: StockFilters;
   setFilter: <K extends keyof StockFilters>(key: K, value: StockFilters[K]) => void;
   reset: () => void;
   sectors: ScreenerSector[];
   activeFilterCount: number;
+  advancedFilters: ScreenerFilterClause[];
+  setAdvancedFilters: (filters: ScreenerFilterClause[]) => void;
 }): React.ReactElement {
   const selectedSector = sectors.find((s) => s.sector === filters.sector);
   const tierOptions = MARKET_CAP_TIERS.map((t) => ({
@@ -1725,6 +1742,8 @@ function StockFilterToolbar({
         onChange={(v) => setFilter("roe_min", v)}
       />
 
+      <AdvancedFilterDialog value={advancedFilters} onChange={setAdvancedFilters} />
+
       {activeFilterCount > 0 && (
         <>
           <div style={{ flex: 1 }} />
@@ -1745,6 +1764,8 @@ function StockFilterRail({
   mobileOpen,
   onMobileClose,
   resultCount,
+  advancedFilters,
+  setAdvancedFilters,
 }: {
   filters: StockFilters;
   setFilter: <K extends keyof StockFilters>(key: K, value: StockFilters[K]) => void;
@@ -1753,6 +1774,8 @@ function StockFilterRail({
   mobileOpen: boolean;
   onMobileClose: () => void;
   resultCount: number;
+  advancedFilters: ScreenerFilterClause[];
+  setAdvancedFilters: (filters: ScreenerFilterClause[]) => void;
 }): React.ReactElement | null {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -1895,6 +1918,13 @@ function StockFilterRail({
             placeholder="—"
           />
         </Row>
+      </FilterGroup>
+
+      <FilterGroup label="Full screening library">
+        <p style={{ margin: "0 0 10px", fontSize: 11.5, lineHeight: 1.5, color: "var(--text-tertiary)" }}>
+          Market, valuation, quality, performance and Charto technical conditions.
+        </p>
+        <AdvancedFilterDialog value={advancedFilters} onChange={setAdvancedFilters} />
       </FilterGroup>
 
       <div

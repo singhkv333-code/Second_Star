@@ -4,14 +4,24 @@ import dynamic from "next/dynamic";
 import * as React from "react";
 import type { MixChart, MixResponse } from "@/lib/api";
 import { EmptyNote, PanelHead } from "./chrome";
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectGroup, SelectLabel, SelectItem } from "@/components/ui/select";
 import "./mix-panel.css";
 
 const EChart = dynamic(() => import("./EChart"), { ssr: false, loading: () => <div style={{ height: 260 }} /> });
 const COLORS = ["#347f91", "#6b9aab", "#94b8bc", "#a5ab85", "#b99c73", "#967f85", "#767f9b", "#79978a", "#bbac98", "#869da6"];
 const percent = (value: number) => Number.isFinite(value) ? value.toFixed(1) + "%" : "—";
 const dateLabel = (time: number) => new Date(time).toLocaleDateString("en-IN", { month: "short", year: "2-digit", timeZone: "UTC" });
-const shortTitle = (title: string) => title.replace(/Product Wise Break-Up/gi, "Products").replace(/Location Wise Break-Up/gi, "Geography").replace(/Operating Profit Break-Up/gi, "Operating profit").replace(/Asset Break-Up/gi, "Assets").replace(/Capex - Segment Wise/gi, "Capital expenditure");
+// Tijori's breakdown titles are the raw scrape and they are long, repetitive
+// and inconsistently spaced — "Loan Break-Up  - Retail banking". In a dropdown
+// that only cost a wide menu; on a horizontal rail every wasted character
+// pushes a real choice off-screen. So the five known titles are renamed, the
+// redundant "Break-Up" is dropped from the rest, and the nesting separator
+// becomes a middle dot.
+const shortTitle = (title: string) => title
+  .replace(/Product Wise Break-Up/gi, "Products").replace(/Location Wise Break-Up/gi, "Geography")
+  .replace(/Operating Profit Break-Up/gi, "Operating profit").replace(/Asset Break-Up/gi, "Assets")
+  .replace(/Capex - Segment Wise/gi, "Capital expenditure")
+  .replace(/Segment Break-Up/gi, "Segments").replace(/Client Break-Up/gi, "Clients")
+  .replace(/\s*Break-Up/gi, "").replace(/\s+-\s+/g, " \u00b7 ").replace(/\s+/g, " ").trim();
 const category = (title: string) => /profit|capex|asset/i.test(title) ? "Profit & investment" : "Business & geography";
 
 export function MixPanel({ data }: { data: MixResponse }): React.ReactElement {
@@ -25,20 +35,27 @@ export function MixPanel({ data }: { data: MixResponse }): React.ReactElement {
   const rows = React.useMemo(() => [...(chart?.current ?? [])].sort((a,b) => b.pct - a.pct), [chart]);
   const option = React.useMemo(() => chart ? historyOption(chart, names) : null, [chart, names]);
   if (!chart) return <EmptyNote>No segment breakdown available for this company.</EmptyNote>;
-  const groups = ["Business & geography", "Profit & investment"];
   const periods = [...new Set(chart.series.flatMap(s => s.points.map(p => p.t)))].sort((a,b) => a-b);
+  // Empty groups are dropped BEFORE the separator is placed, so a company with
+  // nothing under "Profit & investment" — most of them — never renders a
+  // divider with nothing after it.
+  const railGroups = ["Business & geography", "Profit & investment"]
+    .map(group => ({ group, items: charts.map((item, i) => ({ item, i })).filter(({ item }) => category(item.title) === group) }))
+    .filter(g => g.items.length);
   return <div className="segment-mix">
-    <PanelHead title="Segment mix" right={charts.length > 1 ? <Select value={String(index)} onValueChange={value => setSelection({ symbol: data.symbol, index: Number(value) })}>
-      <SelectTrigger className="mix-select-trigger" aria-label="Segment breakdown"><SelectValue>{shortTitle(chart.title)}</SelectValue></SelectTrigger>
-      <SelectContent className="mix-select-menu" align="end" sideOffset={6}>
-        {groups.map(group => <SelectGroup key={group}><SelectLabel className="mix-select-label">{group}</SelectLabel>
-          {charts.map((item,i) => category(item.title) === group ? <SelectItem className="mix-select-item" key={i} value={String(i)} title={item.title}>{shortTitle(item.title)}</SelectItem> : null)}
-        </SelectGroup>)}
-      </SelectContent>
-    </Select> : undefined} />
+    <PanelHead title="Breakdown" />
+    {charts.length > 1 ? <div className="mix-rail" role="tablist" aria-label="Segment breakdown">
+      {railGroups.map(({ group, items }, gi) => <React.Fragment key={group}>
+        {gi ? <span className="mix-rail-sep" aria-hidden="true" /> : null}
+        {items.map(({ item, i }) => <button type="button" role="tab" key={i} title={item.title}
+          aria-selected={i === index} onClick={() => setSelection({ symbol: data.symbol, index: i })}>
+          {shortTitle(item.title)}
+        </button>)}
+      </React.Fragment>)}
+    </div> : null}
     <div className="mix-toolbar">
       <div className="mix-view-switch" aria-label="Segment chart view">{(["latest", "history"] as const).map(view => <button type="button" key={view} aria-pressed={mode === view} onClick={() => setMode(view)}>{view === "latest" ? "Latest split" : "Over time"}</button>)}</div>
-      <span>{mode === "latest" ? shortTitle(chart.title) : periods.length ? dateLabel(periods[0]!) + " – " + dateLabel(periods.at(-1)!) : "History unavailable"}</span>
+      <span>{mode === "history" ? (periods.length ? dateLabel(periods[0]!) + " – " + dateLabel(periods.at(-1)!) : "History unavailable") : charts.length > 1 ? "Latest reported" : shortTitle(chart.title)}</span>
     </div>
     {mode === "latest" ? <div className="mix-latest" aria-label="Latest reported segment split">
       <div className="mix-table-head"><span>Segment</span><span>Share of total</span></div>
@@ -51,7 +68,6 @@ export function MixPanel({ data }: { data: MixResponse }): React.ReactElement {
       <EChart option={option} height={260} ariaLabel={shortTitle(chart.title) + ": reported segment shares over time"} />
       <div className="mix-legend">{names.map(name => <span key={name}><i style={{ background: color(name) }} />{name}</span>)}</div>
     </div> : <EmptyNote>Segment history unavailable.</EmptyNote>}
-    <footer className="mix-source">{data.source_name || "Company segment disclosures"}<span>{mode === "latest" ? "Latest reported · filing date not supplied" : "Reported shares · missing observations left blank"}</span></footer>
   </div>;
 }
 

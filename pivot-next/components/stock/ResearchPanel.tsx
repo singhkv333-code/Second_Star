@@ -35,7 +35,8 @@ export function BasisSelect({ value, onChange }: { value: "consolidated" | "stan
   return <select aria-label="Reporting basis" value={value} onChange={(e) => onChange(e.target.value as "consolidated" | "standalone")}><option value="consolidated">Consolidated</option><option value="standalone">Standalone</option></select>;
 }
 export function StatementSource({ data, requested }: { data: StatementResponse; requested: string }) {
-  return <span>{data.source === "moneycontrol" ? "Moneycontrol" : data.source || "Source unavailable"} · {data.basis === "consolidated" ? "Consolidated" : "Standalone"}{data.basis !== requested ? " (available basis)" : ""}</span>;
+  if (data.basis === requested) return null;
+  return <span>{data.basis === "consolidated" ? "Consolidated" : "Standalone"} data shown</span>;
 }
 export function Figure({ label, value, note }: { label: string; value: string; note?: string }) {
   return <div className="research-figure"><span>{label}</span><strong>{value}</strong>{note && <small>{note}</small>}</div>;

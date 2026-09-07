@@ -95,7 +95,7 @@ function Signed({ v, suffix, dp = 2 }: { v: number | null; suffix: string; dp?: 
 // ticker with its exchange beside it, the company under it. It is the row a
 // person actually scans, so it gets the space.
 
-function Identity({ row, sectorLabel }: { row: ScreenerStock; sectorLabel: (k: string) => string }) {
+function Identity({ row }: { row: ScreenerStock }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
       <CompanyLogo
@@ -130,7 +130,6 @@ function Identity({ row, sectorLabel }: { row: ScreenerStock; sectorLabel: (k: s
           title={row.name}
         >
           {row.name}
-          {row.sector ? ` · ${sectorLabel(row.sector)}` : ""}
         </span>
       </div>
     </div>
@@ -152,13 +151,14 @@ type Meta = { align: "left" | "right"; width: number; sortKey?: StockSortKey };
 
 export function StockTable({
   rows,
-  sectorLabel,
   sort,
   onSort,
   offset = 0,
 }: {
   rows: ScreenerStock[];
-  sectorLabel: (key: string) => string;
+  /** Retained for caller compatibility; sector labels no longer appear in the
+   * identity column because the company name is the useful scanning label. */
+  sectorLabel?: (key: string) => string;
   sort: { by: string; dir: "asc" | "desc" };
   onSort: (key: StockSortKey) => void;
   /** Row number of the first row, so the rank column keeps counting across
@@ -202,7 +202,7 @@ export function StockTable({
       id: "symbol",
       header: "Symbol",
       meta: { align: "left", width: 320, sortKey: "symbol" } satisfies Meta,
-      cell: ({ row }) => <Identity row={row.original} sectorLabel={sectorLabel} />,
+      cell: ({ row }) => <Identity row={row.original} />,
     },
     {
       id: "spark",
@@ -290,6 +290,24 @@ export function StockTable({
       cell: ({ row }) => <Signed v={row.original.one_year_pct} suffix="%" />,
     },
     {
+      id: "rsi14",
+      header: "RSI 14",
+      meta: { align: "right", width: 84 } satisfies Meta,
+      cell: ({ row }) => row.original.rsi14 == null ? DASH : row.original.rsi14.toFixed(1),
+    },
+    {
+      id: "sma200_rel",
+      header: "vs 200D",
+      meta: { align: "right", width: 96 } satisfies Meta,
+      cell: ({ row }) => <Signed v={row.original.sma200_rel ?? null} suffix="%" />,
+    },
+    {
+      id: "dist_52w_high",
+      header: "From 52W high",
+      meta: { align: "right", width: 126 } satisfies Meta,
+      cell: ({ row }) => <Signed v={row.original.dist_52w_high ?? null} suffix="%" />,
+    },
+    {
       id: "actions",
       header: "",
       meta: { align: "right", width: 132 } satisfies Meta,
@@ -312,7 +330,7 @@ export function StockTable({
         </span>
       ),
     },
-  ], [sectorLabel, offset, hoverSym]);
+  ], [offset, hoverSym]);
 
   const table = useReactTable({
     data: rows,
@@ -323,7 +341,10 @@ export function StockTable({
   });
 
   return (
-    <div style={{ width: "100%", overflowX: "auto" }}>
+    // Scrolling belongs to `.screener-results`, the shared horizontal and
+    // vertical viewport. A second overflow container here trapped sticky
+    // headers inside a box that never moved vertically.
+    <div style={{ width: "100%", overflow: "visible" }}>
       <table
         style={{
           width: "100%",
@@ -341,6 +362,7 @@ export function StockTable({
                 const meta = h.column.columnDef.meta as Meta;
                 const key = meta.sortKey;
                 const active = key && sort.by === key;
+                const stickyIdentity = h.column.id === "symbol";
                 return (
                   <th
                     key={h.id}
@@ -352,7 +374,8 @@ export function StockTable({
                       padding: "9px 14px",
                       position: "sticky",
                       top: 0,
-                      zIndex: 2,
+                      left: stickyIdentity ? 0 : undefined,
+                      zIndex: stickyIdentity ? 4 : 2,
                       background: "var(--bg-primary)",
                       borderBottom: "1px solid var(--glass-border)",
                       fontSize: 12,
@@ -403,6 +426,7 @@ export function StockTable({
             >
               {r.getVisibleCells().map((cell) => {
                 const meta = cell.column.columnDef.meta as Meta;
+                const stickyIdentity = cell.column.id === "symbol";
                 return (
                   <td
                     key={cell.id}
@@ -413,6 +437,14 @@ export function StockTable({
                       fontSize: 14,
                       color: "var(--text-primary)",
                       whiteSpace: "nowrap",
+                      position: stickyIdentity ? "sticky" : undefined,
+                      left: stickyIdentity ? 0 : undefined,
+                      zIndex: stickyIdentity ? 1 : undefined,
+                      background: stickyIdentity
+                        ? hoverSym === r.original.symbol
+                          ? "var(--bg-secondary)"
+                          : "var(--bg-base)"
+                        : undefined,
                     }}
                   >
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}

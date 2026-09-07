@@ -68,4 +68,35 @@ describe("CompanyAutosuggest logos", () => {
     expect(screen.queryByAltText("Indemnity Shell logo")).toBeNull(); // monogram, no <img>
     expect(screen.getByText("I")).toBeInTheDocument(); // first-letter monogram
   });
+
+  it("shows Charto-style venue, price, daily move, and relay status", async () => {
+    vi.spyOn(api, "searchCompanies").mockResolvedValue({
+      data: {
+        results: [
+          {
+            symbol: "RELIANCE",
+            name: "Reliance Industries Limited",
+            sector: "Energy",
+            has_fundamentals: true,
+            logo_url: null,
+            exchange: "NSE",
+            instrument_type: "Equity",
+            price: 1309,
+            change_pct: -0.37,
+            currency: "INR",
+            quote_source: "charto_relay",
+          },
+        ],
+      },
+    } as Awaited<ReturnType<typeof api.searchCompanies>>);
+
+    render(<CompanyAutosuggest placeholder="Search instruments" onSelect={() => {}} />);
+    fireEvent.change(screen.getByLabelText("Search instruments"), {
+      target: { value: "Reliance" },
+    });
+
+    expect(await screen.findByText("NSE")).toBeInTheDocument();
+    expect(screen.getByText("₹1,309.00")).toBeInTheDocument();
+    expect(screen.getByText("-0.37% · delayed")).toBeInTheDocument();
+  });
 });

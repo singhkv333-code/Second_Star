@@ -96,8 +96,8 @@ export function Sparkline({
     >
       <defs>
         <linearGradient id={id} x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stopColor={stroke} stopOpacity="0.22" />
-          <stop offset="100%" stopColor={stroke} stopOpacity="0" />
+          <stop offset="0%" stopColor={stroke} stopOpacity="0.31" />
+          <stop offset="100%" stopColor={stroke} stopOpacity="0.025" />
         </linearGradient>
       </defs>
       <polygon points={geom.area} fill={`url(#${id})`} />
@@ -121,7 +121,7 @@ export function Sparkline({
         strokeLinejoin="round"
         strokeLinecap="round"
       />
-      <circle cx={geom.lastX} cy={geom.lastY} r="2" fill={stroke} />
+      <circle cx={geom.lastX} cy={geom.lastY} r="1.05" fill={stroke} />
     </svg>
   );
 }

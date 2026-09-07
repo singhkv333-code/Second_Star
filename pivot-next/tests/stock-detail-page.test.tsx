@@ -24,13 +24,16 @@ beforeEach(() => {
   vi.spyOn(api, "getFinancials").mockResolvedValue({ data: { available: false, company: null, latest: {}, history: {}, profile: null, source: "unavailable" } });
   vi.spyOn(api, "getStockQuarters").mockResolvedValue({ error: { code: "unavailable", message: "Unavailable" } });
   vi.spyOn(api, "getStatement").mockResolvedValue({ error: { code: "unavailable", message: "Unavailable" } });
+  vi.spyOn(api, "getNews").mockResolvedValue({ data: { symbol: "RELIANCE", items: [] } });
 });
 describe("Stock research page", () => {
-  it("renders quote data and explicitly labels fallback data", async () => {
+  it("renders quote data without exposing provider furniture", async () => {
     render(<StockDetailPage symbol="RELIANCE" />);
     const header = await screen.findByTestId("quote-header");
     expect(within(header).getByRole("heading", { name: quote.name })).toBeInTheDocument();
-    expect(screen.getByText("yfinance · end-of-day / delayed")).toBeInTheDocument();
+    expect(screen.queryByText(/yfinance/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("Markets")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("delayed-dot")).not.toBeInTheDocument();
     expect(within(screen.getByLabelText("Company snapshot")).getByText("26.4×")).toBeInTheDocument();
   });
   it("provides working anchors for every main research section", async () => {
@@ -41,6 +44,7 @@ describe("Stock research page", () => {
     }
     expect(screen.getByText("Company Overview")).toBeInTheDocument();
     expect(screen.getByText("Research data")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "News" })).toBeInTheDocument();
   });
   it("keeps the range control interactive", async () => {
     render(<StockDetailPage symbol="RELIANCE" />);

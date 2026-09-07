@@ -62,7 +62,28 @@ export type ScreenerStock = {
   one_year_pct: number | null;
   /** No source on this path — always null (kept for contract stability). */
   div_yield: number | null;
+  rsi14?: number | null;
+  atr_pct?: number | null;
+  sma20_rel?: number | null;
+  sma50_rel?: number | null;
+  sma200_rel?: number | null;
+  dist_52w_high?: number | null;
+  dist_52w_low?: number | null;
+  range_20d_pct?: number | null;
+  vol_z20?: number | null;
+  turnover_20d_cr?: number | null;
+  vp20_pos?: number | null;
+  vp20_va_width_pct?: number | null;
+  vp20_poc_dist_pct?: number | null;
+  vp20_poc_shift_pct?: number | null;
   logo_url: string | null;
+};
+
+export type ScreenerFilterClause = {
+  field: string;
+  op: "gt" | "gte" | "lt" | "lte" | "eq" | "between";
+  value: number;
+  value2?: number;
 };
 
 export type ScreenerStocksResponse = {
@@ -125,6 +146,7 @@ export type ScreenerStocksParams = {
   roe_min?: number;
   dy_min?: number;
   ret_min?: number;
+  filters?: string;
   sort_by?: ScreenerSortBy;
   /** Overrides the field's default direction (server nulls always sink). */
   sort_dir?: "asc" | "desc";
@@ -252,6 +274,7 @@ export function getScreenerStocks(
       roe_min: params.roe_min,
       dy_min: params.dy_min,
       ret_min: params.ret_min,
+      filters: params.filters,
       sort_by: params.sort_by,
       sort_dir: params.sort_dir,
       limit: params.limit,

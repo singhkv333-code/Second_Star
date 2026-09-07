@@ -150,7 +150,7 @@ export function DeepSections({ symbol, price }: { symbol: string; price?: number
     >
       {sections === null && !failed ? <PanelSkeleton rows={7} /> : null}
 
-      {available.includes("revenue_mix") ? <ResearchSection id="revenue_mix" label="Segment mix">
+      {available.includes("revenue_mix") ? <ResearchSection id="revenue_mix" label="Breakdown">
         {mix ? <MixPanel data={mix} /> : <PanelSkeleton rows={6} />}
       </ResearchSection> : null}
 

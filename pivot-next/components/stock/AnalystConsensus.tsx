@@ -38,7 +38,6 @@ export function AnalystConsensus({ symbol, price }: { symbol: string; price: num
       <strong className="analyst-verdict">{label}</strong>
       <div className="analyst-target"><span>1-year mean target</span><strong>{target == null ? "Unavailable" : money(target)}</strong></div>
       {change !== null && <div className="analyst-upside"><span>vs current price</span><span style={{ color: change >= 0 ? "var(--color-profit)" : "var(--color-loss)" }}>{change > 0 ? "+" : ""}{change.toFixed(1)}%</span></div>}
-      <p className="analyst-source">{data.source} · retrieved {new Date(data.retrieved_at).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}<br />Analyst estimates; revision dates unavailable.</p>
     </>}
     <style>{`
       .analyst-consensus { min-width:0; padding-left:24px; border-left:1px solid var(--glass-border); }
@@ -51,7 +50,6 @@ export function AnalystConsensus({ symbol, price }: { symbol: string; price: num
       .analyst-target { border-top:1px solid var(--glass-border); padding-top:12px; }
       .analyst-target strong { font-size:17px; font-weight:550; }
       .analyst-upside { margin-top:5px; color:var(--text-secondary); }
-      .analyst-consensus .analyst-source { margin:14px 0 0; font-size:10px; line-height:1.6; color:var(--text-tertiary); }
       @media(max-width:1100px){.analyst-consensus{grid-column:1/-1;border-left:0;border-top:1px solid var(--glass-border);padding:12px 0 0;max-width:360px;width:100%;justify-self:center;}}
     `}</style>
   </aside>;

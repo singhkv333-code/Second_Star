@@ -1279,7 +1279,7 @@ function TopHeader({
           Hidden below lg; mobile users get the CommandPalette via the
           account menu / keyboard shortcut. */}
       <div
-        className="hidden flex-1 items-center gap-2 lg:flex"
+        className="global-instrument-search hidden flex-1 items-center gap-2 lg:flex"
         data-tour="search"
         style={{
           maxWidth: 360,
@@ -1304,6 +1304,7 @@ function TopHeader({
           onSelect={(symbol) => router.push(`/stock/${symbol}`)}
           inputDataTestId="global-search"
           enableVoice
+          alignPanelToShell
         />
       </div>
 

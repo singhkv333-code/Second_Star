@@ -38,6 +38,7 @@ describe("Screener table", () => {
     const row = screen.getByText("RELIANCE").closest("tr") as HTMLElement;
     const cells = within(row);
     expect(cells.getByText(/Reliance Industries Limited/)).toBeInTheDocument();
+    expect(cells.queryByText(/Energy/)).not.toBeInTheDocument();
     expect(cells.getByText("₹1,322.40")).toBeInTheDocument();
     // A real minus sign, an explicit plus, and Indian grouping on volume.
     expect(cells.getByText("+19.55")).toBeInTheDocument();
@@ -121,6 +122,18 @@ describe("Screener table", () => {
     const row = screen.getByText("RELIANCE").closest("tr") as HTMLElement;
     expect(within(row).getAllByText("—").length).toBeGreaterThanOrEqual(4);
   });
+
+  it("pins the heading row and the complete company identity column", () => {
+    render(<StockTable rows={[stock()]} sectorLabel={() => "Energy"} sort={noSort} onSort={vi.fn()} />);
+    const symbolHeader = screen.getByText("Symbol").closest("th") as HTMLElement;
+    const identityCell = screen.getByText("RELIANCE").closest("td") as HTMLElement;
+    expect(symbolHeader.style.position).toBe("sticky");
+    expect(symbolHeader.style.top).toBe("0px");
+    expect(symbolHeader.style.left).toBe("0px");
+    expect(identityCell.style.position).toBe("sticky");
+    expect(identityCell.style.left).toBe("0px");
+    expect(within(identityCell).getByText(/Reliance Industries Limited/)).toBeInTheDocument();
+  });
 });
 
 describe("Number formats", () => {
@@ -168,5 +181,12 @@ describe("Sparkline", () => {
     const box = container.firstElementChild as HTMLElement;
     expect(box.style.width).toBe("72px");
     expect(box.style.height).toBe("30px");
+  });
+
+  it("uses a stronger restrained area fill and a fine endpoint marker", () => {
+    const { container } = render(<Sparkline points={[100, 103, 106]} baseline={100} />);
+    const stops = container.querySelectorAll("stop");
+    expect(stops[0]).toHaveAttribute("stop-opacity", "0.31");
+    expect(container.querySelector("circle")).toHaveAttribute("r", "1.05");
   });
 });

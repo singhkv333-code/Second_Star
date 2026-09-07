@@ -35,7 +35,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
+import urllib.request
 from datetime import date
 from typing import Optional
 
@@ -81,6 +83,25 @@ _METRICS_CACHE_KEY = "screener:market_metrics:v1"
 _METRICS_TTL_SECONDS = 10 * 60  # price freshness vs recompute cost (delayed grid)
 _metrics_lock = threading.Lock()
 _metrics_refreshing = False
+
+# Charto owns every bar-derived feature. The API joins its swept daily matrix
+# over localhost rather than importing dataserver.py (which would open the
+# 24GB SQLite store and start chart runtime globals in a second process).
+_TECH_CACHE_KEY = "screener:charto_features:v1"
+_TECH_CACHE_TTL_SECONDS = 10 * 60
+_CHARTO_INTERNAL_URL = os.getenv("CHARTO_INTERNAL_URL", "http://127.0.0.1:5174")
+
+_TECH_FIELDS = frozenset({
+    "rsi14", "atr_pct", "sma20_rel", "sma50_rel", "sma200_rel",
+    "dist_52w_high", "dist_52w_low", "range_20d_pct", "vol_z20",
+    "turnover_20d_cr", "vp20_pos", "vp20_va_width_pct",
+    "vp20_poc_dist_pct", "vp20_poc_shift_pct",
+})
+_SCREEN_FIELDS = frozenset({
+    "market_cap_cr", "price", "change_pct", "volume", "pe", "roe",
+    "roce", "de", "one_year_pct",
+}) | _TECH_FIELDS
+_SCREEN_OPS = frozenset({"gt", "gte", "lt", "lte", "eq", "between"})
 
 
 # ── Market-cap tiers ──────────────────────────────────────────────────
@@ -151,6 +172,22 @@ class ScreenerStock(BaseModel):
     # div_yield has no source on this path; kept null in the shape for contract
     # stability (the FE no longer renders it).
     div_yield: Optional[float] = None
+    # Charto's standardized end-of-day technical matrix. All percentages are
+    # percentage points; relative-to-SMA and 52w-high values are signed.
+    rsi14: Optional[float] = None
+    atr_pct: Optional[float] = None
+    sma20_rel: Optional[float] = None
+    sma50_rel: Optional[float] = None
+    sma200_rel: Optional[float] = None
+    dist_52w_high: Optional[float] = None
+    dist_52w_low: Optional[float] = None
+    range_20d_pct: Optional[float] = None
+    vol_z20: Optional[float] = None
+    turnover_20d_cr: Optional[float] = None
+    vp20_pos: Optional[float] = None
+    vp20_va_width_pct: Optional[float] = None
+    vp20_poc_dist_pct: Optional[float] = None
+    vp20_poc_shift_pct: Optional[float] = None
     logo_url: Optional[str] = None
 
 
@@ -861,6 +898,99 @@ def _kick_page_metrics_warm(symbols: list[str]) -> None:
     threading.Thread(target=_run, name="screener-page-metrics", daemon=True).start()
 
 
+def _technical_features_cached() -> tuple[dict[str, dict], str, str]:
+    """Return (features, as_of, source) from Charto's canonical daily matrix.
+
+    Redis absorbs tab refreshes; a Charto outage degrades to an empty map so a
+    technical predicate excludes unknown rows instead of pretending they pass.
+    """
+    try:
+        raw = redis_client.get(_TECH_CACHE_KEY)
+        if raw:
+            data = raw.decode() if isinstance(raw, (bytes, bytearray)) else raw
+            parsed = json.loads(data)
+            return (
+                parsed.get("features") or {},
+                str(parsed.get("as_of") or ""),
+                str(parsed.get("source") or "charto_daily_matrix"),
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("[screener] technical cache read failed: %s", exc)
+
+    try:
+        url = f"{_CHARTO_INTERNAL_URL.rstrip('/')}/screen/features"
+        with urllib.request.urlopen(url, timeout=8) as response:  # noqa: S310
+            parsed = json.loads(response.read().decode("utf-8"))
+        features = parsed.get("features") or {}
+        if not isinstance(features, dict):
+            raise ValueError("invalid Charto feature response")
+        try:
+            redis_client.set(
+                _TECH_CACHE_KEY, json.dumps(parsed), ex=_TECH_CACHE_TTL_SECONDS
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("[screener] technical cache write failed: %s", exc)
+        return (
+            features,
+            str(parsed.get("as_of") or ""),
+            str(parsed.get("source") or "charto_daily_matrix"),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[screener] Charto technical matrix unavailable: %s", exc)
+        return {}, "", "unavailable"
+
+
+def _parse_screen_filters(raw: Optional[str]) -> tuple[list[dict], list[str]]:
+    """Validate the composable filter query; malformed clauses are disclosed."""
+    if not raw:
+        return [], []
+    notes: list[str] = []
+    try:
+        value = json.loads(raw)
+    except (TypeError, json.JSONDecodeError):
+        return [], ["custom filters ignored — invalid JSON"]
+    if not isinstance(value, list) or len(value) > 24:
+        return [], ["custom filters ignored — expected at most 24 clauses"]
+    out: list[dict] = []
+    for item in value:
+        if not isinstance(item, dict):
+            notes.append("one custom filter was ignored — invalid shape")
+            continue
+        field = str(item.get("field") or "").strip()
+        op = str(item.get("op") or "").strip().lower()
+        if field not in _SCREEN_FIELDS or op not in _SCREEN_OPS:
+            notes.append(f"unsupported filter {field or 'unknown'} was ignored")
+            continue
+        try:
+            first = float(item.get("value"))
+            second = float(item.get("value2")) if op == "between" else None
+        except (TypeError, ValueError):
+            notes.append(f"filter on {field} was ignored — enter a number")
+            continue
+        if op == "between" and second is not None and first > second:
+            first, second = second, first
+        out.append({"field": field, "op": op, "value": first, "value2": second})
+    return out, notes
+
+
+def _passes_clause(value: Optional[float], clause: dict) -> bool:
+    if value is None:
+        return False
+    target = clause["value"]
+    op = clause["op"]
+    if op == "gt":
+        return value > target
+    if op == "gte":
+        return value >= target
+    if op == "lt":
+        return value < target
+    if op == "lte":
+        return value <= target
+    if op == "eq":
+        return value == target
+    return target <= value <= clause["value2"]
+
+
 # ── Stocks endpoint ───────────────────────────────────────────────────
 
 
@@ -880,6 +1010,11 @@ def get_screener_stocks(
     ret_min: Optional[float] = Query(
         None, description="min 1y return %% — not served (always filters to none)"
     ),
+    filters: Optional[str] = Query(
+        None,
+        max_length=8000,
+        description="JSON array of composable standardized filter clauses",
+    ),
     sort_by: str = Query("market_cap_cr"),
     sort_dir: Optional[str] = Query(
         None, pattern="^(asc|desc)$",
@@ -890,6 +1025,8 @@ def get_screener_stocks(
     _user_id: int = Depends(require_user),
 ) -> ScreenerStocksResponse:
     notes: list[str] = []
+    clauses, clause_notes = _parse_screen_filters(filters)
+    notes.extend(clause_notes)
 
     # ── 1. Start from the WHOLE market universe (every verified NSE name),
     # apply the cheap filters first. Paginated below — the FE loads pages
@@ -927,6 +1064,20 @@ def get_screener_stocks(
     # always carry real PE/ROE.
     fmap = _fundamentals_map_cached()
     mmap, msource = _market_metrics_cached()  # price/change/1y map + its source
+    # The stock table renders a compact technical readout even before a user
+    # adds a technical predicate, so join the canonical Charto matrix on every
+    # request. Redis keeps the normal path local and sub-millisecond.
+    needs_technical = True
+    tech_map: dict[str, dict] = {}
+    tech_as_of = ""
+    tech_source = "not_requested"
+    if needs_technical:
+        tech_map, tech_as_of, tech_source = _technical_features_cached()
+        if not tech_map:
+            notes.append(
+                "technical filters could not be evaluated — Charto's daily "
+                "feature matrix is unavailable"
+            )
 
     # Coverage-driven warm: if a meaningful slice of the universe has no
     # fundamentals yet, kick the chunked background warm (single-flight).
@@ -977,8 +1128,8 @@ def get_screener_stocks(
             if roe is None or roe < roe_min:
                 continue
 
-        enriched.append(
-            ScreenerStock(
+        tech = tech_map.get(r["symbol"].upper()) or {}
+        stock = ScreenerStock(
                 symbol=r["symbol"],
                 name=r["name"] or r["symbol"],
                 sector=r["sector"],
@@ -997,9 +1148,18 @@ def get_screener_stocks(
                 de=de,
                 one_year_pct=_mkt(r["symbol"], "one_year_pct"),
                 div_yield=None,
+                **{
+                    field: _f(tech.get(field))
+                    for field in _TECH_FIELDS
+                },
                 logo_url=None,  # hydrated in ONE batch after sort+slice (below)
             )
-        )
+        if any(
+            not _passes_clause(getattr(stock, c["field"]), c)
+            for c in clauses
+        ):
+            continue
+        enriched.append(stock)
 
     # ── 3. Honest handling of the unserved filters ────────────────────────
     # We have no dividend-yield or 1y-return source on this path, so a filter on
@@ -1136,6 +1296,12 @@ def get_screener_stocks(
         notes.append(
             "live prices warming up — price / day change / 1-year return fill in "
             "shortly"
+        )
+    if needs_technical and tech_map:
+        notes.append(
+            f"technical data: {tech_source}, end-of-day"
+            + (f" as of {tech_as_of}" if tech_as_of else "")
+            + f"; {len(tech_map)} instruments covered"
         )
 
     return ScreenerStocksResponse(

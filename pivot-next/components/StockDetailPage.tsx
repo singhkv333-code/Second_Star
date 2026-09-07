@@ -50,6 +50,7 @@ import { SECTION_GAP } from "@/components/stock/chrome";
 import { RowTrend } from "@/components/stock/RowTrend";
 import "./stock/stock-research.css";
 import { TechnicalPanel } from "@/components/stock/TechnicalPanel";
+import { StockNewsSection } from "@/components/stock/StockNewsSection";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -373,7 +374,6 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
 
   return (
     <div className="stock-research flex flex-col" id="stock-overview">
-      <div className="research-eyebrow">Markets <span>/</span> Company research</div>
       {quoteState.kind === "loading" && <HeaderSkeleton />}
       {quoteState.kind === "error" && (
         <div
@@ -390,21 +390,16 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
         <Header
           quote={quoteState.quote}
           liveLtp={liveQuote.ltp}
-          isLive={liveQuote.isLive}
           isPhone={isPhone}
         />
       )}
 
       {quoteState.kind === "ok" && <>
-        <div className="research-source">
-          <span className="research-source-dot" />
-          {liveQuote.isLive ? "Kite · live quote" : quoteState.quote.source === "yfinance" ? "yfinance · end-of-day / delayed" : quoteState.quote.source?.startsWith("kite") ? "Kite · last available quote" : "Last available quote · source unavailable"}
-          {quoteState.quote.sector && <span className="research-sector">{quoteState.quote.sector}</span>}
-        </div>
         <nav className="research-nav" aria-label="Company research sections">
           <a href="#stock-overview">Overview</a>
           <a href="#stock-price">Price & performance</a>
           {!isIndexQuote && <><a href="#stock-technicals">Technicals</a><a href="#stock-financials" onClick={() => window.dispatchEvent(new Event("stock-open-financials"))}>Financials</a><a href="#stock-valuation">Valuation</a><a href="#stock-capital">Capital allocation</a><a href="#stock-benchmarks">Benchmarks</a><a href="#stock-research">Company research</a></>}
+          <a href="#stock-news">News</a>
         </nav>
         {!isIndexQuote && <div className="research-snapshot" aria-label="Company snapshot">
           {[
@@ -518,6 +513,13 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
             <section id="stock-research"><DeepSections symbol={symbol} price={quoteState.quote.ltp} /></section>
           )}
         </>
+      )}
+      {quoteState.kind === "ok" && (
+        <StockNewsSection
+          symbol={quoteState.quote.symbol}
+          companyName={quoteState.quote.name}
+          exchange={quoteState.quote.exchange === "BSE" ? "BSE" : "NSE"}
+        />
       )}
     </div>
   );
@@ -656,12 +658,10 @@ function PhoneLayout({
 function Header({
   quote,
   liveLtp,
-  isLive,
   isPhone = false,
 }: {
   quote: StockQuote;
   liveLtp?: number | null;
-  isLive?: boolean;
   /** Phone reflow: shrink glyph/name/price and keep the price pinned to the
    *  right of the same row (Groww-style), with the day chip stacked beneath
    *  it instead of inline. */
@@ -676,7 +676,7 @@ function Header({
     // the price can't drop to a second line.
     <div
       className={isPhone ? "flex items-center" : "flex flex-wrap items-center"}
-      style={{ gap: isPhone ? 10 : 18 }}
+      style={{ gap: isPhone ? 10 : 14 }}
       data-testid="quote-header"
     >
       {/* Brand logo (with monogram fallback) + name + bookmark. min-w-0 lets
@@ -687,7 +687,7 @@ function Header({
           name={quote.name}
           symbol={quote.symbol}
           hue={hue}
-          size={isPhone ? 46 : 56}
+          size={isPhone ? 44 : 48}
         />
         <div className="min-w-0">
           <div className="flex min-w-0 items-center" style={{ gap: isPhone ? 4 : 8 }}>
@@ -695,7 +695,7 @@ function Header({
               className="m-0 truncate"
               style={{
                 fontFamily: "var(--font-ui)",
-                fontSize: isPhone ? 16 : 30,
+                fontSize: isPhone ? 16 : 27,
                 fontWeight: 600,
                 letterSpacing: "-0.025em",
                 color: "var(--text-primary)",
@@ -705,15 +705,15 @@ function Header({
             </h1>
             <WatchlistBookmark
               symbol={quote.symbol}
-              size={20}
-              buttonSize={isPhone ? 30 : 38}
+              size={isPhone ? 17 : 18}
+              buttonSize={isPhone ? 28 : 34}
             />
           </div>
           <p
             className="m-0"
             style={{
               fontFamily: "var(--font-ui)",
-              fontSize: 12.5,
+              fontSize: 12,
               color: "var(--text-tertiary)",
               marginTop: 2,
               letterSpacing: "0.02em",
@@ -739,35 +739,20 @@ function Header({
           className="inline-flex items-center tabular-nums"
           style={{
             fontFamily: "var(--font-ui)",
-            fontSize: isPhone ? 18 : 34,
+            fontSize: isPhone ? 18 : 31,
             fontWeight: 600,
             letterSpacing: "-0.02em",
             color: "var(--text-primary)",
-            gap: isPhone ? 6 : 8,
           }}
         >
           {INR.format(displayLtp)}
-          {/* Live/delayed dot */}
-          <span
-            title={isLive ? "Live price" : "Delayed price"}
-            aria-label={isLive ? "Live price" : "Delayed price"}
-            style={{
-              display: "inline-block",
-              width: 8,
-              height: 8,
-              borderRadius: "50%",
-              background: isLive ? "var(--color-profit)" : "var(--text-tertiary)",
-              flexShrink: 0,
-            }}
-            data-testid={isLive ? "live-dot" : "delayed-dot"}
-          />
         </span>
         <span
           className="inline-flex items-center"
           style={{
             gap: 4,
             // Phone: bare coloured text (no chip). Desktop keeps the tinted pill.
-            padding: isPhone ? 0 : "3px 10px",
+            padding: isPhone ? 0 : "3px 9px",
             borderRadius: isPhone ? 0 : "var(--radius-xs)",
             background: isPhone
               ? "transparent"
@@ -776,7 +761,7 @@ function Header({
                 : "rgba(239, 68, 68, 0.16)",
             color: positive ? "var(--color-profit)" : "var(--color-loss)",
             fontFamily: "var(--font-mono)",
-            fontSize: isPhone ? 11 : 12.5,
+            fontSize: isPhone ? 11 : 12,
             fontWeight: 500,
             whiteSpace: "nowrap",
           }}
@@ -790,11 +775,11 @@ function Header({
 
 function HeaderSkeleton(): React.ReactElement {
   return (
-    <div className="flex items-center" style={{ gap: 14 }}>
-      <Skeleton style={{ width: 56, height: 56, borderRadius: "var(--radius-md)" }} />
-      <div className="flex flex-col" style={{ gap: 6 }}>
-        <Skeleton style={{ width: 220, height: 24 }} />
-        <Skeleton style={{ width: 120, height: 14 }} />
+    <div className="flex items-center" style={{ gap: 12 }}>
+      <Skeleton style={{ width: 48, height: 48, borderRadius: "var(--radius-md)" }} />
+      <div className="flex flex-col" style={{ gap: 5 }}>
+        <Skeleton style={{ width: 205, height: 22 }} />
+        <Skeleton style={{ width: 105, height: 12 }} />
       </div>
     </div>
   );

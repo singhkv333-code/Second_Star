@@ -45,7 +45,7 @@ describe("Research section interactions", () => {
   it("falls back to one provider for both benchmark series", async () => {
     const prices = vi.spyOn(api, "getResearchPrices").mockResolvedValueOnce({ data: bars }).mockResolvedValueOnce({ data: { ...bars, source: "yfinance" } }).mockResolvedValue({ data: { ...bars, source: "yfinance" } });
     render(<BenchmarkPerformancePanel symbol="TEST" exchange="NSE" />);
-    await screen.findByText("yfinance · EOD daily closes");
+    await screen.findByText(/Data through/);
     expect(prices).toHaveBeenCalledWith("TEST", "NSE", "yfinance");
     expect(prices).toHaveBeenCalledWith("NIFTY 50", "NSE", "yfinance");
     fireEvent.click(screen.getByRole("button", { name: "Drawdown" }));
@@ -54,7 +54,7 @@ describe("Research section interactions", () => {
   it("recovers when the primary history request fails", async () => {
     const prices = vi.spyOn(api, "getResearchPrices").mockResolvedValueOnce({ error: { code: "unavailable", message: "History unavailable" } }).mockResolvedValueOnce({ data: bars }).mockResolvedValue({ data: { ...bars, source: "yfinance" } });
     render(<BenchmarkPerformancePanel symbol="TEST" exchange="NSE" />);
-    await screen.findByText("yfinance · EOD daily closes");
+    await screen.findByText(/Data through/);
     expect(prices).toHaveBeenCalledWith("TEST", "NSE", "yfinance");
     expect(prices).toHaveBeenCalledWith("NIFTY 50", "NSE", "yfinance");
   });
