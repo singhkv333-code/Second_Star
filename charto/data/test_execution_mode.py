@@ -59,6 +59,61 @@ def test_the_contract_tells_it_to_act_before_it_asks() -> None:
     assert "call ASK_USER" not in block
 
 
+def test_the_absent_tools_note_names_only_real_absent_tools() -> None:
+    """Two false positives that made the note worse than the problem.
+
+    The matcher was `name in text`, an unanchored substring against Pivot's
+    106-tool registry. It caught:
+
+      · `calculate` — a real tool name AND an ordinary English word. Its only
+        "occurrence" was "how the entry condition is calculated", so the note
+        declared a verb unavailable.
+      · `place_order` — 10 occurrences, 9 of them `action.place_order`, which
+        is not a tool but the DSL STEP every armable strategy must contain
+        (`strategies.parse_draft` matches that exact string). The note said
+        "NOT ON THIS SURFACE: place_order" in the same payload that tells the
+        model to append `action.place_order` to a draft.
+
+    Backticks are the signal: the packs cite tools in them and step types
+    dotted. Anything that reintroduces substring matching fails here.
+    """
+    import execution_bridge as eb
+    st = eb._ensure_pivot()
+    if not st["ok"]:
+        return
+    modules = st["mods"]["assembler"].load_prompt_modules(
+        list(eb.PROMPT_MODULES))
+    note = eb._absent_tools_note(modules, st["mods"]["ALL_TOOLS"])
+    assert "`calculate`" not in note
+    assert "`place_order`" not in note
+    # …while still catching the four it exists for.
+    for macro in ("propose_scheduled_order", "propose_threshold_order",
+                  "propose_holding_action", "propose_basket_allocation"):
+        assert f"`{macro}`" in note
+
+
+def test_the_absent_tools_note_does_not_redirect_at_an_unarmable_shape() -> None:
+    """The redirect must not send a clock ask at `propose_workflow`.
+
+    It used to read "`propose_workflow` (a schedule or several steps)", which
+    aimed every recurring-clock ask at the one draft shape the runtime
+    refuses: `strategies.parse_draft` raises Unbuildable on
+    `trigger.schedule`/`trigger.cron`. The note was contradicting
+    `save_strategy`'s own description on the same wire and steering the model
+    into a failure it could only recover from with another LLM round.
+    """
+    import execution_bridge as eb
+    st = eb._ensure_pivot()
+    if not st["ok"]:
+        return
+    modules = st["mods"]["assembler"].load_prompt_modules(
+        list(eb.PROMPT_MODULES))
+    note = eb._absent_tools_note(modules, st["mods"]["ALL_TOOLS"])
+    assert "`propose_workflow` (a schedule" not in note
+    # and it must say the honest thing about a clock instead
+    assert "cannot be armed here" in note
+
+
 def test_a_tool_the_pack_names_but_the_wire_lacks_is_corrected() -> None:
     """Absent tools are named as absent, never left implying a route.
 

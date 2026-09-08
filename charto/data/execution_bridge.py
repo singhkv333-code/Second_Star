@@ -461,30 +461,59 @@ def _sections(path, wanted: tuple[str, ...]) -> str:
 
 
 def _absent_tools_note(text: str, all_tools) -> str:
-    """One line correcting any Pivot tool the modules name but this wire lacks.
+    """One line correcting the Pivot tools the modules name but this wire lacks.
 
     The modules are Pivot's prose and are included whole, so `workflows.md`
     still routes past four macros — "`propose_workflow` (and the macros
     `propose_threshold_order`, `propose_scheduled_order`, …)" — that this
     surface deliberately does not carry. Rewriting that sentence in Pivot's
     file would fork a contract two products read; deleting the section around
-    it would cost the routing rule between the two builders that ARE here,
-    which is the most useful paragraph in the pack.
+    it would cost the routing rule between the two builders that ARE here.
+    So the mention stays and is corrected, in a line computed against Pivot's
+    registry so a macro renamed over there needs no edit here.
 
-    So the mention stays and is corrected. Twenty-odd tokens buys a model that
-    knows those names are unavailable rather than one weighing a route it
-    cannot take — and because the list is computed against Pivot's registry,
-    a macro renamed or added over there needs no edit here.
+    A NAME ONLY COUNTS WHEN IT IS BACKTICKED, and that is the whole of the
+    matching rule. The first version tested `name in text`, an unanchored
+    substring, which produced two false positives that were worse than the
+    problem being solved:
+
+      · `calculate` — a real entry in Pivot's 106-tool registry, and also an
+        ordinary English word. Its single "occurrence" was the phrase "how
+        the entry condition is calculated". The note was declaring a verb
+        unavailable.
+      · `place_order` — 10 occurrences, 9 of them `action.place_order`, which
+        is not a tool at all but the DSL STEP every armable Charto strategy
+        must contain (`strategies.py` matches that exact string). The note
+        announced "NOT ON THIS SURFACE: place_order" in the same payload that
+        instructs the model to append `action.place_order` to a draft.
+
+    The packs reference tools in backticks and refer to step types dotted, so
+    requiring the backticks separates the two exactly, and drops the English
+    word for free.
     """
     absent = sorted(n for n in all_tools
-                    if n not in PIVOT_TOOLS and n in text)
+                    if n not in PIVOT_TOOLS and f"`{n}`" in text)
     if not absent:
         return ""
-    return ("NOT ON THIS SURFACE, though the pack above names them: "
-            + ", ".join(f"`{n}`" for n in absent)
-            + ". Express the same thing with `propose_dsl_workflow` (a "
-              "condition), `propose_workflow` (a schedule or several steps) "
-              "or `register_plan` (a selection to own).")
+    return (
+        "NOT ON THIS SURFACE, though the pack above names them: "
+        + ", ".join(f"`{n}`" for n in absent) + ". "
+        # The redirect used to read "`propose_workflow` (a schedule or several
+        # steps)", which sent every recurring-clock ask at the ONE draft shape
+        # the runtime refuses: `strategies.parse_draft` raises Unbuildable for
+        # `trigger.schedule`/`trigger.cron`, and `save_strategy`'s own
+        # description on this same wire says so. The note was contradicting a
+        # tool description and steering the model into a failure it could only
+        # recover from with another round — at ~8-21s each, the expensive kind
+        # of wrong. A schedule now gets its own honest answer instead of being
+        # folded into the redirect.
+        "A single condition on price or an indicator → `propose_dsl_workflow`; "
+        "several steps → `propose_workflow`; a selection to own → "
+        "`register_plan`. A recurring CLOCK (a SIP, \"every Monday\") cannot be "
+        "armed here at all — the paper runtime evaluates conditions, not "
+        "schedules — so either express the idea as a condition, or backtest it "
+        "and say plainly that it cannot be armed."
+    )
 
 
 def _borrowed_sections() -> str:
