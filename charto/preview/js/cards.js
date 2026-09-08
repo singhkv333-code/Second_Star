@@ -2187,7 +2187,16 @@ const Cards = (() => {
   function wirePlan(box, card) {
     const btn = box.querySelector("[data-plan-go]");
     if (!btn || btn.disabled) return;
-    const id = box.getAttribute("data-plan");
+    /* The id is on the CARD, and `box` is the .scan wrapper render() put
+     * around it — so `box.getAttribute("data-plan")` was reading an attribute
+     * that has never been on that element. It returned null, the guard below
+     * disabled the button, and every plan card this build has ever drawn
+     * arrived with a dead Activate. Nothing was refused and nothing errored;
+     * the POST simply never happened, which is why the plans table is full of
+     * `draft` rows with an empty `last_error`. Ask the element that carries
+     * the attribute, the way every other handler in this file does. */
+    const holder = box.querySelector("[data-plan]");
+    const id = holder && holder.getAttribute("data-plan");
     if (!id) { btn.disabled = true; return; }
     const label = btn.textContent;
     btn.addEventListener("click", async () => {
@@ -2204,13 +2213,30 @@ const Cards = (() => {
         });
         const data = await res.json();
         if (!res.ok) {
-          btn.textContent = data && data.error ? String(data.error) : "Failed";
+          /* The server's refusal is a sentence the user can act on — "sign in
+           * to use plans", "this plan was retired". Printed as the button's
+           * label it was both unreadable and terminal: the control kept the
+           * error as its name and stayed disabled, so a signed-out user could
+           * never press it again after signing in. Same treatment the draft
+           * card already gives a refusal — a note under the CTA, button back. */
+          btn.textContent = label;
+          btn.disabled = false;
+          const note = document.createElement("p");
+          note.className = "wf-stale";
+          note.setAttribute("role", "status");
+          note.textContent = res.status === 401
+            ? "Sign in to activate — a plan fills into your own paper book."
+            : String((data && data.error) || "Could not activate this plan.");
+          const cta = box.querySelector(".wf-cta");
+          const prev = box.querySelector(".wf-cta ~ .wf-stale");
+          if (prev) prev.remove();
+          if (cta) cta.after(note);
           return;
         }
-        const fresh = document.createElement("div");
-        fresh.innerHTML = plan(Object.assign({}, card, data));
-        const rebuilt = fresh.firstElementChild;
-        if (rebuilt) box.replaceWith(rebuilt);
+        /* Repaint IN PLACE. `box.replaceWith(rebuilt)` swapped the .scan
+         * wrapper for the bare .wf-card inside it, so an activated plan lost
+         * the panel chrome — and its `data-card` — the moment it succeeded. */
+        box.innerHTML = plan(Object.assign({}, card, data));
       } catch (e) {
         console.warn("[charto] plan activate failed", e);
         btn.disabled = false;

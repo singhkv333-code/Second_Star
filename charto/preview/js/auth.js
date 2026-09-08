@@ -143,6 +143,21 @@ const Auth = (() => {
   };
 })();
 
+/* `const Auth` at the top level of a classic script is a global LEXICAL
+ * binding, not a property of `window` — so `Auth.headers()` resolves and
+ * `window.Auth` is undefined, at the same moment, in the same page.
+ *
+ * Three handlers in cards.js guard their fetch with `(window.Auth &&
+ * Auth.headers) ? Auth.headers({...}) : {...}`, meaning "send the token if the
+ * auth module is loaded". That test was never true, so every one of them took
+ * the fallback and posted with no Authorization header at all: a signed-in
+ * user pressing Activate on a plan, or Save & activate on a draft, was told to
+ * sign in. The guard is the right idea; it was reading the wrong shelf.
+ *
+ * Published here rather than rewritten at the three call sites so the name
+ * means the same thing from every script in the page, whatever loads first. */
+window.Auth = Auth;
+
 /* ── the screen ───────────────────────────────────────────────────────────
    Pivot's login/signup, translated: the dark brand panel on the left and one
    focused column on the right. Two MODES rather than two routed pages —
