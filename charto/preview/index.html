@@ -3959,7 +3959,11 @@ body.two-columns .readout .row { display: none; }
   font-size: var(--text-2xs); font-variant-numeric: tabular-nums;
   letter-spacing: -.02em; color: var(--foreground); white-space: nowrap;
 }
-.cc-plot.signed .cc-v[style*="top"] { margin-top: 3px; margin-bottom: 0; }
+/* Any figure placed from the TOP sits below its bar, so its offset is on the
+   other side. Written against the position rather than the chart's mode: a
+   signed chart's negative column and an inverted chart's every column are the
+   same situation and were two rules until one of them was forgotten. */
+.cc-v[style*="top"] { margin-top: 3px; margin-bottom: 0; }
 /* The name sits under the baseline in every case — including a signed chart,
    where a label hung off the bottom of a negative column would put two names
    at two heights and stop reading as an axis. */
@@ -3982,6 +3986,9 @@ body.two-columns .readout .row { display: none; }
    where the columns actually pivot. The columns' own 50% is measured against
    the content box, and this is that same line. */
 .cc-plot.signed .cc-base { bottom: calc(18px + (100% - 18px) / 2); }
+/* An all-negative set hangs from the top, so its baseline is up there with it
+   — the line the falls are measured DOWN from. */
+.cc-plot.inv .cc-base { bottom: auto; top: 0; }
 
 /* Several bars that belong to one window, under its name. The interval is
    what is being compared, so it labels the group and not each bar. */
@@ -8530,7 +8537,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- before chat.js, which asks it to render the panels a tool prints as the
        reply streams in. It reads Sym (store.js) for the instrument's currency
        and grouping, and nothing else — a renderer with no state of its own -->
-  <script src="./js/cards.js?v=50"></script>
+  <script src="./js/cards.js?v=51"></script>
   <script src="./js/layers-panel.js?v=11"></script>
   <script src="./js/chat.js?v=167"></script>
   <script src="./js/journal.js?v=6"></script>

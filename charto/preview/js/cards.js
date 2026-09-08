@@ -1393,32 +1393,41 @@ const Cards = (() => {
     // 32% — at 41% a -30% bar pushed its label down into the name gutter and
     // printed "-27.88%" across "HDFCBANK".
     const span = o.signed ? 32 : 78;
-    const base = o.signed ? 50 : 0;
+    /* An all-negative set hangs DOWN from a baseline at the top.
+     *
+     * Maximum drawdown is the case: every value is a fall, so the set holds
+     * one sign and the chart is unsigned — and drawn the ordinary way, a
+     * -34.59% drawdown grew UPWARD as the tallest bar in the group. The
+     * geometry was right and the reading was backwards: the worst fall was
+     * the biggest climb on screen, and the reader has to translate the
+     * picture against itself to get the sense of it. Inverting the axis makes
+     * the picture say what the number says. ATR, all-positive, is untouched. */
+    const inv = !o.signed && vals.every((x) => Number(x.value) <= 0);
     const cols = vals.map((x) => {
       const v = Number(x.value);
       const h = Math.max(2, Math.abs(v) / top * span);
       const up = v >= 0;
-      // Above a positive column, below a negative one — the figure never
-      // crosses the bar it belongs to.
-      const edge = (base + h).toFixed(1);
+      // The figure rides the bar's OUTER tip and never crosses it: above a
+      // column that grows up, below one that hangs down.
       const vpos = o.signed
-        ? (up ? `bottom:${edge}%` : `top:${(50 + h).toFixed(1)}%`)
-        : `bottom:${edge}%`;
+        ? (up ? `bottom:${(50 + h).toFixed(1)}%` : `top:${(50 + h).toFixed(1)}%`)
+        : (inv ? `top:${h.toFixed(1)}%` : `bottom:${h.toFixed(1)}%`);
       const bpos = o.signed
         ? (up ? `bottom:50%;height:${h.toFixed(1)}%`
               : `top:50%;height:${h.toFixed(1)}%`)
-        : `bottom:0;height:${h.toFixed(1)}%`;
+        : (inv ? `top:0;height:${h.toFixed(1)}%`
+               : `bottom:0;height:${h.toFixed(1)}%`);
       // `neg` so the rounding can follow the OUTER tip: a column hanging
       // below zero is rounded at its bottom, which is the end the eye reads
       // as its head. Rounding the top of both would put the soft edge at the
       // baseline on one of them, where the flat side belongs.
       return `<div class="cc-col">`
         + `<span class="cc-v" style="${vpos}">${esc(x.text)}</span>`
-        + `<i class="cc-bar${up ? "" : " neg"}${x.tone ? " " + x.tone : ""}" `
-        + `style="${bpos}"></i>`
+        + `<i class="cc-bar${(o.signed ? up : !inv) ? "" : " neg"}`
+        + `${x.tone ? " " + x.tone : ""}" style="${bpos}"></i>`
         + `<span class="cc-n">${esc(x.label)}</span></div>`;
     }).join("");
-    return `<div class="cc-plot${o.signed ? " signed" : ""}">`
+    return `<div class="cc-plot${o.signed ? " signed" : ""}${inv ? " inv" : ""}">`
       + `<i class="cc-base"></i>${cols}</div>`;
   }
 
