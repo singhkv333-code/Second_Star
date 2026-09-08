@@ -2051,27 +2051,30 @@ header > .btn, header > .badge { flex: none; }
 .main { display: flex; flex: 1; min-height: 0; }
 
 /* ── framed inside the Pivot shell ────────────────────────────────────────
-   `.in-shell` is set on <html> by js/embed.js when this app is not the top
-   window (and again inline in <head>, before first paint).
+   `.in-shell` is set before first paint whenever this app is framed. The
+   parent owns the full-width header shell and the real sidebar column; this
+   document contributes only its chart-specific middle controls. */
+.in-shell .main { margin-left: 0; }
 
-   In the shell this header IS the top bar — the shell suppresses its own on
-   the chart route so there is one bar, not two stacked. A top bar has to
-   reach the window's left edge, so the shell lets this frame span the full
-   width and floats its 48px nav rail OVER us instead of beside us. The
-   header therefore stays exactly as it is, full width, and only what sits
-   BELOW it moves out from under the rail.
-
-   The inset is a variable, not a constant, because the rail's width is the
-   shell's fact to know, not ours: the shell posts it (`pivot:railpad`) and
-   embed.js writes it here. The 48px fallback is what the shell uses today,
-   so a dropped message degrades to the right answer rather than to zero. */
-.in-shell .main { margin-left: var(--shell-rail-w, 48px); }
-
-/* The header keeps its full width, but its first control would otherwise sit
-   under the shell's rail. Push the CONTENTS across by the same inset, so the
-   symbol pill starts where the chart's own rail begins — one vertical line
-   down the page, the rail's right edge, with the pill above it. */
-.in-shell body > header { padding-left: calc(var(--shell-rail-w, 48px) + 12px); }
+/* The shell renders the shared wordmark and avatar above this frame. Remove
+   the duplicates and reserve their hit areas, leaving every chart control in
+   the middle intact. */
+.in-shell body > header {
+  padding-left: 12px;
+  padding-right: 52px;
+}
+.in-shell body > header > .brand,
+.in-shell body > header #acctBtn,
+.in-shell body > header #acctMenu {
+  display: none;
+}
+@media (max-width: 1023.98px) {
+  .in-shell { --header-h: 56px; }
+  .in-shell body > header {
+    height: var(--header-h);
+    padding-left: 128px;
+  }
+}
 
 /* The grid wraps the stage; #stage itself is untouched so main.js's
    overlays (readout, provenance card, capture rect) keep their frame. */
@@ -8423,6 +8426,6 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/panels.js?v=13"></script>
   <!-- last: every control it proxies has to exist and be wired first -->
   <script src="./js/mobile.js?v=13"></script>
-  <script src="./js/embed.js?v=3"></script>
+  <script src="./js/embed.js?v=6"></script>
 </body>
 </html>

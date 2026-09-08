@@ -1,8 +1,9 @@
 """Market-data REST endpoints — back the redesigned dashboard + stock-snapshot
 surfaces in pivot-next/.
 
-Three endpoints:
+Four endpoints:
   - GET /api/markets/indices               → 4 NSE/BSE benchmarks for the dashboard cards
+  - GET /api/markets/movers                → live NIFTY 50 gainers + losers
   - GET /api/markets/quote/{symbol}        → full snapshot (OHLC, 52w, mcap, P/E)
   - GET /api/markets/sparkline/{symbol}    → historical close series for the price chart
 
@@ -71,6 +72,21 @@ class IndexQuote(BaseModel):
 
 class IndicesResponse(BaseModel):
     items: list[IndexQuote]
+
+
+class MarketMover(BaseModel):
+    symbol: str
+    ltp: float
+    change_pct: float
+
+
+class MoversResponse(BaseModel):
+    gainers: list[MarketMover]
+    losers: list[MarketMover]
+    universe: Literal["nifty50"] = "nifty50"
+    # `unknown` covers a short-lived old Redis row written before source tags
+    # were added. The frontend treats every non-Kite value as a relay.
+    source: Literal["kite", "yfinance", "unknown"]
 
 
 class StockQuote(BaseModel):
@@ -341,6 +357,49 @@ def get_indices(
             message="market indices unavailable — data source is unreachable",
         )
     return IndicesResponse(items=items)
+
+
+@router.get(
+    "/movers",
+    response_model=MoversResponse,
+    summary="Get today's top NIFTY 50 gainers and losers",
+)
+def get_movers(
+    limit: int = Query(4, ge=1, le=10),
+    _user_id: int = Depends(require_user),
+) -> MoversResponse:
+    """Return both sides of the live tape in one request.
+
+    The shared movers service deliberately has illustrative seed rows for
+    workflow drafting. Those must never appear on a market dashboard as if
+    they were current quotes, so this read endpoint fails honestly when only
+    seeds are available.
+    """
+    from backend.services.top_movers import get_top_movers
+
+    gainers = get_top_movers(direction="gainers", limit=limit)
+    losers = get_top_movers(direction="losers", limit=limit)
+    rows = [*gainers, *losers]
+    if not rows or any(bool(row.get("seed")) for row in rows):
+        raise http_error(
+            status_code=503,
+            code="not_yet_available",
+            message="market movers unavailable — live data source is unreachable",
+        )
+
+    raw_source = str(rows[0].get("source") or "unknown")
+    source: Literal["kite", "yfinance", "unknown"]
+    if raw_source == "kite":
+        source = "kite"
+    elif raw_source == "yfinance":
+        source = "yfinance"
+    else:
+        source = "unknown"
+    return MoversResponse(
+        gainers=[MarketMover(**row) for row in gainers],
+        losers=[MarketMover(**row) for row in losers],
+        source=source,
+    )
 
 
 # ── Stock snapshot ───────────────────────────────────────────────────

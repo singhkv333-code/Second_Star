@@ -1373,6 +1373,19 @@ export type IndexQuote = {
 
 export type IndicesResponse = { items: IndexQuote[] };
 
+export type MarketMover = {
+  symbol: string;
+  ltp: number;
+  change_pct: number;
+};
+
+export type MoversResponse = {
+  gainers: MarketMover[];
+  losers: MarketMover[];
+  universe: "nifty50";
+  source: "kite" | "yfinance" | "unknown";
+};
+
 export type StockQuote = {
   symbol: string;
   exchange: string;
@@ -1425,6 +1438,13 @@ export type SparklineRange = "1D" | "1W" | "1M" | "6M" | "1Y" | "5Y";
 export function getMarketIndices(): Promise<ApiResult<IndicesResponse>> {
   return cached("market-indices", 15_000, () =>
     request<IndicesResponse>("/markets/indices"),
+  );
+}
+
+/** Live NIFTY 50 leaders and laggards. Seed fallback is rejected server-side. */
+export function getMarketMovers(limit = 4): Promise<ApiResult<MoversResponse>> {
+  return cached(`market-movers:${limit}`, 15_000, () =>
+    request<MoversResponse>("/markets/movers", { query: { limit } }),
   );
 }
 

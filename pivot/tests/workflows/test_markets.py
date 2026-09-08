@@ -40,7 +40,12 @@ class _FakeTicker:
         self.info = info
         self._hist = hist
 
-    def history(self, period: str = "1y", interval: str = "1d") -> pd.DataFrame:
+    def history(
+        self,
+        period: str = "1y",
+        interval: str = "1d",
+        **_kwargs: object,
+    ) -> pd.DataFrame:
         return self._hist
 
 
@@ -141,6 +146,55 @@ def test_indices_all_fail_returns_503(
     assert resp.status_code == 503
     body = resp.json()
     assert body["error"]["code"] == "not_yet_available"
+
+
+# ── /api/markets/movers ───────────────────────────────────────────────────────────────
+
+
+def test_movers_returns_both_sides(
+    client: TestClient, auth_headers: dict[str, str],
+) -> None:
+    gainers = [
+        {"symbol": "TCS", "ltp": 4100.0, "change_pct": 2.4, "source": "kite", "seed": False},
+        {"symbol": "INFY", "ltp": 1800.0, "change_pct": 1.8, "source": "kite", "seed": False},
+    ]
+    losers = [
+        {"symbol": "ITC", "ltp": 430.0, "change_pct": -1.7, "source": "kite", "seed": False},
+        {"symbol": "ONGC", "ltp": 250.0, "change_pct": -1.2, "source": "kite", "seed": False},
+    ]
+    with patch(
+        "backend.services.top_movers.get_top_movers",
+        side_effect=[gainers, losers],
+    ):
+        resp = client.get("/api/markets/movers?limit=2", headers=auth_headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {
+        "gainers": [
+            {"symbol": "TCS", "ltp": 4100.0, "change_pct": 2.4},
+            {"symbol": "INFY", "ltp": 1800.0, "change_pct": 1.8},
+        ],
+        "losers": [
+            {"symbol": "ITC", "ltp": 430.0, "change_pct": -1.7},
+            {"symbol": "ONGC", "ltp": 250.0, "change_pct": -1.2},
+        ],
+        "universe": "nifty50",
+        "source": "kite",
+    }
+
+
+def test_movers_rejects_seed_fallback(
+    client: TestClient, auth_headers: dict[str, str],
+) -> None:
+    seeded = [
+        {"symbol": "TCS", "ltp": 4100.0, "change_pct": 2.4, "seed": True},
+    ]
+    with patch(
+        "backend.services.top_movers.get_top_movers",
+        side_effect=[seeded, seeded],
+    ):
+        resp = client.get("/api/markets/movers", headers=auth_headers)
+    assert resp.status_code == 503
+    assert resp.json()["error"]["code"] == "not_yet_available"
 
 
 # ── /api/markets/quote/{symbol} ──────────────────────────────────────

@@ -355,9 +355,8 @@ type ChatDemoProps = {
    * dashboard passes its greeting + index strip + action chips here. */
   intro?: React.ReactNode;
   /** Notifies the parent whenever the conversation transitions between
-   * "empty" and "active" (≥1 message). The dashboard uses this signal
-   * to hide ancillary rails (e.g. Active Agents) once a chat has
-   * started so the chat column can fill the freed width. */
+   * "empty" and "active" (≥1 message) so the surrounding layout can
+   * adapt its reading width. */
   onActiveChange?: (active: boolean) => void;
   /** Offline demo seed — when set, ChatDemo bypasses the LLM and
    * plays a hardcoded user → streaming → workflow-draft sequence,
@@ -380,6 +379,20 @@ type ChatDemoProps = {
    * not persisted — resumed threads render as plain text turns.
    */
   resume?: ResumeConversation;
+  /** Context registered by the current product page. It is rendered through
+   * the same attachment chip and sent through the same request path as
+   * user-selected context. */
+  pageContext?: ChatAttachment;
+  /** Existing active id used while a persisted transcript is rehydrating. */
+  conversationId?: string;
+  /** Announces the stable backend conversation id owned by this instance. */
+  onConversationIdChange?: (id: string) => void;
+  /** Full workspace may use Escape as Stop. A side panel reserves Escape for
+   * collapse so hiding it never interrupts the response. */
+  escapeStopsResponse?: boolean;
+  /** Compact Charto-style composer used only in the side-panel presentation. */
+  compact?: boolean;
+  composerPlaceholder?: string;
 };
 
 export type ResumeConversation = {
@@ -600,6 +613,12 @@ export function ChatDemo({
   onDemoSeedConsumed,
   onDraftFromChat,
   resume,
+  pageContext,
+  conversationId,
+  onConversationIdChange,
+  escapeStopsResponse = true,
+  compact = false,
+  composerPlaceholder,
 }: ChatDemoProps): React.ReactElement {
   // Read the active draft context so we can attach editor_draft on outgoing
   // requests when the panel is open on an unsaved draft.
@@ -641,7 +660,12 @@ export function ChatDemo({
   // Composer context attachments — securities (@ / + menu), positions,
   // agents. Persist across turns (they're conversation context, not
   // one-shot uploads); the user dismisses via the chip's X.
-  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const [attachments, setAttachments] = useState<ChatAttachment[]>(() =>
+    pageContext ? [pageContext] : [],
+  );
+  const pageContextKeyRef = useRef<string | null>(
+    pageContext ? attachmentKey(pageContext) : null,
+  );
   // Reply-by-selecting state. `reply` is the snippet the user committed
   // to reply to (shown as a quote chip above the composer + sent with
   // the next message). `selectionReply` is the transient floating
@@ -667,7 +691,7 @@ export function ChatDemo({
   // re-renders but is regenerated on a fresh mount. Resuming a sidebar
   // conversation adopts ITS id so the backend appends to the same thread.
   const sessionIdRef = useRef<string>("");
-  if (!sessionIdRef.current) sessionIdRef.current = resume?.id ?? newSessionId();
+  if (!sessionIdRef.current) sessionIdRef.current = resume?.id ?? conversationId ?? newSessionId();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // Scroll container — kept pinned to the bottom while messages stream
   // in, the same auto-follow behaviour ChatGPT/Claude use.
@@ -707,6 +731,23 @@ export function ChatDemo({
   // Ref to the floating "Reply" button so the document mousedown
   // dismiss-handler can tell a button click from a click elsewhere.
   const selBtnRef = useRef<HTMLButtonElement | null>(null);
+
+  // Route context is one managed chip inside the ordinary attachment list.
+  // Replacing it does not touch manual chips, messages, or the thread id.
+  useEffect(() => {
+    const previousKey = pageContextKeyRef.current;
+    const nextKey = pageContext ? attachmentKey(pageContext) : null;
+    setAttachments((current) => {
+      const withoutPrevious = previousKey
+        ? current.filter((item) => attachmentKey(item) !== previousKey)
+        : current;
+      if (!pageContext) return withoutPrevious;
+      return withoutPrevious.some((item) => attachmentKey(item) === nextKey)
+        ? withoutPrevious
+        : [pageContext, ...withoutPrevious];
+    });
+    pageContextKeyRef.current = nextKey;
+  }, [pageContext]);
 
   // Reply-by-selecting: surface a floating "Reply" button whenever the
   // user highlights text inside an assistant message (marked with
@@ -913,7 +954,7 @@ export function ChatDemo({
   // Esc aborts an in-flight response (only armed while a stream is running,
   // so it never swallows Esc from dialogs/menus when the chat is idle).
   useEffect(() => {
-    if (!loading) return;
+    if (!loading || !escapeStopsResponse) return;
     const onEsc = (e: KeyboardEvent): void => {
       if (e.key === "Escape") {
         e.preventDefault();
@@ -922,7 +963,7 @@ export function ChatDemo({
     };
     window.addEventListener("keydown", onEsc);
     return () => window.removeEventListener("keydown", onEsc);
-  }, [loading]);
+  }, [escapeStopsResponse, loading]);
 
   // Offline demo playback — when `demoSeed` is set, push a canned
   // user → streaming → draft sequence and auto-open the editor panel.
@@ -1117,6 +1158,9 @@ export function ChatDemo({
   ): Promise<void> => {
     const trimmed = text.trim();
     if (!trimmed || loading) return;
+    // An empty mount is not a conversation yet. Remember the id at the first
+    // real turn so cross-route restoration never creates phantom threads.
+    onConversationIdChange?.(sessionIdRef.current);
 
     // Snapshot the quoted excerpt (if any) for this turn.
     const quote = (quotedText ?? "").trim() || null;
@@ -1909,6 +1953,8 @@ export function ChatDemo({
           onAddAttachment={addAttachment}
           onRemoveAttachment={removeAttachment}
           onAgentPicked={handleAgentPicked}
+          compact={compact}
+          placeholderOverride={composerPlaceholder}
         />
       </div>
 
@@ -2405,6 +2451,8 @@ function ChatComposer({
   onAddAttachment,
   onRemoveAttachment,
   onAgentPicked,
+  compact,
+  placeholderOverride,
 }: {
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
   value: string;
@@ -2426,6 +2474,8 @@ function ChatComposer({
   onAddAttachment: (a: ChatAttachment) => void;
   onRemoveAttachment: (key: string) => void;
   onAgentPicked: (workflow: Workflow) => void;
+  compact: boolean;
+  placeholderOverride?: string;
 }): React.ReactElement {
   // The right-side button is in one of three states:
   //   • idle     — empty input, button is dim, disabled
@@ -2521,7 +2571,7 @@ function ChatComposer({
     mq.addEventListener("change", sync);
     return () => mq.removeEventListener("change", sync);
   }, []);
-  const placeholder =
+  const placeholder = placeholderOverride ?? (
     mode === "automation"
       ? isMobile
         ? "What order should I place?"
@@ -2536,7 +2586,8 @@ function ChatComposer({
             : "Describe a strategy to backtest — e.g. 'RELIANCE when RSI < 30'"
           : isMobile
             ? PLACEHOLDER_TEXT_MOBILE
-            : PLACEHOLDER_TEXT;
+            : PLACEHOLDER_TEXT
+  );
 
   return (
     <div className="space-y-1.5 sm:space-y-3" data-testid="chat-composer">
@@ -2639,7 +2690,7 @@ function ChatComposer({
           centering; the send button itself is self-end (see below) so it
           drops to the bottom only once the textarea grows multiline. */}
       <div
-        className="relative"
+        className="chat-composer-box relative"
         style={{
           background: "var(--bg-primary)",
           borderRadius: "var(--radius-xl)",
@@ -2665,7 +2716,7 @@ function ChatComposer({
             this conversation, docked inside the pill above the input. */}
         <AttachmentChips attachments={attachments} onRemove={onRemoveAttachment} />
 
-        <div className="flex items-center gap-1 p-1 pl-1.5 sm:gap-1.5 sm:p-1.5 sm:pl-2">
+        <div className="chat-composer-row flex items-center gap-1 p-1 pl-1.5 sm:gap-1.5 sm:p-1.5 sm:pl-2">
         {/* "+" — add context (securities, agents, positions; research/web
             stubs). Sits at the left edge like ChatGPT/Claude. */}
         <ComposerPlusMenu onAttach={onAddAttachment} onAgentPicked={onAgentPicked} />
@@ -2771,7 +2822,7 @@ function ChatComposer({
           so they read as a quiet row rather than glassy chips. On phone the row
           scrolls horizontally (the four chips overflow a ~360px width); on sm+
           it stays a static centered row. */}
-      <div className="composer-modes flex items-center justify-start gap-2 overflow-x-auto px-0.5 sm:justify-center sm:overflow-x-visible sm:px-0">
+      {!compact && <div className="composer-modes flex items-center justify-start gap-2 overflow-x-auto px-0.5 sm:justify-center sm:overflow-x-visible sm:px-0">
         {MODES.map((m) => {
           const Icon = m.icon;
           const isActive = mode === m.id;
@@ -2819,7 +2870,7 @@ function ChatComposer({
         <span className="shrink-0">
           <OptionChainLauncherCard variant="pill" />
         </span>
-      </div>
+      </div>}
     </div>
   );
 }

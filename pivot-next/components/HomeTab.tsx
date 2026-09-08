@@ -10,12 +10,12 @@
  * check isn't enough — OS scaling, tab/bookmarks bars, etc. all shrink the
  * usable height differently). It gathers the six things a user most often
  * wants on arrival into one scannable board, each cell a doorway into the
- * deeper tab. (Row 2 held an Opinions teaser beside Strategies until the
- * opinion-markets surface was retired on 2026-09-05; Strategies now spans it.)
+ * deeper tab. Row 2 pairs a compact strategy launcher with both sides of the
+ * live NIFTY 50 tape.
  *
  *   ┌──────── indices (NIFTY / SENSEX / BANK NIFTY / MIDCAP) ────────┐
  *   ├───── Portfolio ─────┬──── Watchlist ────┬──── Chat prompts ────┤
- *   ├─────────────── Prebuilt strategies ────────────────────────────┤
+ *   ├── Strategies ──┬── Top gainers ───┬── Top losers ────┤
  *   └────────────────────────────────────────────────────────────────┘
  *
  * DESIGN: borders-only cards on the paper surface, radius tokens, theme-aware
@@ -44,11 +44,13 @@ import {
   Repeat,
   Scale,
   Sparkles,
+  TrendingDown,
   TrendingUp,
   Wallet,
 } from "lucide-react";
 import {
   getMarketIndices,
+  getMarketMovers,
   getMe,
   getPortfolioHoldings,
   getPortfolioSummary,
@@ -56,6 +58,7 @@ import {
   getStockQuote,
   type Holding,
   type IndexQuote,
+  type MarketMover,
   type PortfolioSummary,
 } from "@/lib/api";
 import { isError } from "@/lib/types";
@@ -358,8 +361,8 @@ type ChatPrompt = {
   Icon: React.ComponentType<{ size?: number; strokeWidth?: number; style?: React.CSSProperties }>;
 };
 
-// Six seeds. ChatPromptsCard measures the card's real height and shows as
-// many as fit without cramping (a tall monitor takes all six; a short laptop
+// Seven seeds. ChatPromptsCard measures the card's real height and shows as
+// many as fit without cramping (a tall monitor takes all seven; a short laptop
 // or a small-screen MacBook trims to what stays readable) — see PROMPT_ROW_MIN
 // and the ResizeObserver there. Measured space, not a physical-pixel device
 // guess, which used to mis-size Retina laptops and 1920 monitors.
@@ -370,6 +373,7 @@ const CHAT_PROMPTS: ChatPrompt[] = [
   { label: "Compare INFY vs TCS over the last 6 months.", Icon: Scale },
   { label: "Show me the NIFTY option chain with max pain and PCR.", Icon: CandlestickChart },
   { label: "Alert me when RELIANCE crosses ₹1,500.", Icon: Bell },
+  { label: "Build and backtest a simple NIFTY momentum strategy.", Icon: Sparkles },
 ];
 
 // ---------------------------------------------------------------------------
@@ -463,12 +467,15 @@ export function HomeTab({ onGoTab, onSendPrompt, onOpenAgent, onOpenStrategies }
           <ChatPromptsCard onGoTab={onGoTab} onSend={onSendPrompt} />
         </div>
 
-        {/* Row 2 */}
-        {/* Row 2 was a half-width Strategies card beside an Opinions teaser.
-            The opinion-markets surface was retired 2026-09-05, so Strategies
-            takes the full row rather than leaving a hole in the board. */}
-        <div className="lg:col-span-6 lg:col-start-1 lg:row-start-2 min-h-0">
+        {/* Row 2: a compact strategy launcher plus both sides of today's tape. */}
+        <div className="lg:col-span-2 lg:col-start-1 lg:row-start-2 min-h-0">
           <StrategiesCard onOpenAgent={onOpenAgent} onOpenStrategies={onOpenStrategies} />
+        </div>
+        <div className="lg:col-span-2 lg:col-start-3 lg:row-start-2 min-h-0">
+          <MoversCard direction="gainers" />
+        </div>
+        <div className="lg:col-span-2 lg:col-start-5 lg:row-start-2 min-h-0">
+          <MoversCard direction="losers" />
         </div>
       </div>
     </div>
@@ -1469,19 +1476,20 @@ function WatchlistRow({ row, last }: { row: WlRow; last: boolean }): React.React
 // Smallest height (px) a single prompt row can take before its one line of
 // text + icon start to look cramped against the row border. The fit maths
 // below never lets a visible row fall below this, so rows always read cleanly.
-const PROMPT_ROW_MIN = 38;
+const PROMPT_ROW_MIN = 30;
 // Inter-row gap in px — the resolved midpoint of the clamp() on the list below.
 // Used only to size the fit; the real gap is still the clamp.
-const PROMPT_ROW_GAP = 8;
+const PROMPT_ROW_GAP = 6;
 
 /** How many prompt rows fit in `height` px without any row dropping below
  *  PROMPT_ROW_MIN. n flex rows share `height` with (n-1) gaps between them, so
  *  the tallest n that keeps every row ≥ min is floor((height+gap)/(min+gap)).
- *  Clamped to [3, total] — never blank, never more than we have. */
+ *  Clamped to [4, total] so the compact home card always offers one more
+ *  useful starting point without growing taller. */
 function promptsThatFit(height: number, total: number): number {
   if (height <= 0) return total;
   const n = Math.floor((height + PROMPT_ROW_GAP) / (PROMPT_ROW_MIN + PROMPT_ROW_GAP));
-  return Math.max(3, Math.min(total, n));
+  return Math.max(4, Math.min(total, n));
 }
 
 function ChatPromptsCard({
@@ -1529,8 +1537,7 @@ function ChatPromptsCard({
       actionLabel="Open"
       onAction={() => onGoTab("chat")}
       scroll={false}
-      clip={false}
-      bodyClassName="flex flex-col"
+      bodyClassName="flex min-h-0 flex-col overflow-hidden"
     >
       {/* No inner scroll — each prompt grows to an equal share of the card
           height (flex-1), so they read as one evenly-spaced stack that fills
@@ -1540,8 +1547,8 @@ function ChatPromptsCard({
           highlight visible. */}
       <div
         ref={listRef}
-        className="home-chat-prompts flex flex-1 flex-col"
-        style={{ gap: "clamp(6px, 1.1vh, 10px)", paddingBlock: 2 }}
+        className="home-chat-prompts flex min-h-0 flex-1 flex-col overflow-hidden"
+        style={{ gap: "clamp(4px, 0.75vh, 7px)", paddingBlock: 2 }}
       >
         {CHAT_PROMPTS.slice(0, visible).map((p) => (
           <PromptRow key={p.label} label={p.label} Icon={p.Icon} onClick={() => onSend(p.label)} />
@@ -1568,7 +1575,7 @@ function PromptRow({
       style={{
         gap: 9,
         minHeight: 0,
-        padding: "clamp(5px, 1vh, 8px) 11px",
+        padding: "clamp(4px, 0.7vh, 6px) 11px",
         background: "var(--bg-base)",
         border: "1px solid var(--glass-border)",
         borderRadius: "var(--radius-md)",
@@ -1614,17 +1621,23 @@ function StrategiesCard({
   onOpenStrategies: HomeTabProps["onOpenStrategies"];
 }): React.ReactElement {
   return (
-    <CardShell Icon={Sparkles} title="Prebuilt strategies" bodyClassName="min-h-0">
-      {/* vh-clamped gap/padding/icon sizing on the tiles below keeps all four
-          tiles fitting without a scrollbar on any realistic viewport; the
-          card still scrolls (hidden scrollbar) as a last-resort fallback
-          rather than ever clipping a tile out of reach. */}
+    <CardShell
+      Icon={Sparkles}
+      title="Prebuilt strategies"
+      bodyClassName="min-h-0"
+    >
       <div
-        className="home-strategies-grid grid h-full grid-cols-1 sm:grid-cols-2"
-        style={{ gap: "clamp(6px, 1vh, 12px)", gridAutoRows: "1fr" }}
+        className="home-strategies-grid flex h-full flex-col"
+        style={{ borderTop: "1px solid var(--glass-border)" }}
       >
-        {PREBUILT_STRATEGIES.map((s) => (
-          <StrategyCard key={s.title} tile={s} onOpenAgent={onOpenAgent} onOpenStrategies={onOpenStrategies} />
+        {PREBUILT_STRATEGIES.map((s, index) => (
+          <StrategyCard
+            key={s.title}
+            index={index}
+            tile={s}
+            onOpenAgent={onOpenAgent}
+            onOpenStrategies={onOpenStrategies}
+          />
         ))}
       </div>
     </CardShell>
@@ -1632,10 +1645,12 @@ function StrategiesCard({
 }
 
 function StrategyCard({
+  index,
   tile,
   onOpenAgent,
   onOpenStrategies,
 }: {
+  index: number;
   tile: StrategyTile;
   onOpenAgent: HomeTabProps["onOpenAgent"];
   onOpenStrategies: HomeTabProps["onOpenStrategies"];
@@ -1654,6 +1669,7 @@ function StrategyCard({
     <div
       role="button"
       tabIndex={0}
+      aria-label={`${tile.title}. ${tile.subtitle}. ${tile.tag}`}
       onClick={open}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -1661,48 +1677,45 @@ function StrategyCard({
           open();
         }
       }}
-      className="home-strat home-strat-tile group flex h-full items-center transition-all duration-200 hover:-translate-y-0.5"
+      className="home-strat group flex min-h-0 flex-1 items-center"
       style={{
-        gap: 12,
-        padding: "clamp(8px, 1.4vh, 13px) 14px",
-        borderRadius: "var(--radius-md)",
-        border: "1px solid var(--glass-border)",
-        background: "var(--bg-base)",
-        boxShadow: "var(--shadow-card)",
+        gap: 9,
+        padding: "clamp(5px, 0.85vh, 9px) 4px",
+        borderBottom: index === PREBUILT_STRATEGIES.length - 1 ? "none" : "1px solid var(--glass-border)",
+        background: "transparent",
         cursor: "pointer",
-        transitionTimingFunction: "var(--ease-quartr)",
+        transition: "background-color 0.2s var(--ease-quartr)",
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = "var(--glass-border-hover)";
-        e.currentTarget.style.boxShadow = "var(--shadow-card-hover)";
+        e.currentTarget.style.background = "var(--bg-elevated)";
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = "var(--glass-border)";
-        e.currentTarget.style.boxShadow = "var(--shadow-card)";
+        e.currentTarget.style.background = "transparent";
       }}
     >
       <div
         className="home-strat-icon flex shrink-0 items-center justify-center"
         style={{
-          width: "clamp(26px, 3.6vh, 34px)",
-          height: "clamp(26px, 3.6vh, 34px)",
-          borderRadius: "var(--radius-sm)",
-          background: "var(--bg-base)",
-          border: "1px solid var(--glass-border)",
+          width: "clamp(24px, 3vh, 29px)",
+          height: "clamp(24px, 3vh, 29px)",
+          borderRadius: "var(--radius-pill)",
+          background: "var(--bg-elevated)",
           color: "var(--text-secondary)",
         }}
       >
-        <Icon size={16} strokeWidth={1.8} />
+        <Icon size={14} strokeWidth={1.8} />
       </div>
-      <div className="flex min-w-0 flex-1 flex-col" style={{ gap: 3 }}>
+      <div className="flex min-w-0 flex-1 items-center" style={{ gap: 7 }}>
         <span
           style={{
             fontFamily: "var(--font-ui)",
-            fontSize: 13,
+            fontSize: 12,
             fontWeight: 600,
             color: "var(--text-primary)",
             letterSpacing: "-0.01em",
             whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
           }}
         >
           {tile.title}
@@ -1710,12 +1723,15 @@ function StrategyCard({
         <span
           style={{
             fontFamily: "var(--font-ui)",
-            fontSize: 11.5,
+            fontSize: 9.5,
+            fontWeight: 650,
             color: "var(--text-tertiary)",
-            lineHeight: 1.35,
+            textTransform: "uppercase",
+            letterSpacing: "0.035em",
+            whiteSpace: "nowrap",
           }}
         >
-          {tile.subtitle}
+          {tile.tag}
         </span>
       </div>
       <ArrowRight
@@ -1726,6 +1742,141 @@ function StrategyCard({
         aria-hidden
       />
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Market movers — compact, scan-first lists inspired by professional market
+// terminals: identity left, price and signed day move aligned on the right.
+// ---------------------------------------------------------------------------
+
+type MoversState =
+  | { kind: "loading" }
+  | { kind: "ok"; gainers: MarketMover[]; losers: MarketMover[]; source: "kite" | "yfinance" | "unknown" }
+  | { kind: "empty" };
+
+function MoversCard({ direction }: { direction: "gainers" | "losers" }): React.ReactElement {
+  const [state, setState] = useState<MoversState>({ kind: "loading" });
+  const [sparks, setSparks] = useState<Record<string, number[]>>({});
+
+  useEffect(() => {
+    let alive = true;
+    getMarketMovers(6)
+      .then((result) => {
+        if (!alive) return;
+        setState(isError(result) ? { kind: "empty" } : { kind: "ok", ...result.data });
+      })
+      .catch(() => alive && setState({ kind: "empty" }));
+    return () => { alive = false; };
+  }, []);
+
+  const positive = direction === "gainers";
+  const rows = useMemo(
+    () => state.kind === "ok" ? state[direction].slice(0, 6) : [],
+    [direction, state],
+  );
+  const moverSymbols = useMemo(() => rows.map((row) => row.symbol), [rows]);
+  const moverLogos = useCompanyLogos(moverSymbols);
+
+  useEffect(() => {
+    let alive = true;
+    if (moverSymbols.length === 0) {
+      setSparks({});
+      return () => { alive = false; };
+    }
+    Promise.all(
+      moverSymbols.map(async (symbol) => [symbol, await fetchSpark(symbol)] as const),
+    ).then((entries) => {
+      if (!alive) return;
+      const next: Record<string, number[]> = {};
+      for (const [symbol, spark] of entries) {
+        if (spark) next[symbol] = spark;
+      }
+      setSparks(next);
+    });
+    return () => { alive = false; };
+  }, [moverSymbols]);
+
+  const color = positive ? "var(--color-profit)" : "var(--color-loss)";
+  const label = positive ? "Top gainers" : "Top losers";
+  const Icon = positive ? TrendingUp : TrendingDown;
+
+  return (
+    <CardShell
+      Icon={Icon}
+      title={label}
+      bodyClassName="min-h-0"
+    >
+      {state.kind === "loading" ? (
+        <div className="flex h-full flex-col" style={{ gap: 6 }}>
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} style={{ height: 34, width: "100%" }} />
+          ))}
+        </div>
+      ) : state.kind === "empty" || rows.length === 0 ? (
+        <div className="flex h-full items-center" style={{ gap: 9 }}>
+          <Icon size={17} strokeWidth={1.7} style={{ color: "var(--text-tertiary)" }} />
+          <span style={{ fontFamily: "var(--font-ui)", fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.45 }}>
+            Live NIFTY 50 movers are unavailable right now.
+          </span>
+        </div>
+      ) : (
+        <ol className="flex flex-col" style={{ margin: 0, padding: 0, listStyle: "none", borderTop: "1px solid var(--glass-border)" }}>
+          {rows.map((row, index) => (
+            <li key={row.symbol} className="shrink-0">
+              <Link
+                href={`/stock/${encodeURIComponent(row.symbol)}`}
+                className="flex items-center"
+                style={{
+                  gap: 10,
+                  minHeight: 44,
+                  padding: "clamp(4px, 0.9vh, 7px) 3px",
+                  borderBottom: index === rows.length - 1 ? "none" : "1px solid var(--glass-border)",
+                  color: "inherit",
+                  textDecoration: "none",
+                }}
+              >
+                <CompanyLogo
+                  logoUrl={moverLogos[row.symbol.toUpperCase()] ?? null}
+                  name={row.symbol}
+                  symbol={row.symbol}
+                  size={30}
+                />
+                <span
+                  style={{
+                    minWidth: 0,
+                    flex: 1,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    fontFamily: "var(--font-ui)",
+                    fontSize: 12.5,
+                    fontWeight: 600,
+                    letterSpacing: "-0.01em",
+                    color: "var(--text-primary)",
+                  }}
+                >
+                  {row.symbol}
+                </span>
+                {sparks[row.symbol] && (
+                  <span style={{ width: 58, flexShrink: 0, opacity: 0.9 }} aria-hidden>
+                    <AreaSpark data={sparks[row.symbol]!} up={positive} width={58} height={22} />
+                  </span>
+                )}
+                <span className="flex shrink-0 flex-col items-end tabular-nums">
+                  <span style={{ fontFamily: "var(--font-display)", fontSize: 12.5, color: "var(--text-primary)" }}>
+                    {fmtNum(row.ltp)}
+                  </span>
+                  <span style={{ fontFamily: "var(--font-display)", fontSize: 11, fontWeight: 650, color }}>
+                    {fmtSignedPct(row.change_pct)}
+                  </span>
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ol>
+      )}
+    </CardShell>
   );
 }
 

@@ -460,6 +460,241 @@ input[type="range"].payoff-slider::-moz-range-thumb {
   .home-live-ping { animation: none; }
 }
 
+/* Global Pivot Copilot ----------------------------------------------------
+   One chat instance changes presentation; these classes never create a
+   second transcript or composer. */
+.copilot-side-panel {
+  position: fixed;
+  top: var(--header-h, 56px);
+  right: 0;
+  bottom: 0;
+  z-index: 55;
+  display: flex;
+  width: var(--copilot-side-w, 25vw);
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-base);
+  border-left: 2px solid var(--shell-seam);
+  transform: translateX(14px);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    transform 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 180ms ease,
+    visibility 0s linear 240ms;
+}
+
+.copilot-side-panel--open {
+  transform: translateX(0);
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition:
+    transform 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 180ms ease,
+    visibility 0s;
+}
+
+.copilot-panel-header {
+  display: flex;
+  min-height: 42px;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  padding: 6px 12px;
+  border-bottom: 0;
+  background: var(--bg-primary);
+}
+
+.copilot-panel-action {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.copilot-panel-action:hover,
+.copilot-panel-action:focus-visible {
+  background: var(--surface-active);
+  color: var(--text-primary);
+}
+
+.copilot-quick-ask {
+  position: fixed;
+  left: calc(50% + 24px);
+  bottom: max(18px, env(safe-area-inset-bottom));
+  z-index: 50;
+  width: min(440px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  font-family: var(--font-ui);
+  transition:
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 160ms ease,
+    visibility 0s;
+}
+
+.copilot-quick-ask--visible {
+  transform: translateX(-50%) translateY(0) scale(1);
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.copilot-quick-ask--hidden {
+  transform: translateX(-50%) translateY(10px) scale(0.97);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    transform 180ms cubic-bezier(0.4, 0, 1, 1),
+    opacity 140ms ease,
+    visibility 0s linear 180ms;
+}
+
+.copilot-quick-pill {
+  display: flex;
+  min-height: 54px;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px 7px 15px;
+  border: 1px solid var(--glass-border);
+  border-radius: 28px;
+  background: color-mix(in srgb, var(--bg-primary) 86%, transparent);
+  box-shadow: 0 14px 42px rgba(0, 0, 0, 0.16);
+  backdrop-filter: blur(28px) saturate(160%);
+}
+.copilot-quick-mark {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  background: var(--text-primary);
+  -webkit-mask: url("/charto-mark.png") center / contain no-repeat;
+  mask: url("/charto-mark.png") center / contain no-repeat;
+}
+.copilot-quick-input {
+  min-width: 0;
+  flex: 1;
+  height: 24px;
+  max-height: 72px;
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: 400 14px/24px var(--font-ui);
+}
+.copilot-quick-input::placeholder { color: var(--text-tertiary); }
+.copilot-quick-send {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: var(--text-primary);
+  color: var(--bg-primary);
+  cursor: pointer;
+}
+.copilot-quick-send:disabled { cursor: default; opacity: 0.28; }
+
+.copilot-main {
+  transition: padding-right 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.copilot-main-with-panel { padding-right: var(--copilot-side-w, 25vw); }
+
+/* Side-panel composer mirrors Charto's two-row box: prompt on top, compact
+   context at lower left, voice/send at lower right. Full Workspace keeps the
+   richer Pivot composer unchanged. */
+.copilot-side-panel .composer-dock {
+  margin-top: 0;
+  padding: 6px clamp(16px, 4%, 34px) 14px;
+  background: transparent;
+}
+.copilot-side-panel [data-testid="chat-scroll"] {
+  padding-right: clamp(16px, 4%, 34px);
+  padding-left: clamp(16px, 4%, 34px);
+}
+.copilot-side-panel [data-testid="chat-composer"] { display: block; }
+.copilot-side-panel .chat-composer-box {
+  padding: 10px 10px 8px 14px;
+  border-radius: var(--radius-lg) !important;
+  background: var(--bg-primary) !important;
+}
+.copilot-side-panel .chat-composer-row {
+  display: grid;
+  grid-template-columns: 1fr 30px 32px;
+  grid-template-rows: auto 32px;
+  gap: 4px 6px;
+  padding: 0 !important;
+}
+.copilot-side-panel .chat-composer-row > textarea {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  width: 100%;
+  padding: 2px 4px 4px 0 !important;
+  font-size: 14px !important;
+  line-height: 24px !important;
+}
+.copilot-side-panel [data-testid="composer-plus-btn"] { display: none; }
+.copilot-side-panel [data-testid="chat-voice-btn"] {
+  grid-column: 2;
+  grid-row: 2;
+  align-self: center;
+}
+.copilot-side-panel [data-testid="chat-submit-btn"],
+.copilot-side-panel [data-testid="chat-stop-btn"] {
+  grid-column: 3;
+  grid-row: 2;
+  align-self: center;
+  width: 30px;
+  height: 30px;
+}
+.copilot-side-panel [data-testid="composer-attachments"] {
+  position: absolute;
+  left: 14px;
+  bottom: 11px;
+  z-index: 2;
+  padding: 0 !important;
+}
+.copilot-side-panel [data-testid^="attachment-chip-"] {
+  gap: 5px !important;
+  padding: 4px 8px !important;
+  border: 0 !important;
+  border-radius: var(--radius-pill) !important;
+  background: var(--bg-elevated) !important;
+}
+.copilot-side-panel [data-testid^="attachment-chip-"] > div > div:last-child,
+.copilot-side-panel [data-testid^="attachment-chip-"] button { display: none; }
+.copilot-side-panel [data-testid^="attachment-chip-"] > :first-child { display: none; }
+
+@media (max-width: 820px) {
+  .copilot-side-panel {
+    left: 0;
+    width: 100vw;
+    border-left: 0;
+  }
+  .copilot-main-with-panel { padding-right: 0; }
+  .copilot-quick-ask { left: 50%; bottom: max(12px, env(safe-area-inset-bottom)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .copilot-side-panel,
+  .copilot-side-panel--open,
+  .copilot-quick-ask,
+  .copilot-quick-ask--hidden,
+  .copilot-main {
+    transition: none;
+  }
+}
+
 /* Strategy tile: the trailing arrow slides in on hover/focus. */
 .home-strat-arrow {
   opacity: 0;
@@ -861,45 +1096,30 @@ input[type="range"].payoff-slider::-moz-range-thumb {
   padding: 6px 3px;
 }
 /* ── the chart tab: ONE top bar, and it is the chart's own ───────────────
-   Every other surface wears the shell's TopHeader. The chart supplies its
-   own bar instead (symbol, interval, indicators, undo/redo, layouts, Chat),
-   so AppShell suppresses TopHeader there — one bar, never two stacked.
-
-   A top bar has to reach the window's left edge to read as a top bar. The
-   chart's bar is inside the iframe, so the iframe is what has to reach the
-   edge: on this tab the content column spans the FULL width and the rail
-   stops taking width from it, floating over the chart instead.
-
-   The rail keeps its own background, so the chart never shows through it —
-   it reads exactly as it does on every other tab, just layered rather than
-   packed. Its icons then pad down past the bar they are floating over, and
-   --header-h measures that: 48px on desktop, matched to the chart
-   workspace's bar (see the chart app's own --header-h), so one token keeps
-   the two in step and the icons keep one baseline across every tab.
-
-   Desktop only, and that bound is load-bearing rather than tidiness: below
-   lg the rail is already a FIXED full-height drawer that slides over the
-   page from top:0, with no bar above it to clear. Both rules here outrank
-   the drawer's plain-class ones, so without the query they would push the
-   drawer's contents down past the notch and re-anchor it mid-page. */
-@media (min-width: 1024px) {
-  .shell-row--chart {
-    position: relative;
-  }
-  .shell-row--chart > .sidebar-shell {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 0;
-    z-index: 30;
-  }
-  /* Deliberately NO left margin on the content column: the iframe runs edge
-     to edge so its bar can, and the chart insets its own body under the rail
-     from the inside (`.in-shell .main` — the shell tells it the rail's width
-     via the `railpad` message). Reserving the 48px out here instead would put
-     the bar's left edge back at 48px, which is the whole bug. */
-  .sidebar-shell[data-below-standin-header="true"] {
-    padding-top: calc(var(--header-h, 56px) + 6px);
+   The shared header stays outside the sidebar/content row on every surface.
+   On Chart, the same-origin frame is lifted by exactly one header height so
+   its chart-only controls occupy the shared header's middle slot. */
+.top-header--chart {
+  z-index: 40;
+  pointer-events: none;
+  background: transparent !important;
+}
+.top-header--chart .brand-slot,
+.top-header--chart > .ml-auto {
+  pointer-events: auto;
+}
+.chart-shell-pane {
+  overflow: visible;
+}
+.chart-shell-pane .chart-frame-wrap {
+  position: absolute;
+  inset: calc(var(--header-h, 56px) * -1) 0 0;
+}
+@media (max-width: 560px) and (orientation: portrait) {
+  /* Charto replaces its desktop header with an in-canvas mobile toolbar at
+     this breakpoint, so there is no framed header row to lift into the slot. */
+  .chart-shell-pane .chart-frame-wrap {
+    inset: 0;
   }
 }
 .sidebar-nav-list {

@@ -136,6 +136,7 @@ def _fetch_live_movers(symbols: tuple[str, ...]) -> list[dict[str, Any]]:
                 "symbol": s,
                 "ltp": round(ltp, 2),
                 "change_pct": round((ltp - prev) / prev * 100.0, 2),
+                "source": "kite",
                 "seed": False,
             })
         if krows:
@@ -191,6 +192,7 @@ def _fetch_live_movers(symbols: tuple[str, ...]) -> list[dict[str, Any]]:
                 "symbol": sym,
                 "ltp": round(ltp, 2),
                 "change_pct": round(change_pct, 2),
+                "source": "yfinance",
                 "seed": False,
             })
         except Exception as e:

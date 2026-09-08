@@ -39,12 +39,9 @@
   // anybody. Returning here is what keeps this file free at `/`.
   if (window.parent === window) return;
 
-  // Framed: this header IS the shell's top bar on the chart route, so it runs
-  // the full width of the window and the shell's nav rail floats over our left
-  // edge rather than sitting beside us. `.in-shell` is what moves everything
-  // below the header out from under that rail. Also set inline in <head> so it
-  // lands before first paint; setting it twice is free, and this is the seam
-  // that owns the fact.
+  // Framed: the parent owns the shared header and sidebar. `.in-shell` keeps
+  // this app's chart-specific controls while hiding its duplicate global
+  // chrome. Also set inline in <head> so it lands before first paint.
   const root = document.documentElement;
   root.classList.add("in-shell");
 
@@ -60,28 +57,46 @@
     } catch { /* the parent went away mid-navigation; nothing to do */ }
   };
 
+  // Inside the unified shell, the chart starts with its own conversation
+  // collapsed. The shell's Quick Ask is the entry point; showing both it and
+  // the full chart conversation at once duplicates the same presentation.
+  // Use the chart's real toggle so its splitter and toolbar state stay in
+  // sync, then report every later open/close back to the shell.
+  const chatPanel = document.getElementById("chatPanel");
+  const chatToggle = document.getElementById("chatToggle");
+  const tellChatVisibility = () => tell({
+    type: "chart:chat-visibility",
+    open: !!chatPanel && !chatPanel.classList.contains("hidden"),
+  });
+  if (chatPanel && chatToggle) {
+    if (!chatPanel.classList.contains("hidden")) chatToggle.click();
+    new MutationObserver(tellChatVisibility).observe(chatPanel, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+    tellChatVisibility();
+  }
+
   window.addEventListener("message", (e) => {
     if (!trusted(e)) return;
     const d = e.data;
     if (!d || typeof d !== "object") return;
     if (d.type === "pivot:hello") announce();
 
-    // How wide the shell's nav rail is, in CSS pixels. The rail overlays our
-    // left edge, so this is how far in everything below the header has to
-    // start. The shell owns that number (it can collapse the rail); we only
-    // ever read it. Guarded to a sane range so a malformed message cannot
-    // shove the chart off-screen — outside it, the stylesheet's fallback
-    // stands.
-    if (d.type === "pivot:railpad" && Number.isFinite(d.width)) {
-      const w = Math.max(0, Math.min(160, d.width));
-      root.style.setProperty("--shell-rail-w", `${w}px`);
-    }
-
     if (d.type === "pivot:theme" && (d.mode === "dark" || d.mode === "light")) {
       // `persist` left true on purpose: if the user goes back to the chart
       // standalone, it should still be wearing the theme they chose in the
       // shell. One theme per person, not one per surface.
       try { Theme.set(d.mode); } catch { /* theme.js not up yet */ }
+    }
+
+    // Global shell Quick Ask on the Chart route is only an entry point into
+    // Charto's existing sidebar. Keep its separate model, messages and thread.
+    if (d.type === "pivot:chart-ask") {
+      const text = String(d.text || "").trim();
+      if (text && window.Chat && typeof window.Chat.ask === "function") {
+        window.Chat.ask(text);
+      }
     }
   });
 
@@ -101,6 +116,7 @@
       symbol = new URLSearchParams(window.location.search).get("symbol");
     } catch { /* ignore */ }
     tell({ type: "chart:ready", symbol });
+    tellChatVisibility();
   };
 
   if (document.readyState === "complete") announce();

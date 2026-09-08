@@ -1,12 +1,12 @@
 "use client";
 
 /**
- * AppShell — Quartr-style premium shell with left sidebar nav, center content,
- * and (on dashboard) right Active Agents rail.
+ * AppShell — Quartr-style premium shell with left sidebar nav and center
+ * content.
  *
  * Layout:
  *   [Sticky top header: logo + search + metric strip + theme toggle + avatar]
- *   [Left sidebar nav | Center content pane | Right rail (dashboard only)]
+ *   [Left sidebar nav | Center content pane]
  *
  * Nav items: Chat / Portfolio / Agents / Screener
  * Active item: solid left border + bg highlight
@@ -37,6 +37,7 @@ import {
   Keyboard,
   LogOut,
   Menu,
+  Maximize2,
   MessagesSquare,
   Monitor,
   Moon,
@@ -70,12 +71,12 @@ import {
 import { AgentsTab } from "@/components/agent-panel/AgentsTab";
 import { PortfolioTab } from "@/components/agent-panel/PortfolioTab";
 import { ChartFrame } from "@/components/chart/ChartFrame";
+import { QuickAsk } from "@/components/copilot/QuickAsk";
 import { ScreenerPage } from "@/components/screener/ScreenerPage";
 import { SettingsDialog } from "@/components/settings/SettingsTab";
 import { DashboardTab } from "@/components/DashboardTab";
 import { HomeTab } from "@/components/HomeTab";
 import { CompanyAutosuggest } from "@/components/CompanyAutosuggest";
-import { ActiveAgentsRail } from "@/components/ActiveAgentsRail";
 import { PivotWordmark } from "@/components/brand/PivotLogo";
 import { ProductTour, START_TOUR_EVENT } from "@/components/onboarding/ProductTour";
 import { LoginIntroGate } from "@/components/onboarding/LoginIntroGate";
@@ -133,15 +134,27 @@ const NAV_ITEMS: {
 // post-login/signup redirect (which lands on "/"), opens on Home, not Chat.
 const DEFAULT_TAB: TabKey = "home";
 const METRIC_REFRESH_MS = 30_000;
+const ACTIVE_COPILOT_KEY = "pivot:active-copilot-conversation";
+const COPILOT_CONTEXT_KEY = "pivot:copilot-page-context";
 
-/** Width of the collapsed desktop nav rail, in px — the same 48 that
- *  `.sidebar-shell` is styled to in globals.css. Duplicated here (rather than
- *  read back off the DOM) because it has to cross into the chart's iframe as
- *  a number: on the chart route the rail overlays the frame instead of
- *  sitting beside it, and the chart insets its own tools by this much. Keep
- *  the two in step — the CSS is the one a user sees, this is the one the
- *  chart is told. */
-const SIDEBAR_RAIL_W = 48;
+type CopilotPageContext =
+  | { kind: "page"; page: "home" | "portfolio" | "agents" | "screener"; label: string }
+  | { kind: "security"; symbol: string; name: string };
+
+function readStoredConversationId(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  try { return sessionStorage.getItem(ACTIVE_COPILOT_KEY) || undefined; }
+  catch { return undefined; }
+}
+
+function readStoredCopilotContext(): CopilotPageContext {
+  const fallback: CopilotPageContext = { kind: "page", page: "home", label: "Home" };
+  if (typeof window === "undefined") return fallback;
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem(COPILOT_CONTEXT_KEY) || "null") as CopilotPageContext | null;
+    return parsed?.kind ? parsed : fallback;
+  } catch { return fallback; }
+}
 
 function readHashTab(): TabKey {
   if (typeof window === "undefined") return DEFAULT_TAB;
@@ -295,13 +308,23 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   const [accountInitial, setAccountInitial] = useState<string>("U");
   const [accountName, setAccountName] = useState<string>("Account");
   const [accountEmail, setAccountEmail] = useState<string>("");
-  // True once the user has sent ≥1 message in the chat tab. AppShell
-  // hides the Active Agents rail in that state so the chat column
-  // takes the freed width (Quartr-style).
+  // True once the user has sent ≥1 message in the chat tab. Active
+  // conversations use a slightly wider reading column than the empty state.
   const [chatActive, setChatActive] = useState(false);
   // Bumped by the "New chat" button to remount DashboardTab/ChatDemo
   // and start a fresh session (clears messages + conversation_id).
   const [chatResetKey, setChatResetKey] = useState(0);
+  // Presentation state only. The chat component stays mounted while this
+  // toggles, so side-panel/full-workspace transitions cannot fork a thread.
+  const [copilotPanelOpen, setCopilotPanelOpen] = useState(false);
+  const [chartChatOpen, setChartChatOpen] = useState(false);
+  const [activeConversationId, setActiveConversationId] = useState<string | undefined>(
+    readStoredConversationId,
+  );
+  const restoreConversationIdRef = useRef(activeConversationId);
+  const [copilotContext, setCopilotContext] = useState<CopilotPageContext>(
+    { kind: "page", page: "home", label: "Home" },
+  );
   // A prompt seeded from the Home tab — passed to DashboardTab which fills the
   // composer and auto-submits it. Cleared once ChatDemo has consumed it.
   const [seededChatPrompt, setSeededChatPrompt] = useState<string | undefined>(undefined);
@@ -323,6 +346,11 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isDesktop, setIsDesktop] = useState(true);
   const metricTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const rememberConversationId = useCallback((id: string): void => {
+    setActiveConversationId(id);
+    try { sessionStorage.setItem(ACTIVE_COPILOT_KEY, id); } catch { /* unavailable */ }
+  }, []);
   // Keep-alive tabs (2026-07-03 perf pass): non-chat tabs used to UNMOUNT on
   // switch-away, so every return re-fetched everything behind a skeleton
   // (~300-800ms measured per revisit). Tabs now mount lazily on FIRST visit
@@ -336,6 +364,77 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
       prev.has(active) ? prev : new Set(prev).add(active),
     );
   }, [active]);
+
+  // Storage is client-only; adopt it after hydration so SSR and the first
+  // client paint agree. The route-registration effect below wins when the
+  // current page supplies newer context.
+  useEffect(() => {
+    setCopilotContext(readStoredCopilotContext());
+  }, []);
+
+  // Rehydrate the active Copilot thread when AppShell remounts across a real
+  // route boundary (for example /stock/RELIANCE -> /#chat). Presentation
+  // switches inside the shell never come through here and never remount chat.
+  useEffect(() => {
+    const id = restoreConversationIdRef.current;
+    if (!id) return;
+    let cancelled = false;
+    void listConversationMessages(id, { limit: 200 })
+      .then((result) => {
+        if (cancelled || isError(result)) return;
+        const messages = result.data.items
+          .filter((message) => message.role === "user" || message.role === "assistant")
+          .map((message) => ({
+            role: message.role as "user" | "assistant",
+            content: message.content,
+            tool_payload: message.tool_payload,
+          }));
+        setResumeConv({ id, messages });
+        setChatActive(messages.length > 0);
+        setChatResetKey((key) => key + 1);
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, []);
+
+  // Register the current non-chart product surface as a managed attachment.
+  // Chat and chart do not overwrite it: full workspace preserves where the
+  // conversation came from, while Charto owns its entirely separate context.
+  useEffect(() => {
+    let next: CopilotPageContext | null = null;
+    const stockMatch = pathname.match(/^\/stock\/([^/]+)/i);
+    if (stockMatch?.[1]) {
+      const symbol = decodeURIComponent(stockMatch[1]).toUpperCase();
+      next = { kind: "security", symbol, name: symbol };
+    } else if (!children && active === "home" && readHashTab() === "home") {
+      next = { kind: "page", page: "home", label: "Home" };
+    } else if (!children && active === "portfolio") {
+      next = { kind: "page", page: "portfolio", label: "My portfolio" };
+    } else if (!children && active === "agents") {
+      next = { kind: "page", page: "agents", label: "My agents" };
+    } else if (!children && active === "screener") {
+      next = { kind: "page", page: "screener", label: "Screener" };
+    }
+    if (!next) return;
+    setCopilotContext(next);
+    try { sessionStorage.setItem(COPILOT_CONTEXT_KEY, JSON.stringify(next)); } catch { /* unavailable */ }
+  }, [active, children, pathname]);
+
+  useEffect(() => {
+    if (!copilotPanelOpen || active === "chat") return;
+    const onEscape = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape") return;
+      setCopilotPanelOpen(false);
+      requestAnimationFrame(() => window.dispatchEvent(new Event("pivot:focus-quick-ask")));
+    };
+    window.addEventListener("keydown", onEscape);
+    return () => window.removeEventListener("keydown", onEscape);
+  }, [active, copilotPanelOpen]);
+
+  useEffect(() => {
+    if (!copilotPanelOpen) return;
+    requestAnimationFrame(() => window.dispatchEvent(new Event("pivot:focus-composer")));
+  }, [copilotPanelOpen]);
 
   // Hash + theme init
   useEffect(() => {
@@ -543,6 +642,8 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   const startNewChat = useCallback((): void => {
     setChatActive(false);
     setResumeConv(undefined);
+    setActiveConversationId(undefined);
+    try { sessionStorage.removeItem(ACTIVE_COPILOT_KEY); } catch { /* unavailable */ }
     setChatResetKey((k) => k + 1);
     setMobileNavOpen(false);
     setActive("chat");
@@ -571,6 +672,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
               tool_payload: m.tool_payload,
             }));
       setResumeConv({ id: convId, messages });
+      rememberConversationId(convId);
       setChatActive(messages.length > 0);
       setChatResetKey((k) => k + 1);
       setActive("chat");
@@ -582,7 +684,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
         }
       }
     },
-    [pathname, router],
+    [pathname, rememberConversationId, router],
   );
 
   // Delete a conversation from the sidebar. Optimistic removal (the row
@@ -611,6 +713,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
 
   const goTab = useCallback((key: TabKey): void => {
     setActive(key);
+    if (key === "chat" || key === "chart") setCopilotPanelOpen(false);
     setMobileNavOpen(false);
     if (typeof window === "undefined") return;
     // When the user is on a sub-route (e.g. /stock/HDFCBANK), the
@@ -645,6 +748,16 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     setSeededChatPrompt(prompt);
     goTab("chat");
   }, [goTab]);
+
+  const askFromQuickComposer = useCallback((question: string): void => {
+    if (!children && active === "chart") {
+      setChartChatOpen(true);
+      window.dispatchEvent(new CustomEvent("pivot:chart-ask", { detail: { text: question } }));
+      return;
+    }
+    setCopilotPanelOpen(true);
+    setSeededChatPrompt(question);
+  }, [active, children]);
   const clearSeededChatPrompt = useCallback(() => setSeededChatPrompt(undefined), []);
 
   const openWorkflow = useCallback(
@@ -760,6 +873,8 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     // otherwise the amendment lands in the user's current conversation
     // instead of a new one seeded just for this agent.
     setResumeConv(undefined);
+    setActiveConversationId(undefined);
+    try { sessionStorage.removeItem(ACTIVE_COPILOT_KEY); } catch { /* unavailable */ }
     setChatResetKey((k) => k + 1);
     goTab("chat");
     // Open the side editor on the agent being edited — the user sees the
@@ -793,6 +908,8 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   // basket rather than re-resolving it from a free-text name.
   const editBasketWithChat = useCallback((basket: EquityBasket): void => {
     setResumeConv(undefined);
+    setActiveConversationId(undefined);
+    try { sessionStorage.removeItem(ACTIVE_COPILOT_KEY); } catch { /* unavailable */ }
     setChatResetKey((k) => k + 1);
     goTab("chat");
     requestAnimationFrame(() => {
@@ -913,6 +1030,25 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     };
   }, [goTab, startNewChat]);
 
+  const quickAskContextLabel = !children && active === "chart"
+    ? (chartSymbol ? `${chartSymbol} chart` : "Current chart")
+    : copilotContext.kind === "security"
+      ? copilotContext.symbol
+      : copilotContext.kind === "page"
+        ? copilotContext.label
+        : "Selected context";
+  const quickAskPlaceholder = !children && active === "chart"
+    ? `Ask about ${chartSymbol ?? "this chart"}…`
+    : copilotContext.kind === "security"
+      ? `Ask about ${copilotContext.symbol}…`
+      : copilotContext.kind === "page" && copilotContext.page === "portfolio"
+        ? "Ask about my portfolio…"
+        : copilotContext.kind === "page" && copilotContext.page === "screener"
+          ? "Screen stocks…"
+          : copilotContext.kind === "page" && copilotContext.page === "agents"
+            ? "Ask about my agents…"
+            : "Ask Pivot…";
+
   return (
     <ActiveDraftContext.Provider value={activeDraftCtx}>
     {/* Brand intro — plays once, right after login/signup (armLoginIntro). */}
@@ -921,7 +1057,8 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
       className="app-shell-root flex flex-col h-screen bg-background"
       style={{ ["--paper-banner-h" as string]: "0px" }}
     >
-        {(children || active !== "chart") && <TopHeader
+        <TopHeader
+          variant={!children && active === "chart" ? "chart" : "default"}
           theme={theme}
           onChooseTheme={chooseTheme}
           tradingMode={tradingMode}
@@ -941,23 +1078,11 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
           }}
           onOpenShortcuts={() => setShortcutsOpen(true)}
           onReportBug={() => setReportBugOpen(true)}
-        />}
+        />
 
-      {/* On the chart tab this row STACKS instead of sitting side by side.
-          The chart's own bar stands in for TopHeader there, and a top bar has
-          to reach the window's left edge — but the bar is inside the iframe,
-          so it can only reach as far left as the iframe does. While the rail
-          was a flex sibling it held the top-left corner and the bar started
-          48px in, which is exactly the misalignment this was meant to fix.
-
-          So on the chart the iframe spans the FULL width and the rail floats
-          over it, below the bar's line (`.shell-row--chart`, globals.css).
-          Every other tab keeps the plain flex row it always had. */}
-      <div
-        className={`flex flex-1 min-w-0 min-h-0${
-          !children && active === "chart" ? " shell-row--chart" : ""
-        }`}
-      >
+      {/* The global header sits above this row on every route. The sidebar
+          and page content therefore share one consistent top edge. */}
+      <div className="flex flex-1 min-w-0 min-h-0">
       {(!sidebarCollapsed || !isDesktop) && (
         <Sidebar
           active={active}
@@ -965,9 +1090,6 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
           mobileOpen={mobileNavOpen}
           onMobileClose={() => setMobileNavOpen(false)}
           onBrandClick={() => goTab("home")}
-          // The rail overlays the chart rather than sitting beside it, so it
-          // pads its own icons down past the bar it is now floating over.
-          belowStandInHeader={!children && active === "chart"}
         />
       )}
 
@@ -996,7 +1118,13 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
             messages region to the available space and pin the composer
             to the bottom (ChatGPT/Claude-style). Other tabs get the
             old scrollable wrapper. */}
-        <main className="flex flex-1 min-w-0 min-h-0 flex-col">
+        <main
+          className={`copilot-main flex flex-1 min-w-0 min-h-0 flex-col${
+            copilotPanelOpen && (Boolean(children) || active !== "chat") && active !== "chart"
+              ? " copilot-main-with-panel"
+              : ""
+          }`}
+        >
           {/* Chat surface — ALWAYS mounted so the conversation survives tab
               switches; hidden via `hidden` when another surface (or custom
               children) is shown. The OTHER tabs stay conditionally mounted
@@ -1006,7 +1134,9 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
             className={
               !children && active === "chat"
                 ? "relative flex h-full w-full min-h-0"
-                : "hidden"
+                : (!children ? active !== "chart" : true)
+                  ? `copilot-side-panel ${copilotPanelOpen ? "copilot-side-panel--open" : "copilot-side-panel--closed"}`
+                  : "hidden"
             }
             style={{
               // Compress the chat surface when a side editor is open so
@@ -1014,19 +1144,51 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
               // hiding behind the fixed-position panel. AgentPanel
               // publishes its live width into --side-panel-width (0px
               // when closed / below lg).
-              paddingRight: "var(--side-panel-width, 0px)",
+              paddingRight: !children && active === "chat" ? "var(--side-panel-width, 0px)" : 0,
               transition: "padding-right 300ms cubic-bezier(0.22, 1, 0.36, 1)",
             }}
+            role={copilotPanelOpen && (Boolean(children) || active !== "chat") ? "complementary" : undefined}
+            aria-label={copilotPanelOpen && (Boolean(children) || active !== "chat") ? "Pivot Copilot" : undefined}
           >
-              <ChatHistoryPane
-                activeConversationId={resumeConv?.id}
-                conversations={conversations}
-                onNewChat={startNewChat}
-                onSelectConversation={(id) => void openConversation(id)}
-                onDeleteConversation={removeConversation}
-              />
+              {(Boolean(children) || (active !== "chat" && active !== "chart")) && (
+                <div className="copilot-panel-header" data-testid="copilot-panel-header" aria-label="Copilot panel controls">
+                  <button
+                    type="button"
+                    className="copilot-panel-action"
+                    onClick={() => goTab("chat")}
+                    aria-label="Expand Copilot to full workspace"
+                    title="Expand to full workspace"
+                  >
+                    <Maximize2 size={16} aria-hidden={true} />
+                  </button>
+                  <button
+                    type="button"
+                    className="copilot-panel-action"
+                    onClick={() => {
+                      setCopilotPanelOpen(false);
+                      requestAnimationFrame(() => window.dispatchEvent(new Event("pivot:focus-quick-ask")));
+                    }}
+                    aria-label="Close Copilot panel"
+                  >
+                    <X size={17} aria-hidden={true} />
+                  </button>
+                </div>
+              )}
+              {!children && active === "chat" && (
+                <ChatHistoryPane
+                  activeConversationId={resumeConv?.id ?? activeConversationId}
+                  conversations={conversations}
+                  onNewChat={startNewChat}
+                  onSelectConversation={(id) => void openConversation(id)}
+                  onDeleteConversation={removeConversation}
+                />
+              )}
               <div
-                className="mx-auto flex h-full w-full min-h-0 flex-col px-4 lg:px-6"
+                className={
+                  Boolean(children) || (active !== "chat" && active !== "chart")
+                    ? "flex h-full w-full min-h-0 flex-col overflow-hidden"
+                    : "mx-auto flex h-full w-full min-h-0 flex-col px-4 lg:px-6"
+                }
                 style={{
                   // Slightly narrower active column (58rem vs 64rem before)
                   // so the floating "New chat" button — positioned via calc
@@ -1049,6 +1211,15 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
                   seededPrompt={seededChatPrompt}
                   onSeededPromptConsumed={clearSeededChatPrompt}
                   resume={resumeConv}
+                  pageContext={copilotContext.kind === "security" ? copilotContext : undefined}
+                  conversationId={activeConversationId}
+                  onConversationIdChange={rememberConversationId}
+                  compact={Boolean(children) || (active !== "chat" && active !== "chart")}
+                  composerPlaceholder={
+                    Boolean(children) || (active !== "chat" && active !== "chart")
+                      ? quickAskPlaceholder
+                      : undefined
+                  }
                 />
               </div>
             </div>
@@ -1086,7 +1257,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
             <div
               className={
                 !children && active === "chart"
-                  ? "flex-1 min-h-0 flex flex-col overflow-hidden"
+                  ? "chart-shell-pane relative flex-1 min-h-0 flex flex-col"
                   : "hidden"
               }
             >
@@ -1098,7 +1269,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
               <ChartFrame
                 symbol={chartSymbol}
                 theme={resolvedTheme}
-                railWidth={!sidebarCollapsed && isDesktop ? SIDEBAR_RAIL_W : 0}
+                onChatVisibilityChange={setChartChatOpen}
               />
             </div>
           )}
@@ -1147,28 +1318,19 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
           )}
         </main>
 
-        {/* Right rail — chat tab only, and only while no conversation
-            has started yet. Min-h-0 + overflow-y-auto so the rail
-            scrolls *inside itself*; the topbar + sidebar stay put. */}
-        {/* Quartr's right rail is exactly 320px with padding 24/20.
-            w-80 = 320px; px:20 py:24 mirrors Quartr's padding so the
-            cards line up with the same horizontal margins. */}
-        {/* Also hidden while a side editor is open: the panel overlays this
-            exact strip, and keeping the rail mounted double-reserved the
-            right edge (rail width + panel compression) — the chat column
-            ended up centered far left of the visible area. */}
-        {!children && active === "chat" && !chatActive && !panelOpen && (
-          <aside
-            className="hidden w-80 shrink-0 min-h-0 overflow-y-auto xl:block"
-            style={{ padding: "24px 20px" }}
-          >
-            <ActiveAgentsRail onOpenWorkflow={openWorkflow} />
-          </aside>
-        )}
         </div>
       </div>
 
       </div>
+
+      {(Boolean(children) || active !== "chat") && (
+        <QuickAsk
+          placeholder={quickAskPlaceholder}
+          contextLabel={quickAskContextLabel}
+          onSubmit={askFromQuickComposer}
+          visible={active === "chart" ? !chartChatOpen : !copilotPanelOpen}
+        />
+      )}
 
       <AgentPanel
         open={panelOpen}
@@ -1256,6 +1418,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
 // ---------------------------------------------------------------------------
 
 function TopHeader({
+  variant = "default",
   theme,
   onChooseTheme,
   tradingMode,
@@ -1273,6 +1436,7 @@ function TopHeader({
   onOpenShortcuts,
   onReportBug,
 }: {
+  variant?: "default" | "chart";
   theme: Theme;
   onChooseTheme: (t: Theme) => void;
   tradingMode: TradingMode;
@@ -1293,7 +1457,7 @@ function TopHeader({
   const router = useRouter();
   return (
     <header
-      className="top-header relative flex shrink-0 items-center gap-6 px-3"
+      className={`top-header relative flex shrink-0 items-center gap-6 px-3${variant === "chart" ? " top-header--chart" : ""}`}
       style={{
         height: "var(--header-h, 56px)",
         background: "var(--bg-base)",
@@ -1344,7 +1508,7 @@ function TopHeader({
       {/* Search — Quartr pill, sized + bordered, no Tailwind background.
           Hidden below lg; mobile users get the CommandPalette via the
           account menu / keyboard shortcut. */}
-      <div
+      {variant === "default" && <div
         className="hidden flex-1 items-center gap-2 lg:flex"
         data-tour="search"
         style={{
@@ -1372,11 +1536,11 @@ function TopHeader({
           enableVoice
           onOpenChart={onOpenChart}
         />
-      </div>
+      </div>}
 
       {/* Right cluster — metric stack + account menu */}
       <div className="ml-auto flex shrink-0 items-center gap-6">
-        <MetricStrip metrics={metrics} />
+        {variant === "default" && <MetricStrip metrics={metrics} />}
         <AccountMenu
           theme={theme}
           onChooseTheme={onChooseTheme}
@@ -1858,7 +2022,6 @@ function Sidebar({
   mobileOpen,
   onMobileClose,
   onBrandClick,
-  belowStandInHeader = false,
 }: {
   active: TabKey;
   onTabChange: (key: TabKey) => void;
@@ -1866,10 +2029,6 @@ function Sidebar({
   onMobileClose: () => void;
   /** The full-height sidebar owns the brand (ElevenLabs layout) → back to chat. */
   onBrandClick?: () => void;
-  /** True on a surface that suppresses TopHeader and supplies its own top bar
-   *  from inside an iframe (the chart). The rail then pads itself down by one
-   *  bar so its icons line up with where they sit on every other tab. */
-  belowStandInHeader?: boolean;
 }): React.ReactElement {
   const pinnedConvs: ConvEntry[] = [];
   const recentConvs: ConvEntry[] = [];
@@ -1889,7 +2048,6 @@ function Sidebar({
       aria-label="Primary navigation"
       data-testid="sidebar-nav"
       data-mobile-open={mobileOpen ? "true" : "false"}
-      data-below-standin-header={belowStandInHeader ? "true" : "false"}
       style={{
         background: "var(--bg-base)",
         borderRight: "2px solid var(--shell-seam)",

@@ -52,15 +52,10 @@ type Props = {
   symbol?: string;
   /** "dark" | "light", pushed to the chart whenever the shell's theme changes. */
   theme?: "dark" | "light";
-  /** Width in px of the shell's nav rail, which overlays this frame's left
-   *  edge on the chart route. The frame spans the full window so the chart's
-   *  header can act as the shell's ONE top bar and reach the left edge; the
-   *  chart then insets everything below that header by this much so the rail
-   *  is not sitting on top of its tools. 0 when nothing overlays us. */
-  railWidth?: number;
+  onChatVisibilityChange?: (open: boolean) => void;
 };
 
-export function ChartFrame({ symbol, theme, railWidth = 0 }: Props): React.ReactElement {
+export function ChartFrame({ symbol, theme, onChatVisibilityChange }: Props): React.ReactElement {
   const ref = useRef<HTMLIFrameElement>(null);
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -94,18 +89,20 @@ export function ChartFrame({ symbol, theme, railWidth = 0 }: Props): React.React
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
       if (e.origin !== window.location.origin || e.source !== ref.current?.contentWindow) return;
-      const d = e.data as { type?: string } | null;
+      const d = e.data as { type?: string; open?: boolean } | null;
       if (d?.type === "chart:ready") { setReady(true); setFailed(false); }
       if (d?.type === "chart:error") { setReady(false); setFailed(true); }
+      if (d?.type === "chart:chat-visibility") onChatVisibilityChange?.(d.open === true);
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, []);
+  }, [onChatVisibilityChange]);
 
   useEffect(() => {
     setReady(false);
     setFailed(false);
-  }, [src, attempt]);
+    onChatVisibilityChange?.(false);
+  }, [src, attempt, onChatVisibilityChange]);
 
   useEffect(() => {
     if (ready) return;
@@ -121,17 +118,20 @@ export function ChartFrame({ symbol, theme, railWidth = 0 }: Props): React.React
     post({ type: "pivot:theme", mode: theme });
   }, [ready, theme, post]);
 
-  // Same contract for the rail inset: the chart cannot measure a rail that
-  // belongs to the parent document, so the shell states it. Sent on ready and
-  // on every later change (the rail can collapse), so the chart's tools move
-  // out from under it instead of hiding beneath it.
+  // The shell's global Quick Ask is only a presentation bridge on Chart. The
+  // message is handed to Charto's own chat model and thread; Pivot Copilot is
+  // deliberately not involved on this route.
   useEffect(() => {
-    if (!ready) return;
-    post({ type: "pivot:railpad", width: railWidth });
-  }, [ready, railWidth, post]);
+    const onChartAsk = (event: Event): void => {
+      const text = (event as CustomEvent<{ text?: string }>).detail?.text?.trim();
+      if (text) post({ type: "pivot:chart-ask", text });
+    };
+    window.addEventListener("pivot:chart-ask", onChartAsk);
+    return () => window.removeEventListener("pivot:chart-ask", onChartAsk);
+  }, [post]);
 
   return (
-    <div className="relative flex flex-1 min-h-0 flex-col" style={{ background: "var(--bg-base)" }}>
+    <div className="chart-frame-wrap relative flex flex-1 min-h-0 flex-col" style={{ background: "var(--bg-base)" }}>
     {(!ready || failed) && (
       <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3" style={{ background: "var(--bg-base)", color: "var(--text-secondary)" }} role="status">
         {failed ? "The chart could not finish loading." : "Loading chart…"}
@@ -146,7 +146,6 @@ export function ChartFrame({ symbol, theme, railWidth = 0 }: Props): React.React
         setReady(false);
         post({ type: "pivot:hello" });
         if (theme) post({ type: "pivot:theme", mode: theme });
-        post({ type: "pivot:railpad", width: railWidth });
       }}
       onError={() => setFailed(true)}
       style={{ visibility: ready && !failed ? "visible" : "hidden" }}
