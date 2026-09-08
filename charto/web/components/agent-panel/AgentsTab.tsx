@@ -9,8 +9,6 @@
  *     (lazy-loaded per card). Delete via DELETE /api/workflows/{id}.
  *   • Options — the user's registered F&O strategies
  *     (GET /users/option-strategies).
- *   • Baskets — the user's own equity/ETF baskets, built here via the
- *     EquityBasketBuilder (GET /strategies/baskets).
  *
  * All numbers are real. When an agent has no run/NAV history the card shows
  * "No runs yet" instead of a fabricated sparkline; empty sections show honest
@@ -55,13 +53,10 @@ import {
 import {
   closeOptionStrategy,
   deleteWorkflow,
-  getBasketPerformance,
   getWorkflowPerformance,
   getWorkflowsSummary,
-  listEquityBaskets,
   listRegisteredOptionStrategies,
   withdrawRegisteredOptionStrategy,
-  type EquityBasket,
   type RegisteredOptionStrategy,
   type StrategyReturn,
   type WorkflowPerformance,
@@ -70,7 +65,6 @@ import {
 import { isError } from "@/lib/types";
 import type { Workflow, WorkflowStatus, WorkflowSummary } from "@/lib/types";
 import { AgentsSummaryHeader } from "./AgentsSummaryHeader";
-import { EquityBasketsSection } from "./EquityBasketsSection";
 
 const BRAND_GREEN = "#4CAF50";
 
@@ -93,17 +87,9 @@ export type AgentsTabProps = {
    * after the request is set. Null when no request is pending.
    */
   surfaceRequest?: { surface: Surface; nonce: number } | null;
-  /**
-   * Seed a prompt into the chat composer and jump there — e.g. the equity
-   * baskets "New basket" card, which opens a chat rather than a form.
-   */
-  onSendPrompt?: (prompt: string) => void;
-  /** Jump to chat with a saved basket selected as a context chip — the
-   *  basket equivalent of `onEditWithChat` for agents. */
-  onEditBasketWithChat?: (basket: EquityBasket) => void;
 };
 
-type Surface = "equity" | "options" | "baskets";
+type Surface = "equity" | "options";
 type Filter = "all" | WorkflowStatus;
 
 const FILTERS: { value: Filter; label: string }[] = [
@@ -219,8 +205,6 @@ export function AgentsTab({
   onOpenWorkflow,
   onEditWithChat,
   surfaceRequest,
-  onSendPrompt,
-  onEditBasketWithChat,
 }: AgentsTabProps): React.ReactElement {
   const [surface, setSurface] = useState<Surface>("equity");
   // Apply an external surface request (Home F&O tile → "options"), once per
@@ -244,18 +228,6 @@ export function AgentsTab({
   // Options strategies surface.
   const [optionsState, setOptionsState] = useState<OptionsState>({ kind: "loading" });
   const [optionsLoaded, setOptionsLoaded] = useState(false);
-
-  // Lightweight basket list — feeds ONLY the summary header's "Active baskets"
-  // card (count + names). EquityBasketsSection still owns the full basket grid
-  // and its own fetch; this is a small independent read so the header can show
-  // per-surface content without lifting that section's whole state up here.
-  const [baskets, setBaskets] = useState<EquityBasket[]>([]);
-  const [basketsLoading, setBasketsLoading] = useState(false);
-  const [basketsLoaded, setBasketsLoaded] = useState(false);
-  // Per-basket live return %, keyed by basket id — fetched once the basket
-  // list itself resolves (a basket's return lives on its linked forward-test
-  // idea, a separate on-read call per basket, not part of the list payload).
-  const [basketReturns, setBasketReturns] = useState<Record<number, number | null>>({});
 
   // Delete-in-flight ids (both surfaces) so the kebab disables + the card dims.
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -317,23 +289,6 @@ export function AgentsTab({
       });
   }, []);
 
-  const loadBaskets = useCallback((): void => {
-    setBasketsLoading(true);
-    listEquityBaskets()
-      .then((result) => {
-        if (isError(result)) return;
-        const items = result.data.baskets ?? [];
-        setBaskets(items);
-        Promise.all(
-          items.map((b) =>
-            getBasketPerformance(b.id).then((r) => [b.id, isError(r) ? null : r.data.return_pct] as const),
-          ),
-        ).then((pairs) => setBasketReturns(Object.fromEntries(pairs)));
-      })
-      .catch(() => {})
-      .finally(() => setBasketsLoading(false));
-  }, []);
-
   useEffect(() => {
     loadSummary();
   }, [loadSummary]);
@@ -350,15 +305,6 @@ export function AgentsTab({
       loadOptions();
     }
   }, [surface, optionsLoaded, loadOptions]);
-
-  // Lazy-load baskets the first time the Baskets surface opens (for the header
-  // card; the section below fetches its own full list independently).
-  useEffect(() => {
-    if (surface === "baskets" && !basketsLoaded) {
-      setBasketsLoaded(true);
-      loadBaskets();
-    }
-  }, [surface, basketsLoaded, loadBaskets]);
 
   const handleSelect = (id: string): void => {
     setOpeningId(id);
@@ -459,27 +405,6 @@ export function AgentsTab({
           has_data: false,
         })),
         loading: optionsState.kind === "loading",
-      };
-    }
-    if (surface === "baskets") {
-      return {
-        // These are SAVED basket definitions (deployed or not) — calling them
-        // "Active" implied a live position every one of them had, which isn't
-        // true. The card's Deploy ⇄ Square-off button now shows which are live.
-        pageTitle: "Saved Baskets",
-        label: "Saved baskets",
-        count: baskets.length,
-        rows: baskets.map((b) => ({
-          workflow_id: String(b.id),
-          name: b.name,
-          return_pct: basketReturns[b.id] ?? null,
-          series: [],
-          run_count: 0,
-          success_rate: null,
-          last_run_at: null,
-          has_data: false,
-        })),
-        loading: basketsLoading,
       };
     }
     return {
@@ -608,7 +533,7 @@ export function AgentsTab({
             </div>
           )}
         </>
-      ) : surface === "options" ? (
+      ) : (
         // Options = the user's registered option strategies.
         <OptionsStrategiesSection
           state={optionsState}
@@ -618,19 +543,13 @@ export function AgentsTab({
           onWithdraw={handleWithdrawOption}
           onClose={handleCloseOption}
         />
-      ) : (
-        // Baskets = the equity/ETF baskets the user builds here.
-        <EquityBasketsSection
-          onSendPrompt={onSendPrompt}
-          onEditWithChat={onEditBasketWithChat}
-        />
       )}
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// SurfaceToggle — Equity agents · Options · Baskets
+// SurfaceToggle — Strategies · Options
 // ---------------------------------------------------------------------------
 
 function SurfaceToggle({
@@ -643,7 +562,6 @@ function SurfaceToggle({
   const OPTIONS: { key: Surface; label: string }[] = [
     { key: "equity", label: "Strategies" },
     { key: "options", label: "Options" },
-    { key: "baskets", label: "Baskets" },
   ];
   return (
     <div

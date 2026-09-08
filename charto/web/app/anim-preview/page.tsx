@@ -54,7 +54,7 @@ function MockApp(): React.ReactElement {
           Pivot
         </span>
         <span>Chat</span>
-        <span>Opinion Markets</span>
+        <span>Screener</span>
         <span>Portfolio</span>
         <span style={{ marginLeft: "auto" }}>₹77,945</span>
       </div>

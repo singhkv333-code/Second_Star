@@ -95,8 +95,6 @@ import {
   type PortfolioSummary,
 } from "@/lib/api";
 import type { ResumeConversation } from "@/components/chat/ChatDemo";
-import { basketAttachment } from "@/components/chat/ComposerContext";
-import type { EquityBasket } from "@/lib/agentsApi";
 import type { Workflow } from "@/lib/types";
 import { isError } from "@/lib/types";
 import {
@@ -272,7 +270,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   // → "options"). Nonce-bumped so repeat requests re-fire; consumed by
   // AgentsTab even when it mounts lazily after the request is set.
   const [agentsSurfaceReq, setAgentsSurfaceReq] = useState<
-    { surface: "equity" | "options" | "baskets"; nonce: number } | null
+    { surface: "equity" | "options"; nonce: number } | null
   >(null);
   // Shared active-draft state: the workflow currently open in the editor
   // (unsaved only — id "" or "local-…", status "draft").
@@ -902,25 +900,6 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     });
   }, [goTab, openWorkflow]);
 
-  // "Edit with chat" for a saved basket — the same selection-not-sentence
-  // handoff as agents, minus the side editor (baskets have no step graph).
-  // The chip carries the basket id + exact legs, so "drop SUZLON" amends THIS
-  // basket rather than re-resolving it from a free-text name.
-  const editBasketWithChat = useCallback((basket: EquityBasket): void => {
-    setResumeConv(undefined);
-    setActiveConversationId(undefined);
-    try { sessionStorage.removeItem(ACTIVE_COPILOT_KEY); } catch { /* unavailable */ }
-    setChatResetKey((k) => k + 1);
-    goTab("chat");
-    requestAnimationFrame(() => {
-      window.dispatchEvent(
-        new CustomEvent("pivot:seed-composer", {
-          detail: { attach: basketAttachment(basket) },
-        }),
-      );
-    });
-  }, [goTab]);
-
   // True when the panel is open and actively bound to an unsaved draft.
   const panelOpenWithDraft = panelOpen && activeEditorDraft !== null;
 
@@ -1311,8 +1290,6 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
                 onOpenWorkflow={openWorkflow}
                 onEditWithChat={editWorkflowWithChat}
                 surfaceRequest={agentsSurfaceReq}
-                onSendPrompt={sendChatPrompt}
-                onEditBasketWithChat={editBasketWithChat}
               />
             </div>
           )}

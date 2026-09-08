@@ -19,8 +19,8 @@ export type TradingMode = "real" | "paper";
 
 const LS_KEY = "pivot-trading-mode";
 // Paper is the ACTIVE DEFAULT: the platform is register-not-execute (no live
-// broker auto-execution), so a new user's buys/sells, baskets, opinion-market
-// expressions and armed agents all fill the SIMULATED paper book — and the
+// broker auto-execution), so a new user's buys/sells, baskets and armed agents
+// all fill the SIMULATED paper book — and the
 // Portfolio page reflects that book — until they deliberately switch to 'real'.
 const DEFAULT_MODE: TradingMode = "paper";
 

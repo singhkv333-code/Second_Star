@@ -56,7 +56,7 @@ function readToken(): string | null {
 // on the chart, and bouncing a signed-out visitor to this app's own /login
 // would hand them the wrong form for the wrong account system. The page says
 // where to sign in instead.
-const UNGATED_PATHS = ["/", "/design", "/waitlist", "/login", "/signup", "/view-pack",
+const UNGATED_PATHS = ["/", "/design", "/waitlist", "/login", "/signup",
                        "/stock", "/paper"];
 
 type Phase = "loading" | "needs-auth" | "ready";

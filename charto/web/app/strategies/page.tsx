@@ -43,8 +43,6 @@ export default function StrategiesPage(): React.ReactElement {
       <AgentsTab
         onOpenWorkflow={openWorkflow}
         onEditWithChat={editWithChat}
-        onSendPrompt={(text: string) => askOnChart(text)}
-        onEditBasketWithChat={() => undefined}
       />
     </BookShell>
   );

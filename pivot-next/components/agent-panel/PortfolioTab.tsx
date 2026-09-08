@@ -233,7 +233,7 @@ export function PortfolioTab(): React.ReactElement {
 
   useEffect(() => {
     // 1. A trade/deploy anywhere in the app (order ticket, chat confirm,
-    //    basket/opinion deploy, agent launch) broadcasts this event from
+    //    basket deploy or agent launch) broadcasts this event from
     //    lib/api — refetch everything so positions show up immediately.
     const onDirty = (): void => loadRef.current();
     window.addEventListener("pivot:portfolio-dirty", onDirty);
@@ -2845,7 +2845,7 @@ function TradeHistory(): React.ReactElement {
   // Real trade history — the paper fills journal in paper mode (the active
   // default), the registered/executed order history in live mode. Both come
   // through paper-aware `lib/api` helpers, so the same table reflects every
-  // buy/sell, basket, opinion-market expression and armed agent the user ran.
+  // buy/sell, basket and armed agent the user ran.
   const mode = useTradingMode();
   const [rows, setRows] = useState<TradeRow[] | null>(null);
   const [errored, setErrored] = useState(false);
@@ -2952,7 +2952,7 @@ function TradeHistory(): React.ReactElement {
         </p>
         <p style={{ fontSize: 12, color: "var(--text-tertiary)", maxWidth: 340 }}>
           {mode === "paper"
-            ? "Your simulated trades appear here — place a buy, deploy a basket or an opinion, or arm an agent to get started."
+            ? "Your simulated trades appear here — place a buy, deploy a basket, or arm an agent to get started."
             : "Registered and executed orders will appear here."}
         </p>
       </div>

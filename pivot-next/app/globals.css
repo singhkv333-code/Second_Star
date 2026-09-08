@@ -1734,58 +1734,6 @@ body:has(.app-shell-root) {
   }
 }
 
-/* 2. The "Not sure what to trade?" teaser cards. ViewCard is a shared
-      component (full-size on the Opinions tab, detail page, and the tall
-      monitor's Home). The full card only fits when the row-2 cell is tall, so
-      we compact whenever the VIEWPORT IS SHORT — height-driven, NOT the
-      data-device flag. This is the fix for the "other cards overflow" report:
-      a small-screen Retina MacBook is mis-labelled "monitor" by the
-      physical-pixel useDevice() guess, so under the old [data-device="laptop"]
-      selector its full-size cards were never compacted and got clipped in the
-      short cell. Keying off max-height compacts them on the MacBook and the
-      1920 laptop alike, while the tall 2560 monitor keeps the full design.
-      We shrink every dimension with vh-clamps so both cards fit without
-      scrolling; margin-top:0 + center make the compact block read as a full,
-      balanced card. `!important` wins over ViewCard's inline styles. */
-@media (max-height: 1100px) {
-  .home-views-grid .view-card {
-    padding: clamp(8px, 1.5vh, 20px) clamp(10px, 1.7vh, 22px) !important;
-    justify-content: center !important;
-  }
-  .home-views-grid .view-card-thumb {
-    width: clamp(34px, 4.6vh, 68px) !important;
-    height: clamp(34px, 4.6vh, 68px) !important;
-  }
-  .home-views-grid .view-card-head {
-    gap: clamp(8px, 1.4vh, 16px) !important;
-  }
-  .home-views-grid .view-card-title {
-    font-size: clamp(12.5px, 1.6vh, 16px) !important;
-    line-height: 1.18 !important;
-    min-height: 0 !important;
-    margin-bottom: clamp(2px, 0.7vh, 9px) !important;
-  }
-  .home-views-grid .view-card-body {
-    margin-top: 0 !important;
-    padding-top: clamp(8px, 1.7vh, 24px) !important;
-    gap: clamp(8px, 1.6vh, 24px) !important;
-  }
-  .home-views-grid .view-card-hero {
-    font-size: clamp(20px, 3.3vh, 40px) !important;
-  }
-  .home-views-grid .view-card-caption {
-    margin-top: clamp(2px, 0.5vh, 5px) !important;
-    font-size: clamp(9px, 0.95vh, 11.5px) !important;
-  }
-  .home-views-grid .view-card-stance {
-    width: clamp(64px, 8vh, 112px) !important;
-    padding: clamp(3px, 0.8vh, 7px) 0 !important;
-  }
-  .home-views-grid .view-card-stance-col {
-    gap: clamp(3px, 0.8vh, 8px) !important;
-  }
-}
-
 /* Dialog full-screen on small phones — at <640px most modal content
    benefits from edge-to-edge layout. The Radix Dialog primitive sets
    sizing on `[role="dialog"]`; we override width/height/max via class. */

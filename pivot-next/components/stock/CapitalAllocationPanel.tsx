@@ -36,11 +36,16 @@ export function CapitalAllocationPanel({ symbol }: { symbol: string }) {
   const isCrore = /^(Rs\.?\s*Cr\.?|INR\s*Crore|₹\s*Cr\.?)$/i.test(unit);
   const unitLabel = isCrore ? "₹ crore" : unit;
   const value = (n: number | null | undefined): string => n == null ? "Unavailable" : `${isCrore ? "₹" : ""}${decimal(n)}${isCrore ? " Cr" : ""}`;
+  // The headline figures sit in a 224px rail. Crore values run to six digits,
+  // where two decimal places are noise that costs the line its last word — so
+  // the big numbers round to whole units and stay on one line. Tables and
+  // tooltips keep the full precision from `value`.
+  const headline = (n: number | null | undefined): string => n == null ? "Unavailable" : `${isCrore ? "₹" : ""}${decimal(n, 0)}${isCrore ? " Cr" : ""}`;
   const rows = grid ? [...grid.periods].reverse().map((p) => ({ period: p, ...cashBridge(grid, p).values })) : [];
   const usable = !!grid?.available && rows.some((r) => r.operating !== null || r.investing !== null || r.financing !== null);
   return <ResearchPanel id="stock-capital" title="Capital allocation" controls={<BasisSelect value={basis} onChange={setBasis} />}>
     {!usable || !grid || !bridge ? <ResearchState {...state} message="Reported cash-flow history is unavailable for this company." /> : <>
-      <div className="research-module-toolbar"><div className="research-choice" aria-label="Cash flow chart"><button type="button" aria-pressed={mode === "bridge"} onClick={() => setMode("bridge")}>Cash bridge</button><button type="button" aria-pressed={mode === "history"} onClick={() => setMode("history")}>Across the years</button></div>{mode === "bridge" ? <select aria-label="Cash flow reporting period" value={active} onChange={(e) => setPeriod(e.target.value)}>{grid.periods.map((p) => <option key={p}>{p}</option>)}</select> : <span className="research-meta">{rows.length} annual periods</span>}</div>
+      <div className="research-module-toolbar"><div className="research-choice" aria-label="Cash flow chart"><button type="button" data-label="Cash bridge" aria-pressed={mode === "bridge"} onClick={() => setMode("bridge")}>Cash bridge</button><button type="button" data-label="Across the years" aria-pressed={mode === "history"} onClick={() => setMode("history")}>Across the years</button></div>{mode === "bridge" ? <select aria-label="Cash flow reporting period" value={active} onChange={(e) => setPeriod(e.target.value)}>{grid.periods.map((p) => <option key={p}>{p}</option>)}</select> : <span className="research-meta">{rows.length} annual periods</span>}</div>
       <div className="research-chart-layout">
         <div className="research-chart-main">
           <div className="research-chart-caption"><span>{mode === "bridge" ? `Cash movement · ${active}` : "Sources and uses of cash"}</span><span>{unitLabel}</span></div>
@@ -58,8 +63,8 @@ export function CapitalAllocationPanel({ symbol }: { symbol: string }) {
           <div className="research-chart-key">{(mode === "bridge" ? [["#5385db", "Cash balance"], ["#469a87", "Cash inflow"], ["#c48363", "Cash outflow"]] : [["#469a87", "Operating"], ["#c48363", "Investing"], ["#8d91b8", "Financing"]]).map(([color, label]) => <span key={label}><i style={{ background: color }} />{label}</span>)}</div>
         </div>
         <aside className="research-chart-aside">
-          <Figure label="Operating cash flow" value={value(bridge.values.operating)} note={active} />
-          <Figure label="Closing cash" value={value(bridge.values.closing)} note={active} />
+          <Figure label="Operating cash flow" value={headline(bridge.values.operating)} note={active} />
+          <Figure label="Closing cash" value={headline(bridge.values.closing)} note={active} />
           <div className="research-ledger"><span>Investing activities</span><strong>{value(bridge.values.investing)}</strong><span>Financing activities</span><strong>{value(bridge.values.financing)}</strong></div>
           <p className="research-aside-note">Activity totals; detailed allocation unavailable.</p>
         </aside>

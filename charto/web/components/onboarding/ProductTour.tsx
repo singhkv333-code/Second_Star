@@ -5,7 +5,7 @@
  * shell, built on driver.js (MIT). A dimmed overlay spotlights one element
  * at a time with a themed popover explaining what it is and what to do
  * with it; the tour walks Chat → header → sidebar, then crosses tabs
- * (Opinion Markets → Agents → Screener) and lands back on the chat
+ * (Agents → Screener) and lands back on the chat
  * composer.
  *
  * Behaviour contract:
@@ -31,8 +31,7 @@ type TabKey =
   | "chat"
   | "portfolio"
   | "agents"
-  | "screener"
-  | "views";
+  | "screener";
 
 /** Bump when the flow changes enough that existing users should see it again. */
 const DONE_KEY = "pivot-tour-v1";
@@ -101,18 +100,7 @@ const STEPS: TourStep[] = [
     align: "start",
     title: "Everything else",
     description:
-      "<strong>Home</strong> gives you the market at a glance, <strong>Chat</strong> is where you ask questions, and <strong>Portfolio</strong> holds your positions. We'll walk through the next three — starting with Opinions.",
-  },
-  {
-    tab: "views",
-    element:
-      '[data-testid="views-grid"] [data-testid^="view-card"], [data-testid="views-grid"]',
-    waitFor:
-      '[data-testid="views-grid"], [data-testid="views-empty"], [data-testid="views-error"]',
-    side: "right",
-    title: "Trade what you believe",
-    description:
-      "You don't think in strike prices — you think “RBI will cut rates” or “defence has a decade ahead”. Each card is one such belief, researched and scored, with ready-made ways to put money behind it at your kind of risk. Open one and look around.",
+      "<strong>Home</strong> gives you the market at a glance, <strong>Chat</strong> is where you ask questions, and <strong>Portfolio</strong> holds your positions. We'll walk through Agents and Screener next.",
   },
   {
     tab: "agents",
@@ -121,7 +109,7 @@ const STEPS: TourStep[] = [
     side: "top",
     title: "Your ideas, on duty",
     description:
-      "Everything you build in chat shows up here — price alerts, option strategies, stock baskets. Each one is an agent that keeps watching the market for you, and you can pause or edit it anytime.",
+      "Your monitoring and execution workflows show up here as agents that keep watching the market for you. You can pause or edit them anytime.",
   },
   {
     tab: "screener",

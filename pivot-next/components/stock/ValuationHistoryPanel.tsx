@@ -15,7 +15,7 @@ export function ValuationHistoryPanel({ symbol }: { symbol: string }) {
   const stats = history && history.latest ? history : null;
   return <ResearchPanel id="stock-valuation" title="Valuation history" controls={<BasisSelect value={basis} onChange={setBasis} />}>
     {!stats || !state.data ? <ResearchState {...state} message="Not enough reported valuation history for this company. At least two comparable annual observations are needed." /> : <>
-      <div className="research-module-toolbar"><div className="research-choice" aria-label="Valuation metric">{available.map((m) => <button type="button" key={m.key} aria-pressed={active === m.key} onClick={() => setMetric(m.key)}>{m.label}</button>)}</div><span className="research-meta">Annual observations · {stats.valid.length} periods</span></div>
+      <div className="research-module-toolbar"><div className="research-choice" aria-label="Valuation metric">{available.map((m) => <button type="button" key={m.key} data-label={m.label} aria-pressed={active === m.key} onClick={() => setMetric(m.key)}>{m.label}</button>)}</div><span className="research-meta">Annual observations · {stats.valid.length} periods</span></div>
       <div className="research-chart-layout">
         <div className="research-chart-main">
           <div className="research-chart-caption"><span>{stats.metric.name}</span><span>Multiple (×)</span></div>

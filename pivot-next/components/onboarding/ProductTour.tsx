@@ -5,7 +5,7 @@
  * shell, built on driver.js (MIT). A dimmed overlay spotlights one element
  * at a time with a themed popover explaining what it is and what to do
  * with it; the tour walks Chat → header → sidebar, then crosses tabs
- * (Opinion Markets → Agents → Screener) and lands back on the chat
+ * (Agents → Screener) and lands back on the chat
  * composer.
  *
  * Behaviour contract:
@@ -110,7 +110,7 @@ const STEPS: TourStep[] = [
     side: "top",
     title: "Your ideas, on duty",
     description:
-      "Everything you build in chat shows up here — price alerts, option strategies, stock baskets. Each one is an agent that keeps watching the market for you, and you can pause or edit it anytime.",
+      "Your monitoring and execution workflows show up here as agents that keep watching the market for you. You can pause or edit them anytime.",
   },
   {
     tab: "screener",
