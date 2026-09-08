@@ -52,6 +52,10 @@ import {
   type SyntheticSecurityPayload,
 } from "@/components/chat/SyntheticSecurityCard";
 import { InlineRunCard } from "@/components/chat/InlineRunCard";
+import {
+  FollowUpSuggestions,
+  useFollowUps,
+} from "@/components/chat/FollowUpSuggestions";
 import { CardErrorBoundary } from "@/components/chat/CardErrorBoundary";
 import { VoiceInputButton } from "@/components/VoiceInputButton";
 import AssistantMessage from "@/components/chat/AssistantMessage";
@@ -1381,17 +1385,48 @@ export function ChatDemo({
     textareaRef.current?.focus();
   };
 
+  // Related next questions, under the LAST answer only — the way Perplexity
+  // places them. Reading the pair off the tail of the thread (rather than
+  // threading state through the send path) means a restored conversation gets
+  // them too, not just one sent in this session. The hook is called here, once
+  // per render, because it cannot be called inside the message map.
+  const lastExchange = ((): { q: string; a: string } => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (!m || m.kind !== "assistant") continue;
+      for (let j = i - 1; j >= 0; j--) {
+        const u = messages[j];
+        if (u && u.kind === "user") return { q: u.text, a: m.text };
+      }
+      return { q: "", a: m.text };
+    }
+    return { q: "", a: "" };
+  })();
+  // Not while a reply is still streaming: the answer is not final yet, and
+  // suggesting a next question before this one has finished reads as a rush.
+  const followUps = useFollowUps(lastExchange.q, lastExchange.a, !loading);
+
   return (
     <div className="relative flex h-full min-h-0 flex-col" data-testid="chat-demo">
       {/* Scrollable message region — fills available space, composer
           stays pinned at the bottom (ChatGPT/Claude-style). Extra bottom
           padding lets the last message scroll up clear of the composer
           so nothing stays permanently hidden behind the fade overlay. */}
+      {/* The SCROLLER is the full pane, not the reading column: a wheel
+          over the left/right margin has to scroll the thread, which it
+          could not when the overflow element was itself clamped to the
+          measure. The measure moved onto the inner wrapper below, so the
+          text still sits in a narrow centred column — only the hit area
+          for scrolling grew. --chat-measure is published by AppShell. */}
       <div
         ref={scrollRef}
-        className="quartr-no-scrollbar flex-1 min-h-0 overflow-y-auto pt-6 pb-6"
+        className="quartr-no-scrollbar flex-1 min-h-0 overflow-y-auto px-4 pt-6 pb-6 lg:px-6"
         data-testid="chat-scroll"
       >
+      {/* min-h-full + flex-col: the empty-state cluster below sizes itself
+          against THIS box, so it has to fill the scroller's height or the
+          greeting collapses to the top of the pane. */}
+      <div className="mx-auto flex min-h-full w-full max-w-[var(--chat-measure,50rem)] flex-col">
       {/* Intro (only shown before any messages). Callers can pass a
           custom node — e.g. the dashboard's greeting + index strip +
           quick-action chips — via the `intro` prop. The min-h-full +
@@ -1399,7 +1434,7 @@ export function ChatDemo({
           centered between the topbar and the docked composer instead
           of clinging to the top of the scroll region. */}
       {messages.length === 0 && (
-        <div className="flex min-h-full flex-col items-center justify-center">
+        <div className="flex flex-1 flex-col items-center justify-center">
           {intro ?? (
             <div className="rounded-xl border bg-card p-6 text-center shadow-sm">
               <Bot
@@ -1887,6 +1922,15 @@ export function ChatDemo({
           )}
         </div>
       )}
+
+      {/* Related questions — end of thread, under the last answer. */}
+      {!loading && (
+        <FollowUpSuggestions
+          suggestions={followUps}
+          onPick={(q) => void submit(q)}
+        />
+      )}
+      </div>
       </div>
 
       {/* Pinned composer — sits below the scrolling thread, never moves
@@ -1895,7 +1939,8 @@ export function ChatDemo({
           behind the pill (ChatGPT-style) instead of hard-stopping against
           a flat white band. Tighter bottom padding on phones so the pill
           doesn't dominate the landing surface. */}
-      <div className="composer-dock relative z-10 -mt-6 shrink-0 bg-gradient-to-t from-background via-background to-transparent pt-6 sm:pt-7">
+      <div className="composer-dock relative z-10 -mt-6 shrink-0 bg-gradient-to-t from-background via-background to-transparent px-4 pt-6 sm:pt-7 lg:px-6">
+        <div className="mx-auto w-full max-w-[var(--chat-measure,50rem)]">
         <ChatComposer
           textareaRef={textareaRef}
           value={intent}
@@ -1913,6 +1958,7 @@ export function ChatDemo({
           onRemoveAttachment={removeAttachment}
           onAgentPicked={handleAgentPicked}
         />
+        </div>
       </div>
 
       {/* Floating "Reply" affordance — appears above any text selection

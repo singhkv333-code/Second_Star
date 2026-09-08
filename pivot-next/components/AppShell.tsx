@@ -977,20 +977,25 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
             }}
           >
               <div
-                className="mx-auto flex h-full w-full min-h-0 flex-col px-4 lg:px-6"
+                className="flex h-full w-full min-h-0 flex-col"
                 style={{
-                  // Narrow, centred reading column (ChatGPT sits near this
-                  // measure). 58rem read as a wide slab on a 1500px window and
-                  // pushed the thread off-centre; 50rem keeps the floating
-                  // "New chat" button — positioned via calc against the
-                  // column's right edge — in the right-side gap on common
-                  // viewports (1280+) without colliding with right-aligned
-                  // user bubbles, and still fits a 6-column table.
-                  maxWidth: chatActive ? "50rem" : "46rem",
+                  // This element is now FULL WIDTH and only publishes the
+                  // measure; ChatDemo's scroll region and composer each centre
+                  // themselves to it. That is what lets a wheel over the left
+                  // or right margin scroll the thread — the overflow element
+                  // used to be this clamped column, so the margins were dead.
+                  //
+                  // The measure itself: 58rem read as a wide slab on a 1500px
+                  // window; 50rem keeps the floating "New chat" button —
+                  // positioned via calc against the column's right edge — in
+                  // the right-side gap on common viewports (1280+) without
+                  // colliding with right-aligned user bubbles, and still fits
+                  // a 6-column table.
+                  ["--chat-measure" as string]: chatActive ? "50rem" : "46rem",
                   paddingTop: 0,
                   transition:
                     "max-width 500ms cubic-bezier(0.22, 1, 0.36, 1)",
-                }}
+                } as React.CSSProperties}
               >
                 <DashboardTab
                   key={chatResetKey}
