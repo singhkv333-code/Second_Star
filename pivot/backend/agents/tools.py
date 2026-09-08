@@ -923,7 +923,12 @@ tool("fetch_fundamentals",
      "(enrichment DB). Use for 'should I buy X', 'what is X's PE/ROE', 'what "
      "sector/industry is X in', 'what does X do', 'who are the promoters of X / "
      "promoter holding of X', 'tell me about X', or one leg of a 'compare A vs "
-     "B' (call once per symbol). Returns null for any metric not populated "
+     "B' (call once per symbol). This is a SNAPSHOT, not a full read: when the "
+     "ask is a verdict — which is better, is it worth buying, a full analysis — "
+     "batch it in the SAME response with the price/returns read and with "
+     "`get_company_research` for growth, segment mix and peers. Answering a "
+     "verdict off the snapshot alone leaves out what decides it. "
+     "Returns null for any metric not populated "
      "(coverage is sparse outside large caps) — if a value is null SAY it's "
      "unavailable, NEVER invent it. Note promoter_holding_pct is a proxy; "
      "present it as approximate. Not a live-price tool (use get_market_data view=quote).",

@@ -2568,29 +2568,27 @@ def _classify_reply_class(message: str, intent_kind: str) -> str:
 # max_output_tokens from 1500 → 4000 so any caller that doesn't pass an
 # explicit budget also gets the headroom.
 _REPLY_BUDGETS: dict[str, tuple[int, str]] = {
-    "adaptive": (500, (
-        "REPLY POLICY — decide the answer shape from the user's actual ask, "
-        "not a keyword. Answer the requested unit first and stop when it is "
-        "complete. A greeting, acknowledgement, simple definition, one fact, "
-        "price, status, or yes/no gets 1–3 direct sentences. A comparison, "
-        "analysis, or explanation earns only the structure and detail needed "
-        "to make it useful; use a table only for genuinely side-by-side data. "
-        "Honor an explicit requested length or format exactly: when the user "
-        "asks for N bullets, emit exactly N bullets and no introduction or "
-        "closing commentary. For greetings or thanks, acknowledge in one short "
-        "sentence with no capabilities, suggestions, or question. Do not offer "
-        "a product tour, append extra metrics to a one-metric question, or "
-        "restate a card below your answer. No unrequested charts, drawings, "
-        "tables, or follow-up prompts. You have a hard 500-token ceiling for "
-        "this visible reply."
+    "adaptive": (3000, (
+        "REPLY SCOPE — match the answer to the ask, and let the evidence you "
+        "fetched set the depth. A greeting, acknowledgement, definition, single "
+        "fact, price, status or yes/no is 1–3 direct sentences. A question that "
+        "asks you to analyse, compare, evaluate, explain or recommend earns a "
+        "fully worked answer: use every figure you fetched that bears on it, say "
+        "what the figures mean rather than restating them, and land a defended "
+        "view with the honest case against it. Cover that ask completely before "
+        "you stop. Do not pad a small question, and do not shrink a large one. "
+        "Honour any length or format the user named exactly. For greetings or "
+        "thanks, acknowledge in one sentence with no capabilities pitch. Do not "
+        "restate a card that renders below you."
     )),
-    "model_owned": (500, (
-        "REPLY SIZING — you decide. Size and structure the reply to the "
-        "ask itself, lead with the requested answer, and stop when complete. "
-        "A quick fact gets 1-3 direct sentences; use structure only where the "
-        "information genuinely needs it. When a CARD renders below your text, "
-        "one plain-English summary sentence and let the card speak. Never pad "
-        "a simple answer, restate a card, or exceed 500 output tokens."
+    "model_owned": (3000, (
+        "REPLY SIZING — you decide. Size and structure the reply to the ask "
+        "itself and lead with the requested answer. A quick fact gets 1-3 "
+        "direct sentences; an analytical ask earns the full working — the "
+        "figures you fetched, what they mean, and a defended view. Use "
+        "structure where the information genuinely needs it. When a CARD "
+        "renders below your text, one plain-English summary sentence and let "
+        "the card speak. Never pad a simple answer or restate a card."
     )),
     "draft": (3500, (
         "REPLY-CLASS: DRAFT. A workflow/agent CARD is being rendered "
@@ -2622,13 +2620,13 @@ _REPLY_BUDGETS: dict[str, tuple[int, str]] = {
         "explicitly asked for a price; the portfolio block is for your "
         "awareness, not for recitation."
     )),
-    "capability": (600, (
+    "capability": (900, (
         "REPLY-CLASS: CAPABILITY. Reply in ≤120 words, plain prose, no "
         "headings. List the 3-5 most useful capabilities the user can "
         "act on right now (build an agent, place an order, view "
         "portfolio, run a backtest, ask for analysis)."
     )),
-    "small_talk": (300, (
+    "small_talk": (700, (
         "REPLY-CLASS: SMALL-TALK. Reply in 1-2 short sentences. No "
         "headings, no bullets, no live-price recital."
     )),
@@ -2747,8 +2745,9 @@ _HOUSE_STYLE = (
     "question or with a lead-in like \"Here are\" or \"Sure\". "
     "Default to clear paragraphs, each developing one idea; use bullets only "
     "when the items are genuinely parallel, and a table when the data is a "
-    "grid. Write company names, tickers, metric labels and figures as plain "
-    "text; bold at most one phrase and usually none. Join clauses with "
+    "grid. Never bold a company name, a ticker or a figure. Bold is for the "
+    "short label that opens a bullet in a list of parallel points, and for "
+    "at most one phrase in running prose. Join clauses with "
     "commas, colons or full stops rather than dashes. Skip filler openers and "
     "closers (\"it's worth noting\", \"in short\", \"overall\", "
     "\"delve\", \"truly\") and do not end by summarising what you just "
@@ -7314,10 +7313,22 @@ class ChatService:
             _sub = _analysis_subhint(message)
             if _sub:
                 reply_class_hint_text = reply_class_hint_text + _sub
-        # The ceiling is deliberately shared by every response shape. It is a
-        # ceiling, not a target; the adaptive policy above prevents simple
-        # asks from expanding merely because room is available.
-        max_output = min(_budget_tokens, 500)
+        # The ceiling is a ceiling, not a target — the REPLY SCOPE policy
+        # above decides length, and it is what keeps a greeting short.
+        #
+        # 2026-09-09: this used to be `min(_budget_tokens, 500)`, which made
+        # the ceiling the length policy and clamped every per-class budget in
+        # the table above down to 500. On a reasoning model `max_output_tokens`
+        # covers reasoning AND visible text, so 500 left a few hundred tokens
+        # of prose: "give me a full analysis of Reliance" came back 262 words
+        # and cut off mid-sentence ("a recovery attempt within a still"), and
+        # nothing downstream inspects finish=="length", so it shipped silently.
+        # 3d72077c predicted exactly this ("a long sectioned answer with a
+        # table will be cut where it previously was not ... the docs and this
+        # commit disagree until one of them moves"). This is that move: keep
+        # the one adaptive class it introduced — the model still chooses the
+        # shape — and stop expressing the policy as a truncation.
+        max_output = _budget_tokens
         # A ranked-list read just formats the tool's rows into a table — no deep
         # reasoning is needed, and on a reasoning model 'medium' effort spends
         # most of max_output on reasoning, starving (and truncating) the visible
@@ -7943,7 +7954,11 @@ class ChatService:
             hop_effort: ReasoningEffort = effort
             if hop_tool_choice == "none":
                 hop_effort = "minimal"
-                hop_max_output = 500
+                # Minimal effort is the fix here (reasoning is what starved
+                # the empty round we are recovering from); the cap is not.
+                # This hop writes the WHOLE visible answer, so it gets the
+                # class budget — a 500 cap truncated the recovery too.
+                hop_max_output = max_output
             trace.event("llm.call", hop=hop_index, reasoning_effort=hop_effort,
                         tools_offered=len(tooldefs),
                         tool_choice=hop_tool_choice,
@@ -8003,6 +8018,20 @@ class ChatService:
                         output_tokens=response.output_tokens,
                         reasoning_tokens=response.reasoning_tokens,
                         cached_tokens=response.cached_tokens)
+
+            # A reply cut off at the ceiling used to ship silently — nothing
+            # in either loop inspected finish=="length", so the only symptom
+            # was a user-visible sentence stopping mid-word. Surface it.
+            if response.finish_reason == "length":
+                logger.warning(
+                    "reply TRUNCATED at the %d-token ceiling (hop %d, class %s, "
+                    "reasoning=%s visible=%s) — raise the budget for this class",
+                    hop_max_output, hop_index, reply_class,
+                    response.reasoning_tokens, response.output_tokens,
+                )
+                trace.event("llm.truncated", hop=hop_index,
+                            reply_class=reply_class, ceiling=hop_max_output,
+                            reasoning_tokens=response.reasoning_tokens)
 
             if response.finish_reason == "error":
                 # Transport timeouts / 429s surface HERE (the client
@@ -9582,7 +9611,9 @@ class ChatService:
             _sub = _analysis_subhint(message)
             if _sub:
                 reply_class_hint_text = reply_class_hint_text + _sub
-        max_output = min(_budget_tokens, 500)
+        # Mirror of handle(): the ceiling is not the length policy. See the
+        # full rationale there.
+        max_output = _budget_tokens
         # List reads only format a table — drop reasoning effort to 'low' so
         # reasoning tokens don't eat the output budget and truncate the table
         # (mirror of the non-streaming path).
@@ -10036,7 +10067,11 @@ class ChatService:
             hop_effort: ReasoningEffort = effort
             if hop_tool_choice == "none":
                 hop_effort = "minimal"
-                hop_max_output = 500
+                # Minimal effort is the fix here (reasoning is what starved
+                # the empty round we are recovering from); the cap is not.
+                # This hop writes the WHOLE visible answer, so it gets the
+                # class budget — a 500 cap truncated the recovery too.
+                hop_max_output = max_output
             trace.event(
                 "llm.stream", hop=hop_index,
                 reasoning_effort=hop_effort, tools_offered=len(tooldefs),
@@ -10054,6 +10089,7 @@ class ChatService:
             tc_acc: dict[str, dict[str, Any]] = {}
             cached_tokens = 0
             stream_error: Optional[str] = None
+            stream_truncated = False
 
             # Release the pooled DB connection for the streaming LLM wait —
             # see _release_db_conn. Re-acquired on the session's next query.
@@ -10137,8 +10173,14 @@ class ChatService:
                                 slot["args_str"] = item["arguments"]
                     continue
 
-                if etype == "response.completed":
+                if etype in ("response.completed", "response.incomplete"):
                     resp_obj = ev.get("response") or {}
+                    # Truncation at the ceiling arrives here as
+                    # incomplete_details.reason, not as an error — the stream
+                    # otherwise ends normally and a half-sentence ships.
+                    if ((resp_obj.get("incomplete_details") or {}).get("reason")
+                            == "max_output_tokens"):
+                        stream_truncated = True
                     usage = resp_obj.get("usage") or {}
                     cached_tokens = int(
                         (usage.get("input_tokens_details") or {}).get(
@@ -10154,6 +10196,14 @@ class ChatService:
             breakdown[f"llm_hop_{hop_index}"] = hop_ms
             if cached_tokens:
                 breakdown[f"llm_hop_{hop_index}_cached"] = cached_tokens
+
+            if stream_truncated:
+                logger.warning(
+                    "streamed reply TRUNCATED at the %d-token ceiling "
+                    "(hop %d, class %s) — raise the budget for this class",
+                    hop_max_output, hop_index, reply_class)
+                trace.event("llm.truncated", hop=hop_index,
+                            reply_class=reply_class, ceiling=hop_max_output)
 
             if stream_error:
                 # Retry a provider stall/error when nothing user-visible
