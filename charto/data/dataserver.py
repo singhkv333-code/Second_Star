@@ -112,10 +112,41 @@ LLM_FALLBACK_DEFAULT = "gpt-5.4-mini"
 # that a recovered primary is picked up within one coffee.
 _LLM_DEMOTE_S = 300.0
 LLM_EFFORT_DEFAULT = "medium"
-# gpt-5.6-luna is currently served on Charto's Global Standard deployment.
-# Keep the tier explicit and overridable, but default to what Azure actually
-# reports rather than requesting a priority tier this model does not receive.
-LLM_SERVICE_TIER_DEFAULT = "default"
+# Ask for the fast lane everywhere; take it where it is actually offered.
+#
+# Measured 2026-09-08 against this resource, at a REAL execution-mode payload
+# (35,285 input tokens — the system prompt plus all 51 tool schemas, not a toy
+# request), alternating arms so upstream drift hits both equally:
+#
+#   gpt-5.4-mini  service_tier=default   median 8.75s   (n=5)
+#   gpt-5.4-mini  service_tier=priority  median 7.03s   (n=5)   -19.7%
+#   gpt-5.6-luna  service_tier=priority  echoed back "default", 6/6
+#
+# So priority is a per-MODEL capability, not a deployment tier: both are
+# GlobalStandard on the same resource, and luna's own SKU list
+# (GlobalStandard, DataZoneStandard, GlobalProvisionedManaged,
+# DataZoneProvisionedManaged) has no priority option at all. Azure ACCEPTS the
+# parameter on luna and silently serves `default` — no error, no warning, just
+# a field in the response that disagrees with the field in the request.
+#
+# The previous default was "default", on the reasoning that there is no point
+# requesting a tier this model does not receive. That was true and is still
+# true of luna, but it made the setting wrong for every OTHER deployment on
+# the endpoint: the fallback arm honours priority and was not getting it,
+# which is backwards — the arm we demote to during an outage is exactly the
+# one that should be running as fast as it can.
+#
+# Requesting it unconditionally is safe because the failure mode is a no-op,
+# and it means the day Azure enables the tier for luna we get it without an
+# edit. If priority ever needs to come off (it bills at a premium), set
+# CHARTO_LLM_SERVICE_TIER in pivot/.env rather than changing this.
+#
+# NOTE for anyone chasing latency through this constant: on the deployment we
+# actually run, this line changes nothing. Luna measured ~16s per call at this
+# payload size against mini's ~8.75s, and a turn is ~100% LLM time once the
+# bar store is warm — so round COUNT times per-round time is the whole budget,
+# and the real lever on luna is provisioned throughput, not a request flag.
+LLM_SERVICE_TIER_DEFAULT = "priority"
 
 
 def _env_values(*keys: str) -> dict[str, str]:

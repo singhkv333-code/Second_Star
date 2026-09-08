@@ -12,10 +12,36 @@ import pytest
 import dataserver as server
 
 
-def test_default_service_tier_matches_the_deployment() -> None:
-    assert server.LLM_SERVICE_TIER in {"default", "priority"}
+def test_we_ask_for_the_fast_lane_on_every_deployment() -> None:
+    """We request `priority` unconditionally, and that is deliberate.
+
+    It used to be `default`, on the reasoning that requesting a tier the
+    primary does not receive is pointless. Measured 2026-09-08 at a real
+    35,285-token execution payload, that reasoning was half right and the
+    conclusion was wrong:
+
+        gpt-5.4-mini  default   median 8.75s   (n=5)
+        gpt-5.4-mini  priority  median 7.03s   (n=5)  -19.7%
+        gpt-5.6-luna  priority  echoed back "default", 6/6
+
+    Priority is a per-MODEL capability, not a deployment tier — both are
+    GlobalStandard on the same resource. Azure ACCEPTS the parameter on luna
+    and silently serves `default`, so asking costs nothing there; but the
+    fallback arm DOES honour it and was not being given it, which is exactly
+    backwards for the deployment we demote to during an outage.
+
+    So the failure mode of asking is a no-op, and the upside is real on every
+    deployment that offers it — including luna, the day Azure enables it.
+    Flip this back only with a measurement, not with the old argument.
+    """
+    assert server.LLM_SERVICE_TIER in {"default", "priority", "flex", "auto"}
     if "CHARTO_LLM_SERVICE_TIER" not in server.environ:
-        assert server.LLM_SERVICE_TIER == "default"
+        assert server.LLM_SERVICE_TIER == "priority"
+    # Every path that talks to the model must carry it, or the streaming turn
+    # the FE actually uses silently runs on a different tier from the probes.
+    import pathlib
+    src = pathlib.Path(server.__file__).read_text(encoding="utf-8")
+    assert src.count('"service_tier": LLM_SERVICE_TIER') >= 4
 
 
 def test_data_gate_rejects_without_overcommitting(monkeypatch) -> None:
