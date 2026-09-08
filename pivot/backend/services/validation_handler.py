@@ -507,7 +507,7 @@ def _format_clarification_question(missing: list[MissingField]) -> str:
     into a friendly sentence in microseconds.
 
     Special-cased for the most common shapes:
-      - one missing field          → "Got it — what's the {pretty}?"
+      - one missing field          → "Got it. What's the {pretty}?"
       - two missing fields         → "I need {a} and {b}."
       - three or more              → bulleted list.
       - structural fields (e.g.    → fall back to a generic "could you
@@ -526,7 +526,7 @@ def _format_clarification_question(missing: list[MissingField]) -> str:
     if field_names <= structural and "steps" in field_names:
         return (
             "I couldn't quite map that into a workflow. Could you "
-            "describe it a bit more concretely — what should trigger "
+            "describe it a bit more concretely: what should trigger "
             "the action, and what action should run?"
         )
 
@@ -541,7 +541,7 @@ def _format_clarification_question(missing: list[MissingField]) -> str:
 
     if len(missing) == 1:
         m = missing[0]
-        return f"Got it — what's the {_humanize_description(m)}?{_hint(m)}"
+        return f"Got it. What's the {_humanize_description(m)}?{_hint(m)}"
 
     if len(missing) == 2:
         a, b = missing[0], missing[1]
@@ -551,10 +551,10 @@ def _format_clarification_question(missing: list[MissingField]) -> str:
         )
 
     bullets = "\n".join(
-        f"  • {_humanize_description(m)}{('  — ' + m.type_hint) if m.type_hint and m.type_hint not in _NOISE_HINTS else ''}"
+        f"  • {_humanize_description(m)}{(', ' + m.type_hint) if m.type_hint and m.type_hint not in _NOISE_HINTS else ''}"
         for m in missing
     )
-    return f"I'm missing a few things — could you share:\n{bullets}"
+    return f"I'm missing a few things. Could you share:\n{bullets}"
 
 
 def _fallback_question(missing: list[MissingField]) -> str:
@@ -890,7 +890,7 @@ async def execute_with_completeness(
         out.success = False
         out.needs_clarification = True
         out.question = (
-            f"How many shares of {sym} should I use? (I won't default to 1 — "
+            f"How many shares of {sym} should I use? (I won't default to 1, "
             "give me a share count or a rupee budget like ₹10,000.)"
         )
         out.data = {}
@@ -1079,9 +1079,9 @@ def _qty_clarification_question(payload: dict) -> str:
     if entry_text or exit_text:
         bullets: list[str] = ["Got the setup:"]
         if entry_text:
-            bullets.append(f"- **Entry** — {entry_text}")
+            bullets.append(f"- Entry: {entry_text}")
         if exit_text:
-            bullets.append(f"- **Exit** — {exit_text}")
+            bullets.append(f"- Exit: {exit_text}")
         lead = "\n".join(bullets) + "\n\n"
     elif readback:
         lead = f"Got the setup:\n- {readback}\n\n"
@@ -1091,12 +1091,12 @@ def _qty_clarification_question(payload: dict) -> str:
     if sym:
         return (
             f"{lead}How many shares of {sym} per fire? "
-            f"(Set a size or give me a rupee budget like ₹10,000 — "
+            f"(Set a size or give me a rupee budget like ₹10,000, "
             f"I won't default to 1.)"
         )
     return (
         f"{lead}How many shares per fire? "
-        f"(Set a size or give me a rupee budget like ₹10,000 — "
+        f"(Set a size or give me a rupee budget like ₹10,000, "
         f"I won't default to 1.)"
     )
 

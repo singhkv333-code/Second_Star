@@ -312,6 +312,7 @@ _PARALLEL_READ_TOOLS: frozenset = frozenset({
     "get_index_level", "get_market_status", "get_top_movers",
     "get_option_chain", "fetch_fundamentals", "get_symbol_news",
     "screen_fundamentals", "query_financials", "compare_performance",
+    "get_company_research",
     "get_performance_metrics", "get_correlation_matrix", "get_returns",
     "compare_yields", "get_yield_recommendation", "get_portfolio_greeks",
     "get_product_spec", "get_ipo_details", "list_upcoming_ipos",
@@ -2722,6 +2723,35 @@ _REPLY_BUDGETS: dict[str, tuple[int, str]] = {
         "note and the not-advice disclaimer."
     )),
 }
+
+
+# The house style, re-stated every turn in the highest-salience system slot.
+#
+# `system_core.md` already carries the full Format section, but it is one
+# section in a 1,000-line document and the per-intent packs land AFTER it —
+# and those packs are written in heavy bold with a dash every ~40 words, so
+# they were teaching the register they were supposed to govern. Measured: the
+# core rule alone cleaned up a stock-pick reply (10 bold spans to 0) but the
+# market-read and explainer shapes still came back with 5-7 bold spans,
+# because a different pack loads for each and each one models the habit.
+#
+# So it is repeated here, where the reply-class directive already sits: last
+# before the history, positive rather than prohibitive (GPT follows "do this"
+# far better than "never that"), and short enough to cost nothing. OpenAI's
+# GPT-5 prompting guide documents the same decay and recommends exactly this
+# re-append.
+_HOUSE_STYLE = (
+    "\n\nSTYLE: lead with the substance. Do not open by restating the "
+    "question or with a lead-in like \"Here are\" or \"Sure\". "
+    "Default to clear paragraphs, each developing one idea; use bullets only "
+    "when the items are genuinely parallel, and a table when the data is a "
+    "grid. Write company names, tickers, metric labels and figures as plain "
+    "text; bold at most one phrase and usually none. Join clauses with "
+    "commas, colons or full stops rather than dashes. Skip filler openers and "
+    "closers (\"it's worth noting\", \"in short\", \"overall\", "
+    "\"delve\", \"truly\") and do not end by summarising what you just "
+    "said or offering further help."
+)
 
 
 # ── Independent-vs-dependent prompt detector ────────────────────────
@@ -7274,6 +7304,7 @@ class ChatService:
         _budget_tokens, reply_class_hint_text = _REPLY_BUDGETS.get(
             reply_class, _REPLY_BUDGETS["analytical_short"]
         )
+        reply_class_hint_text += _HOUSE_STYLE
         # GAN R2 R1/R8: append a screen/trend sub-hint to the analysis
         # directive so screens render ranked tables and index-trend reads
         # render SMA %-distance, not raw levels.
@@ -9543,6 +9574,7 @@ class ChatService:
         _budget_tokens, reply_class_hint_text = _REPLY_BUDGETS.get(
             reply_class, _REPLY_BUDGETS["analytical_short"]
         )
+        reply_class_hint_text += _HOUSE_STYLE
         # GAN R2 R1/R8: screen/trend sub-hint on the analysis class.
         if reply_class == "analysis":
             _sub = _analysis_subhint(message)
