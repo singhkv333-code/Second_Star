@@ -81,6 +81,24 @@ function sourceLabel(host: string): string {
 // "+12.4%", "-8.2%", "+₹1,240.50", "₹-500", "−3.1%" (U+2212 minus).
 const GAIN_LOSS_RE = /([+\-−]\s?₹\s?[\d,]+(?:\.\d+)?|₹\s?[+\-−]\s?[\d,]+(?:\.\d+)?|[+\-−]\s?\d[\d,]*(?:\.\d+)?%)/g;
 
+// Accounting convention for losses: a negative reads as brackets, not a
+// minus sign — "(₹8,966)", "(34.21%)". The colour already says which
+// direction it is, so the sign is doing nothing a reader needs, and a lone
+// "-" is easy to miss at the left edge of a right-aligned column. Positives
+// keep their explicit "+".
+//
+// Applied at RENDER only. The model still writes "-₹8,966" (one stable
+// instruction, and the value stays machine-readable in the raw markdown);
+// the display layer is what puts it in brackets, so every surface that
+// routes through here — prose and table cells alike — agrees without the
+// model having to be reminded.
+function accountingNegative(part: string): string {
+  const bare = part
+    .replace(/[-−]\s?/, "")   // drop the sign wherever it sits: "-₹5" or "₹-5"
+    .trim();
+  return `(${bare})`;
+}
+
 export function colorizeGainLoss(text: string, keyPrefix: string): React.ReactNode {
   if (!/[+\-−]/.test(text)) return text;
   const parts = text.split(GAIN_LOSS_RE);
@@ -94,7 +112,7 @@ export function colorizeGainLoss(text: string, keyPrefix: string): React.ReactNo
         className="font-medium tabular-nums"
         style={{ color: negative ? "var(--color-loss)" : "var(--color-profit)" }}
       >
-        {part}
+        {negative ? accountingNegative(part) : part}
       </span>
     );
   });
