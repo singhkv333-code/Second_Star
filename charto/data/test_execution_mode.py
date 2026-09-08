@@ -8,6 +8,8 @@ engineering ids.
 """
 from __future__ import annotations
 
+import json
+
 import execution_bridge
 import dataserver as server
 
@@ -57,6 +59,47 @@ def test_the_contract_tells_it_to_act_before_it_asks() -> None:
     # instruction to reach for a clarify tool this wire does not have.
     assert "Call ASK_USER with ONE question" not in block
     assert "call ASK_USER" not in block
+
+
+def test_no_tool_on_this_wire_tells_the_model_to_ask_the_interval() -> None:
+    """The three-way interval contradiction, pinned from the losing side.
+
+    `propose_dsl_workflow`'s `interval` parameter used to end "If user did NOT
+    pin a timeframe, ASK — do not guess." Correct in Pivot's chat, which has a
+    clarify card to ask WITH. Wrong here three times: no clarify tool exists on
+    this wire, the adapter's first rule is never to open with a question, and
+    the composer's interval is already in the model's context.
+
+    It was also WINNING: two prompt-level rules say never ask, but both sit
+    ~9k tokens away while that clause is attached to the argument being filled
+    in. The observed failure — "buy 10 INFY when RSI < 30" answered with
+    "which timeframe?" — costs a visible round plus two hidden translation
+    hops on the rebuild.
+
+    Asserted against the whole wire rather than the one tool, because the next
+    borrowed description to carry an ask-instruction should fail here too.
+    """
+    _execution_mode()
+    blob = json.dumps(server._tools_for_request())
+    assert "ASK — do not guess" not in blob
+    assert "ASK - do not guess" not in blob
+
+
+def test_retargeting_does_not_mutate_pivots_own_registry() -> None:
+    """Pivot's chat reads the same dict object in-process.
+
+    `_retarget` must copy. If it ever mutated in place, this seam would edit
+    the behaviour of a product that is not ours — the exact failure the
+    bridge's docstring says it exists to avoid.
+    """
+    import execution_bridge as eb
+    st = eb._ensure_pivot()
+    if not st["ok"]:
+        return
+    eb.tools()          # force the rewrite path
+    original = (st["mods"]["ALL_TOOLS"]["propose_dsl_workflow"]["function"]
+                ["parameters"]["properties"]["interval"]["description"])
+    assert "ASK — do not guess" in original
 
 
 def test_the_absent_tools_note_names_only_real_absent_tools() -> None:

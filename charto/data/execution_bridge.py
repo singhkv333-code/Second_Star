@@ -333,6 +333,64 @@ def available() -> tuple[bool, str]:
 # ── The model-facing surface ─────────────────────────────────────────
 
 
+# A clause in Pivot's own tool schema that instructs the opposite of this
+# surface's contract, at the one place a model is most likely to obey it.
+#
+# `propose_dsl_workflow`'s `interval` parameter ends: "If user did NOT pin a
+# timeframe, ASK — do not guess." That is right in Pivot's chat, which has
+# `ask_user_dynamic` and a clarify card to ask WITH. Here it is wrong three
+# times over: there is no clarify tool on this wire, the adapter's first rule
+# is never to open with a question, and `_execution_context` has already told
+# the model the composer's interval — so the value it would be asking for is
+# sitting in its context.
+#
+# It is also winning the argument. Two prompt-level rules say never ask (the
+# borrowed `system_core.md` slice, 411 tokens, and the context block's own
+# line, 30 tokens), but both sit ~9k tokens from the decision while this one
+# is attached to the argument being filled in. The measured failure is "buy 10
+# INFY when RSI < 30" answered with "which timeframe?" — which costs a visible
+# round plus, on the rebuild, two more hidden translation hops inside
+# `propose_dsl_workflow` itself. Call it 15-30s to ask a question whose answer
+# was already on screen.
+#
+# Corrected HERE rather than in Pivot's file for the same reason
+# `_fix_borrowed_warnings` exists: Pivot's copy is right about Pivot, and the
+# seam is the only place that knows which surface a description is bound for.
+# The FACTS in the sentence (what the interval governs, that `period` counts
+# bars of it) are untouched; only the verb changes.
+_ASK_INTERVAL = "If user did NOT pin a timeframe, ASK — do not guess. "
+_USE_INTERVAL = ("When the user pinned no timeframe, use the interval the "
+                 "composer is on (it is named in your context) and say which "
+                 "you used — never ask. ")
+
+
+def _retarget(defn: dict) -> dict:
+    """Rewrite a borrowed tool description that contradicts this surface.
+
+    Returns a copy; the registry's own dict is never mutated, because Pivot's
+    chat reads the same object in-process.
+    """
+    fn = dict(defn)
+    params = fn.get("parameters")
+    if not isinstance(params, dict):
+        return fn
+    props = params.get("properties")
+    if not isinstance(props, dict):
+        return fn
+    out = dict(props)
+    changed = False
+    for key, spec in props.items():
+        desc = (spec or {}).get("description") if isinstance(spec, dict) else None
+        if isinstance(desc, str) and _ASK_INTERVAL in desc:
+            spec = dict(spec)
+            spec["description"] = desc.replace(_ASK_INTERVAL, _USE_INTERVAL)
+            out[key] = spec
+            changed = True
+    if changed:
+        fn["parameters"] = {**params, "properties": out}
+    return fn
+
+
 def tools() -> list[dict]:
     """Pivot's tool definitions in the Responses-API shape Charto sends.
 
@@ -351,7 +409,7 @@ def tools() -> list[dict]:
         if not defn:
             logger.warning("pivot tool %s missing from ALL_TOOLS", name)
             continue
-        fn = defn.get("function") or {}
+        fn = _retarget(defn.get("function") or {})
         out.append({
             "type": "function",
             "name": fn.get("name", name),
