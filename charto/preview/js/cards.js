@@ -836,51 +836,11 @@ const Cards = (() => {
    * rendering as "—" beside five real ones.
    */
 
-  /** A constructed basket. The weights ARE the strategy — which names, how
-   *  much of each — so they lead as bars on one scale rather than a column of
-   *  percentages the reader has to rank themselves. */
-  function strategyBasket(c) {
-    const names = c.constituents || [];
-    const sym = c.constituents?.[0]?.symbol || "";
-    const capital = c.capital_inr;
-    const rows = names.map((n) => ({
-      label: n.symbol, value: Number(n.weight_pct),
-      text: `${n2(sym, n.weight_pct)}%`,
-    }));
-    // The reason a name is in the basket is the engine's own sentence. It sits
-    // under the bar it explains, not in a legend somewhere else.
-    const why = names.filter((n) => n.weight_reason).slice(0, 8).map((n) =>
-      `<div class="wf-kv-row"><b>${esc(n.symbol)}</b>`
-      + `<span>${esc(n.weight_reason)}</span></div>`).join("");
-    const sleeves = (c.sleeves || []).length
-      ? bars((c.sleeves || []).map((s) => ({
-          label: s.name || s.sleeve || s.label || "",
-          value: Number(s.weight_pct ?? s.pct),
-          text: `${n2(sym, s.weight_pct ?? s.pct)}%`,
-        })))
-      : "";
-    const alts = (c.alternatives || []).map((a) =>
-      `<div class="wf-kv-row"><b>${esc(a.title || "")}</b>`
-      + `<span>${esc(a.detail || "")}</span></div>`).join("");
-    const assume = (c.assumptions || []).length
-      ? `<ul class="wf-warn">${c.assumptions.map((a) =>
-          `<li>${esc(a)}</li>`).join("")}</ul>` : "";
-    return `<div class="wf-card">`
-      + `<div class="wf-top"><span class="wf-chip">Basket</span>`
-      + (c.weighting_scheme
-          ? `<span class="wf-state">${esc(String(c.weighting_scheme)
-              .replace(/_/g, " "))}</span>` : "")
-      + `</div>`
-      + `<h3 class="wf-title">${esc(c.title || "Strategy")}</h3>`
-      + (capital != null ? `<p class="wf-desc">${esc(money(sym, capital))} across `
-          + `${names.length} name${names.length === 1 ? "" : "s"}</p>` : "")
-      + section("Weights", "", bars(rows))
-      + section("Sleeves", "", sleeves)
-      + section("Selection", "", why)
-      + section("Alternatives", "", alts)
-      + section("Assumptions", "", assume)
-      + (c.rationale ? `<p class="wf-note">${esc(c.rationale)}</p>` : "");
-  }
+  /* NO BASKET RENDERER. `build_strategy`'s card was removed from the seam
+   * (see `_PIVOT_CARD_KINDS` in dataserver.py): on this surface a constructed
+   * basket is always registered as a plan in the same turn, and the plan card
+   * is the one with the button. Two panels of identical weights, only one of
+   * which could be pressed, is the bug this deletion is. */
 
   /** A data-provenance banner, ABOVE the numbers it qualifies.
    *
@@ -2166,17 +2126,15 @@ const Cards = (() => {
       + `<i class="plan-state">${esc(state)}</i></span></div>`;
   }
 
+  /* No weights chart. Every leg row already carries its own size beside its
+   * symbol, so a bar list above them was the same eight numbers a second
+   * time, ranked — and ranking is not the question here. A plan is a list of
+   * decisions with a button under it; the sizes are one column of that list,
+   * not a chart of their own. */
   function plan(c) {
     const legs = c.legs || [];
     const done = legs.some((l) => l.state === "filled" || l.state === "armed");
     const live = c.state === "active";
-    const weighted = legs.filter((l) => l.weight_pct != null);
-    const weights = weighted.length
-      ? bars(weighted.map((l) => ({
-          label: l.symbol, value: Number(l.weight_pct),
-          text: `${Number(l.weight_pct).toFixed(1)}%`,
-        })))
-      : "";
     const assume = (c.assumptions || []).length
       ? `<ul class="wf-warn">${c.assumptions.map((a) =>
           `<li>${esc(a)}</li>`).join("")}</ul>` : "";
@@ -2201,7 +2159,6 @@ const Cards = (() => {
       + `${live ? "Active" : "Registered"}</span></div>`
       + `<h3 class="wf-title">${esc(c.name || "Plan")}</h3>`
       + (c.rationale ? `<p class="wf-desc">${esc(c.rationale)}</p>` : "")
-      + section("Weights", "", weights)
       + section("Legs", "", legs.map(planLegRow).join(""))
       + section("What I assumed", "you can change any of these", assume)
       + section("What this rests on", "", evid)
@@ -2265,7 +2222,6 @@ const Cards = (() => {
   const RENDER = { patterns, trend, indicators, confirmation, timeframes,
                    compare, move, workflow_draft: workflowDraft,
                    strategy_backtest: strategyBacktest,
-                   strategy_basket: strategyBasket,
                    option_strategy: optionStrategy,
                    option_chain: optionChain,
                    quant_result: quantResult, plan };

@@ -11536,10 +11536,23 @@ for _n in ("register_plan", "list_plans", "plan_status", "retire_plan"):
 # the FE cannot draw is worse than no card, and an unmapped hint is a missing
 # renderer rather than a broken one. The four quant results share one kind
 # because they are one shape — a stat block with a verdict over it.
+#
+# `strategy_builder_card` IS DELIBERATELY ABSENT. `build_strategy` is a
+# research step on this surface, not an answer: the contract above it is
+# "register the result", so every basket it constructs is re-stated moments
+# later by the plan the model registers from it. Mapped, the turn ended with
+# two panels saying the same thing — the same names, the same weights, the
+# same one-line reason per name — and only the second one could be pressed.
+# The first was a preview of a card that was already coming.
+#
+# So the tool still runs and the model still reads its construction; the seam
+# just stops drawing it. The plan card is the single rendering of a selection,
+# and it is the one with the button. (On Pivot's own chat the builder card IS
+# the terminal answer, which is why the hint exists at all — the difference is
+# that Charto has somewhere to put a selection and Pivot's chat does not.)
 _PIVOT_CARD_KINDS = {
     "workflow_draft_card": "workflow_draft",
     "indicator_backtest_chart": "strategy_backtest",
-    "strategy_builder_card": "strategy_basket",
     "option_chain_card": "option_chain",
     "option_strategy_card": "option_strategy",
     "pairs_backtest": "quant_result",
