@@ -364,6 +364,32 @@ _USE_INTERVAL = ("When the user pinned no timeframe, use the interval the "
                  "you used — never ask. ")
 
 
+# A second borrowed instruction that is inert here, in a way that is invisible
+# unless you check it against the wire.
+#
+# `build_strategy`'s description carries a self-sufficiency clause: "do NOT
+# pre-call screen_fundamentals / fetch_fundamentals / compare_performance /
+# compute". Every one of those four is a PIVOT tool, and not one of them is on
+# Charto's surface — so the sentence forbids four things the model cannot do
+# and is silent about the one screener it CAN reach, `screen_universe`.
+#
+# Measured: 4/4 named tools absent from `_tools_for_request()`, `screen_universe`
+# present and unmentioned. So the clause cannot fire as written.
+#
+# What it costs is unproven and stated as such. I have seen one turn go
+# `screen_universe` -> `build_strategy` (the screen's result unused, a whole
+# round at 8-21s) and one go straight to `build_strategy` with no pre-call, and
+# the profiling run never invoked `build_strategy` at all. So this is a latent
+# defect fixed because it is provably inert and the fix is nearly free, NOT
+# because a measured round is riding on it. If it turns out the model reliably
+# pre-screens, this becomes a real saving; if not, it costs nothing.
+_NO_PRESCREEN_OLD = ("do NOT pre-call screen_fundamentals / fetch_fundamentals "
+                     "/ compare_performance / compute.")
+_NO_PRESCREEN_NEW = ("do NOT pre-call a screener — on this surface that means "
+                     "`screen_universe`, whose ranking this tool does not read. "
+                     "It builds its own universe.")
+
+
 def _retarget(defn: dict) -> dict:
     """Rewrite a borrowed tool description that contradicts this surface.
 
@@ -371,6 +397,11 @@ def _retarget(defn: dict) -> dict:
     chat reads the same object in-process.
     """
     fn = dict(defn)
+    # The top-level description first: `build_strategy`'s self-sufficiency
+    # clause lives there, not on a parameter.
+    desc = fn.get("description")
+    if isinstance(desc, str) and _NO_PRESCREEN_OLD in desc:
+        fn["description"] = desc.replace(_NO_PRESCREEN_OLD, _NO_PRESCREEN_NEW)
     params = fn.get("parameters")
     if not isinstance(params, dict):
         return fn

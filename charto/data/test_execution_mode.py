@@ -85,6 +85,29 @@ def test_no_tool_on_this_wire_tells_the_model_to_ask_the_interval() -> None:
     assert "ASK - do not guess" not in blob
 
 
+def test_no_borrowed_rule_forbids_a_tool_that_is_not_on_the_wire() -> None:
+    """A rule naming only absent tools cannot fire, and hides that it cannot.
+
+    `build_strategy` says "SELF-SUFFICIENT — do NOT pre-call
+    screen_fundamentals / fetch_fundamentals / compare_performance /
+    compute". All four are Pivot tools and none is on this surface, so the
+    clause forbids four things the model cannot do while saying nothing about
+    `screen_universe`, the one screener it CAN reach.
+
+    Generalised past that one clause on purpose: the same failure has now
+    appeared four times today in four different shapes, and a test that only
+    pinned this instance would not catch the fifth.
+    """
+    _execution_mode()
+    names = {t["name"] for t in server._tools_for_request()}
+    blob = json.dumps(server._tools_for_request())
+    for absent in ("screen_fundamentals", "fetch_fundamentals",
+                   "compare_performance", "get_market_data", "create_sip"):
+        assert absent not in names          # really absent
+        assert absent not in blob, (
+            f"{absent} is named in a tool description but is not callable")
+
+
 def test_retargeting_does_not_mutate_pivots_own_registry() -> None:
     """Pivot's chat reads the same dict object in-process.
 
