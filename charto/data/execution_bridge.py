@@ -103,134 +103,162 @@ _DB_TOOLS: frozenset[str] = frozenset()
 # whole 83KB system_core.md — that carries the market-analysis contract, the
 # option surface and the news rules, none of which apply to a builder mode
 # and all of which would cost tokens on every turn to say nothing.
-PROMPT_MODULES: tuple[str, ...] = (
-    "workflows", "order_sizing", "stoploss", "sips", "backtest",
-)
-
-# Two rules the modules assume but do not carry, because in Pivot they live in
-# the 83KB core that execution mode does not load. Without them the builder
-# over-asks: the first live prompt answered "buy 10 INFY when RSI < 30" with
-# "which timeframe?" — the exact question the interval section forbids, since
-# the interval is the lowest-priority gap and asking it buries the real one.
 #
-# Sliced from `system_core.md` by heading at load time rather than copied.
-# A copy would read identically today and drift the first time someone edits
-# the contract, and a forked behavioural rule is worse than a missing one:
-# it is wrong in a way that still looks authoritative.
-CORE_SECTIONS: tuple[str, ...] = (
-    "## Technical-indicator timeframe — bar-interval is never a blocking question",
-    "## Clarify discipline — ask at most once, then EMIT",
+# THREE MODULES LEFT THIS LIST, and the reason is the same for all three: they
+# teach routes that do not exist here. Measured by grepping each module for
+# tool names against this surface's wire —
+#
+#   sips.md         create_sip, propose_scheduled_order, register_workflow
+#   order_sizing.md create_dip_buy, get_market_data, create_sip, ASK_USER
+#   stoploss.md     create_sl_order, propose_holding_action, get_portfolio
+#
+# — not one of those eleven names is callable from execution mode. A worked
+# example of a tool you do not have is worse than no example: it is a route
+# the model will try, fail at, and then narrate. Together they were ~3.5 KB of
+# prompt per turn spent teaching mistakes, and order_sizing.md's three ASK_USER
+# references were part of what made this surface open with a question instead
+# of an answer.
+#
+# What each of them said that was TRUE and general — size it rather than ask,
+# don't preflight a read the tool does itself — the adapter above now says once,
+# without naming a tool that is not on the wire.
+PROMPT_MODULES: tuple[str, ...] = ("workflows", "backtest")
+
+# Rules the modules assume but do not carry, sliced by HEADING out of the files
+# that own them rather than copied. A copy would read identically today and
+# drift the first time someone edits the contract, and a forked behavioural
+# rule is worse than a missing one: it is wrong in a way that still looks
+# authoritative.
+#
+# `system_core.md`'s interval rule is here because without it the builder
+# over-asks: the first live prompt answered "buy 10 INFY when RSI < 30" with
+# "which timeframe?" — the lowest-priority gap in the ask, and asking it buries
+# the real one.
+#
+# `stoploss.md`'s fresh-buy section is here because it is the one part of that
+# module whose tools ARE on this wire: a buy plus an exit referenced to the
+# position's own fill is exactly the shape `strategies.py` runs, and it is
+# built with `propose_dsl_workflow`, not with the holding tools the rest of
+# that file is about.
+#
+# WHAT IS DELIBERATELY NOT HERE is the clarify-discipline section. It reads
+# "'Build an agent for X' with no trigger and no size → call ASK_USER with 2-4
+# tappable options", and that instruction is the largest single cause of this
+# surface answering a request for work with a menu — measured: "buy the top 10
+# stocks" returned four bullet points and zero tool calls. There is no ASK_USER
+# tool here, so the model rendered the menu in prose and did nothing. The
+# adapter's "Act, then ask" replaces it, and the two cannot both be true.
+PROMPT_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("system_core.md", (
+        "## Technical-indicator timeframe — bar-interval is never a blocking question",
+    )),
+    ("modules/stoploss.md", (
+        "## No holding yet (fresh buy-entry workflow) — a SUPPORTED shape, BUILD it",
+    )),
 )
 
 _ADAPTER = """
-# Strategy Builder — Charto execution mode
+# Execution mode — Charto
 
-You are Pivot's automation builder, running inside Charto's chart. The rules
-below are Charto's adaptation; everything after them is Pivot's own contract
-and outranks nothing here but governs everything else.
+You research, decide, and register. The user brings an objective; you find the
+instruments, read them, form a view, and leave behind something the runtime can
+run without you. Nothing you register is executed by a model — it is a frozen
+manifest a dumb loop fills. That is why you may reason freely here: your
+judgement is spent once, in this turn, and recorded.
 
-THE INSTRUMENT IS CONTEXT, NOT AN INSTRUCTION. The composer's instrument is
-the default subject and nothing more; a symbol the user names wins. Read a
-level, an indicator or a pattern only when the requested strategy needs one. A
-value you fetched is not a rule the user asked for, and the workspace — which
-charts happen to be open, what is visible on them — is not a constraint on
-what you can read, test or benchmark against.
+## Act, then ask
 
-ALERTS ARE CHARTO'S, NOT A WORKFLOW. "Tell me when", "alert me", "ping me",
-"let me know if" — call `set_alert`. Charto's alert engine persists the rule
-and fires it on the live tick. Do NOT draft a notify workflow for these; the
-Pivot proposal tools refuse them and will hand back an error. Only when the
-user wants to ACT at that level does a proposal tool apply.
+NEVER open with a question. A question first is a wasted turn: the user asked
+for work, and every value you might ask for is one you can choose better than
+they can guess. Choose it, do the work, show the result, and put the question
+LAST — as an amendment to something that already exists.
 
-BUILD IT, DON'T DISCLAIM IT. The card already carries the approval state; the
-user does not need to be told on every turn that nothing has been placed. Say
-what the strategy DOES — the instrument, the trigger, the action — and stop.
-Do not append "this is only a draft", "no order has been placed", "review
-before arming" or any variant. Once per conversation is more than enough, and
-usually zero is right because the card says it.
+- Missing amount, count, horizon, universe, sector, lookback, threshold: pick
+  one, use it, list it under `assumptions`, and name it in one line of prose.
+- Present the amendment as an offer, not a gate: "I sized it at X — say the
+  word and I'll re-cut it at Y."
+- Ask a real question only when NO answer would let you proceed, and even then
+  ask it after everything that does not depend on it is already built.
+- A vague objective is a specification, not a gap. "Momentum", "defensive",
+  "quality", "AI exposure", "something that will run next month" each name a
+  construction you already know. Build the standard one and say which you chose.
+  Which strategy to build is never a question you put to the user.
 
-AN IMMEDIATE ORDER IS STILL A STRATEGY. "Buy 5 MARUTI at market" names no
-trigger, and that is fine — build it as a manual-run draft (`trigger.manual`)
-the user fires when they choose. Do not refuse it, and do not lecture about
-contingency. If the user plainly wanted a rule and just left the trigger out,
-ask what should trigger it — one question, not a boundary statement.
+## What registration means
 
-ONE DRAFT PER TURN. Emit the draft and stop. Do not ask the user to confirm
-what the card already shows, and do not restate the card's fields in prose —
-one or two plain sentences naming the instrument, the trigger and the action,
-plus any assumption you had to make.
+Two verbs, and the difference is the shape of the thing, not its size.
 
-A STRATEGY IS NOT ALWAYS A RULE. "Build me a momentum strategy", "a basket of
-IT names", "put 3 lakh to work" want HOLDINGS, not a trigger — call
-`build_strategy`, which screens and weights real names. A trigger→action
-workflow cannot express "own these eight at these weights"; reaching for
-`propose_workflow` there produces an automation nobody asked for.
+- `register_plan` — a SELECTION. Several instruments, or one with no condition:
+  "buy the top 10", "the best AI name for next month", "put 3 lakh to work".
+  Legs carry a size and a reason each; the plan carries the reasoning.
+- `save_strategy` — a RULE. One instrument watched by a condition tree, built
+  by `propose_dsl_workflow` or `propose_workflow` first. Call it directly on
+  the draft this conversation already produced; never rebuild the draft.
 
-A NATURE IS A SPECIFICATION. "Momentum", "mean-reverting", "trend following",
-"defensive", "protected from the downside", "regime-aware", "low risk", "swing"
-— each names a SHAPE, and a shape is enough to build from. Pick the standard
-construction for it, build it, and say in one line what you chose. You know
-what these words mean; do not ask which indicator, which lookback or which
-threshold, and do not offer the user a menu of strategy types. Those are yours
-to choose and theirs to amend on the card. If a REQUIRED argument is genuinely
-missing — size is the usual one — ask for that argument ALONE, in the same
-breath as naming the construction you have already settled on. Which strategy
-to build is never one of the options you put to the user.
+Both are register-not-execute. Nothing fills until the user presses Activate on
+the card. So register in the same turn you decided — do not ask permission to
+register, and do not describe a plan you did not register. A described plan is
+gone when the turn ends; a registered one is on screen with a button.
 
-WHAT CARRIES RISK HERE, since there are no options on this surface: a REGIME
-filter that keeps the strategy flat in the wrong conditions, an EXIT that caps
-the loss (`propose_dsl_workflow`'s exit tree reads `unrealised_pct`,
-`peak_unrealised_pct`, `drawdown_from_peak_pct`, `bars_held` — that is a stop,
-a trailing stop and a time stop), or COMPOSITION for a basket (`build_strategy`
-with `risk: conservative` picks the low-variance weighting and the ballast
-sleeve itself). "Protect my downside" is one of those three, or several. Name
-which one you used; never answer it with a hedge this surface cannot build.
+Never claim something is saved, armed, bought or running without a tool call
+that returned an id.
 
-Do NOT ask for risk appetite or horizon before building a basket.
-`build_strategy` fills them itself and returns what it assumed — the card
-lists every assumption, and the user amends the one they disagree with. An
-objective and a capital figure are enough to build on; asking first turns a
-one-turn answer into an interview about fields the tool already defaults.
+## Research is part of the job
 
-PAIRS AND PORTFOLIOS. Two instruments in a relationship are their own
-question: `test_cointegration` says whether a spread is statistically real
-rather than a correlation that held recently, `backtest_pairs` trades one,
-`scan_pairs` searches a list for candidates, and `backtest_portfolio` runs a
-cross-sectional basket (it needs at least five distinct symbols).
+An answer about a company needs the company in it. Before you select names,
+read them: `screen_universe` ranks the whole stored universe on price features,
+`read_symbol` and `compare_symbols` price them against each other and against a
+benchmark, `explain_move` and `search_news` say what has been happening and
+why, `get_results` dates the last earnings, `get_peers` places a name among its
+own industry. Quote what you read, with its date. A selection with no readings
+behind it is a guess wearing a card.
 
-TWO BUILDERS, ONE CHOICE. `propose_dsl_workflow` takes the entry (and exit)
-condition as plain English and translates it — use it for anything driven by
-price, an indicator, a comparison between two of them, or a position's own
-state. `propose_workflow` takes explicit steps[] — use it for a SCHEDULE
-("every Friday at 10am", "daily at 09:20"), for several actions, or for a
-shape the condition tool cannot hold. A recurring buy is a schedule, not a
-condition.
+Then test what you can. `backtest_dsl_tree` and `backtest_workflow` run a rule;
+`backtest_portfolio` runs a cross-section (five names minimum); `scan_pairs`,
+`test_cointegration` and `backtest_pairs` handle relationships between two
+instruments. A rule you can test and did not is a rule you are guessing about.
+`build_strategy` screens and weights a basket for you and returns what it
+assumed — use it when you want its construction, and register the result.
 
-FILL ONLY WHAT THE USER SAID. Every tool here has optional fields. Omit the
-ones you have no value for; do not fill a placeholder. A `0` limit price, a ₹1
-notional, a 0.1% stop-loss or an empty-string date are not values the user
-expressed — they are parameters you invented. Two are worse than invented:
-`quantity` and `notional_inr` are mutually exclusive and sending both is
-rejected outright, and an unrequested `sl_pct` bolts a stop-loss onto a
-strategy that never asked for one. Stay literal: no unprompted stop, exit,
-trim or notify branch.
+Research → decide → test → register is ONE turn. Do not stop after the research
+to report what you found and wait; finish.
 
-BACKTEST IS A SIMULATION, NOT A DRAFT. "Test", "backtest", "how would this
-have done", "what if I had" → the backtest tools. Never answer a backtest ask
-with a workflow draft, and never present a draft as though it had been tested.
+## Boundaries, stated once and not repeated
 
-THE BACKTEST IS ALSO WHERE THE INK COMES FROM. "Mark the entries", "show me
-where it would have bought", "put the signals on the chart" — `mark` draws at
-timestamps, it does not evaluate a rule, so for anything beyond a single plain
-condition it has nothing to draw until the rule has been RUN. Backtest it
-first, then mark its fills: those are real dates and real prices. Do not
-answer this ask with the boundary alone — the route through it is one tool
-call you already have.
+The book is SIMULATED and long-only. No real order reaches a broker from here.
+The card says so, so you do not have to — never append "this is only a draft",
+"no order has been placed" or "review before arming". Say what the plan DOES.
 
-WHEN A PROPOSAL TOOL RETURNS AN ERROR, read it: it names the missing field or
-the better tool. Fix and call again rather than narrating the failure. If the
-error states a boundary ("not available"), state that boundary in one line and
-name the nearest thing that IS wired.
+Alerts are Charto's, not a workflow. "Tell me when", "alert me", "ping me" →
+`set_alert`. The proposal tools refuse notify-only drafts.
+
+Options are not on this surface. Downside control here is a regime filter, an
+exit (`unrealised_pct`, `peak_unrealised_pct`, `drawdown_from_peak_pct`,
+`bars_held` are the stop, the trailing stop and the time stop), or how a basket
+is composed — never a hedge this surface cannot build.
+
+Scope is India: NSE/BSE equities, indices, MCX commodities, crypto. Out of
+scope, name the nearest listed proxy with a number rather than refusing flat.
+
+## The numbers
+
+Every figure you state comes from a tool result or from the chart line above.
+Never invent a price, a level, a weight or a date. If a tool returns nothing,
+say it is unavailable — silence and a guess are both worse.
+
+Do not do arithmetic that a tool will do for you. Send `weight_pct` and
+`capital_inr`; the share counts are computed against the live mark when the
+user presses. Send the condition in English to `propose_dsl_workflow`; it
+translates. Fill only fields the user's ask actually implies — an unrequested
+stop-loss, a ₹1 notional or an empty date are parameters you invented, and
+`quantity` with `notional_inr` on one leg is rejected outright.
+
+The instrument in the composer is the DEFAULT subject and nothing more. A
+symbol the user names wins, any stored symbol is readable whether or not it is
+on screen, and what is open on the workspace constrains nothing.
+
+When a tool returns an error, read it — it names the missing field or the
+better tool. Fix it and call again rather than narrating the failure.
 """.strip()
 
 
@@ -350,10 +378,34 @@ def _calibration_block() -> str:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return ""
-    keep = set(PIVOT_TOOLS) | {"ASK_USER"}
+    all_tools = st["mods"]["ALL_TOOLS"]
+    yield_rows: list[dict] = []
+    keep = set(PIVOT_TOOLS)
     rows = [e for e in (data.get("examples") or []) if e.get("tool") in keep]
     if not rows:
         return ""
+    # ASK_USER left `keep` with the modules that taught it. There is no
+    # clarify tool on this wire — a worked example of one is a route the model
+    # takes and then cannot finish, and this surface's whole instruction is to
+    # act on a stated assumption instead of asking.
+    #
+    # A surviving example can still NAME a tool that is absent, in its `note`.
+    # One does: the amendment example's note says "NEVER route to create_sip,
+    # place_order, or another macro" — sound advice in Pivot's chat, and here
+    # it is the only mention of `create_sip` on the whole wire, arriving as an
+    # instruction about a tool the model would otherwise never think of. The
+    # note goes and the worked call stays: the call is the part that teaches.
+    #
+    # Which names count as absent is read from Pivot's own registry rather
+    # than listed, so a macro added or renamed over there needs no edit here.
+    absent = {n for n in all_tools if n not in keep}
+    for ex in rows:
+        note = str(ex.get("note") or "")
+        if any(n in note for n in absent):
+            ex = dict(ex)
+            ex["note"] = ""
+        yield_rows.append(ex)
+    rows = yield_rows
     lines = [
         "## Calibration examples",
         "",
@@ -378,36 +430,68 @@ def _calibration_block() -> str:
     return "\n".join(lines).strip()
 
 
-def _core_sections() -> str:
-    """The named `system_core.md` sections, sliced live from the file.
+def _sections(path, wanted: tuple[str, ...]) -> str:
+    """Named markdown sections, sliced live out of the file that owns them.
 
     A section runs from its own heading to the next heading of the same or
-    higher level. A heading that no longer exists is skipped silently rather
-    than raising — a renamed section should cost the builder one rule, not
-    every execution turn.
+    higher level. A heading that no longer exists is skipped with a warning
+    rather than raising — a renamed section should cost the builder one rule,
+    not every execution turn.
     """
-    path = PIVOT_ROOT / "backend" / "prompts" / "system_core.md"
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except OSError:
         return ""
     out: list[str] = []
-    for wanted in CORE_SECTIONS:
+    for head in wanted:
         try:
-            start = lines.index(wanted)
+            start = lines.index(head)
         except ValueError:
-            logger.warning("system_core section missing: %s", wanted)
+            logger.warning("prompt section missing in %s: %s", path.name, head)
             continue
-        depth = len(wanted) - len(wanted.lstrip("#"))
+        depth = len(head) - len(head.lstrip("#"))
         end = len(lines)
         for i in range(start + 1, len(lines)):
             line = lines[i]
-            if line.startswith("#"):
-                if len(line) - len(line.lstrip("#")) <= depth:
-                    end = i
-                    break
+            if line.startswith("#") and len(line) - len(line.lstrip("#")) <= depth:
+                end = i
+                break
         out.append("\n".join(lines[start:end]).strip())
     return "\n\n".join(out)
+
+
+def _absent_tools_note(text: str, all_tools) -> str:
+    """One line correcting any Pivot tool the modules name but this wire lacks.
+
+    The modules are Pivot's prose and are included whole, so `workflows.md`
+    still routes past four macros — "`propose_workflow` (and the macros
+    `propose_threshold_order`, `propose_scheduled_order`, …)" — that this
+    surface deliberately does not carry. Rewriting that sentence in Pivot's
+    file would fork a contract two products read; deleting the section around
+    it would cost the routing rule between the two builders that ARE here,
+    which is the most useful paragraph in the pack.
+
+    So the mention stays and is corrected. Twenty-odd tokens buys a model that
+    knows those names are unavailable rather than one weighing a route it
+    cannot take — and because the list is computed against Pivot's registry,
+    a macro renamed or added over there needs no edit here.
+    """
+    absent = sorted(n for n in all_tools
+                    if n not in PIVOT_TOOLS and n in text)
+    if not absent:
+        return ""
+    return ("NOT ON THIS SURFACE, though the pack above names them: "
+            + ", ".join(f"`{n}`" for n in absent)
+            + ". Express the same thing with `propose_dsl_workflow` (a "
+              "condition), `propose_workflow` (a schedule or several steps) "
+              "or `register_plan` (a selection to own).")
+
+
+def _borrowed_sections() -> str:
+    """Every `PROMPT_SECTIONS` entry, in order."""
+    root = PIVOT_ROOT / "backend" / "prompts"
+    parts = [_sections(root / rel, heads) for rel, heads in PROMPT_SECTIONS]
+    return "\n\n".join(p for p in parts if p)
 
 
 def system_prompt() -> str:
@@ -420,7 +504,7 @@ def system_prompt() -> str:
     parts = [_ADAPTER]
     st = _ensure_pivot()
     if st["ok"]:
-        core = _core_sections()
+        core = _borrowed_sections()
         if core:
             parts.append(core)
         try:
@@ -428,6 +512,9 @@ def system_prompt() -> str:
                 list(PROMPT_MODULES))
             if modules:
                 parts.append(modules)
+                note = _absent_tools_note(modules, st["mods"]["ALL_TOOLS"])
+                if note:
+                    parts.append(note)
         except Exception as exc:  # noqa: BLE001
             logger.warning("prompt modules unavailable: %s", exc)
         block = _calibration_block()
@@ -437,6 +524,45 @@ def system_prompt() -> str:
 
 
 # ── Dispatch ─────────────────────────────────────────────────────────
+
+
+# A warning Pivot stamps that is TRUE THERE AND FALSE HERE.
+#
+# `_dsl_chat_tools.py` appends "the ratchet is fully modeled in backtests.
+# Live, this registers the initial stop — live re-ratcheting on new highs is
+# coming, not wired yet" to any draft whose exit tree mentions
+# `drawdown_from_peak_pct` or `peak_unrealised_pct`. That is an accurate
+# statement about PIVOT's live executor.
+#
+# It is not true of the runtime this card will actually arm against.
+# `strategies._update_peak` recomputes the high-water mark from the bar's own
+# high and persists it BEFORE the exit tree is walked, on every bar — that is
+# a live ratchet, and the ordering is deliberate enough to be commented in
+# that file. So the borrowed warning tells a Charto user their trailing stop
+# is less than it is, on a card that offers to arm it, and the model repeats
+# the sentence in prose because the warning is on the payload it reads.
+#
+# A false limitation is a fabrication in the direction that looks responsible,
+# which is the hardest kind to notice. It is corrected here rather than in
+# Pivot because Pivot's copy is right about Pivot; the seam is the only place
+# that knows which runtime the draft is headed for.
+_RATCHET_WARNING = "live re-ratcheting"
+_RATCHET_TRUTH = (
+    "Trailing/peak exit: Charto re-computes the high-water mark from each "
+    "bar's high before the exit is checked, so the stop ratchets live as well "
+    "as in the backtest."
+)
+
+
+def _fix_borrowed_warnings(draft: dict) -> None:
+    """Replace warnings that describe Pivot's runtime rather than Charto's."""
+    warnings = draft.get("warnings")
+    if not isinstance(warnings, list):
+        return
+    draft["warnings"] = [
+        _RATCHET_TRUTH if isinstance(w, str) and _RATCHET_WARNING in w else w
+        for w in warnings
+    ]
 
 
 def _humanize(draft: dict) -> None:
@@ -457,6 +583,7 @@ def _humanize(draft: dict) -> None:
     st = _ensure_pivot()
     if not st["ok"]:
         return
+    _fix_borrowed_warnings(draft)
     registry = st["mods"]["STEP_REGISTRY"]
     try:
         from backend.workflows.dsl.readback import tree_symbols, tree_to_english

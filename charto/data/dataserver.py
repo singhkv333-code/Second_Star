@@ -11196,6 +11196,109 @@ TOOLS = [
          "returns exists=false the user has no book yet; say that rather than "
          "describing an empty portfolio as though it were a flat one."),
      "parameters": {"type": "object", "properties": {}}},
+    {"type": "function", "name": "register_plan",
+     "description": (
+         "Freeze what you have just worked out into a plan the runtime can "
+         "execute: several instruments, each with a size and a reason, plus "
+         "the reasoning that produced them. This is how a researched answer "
+         "becomes something that acts.\n"
+         "USE IT whenever the ask is to OWN, BUY or PUT MONEY INTO more than "
+         "one thing, or into one thing with no condition attached — 'buy the "
+         "top 10', 'get me the best AI stock and buy it', 'put 3 lakh into "
+         "quality midcaps'. `save_strategy` is the other verb and it is for a "
+         "single instrument watched by a condition tree; a plan is for a "
+         "selection.\n"
+         "REGISTERING IS NOT BUYING. Nothing fills here. The card carries an "
+         "Activate button, and only that spends — so register the plan in the "
+         "turn you built it and say what activating would do. Do not ask "
+         "permission to register.\n"
+         "SIZE EACH LEG ONE WAY. `weight_pct` across the legs (they must add "
+         "to 100, and the plan then needs `capital_inr`), or `notional_inr` "
+         "per leg, or an explicit `quantity`. Never two on the same leg, and "
+         "never divide rupees by a price yourself — send the weight and the "
+         "capital and the shares are computed against the live mark at the "
+         "moment the user presses Activate.\n"
+         "`why` per leg and `evidence` on the plan are what make it auditable "
+         "later: quote the numbers you actually read, with their dates. A leg "
+         "with no reason is a name you guessed."),
+     "parameters": {"type": "object", "properties": {
+         "name": {"type": "string",
+                  "description": "short name for the plan, e.g. 'Top-10 momentum'"},
+         "intent": {"type": "string",
+                    "description": "the user's ask in their own words"},
+         "rationale": {"type": "string",
+                       "description": "why THIS selection and these weights — "
+                                      "the reasoning, in two or three sentences"},
+         "capital_inr": {"type": "number",
+                         "description": "rupees the plan deploys. Required "
+                                        "when legs carry weight_pct. You "
+                                        "choose it when the user did not say; "
+                                        "state what you chose in your reply."},
+         "horizon": {"type": "string",
+                     "description": "how long the plan is meant to be held, "
+                                    "e.g. '1 month', 'until the thesis breaks'"},
+         "review": {"type": "string",
+                    "description": "what would make this plan wrong — the "
+                                   "condition under which to revisit it"},
+         "assumptions": {"type": "array", "items": {"type": "string"},
+                         "description": "every value you chose rather than "
+                                        "were given: the amount, the count, "
+                                        "the horizon, the universe"},
+         "evidence": {"type": "array", "items": {"type": "string"},
+                      "description": "the readings this plan rests on, with "
+                                     "their numbers and dates"},
+         "legs": {"type": "array", "description": "1-20 instruments to own",
+                  "items": {"type": "object", "properties": {
+                      "symbol": {"type": "string"},
+                      "side": {"type": "string", "enum": ["buy"],
+                               "description": "the book is long-only"},
+                      "weight_pct": {"type": "number",
+                                     "description": "share of capital_inr, 0-100"},
+                      "notional_inr": {"type": "number",
+                                       "description": "rupees into this leg"},
+                      "quantity": {"type": "integer",
+                                   "description": "explicit share count"},
+                      "why": {"type": "string",
+                              "description": "why this name is in the plan, "
+                                             "with the number that decided it"},
+                      "interval": {"type": "string",
+                                   "description": "bar interval for a "
+                                                  "conditional leg, default 1d"},
+                      "entry": {"type": "object",
+                                "description": "OPTIONAL condition tree. Omit "
+                                               "for a leg that should simply "
+                                               "be bought; include one only "
+                                               "when the user asked for the "
+                                               "leg to wait for something."},
+                      "exit": {"type": "object",
+                               "description": "optional exit condition tree"}},
+                      "required": ["symbol", "why"]}}},
+      "required": ["legs"]}},
+    {"type": "function", "name": "list_plans",
+     "description": (
+         "The user's registered plans, their legs and their state (draft = "
+         "registered but never activated, active = running, retired). Use it "
+         "for 'what have I got', 'did that basket go through', and before "
+         "retiring one so the id is real. Empty means nothing is registered — "
+         "say that plainly."),
+     "parameters": {"type": "object", "properties": {
+         "state": {"type": "string", "enum": ["draft", "active", "retired"]}}}},
+    {"type": "function", "name": "plan_status",
+     "description": (
+         "One plan in full: every leg, what it filled at or whether it is "
+         "still waiting on its condition, and anything that was refused. Use "
+         "it after the user activates one, or when they ask how a plan is "
+         "doing."),
+     "parameters": {"type": "object", "properties": {
+         "plan_id": {"type": "integer"}}, "required": ["plan_id"]}},
+    {"type": "function", "name": "retire_plan",
+     "description": (
+         "Retire a plan: it stops being offered and every conditional leg it "
+         "armed is paused. Positions it already opened STAY in the book — "
+         "they are what happened, and retiring the plan does not sell them. "
+         "Say so, and offer to sell separately if that is what they meant."),
+     "parameters": {"type": "object", "properties": {
+         "plan_id": {"type": "integer"}}, "required": ["plan_id"]}},
 
 ]
 
@@ -11350,6 +11453,33 @@ def _paper_tool(name: str):
 for _n in ("save_strategy", "list_strategies", "pause_strategy",
            "delete_strategy", "paper_portfolio"):
     _DISPATCH[_n] = _paper_tool("tool_" + _n)
+
+
+def _plan_tool(name: str):
+    """The plan store's tools, on the identity contract the paper book uses.
+
+    Separate from `_paper_tool` only because the module is separate; the rule
+    is the same one. A plan belongs to an account, and a signed-out caller is
+    told so rather than handed a plan that evaporates with the tab.
+    """
+    def call(**args):
+        if _plans is None:
+            return {"error": "the plan store is not loaded on this server"}
+        who = getattr(_req, "user", None)
+        out = getattr(_plans, name)(user_id=(who[0] if who else 0), **args)
+        # A registered plan is a commit surface: the manifest has to be on
+        # screen with its Activate button, not paraphrased in prose. The card
+        # is added here for the same reason Pivot's are — a card is Charto's
+        # concept and `_card_add` is per-request state the module below the
+        # seam has no business reaching into.
+        if isinstance(out, dict) and out.get("_render_hint") == "plan_card":
+            _card_add({"kind": "plan", **out})
+        return out
+    return call
+
+
+for _n in ("register_plan", "list_plans", "plan_status", "retire_plan"):
+    _DISPATCH[_n] = _plan_tool("tool_" + _n)
 
 
 # Pivot's builder, dispatched through the same seam as everything else. The
@@ -12484,6 +12614,19 @@ _EXECUTION_CHARTO_TOOLS = {
     # it was built in is a draft the user has to rebuild to keep.
     "save_strategy", "list_strategies", "pause_strategy", "delete_strategy",
     "paper_portfolio",
+    # Registration for everything that is not one symbol watched by one tree.
+    # Without these the builder can research a selection and then has nowhere
+    # to put it: the basket card renders, the turn ends, and nothing the model
+    # worked out survives it.
+    "register_plan", "list_plans", "plan_status", "retire_plan",
+    # RESEARCH. These were left off, and leaving them off is what made
+    # "get me the best AI stock for next month" unanswerable: the surface had
+    # price features and nothing else, so a question about a company had no
+    # company in it. A plan is only as good as what was read before it, and
+    # every one of these is a read that already exists on the other mode.
+    "explain_move", "search_news", "get_results", "evaluate_results",
+    "get_peers", "compare_symbols", "get_flows", "get_deals", "volume_profile",
+    "get_divergences", "confirm_reversal", "recall_conversations",
     # The ink. A backtest returns its fills with real dates and prices, so
     # "show me where it entered" is a request against data we already have
     # rather than a drawing of a strategy's vibe. Without these on the
@@ -12492,15 +12635,33 @@ _EXECUTION_CHARTO_TOOLS = {
 }
 
 
+# Charto tools that belong to the BUILDER and to nothing else.
+#
+# The plan store is defined in `TOOLS` like everything else — that is where a
+# tool's schema lives — but chat mode must not offer it. Chat is where a user
+# asks what a chart is doing; a turn there that answered "what should I buy"
+# with a registered basket would have committed something on a surface whose
+# whole promise is that it only reads. Registration is execution mode's verb,
+# and the modes stay honestly different.
+#
+# `save_strategy` and `paper_portfolio` are deliberately NOT here: they
+# predate this split and are reachable from chat today, where they answer
+# "what am I running" — a read — and save a draft chat can only produce by
+# the user having switched modes anyway.
+_EXECUTION_ONLY_TOOLS = frozenset(
+    {"register_plan", "list_plans", "plan_status", "retire_plan"})
+
+
 def _tools_for_request() -> list[dict]:
     """Chat mode gets Charto's surface; execution mode gets Pivot's builder.
 
     Execution mode is deliberately NOT a subset of chat — it ADDS Pivot's
-    proposal and backtest tools, which Charto has no local equivalent of, and
-    subtracts the reads that only serve market commentary.
+    proposal and backtest tools, which Charto has no local equivalent of, plus
+    its own registration verbs, and subtracts nothing it can research with.
     """
     if getattr(_req, "chat_mode", "chat") != "execution":
-        return TOOLS
+        return [t for t in TOOLS
+                if t.get("name") not in _EXECUTION_ONLY_TOOLS]
     kept = [t for t in TOOLS if t.get("name") in _EXECUTION_CHARTO_TOOLS]
     return kept + execution_bridge.tools()
 
@@ -12805,6 +12966,26 @@ _MAX_TOOL_ROUNDS = 4  # bounds latency; 1 round answers almost everything
 # get_anchors or a get_levels called with draw=false, with no round left to
 # correct it.
 
+# Execution mode gets more. A builder turn is not one read and an answer; it
+# is screen -> read the names -> compare them -> build -> backtest -> register,
+# which is six rounds before a word is written, and at four it died in the
+# middle with the research done and nothing registered. Measured on "buy the
+# top 10 stocks": the turn that got there at all spent its whole budget on the
+# screen and the reads, and the one that also tested what it built ran out.
+#
+# This is a latency decision made once per mode rather than per turn, and it
+# is affordable here for a reason chat mode cannot claim: an execution turn
+# already costs ~20s and ends in a commit surface, so a user who asked for a
+# researched plan is waiting for a researched plan. Chat stays at four, where
+# one round genuinely does answer almost everything.
+_EXECUTION_TOOL_ROUNDS = 10
+
+
+def _max_tool_rounds() -> int:
+    return (_EXECUTION_TOOL_ROUNDS
+            if getattr(_req, "chat_mode", "chat") == "execution"
+            else _MAX_TOOL_ROUNDS)
+
 
 def _wire_messages(messages: list[dict]) -> list[dict]:
     """History → Responses-API input items, screenshots included honestly.
@@ -12961,11 +13142,12 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
     view_ops: list[dict] = []
     cards: list[dict] = []
     tok_in = tok_out = 0
-    for _round in range(_MAX_TOOL_ROUNDS):
+    _rounds = _max_tool_rounds()
+    for _round in range(_rounds):
         # On the final round the tools are withdrawn, so the model must answer
         # from what it already fetched. Running out of rounds used to surface a
         # dead-end apology on top of perfectly good tool results.
-        data = _post_responses(wire, allow_tools=_round < _MAX_TOOL_ROUNDS - 1)
+        data = _post_responses(wire, allow_tools=_round < _rounds - 1)
         u = data.get("usage", {})
         tok_in += u.get("input_tokens") or 0
         tok_out += u.get("output_tokens") or 0
@@ -13067,12 +13249,13 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
     cards: list[dict] = []
     tok_in = tok_out = 0
 
-    for _round in range(_MAX_TOOL_ROUNDS):
+    _rounds = _max_tool_rounds()
+    for _round in range(_rounds):
         calls: list[dict] = []
         text_parts: list[str] = []
         by_id: dict = {}
         try:
-            for ev in _post_responses_stream(wire, allow_tools=_round < _MAX_TOOL_ROUNDS - 1):
+            for ev in _post_responses_stream(wire, allow_tools=_round < _rounds - 1):
                 t = ev.get("type", "")
                 if t == "response.output_text.delta":
                     d = ev.get("delta") or ""
@@ -13624,6 +13807,14 @@ try:
 except Exception as _strat_exc:  # noqa: BLE001
     logging.warning("charto strategies unavailable: %s", _strat_exc)
     _strategies = None
+# `plans` last: it imports both of the above, and it is the registration unit
+# for anything with more than one leg — a basket, an immediate order, or a
+# researched selection whose reasoning is worth freezing beside the legs.
+try:
+    import plans as _plans
+except Exception as _plans_exc:  # noqa: BLE001
+    logging.warning("charto plans unavailable: %s", _plans_exc)
+    _plans = None
 
 _SCRYPT = {"n": 2 ** 14, "r": 8, "p": 1}   # ~100ms/hash, OWASP-tier for scrypt
 _SESSION_TTL = 30 * 86400
@@ -15769,6 +15960,22 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(*_strategies.api_get(me[0], int(tail)))
                 return self._send(404, {"error": f"no strategy route '{tail}'"})
 
+            if u.path == "/plans" or u.path.startswith("/plans/"):
+                if _plans is None:
+                    return self._send(501, {"error": "the plan store is not "
+                                                     "loaded on this server"})
+                me = _auth_user(self.headers)
+                if not me:
+                    return self._send(401, {"error": "sign in to see your plans"})
+                tail = u.path[len("/plans"):].strip("/")
+                if not tail:
+                    q = parse_qs(u.query)
+                    return self._send(*_plans.api_list(
+                        me[0], (q.get("state") or [""])[0]))
+                if tail.isdigit():
+                    return self._send(*_plans.get(me[0], int(tail)))
+                return self._send(404, {"error": f"no plan route '{tail}'"})
+
             if u.path == "/journal" or u.path.startswith("/journal/"):
                 if _journal is None:
                     return self._send(501, {"error": "journal is unavailable"})
@@ -15960,6 +16167,40 @@ class Handler(BaseHTTPRequestHandler):
             if tail.endswith("/delete"):
                 return self._send(*_strategies.api_delete(me[0], int(sid)))
             return self._send(*_strategies.api_patch(me[0], int(sid), body))
+
+        # Plans. `/plans/<id>/activate` is the ONE route on this server that
+        # spends: registration stored a manifest and moved nothing, and this
+        # is the user's press. It is POST and it is authenticated for exactly
+        # that reason.
+        if u.path == "/plans" or u.path.startswith("/plans/"):
+            if _plans is None:
+                return self._send(501, {"error": "the plan store is not "
+                                                 "loaded on this server"})
+            try:
+                ln = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(ln) or b"{}")
+            except (ValueError, TypeError):
+                return self._send(400, {"error": "bad JSON body"})
+            me = _auth_user(self.headers)
+            if not me:
+                return self._send(401, {"error": "sign in to use plans"})
+            tail = u.path[len("/plans"):].strip("/")
+            if not tail:
+                try:
+                    out = _plans.register(
+                        me[0], body.get("plan") or body,
+                        chat_id=str(body.get("chat_id") or ""))
+                except _plans.Unbuildable as exc:
+                    return self._send(400, {"error": str(exc)})
+                return self._send(200, out)
+            pid = tail.split("/")[0]
+            if not pid.isdigit():
+                return self._send(404, {"error": f"no plan route '{tail}'"})
+            if tail.endswith("/activate"):
+                return self._send(*_plans.activate(me[0], int(pid)))
+            if tail.endswith("/retire") or tail.endswith("/delete"):
+                return self._send(*_plans.api_delete(me[0], int(pid)))
+            return self._send(404, {"error": f"no plan route '{tail}'"})
 
         if u.path == "/journal" or u.path.startswith("/journal/"):
             if _journal is None:
@@ -16253,6 +16494,13 @@ if __name__ == "__main__":
         print(f"charto strategies: {_sboot.get('armed', 0)} armed on "
               f"{_sboot.get('symbols', 0)} symbol(s), "
               f"catch-up {_sboot.get('catch_up')}")
+        # The plan store has no runtime of its own — its conditional legs are
+        # `strategies` rows and ride the loop above. The only reason to touch
+        # it here is the schema: creating the tables (and the `plan_id` column
+        # on `strategies`) at boot rather than on the first registration keeps
+        # a migration off the path of a chat turn.
+        if _plans is not None:
+            _plans.init_db()
     except Exception as _exc:                                  # noqa: BLE001
         print(f"charto strategies UNAVAILABLE: {_exc}")
 

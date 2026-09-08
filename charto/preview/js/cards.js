@@ -276,8 +276,7 @@ const Cards = (() => {
       + (blockers.length
           ? `<p class="wf-note">${esc(blockers[0])}</p>` : "")
       + `<div class="wf-cta">`
-      + `<button type="button" class="wf-primary" data-wf-activate`
-      + ` title="Connect an account to arm agents from this chart">`
+      + `<button type="button" class="wf-primary" data-wf-activate>`
       + `Save &amp; activate</button>`
       + `<div class="wf-ghosts">`
       + (blockers.length ? ""
@@ -1118,12 +1117,14 @@ const Cards = (() => {
    * draft card — the strategy and its evidence in one object, so nothing has
    * to be scrolled back to. Same here, against `/execution/backtest`.
    *
-   * Save & activate is deliberately inert and says why. Charto keeps its own
-   * users in its own SQLite; Pivot's accounts live in Postgres, and nothing
-   * maps one to the other yet. A button that posted anyway would arm an
-   * agent under somebody else's account, and a button that was hidden would
-   * be a capability the user never learns exists. Disabled with the reason
-   * on it is the only honest third option. */
+   * Save & activate was inert, and the reason on it — that Charto accounts do
+   * not map to Pivot's — stopped being true when the paper book shipped.
+   * `POST /strategies` arms the draft under the CHARTO user, into Charto's own
+   * book, evaluated by Charto's own runtime; Pivot's accounts were never
+   * involved. So the button posts, and the only honest blocker left is not
+   * being signed in — which the button says, once pressed, rather than
+   * pre-emptively greying out a capability the reader would never discover.
+   */
   /* Show on chart.
    *
    * A toggle rather than a one-way "draw": the layer is dense by design, and
@@ -1206,7 +1207,56 @@ const Cards = (() => {
       });
     }
     const activate = box.querySelector("[data-wf-activate]");
-    if (activate) activate.disabled = true;
+    if (activate) {
+      activate.title = "Arm this against the live tick, into your paper book";
+      activate.addEventListener("click", async () => {
+        if (activate.disabled) return;
+        activate.disabled = true;
+        const was = activate.textContent;
+        activate.textContent = "Arming…";
+        let draft = {};
+        try { draft = JSON.parse(box.querySelector("[data-wf]").dataset.draft); }
+        catch (e) { draft = {}; }
+        try {
+          const res = await fetch(`${API}/strategies`, {
+            method: "POST",
+            headers: (window.Auth && Auth.headers)
+              ? Auth.headers({ "Content-Type": "application/json" })
+              : { "Content-Type": "application/json" },
+            body: JSON.stringify({ draft: card.draft || card }),
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            // The server's refusal names the reason — a schedule, a short
+            // entry, no fixed size. That sentence is worth more on the card
+            // than the word "Failed", because every one of them is something
+            // the user can act on.
+            activate.textContent = "Save & activate";
+            activate.disabled = false;
+            const note = document.createElement("p");
+            note.className = "wf-stale";
+            note.setAttribute("role", "status");
+            note.textContent = res.status === 401
+              ? "Sign in to arm a strategy — it is stored against your account."
+              : String((data && data.error) || "Could not arm this draft.");
+            const cta = box.querySelector(".wf-cta");
+            const prev = box.querySelector(".wf-cta ~ .wf-stale");
+            if (prev) prev.remove();
+            if (cta) cta.after(note);
+            return;
+          }
+          activate.textContent = "Armed";
+          const dot = box.querySelector(".wf-dot");
+          if (dot) dot.classList.add("on");
+          const st = box.querySelector(".wf-state");
+          if (st) st.lastChild.textContent = "Armed";
+        } catch (e) {
+          console.warn("[charto] arm failed", e);
+          activate.textContent = was;
+          activate.disabled = false;
+        }
+      });
+    }
 
     const run = box.querySelector("[data-wf-backtest]");
     if (!run) return;
@@ -2086,13 +2136,139 @@ const Cards = (() => {
              ? (win.from === win.to ? win.from : `${win.from} → ${win.to}`) : "");
   }
 
+  /* ── a registered plan ────────────────────────────────────────────────
+   *
+   * A plan is the one card on this surface that can SPEND, so it is built
+   * around the difference between what has been decided and what has been
+   * done. The legs are the decision; the Activate button is the doing; and
+   * until it is pressed every leg reads "pending" rather than a quantity,
+   * because the share counts are resolved against the mark at press time and
+   * printing a number now would be printing a number that will not be the one
+   * that fills.
+   *
+   * The assumptions block is not decoration. This surface is now instructed to
+   * choose the values it was not given rather than ask for them, and a plan
+   * built on four silent choices is a plan the user cannot audit. Every choice
+   * the model made instead of asking is listed here, above the button.
+   */
+  function planLegRow(l) {
+    const size = l.quantity != null ? `${l.quantity} sh`
+      : l.weight_pct != null ? `${Number(l.weight_pct).toFixed(1)}%`
+      : l.notional_inr != null ? money(l.symbol, l.notional_inr) : "—";
+    const state = l.state === "filled"
+      ? `filled at ${money(l.symbol, l.fill_price)}`
+      : l.state === "armed" ? "armed — waiting on its condition"
+      : l.state === "rejected" ? (l.detail || "refused")
+      : (l.conditional ? "waits for its condition" : "buys on activate");
+    return `<div class="wf-kv-row plan-leg" data-leg-state="${esc(l.state)}">`
+      + `<b>${esc(l.symbol)}<span class="plan-size">${esc(size)}</span></b>`
+      + `<span>${esc(l.why || "")}`
+      + `<i class="plan-state">${esc(state)}</i></span></div>`;
+  }
+
+  function plan(c) {
+    const legs = c.legs || [];
+    const done = legs.some((l) => l.state === "filled" || l.state === "armed");
+    const live = c.state === "active";
+    const weighted = legs.filter((l) => l.weight_pct != null);
+    const weights = weighted.length
+      ? bars(weighted.map((l) => ({
+          label: l.symbol, value: Number(l.weight_pct),
+          text: `${Number(l.weight_pct).toFixed(1)}%`,
+        })))
+      : "";
+    const assume = (c.assumptions || []).length
+      ? `<ul class="wf-warn">${c.assumptions.map((a) =>
+          `<li>${esc(a)}</li>`).join("")}</ul>` : "";
+    const evid = (c.evidence || []).length
+      ? `<ul class="wf-why-list">${c.evidence.map((e) =>
+          `<li>${esc(e)}</li>`).join("")}</ul>` : "";
+    const meta = [
+      c.capital_inr != null ? money(legs[0] && legs[0].symbol, c.capital_inr) : "",
+      `${legs.length} leg${legs.length === 1 ? "" : "s"}`,
+      c.horizon || "",
+    ].filter(Boolean).join(" · ");
+    // The button's label is the honest description of what pressing it does,
+    // and it differs by plan: a basket buys, a set of conditions arms, a mix
+    // does both. "Activate" alone would hide which.
+    const nCond = legs.filter((l) => l.conditional).length;
+    const cta = nCond === legs.length ? "Arm this plan"
+      : nCond === 0 ? "Buy this plan" : "Activate — buy and arm";
+    return `<div class="wf-card" data-plan="${esc(String(c.id || ""))}">`
+      + `<div class="wf-top"><span class="wf-chip">Plan</span>`
+      + `<span class="wf-state">${esc(meta)}`
+      + `<span class="wf-dot${live ? " on" : ""}" aria-hidden="true"></span>`
+      + `${live ? "Active" : "Registered"}</span></div>`
+      + `<h3 class="wf-title">${esc(c.name || "Plan")}</h3>`
+      + (c.rationale ? `<p class="wf-desc">${esc(c.rationale)}</p>` : "")
+      + section("Weights", "", weights)
+      + section("Legs", "", legs.map(planLegRow).join(""))
+      + section("What I assumed", "you can change any of these", assume)
+      + section("What this rests on", "", evid)
+      + (c.review ? section("Revisit when", "", `<p class="wf-note">`
+          + `${esc(c.review)}</p>`) : "")
+      + (c.last_error ? `<p class="wf-stale" role="status">`
+          + `${esc(c.last_error)}</p>` : "")
+      + `<div class="wf-cta">`
+      + `<button type="button" class="wf-primary" data-plan-go`
+      + (done || live ? " disabled" : "")
+      + `>${esc(live || done ? "Activated" : cta)}</button>`
+      + `<div class="wf-ghosts"></div></div>`
+      + `<p class="wf-note plan-note">`
+      + (live || done
+          ? "Filled into the simulated paper book. No real order was placed."
+          : "Nothing has been bought. Pressing this fills the simulated paper "
+            + "book at the current mark — no real order is ever placed.")
+      + `</p></div>`;
+  }
+
+  /* The Activate press. One POST, and the card repaints from what came back
+   * rather than from what it hoped — a leg that was refused for want of a
+   * price has to say so on the card that offered it, beside the ones that
+   * filled. Partial success is the normal outcome for a ten-name basket and
+   * it is rendered as such, not as an error banner over a working plan. */
+  function wirePlan(box, card) {
+    const btn = box.querySelector("[data-plan-go]");
+    if (!btn || btn.disabled) return;
+    const id = box.getAttribute("data-plan");
+    if (!id) { btn.disabled = true; return; }
+    const label = btn.textContent;
+    btn.addEventListener("click", async () => {
+      if (btn.disabled) return;
+      btn.disabled = true;
+      btn.textContent = "Working…";
+      try {
+        const res = await fetch(`${API}/plans/${encodeURIComponent(id)}/activate`, {
+          method: "POST",
+          headers: (window.Auth && Auth.headers)
+            ? Auth.headers({ "Content-Type": "application/json" })
+            : { "Content-Type": "application/json" },
+          body: "{}",
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          btn.textContent = data && data.error ? String(data.error) : "Failed";
+          return;
+        }
+        const fresh = document.createElement("div");
+        fresh.innerHTML = plan(Object.assign({}, card, data));
+        const rebuilt = fresh.firstElementChild;
+        if (rebuilt) box.replaceWith(rebuilt);
+      } catch (e) {
+        console.warn("[charto] plan activate failed", e);
+        btn.disabled = false;
+        btn.textContent = label;
+      }
+    });
+  }
+
   const RENDER = { patterns, trend, indicators, confirmation, timeframes,
                    compare, move, workflow_draft: workflowDraft,
                    strategy_backtest: strategyBacktest,
                    strategy_basket: strategyBasket,
                    option_strategy: optionStrategy,
                    option_chain: optionChain,
-                   quant_result: quantResult };
+                   quant_result: quantResult, plan };
 
   return {
     /** A card object → an element for the thread, or null when this build has
@@ -2142,6 +2318,7 @@ const Cards = (() => {
         });
       });
       if (box.querySelector("[data-wf]")) wireDraft(box, card);
+      if (box.querySelector("[data-plan]")) wirePlan(box, card);
       // The on-chart control belongs to whichever payload owns the TRADES. A
       // standalone backtest card is its own payload; a draft repainted with a
       // stored result has that read-out nested in its slot, and the payload

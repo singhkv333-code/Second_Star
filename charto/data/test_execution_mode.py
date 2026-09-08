@@ -17,10 +17,64 @@ def _execution_mode() -> None:
 
 
 def test_execution_context_replaces_the_analysis_contract() -> None:
+    """The builder's contract is on the wire and the analyst's is not.
+
+    Pinned by what the contract SAYS rather than by its heading: a title is
+    the easiest thing to rename and the least load-bearing thing in the file,
+    and a test that only guards the title passes a rewrite that deleted every
+    rule under it.
+    """
     _execution_mode()
     block = "\n\n".join((server.FORMAT_RULES, server._execution_system()))
-    assert "Strategy Builder" in block
+    assert "register_plan" in block and "save_strategy" in block
     assert "Every why-did-it-move question" not in block
+
+
+def test_the_contract_tells_it_to_act_before_it_asks() -> None:
+    """The single behaviour this surface was rebuilt around.
+
+    Measured before the rewrite: "buy the top 10 stocks" returned four bullet
+    points and ZERO tool calls, because three separate borrowed rules told the
+    model to open with ASK_USER. Nothing on this wire can render a clarify
+    card, so the question was pure loss. If the instruction that replaced them
+    ever goes missing, the surface silently returns to asking — which reads
+    like a model regression rather than a prompt one, and is why it is pinned
+    here.
+    """
+    _execution_mode()
+    block = server._execution_system()
+    assert "NEVER open with a question" in block
+    # And the rules that said the opposite are gone with the modules that
+    # carried them. `sips`, `order_sizing` and `stoploss` between them named
+    # eleven tools this wire does not have, three of them as ASK_USER-first
+    # instructions.
+    for absent in ("create_sip", "create_dip_buy", "create_sl_order",
+                   "get_market_data"):
+        assert absent not in block, f"{absent} is taught but not callable"
+    # The sentence that actually produced the menu. `backtest.md` still says
+    # "do NOT `ASK_USER` to confirm …", which AGREES with the rule above — so
+    # the bare name is not what to pin. What must never come back is an
+    # instruction to reach for a clarify tool this wire does not have.
+    assert "Call ASK_USER with ONE question" not in block
+    assert "call ASK_USER" not in block
+
+
+def test_a_tool_the_pack_names_but_the_wire_lacks_is_corrected() -> None:
+    """Absent tools are named as absent, never left implying a route.
+
+    `workflows.md` is included whole and routes past four macros this surface
+    does not carry. Rewriting Pivot's file would fork a contract two products
+    read, so the seam appends the correction instead — and the correction is
+    computed from Pivot's registry, so this test also fails if that list ever
+    drifts out of sync with what is really on the wire.
+    """
+    _execution_mode()
+    block = server._execution_system()
+    names = {t["name"] for t in server._tools_for_request()}
+    for macro in ("propose_scheduled_order", "propose_holding_action"):
+        assert macro not in names          # really absent
+        if macro in block:                 # and if named, named as absent
+            assert "NOT ON THIS SURFACE" in block
 
 
 def test_alerts_route_to_charto_not_to_a_pivot_workflow() -> None:
@@ -43,20 +97,50 @@ def test_every_advertised_tool_can_be_dispatched() -> None:
     assert names <= set(server._DISPATCH)
 
 
-def test_execution_mode_adds_the_builder_and_drops_the_commentary_reads() -> None:
+def test_execution_mode_adds_the_builder_and_the_research_reads() -> None:
+    """Execution mode is a superset of the reads, not a subset.
+
+    The research tools used to be OFF this surface, and that is what made a
+    question about a COMPANY unanswerable here: the model had price features
+    and nothing else, so "the best AI stock for next month" had no way to
+    learn anything about a business. A plan is only as good as what was read
+    before it.
+    """
     _execution_mode()
     names = {tool["name"] for tool in server._tools_for_request()}
     assert "propose_dsl_workflow" in names
     assert "backtest_dsl_tree" in names
-    assert "search_news" not in names
-    assert "explain_move" not in names
+    assert {"search_news", "explain_move", "get_results", "compare_symbols",
+            "get_peers"} <= names
+
+
+def test_a_researched_selection_has_somewhere_to_land() -> None:
+    """Registration for the shape `save_strategy` cannot hold.
+
+    `save_strategy` takes ONE symbol watched by one condition tree. Every
+    "buy the top 10" / "put 3 lakh to work" ask is several legs, most with no
+    condition at all, and before `register_plan` those turns ended with a
+    rendered card and nothing stored — the research was done and then thrown
+    away when the turn ended.
+    """
+    _execution_mode()
+    names = {tool["name"] for tool in server._tools_for_request()}
+    assert {"register_plan", "list_plans", "plan_status"} <= names
 
 
 def test_chat_mode_is_untouched_by_the_execution_surface() -> None:
+    """Chat reads; it does not commit.
+
+    Both halves are load-bearing and the second was found by this test failing
+    after `register_plan` was added: defining a tool in `TOOLS` puts it on the
+    chat wire too, and chat answering "what should I buy" with a registered
+    basket would commit on the surface whose promise is that it only reads.
+    """
     server._req.chat_mode = "chat"
     names = {tool["name"] for tool in server._tools_for_request()}
     assert "explain_move" in names
     assert "propose_dsl_workflow" not in names
+    assert not (names & server._EXECUTION_ONLY_TOOLS)
 
 
 def test_bridge_offers_exactly_the_pivot_tools_it_declares() -> None:
@@ -79,7 +163,9 @@ def test_unavailable_engine_degrades_instead_of_raising(monkeypatch) -> None:
     ready, reason = execution_bridge.available()
     assert not ready and "simulated" in reason
     assert execution_bridge.tools() == []
-    assert "Strategy Builder" in execution_bridge.system_prompt()
+    # The adapter survives an unavailable engine — it is Charto's own text,
+    # not Pivot's, so a mode that cannot build can still explain itself.
+    assert "NEVER open with a question" in execution_bridge.system_prompt()
     result = execution_bridge.dispatch("propose_dsl_workflow", {})
     assert result["error"] == "execution_engine_unavailable"
 

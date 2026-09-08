@@ -3289,6 +3289,31 @@ body.two-columns .readout .row { display: none; }
             font-size: var(--text-2xs); color: var(--muted-foreground); }
 .wf-dot { width: 6px; height: 6px; border-radius: 999px; background: currentColor;
           opacity: .5; }
+/* An ACTIVE plan's dot is the one place on a card that says money has moved.
+   It reads as live rather than as a state label: full opacity and the up
+   colour, the same pair the book's own gainers use. */
+.wf-dot.on { opacity: 1; background: var(--up); }
+
+/* ── the plan card ──────────────────────────────────────────────────
+   A leg is three facts on two lines: WHICH and HOW BIG on the first, WHY and
+   WHAT IT IS DOING on the second. The size sits beside the ticker rather than
+   in its own column because it is part of naming the leg — "RELIANCE 12%" is
+   one thing, and a weights column would make the reader read across to learn
+   half of it. */
+.plan-leg b { display: inline-flex; align-items: baseline; gap: 6px; }
+.plan-size { font-variant-numeric: tabular-nums; font-weight: var(--weight-normal);
+             color: var(--muted-foreground); }
+/* The state is the leg's own status line, dimmer than the reason above it:
+   before activation every leg says the same thing, and a row of identical
+   bright text would be noise pretending to be information. */
+.plan-state { display: block; margin-top: 2px; font-style: normal;
+              font-size: var(--text-3xs, var(--text-2xs)); opacity: .75; }
+.plan-leg[data-leg-state="filled"] .plan-state,
+.plan-leg[data-leg-state="armed"] .plan-state { color: var(--up); opacity: 1; }
+.plan-leg[data-leg-state="rejected"] .plan-state { color: var(--down); opacity: 1; }
+/* The line under the button. It is the only disclaimer on the card and it
+   earns its place: this is the one control in the app that spends. */
+.plan-note { text-align: center; margin-top: 8px; }
 .wf-chip-ttl { opacity: .8; }
 .wf-title { margin: 0; font-size: var(--text-h3); line-height: 1.25;
             letter-spacing: -.02em; }
@@ -8380,7 +8405,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- before chat.js, which asks it to render the panels a tool prints as the
        reply streams in. It reads Sym (store.js) for the instrument's currency
        and grouping, and nothing else — a renderer with no state of its own -->
-  <script src="./js/cards.js?v=41"></script>
+  <script src="./js/cards.js?v=42"></script>
   <script src="./js/layers-panel.js?v=11"></script>
   <script src="./js/chat.js?v=166"></script>
   <script src="./js/journal.js?v=6"></script>
