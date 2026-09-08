@@ -2106,10 +2106,14 @@ const Cards = (() => {
    * printing a number now would be printing a number that will not be the one
    * that fills.
    *
-   * The assumptions block is not decoration. This surface is now instructed to
-   * choose the values it was not given rather than ask for them, and a plan
-   * built on four silent choices is a plan the user cannot audit. Every choice
-   * the model made instead of asking is listed here, above the button.
+   * It is a MANIFEST and nothing else: what will be bought, how much of each,
+   * why, and what has happened to it. The rationale paragraph, the assumptions
+   * list, the evidence list and the review line were all here once, and all
+   * four were prose — which put the same five tickers on screen twice, once in
+   * a sentence and again in the rows underneath it, inside a panel whose whole
+   * job is to be the row underneath. The model already says all of it in the
+   * reply, better, because prose is what a reply is for. The card is the part
+   * you press.
    */
   function planLegRow(l) {
     const size = l.quantity != null ? `${l.quantity} sh`
@@ -2135,16 +2139,14 @@ const Cards = (() => {
     const legs = c.legs || [];
     const done = legs.some((l) => l.state === "filled" || l.state === "armed");
     const live = c.state === "active";
-    const assume = (c.assumptions || []).length
-      ? `<ul class="wf-warn">${c.assumptions.map((a) =>
-          `<li>${esc(a)}</li>`).join("")}</ul>` : "";
-    const evid = (c.evidence || []).length
-      ? `<ul class="wf-why-list">${c.evidence.map((e) =>
-          `<li>${esc(e)}</li>`).join("")}</ul>` : "";
+    /* Capital and leg count, and nothing else. `horizon` is a free-text field
+     * the model fills, and it arrives as a sentence ("not specified; review
+     * after 6 months") at least as often as it arrives as a phrase — which is
+     * a paragraph wrapped onto two lines of a status chip. It is prose, so it
+     * belongs in the reply with the rest of the prose. */
     const meta = [
       c.capital_inr != null ? money(legs[0] && legs[0].symbol, c.capital_inr) : "",
       `${legs.length} leg${legs.length === 1 ? "" : "s"}`,
-      c.horizon || "",
     ].filter(Boolean).join(" · ");
     // The button's label is the honest description of what pressing it does,
     // and it differs by plan: a basket buys, a set of conditions arms, a mix
@@ -2158,12 +2160,7 @@ const Cards = (() => {
       + `<span class="wf-dot${live ? " on" : ""}" aria-hidden="true"></span>`
       + `${live ? "Active" : "Registered"}</span></div>`
       + `<h3 class="wf-title">${esc(c.name || "Plan")}</h3>`
-      + (c.rationale ? `<p class="wf-desc">${esc(c.rationale)}</p>` : "")
       + section("Legs", "", legs.map(planLegRow).join(""))
-      + section("What I assumed", "you can change any of these", assume)
-      + section("What this rests on", "", evid)
-      + (c.review ? section("Revisit when", "", `<p class="wf-note">`
-          + `${esc(c.review)}</p>`) : "")
       + (c.last_error ? `<p class="wf-stale" role="status">`
           + `${esc(c.last_error)}</p>` : "")
       + `<div class="wf-cta">`
