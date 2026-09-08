@@ -13,32 +13,31 @@ import dataserver as server
 
 
 def test_we_ask_for_the_fast_lane_on_every_deployment() -> None:
-    """We request `priority` unconditionally, and that is deliberate.
+    """We request `priority`, on optionality rather than on a measured win.
 
-    It used to be `default`, on the reasoning that requesting a tier the
-    primary does not receive is pointless. Measured 2026-09-08 at a real
-    35,285-token execution payload, that reasoning was half right and the
-    conclusion was wrong:
+    The first measurement said priority was 19.7% faster on gpt-5.4-mini
+    (8.75s -> 7.03s, n=5). It was wrong: taken under load from another
+    process and without holding output volume constant. Re-run idle, n=12 per
+    arm, identical prompt and cap:
 
-        gpt-5.4-mini  default   median 8.75s   (n=5)
-        gpt-5.4-mini  priority  median 7.03s   (n=5)  -19.7%
-        gpt-5.6-luna  priority  echoed back "default", 6/6
+        default   median 7.07s   IQR 6.84-8.41
+        priority  median 7.85s   IQR 7.08-9.06
+        Mann-Whitney U z = -0.64  ->  NOT significant
 
-    Priority is a per-MODEL capability, not a deployment tier — both are
-    GlobalStandard on the same resource. Azure ACCEPTS the parameter on luna
-    and silently serves `default`, so asking costs nothing there; but the
-    fallback arm DOES honour it and was not being given it, which is exactly
-    backwards for the deployment we demote to during an outage.
+    So this asserts INTENT, not a speed claim. Do not "fix" a future failure
+    here by citing the 19.7% number — it does not exist. If someone turns
+    this off with a measurement showing priority costs money for nothing,
+    that is a good change and this test should change with it.
 
-    So the failure mode of asking is a no-op, and the upside is real on every
-    deployment that offers it — including luna, the day Azure enables it.
-    Flip this back only with a measurement, not with the old argument.
+    What is settled: luna ignores the field entirely (echoes `default`, 6/6)
+    and mini honours it.
     """
     assert server.LLM_SERVICE_TIER in {"default", "priority", "flex", "auto"}
     if "CHARTO_LLM_SERVICE_TIER" not in server.environ:
         assert server.LLM_SERVICE_TIER == "priority"
     # Every path that talks to the model must carry it, or the streaming turn
-    # the FE actually uses silently runs on a different tier from the probes.
+    # the FE actually uses silently runs on a different tier from the probes
+    # — which would make any future measurement here a lie.
     import pathlib
     src = pathlib.Path(server.__file__).read_text(encoding="utf-8")
     assert src.count('"service_tier": LLM_SERVICE_TIER') >= 4

@@ -112,40 +112,49 @@ LLM_FALLBACK_DEFAULT = "gpt-5.4-mini"
 # that a recovered primary is picked up within one coffee.
 _LLM_DEMOTE_S = 300.0
 LLM_EFFORT_DEFAULT = "medium"
-# Ask for the fast lane everywhere; take it where it is actually offered.
+# We ask for `priority`. It is very likely doing nothing, and the honest
+# reason to keep asking is cheap optionality, not a measured win.
 #
-# Measured 2026-09-08 against this resource, at a REAL execution-mode payload
-# (35,285 input tokens — the system prompt plus all 51 tool schemas, not a toy
-# request), alternating arms so upstream drift hits both equally:
+# THE MEASUREMENT, in the order it happened, because the first answer was
+# wrong and the record should show why:
 #
-#   gpt-5.4-mini  service_tier=default   median 8.75s   (n=5)
-#   gpt-5.4-mini  service_tier=priority  median 7.03s   (n=5)   -19.7%
-#   gpt-5.6-luna  service_tier=priority  echoed back "default", 6/6
+#   Run 1 (n=5/arm, gpt-5.4-mini) said priority was 19.7% faster: 8.75s ->
+#   7.03s. That run was taken while another process was driving back-to-back
+#   multi-round turns at the same deployment, and it did not hold output
+#   volume constant between arms.
 #
-# So priority is a per-MODEL capability, not a deployment tier: both are
-# GlobalStandard on the same resource, and luna's own SKU list
-# (GlobalStandard, DataZoneStandard, GlobalProvisionedManaged,
-# DataZoneProvisionedManaged) has no priority option at all. Azure ACCEPTS the
-# parameter on luna and silently serves `default` — no error, no warning, just
-# a field in the response that disagrees with the field in the request.
+#   Run 2 (n=12/arm, same model, idle endpoint, identical prompt and cap so
+#   output+reasoning matched at ~33 vs ~35 tokens):
+#       default   median 7.07s   IQR 6.84-8.41   max 12.07
+#       priority  median 7.85s   IQR 7.08-9.06   max 11.80
+#       Mann-Whitney U: z = -0.64 -> NOT significant.
 #
-# The previous default was "default", on the reasoning that there is no point
-# requesting a tier this model does not receive. That was true and is still
-# true of luna, but it made the setting wrong for every OTHER deployment on
-# the endpoint: the fallback arm honours priority and was not getting it,
-# which is backwards — the arm we demote to during an outage is exactly the
-# one that should be running as fast as it can.
+# So there is no measurable benefit at our load, and run 1 was noise. A rank
+# test rather than a mean because the spread was the whole question.
 #
-# Requesting it unconditionally is safe because the failure mode is a no-op,
-# and it means the day Azure enables the tier for luna we get it without an
-# edit. If priority ever needs to come off (it bills at a premium), set
-# CHARTO_LLM_SERVICE_TIER in pivot/.env rather than changing this.
+# It stays on anyway, for two reasons that do not depend on run 1 being right:
+# a priority queue is worth having precisely when there IS contention, which
+# is the case we cannot reproduce on an idle endpoint and the case that will
+# hurt users; and the day Azure enables the tier for luna we get it without
+# an edit. If the premium billing ever shows up as a line worth cutting, set
+# CHARTO_LLM_SERVICE_TIER=default in pivot/.env — no code change needed.
 #
-# NOTE for anyone chasing latency through this constant: on the deployment we
-# actually run, this line changes nothing. Luna measured ~16s per call at this
-# payload size against mini's ~8.75s, and a turn is ~100% LLM time once the
-# bar store is warm — so round COUNT times per-round time is the whole budget,
-# and the real lever on luna is provisioned throughput, not a request flag.
+# WHAT IS TRUE ABOUT THE TIERS, and cost nothing to establish:
+#   gpt-5.6-luna  ignores it. Asked for `priority`, Azure echoes `default`,
+#                 6/6, no error and no warning. Its SKU list (GlobalStandard,
+#                 DataZoneStandard, GlobalProvisionedManaged,
+#                 DataZoneProvisionedManaged) has no priority option at all,
+#                 so this is a per-MODEL capability and not a deployment tier
+#                 — luna and mini are both GlobalStandard on one resource.
+#   gpt-5.4-mini  honours it: the response echoes `priority`.
+#
+# AND WHAT DOES NOT HELP, recorded so nobody chases this constant for speed.
+# Luna measured a ~8.75s median per call at a 35k payload on an idle endpoint
+# (an earlier ~16s figure was contention, not the model), and once the bar
+# store is warm a turn is ~100% LLM time — the "buy the top 5 IT stocks" turn
+# was 55.77s wall = 55.62s across four LLM rounds and 0.14s in four tools.
+# The budget is round COUNT times per-round time. Nothing on this line moves
+# either term.
 LLM_SERVICE_TIER_DEFAULT = "priority"
 
 
