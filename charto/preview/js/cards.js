@@ -1408,9 +1408,14 @@ const Cards = (() => {
         ? (up ? `bottom:50%;height:${h.toFixed(1)}%`
               : `top:50%;height:${h.toFixed(1)}%`)
         : `bottom:0;height:${h.toFixed(1)}%`;
+      // `neg` so the rounding can follow the OUTER tip: a column hanging
+      // below zero is rounded at its bottom, which is the end the eye reads
+      // as its head. Rounding the top of both would put the soft edge at the
+      // baseline on one of them, where the flat side belongs.
       return `<div class="cc-col">`
         + `<span class="cc-v" style="${vpos}">${esc(x.text)}</span>`
-        + `<i class="cc-bar${x.tone ? " " + x.tone : ""}" style="${bpos}"></i>`
+        + `<i class="cc-bar${up ? "" : " neg"}${x.tone ? " " + x.tone : ""}" `
+        + `style="${bpos}"></i>`
         + `<span class="cc-n">${esc(x.label)}</span></div>`;
     }).join("");
     return `<div class="cc-plot${o.signed ? " signed" : ""}">`

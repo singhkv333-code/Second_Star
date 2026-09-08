@@ -3334,10 +3334,15 @@ body.two-columns .readout .row { display: none; }
    to right, with the states forming a column the eye can run down. The reason
    used to sit here as two or three lines of prose per name and it is gone;
    the reply says it once, and a manifest that argues is not a manifest. */
+/* The same grey tile the draft's steps wear, for the same reason: a leg is one
+   unit of a manifest, and a tile says "one thing" where a hairline only says
+   "a boundary". They were briefly hairline rows here, which read as a bare
+   table wedged into a card built out of tiles. What was wrong with the old row
+   was the paragraph of prose inside it, never the container. */
 .plan-leg { display: grid; grid-template-columns: auto auto 1fr;
-            align-items: baseline; gap: 0 10px; padding: 5px 0;
-            border-bottom: 1px solid var(--border); }
-.plan-leg:last-of-type { border-bottom: 0; }
+            align-items: baseline; gap: 0 10px;
+            padding: 8px 10px; border-radius: 10px; background: var(--muted); }
+.plan-leg + .plan-leg { margin-top: 6px; }
 .plan-leg b { font-weight: var(--weight-medium); }
 .plan-size { font-variant-numeric: tabular-nums; font-weight: var(--weight-normal);
              color: var(--muted-foreground); }
@@ -3911,12 +3916,33 @@ body.two-columns .readout .row { display: none; }
   height: 124px; margin: 2px 0 0; padding-bottom: 18px;
 }
 .cc-col { position: relative; flex: 1 1 0; min-width: 0; height: 100%; }
-/* The bar. Same tone classes as the rows, so a symbol keeps its colour across
-   every section of the card. */
-.cc-bar {
-  position: absolute; left: 12%; right: 12%; border-radius: 2px;
-  background: var(--muted-foreground); min-height: 2px;
+/* One slim width, shared by the bar and the track behind it, so the two are
+   the same object seen full and seen empty. Capped in PIXELS rather than set
+   as a share of the column: at 4 names a percentage bar is a 70px slab, and a
+   slab is a block of colour before it is a quantity. 34px is the width that
+   still reads as a bar — 22px was a stripe, and the rounding that suited a
+   stripe made it a lozenge. Held to 56% below that so a seven-name basket
+   still leaves air between columns. */
+.cc-plot { --cc-w: min(34px, 56%); }
+/* The track. It is what makes a slim bar readable: without the full-height
+   channel behind it a short column is a mark floating over nothing, and the
+   scale it is short AGAINST is invisible. Same token as the horizontal rows'
+   track, because it is the same idea standing up. */
+.cc-col::before {
+  content: ""; position: absolute; top: 0; bottom: 0; left: 50%;
+  width: var(--cc-w); transform: translateX(-50%);
+  background: var(--muted); border-radius: 4px; opacity: .5;
 }
+/* The bar. Same tone classes as the rows, so a symbol keeps its colour across
+   every section of the card. Rounded at the tip and square at the baseline:
+   the round end is the reading end, and a soft edge where the bar meets zero
+   would blur the one line the chart is measured from. */
+.cc-bar {
+  position: absolute; left: 50%; width: var(--cc-w);
+  transform: translateX(-50%); border-radius: 4px 4px 1px 1px;
+  background: var(--muted-foreground); min-height: 3px;
+}
+.cc-bar.neg { border-radius: 1px 1px 4px 4px; }
 .cc-bar.s1 { background: var(--primary); }
 .cc-bar.s2 { background: var(--ann-res); }
 .cc-bar.s3 { background: var(--ann-sup); }
@@ -8504,7 +8530,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- before chat.js, which asks it to render the panels a tool prints as the
        reply streams in. It reads Sym (store.js) for the instrument's currency
        and grouping, and nothing else — a renderer with no state of its own -->
-  <script src="./js/cards.js?v=47"></script>
+  <script src="./js/cards.js?v=50"></script>
   <script src="./js/layers-panel.js?v=11"></script>
   <script src="./js/chat.js?v=167"></script>
   <script src="./js/journal.js?v=6"></script>
