@@ -403,7 +403,7 @@ export function ComposerPlusMenu({
         aria-label="Add context"
         aria-expanded={open}
         data-testid="composer-plus-btn"
-        className="flex h-7 w-7 shrink-0 items-center justify-center sm:h-8 sm:w-8"
+        className="flex h-8 w-8 shrink-0 items-center justify-center"
         style={{
           background: open ? "var(--surface-active)" : "transparent",
           color: "var(--text-secondary)",

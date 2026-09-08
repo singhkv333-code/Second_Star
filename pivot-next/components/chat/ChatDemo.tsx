@@ -1462,7 +1462,10 @@ export function ChatDemo({
               return (
                 <div key={idx} className="flex justify-start">
                   <div className="flex w-full items-start">
-                    <div className="w-full max-w-3xl">
+                    {/* Full column width — matches the composer and the
+                        settled AssistantMessage so text doesn't reflow
+                        when streaming finishes. */}
+                    <div className="w-full">
                       {/* Status row stays — shows what the model is
                           doing + elapsed counter — but flows above the
                           markdown body instead of inside a card. */}
@@ -2665,7 +2668,7 @@ function ChatComposer({
             this conversation, docked inside the pill above the input. */}
         <AttachmentChips attachments={attachments} onRemove={onRemoveAttachment} />
 
-        <div className="flex items-center gap-1 p-1 pl-1.5 sm:gap-1.5 sm:p-1.5 sm:pl-2">
+        <div className="flex items-center gap-1 p-1.5 pl-2 sm:gap-1.5 sm:p-2 sm:pl-2.5">
         {/* "+" — add context (securities, agents, positions; research/web
             stubs). Sits at the left edge like ChatGPT/Claude. */}
         <ComposerPlusMenu onAttach={onAddAttachment} onAgentPicked={onAgentPicked} />
@@ -2686,7 +2689,7 @@ function ChatComposer({
             // Single-line height: 24px box matches the lineHeight below
             // so the placeholder sits centered against the send button
             // with no empty bottom strip inside the textarea.
-            "!min-h-[24px] px-0 py-0 text-[13px] sm:text-sm",
+            "!min-h-[24px] px-0 py-0 text-[14px] sm:text-[15px]",
             "focus-visible:ring-0 focus-visible:ring-offset-0",
           )}
           style={{
@@ -2712,6 +2715,7 @@ function ChatComposer({
             speech and keyboard in one message. */}
         <VoiceInputButton
           className="self-end"
+          size={18}
           data-testid="chat-voice-btn"
           onTranscript={(text) => {
             const existing = value.trimEnd();
@@ -2733,7 +2737,7 @@ function ChatComposer({
           // self-end: stays centered against a single-line textarea (the
           // button is then the taller child), drops to the bottom once the
           // textarea grows multiline.
-          className="flex h-7 w-7 shrink-0 items-center justify-center self-end sm:h-8 sm:w-8"
+          className="flex h-8 w-8 shrink-0 items-center justify-center self-end"
           style={{
             background: showStop || canSend ? "var(--text-primary)" : "var(--bg-elevated)",
             color: showStop || canSend ? "var(--bg-primary)" : "var(--text-disabled)",
@@ -2758,7 +2762,7 @@ function ChatComposer({
             // correct without a JS check (Tailwind size classes win over
             // the lucide width/height attributes).
             <ArrowUp
-              className="h-3.5 w-3.5 sm:h-4 sm:w-4"
+              className="h-4 w-4 sm:h-[18px] sm:w-[18px]"
               strokeWidth={2.25}
               aria-hidden={true}
             />

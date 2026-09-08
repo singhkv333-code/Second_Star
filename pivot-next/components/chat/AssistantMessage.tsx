@@ -151,7 +151,10 @@ function AssistantMessage({ text, className }: Props): React.JSX.Element {
       className={cn(
         // Base reading column — generous max-width so paragraphs breathe
         // but we don't fight the parent layout.
-        "w-full max-w-3xl text-[15px] leading-7 text-foreground",
+        // No max-width of its own: the answer fills the reading column so it
+        // lines up flush with the composer below it, ChatGPT-style. The
+        // column itself (AppShell) is what sets the measure.
+        "w-full text-[15px] leading-7 text-foreground",
         // Vertical rhythm between block elements; matches ChatGPT/Claude.
         "[&>*+*]:mt-3",
         className,
