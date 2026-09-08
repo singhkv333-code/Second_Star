@@ -69,6 +69,12 @@
     --surface-track: #e4e5e9;
 
     --glass-bg:           #fbfbfc;
+    /* Table header glass — translucent enough to read as a pane over
+       the rows, opaque enough that a horizontally-scrolled column
+       passing under a sticky header cell blurs rather than bleeds. */
+    --table-head-glass:      rgba(252, 252, 253, 0.72);
+    --table-head-glass-solid: rgba(250, 250, 252, 0.90);
+    --table-head-sheen:      rgba(255, 255, 255, 0.85);
     --glass-bg-hover:     #f6f6f8;
     --glass-bg-active:    #ececee;
     --glass-border:       rgba(15, 18, 22, 0.08);
@@ -200,6 +206,9 @@
     --surface-track: #34353b;
 
     --glass-bg:           #111212;
+    --table-head-glass:      rgba(28, 30, 36, 0.66);
+    --table-head-glass-solid: rgba(24, 26, 31, 0.90);
+    --table-head-sheen:      rgba(255, 255, 255, 0.10);
     --glass-bg-hover:     #181a1f;
     --glass-bg-active:    #1f2127;
     --glass-border:       rgba(255, 255, 255, 0.14);
@@ -1803,4 +1812,38 @@ body:has(.app-shell-root) {
     padding-left: 12px;
     padding-right: 12px;
   }
+}
+
+
+/* ── Liquid-glass table header ─────────────────────────────────────────
+   The header row of a chat markdown table. Glass here is four things
+   together, and it reads as flat if any one is dropped: a translucent
+   fill, a blur+saturate of whatever is behind it, a bright 1px sheen
+   along the top edge (the lit rim of a pane), and a soft shadow under
+   the bottom edge so the row sits ABOVE the data rather than beside it.
+
+   The gradient runs light-to-transparent downward, which is what stops
+   it reading as a plain grey band.
+
+   `-webkit-backdrop-filter` is not optional — Safari still needs it, and
+   without it the header falls back to a flat translucent fill there. */
+.md-table-head {
+  background-image: linear-gradient(
+    to bottom,
+    var(--table-head-sheen) 0%,
+    transparent 62%
+  );
+  background-color: var(--table-head-glass);
+  backdrop-filter: blur(14px) saturate(180%);
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
+  box-shadow:
+    inset 0 1px 0 var(--table-head-sheen),
+    0 1px 0 var(--glass-border);
+}
+
+/* A sticky header cell has data columns sliding under it, so it takes the
+   higher-opacity fill — the blur alone is not enough to keep text from a
+   scrolled column legible through it. */
+.md-table-head-sticky {
+  background-color: var(--table-head-glass-solid);
 }
