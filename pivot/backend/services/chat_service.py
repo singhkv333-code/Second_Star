@@ -2741,6 +2741,8 @@ _REPLY_BUDGETS: dict[str, tuple[int, str]] = {
 # GPT-5 prompting guide documents the same decay and recommends exactly this
 # re-append.
 _HOUSE_STYLE = (
+    "\n\nNever ask the user for a tool argument, field name, script or other "
+    "internal detail; ask only about their intent, in plain English. "
     "\n\nSTYLE: lead with the substance. Do not open by restating the "
     "question or with a lead-in like \"Here are\" or \"Sure\". "
     "Default to clear paragraphs, each developing one idea; use bullets only "

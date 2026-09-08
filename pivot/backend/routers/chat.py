@@ -7,6 +7,8 @@ shape, slash-command shortcuts, and serialising the response.
 """
 from __future__ import annotations
 
+import math
+
 import json
 import logging
 import re
@@ -340,6 +342,31 @@ def _persist_turn(
             db.close()
     except Exception:
         logger.exception("conversation persistence failed for conv %s", conv_id)
+
+
+def _json_safe(o):
+    """Replace non-finite floats with None, recursively.
+
+    Starlette serialises with ``allow_nan=False``, so a single NaN anywhere in
+    the payload raises ValueError during render and the whole turn becomes a
+    bare 500 — the model's answer, the card and the tool results all lost to
+    one bad number. That is what "is HDFCBANK expensive right now?" was doing:
+    one NaN close in a 20-bar tail.
+
+    The source of that particular NaN is fixed in `_v2_tools.get_price_history`,
+    which is where a hole in a price series should be handled. This is the
+    backstop for every OTHER tool: raw_data carries whatever ~100 tools return,
+    any of them can hit a division by zero or an upstream gap, and none of that
+    should be able to cost the user their reply. None is the honest rendering —
+    it is what "no value" already means everywhere else in these payloads.
+    """
+    if isinstance(o, float):
+        return o if math.isfinite(o) else None
+    if isinstance(o, dict):
+        return {k: _json_safe(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_json_safe(v) for v in o]
+    return o
 
 
 def _auth(authorization: str) -> int:
@@ -809,7 +836,7 @@ async def chat(
             "latency_ms": turn.latency_ms,
         })
 
-    return {
+    return _json_safe({
         "response": turn.response,
         "intent": None,                       # intent classifier removed
         "tools_called": turn.tools_called,

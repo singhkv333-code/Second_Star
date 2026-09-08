@@ -1,6 +1,8 @@
 """v2 tool handlers — the ones that replaced ``_generic_confirm`` stubs."""
 from __future__ import annotations
 
+import math
+
 import logging
 from pathlib import Path
 from typing import Optional
@@ -58,6 +60,24 @@ def _ret_pct(closes: list[float], bars: int) -> Optional[float]:
     return round((closes[-1] / closes[-bars - 1] - 1) * 100, 2)
 
 
+def _finite(x):
+    """The value as a float when it is a real number, else None.
+
+    `is not None` does not catch NaN, and NaN is what an upstream feed hands
+    back for a hole in a series. Everything downstream of a price is
+    arithmetic, so one NaN spreads to every derived field and then fails
+    serialisation; converting it to None at the boundary keeps the hole
+    honest and JSON-legal.
+    """
+    if x is None:
+        return None
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return None
+    return v if math.isfinite(v) else None
+
+
 async def get_price_history(args: dict) -> dict:
     """Rich, interpretable price history + technicals for a symbol, sourced
     from Kite (live, correctly-dated) with a yfinance fallback. Returns
@@ -80,11 +100,30 @@ async def get_price_history(args: dict) -> dict:
         return {"symbol": symbol, "period": period, "n_candles": 0,
                 "summary": "no price history available"}
 
-    closes = [float(r["close"]) for r in ohlcv if r.get("close") is not None]
-    first, last = ohlcv[0], ohlcv[-1]
+    # A NaN close is not a missing close, and `is not None` does not catch it.
+    # HDFCBANK arrived with one NaN bar in its 20-day tail; float("nan") passed
+    # the None check, became `last_close`, and poisoned every derived figure —
+    # SMAs, RSI, all five return windows. The turn then 500'd, because
+    # Starlette serialises with allow_nan=False, so ONE bad bar took down the
+    # whole chat reply rather than costing one field.
+    #
+    # Bars are therefore filtered on a FINITE close before anything is derived,
+    # and every other reader below works off `bars` rather than `ohlcv`.
+    bars = [r for r in ohlcv if _finite(r.get("close")) is not None]
+    if not bars:
+        return {"symbol": symbol, "period": period, "n_candles": len(ohlcv),
+                "summary": "price history for this symbol has no usable closes"}
+
+    closes = [float(r["close"]) for r in bars]
+    first, last = bars[0], bars[-1]
     last_close = closes[-1]
-    high = round(max(r.get("high", 0) for r in ohlcv), 2)
-    low = round(min(r.get("low", 1e9) for r in ohlcv if r.get("low") is not None), 2)
+    # max()/min() over a sequence containing NaN returns whichever value the
+    # comparison happens to reach first, so the extremes are taken over
+    # finite values only rather than trusted to propagate a None.
+    highs = [v for v in (_finite(r.get("high")) for r in bars) if v is not None]
+    lows = [v for v in (_finite(r.get("low")) for r in bars) if v is not None]
+    high = round(max(highs), 2) if highs else None
+    low = round(min(lows), 2) if lows else None
     pct = round((last_close / closes[0] - 1) * 100, 2) if closes[0] else 0.0
 
     sma20, sma50, sma200 = _sma(closes, 20), _sma(closes, 50), _sma(closes, 200)
@@ -115,20 +154,25 @@ async def get_price_history(args: dict) -> dict:
         "sma": {"20": sma20, "50": sma50, "200": sma200},
         "rsi14": rsi14,
         "vs_moving_avgs": {"above": above, "below": below},
-        "pct_from_period_high": round((last_close - high) / high * 100, 2) if high else None,
-        "pct_from_period_low": round((last_close - low) / low * 100, 2) if low else None,
+        "pct_from_period_high": (round((last_close - high) / high * 100, 2)
+                                 if high else None),
+        "pct_from_period_low": (round((last_close - low) / low * 100, 2)
+                                if low else None),
         # Recent tail so the model can eyeball the actual trajectory.
         "recent": [
-            {"date": r.get("date"), "close": r.get("close"), "volume": r.get("volume")}
-            for r in ohlcv[-20:]
+            {"date": r.get("date"), "close": _finite(r.get("close")),
+             "volume": _finite(r.get("volume"))}
+            for r in bars[-20:]
         ],
         "summary":
             f"{symbol} ₹{last_close:,.2f} as of {last.get('date')}; "
-            f"{pct:+.2f}% over {period} (range ₹{low:,.2f}–₹{high:,.2f}); "
-            f"RSI14 {rsi14}; "
+            + f"{pct:+.2f}% over {period}"
+            + (f" (range ₹{low:,.2f} to ₹{high:,.2f})"
+               if low is not None and high is not None else "")
+            + f"; RSI14 {rsi14}; "
             + (f"above {', '.join(above)}" if above else "")
             + (f"; below {', '.join(below)}" if below else "")
-            + ". Interpret these numbers yourself — not a fixed signal.",
+            + ". Interpret these numbers yourself, they are not a fixed signal.",
     }
 
 
@@ -148,9 +192,17 @@ async def get_52wk_range(args: dict) -> dict:
         return {"symbol": symbol, "available": False,
                 "summary": "no data available"}
 
-    high = max(r.get("high", 0) for r in ohlcv)
-    low = min(r.get("low", 1e9) for r in ohlcv if r.get("low") is not None)
-    last = ohlcv[-1].get("close")
+    # Same NaN trap as get_price_history: `is not None` lets a NaN through,
+    # and one NaN in the series makes max()/min() return whatever the
+    # comparison reached first, then poisons both percentages.
+    highs = [v for v in (_finite(r.get("high")) for r in ohlcv) if v is not None]
+    lows = [v for v in (_finite(r.get("low")) for r in ohlcv) if v is not None]
+    closes = [v for v in (_finite(r.get("close")) for r in ohlcv) if v is not None]
+    if not (highs and lows and closes):
+        return {"symbol": symbol, "available": False,
+                "summary": "no usable 52-week data for this symbol"}
+
+    high, low, last = max(highs), min(lows), closes[-1]
     pct_from_high = ((last - high) / high * 100) if high else None
     pct_from_low = ((last - low) / low * 100) if low else None
     return {
@@ -158,7 +210,7 @@ async def get_52wk_range(args: dict) -> dict:
         "available": True,
         "high_52w": round(high, 2),
         "low_52w": round(low, 2),
-        "last_close": round(last, 2) if last is not None else None,
+        "last_close": round(last, 2),
         "pct_from_high": round(pct_from_high, 2) if pct_from_high is not None else None,
         "pct_from_low": round(pct_from_low, 2) if pct_from_low is not None else None,
     }

@@ -472,6 +472,32 @@ def _clarify_card_payload(mf: MissingField, prompt: str,
 _PAREN_NOISE_RE = _re.compile(r"\s*\([^)]*\)\s*$")
 
 
+# Fields the MODEL writes, never the user.
+#
+# `compute.code` is a Python-subset script the model composes to do arithmetic.
+# When the model emitted `compute` without it, the completeness check treated
+# it as a missing required argument like any other and the template asked a
+# retail investor "Got it. What's the code?" — a question no user of a trading
+# app can answer, and a straight leak of an internal parameter name into the
+# product.
+#
+# The completeness machinery is right that the call is unfillable; it is wrong
+# about who can fill it. For these, the only honest move is to say nothing
+# about the field and ask the user to restate what they wanted, which is a
+# question they CAN answer.
+_MODEL_AUTHORED_FIELDS = frozenset({
+    "code", "steps", "expression", "payload", "params", "arguments",
+    "script", "query", "tree", "config", "spec",
+})
+
+# Bare identifiers that carry no meaning to a reader even after underscores
+# become spaces. If humanising lands on one of these, the generic question is
+# better than the field name.
+_OPAQUE_FIELD_NAMES = frozenset({
+    "id", "type", "kind", "ref", "key", "value", "data", "mode", "target",
+})
+
+
 def _humanize_description(m: MissingField) -> str:
     """Best-effort short, conversational name for a missing field.
 
@@ -496,7 +522,15 @@ def _humanize_description(m: MissingField) -> str:
         # back to the field name.
         if len(desc) <= 60 and "MUST" not in desc and "registry" not in desc:
             return desc
-    return m.field_name.replace("_", " ").lower()
+    # No alias and no usable description. The field NAME is an internal
+    # identifier, and printing it is how "What's the code?" reached a user, so
+    # the caller is told there is nothing sayable rather than handed a token
+    # out of the schema.
+    pretty = m.field_name.replace("_", " ").lower()
+    if (m.field_name in _MODEL_AUTHORED_FIELDS
+            or m.field_name in _OPAQUE_FIELD_NAMES):
+        return ""
+    return pretty
 
 
 def _format_clarification_question(missing: list[MissingField]) -> str:
@@ -528,6 +562,27 @@ def _format_clarification_question(missing: list[MissingField]) -> str:
             "I couldn't quite map that into a workflow. Could you "
             "describe it a bit more concretely: what should trigger "
             "the action, and what action should run?"
+        )
+
+    # Every missing field is one the MODEL authors. The user cannot answer,
+    # and naming the field would print an internal parameter at them: this is
+    # the path that asked a retail investor "Got it. What's the code?" when
+    # the model emitted `compute` without its script. Ask the thing they CAN
+    # answer instead, and never mention the field.
+    if field_names <= _MODEL_AUTHORED_FIELDS:
+        return (
+            "I couldn't put that together from what I have. Could you "
+            "restate what you'd like me to work out, and over which "
+            "holdings or symbols?"
+        )
+
+    # Drop fields with no sayable name, then re-decide on what is left. A
+    # question is only worth asking about a field a user can recognise.
+    missing = [m for m in missing if _humanize_description(m)]
+    if not missing:
+        return (
+            "I couldn't put that together from what I have. Could you "
+            "restate what you'd like me to do?"
         )
 
     # Type hints we don't surface — they read as schema-explainer
