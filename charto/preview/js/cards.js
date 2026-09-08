@@ -184,20 +184,43 @@ const Cards = (() => {
    *  strategy says is not showing them their strategy. Steps without a
    *  sentence show the config fields that carry meaning — a place_order's
    *  side and size — and not the ones that are plumbing. */
-  const STEP_NOISE = new Set(["entry", "exchange", "requires_approval",
-                              "target_symbol", "timezone"]);
+  /** A step's config as ONE SENTENCE, or nothing.
+   *
+   *  The old fallback printed the config's own keys — `symbol INFY  side buy
+   *  quantity 15  order_type market  product CNC` — which is a form field
+   *  list, not a description, and it printed whatever was in the value. So a
+   *  sell sized to the position rendered as
+   *
+   *      quantity {{ context.3.holdings.INFY.quantity }}
+   *
+   *  a runtime template address, shown to someone deciding whether to arm a
+   *  strategy with money behind it. That is the engine's plumbing on the
+   *  user's screen, and there is no reading of it that helps them.
+   *
+   *  So the sentence is composed from the fields that carry meaning, and a
+   *  templated size — which is precisely the case that HAS no literal number
+   *  yet — is named for what it does instead. A shape this cannot say is
+   *  rendered as nothing: the step's own label already names it, and silence
+   *  beats leaking the internals of a shape nobody wrote a sentence for. */
+  const TEMPLATED = /\{\{.*\}\}/;
+  function orderSentence(cfg) {
+    const side = String(cfg.side || "").toLowerCase();
+    if (!side) return "";
+    const sym = cfg.symbol || cfg.target_symbol || "";
+    const qty = cfg.quantity;
+    const size = qty == null || qty === "" ? ""
+      : TEMPLATED.test(String(qty)) ? "your whole position in"
+      : `${qty} ${String(qty) === "1" ? "share of" : "shares of"}`;
+    const how = String(cfg.order_type || "").toLowerCase() === "limit"
+      && cfg.limit_price != null ? ` at ${cfg.limit_price}` : " at market";
+    const verb = side === "sell" ? "Sell" : "Buy";
+    return `${verb} ${size ? size + " " : ""}${sym}${how}`.replace(/\s+/g, " ").trim();
+  }
   function draftStep(s, i) {
     const cfg = s.config || {};
     const icon = STEP_ICON[String(s.step_type || "").split(".")[0]] || "info";
-    const detail = s.readback
-      ? `<p class="wf-readback">${esc(s.readback)}</p>`
-      : (() => {
-          const rows = Object.keys(cfg)
-            .filter((k) => !STEP_NOISE.has(k) && cfg[k] != null && cfg[k] !== "")
-            .map((k) => `<span class="wf-kv"><i>${esc(k)}</i>${esc(
-              typeof cfg[k] === "object" ? JSON.stringify(cfg[k]) : cfg[k])}</span>`);
-          return rows.length ? `<div class="wf-cfg">${rows.join("")}</div>` : "";
-        })();
+    const line = s.readback || orderSentence(cfg);
+    const detail = line ? `<p class="wf-readback">${esc(line)}</p>` : "";
     return `<li class="wf-step" style="animation-delay:${i * 45}ms">`
       + `<span class="wf-ico">${Icons.svg(icon, "sm")}</span>`
       + `<div class="wf-body"><b class="wf-label">${esc(stepLabel(s))}</b>`
@@ -1341,6 +1364,59 @@ const Cards = (() => {
     return rows ? `<div class="scan-bars">${rows}</div>` : "";
   }
 
+  /** The comparison shape: one COLUMN per subject, off a shared baseline.
+   *
+   *  This replaced a stack of full-width horizontal bars, and the reason is
+   *  what the reading actually is. A comparison is "which of these is bigger",
+   *  and that question is answered by putting the quantities SIDE BY SIDE
+   *  where one glance crosses all of them. Laid out as rows, each bar got the
+   *  full panel width and the eye had to travel down five of them, holding
+   *  each length in memory to compare it with the next — so five names became
+   *  five separate readings and a scroll. Standing up in one row they are one
+   *  reading, and the panel that took three screens takes a third of one.
+   *
+   *  Built from the same tones and the same tokens as the rows it replaces —
+   *  colour is per SUBJECT and held across every section, the sign is printed
+   *  rather than coloured, and a signed set gets zero down the middle. It is
+   *  CSS, not a chart library: these cards are rendered as HTML strings and
+   *  injected, so anything needing a live node after insertion would need an
+   *  init pass that does not exist here, plus a vendored bundle. Columns are
+   *  two boxes and a percentage. */
+  function colChart(items, opt) {
+    const o = opt || {};
+    const vals = items.filter((x) => Number.isFinite(Number(x.value)));
+    if (!vals.length) return "";
+    const top = vals.reduce((m, x) => Math.max(m, Math.abs(Number(x.value))), 0) || 1;
+    // Not the full track: the tallest column needs headroom for its own
+    // figure, which rides the bar's outer tip and is part of the reading. On
+    // a signed chart that tip can be BELOW zero, so the half-track is held to
+    // 32% — at 41% a -30% bar pushed its label down into the name gutter and
+    // printed "-27.88%" across "HDFCBANK".
+    const span = o.signed ? 32 : 78;
+    const base = o.signed ? 50 : 0;
+    const cols = vals.map((x) => {
+      const v = Number(x.value);
+      const h = Math.max(2, Math.abs(v) / top * span);
+      const up = v >= 0;
+      // Above a positive column, below a negative one — the figure never
+      // crosses the bar it belongs to.
+      const edge = (base + h).toFixed(1);
+      const vpos = o.signed
+        ? (up ? `bottom:${edge}%` : `top:${(50 + h).toFixed(1)}%`)
+        : `bottom:${edge}%`;
+      const bpos = o.signed
+        ? (up ? `bottom:50%;height:${h.toFixed(1)}%`
+              : `top:50%;height:${h.toFixed(1)}%`)
+        : `bottom:0;height:${h.toFixed(1)}%`;
+      return `<div class="cc-col">`
+        + `<span class="cc-v" style="${vpos}">${esc(x.text)}</span>`
+        + `<i class="cc-bar${x.tone ? " " + x.tone : ""}" style="${bpos}"></i>`
+        + `<span class="cc-n">${esc(x.label)}</span></div>`;
+    }).join("");
+    return `<div class="cc-plot${o.signed ? " signed" : ""}">`
+      + `<i class="cc-base"></i>${cols}</div>`;
+  }
+
   /** Several bars that belong to one window, under its name. Used where the
    *  same measurement was taken at more than one interval: the interval is
    *  the thing being compared and it has to label the group, not each bar. */
@@ -1994,8 +2070,8 @@ const Cards = (() => {
                      text: signed(sym, col.benchmark.ret, "%"), tone: "bench" });
       }
       return group(col.label, col.window || "",
-                   bars(items.filter((x) => x.value != null),
-                        { signed: !!(opt && opt.signed) }));
+                   colChart(items.filter((x) => x.value != null),
+                            { signed: !!(opt && opt.signed) }));
     }).join("");
 
     /* Turnover is the one quantity that is neither signed nor comparable
@@ -2115,6 +2191,12 @@ const Cards = (() => {
    * reply, better, because prose is what a reply is for. The card is the part
    * you press.
    */
+  /* Symbol, size, what happened. The per-leg `why` is NOT here: it is two to
+   * three lines of the model's prose per name, so an eight-name basket was
+   * a page of argument wearing a table's clothes — and the same argument is
+   * in the reply above, written once, where it reads as writing. A row in a
+   * manifest answers "what and how much", and the answer to "why" that
+   * belongs beside it is the fill price. */
   function planLegRow(l) {
     const size = l.quantity != null ? `${l.quantity} sh`
       : l.weight_pct != null ? `${Number(l.weight_pct).toFixed(1)}%`
@@ -2124,10 +2206,9 @@ const Cards = (() => {
       : l.state === "armed" ? "armed — waiting on its condition"
       : l.state === "rejected" ? (l.detail || "refused")
       : (l.conditional ? "waits for its condition" : "buys on activate");
-    return `<div class="wf-kv-row plan-leg" data-leg-state="${esc(l.state)}">`
-      + `<b>${esc(l.symbol)}<span class="plan-size">${esc(size)}</span></b>`
-      + `<span>${esc(l.why || "")}`
-      + `<i class="plan-state">${esc(state)}</i></span></div>`;
+    return `<div class="plan-leg" data-leg-state="${esc(l.state)}">`
+      + `<b>${esc(l.symbol)}</b><span class="plan-size">${esc(size)}</span>`
+      + `<i class="plan-state">${esc(state)}</i></div>`;
   }
 
   /* No weights chart. Every leg row already carries its own size beside its

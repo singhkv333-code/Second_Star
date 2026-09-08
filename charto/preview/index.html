@@ -3330,14 +3330,21 @@ body.two-columns .readout .row { display: none; }
    in its own column because it is part of naming the leg — "RELIANCE 12%" is
    one thing, and a weights column would make the reader read across to learn
    half of it. */
-.plan-leg b { display: inline-flex; align-items: baseline; gap: 6px; }
+/* One line per leg: the name, the size, and what happened to it — read left
+   to right, with the states forming a column the eye can run down. The reason
+   used to sit here as two or three lines of prose per name and it is gone;
+   the reply says it once, and a manifest that argues is not a manifest. */
+.plan-leg { display: grid; grid-template-columns: auto auto 1fr;
+            align-items: baseline; gap: 0 10px; padding: 5px 0;
+            border-bottom: 1px solid var(--border); }
+.plan-leg:last-of-type { border-bottom: 0; }
+.plan-leg b { font-weight: var(--weight-medium); }
 .plan-size { font-variant-numeric: tabular-nums; font-weight: var(--weight-normal);
              color: var(--muted-foreground); }
-/* The state is the leg's own status line, dimmer than the reason above it:
-   before activation every leg says the same thing, and a row of identical
-   bright text would be noise pretending to be information. */
-.plan-state { display: block; margin-top: 2px; font-style: normal;
-              font-size: var(--text-3xs, var(--text-2xs)); opacity: .75; }
+/* The state closes the row on the right. Before activation every leg says the
+   same thing, so it is dim; once a leg has actually done something it is not. */
+.plan-state { text-align: right; font-style: normal;
+              font-size: var(--text-2xs); opacity: .7; }
 .plan-leg[data-leg-state="filled"] .plan-state,
 .plan-leg[data-leg-state="armed"] .plan-state { color: var(--up); opacity: 1; }
 .plan-leg[data-leg-state="rejected"] .plan-state { color: var(--down); opacity: 1; }
@@ -3892,6 +3899,63 @@ body.two-columns .readout .row { display: none; }
   position: absolute; top: -3px; bottom: -3px; width: 1px;
   background: var(--foreground); opacity: .35;
 }
+
+/* ── the comparison chart: columns, not rows ──────────────────────────────
+   Subjects stand side by side off one baseline, so "which is bigger" is a
+   single glance across the row instead of five lengths held in memory down a
+   list. Fixed height, because a comparison needs one scale and the panel is a
+   fixed width; the tallest column is held to 82% of the track so its own
+   figure has somewhere to sit. */
+.cc-plot {
+  position: relative; display: flex; align-items: flex-end; gap: 6px;
+  height: 124px; margin: 2px 0 0; padding-bottom: 18px;
+}
+.cc-col { position: relative; flex: 1 1 0; min-width: 0; height: 100%; }
+/* The bar. Same tone classes as the rows, so a symbol keeps its colour across
+   every section of the card. */
+.cc-bar {
+  position: absolute; left: 12%; right: 12%; border-radius: 2px;
+  background: var(--muted-foreground); min-height: 2px;
+}
+.cc-bar.s1 { background: var(--primary); }
+.cc-bar.s2 { background: var(--ann-res); }
+.cc-bar.s3 { background: var(--ann-sup); }
+.cc-bar.s4 { background: color-mix(in srgb, var(--foreground) 55%, transparent); }
+/* The benchmark is context, not a competitor — the quietest column present. */
+.cc-bar.bench { background: var(--faint); }
+.cc-bar.up { background: var(--up); }
+.cc-bar.down { background: var(--down); }
+/* The figure rides its own column, above a positive and below a negative, so
+   it never crosses the bar it belongs to. */
+.cc-v {
+  position: absolute; left: 50%; transform: translate(-50%, 0);
+  margin-bottom: 3px; font-family: var(--font-numeric);
+  font-size: var(--text-2xs); font-variant-numeric: tabular-nums;
+  letter-spacing: -.02em; color: var(--foreground); white-space: nowrap;
+}
+.cc-plot.signed .cc-v[style*="top"] { margin-top: 3px; margin-bottom: 0; }
+/* The name sits under the baseline in every case — including a signed chart,
+   where a label hung off the bottom of a negative column would put two names
+   at two heights and stop reading as an axis. */
+.cc-n {
+  position: absolute; left: 0; right: 0; bottom: -17px; text-align: center;
+  font-size: var(--text-2xs); font-weight: var(--weight-medium);
+  color: var(--muted-foreground); letter-spacing: .01em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* The baseline: the bottom of the track normally, and zero down the middle
+   when the set holds both signs. A hairline in the border colour — findable,
+   and never mistaken for data. */
+.cc-base {
+  position: absolute; left: 0; right: 0; bottom: 18px; height: 1px;
+  background: var(--border);
+}
+/* On a signed chart zero is the midpoint of the PLOT, not of the box: the box
+   carries a 16px gutter for the names, and an absolute `top:50%` is measured
+   against the padding box, so a plain 50% would draw zero eight pixels below
+   where the columns actually pivot. The columns' own 50% is measured against
+   the content box, and this is that same line. */
+.cc-plot.signed .cc-base { bottom: calc(18px + (100% - 18px) / 2); }
 
 /* Several bars that belong to one window, under its name. The interval is
    what is being compared, so it labels the group and not each bar. */
@@ -8440,7 +8504,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- before chat.js, which asks it to render the panels a tool prints as the
        reply streams in. It reads Sym (store.js) for the instrument's currency
        and grouping, and nothing else — a renderer with no state of its own -->
-  <script src="./js/cards.js?v=45"></script>
+  <script src="./js/cards.js?v=47"></script>
   <script src="./js/layers-panel.js?v=11"></script>
   <script src="./js/chat.js?v=167"></script>
   <script src="./js/journal.js?v=6"></script>
