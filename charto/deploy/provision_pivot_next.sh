@@ -83,12 +83,23 @@ echo "   pivot-next/package.json present"
 # nobody here touched, that reads as a broken source tree when the tree is
 # fine. Removed before AND after, so neither a leftover from a previous failed
 # run nor one from this run's own failure survives to confuse the next step.
+#
+# THIS IS A pnpm PROJECT, not npm. package.json pins
+# "packageManager": "pnpm@10.33.2", and pnpm-lock.yaml is the lockfile that is
+# actually TRACKED — pivot-next/.gitignore line 44 ignores package-lock.json,
+# so a developer machine has both and a fresh checkout has only the pnpm one.
+# `npm ci` therefore works locally and fails on this box with "npm ci can only
+# install with an existing package-lock.json", which is exactly how it failed
+# the first time this ran. corepack ships with node 22 and materialises the
+# pinned pnpm without a global install.
 say "dependencies"
+command -v corepack >/dev/null || { echo "   FAILED: corepack missing (node >= 16.9 provides it)"; exit 1; }
+corepack enable >/dev/null 2>&1 || true
 rm -rf "$PN/node_modules.rollback"
-if ! run_as_owner "cd '$PN' && npm ci --no-audit --no-fund" \
+if ! run_as_owner "cd '$PN' && COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack pnpm install --frozen-lockfile" \
     > /tmp/pivot_next_install.log 2>&1; then
   rm -rf "$PN/node_modules.rollback"
-  echo "   FAILED: npm ci"
+  echo "   FAILED: pnpm install"
   tail -20 /tmp/pivot_next_install.log
   exit 1
 fi
@@ -226,7 +237,7 @@ say "done"
 cat <<SUMMARY
    pivot-next is provisioned:
      1. pivot-next/ added to the sparse checkout at $REPO
-     2. dependencies installed with npm ci (owner: $OWNER)
+     2. dependencies installed with corepack pnpm (owner: $OWNER)
      3. built with NEXT_BASE_PATH=/app baked in at build time
      4. .next/static and public/ copied into .next/standalone
      5. $UNIT installed to /etc/systemd/system
