@@ -16,12 +16,11 @@
 # 1. `/data/app` is a sparse checkout whose current list is exactly
 #    `charto pivot pivotted` — `pivot-next/` is not on disk until step 1 adds
 #    it. Nothing past that step has anything to build.
-# 2. `basePath` is baked into the bundle at BUILD time, not read at runtime.
-#    next.config.ts sets `basePath` from `NEXT_BASE_PATH`, and both the router
-#    and every asset URL follow it. Build without the variable set and the
-#    unit's `NEXT_BASE_PATH=/app` at runtime changes nothing already in the
-#    HTML — the page loads with every `/_next/...` asset 404ing at the root.
-#    So the variable MUST be present at `next build`, not only in the unit.
+# 2. `basePath` and every NEXT_PUBLIC_* value are baked into the bundle at
+#    BUILD time, not read at runtime. Adding one to the systemd unit afterwards
+#    changes nothing the browser already downloaded. The shell now owns `/`, so
+#    NEXT_BASE_PATH is unset on purpose — but NEXT_PUBLIC_PIVOT_API_BASE is
+#    load-bearing and is set at `next build` in step 3, not in the unit.
 # 3. `output: "standalone"` produces `.next/standalone/server.js`, a server
 #    that carries only the node_modules the app actually imports — but it does
 #    NOT copy `.next/static` or `public/` into that tree, because Next assumes
@@ -107,7 +106,19 @@ rm -rf "$PN/node_modules.rollback"
 echo "   installed"
 
 # ── 3 · build ─────────────────────────────────────────────────────────────────
-# NEXT_BASE_PATH must be set HERE, not only in the unit — see the header. Do
+# NEXT_PUBLIC_* are inlined into the CLIENT BUNDLE at build time, so they have
+# to be set here and not only in the unit — a value added to the service file
+# afterwards changes nothing the browser already downloaded.
+#
+#   NEXT_PUBLIC_PIVOT_API_BASE=/pv/api  — every REST call becomes /pv/api/...,
+#     and lib/authToken.ts strips the trailing /api off the same variable, so
+#     sign-in becomes /pv/auth/login. nginx routes /pv/ to :8000. Without this
+#     the app calls the bare /auth/login, which on this host is CHARTO's login
+#     against CHARTO's user table — a 401 no correct password can fix.
+#   NEXT_PUBLIC_PIVOT_WS_BASE — same reasoning for the run/quote sockets; the
+#     default derives ws://<host>/api, a path nothing on this box answers.
+#
+# NEXT_BASE_PATH is deliberately NOT set: the shell owns `/` now. Do
 # NOT delete .next before building, for the same reason rebuild_web() doesn't:
 # deleting it up front means a failed build leaves the unit nothing to serve,
 # and it restart-loops until a human notices. Move the last good build aside
@@ -122,7 +133,10 @@ rm -rf "$PN/.next.prev"
 if [ -d "$PN/.next" ]; then
   mv "$PN/.next" "$PN/.next.prev"
 fi
-if ! run_as_owner "cd '$PN' && NEXT_TELEMETRY_DISABLED=1 NEXT_BASE_PATH=/app \
+if ! run_as_owner "cd '$PN' && NEXT_TELEMETRY_DISABLED=1 \
+    PIVOT_BACKEND_ORIGIN=http://127.0.0.1:8000 \
+    NEXT_PUBLIC_PIVOT_API_BASE=/pv/api \
+    NEXT_PUBLIC_PIVOT_WS_BASE=wss://pivot-india.centralindia.cloudapp.azure.com/pv/api \
     NODE_OPTIONS=--max-old-space-size=1536 npx next build" \
     > /tmp/pivot_next_build.log 2>&1; then
   rm -rf "$PN/.next"
@@ -238,7 +252,7 @@ cat <<SUMMARY
    pivot-next is provisioned:
      1. pivot-next/ added to the sparse checkout at $REPO
      2. dependencies installed with corepack pnpm (owner: $OWNER)
-     3. built with NEXT_BASE_PATH=/app baked in at build time
+     3. built with NEXT_PUBLIC_PIVOT_API_BASE=/pv/api baked in at build time
      4. .next/static and public/ copied into .next/standalone
      5. $UNIT installed to /etc/systemd/system
      6. $OWNER granted NOPASSWD restart/start/stop of $UNIT

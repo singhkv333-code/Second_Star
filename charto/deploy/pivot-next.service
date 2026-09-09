@@ -31,10 +31,15 @@ Environment=PORT=3000
 # Loopback only. nginx is the only thing that should reach this, because nginx
 # is where the rate limits and TLS live.
 Environment=HOSTNAME=127.0.0.1
-# Must match the basePath the bundle was BUILT with. next.config.ts reads the
-# same variable, so a mismatch here serves HTML that asks for its assets at the
-# wrong prefix and the page loads blank with 404s in the console.
-Environment=NEXT_BASE_PATH=/app
+# NO basePath. The shell owns `/` now; the chart moved to /chart-app/. This
+# variable is deliberately absent rather than empty — next.config.ts reads it
+# as `|| undefined`, and a basePath here must match the one the bundle was
+# BUILT with or the HTML asks for its assets at the wrong prefix and the page
+# loads blank with 404s in the console.
+#
+# The origin Next's internal rewrites proxy to. Its own variable, because
+# NEXT_PUBLIC_PIVOT_API_BASE is a browser PATH (/pv/api) in production.
+Environment=PIVOT_BACKEND_ORIGIN=http://127.0.0.1:8000
 ExecStart=/usr/bin/node /data/app/pivot-next/.next/standalone/server.js
 Restart=always
 RestartSec=5

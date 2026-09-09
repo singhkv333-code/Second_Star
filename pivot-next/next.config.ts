@@ -1,6 +1,16 @@
 import type { NextConfig } from "next";
 
-const BACKEND = process.env.NEXT_PUBLIC_PIVOT_API_BASE?.replace(/\/api\/?$/, "") || "http://127.0.0.1:8000";
+// The origin Next's own rewrites proxy to. Read from its OWN variable first,
+// because NEXT_PUBLIC_PIVOT_API_BASE is now a browser-facing PATH in
+// production (`/pv/api`, routed to :8000 by nginx) rather than an origin —
+// deriving the upstream from it would rewrite `/api/x` to the relative
+// `/pv/api/x`, which is a route Next does not have.
+const BACKEND =
+  process.env.PIVOT_BACKEND_ORIGIN ||
+  (process.env.NEXT_PUBLIC_PIVOT_API_BASE?.startsWith("http")
+    ? process.env.NEXT_PUBLIC_PIVOT_API_BASE.replace(/\/api\/?$/, "")
+    : "") ||
+  "http://127.0.0.1:8000";
 
 // The charting engine. It is a static app (charto/preview) served by its own
 // tiny no-cache server in development and by nginx in production; either way
