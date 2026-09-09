@@ -39,11 +39,20 @@
   // anybody. Returning here is what keeps this file free at `/`.
   if (window.parent === window) return;
 
+  // Framed: this header IS the shell's top bar on the chart route, so it runs
+  // the full width of the window and the shell's nav rail floats over our left
+  // edge rather than sitting beside us. `.in-shell` is what moves everything
+  // below the header out from under that rail. Also set inline in <head> so it
+  // lands before first paint; setting it twice is free, and this is the seam
+  // that owns the fact.
+  const root = document.documentElement;
+  root.classList.add("in-shell");
+
   // Same-origin only. In production nginx serves the shell and this app from
   // one origin, so a message from anywhere else is not the shell — it is
   // somebody else's page that has framed us, and it does not get to repaint
   // the chart or learn what the user is looking at.
-  const trusted = (e) => e.origin === window.location.origin;
+  const trusted = (e) => e.origin === window.location.origin && e.source === window.parent;
 
   const tell = (msg) => {
     try {
@@ -55,6 +64,18 @@
     if (!trusted(e)) return;
     const d = e.data;
     if (!d || typeof d !== "object") return;
+    if (d.type === "pivot:hello") announce();
+
+    // How wide the shell's nav rail is, in CSS pixels. The rail overlays our
+    // left edge, so this is how far in everything below the header has to
+    // start. The shell owns that number (it can collapse the rail); we only
+    // ever read it. Guarded to a sane range so a malformed message cannot
+    // shove the chart off-screen — outside it, the stylesheet's fallback
+    // stands.
+    if (d.type === "pivot:railpad" && Number.isFinite(d.width)) {
+      const w = Math.max(0, Math.min(160, d.width));
+      root.style.setProperty("--shell-rail-w", `${w}px`);
+    }
 
     if (d.type === "pivot:theme" && (d.mode === "dark" || d.mode === "light")) {
       // `persist` left true on purpose: if the user goes back to the chart
@@ -69,6 +90,12 @@
   // (same-origin would allow it, but the shell should not be reaching into
   // this app's internals to find out something the app can simply say).
   const announce = () => {
+    // A loaded HTML document is not sufficient: failed scripts can leave
+    // the static controls on screen without ever constructing the chart.
+    if (!document.querySelector("#chart canvas")) {
+      tell({ type: "chart:error" });
+      return;
+    }
     let symbol = null;
     try {
       symbol = new URLSearchParams(window.location.search).get("symbol");

@@ -118,7 +118,7 @@ type SseEvent =
   | SseDone;
 
 // ---------------------------------------------------------------------------
-// Streaming chat via POST /chat/stream (SSE)
+// Streaming chat via Pivot's POST /chat/stream (SSE)
 // ---------------------------------------------------------------------------
 
 /**
@@ -159,10 +159,9 @@ async function* streamChat(
   attachments?: Array<Record<string, unknown>> | null,
 ): AsyncGenerator<SseEvent> {
   const base =
-    (typeof process !== "undefined" && process.env.NEXT_PUBLIC_PIVOT_API_BASE) ||
-    "/api";
-  const legacyBase = base.replace(/\/api\/?$/, "");
-  const url = `${legacyBase}/chat/stream`;
+    (typeof process !== "undefined" && process.env.NEXT_PUBLIC_PIVOT_CHAT_BASE) ||
+    "/pivot-chat";
+  const url = `${base.replace(/\/$/, "")}/chat/stream`;
 
   const messages: ChatHistoryMessage[] = [
     ...history,
@@ -198,6 +197,13 @@ async function* streamChat(
       ...(editorDraft ? { editor_draft: editorDraft } : {}),
       // Composer context attachments — omitted entirely when none.
       ...(attachments && attachments.length ? { attachments } : {}),
+      ...(typeof window !== "undefined" ? {
+        page_context: {
+          surface: "chat",
+          route: window.location.pathname,
+          title: document.title,
+        },
+      } : {}),
     }),
     cache: "no-store",
     signal,

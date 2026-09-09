@@ -1860,6 +1860,7 @@ function ChartCard({
               height="100%"
               intraday={range === "1D" || range === "1W"}
               refitKey={expanded ? "expanded" : "collapsed"}
+              showPivotWatermark
             />
           )
         ) : metricSeriesDefs.length === 0 ? (

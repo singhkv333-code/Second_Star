@@ -26,7 +26,9 @@ const Theme = (() => {
       crosshair: "#9598a1",
       up: "#089981",
       down: "#f23645",
-      accent: "#2962ff",
+      // Canvas interaction follows the monochrome chart chrome. Paper is the
+      // dark-theme equivalent of black ink so handles remain visible.
+      accent: "#fbfcfc",
       legend: "#9aa0b0",
       chipBg: "rgba(13,14,18,.88)",
       volUp: "rgba(8,153,129,.42)",
@@ -57,7 +59,7 @@ const Theme = (() => {
       crosshair: "#787b86",
       up: "#089981",
       down: "#f23645",
-      accent: "#2962ff",
+      accent: "#0d0d0e",
       legend: "#4b5158",
       chipBg: "rgba(255,255,255,.9)",
       volUp: "rgba(8,153,129,.38)",
@@ -87,6 +89,13 @@ const Theme = (() => {
   function init() {
     let saved = null;
     try { saved = localStorage.getItem(KEY); } catch {}
+    // The embedded chart takes the shell's resolved theme before its first
+    // canvas is created, including on a full-page reload.
+    try {
+      if (window.parent !== window && window.parent.location.origin === location.origin) {
+        saved = window.parent.document.documentElement.classList.contains("dark") ? "dark" : "light";
+      }
+    } catch {}
     if (!saved) {
       saved = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches
         ? "light" : "dark";

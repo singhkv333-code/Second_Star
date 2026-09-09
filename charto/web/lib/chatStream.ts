@@ -1,18 +1,4 @@
-/**
- * The chat SSE client — Pivot's, carried over unedited except for its address.
- *
- * charto's company page asks questions about the company it is showing, and
- * the thing that answers them is Pivotted (`pivotted/`): charto's own read
- * tools plus fundamentals, ratios, filings and screens over every listed
- * company rather than the ~500 whose bars we store. Pivotted deliberately
- * speaks Pivot's SSE dialect — `start` / `tool_start` / `tool_done` / `delta`
- * / `done{response}` — precisely so this parser could move across without a
- * line of translation. Rewriting it here would be writing a second parser
- * against the same wire, which is how one of them stops matching it.
- *
- * Two things did change, and both are addresses rather than behaviour:
- * where a turn is posted, and what a 401 means (below).
- */
+/** One SSE wire for the company surface and Pivot's broad chat backend. */
 
 import type { LogicCard } from "@/components/chat/LogicCardChip";
 import type { WorkflowDraft } from "@/components/chat/WorkflowDraftCard";
@@ -20,6 +6,15 @@ import type { WorkflowDraft } from "@/components/chat/WorkflowDraftCard";
 export type ChatHistoryMessage = {
   role: "user" | "assistant";
   content: string;
+};
+
+export type ChatPageContext = {
+  surface?: string;
+  route?: string;
+  title?: string;
+  section?: string;
+  entity?: { kind?: string; symbol?: string; name?: string };
+  available_data?: string[];
 };
 
 /** Shape of the `done` event payload — identical to POST /chat response. */
@@ -61,21 +56,12 @@ export type SseEvent =
 export type ChatMode = "automation" | "agent" | "backtest" | null;
 
 /**
- * Where a research turn is posted.
- *
- * Relative by default, and that is the whole design: the chart, this company
- * app and the data server are one origin already (serve.py in dev, nginx on
- * the VM), and `/research/` joins them by the same route. An absolute
- * `http://localhost:5176` would be a second origin — no shared session, a
- * preflight on every turn, and a link that works on exactly one laptop.
- *
- * Every surface reads it from here, so two of them cannot disagree about
- * which brain the page is talking to.
+ * Relative by default so the Charto session reaches Pivot through nginx.
  */
 export function chatStreamUrl(): string {
   const base =
-    (typeof process !== "undefined" && process.env.NEXT_PUBLIC_RESEARCH_BASE) ||
-    "/research";
+    (typeof process !== "undefined" && process.env.NEXT_PUBLIC_PIVOT_CHAT_BASE) ||
+    "/pivot-chat";
   return `${base.replace(/\/$/, "")}/chat/stream`;
 }
 
@@ -108,6 +94,7 @@ export async function* streamChat(
    * them into the prompt as a grounding block. Empty/absent = none.
    */
   attachments?: Array<Record<string, unknown>> | null,
+  pageContext?: ChatPageContext | null,
 ): AsyncGenerator<SseEvent> {
   const url = chatStreamUrl();
 
@@ -121,6 +108,14 @@ export async function* streamChat(
     Accept: "text/event-stream",
   };
   if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  const ambientPage: ChatPageContext = typeof window === "undefined"
+    ? {}
+    : {
+        route: window.location.pathname,
+        title: document.title,
+      };
+  const resolvedPage = { ...ambientPage, ...(pageContext ?? {}) };
 
   const res = await fetch(url, {
     method: "POST",
@@ -145,18 +140,17 @@ export async function* streamChat(
       ...(editorDraft ? { editor_draft: editorDraft } : {}),
       // Composer context attachments — omitted entirely when none.
       ...(attachments && attachments.length ? { attachments } : {}),
+      ...(Object.keys(resolvedPage).length ? { page_context: resolvedPage } : {}),
     }),
     cache: "no-store",
     signal,
   });
 
   if (!res.ok) {
-    // Pivot wiped its JWT and reloaded the page on a 401, because there a 401
-    // means the session died and the reload lands on the login screen. Nothing
-    // of that holds here: the research server reads no session at all, so a
-    // 401 could only come from something in front of it, and a page that
-    // reloads itself in response would take the reader's question with it and
-    // arrive back in the same state. It is reported like any other status.
+    if (res.status === 401 && typeof window !== "undefined") {
+      try { window.localStorage.removeItem("pivot_jwt"); } catch { /* ignore */ }
+      window.location.reload();
+    }
     const text = await res.text();
     throw new Error(`Stream error ${res.status}: ${text.slice(0, 200)}`);
   }

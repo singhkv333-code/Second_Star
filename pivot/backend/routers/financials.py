@@ -111,7 +111,12 @@ def _kick_financials_refresh(sym: str) -> None:
     threading.Thread(target=_run, name=f"fin-swr:{sym}", daemon=True).start()
 
 
-def _auth(authorization: Optional[str]) -> int:
+_INTERNAL_TOOL_AUTH = object()
+
+
+def _auth(authorization: Optional[str] | object) -> int:
+    if authorization is _INTERNAL_TOOL_AUTH:
+        return 0
     if not authorization:
         if getattr(settings, "app_env", "development") == "development":
             return 1

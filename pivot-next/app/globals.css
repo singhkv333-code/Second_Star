@@ -78,6 +78,9 @@
     --glass-bg-hover:     #f6f6f8;
     --glass-bg-active:    #ececee;
     --glass-border:       rgba(15, 18, 22, 0.08);
+    /* Main shell divisions match charto/preview's 2px seams. */
+    --shell-seam:         #e6e6e6;
+    --shell-sidebar-bg:   #ffffff;
     --glass-border-hover: rgba(15, 18, 22, 0.16);
     --glass-border-focus: rgba(15, 18, 22, 0.32);
 
@@ -212,6 +215,8 @@
     --glass-bg-hover:     #181a1f;
     --glass-bg-active:    #1f2127;
     --glass-border:       rgba(255, 255, 255, 0.14);
+    --shell-seam:         #242424;
+    --shell-sidebar-bg:   #1c1c1d;
     --glass-border-hover: rgba(255, 255, 255, 0.22);
     --glass-border-focus: rgba(255, 255, 255, 0.36);
 
@@ -881,13 +886,16 @@ input[type="range"].payoff-slider::-moz-range-thumb {
 
 @media (min-width: 1024px) {
   :root {
-    --header-h: 60px;
+    /* Match the chart workspace's compact top bar. */
+    --header-h: 48px;
   }
-  /* Desktop brand slot keeps its 200px fixed width so the logo + search
-     line up. On mobile this width is omitted so the brand sits inline
-     next to the hamburger. */
+  /* Keep the search immediately beside the wordmark. The old fixed 200px
+     slot left a large dead zone between the two controls. */
   .brand-slot {
-    width: 200px;
+    width: auto;
+  }
+  .top-header-wordmark {
+    font-size: 17px !important;
   }
 }
 
@@ -896,6 +904,118 @@ input[type="range"].payoff-slider::-moz-range-thumb {
    lg:hidden, so we drive visibility from here. */
 .sidebar-close-mobile {
   display: none;
+}
+
+/* Compact desktop navigation rail. Global destinations stay available on
+   every surface without reserving a full text column; their names remain in
+   accessible labels and native hover tooltips. Conversation controls belong
+   to the Chat surface and are therefore hidden from this global rail. */
+.sidebar-shell {
+  width: 48px;
+  padding: 6px 3px;
+}
+/* ── the chart tab: ONE top bar, and it is the chart's own ───────────────
+   Every other surface wears the shell's TopHeader. The chart supplies its
+   own bar instead (symbol, interval, indicators, undo/redo, layouts, Chat),
+   so AppShell suppresses TopHeader there — one bar, never two stacked.
+
+   A top bar has to reach the window's left edge to read as a top bar. The
+   chart's bar is inside the iframe, so the iframe is what has to reach the
+   edge: on this tab the content column spans the FULL width and the rail
+   stops taking width from it, floating over the chart instead.
+
+   The rail keeps its own background, so the chart never shows through it —
+   it reads exactly as it does on every other tab, just layered rather than
+   packed. Its icons then pad down past the bar they are floating over, and
+   --header-h measures that: 48px on desktop, matched to the chart
+   workspace's bar (see the chart app's own --header-h), so one token keeps
+   the two in step and the icons keep one baseline across every tab.
+
+   Desktop only, and that bound is load-bearing rather than tidiness: below
+   lg the rail is already a FIXED full-height drawer that slides over the
+   page from top:0, with no bar above it to clear. Both rules here outrank
+   the drawer's plain-class ones, so without the query they would push the
+   drawer's contents down past the notch and re-anchor it mid-page. */
+@media (min-width: 1024px) {
+  .shell-row--chart {
+    position: relative;
+  }
+  .shell-row--chart > .sidebar-shell {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 30;
+  }
+  /* Deliberately NO left margin on the content column: the iframe runs edge
+     to edge so its bar can, and the chart insets its own body under the rail
+     from the inside (`.in-shell .main` — the shell tells it the rail's width
+     via the `railpad` message). Reserving the 48px out here instead would put
+     the bar's left edge back at 48px, which is the whole bug. */
+  .sidebar-shell[data-below-standin-header="true"] {
+    padding-top: calc(var(--header-h, 56px) + 6px);
+  }
+}
+.sidebar-nav-list {
+  gap: 6px;
+}
+.sidebar-nav-item {
+  width: 34px;
+  height: 34px;
+  align-self: center;
+  flex: none;
+  padding: 0;
+}
+.sidebar-nav-icon {
+  width: 18px;
+  height: 18px;
+  stroke-width: 1.8;
+}
+.sidebar-nav-label,
+.sidebar-global-history {
+  display: none;
+}
+
+/* Chat owns its conversation tools, mirroring the chart's self-contained
+   chat panel. The history button collapses this to a slim two-icon strip. */
+.chat-history-pane {
+  width: 224px;
+  background: var(--bg-base);
+  border-right: 2px solid var(--shell-seam);
+  transition: width 220ms var(--ease-quartr);
+  overflow: hidden;
+}
+.chat-history-pane[data-open="false"] {
+  width: 48px;
+}
+.chat-history-toolbar {
+  min-height: 48px;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--glass-border);
+}
+.chat-history-pane[data-open="false"] .chat-history-toolbar {
+  min-height: 96px;
+  flex-direction: column;
+  justify-content: flex-start;
+  padding: 6px;
+}
+.chat-history-action {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 160ms var(--ease-quartr), background 160ms var(--ease-quartr);
+}
+.chat-history-action:hover {
+  color: var(--text-primary);
+  background: var(--surface-active);
 }
 
 /* Sidebar — slide-in drawer below lg. Uses transform (not display:none)
@@ -908,9 +1028,10 @@ input[type="range"].payoff-slider::-moz-range-thumb {
     left: 0;
     z-index: 50;
     width: min(82vw, 320px) !important;
+    padding: calc(var(--safe-top) + 12px) 14px 16px;
     /* Full-height overlay drawer — pad its top past the camera cutout so the
        brand + close button aren't hidden under the notch. */
-    padding-top: var(--safe-top);
+    padding-top: calc(var(--safe-top) + 12px);
     transform: translateX(-100%);
     transition: transform 260ms var(--ease-quartr, cubic-bezier(0.22, 1, 0.36, 1));
     box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
@@ -920,6 +1041,39 @@ input[type="range"].payoff-slider::-moz-range-thumb {
   }
   .sidebar-close-mobile {
     display: inline-flex;
+  }
+  .sidebar-nav-item {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 12px;
+    padding: 0 14px;
+    font: 500 14px var(--font-ui);
+  }
+  .sidebar-nav-label {
+    display: inline;
+  }
+  .chat-history-pane {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    z-index: 20;
+    width: 88px;
+    height: 48px;
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  }
+  .chat-history-pane[data-open="true"] {
+    width: min(280px, calc(100% - 16px));
+    height: calc(100% - 16px);
+  }
+  .chat-history-pane[data-open="false"] {
+    width: 88px;
+  }
+  .chat-history-pane[data-open="false"] .chat-history-toolbar {
+    min-height: 48px;
+    flex-direction: row;
+    padding: 5px 6px;
   }
 }
 

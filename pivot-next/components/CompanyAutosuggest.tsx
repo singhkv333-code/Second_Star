@@ -28,6 +28,7 @@ import { searchCompanies, type CompanySearchResult } from "@/lib/api";
 import { isError } from "@/lib/types";
 import { CompanyLogo } from "@/components/CompanyLogo";
 import { VoiceInputButton } from "@/components/VoiceInputButton";
+import { ChartNoAxesCombined } from "lucide-react";
 
 interface CompanyAutosuggestProps {
   placeholder?: string;
@@ -37,8 +38,7 @@ interface CompanyAutosuggestProps {
   inputDataTestId?: string;
   /** Render a mic that dictates the query (browser recording → English). */
   enableVoice?: boolean;
-  /** Align the floating panel to the containing search pill, including its icon/padding. */
-  alignPanelToShell?: boolean;
+  onOpenChart?: (symbol: string) => void;
 }
 
 // Debounce interval in ms — short enough to feel live, long enough to
@@ -83,7 +83,7 @@ export function CompanyAutosuggest({
   autoFocus,
   inputDataTestId,
   enableVoice,
-  alignPanelToShell,
+  onOpenChart,
 }: CompanyAutosuggestProps): React.ReactElement {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<CompanySearchResult[]>([]);
@@ -94,16 +94,16 @@ export function CompanyAutosuggest({
 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const listRef = useRef<HTMLUListElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Abort flag for stale requests — avoids race conditions when the user
+  // types quickly and an earlier slow response arrives after a later one.
+  const cancelledRef = useRef(false);
 
   // Empty query → show recent searches; typed query → show live results.
   const trimmed = query.trim();
   const showingRecent = trimmed.length === 0;
   const list = showingRecent ? recent : results;
-  // A typed query keeps the panel open while loading and when there is no
-  // match. Closing the surface during a request makes the search feel broken.
-  const dropdownOpen = open && (!showingRecent || list.length > 0);
+  const dropdownOpen = open && list.length > 0;
 
   // ── Load persisted recent searches once on mount ─────────────────────
   useEffect(() => {
@@ -122,46 +122,36 @@ export function CompanyAutosuggest({
     }
 
     setLoading(true);
-    let cancelled = false;
+    cancelledRef.current = false;
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
       try {
         const res = await searchCompanies(q);
-        if (cancelled) return;
+        if (cancelledRef.current) return;
         if (!isError(res)) {
           setResults(res.data.results);
-          setOpen(true);
+          setOpen(res.data.results.length > 0);
           setHighlighted(0);
         } else {
           setResults([]);
-          setOpen(true);
+          setOpen(false);
         }
       } catch {
-        if (!cancelled) {
+        if (!cancelledRef.current) {
           setResults([]);
-          setOpen(true);
+          setOpen(false);
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelledRef.current) setLoading(false);
       }
     }, DEBOUNCE_MS);
 
     return () => {
-      cancelled = true;
+      cancelledRef.current = true;
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [query]);
-
-  // Keep keyboard navigation visible without jumping the entire page. The
-  // browser only scrolls the compact list by the minimum amount required.
-  useEffect(() => {
-    if (!dropdownOpen) return;
-    const active = listRef.current?.querySelector<HTMLElement>(
-      `[data-option-index="${highlighted}"]`,
-    );
-    active?.scrollIntoView({ block: "nearest" });
-  }, [dropdownOpen, highlighted]);
 
   // ── Outside-click closes dropdown ─────────────────────────────────────
   useEffect(() => {
@@ -198,6 +188,23 @@ export function CompanyAutosuggest({
     [onSelect],
   );
 
+  const handleOpenChart = useCallback(
+    (result: CompanySearchResult): void => {
+      if (!onOpenChart) return;
+      onOpenChart(result.symbol);
+      setRecent((prev) => {
+        const next = [result, ...prev.filter((x) => x.symbol !== result.symbol)].slice(0, RECENT_MAX);
+        saveRecent(next);
+        return next;
+      });
+      setQuery("");
+      setResults([]);
+      setOpen(false);
+      setHighlighted(0);
+    },
+    [onOpenChart],
+  );
+
   const clearRecent = useCallback((): void => {
     setRecent([]);
     saveRecent([]);
@@ -206,11 +213,6 @@ export function CompanyAutosuggest({
   }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
-    if (e.key === "Escape" && open) {
-      e.preventDefault();
-      setOpen(false);
-      return;
-    }
     if (!open || list.length === 0) return;
 
     if (e.key === "ArrowDown") {
@@ -223,6 +225,9 @@ export function CompanyAutosuggest({
       e.preventDefault();
       const pick = list[highlighted] ?? list[0];
       if (pick) handleSelect(pick);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      setOpen(false);
     }
   };
 
@@ -247,7 +252,7 @@ export function CompanyAutosuggest({
         onKeyDown={handleKeyDown}
         onFocus={() => {
           // Open whichever list has content: recent (empty query) or results.
-          if (query.trim().length > 0 || list.length > 0) setOpen(true);
+          if (list.length > 0) setOpen(true);
         }}
         placeholder={placeholder}
         autoFocus={autoFocus}
@@ -289,27 +294,25 @@ export function CompanyAutosuggest({
 
       {dropdownOpen && (
         <ul
-          ref={listRef}
           id="company-autosuggest-list"
           role="listbox"
-          className="company-autosuggest-panel"
           aria-label={showingRecent ? "Recent searches" : "Company suggestions"}
           style={{
             position: "absolute",
-            top: "calc(100% + 12px)",
-            left: alignPanelToShell ? -38 : -14,
-            width: "min(360px, calc(100vw - 32px))",
+            top: "calc(100% + 10px)",
+            left: -14,
+            right: -14,
             zIndex: 200,
             margin: 0,
-            padding: 8,
+            padding: "4px 0",
             listStyle: "none",
-            background: "color-mix(in srgb, var(--bg-primary) 94%, transparent)",
-            border: "1px solid color-mix(in srgb, var(--text-primary) 13%, transparent)",
-            borderRadius: 16,
-            boxShadow: "0 18px 48px rgba(0,0,0,0.18), 0 3px 10px rgba(0,0,0,0.08)",
-            backdropFilter: "blur(28px) saturate(150%)",
-            maxHeight: 430,
+            background: "var(--bg-primary)",
+            border: "1px solid var(--glass-border)",
+            borderRadius: "var(--radius-md)",
+            boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+            maxHeight: 280,
             overflowY: "auto",
+            overflowX: "hidden",
           }}
         >
           {showingRecent && (
@@ -319,9 +322,9 @@ export function CompanyAutosuggest({
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
-                padding: "5px 10px 7px",
-                fontSize: 10.5,
-                letterSpacing: "0.08em",
+                padding: "4px 14px 6px",
+                fontSize: 10,
+                letterSpacing: "0.06em",
                 textTransform: "uppercase",
                 color: "var(--text-tertiary)",
               }}
@@ -338,8 +341,8 @@ export function CompanyAutosuggest({
                   border: "none",
                   padding: 0,
                   cursor: "pointer",
-                  fontSize: 10.5,
-                  letterSpacing: "0.08em",
+                  fontSize: 10,
+                  letterSpacing: "0.06em",
                   textTransform: "uppercase",
                   color: "var(--text-tertiary)",
                 }}
@@ -357,43 +360,9 @@ export function CompanyAutosuggest({
               highlighted={highlighted === i}
               onMouseEnter={() => setHighlighted(i)}
               onSelect={handleSelect}
+              onOpenChart={onOpenChart ? handleOpenChart : undefined}
             />
           ))}
-
-          {!showingRecent && loading && list.length === 0 && (
-            <li
-              role="status"
-              style={{ padding: "22px 10px", fontSize: 12, color: "var(--text-tertiary)" }}
-            >
-              Searching instruments…
-            </li>
-          )}
-
-          {!showingRecent && !loading && list.length === 0 && (
-            <li
-              role="status"
-              style={{ padding: "22px 10px", fontSize: 12, color: "var(--text-tertiary)" }}
-            >
-              No matching instrument
-            </li>
-          )}
-
-          {!showingRecent && list.some((r) => Boolean(r.logo_url)) && (
-            <li
-              role="presentation"
-              style={{ padding: "7px 10px 2px", textAlign: "right", fontSize: 9.5, color: "var(--text-tertiary)" }}
-            >
-              Logos by{" "}
-              <a
-                href="https://logo.dev"
-                target="_blank"
-                rel="noreferrer"
-                style={{ color: "inherit", textDecoration: "underline", textUnderlineOffset: 2 }}
-              >
-                Logo.dev
-              </a>
-            </li>
-          )}
 
         </ul>
       )}
@@ -401,7 +370,6 @@ export function CompanyAutosuggest({
       {/* Subtle loading indicator — tiny spinner-free dots beneath input */}
       {loading && query.trim().length >= 1 && (
         <div
-          className="company-autosuggest-loading"
           aria-hidden="true"
           style={{
             position: "absolute",
@@ -426,42 +394,19 @@ function DropdownRow({
   highlighted,
   onMouseEnter,
   onSelect,
+  onOpenChart,
 }: {
   result: CompanySearchResult;
   index: number;
   highlighted: boolean;
   onMouseEnter: () => void;
   onSelect: (r: CompanySearchResult) => void;
+  onOpenChart?: (result: CompanySearchResult) => void;
 }): React.ReactElement {
-  const type = result.instrument_type ?? (
-    result.sector?.startsWith("ETF") ? "ETF" :
-    result.sector?.startsWith("Commodity") ? "Commodity" :
-    result.sector === "Index" ? "Index" : "Equity"
-  );
-  const exchange = result.exchange ?? (type === "Commodity" ? "MCX" : "NSE");
-  const hasPrice = typeof result.price === "number" && Number.isFinite(result.price);
-  const hasChange = typeof result.change_pct === "number" && Number.isFinite(result.change_pct);
-  const change = hasChange ? result.change_pct! : null;
-
-  const formatPrice = (value: number): string => {
-    const currency = result.currency ?? "INR";
-    if (currency === "INR") {
-      return new Intl.NumberFormat("en-IN", {
-        style: "currency",
-        currency: "INR",
-        maximumFractionDigits: 2,
-      }).format(value);
-    }
-    if (currency === "USD") return `$${value.toLocaleString("en-US", { maximumFractionDigits: 4 })}`;
-    return `${value.toLocaleString("en-IN", { maximumFractionDigits: 2 })} ${currency}`;
-  };
-
   return (
     <li
       id={`cas-option-${index}`}
-      data-option-index={index}
       role="option"
-      className="company-autosuggest-option"
       aria-selected={highlighted}
       onMouseDown={(e) => {
         // Use mousedown instead of click so the input blur fires AFTER
@@ -471,97 +416,103 @@ function DropdownRow({
       }}
       onMouseEnter={onMouseEnter}
       style={{
-        display: "grid",
-        gridTemplateColumns: "minmax(0, 1fr) auto",
+        display: "flex",
         alignItems: "center",
-        gap: 12,
-        minHeight: 58,
-        padding: "7px 10px",
-        borderRadius: 12,
+        gap: 10,
+        padding: "7px 14px",
+        width: "100%",
+        minWidth: 0,
+        boxSizing: "border-box",
         cursor: "pointer",
         background: highlighted ? "var(--surface-hover)" : "transparent",
-        transform: highlighted ? "translateX(2px)" : "translateX(0)",
-        transition: "background 120ms ease, transform 120ms ease",
+        transition: "background 0.1s",
       }}
     >
-      <span className="flex min-w-0 items-center gap-3">
-        <CompanyLogo
-          logoUrl={result.logo_url}
-          name={result.name}
-          symbol={result.symbol}
-          size={34}
-        />
-        <span className="flex min-w-0 flex-col" style={{ gap: 3 }}>
-          <span className="flex min-w-0 items-center gap-2">
-            <span
-              style={{
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-                fontFamily: "var(--font-ui)",
-                fontSize: 14,
-                fontWeight: 650,
-                letterSpacing: "-0.012em",
-                color: "var(--text-primary)",
-              }}
-            >
-              {result.symbol}
-            </span>
-            <span
-              style={{
-                flexShrink: 0,
-                padding: "2px 5px",
-                borderRadius: 5,
-                background: "color-mix(in srgb, var(--text-primary) 7%, transparent)",
-                color: "var(--text-tertiary)",
-                fontSize: 9.5,
-                fontWeight: 650,
-                letterSpacing: "0.05em",
-              }}
-            >
-              {exchange}
-            </span>
-          </span>
-          <span
-            title={result.name}
-            style={{
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-              fontSize: 11.5,
-              lineHeight: 1.25,
-              color: "var(--text-tertiary)",
-            }}
-          >
-            {result.name}{type !== "Equity" ? ` · ${type}` : ""}
-          </span>
-        </span>
+      {/* Company logo (monogram fallback when none / on load error) */}
+      <CompanyLogo
+        logoUrl={result.logo_url}
+        name={result.name}
+        symbol={result.symbol}
+        size={22}
+      />
+
+      {/* Symbol badge */}
+      <span
+        style={{
+          flexShrink: 0,
+          fontFamily: "var(--font-mono)",
+          fontSize: 11,
+          fontWeight: 700,
+          letterSpacing: "0.03em",
+          color: "var(--text-primary)",
+          minWidth: 60,
+          maxWidth: 92,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {result.symbol}
       </span>
 
+      {/* Company name (primary) */}
       <span
-        className="flex shrink-0 flex-col items-end"
-        style={{ gap: 3, minWidth: 78, fontVariantNumeric: "tabular-nums" }}
+        style={{
+          flex: 1,
+          minWidth: 0,
+          fontFamily: "var(--font-ui)",
+          fontSize: 12.5,
+          color: "var(--text-primary)",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
       >
-        <span style={{ fontSize: 13, fontWeight: 650, color: hasPrice ? "var(--text-primary)" : "var(--text-tertiary)" }}>
-          {hasPrice ? formatPrice(result.price!) : "—"}
-        </span>
+        {result.name}
+      </span>
+
+      {/* Sector (muted) */}
+      {result.sector && (
         <span
           style={{
-            fontSize: 11.5,
-            fontWeight: 650,
-            color: change === null
-              ? "var(--text-tertiary)"
-              : change > 0
-                ? "var(--color-profit, #059669)"
-                : change < 0
-                  ? "var(--color-loss, #dc2626)"
-                  : "var(--text-tertiary)",
+            minWidth: 0,
+            maxWidth: 84,
+            fontFamily: "var(--font-ui)",
+            fontSize: 11,
+            color: "var(--text-tertiary)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
           }}
         >
-          {change === null ? "Unavailable" : `${change > 0 ? "+" : ""}${change.toFixed(2)}%`}
-          {result.quote_source === "charto_relay" ? " · delayed" : ""}
+          {result.sector}
         </span>
-      </span>
+      )}
+      {onOpenChart && (
+        <button
+          type="button"
+          aria-label={`Open ${result.symbol} chart`}
+          title="Open chart"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onOpenChart(result);
+          }}
+          className="inline-flex shrink-0 items-center justify-center"
+          style={{
+            width: 26,
+            height: 26,
+            padding: 0,
+            border: 0,
+            borderRadius: "var(--radius-sm)",
+            background: "transparent",
+            color: "var(--text-tertiary)",
+            cursor: "pointer",
+          }}
+        >
+          <ChartNoAxesCombined size={15} strokeWidth={1.9} aria-hidden="true" />
+        </button>
+      )}
     </li>
   );
 }

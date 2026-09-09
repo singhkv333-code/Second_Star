@@ -17,6 +17,16 @@ export type ChatHistoryMessage = {
   content: string;
 };
 
+/** Small, data-only description of the UI surface originating a turn. */
+export type ChatPageContext = {
+  surface?: string;
+  route?: string;
+  title?: string;
+  section?: string;
+  entity?: { kind?: string; symbol?: string; name?: string };
+  available_data?: string[];
+};
+
 /** Shape of the `done` event payload — identical to POST /chat response. */
 export type ChatDonePayload = {
   response: string;
@@ -69,9 +79,9 @@ export type ChatMode = "automation" | "agent" | "backtest" | null;
  */
 export function chatStreamUrl(): string {
   const base =
-    (typeof process !== "undefined" && process.env.NEXT_PUBLIC_PIVOT_API_BASE) ||
-    "/api";
-  return `${base.replace(/\/api\/?$/, "")}/chat/stream`;
+    (typeof process !== "undefined" && process.env.NEXT_PUBLIC_PIVOT_CHAT_BASE) ||
+    "/pivot-chat";
+  return `${base.replace(/\/$/, "")}/chat/stream`;
 }
 
 /**
@@ -103,6 +113,8 @@ export async function* streamChat(
    * them into the prompt as a grounding block. Empty/absent = none.
    */
   attachments?: Array<Record<string, unknown>> | null,
+  /** Explicit page facts augment the route/title captured for every turn. */
+  pageContext?: ChatPageContext | null,
 ): AsyncGenerator<SseEvent> {
   const url = chatStreamUrl();
 
@@ -116,6 +128,16 @@ export async function* streamChat(
     Accept: "text/event-stream",
   };
   if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  // Every caller gets ambient location context without learning about every
+  // page type. A surface may add its focused entity/data catalogue explicitly.
+  const ambientPage: ChatPageContext = typeof window === "undefined"
+    ? {}
+    : {
+        route: window.location.pathname,
+        title: document.title,
+      };
+  const resolvedPage = { ...ambientPage, ...(pageContext ?? {}) };
 
   const res = await fetch(url, {
     method: "POST",
@@ -140,6 +162,7 @@ export async function* streamChat(
       ...(editorDraft ? { editor_draft: editorDraft } : {}),
       // Composer context attachments — omitted entirely when none.
       ...(attachments && attachments.length ? { attachments } : {}),
+      ...(Object.keys(resolvedPage).length ? { page_context: resolvedPage } : {}),
     }),
     cache: "no-store",
     signal,

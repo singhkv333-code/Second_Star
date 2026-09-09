@@ -969,6 +969,38 @@ tool("query_financials",
      ["symbol", "metric"],
      defaults={"basis": "consolidated", "history": 0})
 
+tool("get_company_research",
+     "Read the same company datasets shown across Pivot's stock-detail page, "
+     "batched in ONE call. Use for page-grounded questions about recent "
+     "quarters, statements, derived scores, analyst consensus, peers, "
+     "annual-report facts, business/revenue mix, ownership, "
+     "shareholding or promoter pledge, filings/documents, delivery/F&O flow, "
+     "bulk/block deals, or measured pattern base rates. Request only the "
+     "sections needed; combine related sections here instead of making several "
+     "tool calls. Values retain their source periods and missing coverage. "
+     "For one arbitrary annual line item not represented by a page section, "
+     "use query_financials instead.",
+     {"symbol": {"type": "string", "description": "NSE ticker, uppercase."},
+      "sections": {"type": "array", "minItems": 1, "maxItems": 5,
+                   "items": {"type": "string", "enum": [
+                       "overview", "statements", "scores", "analyst_consensus",
+                       "peers", "quarters", "annual_report", "revenue_mix",
+                       "ownership", "documents", "shareholding", "flows",
+                       "deals", "patterns",
+                   ]}},
+      "basis": {"type": "string", "enum": ["consolidated", "standalone"],
+                "default": "consolidated"},
+      "filing_topics": {"type": "array", "items": {"type": "string", "enum": [
+          "segments", "geography", "special_metrics", "contingent",
+          "related_party", "audit", "strategy", "cost_structure", "debt_terms",
+          "schedule3_ratios", "receivables_ageing", "cwip_ageing", "workforce",
+          "regulatory_flags", "forex_earned_outgo", "credit_rating",
+      ]}, "description": "Optional annual-report topic filter."},
+      "statement": {"type": "string", "enum": [
+          "balance_sheet", "profit_loss", "cash_flow", "ratios",
+      ], "default": "profit_loss", "description": "Grid returned by statements."}},
+     ["symbol", "sections"], defaults={"basis": "consolidated"})
+
 tool("get_symbol_news",
      "Recent news headlines for ONE stock via yfinance. Use for 'recent news "
      "on X', 'what's happening with X', 'any news on X'. Returns "

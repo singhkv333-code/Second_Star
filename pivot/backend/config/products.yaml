@@ -1,8 +1,32 @@
 # Pivot product economics — single source of truth.
 #
-# Hardcoding these in the system prompt led to "92.764%" leaking into every
-# greeting. They live here; the chatbot reads them via the get_product_spec
-# tool only when the user explicitly asks about Pivot's offerings.
+# Hardcoding these in the system prompt led to product facts leaking into every
+# greeting. They live here; the chatbot reads them via get_product_spec only
+# when a user asks about Pivot itself, its navigation, or a named offering.
+
+platform:
+  name: Pivot
+  type: platform_guide
+  one_liner: >-
+    One India-first workspace for researching securities, testing ideas and
+    running them in a simulated paper book.
+  surfaces:
+    chart: Live candles, indicators, evidence-backed annotations and chart questions.
+    company: Company profile, financials, quarters, peers, filings, ownership and flows.
+    chat: Cross-market research, portfolio questions and plain-English task building.
+    screener: Find and rank securities using fundamental and market constraints.
+    strategies: Review, edit, backtest and activate saved automated workflows.
+    portfolio: Holdings, exposure, performance, tax and risk context.
+    paper: Simulated orders, positions, fills and journal; no live broker execution.
+    options: NSE option chains, payoff analysis and defined-risk strategy construction.
+  navigation_note: >-
+    Use the focused page for questions about what is visible; use Chat for
+    cross-surface work. Open a security's company or chart surface when the
+    user needs primary evidence, and use Strategies or Paper to inspect what a
+    built idea does after research.
+  boundaries:
+    - India-listed equities, indices, NSE options, MCX commodities and charted crypto.
+    - Analysis and simulated execution only; Pivot is not a broker or registered adviser.
 
 safegrow:
   name: SafeGrow

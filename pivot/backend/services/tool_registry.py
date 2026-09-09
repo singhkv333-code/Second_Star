@@ -271,7 +271,11 @@ class ToolResult:
         """Compact JSON string the model sees as the tool result."""
         if not self.success:
             return json.dumps({"error": self.error or "tool failed"})
-        return json.dumps(self.data, default=str)[:6000]
+        # Company research intentionally replaces several narrower calls in a
+        # single round. Give that one batched result enough room for quarterly
+        # rows/cited facts; every other tool keeps the established small cap.
+        cap = 24_000 if self.name == "get_company_research" else 6_000
+        return json.dumps(self.data, default=str)[:cap]
 
 
 def get_tool_schema() -> list[dict]:
@@ -422,6 +426,7 @@ _FIND_TOOL_CATEGORIES: tuple[tuple[str, str], ...] = (
     ("get_option_greeks", "market_data"),
     ("get_margin_required", "market_data"),
     ("get_product_spec", "portfolio"),
+    ("get_company_research", "market_data"),
     # Yields.
     ("compare_yields", "market_data"),
     ("get_yield_recommendation", "market_data"),
@@ -641,12 +646,13 @@ def _ensure_v2_tools_registered() -> None:
 
     tool(
         "get_product_spec",
-        "Returns the spec (allocation, legs, tenor, notes) of a Pivot product. "
-        "ONLY call when the user explicitly asks about Pivot's offerings "
-        "(e.g. 'what is SafeGrow', 'explain EarnMore', 'show StormShield'). "
-        "Never call as a reflexive answer to 'what should I invest in'.",
+        "Returns either Pivot's concise platform/navigation map or the spec "
+        "of a named Pivot offering. Use platform when the user asks what Pivot "
+        "can do, where a task belongs, or how to move through the app. Use an "
+        "offering only when explicitly asked about it; never recommend one as "
+        "a reflexive answer to 'what should I invest in'.",
         {"product": {"type": "string",
-                     "enum": ["safegrow", "earnmore", "stormshield"]}},
+                     "enum": ["platform", "safegrow", "earnmore", "stormshield"]}},
         ["product"],
     )
 

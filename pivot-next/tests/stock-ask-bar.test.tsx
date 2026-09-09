@@ -65,12 +65,22 @@ describe("StockAskBar", () => {
     const body = JSON.parse(String(init.body)) as {
       messages: { role: string; content: string }[];
       attachments: { kind: string; symbol: string; name?: string }[];
+      page_context: {
+        surface: string;
+        entity: { kind: string; symbol: string; name?: string };
+        available_data: string[];
+      };
     };
     expect(body.messages.at(-1)).toEqual({ role: "user", content: "is it expensive?" });
     // The whole point: "it" is resolvable because the company rides along.
     expect(body.attachments).toEqual([
       { kind: "security", symbol: "TCS", name: "Tata Consultancy Services" },
     ]);
+    expect(body.page_context.surface).toBe("company");
+    expect(body.page_context.entity).toEqual({
+      kind: "security", symbol: "TCS", name: "Tata Consultancy Services",
+    });
+    expect(body.page_context.available_data).toContain("analyst consensus");
   });
 
   it("renders the streamed answer", async () => {

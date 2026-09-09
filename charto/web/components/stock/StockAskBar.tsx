@@ -11,23 +11,10 @@
  * opens already attached to the symbol you are reading.
  *
  * "Attached" is literal, not a placeholder string: every turn ships
- * `attachments: [{kind: "security", symbol}]`, which the server renders into
- * the prompt as tagged context (`_apply_attachments` in pivotted/server.py,
- * word for word Pivot's own envelope), so "is it expensive?" resolves to this
- * company and the tools are called with this symbol.
- *
- * What answers is Pivotted — charto's read tools with the ink removed, plus
- * fundamentals, ratios, filings and screens that reach EVERY listed company
- * rather than the ~500 whose bars this box stores. That split is the one trap
- * on this page: a company can be perfectly real, screenable on fundamentals,
- * and still have no price history here, and the model is told to say so
- * rather than reach for an index or a peer.
- *
- * It cannot commit anything. The alerts, journal, strategy and paper tools
- * charto's chat carries are dropped before the table reaches the model, so
- * nothing typed here can arm a rule or fill an order — the chart's own chat
- * is where that belongs, and this bar is deliberately not a second door to
- * it.
+ * `attachments: [{kind: "security", symbol}]` plus a compact page-context
+ * envelope, so "is it expensive?" resolves to this company. The request goes
+ * to Pivot's one broad chat backend; the page context changes what is in focus,
+ * not which assistant or prompt fork answers it.
  *
  * Voice is the chat composer's own mic, imported rather than rebuilt, so a
  * spoken question takes the same path here as it does there.
@@ -75,6 +62,7 @@ type Turn = {
  *  rather than a generic "Working…", because naming the actual tool is the
  *  honest version of a progress line. */
 const TOOL_WORD: Record<string, string> = {
+  get_company_research: "Reading company data",
   get_fundamentals: "Reading fundamentals",
   get_balance_sheet: "Reading the balance sheet",
   compare_fundamentals: "Comparing the financials",
@@ -209,9 +197,7 @@ export function StockAskBar({
 
   // One conversation per symbol. Switching companies starts a fresh thread
   // rather than carrying the last one's subject into this one — "it" must not
-  // mean the previous company. (Pivotted holds no server-side state for the
-  // id; the thread is the transcript this component sends, which is why the
-  // reset below is the whole reset.)
+  // mean the previous company; the reset below prevents it leaking forward.
   const conversationId = React.useMemo(
     () => `stock-${symbol.toLowerCase()}-${Math.random().toString(36).slice(2, 10)}`,
     [symbol],
@@ -305,7 +291,17 @@ export function StockAskBar({
 
       for await (const ev of streamChat(
         q, history, token, controller.signal, conversationId,
-        null, null, null, [attachment],
+        null, null, null, [attachment], {
+          surface: "company",
+          entity: { kind: "security", symbol: symbol.toUpperCase(), ...(name ? { name } : {}) },
+          available_data: [
+            "profile and ownership", "annual and quarterly financials",
+            "statement grids and derived scores", "analyst consensus", "peer comparison",
+            "annual-report facts", "revenue mix",
+            "shareholding and pledge", "company documents", "flows and deals",
+            "price, news, and measured patterns",
+          ],
+        },
       )) {
         if (ev.type === "tool_start") patch((t) => ({ ...t, tool: ev.name }));
         else if (ev.type === "tool_done") patch((t) => ({ ...t, tool: null }));
@@ -323,7 +319,7 @@ export function StockAskBar({
       if (!controller.signal.aborted) {
         patch((t) => ({
           ...t,
-          error: err instanceof Error ? err.message : "Could not reach the research server.",
+          error: err instanceof Error ? err.message : "Could not reach Pivot.",
           done: true,
         }));
       }

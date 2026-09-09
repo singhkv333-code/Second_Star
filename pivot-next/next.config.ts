@@ -68,6 +68,10 @@ const nextConfig: NextConfig = {
   async rewrites() {
     return [
       {
+        source: "/pivot-chat/:path*",
+        destination: `${BACKEND}/:path*`,
+      },
+      {
         // The chart app, proxied so it is same-origin with the shell. Two
         // rules because `/chart-app` with no trailing path must resolve too —
         // it is what the iframe asks for first.

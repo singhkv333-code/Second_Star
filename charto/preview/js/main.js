@@ -4143,6 +4143,10 @@
           ? `<div class="item" data-acct="paper"><span class="lead">`
             + Icons.svg("paperBook", "xs") + `Paper book</span></div>`
           : "")
+        + `<div class="item" data-acct="settings"><span class="lead">`
+        + Icons.svg("settings", "xs") + `Settings</span></div>`
+        + `<div class="item" data-acct="help"><span class="lead">`
+        + Icons.svg("info", "xs") + `Help</span></div>`
         + THEME_ROW()
         + SHORTCUT_ROW
         + `<div class="sep"></div>`
@@ -4154,6 +4158,10 @@
         + `<div class="item" data-acct="login"><span class="lead">Sign in</span></div>`
         + `<div class="item" data-acct="signup"><span class="lead">Create an account</span></div>`
         + `<div class="sep"></div>`
+        + `<div class="item" data-acct="settings"><span class="lead">`
+        + Icons.svg("settings", "xs") + `Settings</span></div>`
+        + `<div class="item" data-acct="help"><span class="lead">`
+        + Icons.svg("info", "xs") + `Help</span></div>`
         + THEME_ROW()
         + SHORTCUT_ROW
         + `<div class="sep"></div>`
@@ -4217,6 +4225,8 @@
     if (!it) return;
     closeMenus(null);
     if (it.dataset.acct === "theme") { Theme.toggle(); paintAccount(Auth.user); return; }
+    if (it.dataset.acct === "settings") { el("settingsBtn").click(); return; }
+    if (it.dataset.acct === "help") return Shortcuts.open();
     if (it.dataset.acct === "shortcuts") return Shortcuts.open();
     if (it.dataset.acct === "paper") {
       window.open(COMPANY_PAGE + "/paper", "_blank", "noopener");  // see openPaper

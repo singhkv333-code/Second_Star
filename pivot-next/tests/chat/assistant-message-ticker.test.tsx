@@ -110,9 +110,11 @@ describe("AssistantMessage gain/loss coloring", () => {
     expect(span.style.color).toBe("var(--color-profit)");
   });
 
-  it("colors a signed negative percentage red (loss token)", () => {
+  it("colors a negative percentage red, and brackets it", () => {
+    // Losses render in accounting brackets rather than with a minus sign
+    // (the colour already carries the direction) — see accountingNegative.
     render(<AssistantMessage text="The position is down -3.1% since entry." />);
-    const span = screen.getByText("-3.1%");
+    const span = screen.getByText("(3.1%)");
     expect(span.style.color).toBe("var(--color-loss)");
   });
 
@@ -122,9 +124,9 @@ describe("AssistantMessage gain/loss coloring", () => {
     expect(span.style.color).toBe("var(--color-profit)");
   });
 
-  it("colors the U+2212 minus sign as a loss", () => {
+  it("colors the U+2212 minus sign as a loss, and brackets it too", () => {
     render(<AssistantMessage text="Return over the week: −5.6%." />);
-    const span = screen.getByText("−5.6%");
+    const span = screen.getByText("(5.6%)");
     expect(span.style.color).toBe("var(--color-loss)");
   });
 
@@ -138,7 +140,7 @@ describe("AssistantMessage gain/loss coloring", () => {
   it("colors gain/loss inside a list item too", () => {
     render(<AssistantMessage text={"- INFY: +1.8%\n- TCS: -0.9%"} />);
     expect(screen.getByText("+1.8%").style.color).toBe("var(--color-profit)");
-    expect(screen.getByText("-0.9%").style.color).toBe("var(--color-loss)");
+    expect(screen.getByText("(0.9%)").style.color).toBe("var(--color-loss)");
   });
 });
 

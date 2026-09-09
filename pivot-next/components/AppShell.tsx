@@ -23,31 +23,27 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
-  BarChart2,
-  CandlestickChart,
-  Bug,
-  Compass,
+  BookOpen,
   ChevronDown,
   ChevronLeft,
   ExternalLink,
-  FileText,
   HelpCircle,
-  Home,
+  History,
+  LayoutDashboard,
+  ListFilter,
   Keyboard,
   LogOut,
   Menu,
-  MessageSquare,
-  Monitor,
-  Moon,
-  PieChart,
+  MessagesSquare,
+  ChartNoAxesCombined,
   Pin,
-  Plug,
   Plus,
   Search,
   Settings,
-  ShieldCheck,
   Sun,
   Trash2,
+  WalletCards,
+  Workflow as WorkflowIcon,
   X,
 } from "lucide-react";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -73,8 +69,8 @@ import { DashboardTab } from "@/components/DashboardTab";
 import { HomeTab } from "@/components/HomeTab";
 import { CompanyAutosuggest } from "@/components/CompanyAutosuggest";
 import { ActiveAgentsRail } from "@/components/ActiveAgentsRail";
-import { PivotLogo } from "@/components/brand/PivotLogo";
-import { ProductTour, START_TOUR_EVENT } from "@/components/onboarding/ProductTour";
+import { PivotWordmark } from "@/components/brand/PivotLogo";
+import { ProductTour } from "@/components/onboarding/ProductTour";
 import { LoginIntroGate } from "@/components/onboarding/LoginIntroGate";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
@@ -118,18 +114,27 @@ const NAV_ITEMS: {
   label: string;
   Icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
 }[] = [
-  { key: "home", label: "Home", Icon: Home },
-  { key: "chart", label: "Chart", Icon: CandlestickChart },
-  { key: "chat", label: "Chat", Icon: MessageSquare },
-  { key: "portfolio", label: "Portfolio", Icon: PieChart },
-  { key: "agents", label: "Agents", Icon: Settings },
-  { key: "screener", label: "Screener", Icon: BarChart2 },
+  { key: "home", label: "Home", Icon: LayoutDashboard },
+  { key: "chart", label: "Chart", Icon: ChartNoAxesCombined },
+  { key: "chat", label: "Chat", Icon: MessagesSquare },
+  { key: "portfolio", label: "Portfolio", Icon: WalletCards },
+  { key: "agents", label: "Agents", Icon: WorkflowIcon },
+  { key: "screener", label: "Screener", Icon: ListFilter },
 ];
 
 // Home is the landing surface — a fresh visit to "/" (no hash), and every
 // post-login/signup redirect (which lands on "/"), opens on Home, not Chat.
 const DEFAULT_TAB: TabKey = "home";
 const METRIC_REFRESH_MS = 30_000;
+
+/** Width of the collapsed desktop nav rail, in px — the same 48 that
+ *  `.sidebar-shell` is styled to in globals.css. Duplicated here (rather than
+ *  read back off the DOM) because it has to cross into the chart's iframe as
+ *  a number: on the chart route the rail overlays the frame instead of
+ *  sitting beside it, and the chart insets its own tools by this much. Keep
+ *  the two in step — the CSS is the one a user sees, this is the one the
+ *  chart is told. */
+const SIDEBAR_RAIL_W = 48;
 
 function readHashTab(): TabKey {
   if (typeof window === "undefined") return DEFAULT_TAB;
@@ -270,6 +275,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   // it is resolved here. Starts "dark" so the first server/client paint agree;
   // the effect below corrects it before the frame is ever told anything.
   const [resolvedTheme, setResolvedTheme] = useState<"dark" | "light">("dark");
+  const [chartSymbol, setChartSymbol] = useState<string | undefined>(undefined);
   // Global trading mode (real/live vs paper). Mirrors the persisted store so
   // the toggle + banner re-render; the data layer reads the store directly.
   // Default 'paper' matches lib/trading-mode.ts DEFAULT_MODE so the first
@@ -280,6 +286,8 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   // First letter of the signed-in user's name/email — used for the
   // avatar initial in the topbar (Quartr's TopHeader.jsx pattern).
   const [accountInitial, setAccountInitial] = useState<string>("U");
+  const [accountName, setAccountName] = useState<string>("Account");
+  const [accountEmail, setAccountEmail] = useState<string>("");
   // True once the user has sent ≥1 message in the chat tab. AppShell
   // hides the Active Agents rail in that state so the chat column
   // takes the freed width (Quartr-style).
@@ -396,6 +404,8 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
       const src = (full_name && full_name.trim()) || email || "";
       const letter = src.trim()[0];
       if (letter) setAccountInitial(letter.toUpperCase());
+      setAccountName((full_name && full_name.trim()) || email || "Account");
+      setAccountEmail(email || "");
     });
 
     // Detect a broker OAuth return trip — the backend bounces here with
@@ -609,6 +619,20 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     }
   }, [pathname, router]);
 
+  const openChart = useCallback((symbol: string): void => {
+    setChartSymbol(symbol.trim().toUpperCase());
+    goTab("chart");
+  }, [goTab]);
+
+  useEffect(() => {
+    const handleOpenChart = (event: Event): void => {
+      const symbol = (event as CustomEvent<{ symbol?: string }>).detail?.symbol;
+      if (symbol) openChart(symbol);
+    };
+    window.addEventListener("pivot:open-chart", handleOpenChart);
+    return () => window.removeEventListener("pivot:open-chart", handleOpenChart);
+  }, [openChart]);
+
   // Seed a prompt from the Home tab into the chat composer and jump there.
   const sendChatPrompt = useCallback((prompt: string): void => {
     setSeededChatPrompt(prompt);
@@ -638,7 +662,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     [],
   );
 
-  const openWorkflowById = useCallback(async (id: string): Promise<void> => {
+  const _openWorkflowById = useCallback(async (id: string): Promise<void> => {
     const result = await getWorkflow(id);
     if (isError(result)) return;
     openWorkflow(result.data);
@@ -887,50 +911,61 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     {/* Brand intro — plays once, right after login/signup (armLoginIntro). */}
     <LoginIntroGate />
     <div
-      className="app-shell-root flex h-screen bg-background"
+      className="app-shell-root flex flex-col h-screen bg-background"
       style={{ ["--paper-banner-h" as string]: "0px" }}
     >
-      {/* Left sidebar — FULL HEIGHT (ElevenLabs-style: spans top-to-bottom as
-          a sibling of the header+content column). Inline at lg+, slide-in
-          drawer below; collapsed on desktop via Ctrl/⌘+B; always mounted on
-          mobile so the drawer + hamburger keep working. */}
-      {(!sidebarCollapsed || !isDesktop) && (
-        <Sidebar
-          active={active}
-          activeConversationId={active === "chat" ? resumeConv?.id : undefined}
-          onTabChange={goTab}
-          onNewChat={startNewChat}
-          onSelectConversation={(id) => void openConversation(id)}
-          onDeleteConversation={removeConversation}
-          conversations={conversations}
-          mobileOpen={mobileNavOpen}
-          onMobileClose={() => setMobileNavOpen(false)}
-          onBrandClick={() => goTab("home")}
-        />
-      )}
-
-      {/* Content column — the sticky header spans ONLY this column, so the
-          full-height sidebar sits beside it (not under it). */}
-      <div className="flex flex-1 min-w-0 min-h-0 flex-col">
-        {/* Sticky top header */}
-        <TopHeader
+        {(children || active !== "chart") && <TopHeader
           theme={theme}
           onChooseTheme={chooseTheme}
           tradingMode={tradingMode}
           onChooseTradingMode={chooseTradingMode}
           metrics={metrics}
           accountInitial={accountInitial}
+          accountName={accountName}
+          accountEmail={accountEmail}
           onOpenBroker={() => setBrokerPanelOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
           onOpenMobileNav={() => setMobileNavOpen(true)}
           onBrandClick={() => goTab("home")}
+          onOpenChart={openChart}
           onLogout={async () => {
             await logoutUser();
             router.replace("/login");
           }}
           onOpenShortcuts={() => setShortcutsOpen(true)}
           onReportBug={() => setReportBugOpen(true)}
+        />}
+
+      {/* On the chart tab this row STACKS instead of sitting side by side.
+          The chart's own bar stands in for TopHeader there, and a top bar has
+          to reach the window's left edge — but the bar is inside the iframe,
+          so it can only reach as far left as the iframe does. While the rail
+          was a flex sibling it held the top-left corner and the bar started
+          48px in, which is exactly the misalignment this was meant to fix.
+
+          So on the chart the iframe spans the FULL width and the rail floats
+          over it, below the bar's line (`.shell-row--chart`, globals.css).
+          Every other tab keeps the plain flex row it always had. */}
+      <div
+        className={`flex flex-1 min-w-0 min-h-0${
+          !children && active === "chart" ? " shell-row--chart" : ""
+        }`}
+      >
+      {(!sidebarCollapsed || !isDesktop) && (
+        <Sidebar
+          active={active}
+          onTabChange={goTab}
+          mobileOpen={mobileNavOpen}
+          onMobileClose={() => setMobileNavOpen(false)}
+          onBrandClick={() => goTab("home")}
+          // The rail overlays the chart rather than sitting beside it, so it
+          // pads its own icons down past the bar it is now floating over.
+          belowStandInHeader={!children && active === "chart"}
         />
+      )}
+
+
+      <div className="flex flex-1 min-w-0 min-h-0 flex-col">
 
         {/* Paper-mode banner removed per owner request — the account-menu
             toggle still indicates paper vs real. */}
@@ -976,6 +1011,13 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
               transition: "padding-right 300ms cubic-bezier(0.22, 1, 0.36, 1)",
             }}
           >
+              <ChatHistoryPane
+                activeConversationId={resumeConv?.id}
+                conversations={conversations}
+                onNewChat={startNewChat}
+                onSelectConversation={(id) => void openConversation(id)}
+                onDeleteConversation={removeConversation}
+              />
               <div
                 className="flex h-full w-full min-h-0 flex-col"
                 style={{
@@ -1048,7 +1090,16 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
                   : "hidden"
               }
             >
-              <ChartFrame theme={resolvedTheme} />
+              {/* The rail overlays this frame's left edge (so the chart's
+                  header can be the shell's one top bar and still reach the
+                  window edge), and only the shell knows how wide it is —
+                  48px, or 0 when it is collapsed or is the mobile drawer,
+                  which floats over everything and reserves nothing. */}
+              <ChartFrame
+                symbol={chartSymbol}
+                theme={resolvedTheme}
+                railWidth={!sidebarCollapsed && isDesktop ? SIDEBAR_RAIL_W : 0}
+              />
             </div>
           )}
           {visitedTabs.has("screener") && (
@@ -1115,6 +1166,8 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
           </aside>
         )}
         </div>
+      </div>
+
       </div>
 
       <AgentPanel
@@ -1209,10 +1262,13 @@ function TopHeader({
   onChooseTradingMode,
   metrics,
   accountInitial,
+  accountName,
+  accountEmail,
   onOpenBroker,
   onOpenSettings,
   onOpenMobileNav,
   onBrandClick,
+  onOpenChart,
   onLogout,
   onOpenShortcuts,
   onReportBug,
@@ -1223,10 +1279,13 @@ function TopHeader({
   onChooseTradingMode: (m: TradingMode) => void;
   metrics: MetricState;
   accountInitial: string;
+  accountName: string;
+  accountEmail: string;
   onOpenBroker: () => void;
   onOpenSettings: () => void;
   onOpenMobileNav: () => void;
   onBrandClick: () => void;
+  onOpenChart: (symbol: string) => void;
   onLogout: () => void;
   onOpenShortcuts: () => void;
   onReportBug: () => void;
@@ -1234,11 +1293,11 @@ function TopHeader({
   const router = useRouter();
   return (
     <header
-      className="top-header relative flex shrink-0 items-center gap-3 px-3 lg:gap-6 lg:px-5"
+      className="top-header relative flex shrink-0 items-center gap-6 px-3"
       style={{
         height: "var(--header-h, 56px)",
         background: "var(--bg-base)",
-        borderBottom: "1px solid var(--glass-border)",
+        borderBottom: "2px solid var(--shell-seam)",
       }}
     >
       {/* Mobile-only hamburger — opens the sidebar drawer at <lg. */}
@@ -1270,7 +1329,7 @@ function TopHeader({
         onClick={onBrandClick}
         aria-label="Go to Pivot home"
         data-testid="brand-home-link"
-        className="brand-slot flex shrink-0 items-center pl-0 lg:hidden"
+        className="brand-slot flex shrink-0 items-center pl-0"
         style={{
           color: "var(--text-primary)",
           background: "transparent",
@@ -1279,19 +1338,19 @@ function TopHeader({
           cursor: "pointer",
         }}
       >
-        <PivotLogo fontSize={22} />
+        <PivotWordmark className="top-header-wordmark" fontSize={22} />
       </button>
 
       {/* Search — Quartr pill, sized + bordered, no Tailwind background.
           Hidden below lg; mobile users get the CommandPalette via the
           account menu / keyboard shortcut. */}
       <div
-        className="global-instrument-search hidden flex-1 items-center gap-2 lg:flex"
+        className="hidden flex-1 items-center gap-2 lg:flex"
         data-tour="search"
         style={{
-          maxWidth: 360,
-          height: 38,
-          padding: "0 16px",
+          maxWidth: 300,
+          height: 30,
+          padding: "0 12px",
           background: "var(--bg-primary)",
           border: "1px solid var(--glass-border)",
           borderRadius: "var(--radius-pill)",
@@ -1301,7 +1360,7 @@ function TopHeader({
       >
         <Search
           className="shrink-0"
-          size={14}
+          size={13}
           strokeWidth={2}
           style={{ color: "var(--text-tertiary)" }}
           aria-hidden={true}
@@ -1311,12 +1370,12 @@ function TopHeader({
           onSelect={(symbol) => router.push(`/stock/${symbol}`)}
           inputDataTestId="global-search"
           enableVoice
-          alignPanelToShell
+          onOpenChart={onOpenChart}
         />
       </div>
 
       {/* Right cluster — metric stack + account menu */}
-      <div className="ml-auto flex shrink-0 items-center gap-7">
+      <div className="ml-auto flex shrink-0 items-center gap-6">
         <MetricStrip metrics={metrics} />
         <AccountMenu
           theme={theme}
@@ -1324,6 +1383,8 @@ function TopHeader({
           tradingMode={tradingMode}
           onChooseTradingMode={onChooseTradingMode}
           initial={accountInitial}
+          accountName={accountName}
+          accountEmail={accountEmail}
           onOpenBroker={onOpenBroker}
           onOpenSettings={onOpenSettings}
           onLogout={onLogout}
@@ -1346,10 +1407,9 @@ function TopHeader({
 function AccountMenu({
   theme,
   onChooseTheme,
-  tradingMode,
-  onChooseTradingMode,
   initial,
-  onOpenBroker,
+  accountName,
+  accountEmail,
   onOpenSettings,
   onLogout,
   onOpenShortcuts,
@@ -1360,15 +1420,18 @@ function AccountMenu({
   tradingMode: TradingMode;
   onChooseTradingMode: (m: TradingMode) => void;
   initial: string;
+  accountName: string;
+  accountEmail: string;
   onOpenBroker: () => void;
   onOpenSettings: () => void;
   onLogout: () => void;
   onOpenShortcuts: () => void;
   onReportBug: () => void;
 }): React.ReactElement {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [helpOpen, setHelpOpen] = useState(false);
-  const [isNarrow, setIsNarrow] = useState(false);
+  const [_helpOpen, setHelpOpen] = useState(false);
+  const [_isNarrow, setIsNarrow] = useState(false);
   // Touch-primary devices (phone/tablet) have no physical keyboard, so the
   // keyboard-shortcuts entry is hidden there. Keyed off pointer capability,
   // not screen width — a narrow/windowed desktop still has a keyboard.
@@ -1402,7 +1465,7 @@ function AccountMenu({
       helpCloseTimer.current = null;
     }
   }, []);
-  const scheduleHelpClose = useCallback(() => {
+  const _scheduleHelpClose = useCallback(() => {
     cancelHelpClose();
     helpCloseTimer.current = setTimeout(() => setHelpOpen(false), 120);
   }, [cancelHelpClose]);
@@ -1447,12 +1510,12 @@ function AccountMenu({
         data-testid="account-menu-trigger"
         className="inline-flex shrink-0 items-center justify-center"
         style={{
-          width: 34,
-          height: 34,
+          width: 30,
+          height: 30,
           borderRadius: "var(--radius-pill)",
-          background: "var(--bg-primary)",
-          border: "1px solid var(--glass-border)",
-          color: "var(--text-secondary)",
+          background: "#089981",
+          border: "none",
+          color: "#ffffff",
           fontFamily: "var(--font-ui)",
           fontSize: 13,
           fontWeight: 500,
@@ -1461,12 +1524,10 @@ function AccountMenu({
             "color 0.25s var(--ease-quartr), border-color 0.25s var(--ease-quartr), background-color 0.25s var(--ease-quartr)",
         }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.borderColor = "var(--glass-border-hover)";
-          e.currentTarget.style.color = "var(--text-primary)";
+          e.currentTarget.style.boxShadow = "0 0 0 2px var(--bg-base), 0 0 0 4px var(--bg-elevated)";
         }}
         onMouseLeave={(e) => {
-          e.currentTarget.style.borderColor = "var(--glass-border)";
-          e.currentTarget.style.color = "var(--text-secondary)";
+          e.currentTarget.style.boxShadow = "none";
         }}
       >
         {initial}
@@ -1480,276 +1541,55 @@ function AccountMenu({
             position: "absolute",
             top: "calc(100% + 8px)",
             right: 0,
-            minWidth: 200,
-            padding: 4,
-            background: "var(--bg-primary)",
-            border: "1px solid var(--glass-border)",
-            borderRadius: "var(--radius-md)",
-            boxShadow: "0 10px 30px rgba(0,0,0,0.35)",
+            minWidth: 244,
+            padding: 5,
+            background: "color-mix(in srgb, var(--bg-card) 78%, transparent)",
+            border: "none",
+            borderRadius: 8,
+            boxShadow:
+              "inset 0 1px 0 rgba(255,255,255,0.34), inset 0 -1px 0 rgba(255,255,255,0.12), 0 14px 36px rgba(0,0,0,0.24)",
+            backdropFilter: "blur(22px) saturate(145%)",
+            WebkitBackdropFilter: "blur(22px) saturate(145%)",
             zIndex: 50,
             display: "flex",
             flexDirection: "column",
           }}
         >
-          <MenuItem
-            icon={Plug}
-            label="Brokers"
-            onClick={() => {
-              setOpen(false);
-              onOpenBroker();
-            }}
-            testId="menu-brokers"
-          />
-          <MenuItem
-            icon={Settings}
-            label="Settings"
-            testId="menu-settings"
-            onClick={() => {
-              setOpen(false);
-              onOpenSettings();
-            }}
-          />
-          <div
-            style={{ position: "relative" }}
-            onMouseEnter={() => {
-              // On touch (coarse pointer) a tap fires a synthetic mouseenter
-              // that would open the submenu, then onClick toggles it shut —
-              // so the menu never opens. Let click own it on touch devices.
-              if (isNarrow || hideShortcuts) return;
-              cancelHelpClose();
-              setHelpOpen(true);
-            }}
-            onMouseLeave={() => {
-              if (isNarrow || hideShortcuts) return;
-              scheduleHelpClose();
-            }}
-          >
-            <MenuItem
-              icon={HelpCircle}
-              label="Help"
-              hasChevron={true}
-              chevronDirection={isNarrow ? "down" : "side"}
-              active={helpOpen}
-              onClick={() => setHelpOpen((v) => !v)}
-            />
-            {helpOpen && (
-              <div
-                role="menu"
-                data-testid="account-menu-help-submenu"
-                onMouseEnter={isNarrow || hideShortcuts ? undefined : cancelHelpClose}
-                onMouseLeave={isNarrow || hideShortcuts ? undefined : scheduleHelpClose}
-                style={
-                  isNarrow
-                    ? {
-                        // Phone: render submenu inline below the Help row.
-                        // No absolute positioning so it can't fall off the
-                        // left edge of the viewport.
-                        marginTop: 4,
-                        marginLeft: 8,
-                        padding: 4,
-                        background: "var(--bg-elevated)",
-                        border: "1px solid var(--glass-border)",
-                        borderRadius: "var(--radius-md)",
-                        display: "flex",
-                        flexDirection: "column",
-                      }
-                    : {
-                        position: "absolute",
-                        top: -4,
-                        right: "calc(100% + 6px)",
-                        minWidth: 200,
-                        padding: 4,
-                        background: "var(--bg-primary)",
-                        border: "1px solid var(--glass-border)",
-                        borderRadius: "var(--radius-md)",
-                        boxShadow: "0 10px 30px rgba(0,0,0,0.35)",
-                        zIndex: 60,
-                        display: "flex",
-                        flexDirection: "column",
-                      }
-                }
-              >
-                <MenuItem
-                  icon={ShieldCheck}
-                  label="Privacy Policy"
-                  hasExternalArrow={true}
-                  onClick={() => {
-                    setHelpOpen(false);
-                    setOpen(false);
-                  }}
-                />
-                <MenuItem
-                  icon={FileText}
-                  label="Terms of Service"
-                  hasExternalArrow={true}
-                  onClick={() => {
-                    setHelpOpen(false);
-                    setOpen(false);
-                  }}
-                />
-                <MenuItem
-                  icon={Bug}
-                  label="Report a bug"
-                  onClick={() => {
-                    setHelpOpen(false);
-                    setOpen(false);
-                    onReportBug();
-                  }}
-                />
-                <MenuItem
-                  icon={Compass}
-                  label="Replay the tour"
-                  testId="menu-replay-tour"
-                  onClick={() => {
-                    setHelpOpen(false);
-                    setOpen(false);
-                    window.dispatchEvent(new CustomEvent(START_TOUR_EVENT));
-                  }}
-                />
-                {!hideShortcuts && (
-                  <>
-                    <div
-                      aria-hidden={true}
-                      style={{
-                        height: 1,
-                        background: "var(--glass-border)",
-                        margin: "4px 6px",
-                      }}
-                    />
-                    <MenuItem
-                      icon={Keyboard}
-                      label="Keyboard shortcuts"
-                      onClick={() => {
-                        setHelpOpen(false);
-                        setOpen(false);
-                        onOpenShortcuts();
-                      }}
-                    />
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-          <MenuItem
-            icon={LogOut}
-            label="Log out"
-            testId="menu-logout"
-            onClick={() => {
-              setOpen(false);
-              onLogout();
-            }}
-          />
-
-          {/* Divider */}
-          <div
-            aria-hidden={true}
-            style={{
-              height: 1,
-              background: "var(--glass-border)",
-              margin: "4px 6px",
-            }}
-          />
-
-          {/* Trading-mode toggle — Real vs Paper. Switches the WHOLE app's
-              data source (portfolio/holdings/orders/P&L) and routes
-              buys/sells to the isolated paper book when Paper. */}
-          <div
-            style={{
-              padding: "2px 10px 4px",
-              fontSize: 10.5,
-              fontWeight: 600,
-              textTransform: "uppercase",
-              letterSpacing: "0.06em",
-              color: "var(--text-tertiary)",
-            }}
-          >
-            Trading mode
-          </div>
-          <div
-            className="flex items-center justify-center"
-            style={{ padding: "0 10px 8px", gap: 12 }}
-          >
-            <span
-              style={{
-                fontSize: 12.5,
-                fontWeight: 600,
-                letterSpacing: "-0.01em",
-                color:
-                  tradingMode === "real"
-                    ? "var(--text-primary)"
-                    : "var(--text-tertiary)",
-                transition: "color 0.2s var(--ease-quartr)",
-              }}
-            >
-              Real
+          <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "-5px -5px 0", padding: "12px 14px 11px", borderBottom: "1px solid var(--glass-border)" }}>
+            <span style={{ width: 34, height: 34, flex: "none", borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", background: "#089981", color: "#ffffff", fontSize: 14, fontWeight: 600 }}>
+              {initial}
             </span>
+            <span style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+              <span style={{ color: "var(--text-primary)", fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{accountName}</span>
+              {accountEmail && accountEmail !== accountName ? (
+                <span style={{ color: "var(--text-secondary)", fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{accountEmail}</span>
+              ) : null}
+            </span>
+          </div>
+          <div style={{ margin: "0 -5px 5px", padding: "12px 14px", color: "var(--text-secondary)", fontSize: 12, lineHeight: 1.35, borderBottom: "1px solid var(--glass-border)" }}>
+            Layouts, drawings and conversations are saved to this account.
+          </div>
+          <MenuItem icon={BookOpen} label="Paper book" onClick={() => { setOpen(false); router.push("/paper"); }} />
+          <MenuItem icon={Settings} label="Settings" testId="menu-settings-chart-style" onClick={() => { setOpen(false); onOpenSettings(); }} />
+          <MenuItem icon={HelpCircle} label="Help" onClick={() => { setOpen(false); onReportBug(); }} />
+          <div aria-hidden={true} style={{ height: 1, background: "var(--glass-border)", margin: "5px -5px" }} />
+          <div style={{ display: "flex", alignItems: "center", minHeight: 34, padding: "0 10px", gap: 10 }}>
+            <Sun size={14} strokeWidth={2} aria-hidden={true} />
+            <span style={{ flex: 1, color: "var(--text-secondary)", fontSize: 13, fontWeight: 500 }}>Dark mode</span>
             <Switch
-              checked={tradingMode === "paper"}
-              onCheckedChange={(checked) =>
-                onChooseTradingMode(checked ? "paper" : "real")
-              }
-              aria-label="Toggle paper trading mode"
-              data-testid="trading-mode-switch"
-              className="data-[state=checked]:bg-[#d97706]"
+              checked={theme === "dark"}
+              onCheckedChange={(checked) => onChooseTheme(checked ? "dark" : "light")}
+              aria-label="Toggle dark mode"
+              data-testid="theme-dark-toggle"
+              className="data-[state=checked]:bg-[#0d0d0e] dark:data-[state=checked]:bg-[#fbfcfc]"
             />
-            <span
-              style={{
-                fontSize: 12.5,
-                fontWeight: 600,
-                letterSpacing: "-0.01em",
-                color:
-                  tradingMode === "paper"
-                    ? "#d97706"
-                    : "var(--text-tertiary)",
-                transition: "color 0.2s var(--ease-quartr)",
-              }}
-            >
-              Paper
-            </span>
           </div>
+          {!hideShortcuts && (
+            <MenuItem icon={Keyboard} label="Keyboard shortcuts" trailing="Ctrl + /" onClick={() => { setOpen(false); onOpenShortcuts(); }} />
+          )}
+          <div aria-hidden={true} style={{ height: 1, background: "var(--glass-border)", margin: "5px -5px" }} />
+          <MenuItem icon={LogOut} label="Sign out" testId="menu-logout-chart-style" onClick={() => { setOpen(false); onLogout(); }} />
 
-          {/* Divider */}
-          <div
-            aria-hidden={true}
-            style={{
-              height: 1,
-              background: "var(--glass-border)",
-              margin: "4px 6px",
-            }}
-          />
-
-          {/* Theme toggle row — three icon-only buttons in one horizontal row */}
-          <div
-            role="radiogroup"
-            aria-label="Theme"
-            className="flex items-center justify-between"
-            style={{ padding: "6px 8px", gap: 6 }}
-          >
-            <ThemeIconButton
-              active={theme === "dark"}
-              onClick={() => onChooseTheme("dark")}
-              ariaLabel="Dark mode"
-              testId="theme-dark"
-            >
-              <Moon size={14} strokeWidth={2} aria-hidden={true} />
-            </ThemeIconButton>
-            <ThemeIconButton
-              active={theme === "light"}
-              onClick={() => onChooseTheme("light")}
-              ariaLabel="Light mode"
-              testId="theme-light"
-            >
-              <Sun size={14} strokeWidth={2} aria-hidden={true} />
-            </ThemeIconButton>
-            <ThemeIconButton
-              active={theme === "system"}
-              onClick={() => onChooseTheme("system")}
-              ariaLabel="System mode"
-              testId="theme-system"
-            >
-              <Monitor size={14} strokeWidth={2} aria-hidden={true} />
-            </ThemeIconButton>
-          </div>
         </div>
       )}
     </div>
@@ -1765,6 +1605,7 @@ function MenuItem({
   hasExternalArrow = false,
   active = false,
   testId,
+  trailing: trailingContent,
 }: {
   icon?: React.ComponentType<{ size?: number; strokeWidth?: number }>;
   label: string;
@@ -1778,6 +1619,7 @@ function MenuItem({
   hasExternalArrow?: boolean;
   active?: boolean;
   testId?: string;
+  trailing?: React.ReactNode;
 }): React.ReactElement {
   const trailing = hasChevron ? (
     chevronDirection === "side" ? (
@@ -1829,12 +1671,13 @@ function MenuItem({
     >
       {Icon ? <Icon size={14} strokeWidth={2} /> : null}
       <span style={{ flex: 1 }}>{label}</span>
+      {trailingContent ? <span style={{ color: "var(--text-tertiary)", fontSize: 11.5, fontWeight: 400 }}>{trailingContent}</span> : null}
       {trailing}
     </button>
   );
 }
 
-function ThemeIconButton({
+function _ThemeIconButton({
   active,
   onClick,
   ariaLabel,
@@ -1907,10 +1750,10 @@ function MetricStack({
 }): React.ReactElement {
   const positive = (pnl ?? 0) >= 0;
   return (
-    <div className="flex flex-col" style={{ gap: 2, lineHeight: 1.1 }}>
+    <div className="flex flex-col" style={{ gap: 1, lineHeight: 1.05 }}>
       <span
         style={{
-          fontSize: 10.5,
+          fontSize: 9.5,
           color: "var(--metric-label)",
           fontWeight: "var(--weight-medium)" as unknown as number,
           letterSpacing: "0.02em",
@@ -1924,7 +1767,7 @@ function MetricStack({
           style={{
             fontFamily: "var(--font-display)",
             fontWeight: "var(--weight-display)" as unknown as number,
-            fontSize: emphasis ? 16 : 14,
+            fontSize: emphasis ? 13.5 : 12.5,
             letterSpacing: "-0.025em",
             color: positive ? "var(--color-profit)" : "var(--color-loss)",
           }}
@@ -1935,7 +1778,7 @@ function MetricStack({
           {pct !== undefined && (
             <span
               style={{
-                fontSize: 11.5,
+                fontSize: 10,
                 fontFamily: "var(--font-display)",
                 opacity: 0.85,
               }}
@@ -1950,7 +1793,7 @@ function MetricStack({
           style={{
             fontFamily: "var(--font-display)",
             fontWeight: "var(--weight-display)" as unknown as number,
-            fontSize: emphasis ? 16 : 14,
+            fontSize: emphasis ? 13.5 : 12.5,
             color: "var(--text-primary)",
             letterSpacing: "-0.025em",
           }}
@@ -1968,7 +1811,7 @@ function MetricStrip({ metrics }: { metrics: MetricState }): React.ReactElement 
     return (
       <div
         className="hidden items-center lg:flex"
-        style={{ gap: 28 }}
+        style={{ gap: 24 }}
         data-testid="metric-strip-loading"
         aria-label="Loading portfolio metrics"
       >
@@ -1982,7 +1825,7 @@ function MetricStrip({ metrics }: { metrics: MetricState }): React.ReactElement 
   return (
     <div
       className="hidden items-center lg:flex"
-      style={{ gap: 28 }}
+      style={{ gap: 24 }}
       data-testid="metric-strip"
       role="status"
       aria-label="Portfolio metrics"
@@ -2008,58 +1851,32 @@ function MetricStrip({ metrics }: { metrics: MetricState }): React.ReactElement 
 
 function Sidebar({
   active,
-  activeConversationId,
   onTabChange,
-  onNewChat,
-  onSelectConversation,
-  onDeleteConversation,
-  conversations,
   mobileOpen,
   onMobileClose,
   onBrandClick,
+  belowStandInHeader = false,
 }: {
   active: TabKey;
-  /** Id of the conversation currently open in the chat surface (highlighted). */
-  activeConversationId?: string;
   onTabChange: (key: TabKey) => void;
-  onNewChat: () => void;
-  /** Open a persisted conversation in the chat surface. */
-  onSelectConversation: (id: string) => void;
-  /** Delete a conversation (server + list). */
-  onDeleteConversation: (id: string) => void;
-  conversations: ConvEntry[];
   mobileOpen: boolean;
   onMobileClose: () => void;
   /** The full-height sidebar owns the brand (ElevenLabs layout) → back to chat. */
   onBrandClick?: () => void;
+  /** True on a surface that suppresses TopHeader and supplies its own top bar
+   *  from inside an iframe (the chart). The rail then pads itself down by one
+   *  bar so its icons line up with where they sit on every other tab. */
+  belowStandInHeader?: boolean;
 }): React.ReactElement {
+  const pinnedConvs: ConvEntry[] = [];
+  const recentConvs: ConvEntry[] = [];
+  const togglePin = (_id: string): void => undefined;
+  const handleDelete = (_id: string): void => undefined;
+  const activeConversationId: string | undefined = undefined;
+  const onSelectConversation = (_id: string): void => undefined;
   // Pinned conversations — a per-device preference kept in localStorage.
   // Pinned entries float in their own section above Recent; unpinning
   // returns them to the recency-ordered list.
-  const [pinnedIds, setPinnedIds] = useState<string[]>(() => readPinnedIds());
-  const togglePin = (id: string): void => {
-    setPinnedIds((prev) => {
-      const next = prev.includes(id)
-        ? prev.filter((x) => x !== id)
-        : [...prev, id];
-      writePinnedIds(next);
-      return next;
-    });
-  };
-  const pinnedConvs = conversations.filter((c) => pinnedIds.includes(c.id));
-  const recentConvs = conversations.filter((c) => !pinnedIds.includes(c.id));
-
-  const handleDelete = (id: string): void => {
-    // A deleted conversation must not linger in the pin set.
-    setPinnedIds((prev) => {
-      if (!prev.includes(id)) return prev;
-      const next = prev.filter((x) => x !== id);
-      writePinnedIds(next);
-      return next;
-    });
-    onDeleteConversation(id);
-  };
-
   // On lg+ the sidebar sits inline (in the flex row) — same look as before.
   // Below lg it becomes a fixed slide-in drawer driven by `mobileOpen`.
   // We do NOT use `hidden` so the transform transition stays smooth.
@@ -2069,18 +1886,17 @@ function Sidebar({
       aria-label="Primary navigation"
       data-testid="sidebar-nav"
       data-mobile-open={mobileOpen ? "true" : "false"}
+      data-below-standin-header={belowStandInHeader ? "true" : "false"}
       style={{
-        width: 240,
-        background: "var(--bg-secondary)",
-        borderRight: "1px solid var(--glass-border)",
-        padding: "18px 16px 16px",
+        background: "var(--bg-base)",
+        borderRight: "2px solid var(--shell-seam)",
       }}
     >
       {/* Brand row — the full-height sidebar owns the logo (ElevenLabs-style),
           so the top header's brand is hidden at lg+. The mobile-only close
           button sits on the same row (hidden on lg+ via .sidebar-close-mobile). */}
       <div
-        className="flex shrink-0 items-center justify-between"
+        className="flex shrink-0 items-center justify-between lg:hidden"
         style={{ margin: "-2px 0 14px", height: 32 }}
       >
         <button
@@ -2099,7 +1915,7 @@ function Sidebar({
             cursor: "pointer",
           }}
         >
-          <PivotLogo fontSize={23} />
+          <PivotWordmark fontSize={23} />
         </button>
         {/* Mobile-only close button — keeps the drawer escapable for
             screen-reader / keyboard users. Hidden on lg+ via
@@ -2127,12 +1943,11 @@ function Sidebar({
       {/* Nav — text-only, with a 4×4 dot indicator on the active row.
           Mirrors frontend-quartr/.../Sidebar.jsx exactly. */}
       <nav
-        className="flex flex-col"
-        style={{ gap: 2 }}
+        className="sidebar-nav-list flex flex-col"
         aria-label="Primary navigation list"
         data-tour="nav"
       >
-        {NAV_ITEMS.map(({ key, label }) => {
+        {NAV_ITEMS.map(({ key, label, Icon }) => {
           const isActive = active === key;
           return (
             <button
@@ -2140,20 +1955,18 @@ function Sidebar({
               type="button"
               onClick={() => onTabChange(key)}
               aria-current={isActive ? "page" : undefined}
+              aria-label={label}
+              title={label}
               data-testid={`nav-${key}`}
+              className="sidebar-nav-item inline-flex items-center justify-center"
               style={{
                 position: "relative",
-                padding: "9px 16px",
                 background: isActive ? "var(--surface-active)" : "transparent",
                 color: isActive ? "var(--text-primary)" : "var(--text-secondary)",
                 border: "none",
                 borderRadius: "var(--radius-sm)",
                 cursor: "pointer",
                 fontFamily: "var(--font-ui)",
-                fontSize: 13.5,
-                fontWeight: 500,
-                letterSpacing: "-0.005em",
-                textAlign: "left",
                 transition:
                   "color 0.35s var(--ease-quartr), background-color 0.35s var(--ease-quartr)",
               }}
@@ -2170,7 +1983,8 @@ function Sidebar({
                 }
               }}
             >
-              {label}
+              <Icon className="sidebar-nav-icon" aria-hidden={true} />
+              <span className="sidebar-nav-label">{label}</span>
             </button>
           );
         })}
@@ -2178,6 +1992,7 @@ function Sidebar({
 
       {/* Divider */}
       <div
+        className="sidebar-global-history"
         aria-hidden={true}
         style={{
           height: 1,
@@ -2193,14 +2008,14 @@ function Sidebar({
           quartr-no-scrollbar: scroll still works, but the scrollbar track is
           hidden so the list reads as a clean column. */}
       <div
-        className="quartr-no-scrollbar flex-1 overflow-y-auto flex flex-col"
+        className="sidebar-global-history quartr-no-scrollbar flex-1 overflow-y-auto flex flex-col"
         style={{ gap: 14, padding: "0 4px" }}
       >
         <button
           type="button"
-          onClick={onNewChat}
+          onClick={() => undefined}
           aria-label="Start new chat"
-          data-testid="new-chat-btn"
+          data-testid="sidebar-new-chat-btn"
           className="inline-flex items-center"
           style={{
             gap: 10,
@@ -2291,6 +2106,86 @@ function Sidebar({
 // ---------------------------------------------------------------------------
 // Conversation rows — pinnable history entries under Pinned / Recent.
 // ---------------------------------------------------------------------------
+
+function ChatHistoryPane({
+  activeConversationId,
+  conversations,
+  onNewChat,
+  onSelectConversation,
+  onDeleteConversation,
+}: {
+  activeConversationId?: string;
+  conversations: ConvEntry[];
+  onNewChat: () => void;
+  onSelectConversation: (id: string) => void;
+  onDeleteConversation: (id: string) => void;
+}): React.ReactElement {
+  const [pinnedIds, setPinnedIds] = useState<string[]>(() => readPinnedIds());
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const togglePin = (id: string): void => {
+    setPinnedIds((prev) => {
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      writePinnedIds(next);
+      return next;
+    });
+  };
+  const pinnedConvs = conversations.filter((c) => pinnedIds.includes(c.id));
+  const recentConvs = conversations.filter((c) => !pinnedIds.includes(c.id));
+  const handleDelete = (id: string): void => {
+    setPinnedIds((prev) => {
+      const next = prev.filter((x) => x !== id);
+      writePinnedIds(next);
+      return next;
+    });
+    onDeleteConversation(id);
+  };
+
+  return (
+    <aside className="chat-history-pane flex h-full shrink-0 flex-col"
+      data-testid="chat-history-pane" data-open={historyOpen ? "true" : "false"} aria-label="Chat history">
+      <div className="chat-history-toolbar flex shrink-0 items-center">
+        <button type="button" onClick={onNewChat} aria-label="Start new chat" title="New chat"
+          data-testid="new-chat-btn" className="chat-history-action inline-flex items-center justify-center">
+          <Plus size={17} strokeWidth={2} aria-hidden="true" />
+        </button>
+        <button type="button" onClick={() => setHistoryOpen((open) => !open)}
+          aria-label={historyOpen ? "Hide chat history" : "Show chat history"}
+          title={historyOpen ? "Hide history" : "Show history"} aria-expanded={historyOpen}
+          className="chat-history-action inline-flex items-center justify-center">
+          <History size={17} strokeWidth={2} aria-hidden="true" />
+        </button>
+      </div>
+      {historyOpen && (
+        <div className="quartr-no-scrollbar flex flex-1 flex-col overflow-y-auto" style={{ gap: 12, padding: "12px 8px" }}>
+          {pinnedConvs.length > 0 && (
+            <>
+              <div style={convHeaderStyle}>Pinned</div>
+              <div className="flex flex-col" style={{ gap: 2 }}>
+                {pinnedConvs.map((conv) => (
+                  <ConversationRow key={conv.id} conv={conv} pinned active={conv.id === activeConversationId}
+                    onOpen={() => onSelectConversation(conv.id)} onTogglePin={() => togglePin(conv.id)}
+                    onDelete={() => handleDelete(conv.id)} />
+                ))}
+              </div>
+            </>
+          )}
+          <div style={convHeaderStyle}>Recent</div>
+          {recentConvs.length === 0 && pinnedConvs.length === 0 ? (
+            <div style={{ padding: "0 10px", fontSize: 12, color: "var(--text-tertiary)" }}>Start a chat to see history.</div>
+          ) : (
+            <div className="flex flex-col" style={{ gap: 2 }}>
+              {recentConvs.map((conv) => (
+                <ConversationRow key={conv.id} conv={conv} pinned={false} active={conv.id === activeConversationId}
+                  onOpen={() => onSelectConversation(conv.id)} onTogglePin={() => togglePin(conv.id)}
+                  onDelete={() => handleDelete(conv.id)} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </aside>
+  );
+}
 
 const convHeaderStyle: React.CSSProperties = {
   padding: "0 10px",

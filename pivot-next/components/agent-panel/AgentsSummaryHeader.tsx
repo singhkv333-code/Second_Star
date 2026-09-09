@@ -598,7 +598,6 @@ function WinLossBreakdown({
 function PnlHeatmap({
   cells,
   totalPnl,
-  hasData,
   hasSummary,
   isLoading,
 }: {

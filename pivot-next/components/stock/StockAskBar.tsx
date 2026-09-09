@@ -11,8 +11,7 @@
  * opens already attached to the symbol you are reading.
  *
  * "Attached" is literal, not a placeholder string: every turn ships
- * `attachments: [{kind: "security", symbol}]`, which the backend renders into
- * the prompt as tagged context (`_fmt_attachment` in routers/chat.py), so
+ * a security attachment plus a compact company-page context, so
  * "is it expensive?" resolves to this company and the tools are called with
  * this symbol. Nothing about the wire is new — it is the same POST
  * /chat/stream the Chat tab uses, through the same client, which is why an
@@ -54,6 +53,7 @@ type Turn = {
  *  rather than a generic "Working…", because naming the actual tool is the
  *  honest version of a progress line. */
 const TOOL_WORD: Record<string, string> = {
+  get_company_research: "Reading company data",
   get_stock_price: "Reading the live price",
   get_price_history: "Reading price history",
   get_fundamentals: "Reading fundamentals",
@@ -198,7 +198,17 @@ export function StockAskBar({
 
       for await (const ev of streamChat(
         q, history, token, controller.signal, conversationId,
-        null, null, null, [attachment],
+        null, null, null, [attachment], {
+          surface: "company",
+          entity: { kind: "security", symbol: symbol.toUpperCase(), ...(name ? { name } : {}) },
+          available_data: [
+            "profile and ownership", "annual and quarterly financials",
+            "statement grids and derived scores", "analyst consensus", "peer comparison",
+            "annual-report facts", "revenue mix",
+            "shareholding and pledge", "company documents", "flows and deals",
+            "price, news, and measured patterns",
+          ],
+        },
       )) {
         if (ev.type === "tool_start") patch((t) => ({ ...t, tool: ev.name }));
         else if (ev.type === "tool_done") patch((t) => ({ ...t, tool: null }));

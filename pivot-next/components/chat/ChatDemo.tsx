@@ -85,7 +85,6 @@ import {
   type ChatDonePayload,
   type ChatHistoryMessage,
   type ChatMode,
-  type SseEvent,
 } from "@/lib/chatStream";
 
 // ---------------------------------------------------------------------------
