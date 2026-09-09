@@ -42,13 +42,48 @@ export type ScreenerStock = {
   price: number | null;
   /** Day change (%), signed. Same source/nullability as `price`. */
   change_pct: number | null;
+  /** The same move in rupees, from the same quote as `change_pct`. */
+  change_abs: number | null;
+  /** The session, straight off the batch quote — no extra round trip. */
+  day_open: number | null;
+  day_high: number | null;
+  day_low: number | null;
+  prev_close: number | null;
+  /** Shares traded today. An integer count, never a rounded float. */
+  volume: number | null;
   pe: number | null;
   roe: number | null;
+  /** Return on capital employed (%) and debt/equity (x). Both come from the
+   *  same single statement as roe/pe — the backend was already fetching and
+   *  discarding them. */
+  roce: number | null;
+  de: number | null;
   /** 1-year price return (%), signed. Same source/nullability as `price`. */
   one_year_pct: number | null;
   /** No source on this path — always null (kept for contract stability). */
   div_yield: number | null;
+  rsi14?: number | null;
+  atr_pct?: number | null;
+  sma20_rel?: number | null;
+  sma50_rel?: number | null;
+  sma200_rel?: number | null;
+  dist_52w_high?: number | null;
+  dist_52w_low?: number | null;
+  range_20d_pct?: number | null;
+  vol_z20?: number | null;
+  turnover_20d_cr?: number | null;
+  vp20_pos?: number | null;
+  vp20_va_width_pct?: number | null;
+  vp20_poc_dist_pct?: number | null;
+  vp20_poc_shift_pct?: number | null;
   logo_url: string | null;
+};
+
+export type ScreenerFilterClause = {
+  field: string;
+  op: "gt" | "gte" | "lt" | "lte" | "eq" | "between";
+  value: number;
+  value2?: number;
 };
 
 export type ScreenerStocksResponse = {
@@ -111,6 +146,7 @@ export type ScreenerStocksParams = {
   roe_min?: number;
   dy_min?: number;
   ret_min?: number;
+  filters?: string;
   sort_by?: ScreenerSortBy;
   /** Overrides the field's default direction (server nulls always sink). */
   sort_dir?: "asc" | "desc";
@@ -238,6 +274,7 @@ export function getScreenerStocks(
       roe_min: params.roe_min,
       dy_min: params.dy_min,
       ret_min: params.ret_min,
+      filters: params.filters,
       sort_by: params.sort_by,
       sort_dir: params.sort_dir,
       limit: params.limit,
@@ -265,4 +302,29 @@ export function getScreenerSectors(
   signal?: AbortSignal,
 ): Promise<ApiResult<ScreenerSectorsResponse>> {
   return getJson<ScreenerSectorsResponse>("/screener/sectors", undefined, signal);
+}
+
+
+// ── 1-day sparklines ─────────────────────────────────────────────────
+
+export type ScreenerSparklines = {
+  /** `{SYMBOL: [close, ...]}`, oldest first. A symbol the source cannot serve
+   *  is ABSENT, not an empty array — "no data" and "a flat session" are
+   *  different facts and must not render the same. */
+  series: Record<string, number[]>;
+  source: string;
+};
+
+/** Intraday closes for the rows currently on screen. Deliberately a second
+ *  request: the grid must render before these land, and a sort or a filter
+ *  change must not pay for them. Cap is 60 symbols per call, server-side. */
+export function getScreenerSparklines(
+  symbols: string[],
+  signal?: AbortSignal,
+): Promise<ApiResult<ScreenerSparklines>> {
+  return getJson<ScreenerSparklines>(
+    "/screener/sparklines",
+    { symbols: symbols.join(",") },
+    signal,
+  );
 }

@@ -55,6 +55,7 @@ from pathlib import Path
 
 import bars
 import fundamentals as fnd
+import query as qry
 
 HERE = Path(__file__).resolve().parent
 CHARTO = HERE.parent / "charto" / "data"
@@ -281,17 +282,27 @@ _FUNDAMENTAL_TOOLS = [
                                    "row — the reply says which was served.")},
      }, "required": ["symbol"]}},
 
-    {"type": "function", "name": "get_balance_sheet",
+    {"type": "function", "name": "get_statement",
      "description": (
-         "The full balance-sheet grid for one company, every line item as "
-         "filed, with section headers and a multi-year column. Use when the "
-         "question is about balance-sheet STRUCTURE — what the debt is made "
-         "of, where the assets sit, how reserves moved — rather than about a "
-         "ratio get_fundamentals already computes. Balance-sheet coverage is "
-         "thinner than P&L coverage; an empty grid for a real company is a "
-         "real answer."),
+         "One full annual statement grid for one company — every line item as "
+         "filed, section headers intact, a column per year. `statement` picks "
+         "which: balance_sheet for what the debt is made of and where the "
+         "assets sit; cash_flow for operating, investing and financing flows "
+         "and how earnings convert to cash; profit_loss for the expense "
+         "build-up below the ratios; ratios for the grid MC publishes itself. "
+         "Use it when the question is about STRUCTURE rather than about a "
+         "level get_fundamentals already computes, and never query the raw "
+         "statement rows in SQL instead — this path carries the line-item "
+         "synonyms and the basis fallback the DB needs. ANNUAL only; "
+         "quarterly numbers are in the `quarterly` dataset of `query`. "
+         "Coverage is thinner for cash flow and balance sheet than for P&L, "
+         "and an empty grid for a real company is a real answer."),
      "parameters": {"type": "object", "properties": {
          "symbol": {"type": "string"},
+         "statement": {"type": "string",
+                       "enum": ["balance_sheet", "cash_flow", "profit_loss",
+                                "ratios"],
+                       "description": "Default balance_sheet."},
          "basis": {"type": "string", "enum": ["consolidated", "standalone"]},
          "years": {"type": "integer", "description": "Default 6, max 10."},
      }, "required": ["symbol"]}},
@@ -413,6 +424,69 @@ _FUNDAMENTAL_TOOLS = [
                          "description": ("True to bias to the last few weeks. "
                                          "Default false.")},
      }, "required": ["query"]}},
+
+    # One tool, seven stores. The alternative — a tool per table — would put
+    # ~3,000 tokens on every turn to say what this says in ~400, and would
+    # grow again with the next store. The dataset enum is the differentiator:
+    # each is a distinct grain and a distinct join key, which is exactly what
+    # the model has to choose between.
+    {"type": "function", "name": "query",
+     "description": (
+         "Read-only SQL against the stores no other tool covers. You write "
+         "the SELECT — CTEs, window functions, joins and aggregates all "
+         "work — and it comes back as columns and rows.\n"
+         "`dataset` picks the store, and each has its own grain and its own "
+         "join key:\n"
+         "  quarterly — every listed company x quarter: 40 pre-computed "
+         "figures (revenue through eps_ttm, the *_yoy_pct / *_qoq_pct set, "
+         "margins, NPAs) over 335k rows, plus 6.6M raw filed lines and the "
+         "result-announcement dates. THE ONLY quarterly source there is.\n"
+         "  shareholding — promoter percentage, pledge and encumbrance, "
+         "category and holder-level detail, significant beneficial owners; "
+         "quarterly, 36k filings.\n"
+         "  filings — 565k facts extracted from annual reports in twelve "
+         "families: segments, cost_structure, receivables_ageing, "
+         "debt_terms, contingent, workforce, schedule3_ratios, "
+         "related_party, cwip_ageing, audit, strategy, special_metrics.\n"
+         "  segments — Tijori revenue mix and market share as JSON, plus "
+         "business profiles and institutional holding percentages.\n"
+         "  patterns — measured hit rate, control base rate and edge in "
+         "percentage points for each pattern x interval x horizon, across "
+         "the whole population.\n"
+         "  flows — order flow across the market: bulk and block deals, "
+         "delivery percentage, futures open interest, volume-profile "
+         "levels. Stored symbols only.\n"
+         "  identity — symbol to ISIN to sc_id to BSE code, and the "
+         "tradable instrument master.\n"
+         "Omit `sql` to get a dataset's tables and columns; a failed query "
+         "returns them too, so write the query you expect to work and "
+         "correct it from the error rather than looking the schema up "
+         "first. Pass `symbol` and bind :symbol, :sc_id and :isin in the "
+         "SQL instead of typing a ticker into it — these stores key on "
+         "three different identifiers and the wrong one silently returns "
+         "another company or nothing at all. Ask for aggregates rather than "
+         "rows wherever the answer is a number; results are capped and a "
+         "cut-off list is disclosed.\n"
+         "Two boundaries. ANNUAL profit & loss, balance sheet, cash flow "
+         "and ratios are NOT here: get_statement and get_fundamentals serve "
+         "those with the line-item synonyms and basis rules this database "
+         "needs, and raw SQL over the same rows returns numbers that "
+         "disagree with the rest of the product. And `patterns` and `flows` "
+         "are for questions ACROSS the market — one symbol's patterns, "
+         "flows or deals are what evaluate_pattern, get_flows and get_deals "
+         "are for, and they answer better."),
+     "parameters": {"type": "object", "properties": {
+         "dataset": {"type": "string",
+                     "enum": ["quarterly", "shareholding", "filings",
+                              "segments", "patterns", "flows", "identity"]},
+         "sql": {"type": "string",
+                 "description": ("A SELECT. Omit it to see the dataset's "
+                                 "columns.")},
+         "symbol": {"type": "string",
+                    "description": ("NSE symbol or company name. Resolved "
+                                    "once and bound to :symbol, :sc_id and "
+                                    ":isin for the query to use.")},
+     }, "required": ["dataset"]}},
 ]
 
 
@@ -455,11 +529,12 @@ def tool_search_web(query: str = "", recent_only: bool = False) -> dict:
 
 _EXTRA_DISPATCH = {
     "get_fundamentals": fnd.tool_get_fundamentals,
-    "get_balance_sheet": fnd.tool_get_balance_sheet,
+    "get_statement": fnd.tool_get_statement,
     "search_companies": fnd.tool_search_companies,
     "screen_fundamentals": fnd.tool_screen_fundamentals,
     "compare_fundamentals": fnd.tool_compare_fundamentals,
     "search_web": tool_search_web,
+    "query": qry.tool_query,
 }
 
 TOOLS = _charto_tools() + _FUNDAMENTAL_TOOLS

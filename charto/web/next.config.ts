@@ -16,6 +16,10 @@ const BACKEND =
   process.env.NEXT_PUBLIC_PIVOT_API_BASE?.replace(/\/api\/?$/, "") ||
   "http://127.0.0.1:5174";
 
+// The unified chat brain is Pivot even though the rest of this legacy shell's
+// relative APIs still belong to Charto.
+const PIVOT_BACKEND = process.env.PIVOT_BACKEND || "http://127.0.0.1:8000";
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   // The Charto VM also holds the 29 GB mmap-backed market store and the live
@@ -70,6 +74,10 @@ const nextConfig: NextConfig = {
   },
   async rewrites() {
     return [
+      {
+        source: "/pivot-chat/:path*",
+        destination: `${PIVOT_BACKEND}/:path*`,
+      },
       {
         // The Agent System client (lib/api.ts `request()`) targets the
         // `/api` base; when NEXT_PUBLIC_PIVOT_API_BASE isn't inlined it

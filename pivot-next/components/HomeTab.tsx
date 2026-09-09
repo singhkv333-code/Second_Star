@@ -10,11 +10,12 @@
  * check isn't enough — OS scaling, tab/bookmarks bars, etc. all shrink the
  * usable height differently). It gathers the six things a user most often
  * wants on arrival into one scannable board, each cell a doorway into the
- * deeper tab:
+ * deeper tab. (Row 2 held an Opinions teaser beside Strategies until the
+ * opinion-markets surface was retired on 2026-09-05; Strategies now spans it.)
  *
  *   ┌──────── indices (NIFTY / SENSEX / BANK NIFTY / MIDCAP) ────────┐
  *   ├───── Portfolio ─────┬──── Watchlist ────┬──── Chat prompts ────┤
- *   ├──── Prebuilt strategies ────┴──────── Not sure? (Views) ───────┤
+ *   ├─────────────── Prebuilt strategies ────────────────────────────┤
  *   └────────────────────────────────────────────────────────────────┘
  *
  * DESIGN: borders-only cards on the paper surface, radius tokens, theme-aware
@@ -43,7 +44,6 @@ import {
   Repeat,
   Scale,
   Sparkles,
-  Telescope,
   TrendingUp,
   Wallet,
 } from "lucide-react";
@@ -65,27 +65,7 @@ import { useWatchlists, setActiveWatchlist, type Watchlist } from "@/lib/watchli
 import { useCompanyLogos } from "@/hooks/useCompanyLogos";
 import { Panel } from "@/components/ds/surfaces";
 import { CompanyLogo } from "@/components/CompanyLogo";
-import { ViewCard } from "@/components/views/ViewCard";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { ViewSummary } from "@/lib/types";
-import packSummariesRaw from "@/components/views/pack/viewpack01.summaries.json";
-
-// Home's opinion teasers draw from the SAME pack the Opinions (Views) tab
-// renders — pack 01 — so a teaser always resolves to a real opinion when the
-// user clicks through to "Browse opinions". Pack 02 was being merged in here
-// too, surfacing opinions that don't exist on the Views tab (dead-end teasers);
-// dropped so Home only shows the currently-active pack-01 opinions.
-const PACK_SUMMARIES = packSummariesRaw as unknown as ViewSummary[];
-
-/**
- * Only live opinions belong on Home. `coming_soon` teasers (and anything still
- * developing) have no detail record behind them, so opening one from Home would
- * dead-end. `status` can't tell them apart — every packed view carries "open" —
- * so the lifecycle flags are the discriminator.
- */
-const ACTIVE_SUMMARIES = PACK_SUMMARIES.filter(
-  (v) => v.coming_soon !== true && !v.is_developing,
-);
 
 // ---------------------------------------------------------------------------
 // Props
@@ -93,7 +73,7 @@ const ACTIVE_SUMMARIES = PACK_SUMMARIES.filter(
 
 export type HomeTabProps = {
   /** Switch the shell to another top-level tab. */
-  onGoTab: (tab: "chat" | "portfolio" | "screener" | "views" | "agents") => void;
+  onGoTab: (tab: "chat" | "portfolio" | "screener" | "agents") => void;
   /** Drop a prompt into the chat composer and auto-submit it. */
   onSendPrompt: (prompt: string) => void;
   /**
@@ -162,7 +142,7 @@ const TODAY_FMT = new Intl.DateTimeFormat("en-IN", {
 // count) and 1920 monitors, causing overflow and wrong prompt/strategy counts.
 // The rich-vs-compact decision is now made from actual available space: the
 // chat prompts measure their card height (ChatPromptsCard / promptsThatFit),
-// and the Views + strategies compactions key off `@media (max-height)` in
+// and the strategies compaction keys off `@media (max-height)` in
 // globals.css — both scaling-honest, unlike a device guess.
 
 /** Rough NSE session check in IST — Mon–Fri, 09:15–15:30. Presentational only
@@ -484,11 +464,11 @@ export function HomeTab({ onGoTab, onSendPrompt, onOpenAgent, onOpenStrategies }
         </div>
 
         {/* Row 2 */}
-        <div className="lg:col-span-3 lg:col-start-1 lg:row-start-2 min-h-0">
+        {/* Row 2 was a half-width Strategies card beside an Opinions teaser.
+            The opinion-markets surface was retired 2026-09-05, so Strategies
+            takes the full row rather than leaving a hole in the board. */}
+        <div className="lg:col-span-6 lg:col-start-1 lg:row-start-2 min-h-0">
           <StrategiesCard onOpenAgent={onOpenAgent} onOpenStrategies={onOpenStrategies} />
-        </div>
-        <div className="lg:col-span-3 lg:col-start-4 lg:row-start-2 min-h-0">
-          <ViewsCard onGoTab={onGoTab} />
         </div>
       </div>
     </div>
@@ -1746,48 +1726,6 @@ function StrategyCard({
         aria-hidden
       />
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Views card ("Not sure what to trade?")
-// ---------------------------------------------------------------------------
-
-function ViewsCard({
-  onGoTab,
-}: {
-  onGoTab: HomeTabProps["onGoTab"];
-}): React.ReactElement {
-  // Pick 2 opinions at random each visit so the block isn't always the same.
-  // Seed with a stable slice for SSR, then shuffle on mount (client-only) to
-  // avoid a hydration mismatch from Math.random during render.
-  const [picks, setPicks] = useState(() => ACTIVE_SUMMARIES.slice(0, 2));
-  useEffect(() => {
-    setPicks(
-      [...ACTIVE_SUMMARIES].sort(() => Math.random() - 0.5).slice(0, 2),
-    );
-  }, []);
-  return (
-    <CardShell
-      Icon={Telescope}
-      title="Not sure what to trade?"
-      actionLabel="Browse opinions"
-      onAction={() => onGoTab("views")}
-      // Never scroll — every teaser card's full content (question, timeline,
-      // return, Yes/No) must be visible at once. The vh-clamped ViewCard
-      // sizing (see .home-views-grid rules in globals.css) shrinks the cards
-      // to fit whatever height the row-2 cell has.
-      scroll={false}
-    >
-      {/* The real View-Markets ViewCard — question · timeline · honest best-run
-          return · Yes/No stance buttons. Two across, since the Home cell is
-          ~half the board width (the Views tab gives each card a full third). */}
-      <div className="home-views-grid grid grid-cols-1 sm:grid-cols-2" style={{ gap: 12, height: "100%" }}>
-        {picks.map((v) => (
-          <ViewCard key={v.id} view={v} onOpen={() => onGoTab("views")} sans />
-        ))}
-      </div>
-    </CardShell>
   );
 }
 

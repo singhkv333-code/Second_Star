@@ -8,7 +8,11 @@ GET /api/companies/search?q=&limit=
 """
 from __future__ import annotations
 
+import json
+import os
 from typing import Optional
+import urllib.parse
+import urllib.request
 
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel
@@ -41,6 +45,14 @@ class CompanySearchResult(BaseModel):
     # Pulled from the precomputed mc.companies.logo_url column in the same
     # search query (no extra round-trip on the autosuggest hot path).
     logo_url: Optional[str] = None
+    # Search-row market context. All are optional because finding an instrument
+    # must still work when the live quote relay is unavailable.
+    exchange: Optional[str] = None
+    instrument_type: str = "Equity"
+    price: Optional[float] = None
+    change_pct: Optional[float] = None
+    currency: Optional[str] = None
+    quote_source: Optional[str] = None
 
 
 class CompanySearchResponse(BaseModel):
@@ -56,6 +68,84 @@ class CompanyLogosResponse(BaseModel):
 # Cap the batch so a crafted query can't fan out into an unbounded number of
 # logo lookups. A single screener/portfolio table never shows this many rows.
 _MAX_LOGO_SYMBOLS = 200
+_CHARTO_INTERNAL_URL = os.getenv("CHARTO_INTERNAL_URL", "http://127.0.0.1:5174")
+
+
+def _instrument_context(
+    symbol: str, sector: Optional[str], name: Optional[str] = None
+) -> tuple[str, str]:
+    """Return the display type and venue from the canonical search metadata."""
+    label = (sector or "").strip()
+    clean_name = (name or "").upper()
+    if label.startswith("ETF") or " ETF" in f" {clean_name}":
+        return "ETF", "NSE"
+    if label.startswith("Commodity"):
+        return "Commodity", "MCX"
+    if label == "Index":
+        return "Index", "BSE" if symbol == "SENSEX" else "NSE"
+    return "Equity", "NSE"
+
+
+def _search_quote_preview(
+    rows: list[CompanySearchResult],
+) -> dict[str, dict]:
+    """Best-effort batch prices for autosuggest rows.
+
+    Kite remains primary. Charto's stored/live quote plane fills gaps and is
+    explicitly labelled so a delayed relay is never presented as live.
+    Search itself never fails when either source is unavailable.
+    """
+    if not rows:
+        return {}
+    out: dict[str, dict] = {}
+
+    try:
+        from backend.kite.live_quote import get_kite_quotes, kite_session_available
+
+        if kite_session_available():
+            keys = [f"{row.exchange or 'NSE'}:{row.symbol}" for row in rows]
+            quotes = get_kite_quotes(keys)
+            for row, key in zip(rows, keys):
+                quote = quotes.get(key) or {}
+                last = quote.get("last_price")
+                if not last:
+                    continue
+                ohlc = quote.get("ohlc") or {}
+                prev = quote.get("prev_close") or ohlc.get("close")
+                change_pct = None
+                if prev and float(prev) > 0:
+                    change_pct = round(
+                        (float(last) - float(prev)) / float(prev) * 100, 2
+                    )
+                out[row.symbol] = {
+                    "price": round(float(last), 2),
+                    "change_pct": change_pct,
+                    "currency": "INR",
+                    "quote_source": "kite",
+                }
+    except Exception:  # noqa: BLE001 — quote decoration cannot break search
+        pass
+
+    missing = [row.symbol for row in rows if row.symbol not in out]
+    if not missing:
+        return out
+    try:
+        query = urllib.parse.urlencode({"symbols": ",".join(missing)})
+        url = f"{_CHARTO_INTERNAL_URL.rstrip('/')}/quotes?{query}"
+        with urllib.request.urlopen(url, timeout=0.8) as response:  # noqa: S310
+            payload = json.loads(response.read())
+        for quote in payload.get("quotes") or []:
+            symbol = str(quote.get("symbol") or "").upper()
+            if symbol and quote.get("last") is not None:
+                out[symbol] = {
+                    "price": float(quote["last"]),
+                    "change_pct": quote.get("change_pct"),
+                    "currency": quote.get("currency"),
+                    "quote_source": "charto_relay",
+                }
+    except Exception:  # noqa: BLE001 — nulls are the honest fallback
+        pass
+    return out
 
 
 @router.get("/search", response_model=CompanySearchResponse)
@@ -100,6 +190,8 @@ def search_companies(
             sector=h.sector,
             has_fundamentals=h.has_fundamentals,
             logo_url=_logo(h),
+            exchange=_instrument_context(h.symbol, h.sector, h.name)[1],
+            instrument_type=_instrument_context(h.symbol, h.sector, h.name)[0],
         )
         for h in hits
     ]
@@ -108,6 +200,8 @@ def search_companies(
             CompanySearchResult(
                 symbol=i["symbol"], name=i["name"], sector=i["sector"],
                 has_fundamentals=False, logo_url=None,
+                instrument_type=_instrument_context(i["symbol"], i["sector"])[0],
+                exchange=_instrument_context(i["symbol"], i["sector"])[1],
             )
             for i in group
         ]
@@ -119,7 +213,13 @@ def search_companies(
         if row.symbol not in seen:
             seen.add(row.symbol)
             merged.append(row)
-    return CompanySearchResponse(results=merged[:limit])
+    merged = merged[:limit]
+    previews = _search_quote_preview(merged)
+    enriched = [
+        row.model_copy(update=previews.get(row.symbol, {}))
+        for row in merged
+    ]
+    return CompanySearchResponse(results=enriched)
 
 
 @router.get("/logos", response_model=CompanyLogosResponse)

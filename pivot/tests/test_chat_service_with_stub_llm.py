@@ -137,16 +137,18 @@ async def test_plain_text_reply_passes_through(stub_ctx):
 
 
 @pytest.mark.asyncio
-async def test_fast_path_bypasses_llm(stub_ctx):
-    """Greetings/help/thanks must NOT hit the LLM — fast path."""
-    stub = _StubClient(queue=[])  # any LLM call would crash with empty queue
+async def test_greeting_uses_adaptive_reply_policy(stub_ctx):
+    """Greetings use the normal completion, not a canned capability menu."""
+    stub = _StubClient(queue=[
+        LLMResponse(content="How can I help?", finish_reason="stop"),
+    ])
     set_llm_client_for_tests(stub)
     svc = ChatService(store=_StubStore())
     turn = await svc.handle("hi", "u1", stub_ctx, history_override=[])
-    assert "tell me what" in turn.response.lower()
+    assert turn.response == "How can I help?"
     assert turn.tools_called == []
-    assert len(stub.calls) == 0
-    assert turn.latency_breakdown.get("fast_path") is not None
+    assert len(stub.calls) == 1
+    assert "llm_hop_1" in turn.latency_breakdown
 
 
 @pytest.mark.asyncio
@@ -514,14 +516,16 @@ async def test_chat_turn_records_latency_breakdown(stub_ctx):
 
 
 @pytest.mark.asyncio
-async def test_fast_path_records_fast_path_in_breakdown(stub_ctx):
-    """Fast-path turns log under `fast_path` key, never hit `llm_hop_*`."""
-    stub = _StubClient(queue=[])
+async def test_thanks_uses_normal_reply_breakdown(stub_ctx):
+    """Thanks is governed by the same adaptive policy as other prose."""
+    stub = _StubClient(queue=[
+        LLMResponse(content="You're welcome.", finish_reason="stop"),
+    ])
     set_llm_client_for_tests(stub)
     svc = ChatService(store=_StubStore())
     turn = await svc.handle("thanks", "u1", stub_ctx, history_override=[])
-    assert "fast_path" in turn.latency_breakdown
-    assert "llm_hop_1" not in turn.latency_breakdown
+    assert "llm_hop_1" in turn.latency_breakdown
+    assert "fast_path" not in turn.latency_breakdown
 
 
 @pytest.mark.asyncio

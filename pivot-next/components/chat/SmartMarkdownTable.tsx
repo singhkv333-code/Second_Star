@@ -363,19 +363,24 @@ export function SmartMarkdownTable({ node }: { node: unknown }): React.ReactElem
                   style={{
                     ...(isName ? { width: "44%", minWidth: 220 } : {}),
                     ...(stickyStyle(vi) ?? {}),
-                    // Sticky header cells need an OPAQUE fill (muted/60 lets
-                    // scrolled columns bleed through underneath).
-                    ...(vi < stickyCount ? { background: "hsl(var(--muted))" } : {}),
+                    // stickyStyle sets an opaque `background`; the glass classes
+                    // below paint background-color + a gradient image, so clear
+                    // the shorthand or it wins and the cell stays flat grey.
+                    ...(vi < stickyCount ? { background: undefined } : {}),
                   }}
                   className={[
-                    "border-b-2 border-border px-3 py-2",
-                    vi < stickyCount ? "" : "bg-muted/60",
+                    "border-b border-border px-3 py-2.5",
+                    // Liquid glass — see .md-table-head in globals.css.
+                    "md-table-head",
+                    vi < stickyCount ? "md-table-head-sticky" : "",
                     // Ink-black header — the row must read as the table's
                     // anchor, not another data row.
                     "text-[13px] font-semibold text-foreground",
                     vi < plan.visible.length - 1 ? "border-r border-border/50" : "",
                     plan.numeric[i] ? "text-right" : "text-left",
-                    sortable[i] ? "cursor-pointer select-none hover:bg-muted" : "",
+                    sortable[i]
+                      ? "cursor-pointer select-none transition-colors hover:bg-foreground/[0.045]"
+                      : "",
                   ].join(" ")}
                 >
                   <span className="inline-flex items-center gap-1">
@@ -437,7 +442,7 @@ export function SmartMarkdownTable({ node }: { node: unknown }): React.ReactElem
                               logoUrl={logos[ticker] ?? null}
                               name={cell.replace(PAREN_TICKER_RE, "").trim() || ticker}
                               symbol={ticker}
-                              size={22}
+                              size={30}
                             />
                           </span>
                         )}

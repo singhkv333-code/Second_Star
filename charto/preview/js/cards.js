@@ -184,20 +184,43 @@ const Cards = (() => {
    *  strategy says is not showing them their strategy. Steps without a
    *  sentence show the config fields that carry meaning — a place_order's
    *  side and size — and not the ones that are plumbing. */
-  const STEP_NOISE = new Set(["entry", "exchange", "requires_approval",
-                              "target_symbol", "timezone"]);
+  /** A step's config as ONE SENTENCE, or nothing.
+   *
+   *  The old fallback printed the config's own keys — `symbol INFY  side buy
+   *  quantity 15  order_type market  product CNC` — which is a form field
+   *  list, not a description, and it printed whatever was in the value. So a
+   *  sell sized to the position rendered as
+   *
+   *      quantity {{ context.3.holdings.INFY.quantity }}
+   *
+   *  a runtime template address, shown to someone deciding whether to arm a
+   *  strategy with money behind it. That is the engine's plumbing on the
+   *  user's screen, and there is no reading of it that helps them.
+   *
+   *  So the sentence is composed from the fields that carry meaning, and a
+   *  templated size — which is precisely the case that HAS no literal number
+   *  yet — is named for what it does instead. A shape this cannot say is
+   *  rendered as nothing: the step's own label already names it, and silence
+   *  beats leaking the internals of a shape nobody wrote a sentence for. */
+  const TEMPLATED = /\{\{.*\}\}/;
+  function orderSentence(cfg) {
+    const side = String(cfg.side || "").toLowerCase();
+    if (!side) return "";
+    const sym = cfg.symbol || cfg.target_symbol || "";
+    const qty = cfg.quantity;
+    const size = qty == null || qty === "" ? ""
+      : TEMPLATED.test(String(qty)) ? "your whole position in"
+      : `${qty} ${String(qty) === "1" ? "share of" : "shares of"}`;
+    const how = String(cfg.order_type || "").toLowerCase() === "limit"
+      && cfg.limit_price != null ? ` at ${cfg.limit_price}` : " at market";
+    const verb = side === "sell" ? "Sell" : "Buy";
+    return `${verb} ${size ? size + " " : ""}${sym}${how}`.replace(/\s+/g, " ").trim();
+  }
   function draftStep(s, i) {
     const cfg = s.config || {};
     const icon = STEP_ICON[String(s.step_type || "").split(".")[0]] || "info";
-    const detail = s.readback
-      ? `<p class="wf-readback">${esc(s.readback)}</p>`
-      : (() => {
-          const rows = Object.keys(cfg)
-            .filter((k) => !STEP_NOISE.has(k) && cfg[k] != null && cfg[k] !== "")
-            .map((k) => `<span class="wf-kv"><i>${esc(k)}</i>${esc(
-              typeof cfg[k] === "object" ? JSON.stringify(cfg[k]) : cfg[k])}</span>`);
-          return rows.length ? `<div class="wf-cfg">${rows.join("")}</div>` : "";
-        })();
+    const line = s.readback || orderSentence(cfg);
+    const detail = line ? `<p class="wf-readback">${esc(line)}</p>` : "";
     return `<li class="wf-step" style="animation-delay:${i * 45}ms">`
       + `<span class="wf-ico">${Icons.svg(icon, "sm")}</span>`
       + `<div class="wf-body"><b class="wf-label">${esc(stepLabel(s))}</b>`
@@ -276,8 +299,7 @@ const Cards = (() => {
       + (blockers.length
           ? `<p class="wf-note">${esc(blockers[0])}</p>` : "")
       + `<div class="wf-cta">`
-      + `<button type="button" class="wf-primary" data-wf-activate`
-      + ` title="Connect an account to arm agents from this chart">`
+      + `<button type="button" class="wf-primary" data-wf-activate>`
       + `Save &amp; activate</button>`
       + `<div class="wf-ghosts">`
       + (blockers.length ? ""
@@ -837,51 +859,11 @@ const Cards = (() => {
    * rendering as "—" beside five real ones.
    */
 
-  /** A constructed basket. The weights ARE the strategy — which names, how
-   *  much of each — so they lead as bars on one scale rather than a column of
-   *  percentages the reader has to rank themselves. */
-  function strategyBasket(c) {
-    const names = c.constituents || [];
-    const sym = c.constituents?.[0]?.symbol || "";
-    const capital = c.capital_inr;
-    const rows = names.map((n) => ({
-      label: n.symbol, value: Number(n.weight_pct),
-      text: `${n2(sym, n.weight_pct)}%`,
-    }));
-    // The reason a name is in the basket is the engine's own sentence. It sits
-    // under the bar it explains, not in a legend somewhere else.
-    const why = names.filter((n) => n.weight_reason).slice(0, 8).map((n) =>
-      `<div class="wf-kv-row"><b>${esc(n.symbol)}</b>`
-      + `<span>${esc(n.weight_reason)}</span></div>`).join("");
-    const sleeves = (c.sleeves || []).length
-      ? bars((c.sleeves || []).map((s) => ({
-          label: s.name || s.sleeve || s.label || "",
-          value: Number(s.weight_pct ?? s.pct),
-          text: `${n2(sym, s.weight_pct ?? s.pct)}%`,
-        })))
-      : "";
-    const alts = (c.alternatives || []).map((a) =>
-      `<div class="wf-kv-row"><b>${esc(a.title || "")}</b>`
-      + `<span>${esc(a.detail || "")}</span></div>`).join("");
-    const assume = (c.assumptions || []).length
-      ? `<ul class="wf-warn">${c.assumptions.map((a) =>
-          `<li>${esc(a)}</li>`).join("")}</ul>` : "";
-    return `<div class="wf-card">`
-      + `<div class="wf-top"><span class="wf-chip">Basket</span>`
-      + (c.weighting_scheme
-          ? `<span class="wf-state">${esc(String(c.weighting_scheme)
-              .replace(/_/g, " "))}</span>` : "")
-      + `</div>`
-      + `<h3 class="wf-title">${esc(c.title || "Strategy")}</h3>`
-      + (capital != null ? `<p class="wf-desc">${esc(money(sym, capital))} across `
-          + `${names.length} name${names.length === 1 ? "" : "s"}</p>` : "")
-      + section("Weights", "", bars(rows))
-      + section("Sleeves", "", sleeves)
-      + section("Selection", "", why)
-      + section("Alternatives", "", alts)
-      + section("Assumptions", "", assume)
-      + (c.rationale ? `<p class="wf-note">${esc(c.rationale)}</p>` : "");
-  }
+  /* NO BASKET RENDERER. `build_strategy`'s card was removed from the seam
+   * (see `_PIVOT_CARD_KINDS` in dataserver.py): on this surface a constructed
+   * basket is always registered as a plan in the same turn, and the plan card
+   * is the one with the button. Two panels of identical weights, only one of
+   * which could be pressed, is the bug this deletion is. */
 
   /** A data-provenance banner, ABOVE the numbers it qualifies.
    *
@@ -1118,12 +1100,14 @@ const Cards = (() => {
    * draft card — the strategy and its evidence in one object, so nothing has
    * to be scrolled back to. Same here, against `/execution/backtest`.
    *
-   * Save & activate is deliberately inert and says why. Charto keeps its own
-   * users in its own SQLite; Pivot's accounts live in Postgres, and nothing
-   * maps one to the other yet. A button that posted anyway would arm an
-   * agent under somebody else's account, and a button that was hidden would
-   * be a capability the user never learns exists. Disabled with the reason
-   * on it is the only honest third option. */
+   * Save & activate was inert, and the reason on it — that Charto accounts do
+   * not map to Pivot's — stopped being true when the paper book shipped.
+   * `POST /strategies` arms the draft under the CHARTO user, into Charto's own
+   * book, evaluated by Charto's own runtime; Pivot's accounts were never
+   * involved. So the button posts, and the only honest blocker left is not
+   * being signed in — which the button says, once pressed, rather than
+   * pre-emptively greying out a capability the reader would never discover.
+   */
   /* Show on chart.
    *
    * A toggle rather than a one-way "draw": the layer is dense by design, and
@@ -1206,7 +1190,56 @@ const Cards = (() => {
       });
     }
     const activate = box.querySelector("[data-wf-activate]");
-    if (activate) activate.disabled = true;
+    if (activate) {
+      activate.title = "Arm this against the live tick, into your paper book";
+      activate.addEventListener("click", async () => {
+        if (activate.disabled) return;
+        activate.disabled = true;
+        const was = activate.textContent;
+        activate.textContent = "Arming…";
+        let draft = {};
+        try { draft = JSON.parse(box.querySelector("[data-wf]").dataset.draft); }
+        catch (e) { draft = {}; }
+        try {
+          const res = await fetch(`${API}/strategies`, {
+            method: "POST",
+            headers: (window.Auth && Auth.headers)
+              ? Auth.headers({ "Content-Type": "application/json" })
+              : { "Content-Type": "application/json" },
+            body: JSON.stringify({ draft: card.draft || card }),
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            // The server's refusal names the reason — a schedule, a short
+            // entry, no fixed size. That sentence is worth more on the card
+            // than the word "Failed", because every one of them is something
+            // the user can act on.
+            activate.textContent = "Save & activate";
+            activate.disabled = false;
+            const note = document.createElement("p");
+            note.className = "wf-stale";
+            note.setAttribute("role", "status");
+            note.textContent = res.status === 401
+              ? "Sign in to arm a strategy — it is stored against your account."
+              : String((data && data.error) || "Could not arm this draft.");
+            const cta = box.querySelector(".wf-cta");
+            const prev = box.querySelector(".wf-cta ~ .wf-stale");
+            if (prev) prev.remove();
+            if (cta) cta.after(note);
+            return;
+          }
+          activate.textContent = "Armed";
+          const dot = box.querySelector(".wf-dot");
+          if (dot) dot.classList.add("on");
+          const st = box.querySelector(".wf-state");
+          if (st) st.lastChild.textContent = "Armed";
+        } catch (e) {
+          console.warn("[charto] arm failed", e);
+          activate.textContent = was;
+          activate.disabled = false;
+        }
+      });
+    }
 
     const run = box.querySelector("[data-wf-backtest]");
     if (!run) return;
@@ -1329,6 +1362,73 @@ const Cards = (() => {
         + tick + `</span></div>`;
     }).join("");
     return rows ? `<div class="scan-bars">${rows}</div>` : "";
+  }
+
+  /** The comparison shape: one COLUMN per subject, off a shared baseline.
+   *
+   *  This replaced a stack of full-width horizontal bars, and the reason is
+   *  what the reading actually is. A comparison is "which of these is bigger",
+   *  and that question is answered by putting the quantities SIDE BY SIDE
+   *  where one glance crosses all of them. Laid out as rows, each bar got the
+   *  full panel width and the eye had to travel down five of them, holding
+   *  each length in memory to compare it with the next — so five names became
+   *  five separate readings and a scroll. Standing up in one row they are one
+   *  reading, and the panel that took three screens takes a third of one.
+   *
+   *  Built from the same tones and the same tokens as the rows it replaces —
+   *  colour is per SUBJECT and held across every section, the sign is printed
+   *  rather than coloured, and a signed set gets zero down the middle. It is
+   *  CSS, not a chart library: these cards are rendered as HTML strings and
+   *  injected, so anything needing a live node after insertion would need an
+   *  init pass that does not exist here, plus a vendored bundle. Columns are
+   *  two boxes and a percentage. */
+  function colChart(items, opt) {
+    const o = opt || {};
+    const vals = items.filter((x) => Number.isFinite(Number(x.value)));
+    if (!vals.length) return "";
+    const top = vals.reduce((m, x) => Math.max(m, Math.abs(Number(x.value))), 0) || 1;
+    // Not the full track: the tallest column needs headroom for its own
+    // figure, which rides the bar's outer tip and is part of the reading. On
+    // a signed chart that tip can be BELOW zero, so the half-track is held to
+    // 32% — at 41% a -30% bar pushed its label down into the name gutter and
+    // printed "-27.88%" across "HDFCBANK".
+    const span = o.signed ? 32 : 78;
+    /* An all-negative set hangs DOWN from a baseline at the top.
+     *
+     * Maximum drawdown is the case: every value is a fall, so the set holds
+     * one sign and the chart is unsigned — and drawn the ordinary way, a
+     * -34.59% drawdown grew UPWARD as the tallest bar in the group. The
+     * geometry was right and the reading was backwards: the worst fall was
+     * the biggest climb on screen, and the reader has to translate the
+     * picture against itself to get the sense of it. Inverting the axis makes
+     * the picture say what the number says. ATR, all-positive, is untouched. */
+    const inv = !o.signed && vals.every((x) => Number(x.value) <= 0);
+    const cols = vals.map((x) => {
+      const v = Number(x.value);
+      const h = Math.max(2, Math.abs(v) / top * span);
+      const up = v >= 0;
+      // The figure rides the bar's OUTER tip and never crosses it: above a
+      // column that grows up, below one that hangs down.
+      const vpos = o.signed
+        ? (up ? `bottom:${(50 + h).toFixed(1)}%` : `top:${(50 + h).toFixed(1)}%`)
+        : (inv ? `top:${h.toFixed(1)}%` : `bottom:${h.toFixed(1)}%`);
+      const bpos = o.signed
+        ? (up ? `bottom:50%;height:${h.toFixed(1)}%`
+              : `top:50%;height:${h.toFixed(1)}%`)
+        : (inv ? `top:0;height:${h.toFixed(1)}%`
+               : `bottom:0;height:${h.toFixed(1)}%`);
+      // `neg` so the rounding can follow the OUTER tip: a column hanging
+      // below zero is rounded at its bottom, which is the end the eye reads
+      // as its head. Rounding the top of both would put the soft edge at the
+      // baseline on one of them, where the flat side belongs.
+      return `<div class="cc-col">`
+        + `<span class="cc-v" style="${vpos}">${esc(x.text)}</span>`
+        + `<i class="cc-bar${(o.signed ? up : !inv) ? "" : " neg"}`
+        + `${x.tone ? " " + x.tone : ""}" style="${bpos}"></i>`
+        + `<span class="cc-n">${esc(x.label)}</span></div>`;
+    }).join("");
+    return `<div class="cc-plot${o.signed ? " signed" : ""}${inv ? " inv" : ""}">`
+      + `<i class="cc-base"></i>${cols}</div>`;
   }
 
   /** Several bars that belong to one window, under its name. Used where the
@@ -1984,8 +2084,8 @@ const Cards = (() => {
                      text: signed(sym, col.benchmark.ret, "%"), tone: "bench" });
       }
       return group(col.label, col.window || "",
-                   bars(items.filter((x) => x.value != null),
-                        { signed: !!(opt && opt.signed) }));
+                   colChart(items.filter((x) => x.value != null),
+                            { signed: !!(opt && opt.signed) }));
     }).join("");
 
     /* Turnover is the one quantity that is neither signed nor comparable
@@ -2086,13 +2186,163 @@ const Cards = (() => {
              ? (win.from === win.to ? win.from : `${win.from} → ${win.to}`) : "");
   }
 
+  /* ── a registered plan ────────────────────────────────────────────────
+   *
+   * A plan is the one card on this surface that can SPEND, so it is built
+   * around the difference between what has been decided and what has been
+   * done. The legs are the decision; the Activate button is the doing; and
+   * until it is pressed every leg reads "pending" rather than a quantity,
+   * because the share counts are resolved against the mark at press time and
+   * printing a number now would be printing a number that will not be the one
+   * that fills.
+   *
+   * It is a MANIFEST and nothing else: what will be bought, how much of each,
+   * why, and what has happened to it. The rationale paragraph, the assumptions
+   * list, the evidence list and the review line were all here once, and all
+   * four were prose — which put the same five tickers on screen twice, once in
+   * a sentence and again in the rows underneath it, inside a panel whose whole
+   * job is to be the row underneath. The model already says all of it in the
+   * reply, better, because prose is what a reply is for. The card is the part
+   * you press.
+   */
+  /* Symbol, size, what happened. The per-leg `why` is NOT here: it is two to
+   * three lines of the model's prose per name, so an eight-name basket was
+   * a page of argument wearing a table's clothes — and the same argument is
+   * in the reply above, written once, where it reads as writing. A row in a
+   * manifest answers "what and how much", and the answer to "why" that
+   * belongs beside it is the fill price. */
+  function planLegRow(l) {
+    const size = l.quantity != null ? `${l.quantity} sh`
+      : l.weight_pct != null ? `${Number(l.weight_pct).toFixed(1)}%`
+      : l.notional_inr != null ? money(l.symbol, l.notional_inr) : "—";
+    const state = l.state === "filled"
+      ? `filled at ${money(l.symbol, l.fill_price)}`
+      : l.state === "armed" ? "armed — waiting on its condition"
+      : l.state === "rejected" ? (l.detail || "refused")
+      : (l.conditional ? "waits for its condition" : "buys on activate");
+    return `<div class="plan-leg" data-leg-state="${esc(l.state)}">`
+      + `<b>${esc(l.symbol)}</b><span class="plan-size">${esc(size)}</span>`
+      + `<i class="plan-state">${esc(state)}</i></div>`;
+  }
+
+  /* No weights chart. Every leg row already carries its own size beside its
+   * symbol, so a bar list above them was the same eight numbers a second
+   * time, ranked — and ranking is not the question here. A plan is a list of
+   * decisions with a button under it; the sizes are one column of that list,
+   * not a chart of their own. */
+  function plan(c) {
+    const legs = c.legs || [];
+    const done = legs.some((l) => l.state === "filled" || l.state === "armed");
+    const live = c.state === "active";
+    /* Capital and leg count, and nothing else. `horizon` is a free-text field
+     * the model fills, and it arrives as a sentence ("not specified; review
+     * after 6 months") at least as often as it arrives as a phrase — which is
+     * a paragraph wrapped onto two lines of a status chip. It is prose, so it
+     * belongs in the reply with the rest of the prose. */
+    const meta = [
+      c.capital_inr != null ? money(legs[0] && legs[0].symbol, c.capital_inr) : "",
+      `${legs.length} leg${legs.length === 1 ? "" : "s"}`,
+    ].filter(Boolean).join(" · ");
+    // The button's label is the honest description of what pressing it does,
+    // and it differs by plan: a basket buys, a set of conditions arms, a mix
+    // does both. "Activate" alone would hide which.
+    const nCond = legs.filter((l) => l.conditional).length;
+    const cta = nCond === legs.length ? "Arm this plan"
+      : nCond === 0 ? "Buy this plan" : "Activate — buy and arm";
+    return `<div class="wf-card" data-plan="${esc(String(c.id || ""))}">`
+      + `<div class="wf-top"><span class="wf-chip">Plan</span>`
+      + `<span class="wf-state">${esc(meta)}`
+      + `<span class="wf-dot${live ? " on" : ""}" aria-hidden="true"></span>`
+      + `${live ? "Active" : "Registered"}</span></div>`
+      + `<h3 class="wf-title">${esc(c.name || "Plan")}</h3>`
+      + section("Legs", "", legs.map(planLegRow).join(""))
+      + (c.last_error ? `<p class="wf-stale" role="status">`
+          + `${esc(c.last_error)}</p>` : "")
+      + `<div class="wf-cta">`
+      + `<button type="button" class="wf-primary" data-plan-go`
+      + (done || live ? " disabled" : "")
+      + `>${esc(live || done ? "Activated" : cta)}</button>`
+      + `<div class="wf-ghosts"></div></div>`
+      + `<p class="wf-note plan-note">`
+      + (live || done
+          ? "Filled into the simulated paper book. No real order was placed."
+          : "Nothing has been bought. Pressing this fills the simulated paper "
+            + "book at the current mark — no real order is ever placed.")
+      + `</p></div>`;
+  }
+
+  /* The Activate press. One POST, and the card repaints from what came back
+   * rather than from what it hoped — a leg that was refused for want of a
+   * price has to say so on the card that offered it, beside the ones that
+   * filled. Partial success is the normal outcome for a ten-name basket and
+   * it is rendered as such, not as an error banner over a working plan. */
+  function wirePlan(box, card) {
+    const btn = box.querySelector("[data-plan-go]");
+    if (!btn || btn.disabled) return;
+    /* The id is on the CARD, and `box` is the .scan wrapper render() put
+     * around it — so `box.getAttribute("data-plan")` was reading an attribute
+     * that has never been on that element. It returned null, the guard below
+     * disabled the button, and every plan card this build has ever drawn
+     * arrived with a dead Activate. Nothing was refused and nothing errored;
+     * the POST simply never happened, which is why the plans table is full of
+     * `draft` rows with an empty `last_error`. Ask the element that carries
+     * the attribute, the way every other handler in this file does. */
+    const holder = box.querySelector("[data-plan]");
+    const id = holder && holder.getAttribute("data-plan");
+    if (!id) { btn.disabled = true; return; }
+    const label = btn.textContent;
+    btn.addEventListener("click", async () => {
+      if (btn.disabled) return;
+      btn.disabled = true;
+      btn.textContent = "Working…";
+      try {
+        const res = await fetch(`${API}/plans/${encodeURIComponent(id)}/activate`, {
+          method: "POST",
+          headers: (window.Auth && Auth.headers)
+            ? Auth.headers({ "Content-Type": "application/json" })
+            : { "Content-Type": "application/json" },
+          body: "{}",
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          /* The server's refusal is a sentence the user can act on — "sign in
+           * to use plans", "this plan was retired". Printed as the button's
+           * label it was both unreadable and terminal: the control kept the
+           * error as its name and stayed disabled, so a signed-out user could
+           * never press it again after signing in. Same treatment the draft
+           * card already gives a refusal — a note under the CTA, button back. */
+          btn.textContent = label;
+          btn.disabled = false;
+          const note = document.createElement("p");
+          note.className = "wf-stale";
+          note.setAttribute("role", "status");
+          note.textContent = res.status === 401
+            ? "Sign in to activate — a plan fills into your own paper book."
+            : String((data && data.error) || "Could not activate this plan.");
+          const cta = box.querySelector(".wf-cta");
+          const prev = box.querySelector(".wf-cta ~ .wf-stale");
+          if (prev) prev.remove();
+          if (cta) cta.after(note);
+          return;
+        }
+        /* Repaint IN PLACE. `box.replaceWith(rebuilt)` swapped the .scan
+         * wrapper for the bare .wf-card inside it, so an activated plan lost
+         * the panel chrome — and its `data-card` — the moment it succeeded. */
+        box.innerHTML = plan(Object.assign({}, card, data));
+      } catch (e) {
+        console.warn("[charto] plan activate failed", e);
+        btn.disabled = false;
+        btn.textContent = label;
+      }
+    });
+  }
+
   const RENDER = { patterns, trend, indicators, confirmation, timeframes,
                    compare, move, workflow_draft: workflowDraft,
                    strategy_backtest: strategyBacktest,
-                   strategy_basket: strategyBasket,
                    option_strategy: optionStrategy,
                    option_chain: optionChain,
-                   quant_result: quantResult };
+                   quant_result: quantResult, plan };
 
   return {
     /** A card object → an element for the thread, or null when this build has
@@ -2142,6 +2392,7 @@ const Cards = (() => {
         });
       });
       if (box.querySelector("[data-wf]")) wireDraft(box, card);
+      if (box.querySelector("[data-plan]")) wirePlan(box, card);
       // The on-chart control belongs to whichever payload owns the TRADES. A
       // standalone backtest card is its own payload; a draft repainted with a
       // stored result has that read-out nested in its slot, and the payload

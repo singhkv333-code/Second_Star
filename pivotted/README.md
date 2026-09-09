@@ -13,6 +13,7 @@ pivotted/
   server.py        HTTP on :5175 — the tool loop, both SSE dialects
   tools.py         the trimmed tool table + concurrent dispatch
   fundamentals.py  all-company filings, via Pivot's own query layer
+  query.py         one read-only SQL surface over the seven other stores
   prompt.py        the entire behavioural contract (222 tokens)
   run.sh           start/restart on pivot's venv
 ```
@@ -40,7 +41,7 @@ wrong order. Pivotted has no commit surface, so it has no router.
 |---|---:|---:|
 | System prompt | ~20,500 tok | **222 tok** |
 | Pre-LLM routing | 12,593 lines | none |
-| Tool schemas | ~90 tools | 24 / ~8,615 tok |
+| Tool schemas | ~90 tools | 30 / ~13.4k tok |
 | Tool calls per round | sequential | **concurrent** |
 
 Measured turns: 15.6s / 14.5k input for a two-company comparison; 21.6s /
@@ -69,7 +70,8 @@ stops before the trade. The survivors are then stripped of their ink arguments
 which eight of them carried.
 
 **25 tools / ~10,282 tok → 18 / ~7,064** — a 31% cut of the dominant per-turn
-cost. Six fundamentals tools bring it to 24 / ~8,615.
+cost. Six fundamentals tools brought it to 24 / ~8,615; charto's table has
+grown since, and one `query` tool over seven more stores puts it at 30.
 
 ## The coverage split (the one real trap)
 
@@ -85,9 +87,11 @@ rather than a proxy, and the model is told not to substitute an index or a
 peer. This is the single failure no downstream check could catch: a proxy that
 looks right and belongs to another company.
 
-**The filings are annual.** All 18.3M rows are `period_kind='annual'`; there is
-no quarterly statement data at all. A question about last quarter cannot be
-answered from this DB, and the tool description says so.
+**The filings are annual.** All 18.3M rows in `mc.statement_lines` are
+`period_kind='annual'`, so `get_statement` and `get_fundamentals` are annual
+surfaces and say so. Quarterly numbers live in a different store entirely —
+`pivot_db.quarterly_metrics`, reached through `query` — and cover 3,799
+companies rather than 11,256. Three tiers now, not two.
 
 ## Why it runs Pivot's query code
 
@@ -142,10 +146,65 @@ and nothing is committable — which is the whole split.
 Its own dialect is on `POST /chat` (`{messages, stream?}` → `{text, usage,
 tools_used, rounds}`), which is easier to read when debugging.
 
+## The `query` surface
+
+Seven stores had no way in: quarterly results, shareholding and pledge, the
+565k facts extracted from annual reports, segment mix, pattern base rates,
+market-wide order flow, and cross-store identity. They are reached by **one**
+tool, not one per table.
+
+That is a deliberate split, and the line is this: **where a curated derivation
+already exists, keep the tool; where the data is a flat fact table nothing
+derives, give SQL.** Annual P&L, balance sheet, cash flow and ratios stay
+behind `get_statement`/`get_fundamentals`, because `financials_db` encodes
+line-item synonyms, the consolidated→standalone fallback and a recency floor
+that raw SQL over `mc.statement_lines` would silently disagree with — the same
+"one derivation, one set of numbers" rule `sync_financials.py` follows. One
+symbol's flows, deals or pattern history stay behind `get_flows`, `get_deals`
+and `evaluate_pattern` for the same reason; the `flows` and `patterns`
+datasets exist for the cross-section those tools cannot express.
+
+Twelve table tools would have cost ~3,000 tokens on every turn. This costs
+~740 and does not grow when the eighth store lands.
+
+**Nothing inspects the SQL.** No `^SELECT` regex (it rejects every CTE), no
+column allowlist, no WHERE templates. What holds is the database's own
+read-only mode — `SET TRANSACTION READ ONLY` on Postgres, `PRAGMA query_only`
+on a private SQLite handle — plus a 15s statement timeout, 500 rows and a
+140k-char ceiling. Verified: `DELETE` is refused on both engines, CTEs, window
+functions and `::` casts all pass.
+
+**No schema in the context.** Omitting `sql` returns a dataset's columns, and
+so does a failed query — so the model writes the query it expects to work and
+corrects from the error, instead of paying a lookup round-trip before every
+question. The catalog is introspected from the live DB, so a VM-only table
+(`fut_oi`, `delivery`, `mkt.deals`) is simply absent from a laptop's catalog
+rather than advertised and then failing.
+
+**Identity is bound, never typed.** These stores key on three different
+identifiers — NSE symbol in `pivot_db` and charto, Moneycontrol `sc_id` in
+`mc`/`enrich`, ISIN in `shp`. Pass `symbol` and the SQL binds `:symbol`,
+`:sc_id` and `:isin`. The ranking inside `identity()` is not cosmetic: a flat
+`OR` across those columns matched BLS E-Services on `mc_sc_id = 'BEL'` and
+answered a Bharat Electronics question with it, which is the same collision
+`fundamentals._RESOLVE_SQL` documents at length.
+
+Still threads, not asyncio: `run_round` already fans out over a pool, the
+drivers are blocking, and going async would mean abandoning the pooled
+`SessionLocal` factories that `fundamentals.py` exists to reuse. Measured: a
+five-call round including a cash-flow grid, two SQL queries and a catalog
+fetch, 2.0s wall.
+
 ## Next
 
 The capability work we scoped but have not built: valuation percentile vs a
 company's own history (`/api/markets/metric-series` is still a stub returning
-`available: false`), promoter holding and pledge, concall transcripts scored
-against what actually happened, quality-of-earnings flags, and cross-sectional
-percentile ranks. All were deferred deliberately; none are blocked.
+`available: false`), concall transcripts scored against what actually
+happened, quality-of-earnings flags, and cross-sectional percentile ranks.
+All were deferred deliberately; none are blocked.
+
+Known coverage gap, found while wiring this: `quarterly_metrics` holds 3,799
+companies against the 11,256 the annual filings reach, and **Infosys is not
+one of them** — no rows under `INFY`, `sc_id='IT'` or its ISIN, in either
+`quarterly_metrics` or `quarterly_statement_lines`. That is upstream in
+`load_mc_quarterly.py`, not here.

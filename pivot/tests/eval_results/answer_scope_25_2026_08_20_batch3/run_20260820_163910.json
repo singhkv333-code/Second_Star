@@ -1,0 +1,147 @@
+{
+ "ts": "20260820_163910",
+ "elapsed_s": 55.8,
+ "base": "http://localhost:8000",
+ "user_id": 723,
+ "sessions_file": "tests/eval_prompts/answer_scope_25_2026_08_20.json",
+ "only": "one_metric,simple_comparison,brief_news,clarify_minimum,no_visual_request",
+ "n_sessions": 5,
+ "n_turns": 5,
+ "sessions": [
+  {
+   "category": "minimal",
+   "name": "one_metric",
+   "why": "A single financial metric request is a concise read.",
+   "conv": "s_a2178e414c",
+   "turns": [
+    {
+     "i": 0,
+     "say": "What is TCS PE?",
+     "response": "**Tata Consultancy Services Limited (`TCS`) has a P/E ratio of 16.82\u00d7.**\n\n| Metric | Value | Read |\n|---|---:|---|\n| P/E ratio | **16.82\u00d7** | Investors pay \u20b916.82 for every \u20b91 of annual earnings |\n| EPS | \u20b9136.00 | Earnings per share |\n| ROE | 45.88% | Strong reported return on equity |\n| ROCE | 58.65% | Strong capital efficiency |\n\nThe **price-to-earnings (P/E) ratio** compares a company\u2019s share price with its earnings per share. A lower P/E can indicate cheaper valuation, but it may also reflect slower expected growth or higher perceived risk. A higher P/E generally reflects stronger growth expectations.\n\nTCS\u2019s P/E should ideally be compared with other large IT companies and its own historical valuation range before judging whether it is expensive or cheap. A standalone P/E does not provide that context.",
+     "tools_called": [
+      "fetch_fundamentals"
+     ],
+     "render_hint": null,
+     "raw_keys": [
+      "fetch_fundamentals"
+     ],
+     "card_digest": null,
+     "logiccard": null,
+     "latency_wall_ms": 15519,
+     "latency_server_ms": 14868,
+     "input_tokens": 343019,
+     "output_tokens": 1172,
+     "cost_usd": 0.0,
+     "llm_calls": 10
+    }
+   ]
+  },
+  {
+   "category": "minimal",
+   "name": "simple_comparison",
+   "why": "A narrow comparison should use only decisive information.",
+   "conv": "s_09c8043775",
+   "turns": [
+    {
+     "i": 0,
+     "say": "Which has higher PE, TCS or Infosys?",
+     "response": "**TCS has the higher P/E.**\n\n| Company | P/E |\n|---|---:|\n| Tata Consultancy Services (`TCS`) | 16.82 |\n| Infosys (`INFY`) | 15.52 |\n\nTCS trades at a P/E approximately **1.30 points higher** than Infosys.",
+     "tools_called": [
+      "fetch_fundamentals"
+     ],
+     "render_hint": null,
+     "raw_keys": [
+      "fetch_fundamentals"
+     ],
+     "card_digest": null,
+     "logiccard": null,
+     "latency_wall_ms": 14133,
+     "latency_server_ms": 12339,
+     "input_tokens": 304148,
+     "output_tokens": 795,
+     "cost_usd": 0.0,
+     "llm_calls": 9
+    }
+   ]
+  },
+  {
+   "category": "minimal",
+   "name": "brief_news",
+   "why": "Brief must constrain an otherwise broad news answer.",
+   "conv": "s_9c3877f072",
+   "turns": [
+    {
+     "i": 0,
+     "say": "Any Reliance news today? Keep it to 2 bullets.",
+     "response": "**No clearly new Reliance headline is showing for Thursday, August 20, 2026; the latest notable items are:**\n\n- **Rolls-Royce defence-engine partnership:** Reliance and Rolls-Royce plan an Indian aerospace gas-turbine complex for AMCA engines. [RELIANCE INDUSTRIES RIL - The Economic Times](https://economictimes.indiatimes.com/topic/reliance-industries-ril)\n- **NTPC gas-supply litigation:** The Supreme Court reportedly fined Reliance \u20b910 lakh for delaying proceedings; the company later issued a clarification. [Reliance Industries News - The Economic Times](https://economictimes.indiatimes.com/reliance-industries-ltd/stocksupdate/companyid-13215.cms)",
+     "tools_called": [],
+     "render_hint": null,
+     "raw_keys": [],
+     "card_digest": null,
+     "logiccard": null,
+     "latency_wall_ms": 10659,
+     "latency_server_ms": 9956,
+     "input_tokens": 151721,
+     "output_tokens": 394,
+     "cost_usd": 0.0,
+     "llm_calls": 5
+    }
+   ]
+  },
+  {
+   "category": "minimal",
+   "name": "clarify_minimum",
+   "why": "Incomplete order should ask only the missing field.",
+   "conv": "s_66015d2aa6",
+   "turns": [
+    {
+     "i": 0,
+     "say": "Buy Reliance",
+     "response": "How many shares of RELIANCE would you like to buy, or what rupee budget should I use?",
+     "tools_called": [
+      "ASK_USER"
+     ],
+     "render_hint": "ask_user",
+     "raw_keys": [
+      "_render_hint"
+     ],
+     "card_digest": {
+      "hint": "ask_user",
+      "compact": "{\"_render_hint\": \"ask_user\"}"
+     },
+     "logiccard": null,
+     "latency_wall_ms": 5686,
+     "latency_server_ms": 5294,
+     "input_tokens": 49207,
+     "output_tokens": 212,
+     "cost_usd": 0.0,
+     "llm_calls": 3
+    }
+   ]
+  },
+  {
+   "category": "minimal",
+   "name": "no_visual_request",
+   "why": "The user explicitly asks for text only.",
+   "conv": "s_5423e9e406",
+   "turns": [
+    {
+     "i": 0,
+     "say": "Explain SIP in two sentences, text only.",
+     "response": "A SIP (Systematic Investment Plan) is a method of investing a fixed amount at regular intervals, such as weekly or monthly, into an investment. It helps build investing discipline and averages the purchase cost over time, though returns are not guaranteed.",
+     "tools_called": [],
+     "render_hint": null,
+     "raw_keys": [],
+     "card_digest": null,
+     "logiccard": null,
+     "latency_wall_ms": 5546,
+     "latency_server_ms": 4788,
+     "input_tokens": 100560,
+     "output_tokens": 856,
+     "cost_usd": 0.0,
+     "llm_calls": 4
+    }
+   ]
+  }
+ ]
+}

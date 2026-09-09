@@ -25,6 +25,7 @@ from backend.cache import redis_client
 from backend.auth.router import router as auth_router
 from backend.routers.orders import router as orders_router
 from backend.routers.chat import router as chat_router
+from backend.routers.followups import router as followups_router
 from backend.routers.sip import router as sip_router
 from backend.routers.strategy import router as strategy_router
 from backend.routers.products import router as products_router
@@ -61,10 +62,10 @@ from backend.routers.admin_simulate import router as admin_simulate_router
 from backend.routers.backtest_dsl import router as backtest_dsl_router
 from backend.routers.options_admin import router as options_admin_router
 from backend.routers.option_strategies import router as option_strategies_router
-from backend.routers.views import router as views_router
 from backend.routers.feedback import router as feedback_router
 from backend.routers.screener import router as screener_router
 from backend.routers.audio import router as audio_router
+from backend.routers.execution import router as execution_router
 
 # Interactive API docs (Swagger/ReDoc/OpenAPI schema) disclose the full route
 # + schema surface, so disable them in production — dev/beta keep them for
@@ -129,6 +130,7 @@ app.add_middleware(ConditionalGZipMiddleware, minimum_size=1500)
 app.include_router(auth_router)
 app.include_router(orders_router)
 app.include_router(chat_router)
+app.include_router(followups_router)
 app.include_router(sip_router)
 app.include_router(strategy_router)
 app.include_router(products_router)
@@ -176,12 +178,14 @@ app.include_router(options_admin_router)
 # F&O P1: option-strategy registration (bare-mounted like /ipo-applications).
 app.include_router(option_strategies_router)
 # View Markets V2 — flag-gated at the endpoint level (404 when off).
-app.include_router(views_router)
 app.include_router(feedback_router)
 # Screener tab — curated universe + fundamentals + search (read-only).
 app.include_router(screener_router)
 # Voice input — browser MediaRecorder blob → whisper-1 translate/transcribe.
 app.include_router(audio_router)
+# Strategy Builder / execution mode. The surface only validates and compiles
+# drafts; activation remains behind the existing user-confirmed workflow API.
+app.include_router(execution_router)
 
 # ─── Canonical error envelope (docs/API_CONTRACT.md §2) ───────────────
 #
@@ -331,6 +335,17 @@ async def startup():
     from backend.scheduler import init_scheduler
     from backend.utils.time_utils import format_ist, now_ist
 
+    # See config.background_jobs_enabled: on the shared VM these belong to
+    # Charto, and a second scheduler there costs a core the live tick engine
+    # needs. Announced rather than silent, so a box that is missing its jobs
+    # says so in its own log instead of looking healthy and doing nothing.
+    if not getattr(settings, "background_jobs_enabled", True):
+        logger.info(
+            "Background jobs disabled (background_jobs_enabled=false): no "
+            "scheduler, no workflow poll, no cache warmup. Serving HTTP only."
+        )
+        return
+
     try:
         init_scheduler(database_url=settings.database_url)
         # Plug the workflows poll job into the same AsyncIOScheduler.
@@ -340,15 +355,6 @@ async def startup():
         from backend.workflows.scheduler import register_workflow_scheduler
         if scheduler_module.scheduler is not None:
             register_workflow_scheduler(scheduler_module.scheduler)
-            # View Markets lifecycle worker — additive, flag-gated. The
-            # registration helper is a NO-OP unless
-            # `config.view_markets_enabled` (default off), so prod is
-            # unaffected and the job doesn't exist when disabled.
-            from backend.view_markets.lifecycle import (
-                register_view_markets_lifecycle,
-            )
-
-            register_view_markets_lifecycle(scheduler_module.scheduler)
         logger.info(
             f"[{format_ist(now_ist())}] "
             f"Pivot backend started. Scheduler running on IST."
@@ -369,10 +375,16 @@ async def startup():
     # Phase 2: auto-start the Kite ticker if a real access token exists
     # in DB. Wrapped — startup must never fail because the ticker
     # can't reach upstream Kite WS.
-    try:
-        _maybe_autostart_kite_ticker()
-    except Exception as e:
-        logger.info(f"Kite ticker autostart skipped: {e}")
+    if getattr(settings, "kite_ticker_autostart", True):
+        try:
+            _maybe_autostart_kite_ticker()
+        except Exception as e:
+            logger.info(f"Kite ticker autostart skipped: {e}")
+    else:
+        logger.info(
+            "Kite ticker autostart disabled (kite_ticker_autostart=false) — "
+            "another process on this host owns the socket."
+        )
 
 
 def _maybe_autostart_kite_ticker() -> None:

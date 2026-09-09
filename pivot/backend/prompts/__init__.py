@@ -25,10 +25,12 @@ PROMPTS_DIR = Path(__file__).resolve().parent
 def system_prompt() -> str:
     """Legacy chat-role system prompt. New code should use
     `build_system_prompt(role='chat', ...)` which adds the domain primer,
-    intent packs, and user context. Reads the lean `system_core.md`
-    (falls back to the old monolith) so a stray legacy caller still gets
-    the live core rather than the retired system.md."""
-    for name in ("system_core.md", "system.md"):
+    intent packs, and user context. Reads the lean `system_core.md`, so a
+    stray legacy caller still gets the live core. The monolithic `system.md`
+    it used to fall back to was deleted 2026-09-05 — it had not been read
+    since the 2026-07-03 split, because system_core.md is tried first and
+    always exists."""
+    for name in ("system_core.md",):
         p = PROMPTS_DIR / name
         if p.exists():
             return p.read_text(encoding="utf-8")

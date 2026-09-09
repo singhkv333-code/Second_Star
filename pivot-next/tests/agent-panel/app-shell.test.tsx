@@ -132,10 +132,14 @@ describe("AppShell", () => {
   });
 
   it("respects an initial URL hash on mount", async () => {
-    window.history.replaceState(null, "", "#views");
+    // Was "#views" until the opinion-markets tab was retired on 2026-09-05.
+    // Kept pointed at a real tab so the hash-routing guarantee stays covered.
+    window.history.replaceState(null, "", "#screener");
     render(<AppShell />);
     await waitFor(() =>
-      expect(screen.getByTestId("views-tab")).toBeInTheDocument(),
+      expect(screen.getByTestId("nav-screener")).toHaveAttribute(
+        "aria-current", "page",
+      ),
     );
   });
 

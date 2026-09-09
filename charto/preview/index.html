@@ -3,6 +3,14 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<!-- Framed-or-not, decided BEFORE first paint.
+     js/embed.js sets this same class, but it is the LAST script on the page:
+     by the time it ran, the header and rail had already painted at the left
+     edge and would then jump right by the shell rail's width. The test is one
+     comparison against window.parent and needs nothing else loaded, so it
+     belongs here. embed.js still sets it — it owns the seam, and re-adding a
+     class that is present is a no-op. See `.in-shell` in the stylesheet. -->
+<script>try{if(window.parent!==window)document.documentElement.classList.add("in-shell")}catch(e){}</script>
 <title>Pivot</title>
 <!-- The tab icon. There was none, so every tab wore the browser's generic
      globe and the app was unfindable in a row of them — the one place a
@@ -193,11 +201,14 @@
   --border: #242424;
   --border-soft: #1a1a1a;
   --input: #1c1c1d;
-  /* Pivot's single quiet accent thread is the teal, not a blue */
-  --primary: #2bb3d1;
+  /* The chart chrome is monochrome. In dark mode paper becomes the visible
+     equivalent of the light theme's black ink. */
+  --primary: #fbfcfc;
   --primary-foreground: #0d0d0e;
-  --ring: rgba(43, 179, 209, .5);
-  --primary-soft: color-mix(in srgb, #2bb3d1 14%, transparent);
+  --ring: rgba(251, 252, 252, .5);
+  --primary-soft: color-mix(in srgb, #fbfcfc 14%, transparent);
+  --avatar: #089981;
+  --avatar-foreground: #ffffff;
   --chart-bg: #0d0e12;
   --up-soft: rgba(8, 153, 129, .16);
   --down-soft: rgba(242, 54, 69, .16);
@@ -251,10 +262,12 @@
      fields. The hairline already says where the box is. Dark keeps its fill:
      there #1c1c1d against the card is a real, readable lift. */
   --input: #ffffff;
-  --primary: #219ebc;
+  --primary: #0d0d0e;
   --primary-foreground: #ffffff;
-  --ring: rgba(33, 158, 188, .35);
-  --primary-soft: color-mix(in srgb, #219ebc 8%, transparent);
+  --ring: rgba(13, 13, 14, .35);
+  --primary-soft: color-mix(in srgb, #0d0d0e 8%, transparent);
+  --avatar: #089981;
+  --avatar-foreground: #ffffff;
   --chart-bg: #ffffff;
   --up-soft: rgba(8, 153, 129, .12);
   --down-soft: rgba(242, 54, 69, .12);
@@ -1786,16 +1799,13 @@ header > .btn, header > .badge { flex: none; }
 }
 .acct-btn svg.icon { width: 17px; height: 17px; }
 .acct-btn:hover { color: var(--foreground); }
-/* Signed IN the circle is the account's colour, not the chrome's: a teal
-   disc with the initial in the page's own paper. The ring is what the
+/* Signed IN the circle is the account's colour, not the chrome's. The solid
+   disc keeps the identity distinct without introducing a gradient. The ring is what the
    hover moves, because a 30px circle that changes fill reads as a different
    avatar rather than as the same one under the pointer. */
 .acct-btn.in {
-  background: linear-gradient(150deg,
-              color-mix(in srgb, var(--primary) 86%, #ffffff) 0%,
-              var(--primary) 62%,
-              color-mix(in srgb, var(--primary) 74%, #000000) 100%);
-  color: var(--primary-foreground);
+  background: var(--avatar);
+  color: var(--avatar-foreground);
 }
 .acct-btn:hover, .acct-btn.open {
   box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--hover-fill);
@@ -1818,11 +1828,8 @@ header > .btn, header > .badge { flex: none; }
   background: var(--muted); color: var(--muted-foreground);
 }
 .acct-id.in .disc {
-  background: linear-gradient(150deg,
-              color-mix(in srgb, var(--primary) 86%, #ffffff) 0%,
-              var(--primary) 62%,
-              color-mix(in srgb, var(--primary) 74%, #000000) 100%);
-  color: var(--primary-foreground);
+  background: var(--avatar);
+  color: var(--avatar-foreground);
 }
 .acct-id .who { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .acct-id .nm {
@@ -2042,6 +2049,29 @@ header > .btn, header > .badge { flex: none; }
 /* ─── 7 · STAGE ────────────────────────────────────────────────────────── */
 
 .main { display: flex; flex: 1; min-height: 0; }
+
+/* ── framed inside the Pivot shell ────────────────────────────────────────
+   `.in-shell` is set on <html> by js/embed.js when this app is not the top
+   window (and again inline in <head>, before first paint).
+
+   In the shell this header IS the top bar — the shell suppresses its own on
+   the chart route so there is one bar, not two stacked. A top bar has to
+   reach the window's left edge, so the shell lets this frame span the full
+   width and floats its 48px nav rail OVER us instead of beside us. The
+   header therefore stays exactly as it is, full width, and only what sits
+   BELOW it moves out from under the rail.
+
+   The inset is a variable, not a constant, because the rail's width is the
+   shell's fact to know, not ours: the shell posts it (`pivot:railpad`) and
+   embed.js writes it here. The 48px fallback is what the shell uses today,
+   so a dropped message degrades to the right answer rather than to zero. */
+.in-shell .main { margin-left: var(--shell-rail-w, 48px); }
+
+/* The header keeps its full width, but its first control would otherwise sit
+   under the shell's rail. Push the CONTENTS across by the same inset, so the
+   symbol pill starts where the chart's own rail begins — one vertical line
+   down the page, the rail's right edge, with the pill above it. */
+.in-shell body > header { padding-left: calc(var(--shell-rail-w, 48px) + 12px); }
 
 /* The grid wraps the stage; #stage itself is untouched so main.js's
    overlays (readout, provenance card, capture rect) keep their frame. */
@@ -3289,6 +3319,43 @@ body.two-columns .readout .row { display: none; }
             font-size: var(--text-2xs); color: var(--muted-foreground); }
 .wf-dot { width: 6px; height: 6px; border-radius: 999px; background: currentColor;
           opacity: .5; }
+/* An ACTIVE plan's dot is the one place on a card that says money has moved.
+   It reads as live rather than as a state label: full opacity and the up
+   colour, the same pair the book's own gainers use. */
+.wf-dot.on { opacity: 1; background: var(--up); }
+
+/* ── the plan card ──────────────────────────────────────────────────
+   A leg is three facts on two lines: WHICH and HOW BIG on the first, WHY and
+   WHAT IT IS DOING on the second. The size sits beside the ticker rather than
+   in its own column because it is part of naming the leg — "RELIANCE 12%" is
+   one thing, and a weights column would make the reader read across to learn
+   half of it. */
+/* One line per leg: the name, the size, and what happened to it — read left
+   to right, with the states forming a column the eye can run down. The reason
+   used to sit here as two or three lines of prose per name and it is gone;
+   the reply says it once, and a manifest that argues is not a manifest. */
+/* The same grey tile the draft's steps wear, for the same reason: a leg is one
+   unit of a manifest, and a tile says "one thing" where a hairline only says
+   "a boundary". They were briefly hairline rows here, which read as a bare
+   table wedged into a card built out of tiles. What was wrong with the old row
+   was the paragraph of prose inside it, never the container. */
+.plan-leg { display: grid; grid-template-columns: auto auto 1fr;
+            align-items: baseline; gap: 0 10px;
+            padding: 8px 10px; border-radius: 10px; background: var(--muted); }
+.plan-leg + .plan-leg { margin-top: 6px; }
+.plan-leg b { font-weight: var(--weight-medium); }
+.plan-size { font-variant-numeric: tabular-nums; font-weight: var(--weight-normal);
+             color: var(--muted-foreground); }
+/* The state closes the row on the right. Before activation every leg says the
+   same thing, so it is dim; once a leg has actually done something it is not. */
+.plan-state { text-align: right; font-style: normal;
+              font-size: var(--text-2xs); opacity: .7; }
+.plan-leg[data-leg-state="filled"] .plan-state,
+.plan-leg[data-leg-state="armed"] .plan-state { color: var(--up); opacity: 1; }
+.plan-leg[data-leg-state="rejected"] .plan-state { color: var(--down); opacity: 1; }
+/* The line under the button. It is the only disclaimer on the card and it
+   earns its place: this is the one control in the app that spends. */
+.plan-note { text-align: center; margin-top: 8px; }
 .wf-chip-ttl { opacity: .8; }
 .wf-title { margin: 0; font-size: var(--text-h3); line-height: 1.25;
             letter-spacing: -.02em; }
@@ -3837,6 +3904,91 @@ body.two-columns .readout .row { display: none; }
   position: absolute; top: -3px; bottom: -3px; width: 1px;
   background: var(--foreground); opacity: .35;
 }
+
+/* ── the comparison chart: columns, not rows ──────────────────────────────
+   Subjects stand side by side off one baseline, so "which is bigger" is a
+   single glance across the row instead of five lengths held in memory down a
+   list. Fixed height, because a comparison needs one scale and the panel is a
+   fixed width; the tallest column is held to 82% of the track so its own
+   figure has somewhere to sit. */
+.cc-plot {
+  position: relative; display: flex; align-items: flex-end; gap: 6px;
+  height: 124px; margin: 2px 0 0; padding-bottom: 18px;
+}
+.cc-col { position: relative; flex: 1 1 0; min-width: 0; height: 100%; }
+/* One slim width, shared by the bar and the track behind it, so the two are
+   the same object seen full and seen empty. Capped in PIXELS rather than set
+   as a share of the column: at 4 names a percentage bar is a 70px slab, and a
+   slab is a block of colour before it is a quantity. 34px is the width that
+   still reads as a bar — 22px was a stripe, and the rounding that suited a
+   stripe made it a lozenge. Held to 56% below that so a seven-name basket
+   still leaves air between columns. */
+.cc-plot { --cc-w: min(34px, 56%); }
+/* The track. It is what makes a slim bar readable: without the full-height
+   channel behind it a short column is a mark floating over nothing, and the
+   scale it is short AGAINST is invisible. Same token as the horizontal rows'
+   track, because it is the same idea standing up. */
+.cc-col::before {
+  content: ""; position: absolute; top: 0; bottom: 0; left: 50%;
+  width: var(--cc-w); transform: translateX(-50%);
+  background: var(--muted); border-radius: 4px; opacity: .5;
+}
+/* The bar. Same tone classes as the rows, so a symbol keeps its colour across
+   every section of the card. Rounded at the tip and square at the baseline:
+   the round end is the reading end, and a soft edge where the bar meets zero
+   would blur the one line the chart is measured from. */
+.cc-bar {
+  position: absolute; left: 50%; width: var(--cc-w);
+  transform: translateX(-50%); border-radius: 4px 4px 1px 1px;
+  background: var(--muted-foreground); min-height: 3px;
+}
+.cc-bar.neg { border-radius: 1px 1px 4px 4px; }
+.cc-bar.s1 { background: var(--primary); }
+.cc-bar.s2 { background: var(--ann-res); }
+.cc-bar.s3 { background: var(--ann-sup); }
+.cc-bar.s4 { background: color-mix(in srgb, var(--foreground) 55%, transparent); }
+/* The benchmark is context, not a competitor — the quietest column present. */
+.cc-bar.bench { background: var(--faint); }
+.cc-bar.up { background: var(--up); }
+.cc-bar.down { background: var(--down); }
+/* The figure rides its own column, above a positive and below a negative, so
+   it never crosses the bar it belongs to. */
+.cc-v {
+  position: absolute; left: 50%; transform: translate(-50%, 0);
+  margin-bottom: 3px; font-family: var(--font-numeric);
+  font-size: var(--text-2xs); font-variant-numeric: tabular-nums;
+  letter-spacing: -.02em; color: var(--foreground); white-space: nowrap;
+}
+/* Any figure placed from the TOP sits below its bar, so its offset is on the
+   other side. Written against the position rather than the chart's mode: a
+   signed chart's negative column and an inverted chart's every column are the
+   same situation and were two rules until one of them was forgotten. */
+.cc-v[style*="top"] { margin-top: 3px; margin-bottom: 0; }
+/* The name sits under the baseline in every case — including a signed chart,
+   where a label hung off the bottom of a negative column would put two names
+   at two heights and stop reading as an axis. */
+.cc-n {
+  position: absolute; left: 0; right: 0; bottom: -17px; text-align: center;
+  font-size: var(--text-2xs); font-weight: var(--weight-medium);
+  color: var(--muted-foreground); letter-spacing: .01em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* The baseline: the bottom of the track normally, and zero down the middle
+   when the set holds both signs. A hairline in the border colour — findable,
+   and never mistaken for data. */
+.cc-base {
+  position: absolute; left: 0; right: 0; bottom: 18px; height: 1px;
+  background: var(--border);
+}
+/* On a signed chart zero is the midpoint of the PLOT, not of the box: the box
+   carries a 16px gutter for the names, and an absolute `top:50%` is measured
+   against the padding box, so a plain 50% would draw zero eight pixels below
+   where the columns actually pivot. The columns' own 50% is measured against
+   the content box, and this is that same line. */
+.cc-plot.signed .cc-base { bottom: calc(18px + (100% - 18px) / 2); }
+/* An all-negative set hangs from the top, so its baseline is up there with it
+   — the line the falls are measured DOWN from. */
+.cc-plot.inv .cc-base { bottom: auto; top: 0; }
 
 /* Several bars that belong to one window, under its name. The interval is
    what is being compared, so it labels the group and not each bar. */
@@ -4409,9 +4561,9 @@ body.two-columns .readout .row { display: none; }
   top: 46%;
   width: min(720px, calc(100% - 32px));
   transform: translate(-50%, -55%);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: color-mix(in srgb, var(--card) 82%, transparent);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   box-shadow: none;
   padding: 13px 14px 12px;
   margin: 0;
@@ -6087,6 +6239,11 @@ svg.icon.op {
      bottom margin collapses out through the wrapper, which works today and
      stops working the first time the wrapper gains a border */
   #symbolMenu .searchfield, .sym-picker .searchfield { margin-bottom: 5px; }
+  /* Keep the original field treatment, but pin it above the long instrument
+     list so it cannot scroll out of view. */
+  #symbolMenu .searchfield {
+    position: sticky; top: 0; z-index: 2;
+  }
   #symbolMenu input, .sym-picker .pick-search {
     /* body sets user-select:none so chart drags don't select text; an input
        that inherits it takes three clicks before a caret lands */
@@ -6144,21 +6301,27 @@ svg.icon.op {
   #symList .inst-row, .sym-picker .inst-row {
     display: grid; grid-template-columns: minmax(0, 1fr) auto auto;
     align-items: center; gap: 12px;
-    min-height: 58px; padding: 9px 10px; border-radius: 12px;
+    min-height: 58px; padding: 9px 10px; border-radius: 6px;
   }
   .inst-row .ir-lead { display: flex; align-items: center; gap: 11px; min-width: 0; }
+  /* RAW mark, no container. The 4px radius still clipped square coin
+     artwork and `background: var(--card)` still painted a plate behind every
+     transparent PNG. A logo is already a designed mark; a second shape
+     around it competes. Only the 34px box and object-fit survive, because
+     the column has to stay a column. */
   .inst-row .ir-logo {
-    width: 34px; height: 34px; border-radius: 10px; object-fit: contain;
-    background: var(--card); flex: none;
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 9%, transparent);
+    width: 34px; height: 34px; object-fit: contain; flex: none;
+    background: none; border-radius: 0; border: 0; box-shadow: none;
   }
   /* A logo that 404s is HIDDEN, not removed. Removing it collapsed the 34px
      slot and every name on that row jumped left — one dead file and the
      column stopped being a column. */
   .inst-row .ir-logo.ir-dead { visibility: hidden; }
+  /* No logo: the initial alone, holding the same 34px slot so names stay
+     aligned. A grey square is not more honest than a letter. */
   .inst-row .ir-blank {
-    display: grid; place-items: center; background: var(--muted);
-    font-size: 13px; font-weight: var(--weight-semi); color: var(--muted-foreground);
+    display: grid; place-items: center; background: none;
+    font-size: 15px; font-weight: var(--weight-semi); color: var(--faint);
   }
   .inst-row .ir-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
   .inst-row .ir-tick {
@@ -8330,8 +8493,8 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        in CSS below. -->
   <script src="./vendor/liquid-glass.js"></script>
   <script src="./js/store.js?v=16"></script>
-  <script src="./js/theme.js?v=8"></script>
-  <script src="./js/universe.js?v=6"></script>
+  <script src="./js/theme.js?v=10"></script>
+  <script src="./js/universe.js?v=8"></script>
   <script src="./js/icons.js?v=31"></script>
   <!-- after icons.js (every row is drawn with one) and before main.js, which
        builds the chart's three right-click menus out of it -->
@@ -8343,7 +8506,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- after icons.js: the sign-in screen draws the show/hide eye from the
        shared set, and a classic script cannot reach a const declared by one
        that has not run yet -->
-  <script src="./js/auth.js?v=3"></script>
+  <script src="./js/auth.js?v=4"></script>
   <script src="./js/indicators.js?v=34"></script>
   <!-- before both legends: each asks it whether the series runs behind a row
        or a chip, which is what puts the plate there -->
@@ -8365,7 +8528,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/drawings.js?v=34"></script>
   <script src="./js/scene.js?v=48"></script>
   <script src="./js/panes.js?v=20"></script>
-  <script src="./js/main.js?v=144"></script>
+  <script src="./js/main.js?v=145"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=10"></script>
@@ -8374,9 +8537,9 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- before chat.js, which asks it to render the panels a tool prints as the
        reply streams in. It reads Sym (store.js) for the instrument's currency
        and grouping, and nothing else — a renderer with no state of its own -->
-  <script src="./js/cards.js?v=41"></script>
+  <script src="./js/cards.js?v=51"></script>
   <script src="./js/layers-panel.js?v=11"></script>
-  <script src="./js/chat.js?v=166"></script>
+  <script src="./js/chat.js?v=167"></script>
   <script src="./js/journal.js?v=6"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it
@@ -8388,5 +8551,6 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/panels.js?v=13"></script>
   <!-- last: every control it proxies has to exist and be wired first -->
   <script src="./js/mobile.js?v=13"></script>
+  <script src="./js/embed.js?v=3"></script>
 </body>
 </html>

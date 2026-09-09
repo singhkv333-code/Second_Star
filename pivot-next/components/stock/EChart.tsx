@@ -24,12 +24,13 @@
  */
 
 import * as React from "react";
-import { BarChart, LineChart, PieChart, ScatterChart, ThemeRiverChart, TreemapChart } from "echarts/charts";
+import { CustomChart, BarChart, LineChart, PieChart, ScatterChart, ThemeRiverChart, TreemapChart } from "echarts/charts";
 import {
   DatasetComponent,
   GridComponent,
   LegendComponent,
   SingleAxisComponent,
+  MarkAreaComponent,
   MarkLineComponent,
   MarkPointComponent,
   TitleComponent,
@@ -39,7 +40,7 @@ import * as echarts from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
 
 echarts.use([
-  LineChart, BarChart, PieChart, ScatterChart, ThemeRiverChart,
+  CustomChart, LineChart, BarChart, PieChart, ScatterChart, ThemeRiverChart,
   // Registered like every other series here: an unregistered type does not
   // warn, it draws an empty canvas, which is indistinguishable from a chart
   // whose data never arrived.
@@ -48,7 +49,7 @@ echarts.use([
   // themeRiver does not lay out on a cartesian grid — it needs a singleAxis,
   // and without the component registered the series renders nothing at all.
   SingleAxisComponent,
-  DatasetComponent, MarkLineComponent, MarkPointComponent, CanvasRenderer,
+  DatasetComponent, MarkAreaComponent, MarkLineComponent, MarkPointComponent, CanvasRenderer,
 ]);
 
 /** Read a CSS custom property off the document root. ECharts takes concrete

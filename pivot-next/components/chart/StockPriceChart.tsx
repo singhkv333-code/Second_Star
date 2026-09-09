@@ -116,6 +116,7 @@ export function StockPriceChart({
   refitKey,
   valueFormatter,
   normalize = true,
+  showPivotWatermark = false,
 }: {
   /** Primary first. Raw prices — normalisation happens here in compare mode. */
   seriesDefs: PriceSeriesDef[];
@@ -135,6 +136,8 @@ export function StockPriceChart({
    *  comparable across scales). Metrics pass `false` to plot raw values (PE, ₹
    *  crore) on a shared scale. */
   normalize?: boolean;
+  /** Show Pivot's circular mark as a quiet in-plot watermark. */
+  showPivotWatermark?: boolean;
 }): React.ReactElement {
   const dark = useIsDark();
   const t = THEME[dark ? "dark" : "light"];
@@ -256,11 +259,31 @@ export function StockPriceChart({
   );
 
   return (
-    <LightweightChart
-      height={height}
-      refitKey={refitKey}
-      deps={[seriesDefs, volume, compare, showVolume, normalized, dark, intraday, valueFormatter]}
-      options={{
+    <div style={{ position: "relative", width: "100%", height }}>
+      {showPivotWatermark ? (
+        <span
+          aria-label="Pivot"
+          style={{
+            position: "absolute",
+            top: "43%",
+            left: "47%",
+            zIndex: 1,
+            width: 52,
+            height: 52,
+            transform: "translate(-50%, -50%)",
+            pointerEvents: "none",
+            background: "var(--text-primary)",
+            opacity: dark ? 0.07 : 0.045,
+            WebkitMask: 'url("/charto-mark.png") center / contain no-repeat',
+            mask: 'url("/charto-mark.png") center / contain no-repeat',
+          }}
+        />
+      ) : null}
+      <LightweightChart
+        height="100%"
+        refitKey={refitKey}
+        deps={[seriesDefs, volume, compare, showVolume, normalized, dark, intraday, valueFormatter]}
+        options={{
         // NOTE: the wrapper merges these SHALLOWLY over its defaults, so any
         // top-level key set here must be complete (a partial `layout` would
         // silently drop attributionLogo:false / the transparent background).
@@ -308,8 +331,9 @@ export function StockPriceChart({
         // defaults both to false — this override keeps zooming alive, and the
         // pan-bounds clamp in onReady stops zoom-out/pan drifting past data.)
         handleScale: { mouseWheel: true, axisPressedMouseMove: true },
-      }}
-      onReady={onReady}
-    />
+        }}
+        onReady={onReady}
+      />
+    </div>
   );
 }

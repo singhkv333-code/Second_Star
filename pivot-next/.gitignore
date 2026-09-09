@@ -37,3 +37,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# This project's lockfile is pnpm-lock.yaml. An `npm install` here leaves a
+# second, disagreeing lockfile behind; keep it out of the tree rather than
+# resolve two of them.
+package-lock.json

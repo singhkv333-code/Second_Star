@@ -64,7 +64,7 @@ def _live_mark_fn(price_fn: Optional[PriceFn]) -> PriceFn:
             # IST session) and crypto (24/7) DO keep trading — mark ONLY those,
             # detected cheaply (no DB), so their positions don't freeze at the
             # NSE close while their real markets move.
-            from backend.view_markets.security_meta import is_us_or_crypto_fast
+            from backend.market.security_meta import is_us_or_crypto_fast
 
             def _closed_mark(sym: str):
                 try:

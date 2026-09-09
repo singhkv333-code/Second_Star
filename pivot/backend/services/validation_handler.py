@@ -472,6 +472,32 @@ def _clarify_card_payload(mf: MissingField, prompt: str,
 _PAREN_NOISE_RE = _re.compile(r"\s*\([^)]*\)\s*$")
 
 
+# Fields the MODEL writes, never the user.
+#
+# `compute.code` is a Python-subset script the model composes to do arithmetic.
+# When the model emitted `compute` without it, the completeness check treated
+# it as a missing required argument like any other and the template asked a
+# retail investor "Got it. What's the code?" — a question no user of a trading
+# app can answer, and a straight leak of an internal parameter name into the
+# product.
+#
+# The completeness machinery is right that the call is unfillable; it is wrong
+# about who can fill it. For these, the only honest move is to say nothing
+# about the field and ask the user to restate what they wanted, which is a
+# question they CAN answer.
+_MODEL_AUTHORED_FIELDS = frozenset({
+    "code", "steps", "expression", "payload", "params", "arguments",
+    "script", "query", "tree", "config", "spec",
+})
+
+# Bare identifiers that carry no meaning to a reader even after underscores
+# become spaces. If humanising lands on one of these, the generic question is
+# better than the field name.
+_OPAQUE_FIELD_NAMES = frozenset({
+    "id", "type", "kind", "ref", "key", "value", "data", "mode", "target",
+})
+
+
 def _humanize_description(m: MissingField) -> str:
     """Best-effort short, conversational name for a missing field.
 
@@ -496,7 +522,15 @@ def _humanize_description(m: MissingField) -> str:
         # back to the field name.
         if len(desc) <= 60 and "MUST" not in desc and "registry" not in desc:
             return desc
-    return m.field_name.replace("_", " ").lower()
+    # No alias and no usable description. The field NAME is an internal
+    # identifier, and printing it is how "What's the code?" reached a user, so
+    # the caller is told there is nothing sayable rather than handed a token
+    # out of the schema.
+    pretty = m.field_name.replace("_", " ").lower()
+    if (m.field_name in _MODEL_AUTHORED_FIELDS
+            or m.field_name in _OPAQUE_FIELD_NAMES):
+        return ""
+    return pretty
 
 
 def _format_clarification_question(missing: list[MissingField]) -> str:
@@ -507,7 +541,7 @@ def _format_clarification_question(missing: list[MissingField]) -> str:
     into a friendly sentence in microseconds.
 
     Special-cased for the most common shapes:
-      - one missing field          → "Got it — what's the {pretty}?"
+      - one missing field          → "Got it. What's the {pretty}?"
       - two missing fields         → "I need {a} and {b}."
       - three or more              → bulleted list.
       - structural fields (e.g.    → fall back to a generic "could you
@@ -526,8 +560,29 @@ def _format_clarification_question(missing: list[MissingField]) -> str:
     if field_names <= structural and "steps" in field_names:
         return (
             "I couldn't quite map that into a workflow. Could you "
-            "describe it a bit more concretely — what should trigger "
+            "describe it a bit more concretely: what should trigger "
             "the action, and what action should run?"
+        )
+
+    # Every missing field is one the MODEL authors. The user cannot answer,
+    # and naming the field would print an internal parameter at them: this is
+    # the path that asked a retail investor "Got it. What's the code?" when
+    # the model emitted `compute` without its script. Ask the thing they CAN
+    # answer instead, and never mention the field.
+    if field_names <= _MODEL_AUTHORED_FIELDS:
+        return (
+            "I couldn't put that together from what I have. Could you "
+            "restate what you'd like me to work out, and over which "
+            "holdings or symbols?"
+        )
+
+    # Drop fields with no sayable name, then re-decide on what is left. A
+    # question is only worth asking about a field a user can recognise.
+    missing = [m for m in missing if _humanize_description(m)]
+    if not missing:
+        return (
+            "I couldn't put that together from what I have. Could you "
+            "restate what you'd like me to do?"
         )
 
     # Type hints we don't surface — they read as schema-explainer
@@ -541,7 +596,7 @@ def _format_clarification_question(missing: list[MissingField]) -> str:
 
     if len(missing) == 1:
         m = missing[0]
-        return f"Got it — what's the {_humanize_description(m)}?{_hint(m)}"
+        return f"Got it. What's the {_humanize_description(m)}?{_hint(m)}"
 
     if len(missing) == 2:
         a, b = missing[0], missing[1]
@@ -551,10 +606,10 @@ def _format_clarification_question(missing: list[MissingField]) -> str:
         )
 
     bullets = "\n".join(
-        f"  • {_humanize_description(m)}{('  — ' + m.type_hint) if m.type_hint and m.type_hint not in _NOISE_HINTS else ''}"
+        f"  • {_humanize_description(m)}{(', ' + m.type_hint) if m.type_hint and m.type_hint not in _NOISE_HINTS else ''}"
         for m in missing
     )
-    return f"I'm missing a few things — could you share:\n{bullets}"
+    return f"I'm missing a few things. Could you share:\n{bullets}"
 
 
 def _fallback_question(missing: list[MissingField]) -> str:
@@ -890,7 +945,7 @@ async def execute_with_completeness(
         out.success = False
         out.needs_clarification = True
         out.question = (
-            f"How many shares of {sym} should I use? (I won't default to 1 — "
+            f"How many shares of {sym} should I use? (I won't default to 1, "
             "give me a share count or a rupee budget like ₹10,000.)"
         )
         out.data = {}
@@ -1079,9 +1134,9 @@ def _qty_clarification_question(payload: dict) -> str:
     if entry_text or exit_text:
         bullets: list[str] = ["Got the setup:"]
         if entry_text:
-            bullets.append(f"- **Entry** — {entry_text}")
+            bullets.append(f"- Entry: {entry_text}")
         if exit_text:
-            bullets.append(f"- **Exit** — {exit_text}")
+            bullets.append(f"- Exit: {exit_text}")
         lead = "\n".join(bullets) + "\n\n"
     elif readback:
         lead = f"Got the setup:\n- {readback}\n\n"
@@ -1091,12 +1146,12 @@ def _qty_clarification_question(payload: dict) -> str:
     if sym:
         return (
             f"{lead}How many shares of {sym} per fire? "
-            f"(Set a size or give me a rupee budget like ₹10,000 — "
+            f"(Set a size or give me a rupee budget like ₹10,000, "
             f"I won't default to 1.)"
         )
     return (
         f"{lead}How many shares per fire? "
-        f"(Set a size or give me a rupee budget like ₹10,000 — "
+        f"(Set a size or give me a rupee budget like ₹10,000, "
         f"I won't default to 1.)"
     )
 

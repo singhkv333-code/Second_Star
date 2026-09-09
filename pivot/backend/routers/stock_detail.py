@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 import os
 import sqlite3
@@ -210,9 +211,14 @@ def _peer_price_cached(symbol: str) -> dict:
     return block
 
 
-def _auth(authorization: Optional[str]) -> int:
+_INTERNAL_TOOL_AUTH = object()
+
+
+def _auth(authorization: Optional[str] | object) -> int:
     """Same dev-mode fallback as the financials router, so the page works
     without a login in development."""
+    if authorization is _INTERNAL_TOOL_AUTH:
+        return 0
     if not authorization:
         if getattr(settings, "app_env", "development") == "development":
             return 1
@@ -1084,3 +1090,124 @@ def get_patterns(symbol: str, interval: str = Query("1d"),
                 "options": opts, "patterns": rows}
 
     return _cached(f"patterns:{interval}:{horizon}", build)
+
+
+# ── chat access ─────────────────────────────────────────────────────────────
+
+_COMPANY_RESEARCH_SECTIONS = frozenset({
+    "overview", "statements", "scores", "analyst_consensus", "peers",
+    "quarters", "annual_report", "revenue_mix", "ownership", "documents",
+    "shareholding", "flows", "deals", "patterns",
+})
+
+
+def get_company_research_data(
+    symbol: str,
+    sections: list[str],
+    *,
+    basis: str = "consolidated",
+    filing_topics: Optional[list[str]] = None,
+    statement: str = "profit_loss",
+) -> dict:
+    """Use the stock page's own derivations inside the chat tool executor.
+
+    This is intentionally an in-process call: one model tool call can read the
+    related page datasets without an HTTP/self-auth hop, while every number is
+    still produced by the exact code that supplies the visible company page.
+    """
+    sym = (symbol or "").strip().upper()
+    basis = basis if basis in {"consolidated", "standalone"} else "consolidated"
+    statement = statement if statement in {
+        "balance_sheet", "profit_loss", "cash_flow", "ratios",
+    } else "profit_loss"
+    chosen = list(dict.fromkeys(str(s).strip().lower() for s in sections or []))
+    unknown = [s for s in chosen if s not in _COMPANY_RESEARCH_SECTIONS]
+    if not sym:
+        return {"available": False, "error": "symbol is required"}
+    if unknown:
+        return {"available": False, "error": f"unknown sections: {', '.join(unknown)}"}
+    if not chosen:
+        chosen = ["overview"]
+    # One call should be broad, not unbounded. Five sections cover a composed
+    # research question while keeping the returned evidence inside one turn.
+    chosen = chosen[:5]
+
+    def load(section: str) -> dict:
+        auth = _INTERNAL_TOOL_AUTH
+        if section == "overview":
+            from backend.routers import financials
+            return financials.get_financials(sym, authorization=financials._INTERNAL_TOOL_AUTH)
+        if section == "statements":
+            from backend.routers import financials
+            return financials.get_statement(
+                sym, type=statement, basis=basis, years=10,
+                authorization=financials._INTERNAL_TOOL_AUTH,
+            )
+        if section == "scores":
+            from backend.routers import financials
+            return financials.get_scores(
+                sym, basis=basis, authorization=financials._INTERNAL_TOOL_AUTH,
+            )
+        if section == "analyst_consensus":
+            from backend.routers import financials
+            return financials.get_analyst_consensus(
+                sym, authorization=financials._INTERNAL_TOOL_AUTH,
+            )
+        if section == "peers":
+            return get_peers(sym, fields="", limit=6, authorization=auth)
+        if section == "quarters":
+            return get_quarters(sym, basis=basis, limit=12, authorization=auth)
+        if section == "annual_report":
+            report = get_annual_report(sym, authorization=auth)
+            topics = {str(t).strip().lower() for t in (filing_topics or []) if str(t).strip()}
+            if topics:
+                report["tasks"] = [t for t in report.get("tasks", [])
+                                   if str(t.get("task", "")).lower() in topics]
+            # Keep cited facts, but cap a broad request so the answer prompt
+            # cannot be consumed by an entire filing extraction corpus.
+            remaining = 120
+            for task in report.get("tasks", []):
+                if remaining <= 0:
+                    task["groups"] = []
+                    continue
+                for group in task.get("groups", []):
+                    facts = group.get("facts", [])[:remaining]
+                    group["facts"] = facts
+                    remaining -= len(facts)
+                task["groups"] = [g for g in task.get("groups", []) if g.get("facts")]
+            report["tasks"] = [t for t in report.get("tasks", []) if t.get("groups")]
+            report["documents"] = report.get("documents", [])[:8]
+            report["chat_truncated"] = remaining <= 0
+            return report
+        if section == "revenue_mix":
+            return get_mix(sym, authorization=auth)
+        if section == "ownership":
+            return get_ownership(sym, authorization=auth)
+        if section == "documents":
+            return get_documents(sym, doc_type="", limit=30, authorization=auth)
+        if section == "shareholding":
+            return get_shareholding(sym, authorization=auth)
+        if section == "flows":
+            return get_flows(sym, days=180, authorization=auth)
+        if section == "deals":
+            return get_deals(sym, limit=60, authorization=auth)
+        return get_patterns(sym, interval="1d", horizon=20, authorization=auth)
+
+    data: dict[str, Any] = {}
+    errors: dict[str, str] = {}
+    # The databases are independent and every loader owns its connection. A
+    # multi-section question should pay the slowest read, not the sum of them.
+    with ThreadPoolExecutor(max_workers=len(chosen)) as pool:
+        futures = {section: pool.submit(load, section) for section in chosen}
+        for section, future in futures.items():
+            try:
+                data[section] = future.result()
+            except HTTPException as exc:
+                errors[section] = str(exc.detail)
+            except Exception as exc:  # noqa: BLE001 — preserve partial research
+                logger.exception("company chat section %s failed for %s", section, sym)
+                errors[section] = str(exc)[:200]
+    return {
+        "available": bool(data), "symbol": sym, "sections": data,
+        "errors": errors, "source": "same derivations as the Pivot company page",
+    }

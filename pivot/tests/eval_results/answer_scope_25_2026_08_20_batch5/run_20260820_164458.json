@@ -1,0 +1,216 @@
+{
+ "ts": "20260820_164458",
+ "elapsed_s": 45.8,
+ "base": "http://localhost:8000",
+ "user_id": 723,
+ "sessions_file": "tests/eval_prompts/answer_scope_25_2026_08_20.json",
+ "only": "price_alert,scheduled_invest,backtest,option_chain,strategy_explainer",
+ "n_sessions": 5,
+ "n_turns": 5,
+ "sessions": [
+  {
+   "category": "construction",
+   "name": "price_alert",
+   "why": "An alert should create one actionable card with minimal supporting copy.",
+   "conv": "s_dfec161d8f",
+   "turns": [
+    {
+     "i": 0,
+     "say": "Alert me when TCS crosses 4000",
+     "response": "Price alerts aren't available yet \u2014 Pivot doesn't send alerts, pings, or \u201ctell me when\u201d notifications right now, so I can't watch that level for you. No order or workflow was created. If you'd want to *act* at that level instead, I can register a broker-held order (GTT) there \u2014 just say so and the quantity.",
+     "tools_called": [],
+     "render_hint": null,
+     "raw_keys": [],
+     "card_digest": null,
+     "logiccard": null,
+     "latency_wall_ms": 527,
+     "latency_server_ms": 102,
+     "input_tokens": 0,
+     "output_tokens": 0,
+     "cost_usd": 0.0,
+     "llm_calls": 0
+    }
+   ]
+  },
+  {
+   "category": "construction",
+   "name": "scheduled_invest",
+   "why": "Scheduled purchase needs a draft/card, not an essay.",
+   "conv": "s_83851c40c0",
+   "turns": [
+    {
+     "i": 0,
+     "say": "Every Friday buy 2 NIFTYBEES",
+     "response": "Here's a draft for **Friday NIFTYBEES buy** \u2014 it buys 2 NIFTYBEES at market every Friday at 09:15 IST. Review the steps below and click Activate when you're happy with it.",
+     "tools_called": [
+      "propose_workflow"
+     ],
+     "render_hint": "workflow_draft_card",
+     "raw_keys": [
+      "_render_hint",
+      "description",
+      "name",
+      "propose_workflow",
+      "rationale",
+      "steps",
+      "warnings"
+     ],
+     "card_digest": {
+      "steps": [
+       {
+        "type": "trigger.schedule",
+        "params": "{\"cron\": \"15 9 * * 5\", \"timezone\": \"Asia/Kolkata\"}"
+       },
+       {
+        "type": "action.place_order",
+        "params": "{\"symbol\": \"NIFTYBEES\", \"side\": \"buy\", \"quantity\": 2, \"order_type\": \"market\", \"requires_approval\": false}"
+       }
+      ],
+      "compact": "{\"propose_workflow\": {\"name\": \"Friday NIFTYBEES buy\", \"description\": \"Buy 2 NIFTYBEES every Friday at 09:15 IST.\", \"steps\": [{\"step_type\": \"trigger.schedule\", \"label\": \"Every Friday at 09:15\", \"config\": {\"cron\": \"15 9 * * 5\", \"timezone\": \"Asia/Kolkata\"}}, {\"step_type\": \"action.place_order\", \"label\": \"Buy 2 NIFTYBEES\", \"config\": {\"symbol\": \"NIFTYBEES\", \"side\": \"buy\", \"quantity\": 2, \"order_type\": \"market\", \"requires_approval\": false}}], \"rationale\": \"Single schedule trigger (15 9 * * 5, IST) followed by a market buy for SIP-style execution.\", \"warnings\": [], \"_render_hint\": \"workflow_draft_card\"}, \"name\": \"Friday NIFTYBEES buy\", \"description\": \"Buy 2 NIFTYBEES every Friday at 09:15 IST.\", \"steps\": [{\"step_type\": \"trigger.schedule\", \"label\": \"Every Friday at 09:15\", \"config\": {\"cron\": \"15 9 * * 5\", \"timezone\": \"Asia/Kolkata\"}}, {\"step_type\": \"action.place_order\", \"label\": \"Buy 2 NIFTYBEES\", \"config\": {\"symbol\": \"NIFTYBEES\", \"side\": \"buy\", \"quantity\": 2, \"order_type\": \"market\", \"requires_approval\": false}}], \"rationale\": \"Single schedule trigger (15 9 * * 5, IST) followed by a market buy for SIP-style execution.\", \"warnings\": [], \"_render_hint\": \"workflow_draft_card\"}"
+     },
+     "logiccard": null,
+     "latency_wall_ms": 746,
+     "latency_server_ms": 333,
+     "input_tokens": 0,
+     "output_tokens": 0,
+     "cost_usd": 0.0,
+     "llm_calls": 0
+    }
+   ]
+  },
+  {
+   "category": "construction",
+   "name": "backtest",
+   "why": "Backtest deserves results visual(s), but prose should interpret rather than duplicate them.",
+   "conv": "s_da08a41de9",
+   "turns": [
+    {
+     "i": 0,
+     "say": "Backtest buying TCS when RSI goes below 30 over 3 years",
+     "response": "**Verdict \u2014 No demonstrable edge.** Confidence the Sharpe is genuinely positive (PSR) is only 8% \u2014 indistinguishable from no skill after costs.\n\n| Metric | Value |\n| --- | --- |\n| Strategy return | -38.2% (CAGR -14.8%/yr) |\n| Return on capital deployed | -38.2% |\n| Capital deployed | 100% of the window |\n| Buy & hold | -32.9% |\n| Trades | 27 on TCS over ~3.0y |\n| Sharpe | -0.82 |\n| PSR | 8% |\n| Monte-Carlo 5%-worst drawdown | -65% |\n| P(end in loss) | 95% |\n\nThe position is still OPEN \u2014 the return is the mark-to-market of the held position at the window end (unrealized), not a closed round-trip.\n\n\u26a0 Fragile: 66% of the return came from a single sub-period.\n\n_Method: results are after costs (~32 bps round-trip incl. ~5 bps slippage, STT, exchange, GST, stamp), on daily-bar OHLCV (Kite primary, yfinance fallback; split-adjusted, dividends not reinvested). Window 2023-08-21 \u2192 2026-08-19 \u00b7 743 daily bars (partial-day bar excluded)._",
+     "tools_called": [
+      "backtest_workflow"
+     ],
+     "render_hint": "indicator_backtest_chart",
+     "raw_keys": [
+      "_render_hint",
+      "backtest_workflow",
+      "bar_interval",
+      "bench_buy_hold_return_pct",
+      "benchmark_label",
+      "display_subtitle",
+      "display_title",
+      "equity_curve",
+      "indicator",
+      "indicator_curve",
+      "indicator_period",
+      "methodology",
+      "metrics",
+      "n_bars",
+      "operator",
+      "period_label",
+      "price_curve",
+      "signals",
+      "strategy_kind",
+      "summary_text"
+     ],
+     "card_digest": {
+      "hint": "indicator_backtest_chart",
+      "compact": "{\"backtest_workflow\": {\"_render_hint\": \"indicator_backtest_chart\", \"symbol\": \"TCS\", \"indicator\": \"rsi\", \"indicator_period\": 14, \"operator\": \"<\", \"threshold\": 30.0, \"period_label\": \"3y\", \"price_curve\": [{\"t\": \"2023-08-21\", \"v\": 3401.64990234375}, {\"t\": \"2023-08-22\", \"v\": 3382.14990234375}, {\"t\": \"2023-08-23\", \"v\": 3398.25}, {\"t\": \"2023-08-24\", \"v\": 3387.75}, {\"t\": \"2023-08-25\", \"v\": 3381.300048828125}, {\"t\": \"2023-08-28\", \"v\": 3375.550048828125}, {\"t\": \"2023-08-29\", \"v\": 3376.14990234375}, {\"t\": \"2023-08-30\", \"v\": 3390.949951171875}, {\"t\": \"2023-08-31\", \"v\": 3356.800048828125}, {\"t\": \"2023-09-01\", \"v\": 3379.199951171875}, {\"t\": \"2023-09-04\", \"v\": 3418.5}, {\"t\": \"2023-09-05\", \"v\": 3429.35009765625}, {\"t\": \"2023-09-06\", \"v\": 3429.89990234375}, {\"t\": \"2023-09-07\", \"v\": 3455.25}, {\"t\": \"2023-09-08\", \"v\": 3441.89990234375}, {\"t\": \"2023-09-11\", \"v\": 3480.64990234375}, {\"t\": \"2023-09-12\", \"v\": 3580.800048828125}, {\"t\": \"2023-09-13\", \"v\": 3567.85009765625}, {\"t\": \"2023-09-14\", \"v\": 3560.050048828125}, {\"t\": \"2023-09-15\", \"v\": 3598.300048828125}, {\"t\": \"2023-09-18\", \"v\": 3606.14990234375}, {\"t\": \"2023-09-20\", \"v\": 3606.050048828125}, {\"t\": \"2023-09-21\", \"v\": 3585.300048828125}, {\"t\": \"2023-09-22\", \"v\": 3603.64990234375}, {\"t\": \"2023-09-25\", \"v\": 3577.14990234375}, {\"t\": \"2023-09-26\", \"v\": 3585.699951171875}, {\"t\": \"2023-09-27\", \"v\": 3589.300048828125}, {\"t\": \"2023-09-28\", \"v\": 3536.75}, {\"t\": \"2023-09-29\", \"v\": 3528.60009765625}, {\"t\": \"2023-10-03\", \"v\": 3513.85009765625}, {\"t\": \"2023-\u2026"
+     },
+     "logiccard": null,
+     "latency_wall_ms": 10570,
+     "latency_server_ms": 10084,
+     "input_tokens": 53381,
+     "output_tokens": 343,
+     "cost_usd": 0.0,
+     "llm_calls": 3
+    }
+   ]
+  },
+  {
+   "category": "options",
+   "name": "option_chain",
+   "why": "Chain request warrants a focused data card and concise interpretation.",
+   "conv": "s_cf9c47d7f6",
+   "turns": [
+    {
+     "i": 0,
+     "say": "Show NIFTY option chain",
+     "response": "**Option data is mock/not live** because no active Kite session; strikes, premiums, and spot may differ materially from the real market.\n\nNIFTY\u2019s mock chain shows max pain at **23,500**, with PCR OI **1.00** and PCR volume **1.00**, indicating a broadly balanced setup. Expected move: **23,151\u201323,808** (\u00b1328 points, **1.4%**).\n\n| Strike | Call OI | Put OI | Read |\n|---:|---:|---:|---|\n| 23,000 | 50,19,828 | 50,19,828 | OI zone |\n| 23,500 | 59,58,000 | 59,58,000 | Max pain / ATM |\n| 24,000 | 49,35,829 | 49,35,829 | OI zone |\n\nResistance and support both appear concentrated around **23,500** in this mock snapshot. Max pain and PCR are weak pinning signals, especially away from expiry.\n\n| Metric | Value |\n| --- | --- |\n| Underlying | NIFTY |\n| Spot/forward | \u20b923,456 |\n| ATM strike | \u20b923,500 |\n| Max pain | \u20b923,500 |\n| PCR (OI) | 1.0 |\n| PCR (volume) | 1.0 |\n| Expected move (1\u03c3) | \u20b923,151 \u2013 \u20b923,808 (\u00b11.4%) |\n\n| Side | Strike | Open interest |\n| --- | --- | --- |\n| Call (resistance) | \u20b923,500 | 5,958,000 |\n| Call (resistance) | \u20b923,000 | 5,019,828 |\n| Call (resistance) | \u20b924,000 | 4,935,829 |\n| Put (support) | \u20b923,500 | 5,958,000 |\n| Put (support) | \u20b923,000 | 5,019,828 |\n| Put (support) | \u20b924,000 | 4,935,829 |\n\nSource: mock; as of 2026-08-20T16:45:19+05:30.",
+     "tools_called": [
+      "get_option_chain"
+     ],
+     "render_hint": "option_chain_card",
+     "raw_keys": [
+      "_render_hint",
+      "asof",
+      "atm_strike",
+      "data_status",
+      "disclosure",
+      "exchange",
+      "expected_move",
+      "expiries",
+      "expiry",
+      "forward",
+      "forward_source",
+      "get_option_chain",
+      "lot_size",
+      "max_pain",
+      "pcr_oi",
+      "pcr_volume",
+      "research_only",
+      "rows",
+      "segment",
+      "source"
+     ],
+     "card_digest": {
+      "underlying": "NIFTY",
+      "expiry": "2026-08-25",
+      "rows": 17,
+      "atm": 23500.0,
+      "forward": 23479.46,
+      "expected_move": {
+       "low": 23151.41,
+       "high": 23807.5,
+       "abs": 328.04,
+       "pct": 1.4
+      },
+      "research_only": false
+     },
+     "logiccard": null,
+     "latency_wall_ms": 20911,
+     "latency_server_ms": 20429,
+     "input_tokens": 91053,
+     "output_tokens": 557,
+     "cost_usd": 0.0,
+     "llm_calls": 3
+    }
+   ]
+  },
+  {
+   "category": "options",
+   "name": "strategy_explainer",
+   "why": "Trade-off explanation needs depth but should avoid duplicate charts/cards.",
+   "conv": "s_95b5276ecf",
+   "turns": [
+    {
+     "i": 0,
+     "say": "What is a bull call spread?",
+     "response": "## Bull Call Spread\n\nA **bull call spread** is a defined-risk options strategy used when you expect the underlying asset to rise moderately.\n\nIt involves:\n\n1. **Buying one call option** at a lower strike price.\n2. **Selling one call option** at a higher strike price.\n3. Using the **same expiry** and typically the same quantity.\n\nThe premium received from the sold call reduces the cost of the purchased call.\n\n## Illustrative Example\n\nSuppose an index is trading near \u20b923,000:\n\n- Buy the \u20b923,000 call for \u20b9180\n- Sell the \u20b923,300 call for \u20b970\n- Net debit: \u20b9110 per unit\n\nIf the lot size were 50, the initial cost would be:\n\n**\u20b9110 \u00d7 50 = \u20b95,500**\n\n### Payoff at Expiry\n\n| Index at Expiry | Result |\n|---|---:|\n| At or below \u20b923,000 | Maximum loss: \u20b95,500 |\n| Around \u20b923,110 | Breakeven |\n| At or above \u20b923,300 | Maximum profit: \u20b99,500 |\n\nThe calculation is:\n\n- **Maximum loss:** Net debit paid = \u20b9110 \u00d7 50 = \u20b95,500\n- **Maximum profit:** Strike difference minus net debit = (\u20b9300 \u2212 \u20b9110) \u00d7 50 = \u20b99,500\n- **Breakeven:** Lower strike + net debit = \u20b923,000 + \u20b9110 = \u20b923,110\n\n## When It Works Best\n\nA bull call spread benefits when the underlying rises toward or above the higher strike before expiry. It is generally more suitable for a **moderately bullish** view than for expecting an unlimited rally.\n\n## Main Trade-Off\n\nThe strategy has:\n\n- **Defined maximum loss**\n- **Defined maximum profit**\n- Lower upfront cost than buying the lower-strike call outright\n- Capped upside because the sold call limits gains above the higher strike\n\nCompared with buying a naked call, the spread usually reduces the effect of time decay and the upfront premium, but it also limits the potential reward. Both options should have the same expiry and underlying, and the maximum loss is still the full net debit paid.",
+     "tools_called": [],
+     "render_hint": null,
+     "raw_keys": [],
+     "card_digest": null,
+     "logiccard": null,
+     "latency_wall_ms": 10094,
+     "latency_server_ms": 9705,
+     "input_tokens": 45468,
+     "output_tokens": 665,
+     "cost_usd": 0.0,
+     "llm_calls": 2
+    }
+   ]
+  }
+ ]
+}

@@ -1,5 +1,10 @@
 """Build the markdown benchmark report from raw_results.json.
 
+The 14,531-line output was deleted from the repo on 2026-09-05 — it is a
+generated artifact, and `raw_results.json` plus this script reproduce it
+exactly. Run this file to get it back. `OVERVIEW_AND_JUDGMENT.md` beside
+it is the hand-written summary and is the one worth reading.
+
 Produces MODEL_BENCHMARK_2026-06-21.md:
   - methodology + pricing caveat
   - aggregate latency/token/cost tables (by model, by model x level, by level)

@@ -1,0 +1,28 @@
+.segment-mix { min-width:0; }
+.mix-rail { display:flex; align-items:center; gap:2px; margin:14px 0 0; overflow-x:auto; scrollbar-width:none; -ms-overflow-style:none; overscroll-behavior-x:contain; border-bottom:1px solid var(--glass-border); }
+.mix-rail::-webkit-scrollbar { display:none; }
+.mix-rail button { position:relative; flex:0 0 auto; white-space:nowrap; font-size:12px; line-height:1.5; padding:9px 12px 11px; border-radius:8px 8px 0 0; color:var(--text-secondary); transition:color .16s ease, background-color .16s ease; }
+/* The active mark sits ON the rail's hairline (bottom:-1px), so the strip
+   reads as one continuous edge rather than a button floating above a line. */
+.mix-rail button::after { content:""; position:absolute; left:12px; right:12px; bottom:-1px; height:1.5px; border-radius:2px; background:currentColor; opacity:0; transform:scaleX(.35); transition:opacity .18s ease, transform .18s ease; }
+.mix-rail button:hover { color:var(--text-primary); background:var(--surface-hover); }
+.mix-rail button:hover::after { opacity:.3; transform:scaleX(1); }
+.mix-rail button:focus-visible { outline:none; color:var(--text-primary); box-shadow:0 0 0 3px color-mix(in srgb,var(--text-primary) 7%,transparent); }
+.mix-rail button[aria-selected=true] { color:var(--text-primary); font-weight:550; }
+.mix-rail button[aria-selected=true]::after { opacity:1; transform:scaleX(1); background:#347f91; }
+.mix-rail-sep { flex:0 0 auto; width:1px; height:14px; margin:0 9px; background:var(--glass-border); }
+.mix-toolbar { display:flex; align-items:center; justify-content:space-between; gap:16px; margin:16px 0 20px; }
+.mix-toolbar>span { color:var(--text-tertiary); font-size:11px; text-align:right; }
+.mix-view-switch { display:flex; flex-shrink:0; border:1px solid var(--glass-border); padding:3px; border-radius:9px; background:var(--bg-secondary); }
+.mix-view-switch button { font-size:11px; color:var(--text-secondary); padding:6px 12px; border-radius:6px; }
+.mix-view-switch button[aria-pressed=true] { color:var(--text-primary); background:var(--bg-primary); box-shadow:0 1px 3px #00000010; }
+.mix-table-head { display:flex; justify-content:space-between; color:var(--text-tertiary); font-size:10px; padding-bottom:10px; border-bottom:1px solid var(--glass-border); }
+.mix-share-row { display:grid; grid-template-columns:minmax(160px,1fr) minmax(100px,1.6fr) 62px; align-items:center; gap:24px; padding:14px 0; border-bottom:1px solid var(--glass-border); }
+.mix-segment-name { display:flex; align-items:center; gap:10px; font-size:12px; min-width:0; }
+.mix-segment-name i,.mix-legend i { display:inline-block; width:7px; height:7px; border-radius:2px; flex-shrink:0; }
+.mix-share-track { height:10px; background:var(--bg-secondary); border-radius:3px; overflow:hidden; }
+.mix-share-track span { display:block; height:100%; border-radius:3px; }
+.mix-share-row strong { text-align:right; font-size:13px; font-weight:550; font-variant-numeric:tabular-nums; }
+.mix-legend { display:flex; flex-wrap:wrap; gap:10px 20px; padding:10px 0; }
+.mix-legend>span { display:flex; align-items:center; gap:7px; font-size:11px; color:var(--text-secondary); }
+@media(max-width:640px){.mix-rail{margin-left:-2px;margin-right:-2px}.mix-rail button{padding:9px 10px 11px}.mix-rail button::after{left:10px;right:10px}.mix-share-row{grid-template-columns:minmax(0,1fr) 55px;gap:8px 16px;padding:12px 0}.mix-share-track{grid-row:2;grid-column:1/-1;height:6px}.mix-share-row strong{grid-column:2;grid-row:1}.mix-toolbar{align-items:flex-start}}

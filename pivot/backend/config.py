@@ -275,16 +275,23 @@ class Settings(BaseSettings):
     # money.SEED_CAPITAL fallback + the test suite's expectations).
     paper_seed_capital: float = 150000.0
 
-    # --- View Markets (V2: belief -> expression -> deployment) -----------------
-    # Master flag for the View Markets layer (backend/view_markets/, the /api/
-    # views router, the FE "Views" tab). With it FALSE (the default), the router
-    # is not mounted, no curated-view generation/lifecycle jobs are registered,
-    # and the chat View-Markets tool subset stays inert — the 0023 migration may
-    # still run so the tables exist, but they stay empty. V1 is CURATED-ONLY
-    # (backend-generated + human-reviewed views; no user-authored beliefs) and
-    # register-not-execute; we READ Polymarket/Kalshi for "what's priced in" and
-    # never become a prediction exchange. Flip on for internal -> beta -> GA.
-    view_markets_enabled: bool = True  # V2 beta: Views tab live
+    # --- Background work: ON by default, OFF where Charto already owns it ---
+    # Pivot's API is deployed BESIDE Charto's dataserver on one 2-vCPU box
+    # with no swap. Three things its startup does unconditionally are wrong
+    # there, and two of them are wrong quietly:
+    #
+    #   * the APScheduler jobs (SIP/strategy + a 30s workflow poll) compete
+    #     for a core that Charto's live tick engine needs inside market hours;
+    #   * the cache warmup spends model tokens on boot;
+    #   * the Kite ticker autostart opens a SECOND WebSocket on the same API
+    #     key that `charto/data/kite_stream.py` already holds. Kite does not
+    #     welcome two, and the loser is the live feed the chart draws from.
+    #
+    # Both default True so local dev and any existing deployment behave
+    # exactly as before; `pivot-api.service` sets them False.
+    background_jobs_enabled: bool = True
+    kite_ticker_autostart: bool = True
+
 
     @property
     def allowed_origins_list(self) -> list[str]:

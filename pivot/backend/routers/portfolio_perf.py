@@ -173,7 +173,7 @@ def _paper_performance(
     """
     from backend.models import PaperAccount, PaperFill, PaperPosition
     from backend.services.portfolio_source import paper_cash_and_nav
-    from backend.view_markets.security_meta import is_us_or_crypto_fast
+    from backend.market.security_meta import is_us_or_crypto_fast
 
     account = (
         db.query(PaperAccount)

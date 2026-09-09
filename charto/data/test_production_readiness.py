@@ -12,10 +12,35 @@ import pytest
 import dataserver as server
 
 
-def test_default_service_tier_matches_the_deployment() -> None:
-    assert server.LLM_SERVICE_TIER in {"default", "priority"}
+def test_we_ask_for_the_fast_lane_on_every_deployment() -> None:
+    """We request `priority`, on optionality rather than on a measured win.
+
+    The first measurement said priority was 19.7% faster on gpt-5.4-mini
+    (8.75s -> 7.03s, n=5). It was wrong: taken under load from another
+    process and without holding output volume constant. Re-run idle, n=12 per
+    arm, identical prompt and cap:
+
+        default   median 7.07s   IQR 6.84-8.41
+        priority  median 7.85s   IQR 7.08-9.06
+        Mann-Whitney U z = -0.64  ->  NOT significant
+
+    So this asserts INTENT, not a speed claim. Do not "fix" a future failure
+    here by citing the 19.7% number — it does not exist. If someone turns
+    this off with a measurement showing priority costs money for nothing,
+    that is a good change and this test should change with it.
+
+    What is settled: luna ignores the field entirely (echoes `default`, 6/6)
+    and mini honours it.
+    """
+    assert server.LLM_SERVICE_TIER in {"default", "priority", "flex", "auto"}
     if "CHARTO_LLM_SERVICE_TIER" not in server.environ:
-        assert server.LLM_SERVICE_TIER == "default"
+        assert server.LLM_SERVICE_TIER == "priority"
+    # Every path that talks to the model must carry it, or the streaming turn
+    # the FE actually uses silently runs on a different tier from the probes
+    # — which would make any future measurement here a lie.
+    import pathlib
+    src = pathlib.Path(server.__file__).read_text(encoding="utf-8")
+    assert src.count('"service_tier": LLM_SERVICE_TIER') >= 4
 
 
 def test_data_gate_rejects_without_overcommitting(monkeypatch) -> None:

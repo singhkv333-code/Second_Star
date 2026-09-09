@@ -10,7 +10,6 @@ type Reading = { label: string; value: string; signal: "Bullish" | "Neutral" | "
 
 export function TechnicalPanel({ quote }: { quote: StockQuote }): React.ReactElement {
   const [bars, setBars] = React.useState<OhlcBar[] | null>(null);
-  const [source, setSource] = React.useState<string>("");
 
   React.useEffect(() => {
     let dead = false;
@@ -19,7 +18,6 @@ export function TechnicalPanel({ quote }: { quote: StockQuote }): React.ReactEle
       .then((result) => {
         if (dead || isError(result)) return;
         setBars(result.data.bars);
-        setSource(result.data.source);
       })
       .catch(() => {});
     return () => { dead = true; };
@@ -34,7 +32,6 @@ export function TechnicalPanel({ quote }: { quote: StockQuote }): React.ReactEle
           <h2 style={{ margin: 0, fontFamily: "var(--font-ui)", fontSize: 21, fontWeight: 600, letterSpacing: "-0.022em", color: "var(--text-primary)" }}>Technical Analysis</h2>
           <div style={{ marginTop: 3, fontSize: 11.5, color: "var(--text-tertiary)" }}>Daily timeframe · indicators calculated from the latest one-year OHLC history</div>
         </div>
-        {source ? <span style={{ fontSize: 10.5, color: "var(--text-tertiary)", whiteSpace: "nowrap" }}>{source === "kite" ? "Kite" : "yfinance, EOD"}</span> : null}
       </div>
 
       {!analysis ? <PanelSkeleton rows={6} /> : (

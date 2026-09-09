@@ -1,0 +1,144 @@
+{
+ "ts": "20260820_193519",
+ "elapsed_s": 55.6,
+ "base": "http://localhost:8000",
+ "user_id": 723,
+ "sessions_file": "tests/eval_prompts/answer_scope_25_2026_08_20.json",
+ "only": "greeting,definition,latest_price_brief,one_metric,brief_news",
+ "n_sessions": 5,
+ "n_turns": 5,
+ "sessions": [
+  {
+   "category": "minimal",
+   "name": "greeting",
+   "why": "Should be social, not a product tour.",
+   "conv": "s_f533989e80",
+   "turns": [
+    {
+     "i": 0,
+     "say": "Hi",
+     "response": "Hi! Tell me what you'd like to do \u2014 check a price, build an agent, look at your portfolio, or run a backtest.",
+     "tools_called": [],
+     "render_hint": null,
+     "raw_keys": [],
+     "card_digest": null,
+     "logiccard": null,
+     "latency_wall_ms": 775,
+     "latency_server_ms": 96,
+     "input_tokens": 0,
+     "output_tokens": 0,
+     "cost_usd": 0.0,
+     "llm_calls": 0
+    }
+   ]
+  },
+  {
+   "category": "minimal",
+   "name": "definition",
+   "why": "Simple definition should not become a tutorial.",
+   "conv": "s_65a3e2dcfe",
+   "turns": [
+    {
+     "i": 0,
+     "say": "What is an ETF?",
+     "response": "An **ETF (Exchange-Traded Fund)** is a basket of investments\u2014such as stocks, bonds, or gold\u2014that trades on a stock exchange like a share.\n\nFor example, **NIFTYBEES** tracks the Nifty 50, while **GOLDBEES** tracks gold prices. ETFs generally provide diversification and can be bought or sold during market hours.",
+     "tools_called": [],
+     "render_hint": null,
+     "raw_keys": [],
+     "card_digest": null,
+     "logiccard": null,
+     "latency_wall_ms": 7840,
+     "latency_server_ms": 7300,
+     "input_tokens": 48998,
+     "output_tokens": 168,
+     "cost_usd": 0.0,
+     "llm_calls": 2
+    }
+   ]
+  },
+  {
+   "category": "minimal",
+   "name": "latest_price_brief",
+   "why": "Explicit brevity should be honored without losing the live value.",
+   "conv": "s_1a2be465d3",
+   "turns": [
+    {
+     "i": 0,
+     "say": "TCS price, just the number and source",
+     "response": "\u20b92,298.00 \u2014 source: yfinance.",
+     "tools_called": [
+      "get_market_data"
+     ],
+     "render_hint": null,
+     "raw_keys": [
+      "get_market_data"
+     ],
+     "card_digest": null,
+     "logiccard": null,
+     "latency_wall_ms": 11279,
+     "latency_server_ms": 10875,
+     "input_tokens": 97936,
+     "output_tokens": 155,
+     "cost_usd": 0.0,
+     "llm_calls": 3
+    }
+   ]
+  },
+  {
+   "category": "minimal",
+   "name": "one_metric",
+   "why": "A single financial metric request is a concise read.",
+   "conv": "s_c550717ac4",
+   "turns": [
+    {
+     "i": 0,
+     "say": "What is TCS PE?",
+     "response": "**Tata Consultancy Services (`TCS`) trades at a P/E of 16.82\u00d7.** This means investors pay about \u20b916.82 for each \u20b91 of annual earnings.",
+     "tools_called": [
+      "fetch_fundamentals"
+     ],
+     "render_hint": null,
+     "raw_keys": [
+      "fetch_fundamentals"
+     ],
+     "card_digest": null,
+     "logiccard": null,
+     "latency_wall_ms": 10888,
+     "latency_server_ms": 10487,
+     "input_tokens": 98179,
+     "output_tokens": 137,
+     "cost_usd": 0.0,
+     "llm_calls": 3
+    }
+   ]
+  },
+  {
+   "category": "minimal",
+   "name": "brief_news",
+   "why": "Brief must constrain an otherwise broad news answer.",
+   "conv": "s_e1353b3b9d",
+   "turns": [
+    {
+     "i": 0,
+     "say": "Any Reliance news today? Keep it to 2 bullets.",
+     "response": "**Two Reliance updates stand out today (20 August 2026):**\n\n- **\u20b92.73 lakh crore Andhra Pradesh coal-gasification proposal:** Reliance has proposed a 30-year integrated underground coal-gasification complex, subject to commercial viability. [RELIANCE INDUSTRIES RIL - The Economic Times](https://economictimes.indiatimes.com/topic/reliance-industries-ril)\n- **NTPC gas case clarification:** Reliance said the Supreme Court\u2019s \u20b910 lakh order represented costs, not a penalty or fine. [RELIANCE INDUSTRIES RIL - The Economic Times](https://economictimes.indiatimes.com/topic/reliance-industries-ril)\n\n**Watch:** Whether the coal-gasification proposal progresses beyond exploration and viability assessment.",
+     "tools_called": [
+      "get_symbol_news"
+     ],
+     "render_hint": null,
+     "raw_keys": [
+      "get_symbol_news"
+     ],
+     "card_digest": null,
+     "logiccard": null,
+     "latency_wall_ms": 21886,
+     "latency_server_ms": 21477,
+     "input_tokens": 104072,
+     "output_tokens": 425,
+     "cost_usd": 0.0,
+     "llm_calls": 3
+    }
+   ]
+  }
+ ]
+}

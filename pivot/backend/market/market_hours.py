@@ -58,7 +58,7 @@ def asset_class_for_symbol(symbol: str) -> str:
     """Resolve a symbol's asset class (cheap classify). Falls back to
     'in_equity' on any error so gating stays on the safe NSE calendar."""
     try:
-        from backend.view_markets.security_meta import classify
+        from backend.market.security_meta import classify
         return str(classify(symbol).get("asset_class") or "in_equity")
     except Exception:  # noqa: BLE001
         return "in_equity"

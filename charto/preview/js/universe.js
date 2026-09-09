@@ -123,6 +123,29 @@ const Universe = (() => {
           `${Math.abs(pct).toFixed(2)}%</span>`);
   }
 
+  /* ── logo cache ───────────────────────────────────────────────────
+   * The picker is rebuilt with innerHTML on every open, every filter
+   * keystroke and every quote refresh, so each rebuild constructs brand-new
+   * <img> elements. The browser's HTTP cache means the bytes are not
+   * re-fetched, but a fresh element still decodes before it paints, which is
+   * what makes the marks flicker in as you type.
+   *
+   * Holding one detached Image per URL keeps it decoded in memory for the
+   * life of the page, so later rows paint the mark immediately. `decoding`
+   * and `fetchpriority` keep that work off the layout path.
+   *
+   * Keyed by URL, not by symbol: two symbols on the same asset (BTC-USD and
+   * BTCUSDT) share one file and must share one cache entry. */
+  const _logoCache = new Map();
+  function warmLogo(src) {
+    if (!src || _logoCache.has(src)) return;
+    const im = new Image();
+    im.decoding = "async";
+    im.fetchPriority = "low";
+    im.src = src;                       // held by the Map, so never collected
+    _logoCache.set(src, im);
+  }
+
   /** One row. `link` adds the company-page affordance (the header menu has
    *  it; the in-chart picker does not). `cold` marks a symbol whose bars are
    *  still in the blob store — it has no price to show and saying "~6s" is
@@ -133,8 +156,9 @@ const Universe = (() => {
     const on = sym === String(current || "").toUpperCase();
     return `<div class="item inst-row${on ? " on" : ""}" data-sym="${sym}">` +
       `<span class="ir-lead">` +
-        (src ? `<img class="ir-logo" src="${src}" alt="" loading="lazy"
-                 onerror="this.classList.add('ir-dead')"/>`
+        (src ? (warmLogo(src), `<img class="ir-logo" src="${src}" alt=""
+                 loading="lazy" decoding="async"
+                 onerror="this.classList.add('ir-dead')"/>`)
              : `<span class="ir-logo ir-blank">${sym.slice(0, 1)}</span>`) +
         `<span class="ir-copy">` +
           `<span class="ir-tick">${sym}<span class="ir-ex">${venue(sym)}</span></span>` +

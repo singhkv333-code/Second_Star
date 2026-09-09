@@ -37,6 +37,18 @@ The tree is built from these node types, each tagged with a "type" field:
   { "type": "conditional", "if": <bool-node>, "then": <node>, "else": <node> }
   { "type": "aggregate", "op": "<AGG>", "source": <node>, "bars": <int>, "second": <node> }
 
+"exchange" is written as "NSE" in the templates above because that is the
+default, NOT because it is always right. Equities and indices are "NSE" (or
+"BSE"); COMMODITIES are "MCX" — CRUDEOIL, NATURALGAS, GOLD, SILVER, COPPER,
+ZINC, ALUMINIUM, LEAD, NICKEL. A commodity left on NSE names a symbol that
+does not exist, so the condition validates, renders, and can never fire.
+
+Never substitute a symbol you cannot express for the one the user named. If a
+condition refers to something outside these leaves, translate what you CAN and
+leave the rest out rather than quietly re-pointing the comparison at the
+primary symbol — "when crude oil goes above 80" must not become "when ONGC
+goes above 80". They are different rules and only one of them was asked for.
+
 Time-shifted access: every leaf accepts an optional "offset" (default 0). offset=1 reads the previous bar; max 500.
 Price leaves also accept "basis" (default "close"). Use basis="open" for gap conditions, "low"/"high" for stop / target checks.
 

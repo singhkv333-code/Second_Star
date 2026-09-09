@@ -27,6 +27,47 @@ from backend.market import yfinance_fundamentals as yff
 router = APIRouter(prefix="/api/financials", tags=["Financials"])
 logger = logging.getLogger(__name__)
 
+
+@router.get("/{symbol}/analyst-consensus")
+def get_analyst_consensus(symbol: str, authorization: Optional[str] = Header(None)) -> dict:
+    """Provider consensus, independent of Pivot's financial models."""
+    import math
+    from datetime import datetime, timezone
+    import yfinance as yf
+    from backend.market.yfinance_service import resolve_symbol
+
+    _auth(authorization)
+    sym = symbol.strip().upper()
+    key = f"analyst-consensus:v1:{sym}"
+    try:
+        cached = redis_client.get(key)
+        if cached:
+            return json.loads(cached)
+    except Exception:
+        pass
+    try:
+        info = yf.Ticker(resolve_symbol(sym)).info or {}
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Analyst coverage could not be loaded") from exc
+
+    def number(field: str) -> Optional[float]:
+        value = info.get(field)
+        return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value > 0 else None
+
+    score = number("recommendationMean")
+    score = score if score is not None and 1 <= score <= 5 else None
+    target = number("targetMeanPrice") if info.get("currency") == "INR" else None
+    payload = {
+        "symbol": sym, "available": score is not None or target is not None,
+        "score": score, "target": target, "analysts": number("numberOfAnalystOpinions"),
+        "source": "Yahoo Finance", "retrieved_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        redis_client.setex(key, 3600, json.dumps(payload))
+    except Exception:
+        pass
+    return payload
+
 # Fundamentals change quarterly, so the assembled response is safe to cache for a
 # long time. Stale-while-revalidate (2026-07-03 perf pass): entries live for
 # _RESP_HARD_TTL, but once older than _RESP_SOFT_TTL a read returns the stale
@@ -70,7 +111,12 @@ def _kick_financials_refresh(sym: str) -> None:
     threading.Thread(target=_run, name=f"fin-swr:{sym}", daemon=True).start()
 
 
-def _auth(authorization: Optional[str]) -> int:
+_INTERNAL_TOOL_AUTH = object()
+
+
+def _auth(authorization: Optional[str] | object) -> int:
+    if authorization is _INTERNAL_TOOL_AUTH:
+        return 0
     if not authorization:
         if getattr(settings, "app_env", "development") == "development":
             return 1

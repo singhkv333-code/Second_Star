@@ -212,8 +212,14 @@ def hydrate_scheduled_order(
             "scheduled_order: must specify quantity or notional_inr"
         )
     if quantity is not None and notional_inr is not None:
+        # Naming the ACTION, not just the rule. "specify either X OR Y" was
+        # read as a complaint about the VALUE — models retried the same call
+        # with a different notional and hit the same wall three times over.
+        # Sizing is one decision, so the fix is always a deletion.
         raise ValueError(
-            "scheduled_order: specify either quantity OR notional_inr"
+            "scheduled_order: quantity and notional_inr are mutually exclusive. "
+            "Send ONE and OMIT the other entirely — do not change its value. "
+            "Use quantity for a share count, notional_inr for a rupee budget."
         )
 
     sym = str(symbol).strip().upper()
@@ -359,8 +365,14 @@ def hydrate_threshold_order(
     the user's choice, never a silent daily default.
     """
     if quantity is not None and notional_inr is not None:
+        # Naming the ACTION, not just the rule. "specify either X OR Y" was
+        # read as a complaint about the VALUE — models retried the same call
+        # with a different notional and hit the same wall three times over.
+        # Sizing is one decision, so the fix is always a deletion.
         raise ValueError(
-            "threshold_order: specify either quantity OR notional_inr"
+            "threshold_order: quantity and notional_inr are mutually exclusive. "
+            "Send ONE and OMIT the other entirely — do not change its value. "
+            "Use quantity for a share count, notional_inr for a rupee budget."
         )
     # Refuse to default. A silent qty=1 was producing draft cards
     # like "INFY buy on RSI(14) < 30" with no visible quantity — the

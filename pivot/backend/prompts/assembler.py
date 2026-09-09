@@ -152,10 +152,11 @@ def _load_chat_system_md() -> str:
     Since 2026-07-03 the monolithic system.md was split into a lean
     ``system_core.md`` (identity + routing doctrine + decision hierarchy,
     always loaded) plus per-intent packs in ``modules/*.md`` that are
-    injected only on the relevant turn (see ``load_prompt_modules``). We
-    prefer system_core.md; fall back to the old monolith, then the inline
-    fallback, so the prompt still builds in any environment."""
-    for name in ("system_core.md", "system.md"):
+    injected only on the relevant turn (see ``load_prompt_modules``). The
+    monolith was deleted 2026-09-05, unread since the split; the inline
+    ``_CHAT_FALLBACK`` remains so the prompt still builds in any
+    environment."""
+    for name in ("system_core.md",):
         p = PROMPTS_DIR / name
         if p.exists():
             return p.read_text(encoding="utf-8").strip()

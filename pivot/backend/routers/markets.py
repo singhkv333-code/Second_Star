@@ -135,6 +135,7 @@ class OhlcResponse(BaseModel):
     interval: str
     source: str    # "kite" | "yfinance"
     bars: list[OhlcBar]
+    price_basis: Literal["provider", "unadjusted"] = "provider"
 
 
 class MetricPoint(BaseModel):
@@ -857,6 +858,8 @@ def get_ohlc(
     symbol: str,
     range: _RangeLiteral = Query("6M"),
     exchange: str = Query("NSE", pattern="^(NSE|BSE)$"),
+    provider: Literal["auto", "yfinance"] = Query("auto"),
+    price_basis: Literal["provider", "unadjusted"] = Query("provider"),
     _user_id: int = Depends(require_user),
 ) -> OhlcResponse:
     """OHLCV bars for a TradingView candlestick chart. Kite-primary
@@ -872,9 +875,14 @@ def get_ohlc(
         sym = next(k for k, v in _INDICES.items() if v is _idx)
         exchange = _idx["exchange"]
     period, interval = _RANGE_MAP[range]
+    # Research comparisons need the same daily sampling and price basis on
+    # both provider paths. Keep the existing chart defaults unchanged.
+    research_prices = price_basis == "unadjusted"
+    if research_prices:
+        interval = "1d"
 
     # Kite-primary: full OHLCV when a live session knows this instrument.
-    if not sym.startswith("^"):
+    if provider != "yfinance" and not sym.startswith("^"):
         try:
             from backend.kite.historical import get_kite_historical
             kite_period = {
@@ -883,6 +891,7 @@ def get_ohlc(
             }[range]
             kite_rows = get_kite_historical(
                 sym, period=kite_period, exchange=exchange,
+                **({"interval": "1d"} if research_prices else {}),
             )
             if kite_rows:
                 bars = [
@@ -899,7 +908,7 @@ def get_ohlc(
                 if bars:
                     return OhlcResponse(
                         symbol=sym, range=range, interval=interval,
-                        source="kite", bars=bars,
+                        source="kite", bars=bars, price_basis="unadjusted",
                     )
         except Exception:  # noqa: BLE001 — fall through to yfinance
             pass
@@ -907,7 +916,7 @@ def get_ohlc(
     # yfinance fallback — same symbol resolution as the sparkline path.
     # Also uncached upstream (~3.3-3.7s cold); cache the assembled
     # response so repeat requests for the same symbol/range are fast.
-    _oh_key = f"{_OHLC_YF_CACHE_PREFIX}{exchange}:{sym}:{range}:{interval}"
+    _oh_key = f"{_OHLC_YF_CACHE_PREFIX}{exchange}:{sym}:{range}:{interval}:{'raw' if research_prices else 'provider'}"
     try:
         _oh_raw = redis_client.get(_oh_key)
         if _oh_raw:
@@ -928,7 +937,10 @@ def get_ohlc(
         yf_symbol = resolve_symbol(sym)
 
     try:
-        hist = yf.Ticker(yf_symbol).history(period=period, interval=interval)
+        hist = yf.Ticker(yf_symbol).history(
+            period=period, interval=interval,
+            **({"auto_adjust": False} if research_prices else {}),
+        )
     except Exception as e:  # noqa: BLE001
         raise http_error(
             503, "not_yet_available",
@@ -959,6 +971,7 @@ def get_ohlc(
     response = OhlcResponse(
         symbol=sym, range=range, interval=interval,
         source="yfinance", bars=bars,
+        price_basis="unadjusted" if research_prices else "provider",
     )
     try:
         redis_client.setex(

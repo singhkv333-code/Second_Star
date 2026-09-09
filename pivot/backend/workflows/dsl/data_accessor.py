@@ -107,7 +107,9 @@ class DataAccessor(Protocol):
         period: int,
         exchange: str = "NSE",
         component: Optional[str] = None,
+        settings: Optional[dict] = None,
         offset: int = 0,
+        timeframe: str = "daily",
     ) -> Optional[float]:
         ...
 
@@ -293,6 +295,7 @@ class LiveDataAccessor:
         period: int,
         exchange: str = "NSE",
         component: Optional[str] = None,
+        settings: Optional[dict] = None,
         offset: int = 0,
         timeframe: str = "daily",
     ) -> Optional[float]:
@@ -308,7 +311,8 @@ class LiveDataAccessor:
         )
         cache_key = (
             "indicator", symbol.upper(), indicator.lower(),
-            int(period), exchange.upper(), comp_key, int(offset), legacy_label,
+            int(period), exchange.upper(), comp_key,
+            tuple(sorted((settings or {}).items())), int(offset), legacy_label,
         )
         if cache_key in self._call_cache:
             return self._call_cache[cache_key]
@@ -387,7 +391,7 @@ class LiveDataAccessor:
             df = pd.DataFrame(bars)
         try:
             series = compute_series_component(
-                df, indicator, period, component=comp_key,
+                df, indicator, period, component=comp_key, settings=settings,
             )
         except Exception as exc:  # noqa: BLE001
             logger.info(

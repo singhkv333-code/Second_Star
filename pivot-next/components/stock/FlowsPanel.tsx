@@ -22,11 +22,12 @@ import { num } from "./FinTable";
 
 const EChart = dynamic(() => import("./EChart"), {
   ssr: false,
-  loading: () => <div style={{ height: 240 }} />,
+  loading: () => <div style={{ height: 280 }} />,
 });
 
 const DELIV = "#4F8A5B";
 const DELIV_HI = "#C0A03C";
+const MEDIAN_LINE = "#8A7B4F";
 const OI_LINE = "#C4643F";
 
 function shortDate(iso: string): string {
@@ -48,7 +49,9 @@ function compact(v: number | null | undefined): string {
 type View = "delivery" | "oi";
 
 export function FlowsPanel({ data }: { data: FlowsResponse }): React.ReactElement {
-  const [view, setView] = React.useState<View>("delivery");
+  const [selectedView, setView] = React.useState<View | null>(null);
+  const view = selectedView ?? (data.delivery.some(r => r.deliv_per !== null) ? "delivery" : "oi");
+  React.useEffect(() => setView(null), [data.symbol]);
   const s = data.summary;
 
   const option = React.useMemo(() => {
@@ -70,9 +73,9 @@ export function FlowsPanel({ data }: { data: FlowsResponse }): React.ReactElemen
       : null;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+    <div className="flows-panel" style={{ display: "flex", flexDirection: "column", gap: 18 }}>
       <PanelHead
-        title="Delivery and Open Interest"
+        title="Delivery and open interest"
         right={
           <Segmented
             value={view}
@@ -124,16 +127,29 @@ export function FlowsPanel({ data }: { data: FlowsResponse }): React.ReactElemen
       </div>
 
       {option ? (
-        <EChart
-          option={option}
-          height={240}
-          ariaLabel={view === "delivery" ? "Delivery percentage by day" : "Futures open interest by day"}
-        />
-      ) : null}
+        <div>
+          <div className="flows-chart-caption">
+            <span>{view === "delivery" ? "Daily delivery" : "Futures open interest"}</span>
+            {view === "delivery" && s.delivery_median_20d !== null ? <span className="flows-median"><i aria-hidden="true" />20-day median {s.delivery_median_20d.toFixed(1)}%</span> : null}
+          </div>
+          <EChart
+            option={option}
+            height={280}
+            ariaLabel={view === "delivery" ? "Delivery percentage by day" : "Futures open interest by day"}
+          />
+        </div>
+      ) : <EmptyNote>{view === "delivery" ? "Delivery history unavailable." : "Futures open-interest history unavailable for this symbol."}</EmptyNote>}
 
       <style>{`
+        .flows-stats > div:first-child { padding-left: 0 !important; }
+        .flows-chart-caption { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; font-size:11px; color:var(--text-secondary); margin:0 0 8px; }
+        .flows-median { display:inline-flex; align-items:center; gap:7px; font-variant-numeric:tabular-nums; }
+        .flows-median i { width:16px; border-top:1px dashed ${MEDIAN_LINE}; }
         @media (max-width: 720px) {
           .flows-stats { grid-template-columns: repeat(2, minmax(0,1fr)) !important; }
+          .flows-stats > div:nth-child(3) { border-left:0!important; padding-left:0!important; }
+          .flows-stats > div:nth-child(n+3) { border-top:1px solid var(--glass-border); }
+          .flows-stats > div { padding:16px 12px!important; }
         }
       `}</style>
     </div>
@@ -152,11 +168,11 @@ function Stat({
   divided?: boolean;
 }): React.ReactElement {
   return (
-    <div style={{ padding: "14px 18px", borderLeft: divided ? "1px solid var(--glass-border)" : undefined }}>
+    <div style={{ padding: "18px 22px", borderLeft: divided ? "1px solid var(--glass-border)" : undefined }}>
       <div style={{ fontSize: 10.5, fontWeight: 650, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-tertiary)" }}>
         {label}
       </div>
-      <div style={{ marginTop: 6, fontFamily: "var(--font-mono)", fontSize: 19, fontWeight: 600, letterSpacing: "-0.01em", fontVariantNumeric: "tabular-nums", color: "var(--text-primary)" }}>
+      <div style={{ marginTop: 8, fontFamily: "var(--font-ui)", fontSize: 24, fontWeight: 550, letterSpacing: "-0.025em", fontVariantNumeric: "tabular-nums", color: "var(--text-primary)" }}>
         {value}
       </div>
       {note ? (
@@ -177,11 +193,12 @@ function deliveryOption(
   rows: { d: string; deliv_per: number | null; close: number | null }[],
   median: number | null,
 ): Record<string, unknown> {
-  const ref = median ?? 0;
+  const above = (value: number | null) => median !== null && value !== null && value >= median;
   return {
     grid: { left: 8, right: 8, top: 18, bottom: 4, containLabel: true },
     tooltip: {
       trigger: "axis",
+      confine: true,
       valueFormatter: (v: number | null) => (v === null || v === undefined ? "—" : `${v.toFixed(2)}%`),
     },
     xAxis: {
@@ -205,8 +222,8 @@ function deliveryOption(
         data: rows.map((r) => ({
           value: r.deliv_per,
           itemStyle: {
-            color: (r.deliv_per ?? 0) >= ref ? DELIV_HI : DELIV,
-            opacity: (r.deliv_per ?? 0) >= ref ? 1 : 0.55,
+            color: above(r.deliv_per) ? DELIV_HI : DELIV,
+            opacity: above(r.deliv_per) ? 1 : 0.55,
             borderRadius: [2, 2, 0, 0],
           },
         })),
@@ -217,13 +234,8 @@ function deliveryOption(
         markLine: median !== null ? {
           silent: true,
           symbol: "none",
-          label: {
-            formatter: `20-day median ${median.toFixed(1)}%`,
-            fontSize: 10.5,
-            position: "insideEndTop",
-            color: "var(--text-secondary)",
-          },
-          lineStyle: { type: "dashed", width: 1, color: "#8A7B4F", opacity: 0.9 },
+          label: { show: false },
+          lineStyle: { type: "dashed", width: 1, color: MEDIAN_LINE, opacity: 0.9 },
           data: [{ yAxis: median }],
         } : undefined,
       },
@@ -237,6 +249,7 @@ function oiOption(rows: { d: string; oi: number | null; oi_chg: number | null }[
     grid: { left: 8, right: 8, top: 18, bottom: 4, containLabel: true },
     tooltip: {
       trigger: "axis",
+      confine: true,
       valueFormatter: (v: number | null) => compact(v),
     },
     xAxis: {

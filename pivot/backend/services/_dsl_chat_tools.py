@@ -1114,7 +1114,14 @@ async def propose_dsl_workflow(args: dict) -> dict:
     condition = (args.get("condition") or "").strip()
     primary = (args.get("primary_symbol") or "").strip().upper()
     label = (args.get("name") or "").strip() or f"{primary} compound trigger"
-    action_kind = (args.get("action_kind") or "notify_only").lower()
+    # The default is the one the SCHEMA advertises. It used to be
+    # 'notify_only', which the very next block refuses — so a model that
+    # simply omitted an optional field got a hard refusal telling it not to
+    # build an alert it had never asked to build, and the user got a boundary
+    # statement instead of the order automation they described. The refusal
+    # below still fires for an EXPLICIT notify_only, which is the case it was
+    # written for; omission now means what the field says it means.
+    action_kind = (args.get("action_kind") or "buy_market").lower()
 
     # Price/condition ALERTS are not available (product decision). A notify-only
     # DSL workflow has no wired delivery channel, so rather than render a card

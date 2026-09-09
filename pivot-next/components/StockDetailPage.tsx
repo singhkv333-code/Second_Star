@@ -1,33 +1,6 @@
 "use client";
 
-/**
- * StockDetailPage — Fiscal.ai-inspired individual stock surface.
- *
- * Route: /stock/[symbol]
- *
- * Layout (two-column at xl+, stacked below):
- *   ┌──────────────── header strip ────────────────┐
- *   │ brand glyph + Company Name + bookmark        │
- *   │   exchange:symbol · price · day chip         │
- *   ├──────────────────────┬───────────────────────┤
- *   │ Company Overview     │ Comparison search     │
- *   │   description        │ + range buttons       │
- *   │   Name / CEO / Sector│ + multi-line chart    │
- *   │   Year Founded / etc │                       │
- *   │                      │ Date range summary    │
- *   │ Company Statistics   │ Powered by Pivot      │
- *   │   Profile · Valuation│                       │
- *   │   · Growth grids     │                       │
- *   └──────────────────────┴───────────────────────┘
- *
- * Comparison: the search bar above the chart is multi-select. Picking a
- * peer adds it as a coloured chip and overlays its sparkline on the
- * same axis (normalised so all tickers start at 100). Removable via the
- * × inside each chip. The original symbol is always present.
- *
- * No tab strip below the company name (overview/financials/etc) — that
- * row from the reference is intentionally cut.
- */
+/** Company research surface: price, business, financials, then ownership. */
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -71,10 +44,13 @@ import {
   type PriceSeriesDef,
   type VolumePoint,
 } from "@/components/chart/StockPriceChart";
+import { ResearchExtensions } from "@/components/stock/ResearchExtensions";
 import { DeepSections } from "@/components/stock/DeepSections";
 import { SECTION_GAP } from "@/components/stock/chrome";
 import { RowTrend } from "@/components/stock/RowTrend";
+import "./stock/stock-research.css";
 import { TechnicalPanel } from "@/components/stock/TechnicalPanel";
+import { StockNewsSection } from "@/components/stock/StockNewsSection";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -262,6 +238,7 @@ type Metric = "Price" | "PE Ratio" | "Sales and Margin" | "Market Cap";
 
 export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElement {
   const [quoteState, setQuoteState] = useState<QuoteState>({ kind: "loading" });
+  const [quoteAttempt, setQuoteAttempt] = useState(0);
   const [range, setRange] = useState<SparklineRange>("5Y");
   const [financials, setFinancials] = useState<FinancialsResponse | null>(null);
   // Phone reflows the page: chart on top, then Performance, then a 2-way
@@ -304,7 +281,7 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
         }),
       );
     setTickers([symbol.toUpperCase()]);
-  }, [symbol]);
+  }, [symbol, quoteAttempt]);
 
   // ── Financials (Moneycontrol DB) ──────────────────────────────────────
   // Fetches the company's fundamentals snapshot + history. Falls through
@@ -396,7 +373,7 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
   const isIndexQuote = quoteState.kind === "ok" && !!quoteState.quote.is_index;
 
   return (
-    <div className="flex flex-col">
+    <div className="stock-research flex flex-col" id="stock-overview">
       {quoteState.kind === "loading" && <HeaderSkeleton />}
       {quoteState.kind === "error" && (
         <div
@@ -406,16 +383,34 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
         >
           <AlertCircle size={16} aria-hidden="true" />
           {quoteState.message}
+          <button type="button" onClick={() => setQuoteAttempt((n) => n + 1)} style={{ marginLeft: 8, textDecoration: "underline", color: "inherit" }}>Try again</button>
         </div>
       )}
       {quoteState.kind === "ok" && (
         <Header
           quote={quoteState.quote}
           liveLtp={liveQuote.ltp}
-          isLive={liveQuote.isLive}
           isPhone={isPhone}
         />
       )}
+
+      {quoteState.kind === "ok" && <>
+        <nav className="research-nav" aria-label="Company research sections">
+          <a href="#stock-overview">Overview</a>
+          <a href="#stock-price">Price & performance</a>
+          {!isIndexQuote && <><a href="#stock-technicals">Technicals</a><a href="#stock-financials" onClick={() => window.dispatchEvent(new Event("stock-open-financials"))}>Financials</a><a href="#stock-valuation">Valuation</a><a href="#stock-capital">Capital allocation</a><a href="#stock-benchmarks">Benchmarks</a><a href="#stock-research">Company research</a></>}
+          <a href="#stock-news">News</a>
+        </nav>
+        {!isIndexQuote && <div className="research-snapshot" aria-label="Company snapshot">
+          {[
+            ["Market capitalisation", fmtCr(quoteState.quote.market_cap)],
+            ["P/E ratio", quoteState.quote.pe_ratio != null && Number.isFinite(quoteState.quote.pe_ratio) ? `${quoteState.quote.pe_ratio.toFixed(1)}×` : "Unavailable"],
+            ["52-week high", inrOrDash(quoteState.quote.w52_high)],
+            ["52-week low", inrOrDash(quoteState.quote.w52_low)],
+            ["Session volume", Number.isFinite(quoteState.quote.volume) ? quoteState.quote.volume.toLocaleString("en-IN") : "Unavailable"],
+          ].map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}
+        </div>}
+      </>}
 
       {/* Phone reflow: chart → Performance → Overview/Financials switch.
           Desktop keeps the original two-column overview+chart layout. */}
@@ -444,7 +439,7 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
             className={
               isIndexQuote
                 ? "grid grid-cols-1 items-stretch"
-                : "grid grid-cols-1 xl:grid-cols-[1fr_1.4fr] items-stretch"
+                : "research-lead grid grid-cols-1 xl:grid-cols-[minmax(0,1.85fr)_minmax(300px,1fr)] items-start"
             }
             style={{ marginTop: 24, gap: 14 }}
           >
@@ -453,7 +448,7 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
                 listed on NSE" with empty CEO / Website / Year Founded / P-E
                 rows. Drop it and let the chart span the row. */}
             {!isIndexQuote && (
-              <div className="flex min-h-0 min-w-0 flex-col">
+              <div className="research-company flex min-h-0 min-w-0 flex-col">
                 {quoteState.kind === "ok" && (
                   <MergedOverviewCard quote={quoteState.quote} financials={financials} />
                 )}
@@ -464,7 +459,8 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
                 items default to min-width:auto, so the chart canvas's stale
                 fullscreen width would otherwise prop this track open forever
                 after collapsing the overlay. */}
-            <div className="flex min-h-0 min-w-0 flex-col">
+            <div id="stock-price" className="research-price flex min-h-0 min-w-0 flex-col">
+              <div className="research-panel-heading"><h2>Price performance</h2></div>
               <ChartCard
                 tickers={tickers}
                 peerQuotes={peerQuotes}
@@ -488,7 +484,7 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
           )}
 
           {quoteState.kind === "ok" && !isIndexQuote && (
-            <TechnicalPanel quote={quoteState.quote} />
+            <section id="stock-technicals"><TechnicalPanel quote={quoteState.quote} /></section>
           )}
 
           {/* Key Metrics — snapshot tiles from the financials DB. Skipped
@@ -499,11 +495,13 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
 
           {/* Unified Financials panel — company statements; an index has none. */}
           {quoteState.kind === "ok" && !isIndexQuote && (
-            <FinancialsPanel
+            <section id="stock-financials"><FinancialsPanel
               quote={quoteState.quote}
               financials={financials}
-            />
+            /></section>
           )}
+
+          {quoteState.kind === "ok" && !isIndexQuote && <ResearchExtensions key={symbol} symbol={symbol} exchange={quoteState.quote.exchange === "BSE" ? "BSE" : "NSE"} />}
 
           {/* Everything the DB gained after this page was built: quarters,
               segment mixes and ownership.
@@ -512,9 +510,16 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
               those tabs, so it contributes nothing at all for a symbol with
               no deep data (and returns null for an index). */}
           {quoteState.kind === "ok" && !isIndexQuote && (
-            <DeepSections symbol={symbol} price={quoteState.quote.ltp} />
+            <section id="stock-research"><DeepSections symbol={symbol} price={quoteState.quote.ltp} /></section>
           )}
         </>
+      )}
+      {quoteState.kind === "ok" && (
+        <StockNewsSection
+          symbol={quoteState.quote.symbol}
+          companyName={quoteState.quote.name}
+          exchange={quoteState.quote.exchange === "BSE" ? "BSE" : "NSE"}
+        />
       )}
     </div>
   );
@@ -555,11 +560,12 @@ function PhoneLayout({
   onRemovePeer: (s: string) => void;
 }): React.ReactElement {
   const [tab, setTab] = useState<"overview" | "financials">("overview");
+  useEffect(() => { const open = (): void => setTab("financials"); window.addEventListener("stock-open-financials", open); return () => window.removeEventListener("stock-open-financials", open); }, []);
 
   return (
     <div className="flex flex-col">
       {/* Chart first — shorter on phone so it doesn't dominate the fold. */}
-      <div className="flex min-h-0 flex-col" style={{ marginTop: 16 }}>
+      <div id="stock-price" className="flex min-h-0 flex-col" style={{ marginTop: 16 }}>
         <ChartCard
           tickers={tickers}
           peerQuotes={peerQuotes}
@@ -576,7 +582,7 @@ function PhoneLayout({
       {/* Performance — daily + 52-week range bars. */}
       <PerformanceRanges quote={quote} />
 
-      {!quote.is_index && <TechnicalPanel quote={quote} />}
+      {!quote.is_index && <section id="stock-technicals"><TechnicalPanel quote={quote} /></section>}
 
       {/* Overview / Financials switch — underline tab strip matching the
           option-strategy Payoff/P&L/Greeks tabs. Both panels describe a
@@ -585,6 +591,7 @@ function PhoneLayout({
       <div
         className="flex shrink-0 gap-6 border-b border-border/40"
         role="tablist"
+        id="stock-financials"
         aria-label="Stock detail view"
         style={{ marginTop: 24, padding: "0 20px" }}
       >
@@ -632,11 +639,13 @@ function PhoneLayout({
         )
       )}
 
+      {!quote.is_index && <ResearchExtensions key={quote.symbol} symbol={quote.symbol} exchange={quote.exchange === "BSE" ? "BSE" : "NSE"} />}
+
       {/* Deep sections ride below the phone switch too, rather than inside
           one of its two tabs — they are neither "overview" nor "financials",
           and burying them under a tab the reader has to guess at is how a
           section stops existing. */}
-      {!quote.is_index && <DeepSections symbol={quote.symbol} price={quote.ltp} />}
+      {!quote.is_index && <section id="stock-research"><DeepSections symbol={quote.symbol} price={quote.ltp} /></section>}
 
     </div>
   );
@@ -649,12 +658,10 @@ function PhoneLayout({
 function Header({
   quote,
   liveLtp,
-  isLive,
   isPhone = false,
 }: {
   quote: StockQuote;
   liveLtp?: number | null;
-  isLive?: boolean;
   /** Phone reflow: shrink glyph/name/price and keep the price pinned to the
    *  right of the same row (Groww-style), with the day chip stacked beneath
    *  it instead of inline. */
@@ -669,7 +676,7 @@ function Header({
     // the price can't drop to a second line.
     <div
       className={isPhone ? "flex items-center" : "flex flex-wrap items-center"}
-      style={{ gap: isPhone ? 10 : 18 }}
+      style={{ gap: isPhone ? 10 : 14 }}
       data-testid="quote-header"
     >
       {/* Brand logo (with monogram fallback) + name + bookmark. min-w-0 lets
@@ -680,7 +687,7 @@ function Header({
           name={quote.name}
           symbol={quote.symbol}
           hue={hue}
-          size={isPhone ? 46 : 56}
+          size={isPhone ? 44 : 48}
         />
         <div className="min-w-0">
           <div className="flex min-w-0 items-center" style={{ gap: isPhone ? 4 : 8 }}>
@@ -688,7 +695,7 @@ function Header({
               className="m-0 truncate"
               style={{
                 fontFamily: "var(--font-ui)",
-                fontSize: isPhone ? 16 : 22,
+                fontSize: isPhone ? 16 : 27,
                 fontWeight: 600,
                 letterSpacing: "-0.025em",
                 color: "var(--text-primary)",
@@ -698,15 +705,15 @@ function Header({
             </h1>
             <WatchlistBookmark
               symbol={quote.symbol}
-              size={20}
-              buttonSize={isPhone ? 30 : 38}
+              size={isPhone ? 17 : 18}
+              buttonSize={isPhone ? 28 : 34}
             />
           </div>
           <p
             className="m-0"
             style={{
               fontFamily: "var(--font-ui)",
-              fontSize: 12.5,
+              fontSize: 12,
               color: "var(--text-tertiary)",
               marginTop: 2,
               letterSpacing: "0.02em",
@@ -732,35 +739,20 @@ function Header({
           className="inline-flex items-center tabular-nums"
           style={{
             fontFamily: "var(--font-ui)",
-            fontSize: isPhone ? 18 : 28,
+            fontSize: isPhone ? 18 : 31,
             fontWeight: 600,
             letterSpacing: "-0.02em",
             color: "var(--text-primary)",
-            gap: isPhone ? 6 : 8,
           }}
         >
           {INR.format(displayLtp)}
-          {/* Live/delayed dot */}
-          <span
-            title={isLive ? "Live price" : "Delayed price"}
-            aria-label={isLive ? "Live price" : "Delayed price"}
-            style={{
-              display: "inline-block",
-              width: 8,
-              height: 8,
-              borderRadius: "50%",
-              background: isLive ? "var(--color-profit)" : "var(--text-tertiary)",
-              flexShrink: 0,
-            }}
-            data-testid={isLive ? "live-dot" : "delayed-dot"}
-          />
         </span>
         <span
           className="inline-flex items-center"
           style={{
             gap: 4,
             // Phone: bare coloured text (no chip). Desktop keeps the tinted pill.
-            padding: isPhone ? 0 : "3px 10px",
+            padding: isPhone ? 0 : "3px 9px",
             borderRadius: isPhone ? 0 : "var(--radius-xs)",
             background: isPhone
               ? "transparent"
@@ -769,7 +761,7 @@ function Header({
                 : "rgba(239, 68, 68, 0.16)",
             color: positive ? "var(--color-profit)" : "var(--color-loss)",
             fontFamily: "var(--font-mono)",
-            fontSize: isPhone ? 11 : 12.5,
+            fontSize: isPhone ? 11 : 12,
             fontWeight: 500,
             whiteSpace: "nowrap",
           }}
@@ -783,11 +775,11 @@ function Header({
 
 function HeaderSkeleton(): React.ReactElement {
   return (
-    <div className="flex items-center" style={{ gap: 14 }}>
-      <Skeleton style={{ width: 56, height: 56, borderRadius: "var(--radius-md)" }} />
-      <div className="flex flex-col" style={{ gap: 6 }}>
-        <Skeleton style={{ width: 220, height: 24 }} />
-        <Skeleton style={{ width: 120, height: 14 }} />
+    <div className="flex items-center" style={{ gap: 12 }}>
+      <Skeleton style={{ width: 48, height: 48, borderRadius: "var(--radius-md)" }} />
+      <div className="flex flex-col" style={{ gap: 5 }}>
+        <Skeleton style={{ width: 205, height: 22 }} />
+        <Skeleton style={{ width: 105, height: 12 }} />
       </div>
     </div>
   );
@@ -921,11 +913,6 @@ function MergedOverviewCard({
   // 52-week high/low and the day high/low now live in the Performance range
   // bars below, so they're dropped from these columns (no duplication, and no
   // "₹NaN" when a source omits the 52-week figures).
-  const profile: { label: string; value: string }[] = [
-    { label: "Market Cap", value: fmtCr(quote.market_cap) },
-    { label: "Volume", value: quote.volume.toLocaleString("en-IN") },
-  ];
-
   // Valuation ratios: P/E from the live quote; P/B, EV/Sales, EV/EBITDA from
   // the financials snapshot (Moneycontrol / yfinance fallback). Render "—"
   // when the field is absent — never fabricate.
@@ -951,18 +938,17 @@ function MergedOverviewCard({
     <Card
       transparent
       padding="22px 24px"
-      className="flex h-full min-h-0 flex-col overflow-y-auto"
+      className="research-profile flex min-h-0 flex-col"
     >
       <CompanyOverviewBody quote={quote} financials={financials} />
 
       {/* Stats — folded into the same card. No section header. Sits
           beneath the Year Founded row separated by a slim gap. */}
       <div
-        className="grid grid-cols-1 sm:grid-cols-3"
+        className="research-profile-stats grid grid-cols-1 sm:grid-cols-3"
         style={{ gap: 24, marginTop: 22 }}
       >
-        <StatColumn title="Profile" rows={profile} />
-        <StatColumn title="Valuation (TTM)" rows={valuation} />
+        <StatColumn title="Valuation" rows={valuation} />
         <StatColumn title="Today" rows={day} />
       </div>
     </Card>
@@ -997,7 +983,6 @@ function CompanyOverviewBody({
   // Anything we don't have falls back to "—" so the row spacing stays
   // consistent regardless of which symbol you land on.
   const facts: { label: string; value: React.ReactNode }[] = [
-    { label: "Name", value: quote.name },
     { label: "CEO", value: live?.ceo ?? fallback?.ceo ?? "—" },
     {
       label: "Website",
@@ -1307,7 +1292,7 @@ function ChartCard({
   onAddPeer,
   onRemovePeer,
   primaryQuote,
-  chartHeight = 320,
+  chartHeight = 360,
 }: {
   tickers: string[];
   peerQuotes: Record<string, StockQuote>;
@@ -1875,6 +1860,7 @@ function ChartCard({
               height="100%"
               intraday={range === "1D" || range === "1W"}
               refitKey={expanded ? "expanded" : "collapsed"}
+              showPivotWatermark
             />
           )
         ) : metricSeriesDefs.length === 0 ? (
@@ -2031,7 +2017,8 @@ function ChartCard({
           style={{
             display: "flex",
             gap: 12,
-            padding: "16px 22px 20px",
+            padding: "14px 22px",
+            justifyContent: "flex-end",
             borderTop: "1px solid var(--glass-border)",
           }}
         >

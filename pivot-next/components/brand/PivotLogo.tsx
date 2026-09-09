@@ -92,3 +92,31 @@ export function PivotLogo({
 }
 
 export default PivotLogo;
+
+/** The chart header's Newsreader wordmark, reused by the main app shell. */
+export function PivotWordmark({
+  fontSize = 23,
+  className,
+  style,
+  title = "Pivot",
+}: PivotLogoProps): React.ReactElement {
+  return (
+    <span
+      className={className}
+      aria-label={title}
+      style={{
+        display: "inline-block",
+        fontFamily: "'Newsreader', Georgia, 'Times New Roman', serif",
+        fontWeight: 550,
+        fontSize,
+        lineHeight: 1,
+        letterSpacing: "-0.03em",
+        whiteSpace: "nowrap",
+        color: "var(--text-primary)",
+        ...style,
+      }}
+    >
+      Pivot.
+    </span>
+  );
+}

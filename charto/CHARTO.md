@@ -1,31 +1,26 @@
 # Charto — the analyst at your chart
 
-> **What this is.** Charto is a proposed product surface for Pivot: a dual-pane
-> experience where **chat is the single source of truth and a candlestick chart
-> is the renderer of that chat**. This document is the constitution, feature
-> inventory, and build guide for it.
+> **What this is.** Charto is Pivot's charting engine: a dual-pane experience
+> where **chat is the single source of truth and a candlestick chart is the
+> renderer of that chat**. This document is its constitution, feature inventory
+> and build guide.
 >
-> **Status: ideation + feasibility complete, nothing built.** As of 2026-07-23
-> this is a design module, not shipped code. Two codebase audits (frontend +
-> backend) and a three-agent web-research sweep back the claims here; the
-> feasibility verdicts and roadmap reflect what the Pivot repo actually
-> contained on that date.
+> **Status: shipped and in production since 2026-07-29.** `preview/` is served
+> off disk at `/`, `data/dataserver.py` runs as `charto.service` on `:5174`, and
+> `web/` serves the company page on `:5175`. This blockquote previously read
+> "ideation + feasibility complete, nothing built" and stayed that way for six
+> weeks after the first deploy — corrected 2026-09-05. The feasibility verdicts
+> and roadmap below still reflect the 2026-07-23 audits; where they disagree
+> with the code, the code wins.
 >
-> **Why this folder is separate.** Charto is a **trial-and-error sandbox**. It
-> is deliberately kept out of `pivot/`, `pivot-next/`, `Markdowns/`, and the
-> other production trees so that exploratory notes, throwaway prototypes, and
-> half-formed specs never get mistaken for the live product or its committed V2
-> plan. Nothing in this folder is wired into the running app. When a Charto idea
-> graduates to a real build, it moves out of here and follows the normal Pivot
-> conventions (new `_render_hint` + FE card + deploy path, migrations, evals).
-> Treat everything in `charto/` as provisional until then.
->
-> **How this relates to the rest of Pivot.** Charto is the *rendering + judgment*
-> layer sitting on top of engines Pivot already owns (chat brain, backtester,
-> Kite data, detectors, workflow watcher, orders, thematic map, news pipeline).
-> It is mostly assembly, not green-field — see §7. It also subsumes and extends
-> the earlier "View Markets V2" chart-vision thread; read `CLAUDE.md` §9 for how
-> V2 framed belief→expression→deployment, which Charto renders spatially.
+> **How this relates to the rest of Pivot.** Charto is the *rendering and
+> judgment* layer over engines Pivot already owns (chat brain, backtester, Kite
+> data, detectors, workflow watcher, thematic map). Importing `pivot/` is
+> deliberate, not a violation: `data/execution_bridge.py` borrows the strategy
+> engine so there is one derivation and one set of numbers. The earlier
+> "View Markets" belief-to-expression thread that this document once extended
+> was **retired on 2026-09-05** — see `CLAUDE.md` section 4. Charto is the
+> charting engine inside one platform, not a product beside it.
 
 ---
 

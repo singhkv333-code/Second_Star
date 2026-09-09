@@ -134,6 +134,7 @@ def _build_handlers() -> dict:
         "screen_fundamentals":        _screen_fundamentals,
         "fetch_fundamentals":         _fetch_fundamentals,
         "query_financials":           _query_financials,
+        "get_company_research":       _get_company_research,
         "get_symbol_news":            _get_symbol_news,
         # Strategy builder + dynamic clarifying questions (Workstreams A & B).
         # build_strategy emits a strategy_builder_card; ask_user_dynamic runs
@@ -1461,6 +1462,27 @@ async def _query_financials(a, kt, db, uid):
         resolve_financial_query, sym, metric, basis=basis, history=history,
     )
     return {"success": True, "data": res, "logiccard": None}
+
+
+async def _get_company_research(a, kt, db, uid):
+    """Batch stock-page derivations behind one model tool call."""
+    import asyncio
+    from backend.routers.stock_detail import get_company_research_data
+
+    result = await asyncio.to_thread(
+        get_company_research_data,
+        str(a.get("symbol", "")),
+        list(a.get("sections") or []),
+        basis=str(a.get("basis", "consolidated")),
+        filing_topics=list(a.get("filing_topics") or []),
+        statement=str(a.get("statement", "profit_loss")),
+    )
+    return {
+        "success": bool(result.get("available")),
+        "data": result,
+        "error": result.get("error"),
+        "logiccard": None,
+    }
 
 
 async def _get_symbol_news(a, kt, db, uid):

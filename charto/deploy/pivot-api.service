@@ -1,0 +1,65 @@
+[Unit]
+# Pivot's FastAPI on :8000 — the engine half of the platform, reached through
+# nginx at /api/pivot/.
+#
+# WHY THIS UNIT DID NOT EXIST UNTIL NOW
+# ------------------------------------
+# Pivot has run in production for months as a LIBRARY, not a service:
+# charto/data/execution_bridge.py imports backend.agents.tools and
+# backend.workflows.* to borrow the strategy engine, and pivotted/fundamentals.py
+# imports backend.market.financials_db. Nothing served :8000. Standing it up is
+# additive — every existing route keeps answering from the process it answers
+# from today, and this one is reached only under /api/pivot/.
+#
+# WHAT THIS UNIT TURNS OFF, AND WHY
+# ---------------------------------
+# Pivot's startup does three things unconditionally that are wrong on a box it
+# shares with Charto, and two of them are wrong QUIETLY:
+#
+#   1. APScheduler (SIP/strategy jobs + a 30s workflow poll). This box has
+#      2 vCPU and Charto's live tick engine needs one of them inside market
+#      hours; a minute lost in _live_on_tick is a bar that never forms.
+#   2. Cache warmup, which spends model tokens on every boot — and this unit
+#      has Restart=always.
+#   3. Kite ticker autostart, which opens a SECOND WebSocket on the same API
+#      key that charto/data/kite_stream.py already holds. That is the
+#      dangerous one: Kite does not welcome two, and the connection that
+#      loses is the live feed the chart draws from.
+#
+# Both flags default TRUE in config.py, so local dev and any other deployment
+# behave exactly as before. They are false HERE because here Charto owns the
+# scheduler and the socket.
+Description=Pivot API (FastAPI, :8000)
+After=network.target charto.service
+Wants=charto.service
+
+[Service]
+Type=simple
+User=azureuser
+WorkingDirectory=/data/app/pivot
+# Same interpreter as the dataserver and the research chat. Not a shortcut:
+# execution_bridge already imports this package into that interpreter, so a
+# venv of its own would be a second copy of the dependencies the tools were
+# tested against, free to drift from them.
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/data/app/pivot
+# Charto owns the scheduler and the Kite socket on this host. See above.
+Environment=BACKGROUND_JOBS_ENABLED=false
+Environment=KITE_TICKER_AUTOSTART=false
+# Loopback ONLY. nginx is the sole thing that should reach this, because nginx
+# is where the rate limit lives. A unit that relies on the NSG staying shut is
+# a unit waiting to be wrong.
+ExecStart=/data/venv/bin/python -m uvicorn backend.main:app \
+          --host 127.0.0.1 --port 8000 --workers 1 --no-access-log
+Restart=always
+RestartSec=5
+# The 7.9 GB box already commits charto 3072M + charto-web 1024M +
+# charto-research 1500M = 5596M, and it has NO SWAP. 1200M leaves ~1.1 GB for
+# the OS and page cache. These are ceilings, not reservations — measured
+# resident use across all four is ~1.3 GB — but with no swap the ceiling is
+# what the OOM killer reads, so it is set to what this actually needs
+# (SQLAlchemy + pandas + the option greeks stack) and not to what is spare.
+MemoryMax=1200M
+
+[Install]
+WantedBy=multi-user.target

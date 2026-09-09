@@ -2,6 +2,14 @@ import type { NextConfig } from "next";
 
 const BACKEND = process.env.NEXT_PUBLIC_PIVOT_API_BASE?.replace(/\/api\/?$/, "") || "http://127.0.0.1:8000";
 
+// The charting engine. It is a static app (charto/preview) served by its own
+// tiny no-cache server in development and by nginx in production; either way
+// the shell proxies it so the browser only ever sees ONE origin. That is not
+// cosmetic — the chart keeps its auth token, workspace and saved layouts in
+// localStorage, and localStorage is per-origin, so a chart on a second port
+// is a chart the signed-in user is signed out of.
+const CHART = process.env.CHART_UPSTREAM || "http://127.0.0.1:5173";
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   // Standalone output bundles a minimal server + only the deps actually used
@@ -34,7 +42,15 @@ const nextConfig: NextConfig = {
     ].join("; ");
     return [
       {
-        source: "/:path*",
+        // Everything EXCEPT the chart. `frame-ancestors 'none'` and
+        // `X-Frame-Options: DENY` are what stop the app being iframed to
+        // overlay a "Confirm & place" click — and they applied to `/:path*`,
+        // which includes the chart the shell frames itself. The Chart tab
+        // therefore rendered "localhost refused to connect": the shell was
+        // refusing its own frame. Excluded by path rather than relaxed
+        // globally, so the clickjacking guard still covers every surface that
+        // can place an order.
+        source: "/:path((?!chart-app).*)",
         headers: [
           { key: "Content-Security-Policy", value: csp },
           { key: "X-Frame-Options", value: "DENY" },
@@ -51,6 +67,21 @@ const nextConfig: NextConfig = {
   },
   async rewrites() {
     return [
+      {
+        source: "/pivot-chat/:path*",
+        destination: `${BACKEND}/:path*`,
+      },
+      {
+        // The chart app, proxied so it is same-origin with the shell. Two
+        // rules because `/chart-app` with no trailing path must resolve too —
+        // it is what the iframe asks for first.
+        source: "/chart-app",
+        destination: `${CHART}/`,
+      },
+      {
+        source: "/chart-app/:path*",
+        destination: `${CHART}/:path*`,
+      },
       {
         // The Agent System client (lib/api.ts `request()`) targets the
         // `/api` base; when NEXT_PUBLIC_PIVOT_API_BASE isn't inlined it

@@ -130,7 +130,7 @@ def _multiasset_mark_inr(sym: str) -> Optional[Decimal]:
     price is unavailable. This is what makes US/crypto positions value and the
     View ledger price them, instead of being dropped or mis-priced as rupees."""
     try:
-        from backend.view_markets.security_meta import classify
+        from backend.market.security_meta import classify
         cls = classify(sym)
     except Exception:  # noqa: BLE001
         return None

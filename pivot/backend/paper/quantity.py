@@ -26,7 +26,7 @@ def _asset_class(symbol: Optional[str], asset_class: Optional[str]) -> str:
     if not symbol:
         return "in_equity"
     try:
-        from backend.view_markets.security_meta import classify
+        from backend.market.security_meta import classify
         return str(classify(symbol).get("asset_class") or "in_equity")
     except Exception:  # noqa: BLE001
         return "in_equity"

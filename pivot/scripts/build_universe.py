@@ -4,7 +4,7 @@ Outputs (all derived from real exchange data — nothing hand-invented):
   scripts/strategy_research/v3/_cache/nse_equities.csv   all plain-series NSE
                                                          equities (~2,700)
   scripts/strategy_research/v3/_cache/nse_etfs.csv       all NSE ETFs (~240)
-  backend/view_markets/etf_catalog.json                  curated per-category
+  backend/market/etf_catalog.json                  curated per-category
                                                          ETF picks, each one
                                                          VERIFIED live: exists
                                                          in the exchange dump,
@@ -14,7 +14,7 @@ Outputs (all derived from real exchange data — nothing hand-invented):
                                                          its category wins
                                                          (20-day median traded
                                                          value, ₹ cr).
-  backend/view_markets/option_universe.json              every listed option
+  backend/market/option_universe.json              every listed option
                                                          underlying (NFO + BFO
                                                          + MCX) with its
                                                          nearest-expiry lot
@@ -58,10 +58,10 @@ _CACHE = v3u.CACHE_DIR
 DUMP_JSON = os.path.join(_CACHE, "nse_cash_dump.json")
 EQUITY_MASTER_SNAPSHOT = os.path.join(_CACHE, "nse_equity_master.csv")
 CATALOG_JSON = os.path.join(
-    os.path.dirname(__file__), "..", "backend", "view_markets", "etf_catalog.json"
+    os.path.dirname(__file__), "..", "backend", "market", "etf_catalog.json"
 )
 OPTION_UNIVERSE_JSON = os.path.join(
-    os.path.dirname(__file__), "..", "backend", "view_markets", "option_universe.json"
+    os.path.dirname(__file__), "..", "backend", "market", "option_universe.json"
 )
 
 # Option segments the affordability engine can honestly quote lots for. NCO

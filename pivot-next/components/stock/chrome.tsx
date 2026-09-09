@@ -29,7 +29,7 @@ import * as React from "react";
  *  Performance — so the page's rhythm changed every time it changed subject,
  *  and at the low end a heading sat closer to the chart above it than to its
  *  own content. One value, and a roomier one. */
-export const SECTION_GAP = 56;
+export const SECTION_GAP = 32;
 
 export function usePhone(): boolean {
   const [phone, setPhone] = React.useState(false);
