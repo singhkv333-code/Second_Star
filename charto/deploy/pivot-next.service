@@ -1,0 +1,44 @@
+[Unit]
+# pivot-next on :3000 — the Pivot product shell (chat, screener, portfolio,
+# agents), mounted at /app/ beside Charto's chart, which owns `/`.
+#
+# WHY A SECOND NEXT PROCESS IS SAFE HERE
+# --------------------------------------
+# charto-web (:5175) already runs Next on this box. This one is built with
+# `output: "standalone"`, so it does not carry a full node_modules at runtime —
+# it runs .next/standalone/server.js, which bundles only what the app imports.
+# Measured steady state is well under the ceiling below; the ceiling exists so
+# a leak cannot take the chart down with it.
+#
+# MEMORY BUDGET ON A 7.9 GB BOX
+# -----------------------------
+# charto 3072M + charto-web 1024M + charto-research 1500M + pivot-api 1200M
+# = 5796M of ceilings. These are ceilings, not reservations — real resident use
+# across all of them measured ~1.8 GB. 900M here keeps the total under 6.7G and
+# leaves the OS its page cache. The box does have 2 GB of swap (CLAUDE.md said
+# otherwise; it is wrong), but swap is already heavily used, so the ceiling is
+# what actually protects the chart.
+Description=Pivot shell (Next.js, :3000)
+After=network.target pivot-api.service
+Wants=pivot-api.service
+
+[Service]
+Type=simple
+User=azureuser
+WorkingDirectory=/data/app/pivot-next
+Environment=NODE_ENV=production
+Environment=PORT=3000
+# Loopback only. nginx is the only thing that should reach this, because nginx
+# is where the rate limits and TLS live.
+Environment=HOSTNAME=127.0.0.1
+# Must match the basePath the bundle was BUILT with. next.config.ts reads the
+# same variable, so a mismatch here serves HTML that asks for its assets at the
+# wrong prefix and the page loads blank with 404s in the console.
+Environment=NEXT_BASE_PATH=/app
+ExecStart=/usr/bin/node /data/app/pivot-next/.next/standalone/server.js
+Restart=always
+RestartSec=5
+MemoryMax=900M
+
+[Install]
+WantedBy=multi-user.target
