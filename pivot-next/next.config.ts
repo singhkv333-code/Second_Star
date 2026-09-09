@@ -12,6 +12,14 @@ const CHART = process.env.CHART_UPSTREAM || "http://127.0.0.1:5173";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Mounted under a prefix in production so it can sit beside Charto's chart,
+  // which owns `/` on the same host. Set from the environment rather than
+  // hardcoded: `next dev` and every test run leave it unset and keep serving
+  // from the root, so nothing local changes. Both the router and the asset
+  // URLs follow it, which is why this has to be a build-time config and not
+  // an nginx rewrite — a rewrite would strip the prefix off requests while
+  // the HTML kept asking for `/_next/...` at the root.
+  basePath: process.env.NEXT_BASE_PATH || undefined,
   // Standalone output bundles a minimal server + only the deps actually used
   // into .next/standalone — the standard shape for a containerized deploy
   // (small image, no full node_modules copy). Purely a build-output change,
