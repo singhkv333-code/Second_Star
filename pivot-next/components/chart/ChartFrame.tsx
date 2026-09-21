@@ -60,6 +60,9 @@ export function ChartFrame({ symbol, theme, onChatVisibilityChange }: Props): Re
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  // True while a dialog is open INSIDE the frame. See the "chart:overlay"
+  // handler below for why the shell has to care about the frame's modals.
+  const [overlay, setOverlay] = useState(false);
 
   // Built once per symbol. Deliberately NOT dependent on `theme`: rebuilding
   // the URL on a theme flip would reload the chart and throw away the user's
@@ -93,6 +96,17 @@ export function ChartFrame({ symbol, theme, onChatVisibilityChange }: Props): Re
       if (d?.type === "chart:ready") { setReady(true); setFailed(false); }
       if (d?.type === "chart:error") { setReady(false); setFailed(true); }
       if (d?.type === "chart:chat-visibility") onChatVisibilityChange?.(d.open === true);
+      // A modal opened (or closed) inside the frame. `position: fixed` in the
+      // frame resolves against the FRAME's viewport, so a dialog could only
+      // centre within the chart pane and dim the chart alone — the shell's
+      // sidebar, header and right rail stayed lit and clickable behind it.
+      // Promoting each dialog into React would mean a second copy of ~15
+      // surfaces; instead the frame tells us, and we float it over the whole
+      // window for as long as the dialog is up. Fixed positioning inside then
+      // resolves against the real viewport, and every overlay is correct at
+      // once. The chart does not reflow: the frame keeps its own box and only
+      // the wrapper that positions it changes.
+      if (d?.type === "chart:overlay") setOverlay(d.open === true);
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
@@ -101,6 +115,7 @@ export function ChartFrame({ symbol, theme, onChatVisibilityChange }: Props): Re
   useEffect(() => {
     setReady(false);
     setFailed(false);
+    setOverlay(false);
     onChatVisibilityChange?.(false);
   }, [src, attempt, onChatVisibilityChange]);
 
@@ -131,7 +146,10 @@ export function ChartFrame({ symbol, theme, onChatVisibilityChange }: Props): Re
   }, [post]);
 
   return (
-    <div className="chart-frame-wrap relative flex flex-1 min-h-0 flex-col" style={{ background: "var(--bg-base)" }}>
+    <div
+      className={`chart-frame-wrap relative flex flex-1 min-h-0 flex-col${overlay ? " chart-frame-wrap--overlay" : ""}`}
+      style={{ background: "var(--bg-base)" }}
+    >
     {(!ready || failed) && (
       <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3" style={{ background: "var(--bg-base)", color: "var(--text-secondary)" }} role="status">
         {failed ? "The chart could not finish loading." : "Loading chart…"}

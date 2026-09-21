@@ -117,10 +117,13 @@ describe("AppShell", () => {
     expect(screen.getByTestId("chat-demo")).toBeInTheDocument();
     expect(screen.getByTestId("chat-textarea")).toBeInTheDocument();
     expect(screen.getByTestId("chat-submit-btn")).toBeInTheDocument();
-    // Mode pills (Automation / Agent / Backtest) live below the composer.
-    expect(screen.getByTestId("mode-automation")).toBeInTheDocument();
-    expect(screen.getByTestId("mode-agent")).toBeInTheDocument();
-    expect(screen.getByTestId("mode-backtest")).toBeInTheDocument();
+    // No shortcut row beneath the composer — the option-chain pill was a
+    // dummy entry point onto mock data and is hidden, so the chat page ends
+    // at the composer like the other surfaces.
+    expect(screen.queryByTestId("option-chain-launcher-pill")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("mode-automation")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("mode-agent")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("mode-backtest")).not.toBeInTheDocument();
   });
 
   it("Portfolio nav item mounts the portfolio tab", async () => {

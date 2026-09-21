@@ -2068,6 +2068,17 @@ header > .btn, header > .badge { flex: none; }
 .in-shell body > header #acctMenu {
   display: none;
 }
+/* Framed, this document's viewport is the IFRAME's, and the shell lifts the
+   frame one header height above the chart pane so the chart's own controls
+   land in the shared header's middle slot. A header dropdown therefore has
+   `--header-h` LESS usable room below it than `100dvh` suggests, and the
+   menu ran past the frame's bottom edge — which clips, with no scrollbar and
+   no warning, so a long menu (Layouts, Indicators) looked sliced off after a
+   row or two rather than scrollable. Give the menus inside the frame that
+   height back, so they scroll within themselves exactly as they do at `/`. */
+.in-shell .dropdown {
+  max-height: calc(100dvh - 72px - var(--header-h, 56px));
+}
 @media (max-width: 1023.98px) {
   .in-shell { --header-h: 56px; }
   .in-shell body > header {
@@ -8426,6 +8437,6 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/panels.js?v=13"></script>
   <!-- last: every control it proxies has to exist and be wired first -->
   <script src="./js/mobile.js?v=13"></script>
-  <script src="./js/embed.js?v=6"></script>
+  <script src="./js/embed.js?v=7"></script>
 </body>
 </html>

@@ -1122,6 +1122,60 @@ input[type="range"].payoff-slider::-moz-range-thumb {
     inset: 0;
   }
 }
+/* ── the account dropdown's glass ───────────────────────────────────────────
+   Ported verbatim from the chart app's own `.dropdown` (charto/preview's
+   --ctx-* tokens) so the menu is the SAME sheet on every page instead of a
+   near-miss: the shell's copy had no rim at all and sat 6% more opaque, which
+   read as flat next to the chart's. Two knobs, as over there — dark leans on
+   the rim (a dark sheet on a dark page has no edge without one), light leans
+   on opacity (white glass over white needs body, not outline). */
+:root {
+  --glass-paper: rgba(252, 252, 253, 0.72);
+  --glass-rim: rgba(15, 18, 22, 0.1);
+  --glass-sheen: rgba(255, 255, 255, 0.85);
+  --glass-sheen-low: rgba(15, 18, 22, 0.04);
+  --glass-shadow: 0 1px 2px rgba(15, 18, 22, 0.12), 0 12px 34px -10px rgba(15, 18, 22, 0.28);
+}
+.dark {
+  --glass-paper: rgba(30, 30, 32, 0.62);
+  --glass-rim: rgba(255, 255, 255, 0.13);
+  --glass-sheen: rgba(255, 255, 255, 0.14);
+  --glass-sheen-low: rgba(255, 255, 255, 0.05);
+  --glass-shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 12px 34px -8px rgba(0, 0, 0, 0.74);
+}
+.glass-menu {
+  background: var(--glass-paper);
+  border: 1px solid var(--glass-rim);
+  box-shadow:
+    inset 0 1px 0 var(--glass-sheen),
+    inset 0 -1px 0 var(--glass-sheen-low),
+    var(--glass-shadow);
+  -webkit-backdrop-filter: blur(22px) saturate(145%);
+  backdrop-filter: blur(22px) saturate(145%);
+}
+
+/* ── a dialog is open INSIDE the frame ──────────────────────────────────────
+   `position: fixed` inside an iframe is fixed to the IFRAME's viewport, not
+   the page's, so Charto's dialogs (settings, indicator settings, alerts,
+   shortcuts, layouts, the mobile sheet, the auth screen) centred inside the
+   chart pane and dimmed only the chart — the sidebar, header and right rail
+   stayed lit and clickable behind a modal that claimed to be modal. The pane
+   is also lifted one header height above, which is why the card sat high too.
+
+   While a dialog is up, the frame announces it ("chart:overlay", embed.js)
+   and we promote the frame to the full viewport. Fixed positioning inside now
+   resolves against the real window, so the scrim covers the whole app and the
+   card centres on it — every overlay fixed at once, none of them rewritten.
+
+   z-index clears the shell's chrome: the top bar is 40, the sidebar and the
+   right rail sit below that. `position: fixed` on the wrapper takes it out of
+   the pane's flow, so the pane keeps its size and the chart does not reflow —
+   the iframe is the same box, just anchored to the window instead. */
+.chart-shell-pane .chart-frame-wrap--overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}
 .sidebar-nav-list {
   gap: 6px;
 }

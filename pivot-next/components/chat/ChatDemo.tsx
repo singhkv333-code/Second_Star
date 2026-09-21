@@ -2692,9 +2692,17 @@ function ChatComposer({
       <div
         className="chat-composer-box relative"
         style={{
-          background: "var(--bg-primary)",
-          borderRadius: "var(--radius-xl)",
+          // --bg-base, not --bg-primary. --bg-primary is #fbfbfc, a deliberate
+          // card tint that reads as grey against this route's white page; the
+          // Quick Ask pill on the other surfaces sits on --bg-primary over a
+          // TINTED page, which is why it looks white there and this did not.
+          // Dark mode is unaffected: both tokens are near-black there.
+          background: "var(--bg-base)",
+          borderRadius: 28,
           border: `1px solid var(--glass-border)`,
+          boxShadow: "0 5px 18px rgba(15, 18, 22, 0.08)",
+          backdropFilter: "blur(28px) saturate(160%)",
+          WebkitBackdropFilter: "blur(28px) saturate(160%)",
         }}
       >
         {/* "@" typeahead — anchored above the pill while a mention is
@@ -2818,59 +2826,11 @@ function ChatComposer({
         </div>
       </div>
 
-      {/* Mode pills — Automation / Agent / Backtest (extras kept). Quartr-styled
-          so they read as a quiet row rather than glassy chips. On phone the row
-          scrolls horizontally (the four chips overflow a ~360px width); on sm+
-          it stays a static centered row. */}
-      {!compact && <div className="composer-modes flex items-center justify-start gap-2 overflow-x-auto px-0.5 sm:justify-center sm:overflow-x-visible sm:px-0">
-        {MODES.map((m) => {
-          const Icon = m.icon;
-          const isActive = mode === m.id;
-          return (
-            <button
-              key={m.id}
-              type="button"
-              onClick={() => onModeChange(isActive ? null : m.id)}
-              data-testid={`mode-${m.id}`}
-              data-active={isActive}
-              aria-pressed={isActive}
-              title={m.description}
-              className="inline-flex shrink-0 items-center"
-              style={{
-                // Borderless mode pills — same active treatment as the
-                // sidebar nav: subtle elevated bg + ink text. No border.
-                gap: 6,
-                padding: "6px 12px",
-                borderRadius: "var(--radius-sm)",
-                background: isActive ? "var(--surface-active)" : "transparent",
-                border: "none",
-                color: isActive ? "var(--text-primary)" : "var(--text-secondary)",
-                fontFamily: "var(--font-ui)",
-                fontSize: 11.5,
-                fontWeight: 500,
-                cursor: "pointer",
-                transition:
-                  "color 0.35s var(--ease-quartr), background-color 0.35s var(--ease-quartr)",
-              }}
-              onMouseEnter={(e) => {
-                if (isActive) return;
-                e.currentTarget.style.color = "var(--text-primary)";
-              }}
-              onMouseLeave={(e) => {
-                if (isActive) return;
-                e.currentTarget.style.color = "var(--text-secondary)";
-              }}
-            >
-              <Icon size={12} strokeWidth={2} aria-hidden={true} />
-              <span>{m.label}</span>
-            </button>
-          );
-        })}
-        {/* Dummy entry point — opens the full-screen option chain (mock data). */}
-        <span className="shrink-0">
-          <OptionChainLauncherCard variant="pill" />
-        </span>
-      </div>}
+      {/* No shortcut row beneath the composer. The option-chain pill lived
+          here as a dummy entry point onto mock data; it is hidden so the chat
+          page ends at the composer like the other surfaces. The launcher and
+          its full-screen view are untouched, and still open from the
+          `pivot:open-option-chain` event, so restoring this is one block. */}
     </div>
   );
 }
