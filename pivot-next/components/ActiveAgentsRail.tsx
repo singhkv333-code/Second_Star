@@ -157,7 +157,7 @@ export function ActiveAgentsRail({
   return (
     <aside
       className="flex flex-col gap-3"
-      aria-label="Active Agents"
+      aria-label="Active Strategies"
       data-testid="active-agents-rail"
     >
       <div className="flex items-center justify-between">
@@ -171,13 +171,13 @@ export function ActiveAgentsRail({
             color: "var(--text-primary)",
           }}
         >
-          Active Agents
+          Active Strategies
         </h2>
         {state.kind === "ok" && state.cards.length > 0 && (
           <button
             type="button"
             onClick={load}
-            aria-label="Refresh agents"
+            aria-label="Refresh strategies"
             className="inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-muted hover:text-foreground"
           >
             <RefreshCw className="h-3.5 w-3.5" aria-hidden={true} />
@@ -211,7 +211,7 @@ export function ActiveAgentsRail({
           data-testid="rail-empty"
         >
           <Bot className="mx-auto mb-2 h-6 w-6 text-muted-foreground" aria-hidden={true} />
-          <p className="text-xs text-muted-foreground">No active agents yet.</p>
+          <p className="text-xs text-muted-foreground">No active strategies yet.</p>
         </div>
       )}
 

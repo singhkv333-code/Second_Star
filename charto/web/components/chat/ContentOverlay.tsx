@@ -1,11 +1,9 @@
 "use client";
 
 /**
- * ContentOverlay — a "full screen" surface that fills ONLY the chat/content
- * area: it starts below the top header (`--header-h`) and to the right of the
- * 240px left nav on lg+ (full width below lg, where the nav is a drawer). The
- * top bar and sidebar stay visible and interactive — the overlay never covers
- * them. Opaque, so no scrim is needed; closes on Esc or the caller's button.
+ * ContentOverlay — a full-height content surface whose desktop left edge
+ * follows the live sidebar width. On mobile it spans the viewport because
+ * navigation is a drawer. Opaque, with no scrim needed.
  *
  * Used by the full-screen Option Strategy builder and the full-screen Option
  * Chain. Kept dumb on purpose — the caller owns header/body/footer.

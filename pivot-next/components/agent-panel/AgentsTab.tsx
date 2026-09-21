@@ -393,8 +393,8 @@ export function AgentsTab({
       };
     }
     return {
-      pageTitle: "Active Agents",
-      label: "Active agents",
+      pageTitle: "Active Strategies",
+      label: "Active strategies",
       count: summary?.active_count ?? 0,
       rows: summary?.strategy_returns ?? [],
       loading: summaryLoading,
@@ -442,7 +442,7 @@ export function AgentsTab({
             className="flex flex-wrap items-center"
             style={{ gap: 6 }}
             role="group"
-            aria-label="Filter agents"
+            aria-label="Filter strategies"
           >
             {FILTERS.map((f) => {
               const active = filter === f.value;
@@ -484,7 +484,7 @@ export function AgentsTab({
               data-testid="agents-empty"
             >
               <Bot className="mb-3 h-8 w-8 text-muted-foreground" aria-hidden="true" />
-              <p className="text-sm font-medium">No agents yet</p>
+              <p className="text-sm font-medium">No strategies yet</p>
               <p className="mt-1 text-xs text-muted-foreground">
                 Start a chat to propose one.
               </p>
@@ -543,13 +543,13 @@ function SurfaceToggle({
   onChange: (s: Surface) => void;
 }): React.ReactElement {
   const OPTIONS: { key: Surface; label: string }[] = [
-    { key: "equity", label: "Equity agents" },
-    { key: "options", label: "Options" },
+    { key: "equity", label: "Equity" },
+    { key: "options", label: "F&O" },
   ];
   return (
     <div
       role="tablist"
-      aria-label="Agent surface"
+      aria-label="Strategy surface"
       data-testid="agents-surface-toggle"
       style={{
         display: "flex",

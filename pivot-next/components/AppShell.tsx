@@ -124,7 +124,7 @@ const NAV_ITEMS: {
   { key: "chart", label: "Chart", Icon: ChartNoAxesCombined },
   { key: "chat", label: "Chat", Icon: MessagesSquare },
   { key: "portfolio", label: "Portfolio", Icon: WalletCards },
-  { key: "agents", label: "Agents", Icon: WorkflowIcon },
+  { key: "agents", label: "Strategy", Icon: WorkflowIcon },
   { key: "screener", label: "Screener", Icon: ListFilter },
 ];
 
@@ -409,7 +409,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     } else if (!children && active === "portfolio") {
       next = { kind: "page", page: "portfolio", label: "My portfolio" };
     } else if (!children && active === "agents") {
-      next = { kind: "page", page: "agents", label: "My agents" };
+      next = { kind: "page", page: "agents", label: "My strategies" };
     } else if (!children && active === "screener") {
       next = { kind: "page", page: "screener", label: "Screener" };
     }
@@ -1034,7 +1034,10 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     <LoginIntroGate />
     <div
       className="app-shell-root flex flex-col h-screen bg-background"
-      style={{ ["--paper-banner-h" as string]: "0px" }}
+      style={{
+        ["--paper-banner-h" as string]: "0px",
+        ["--content-overlay-left" as string]: sidebarCollapsed ? "0px" : "48px",
+      }}
     >
         <TopHeader
           variant={!children && active === "chart" ? "chart" : "default"}

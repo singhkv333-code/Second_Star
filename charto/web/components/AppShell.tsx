@@ -116,7 +116,7 @@ const NAV_ITEMS: {
   { key: "home", label: "Home", Icon: Home },
   { key: "chat", label: "Chat", Icon: MessageSquare },
   { key: "portfolio", label: "Portfolio", Icon: PieChart },
-  { key: "agents", label: "Agents", Icon: Settings },
+  { key: "agents", label: "Strategy", Icon: Settings },
   { key: "screener", label: "Screener", Icon: BarChart2 },
 ];
 
@@ -843,7 +843,10 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     <LoginIntroGate />
     <div
       className="app-shell-root flex h-screen bg-background"
-      style={{ ["--paper-banner-h" as string]: "0px" }}
+      style={{
+        ["--paper-banner-h" as string]: "0px",
+        ["--content-overlay-left" as string]: sidebarCollapsed ? "0px" : "240px",
+      }}
     >
       {/* Left sidebar — FULL HEIGHT (ElevenLabs-style: spans top-to-bottom as
           a sibling of the header+content column). Inline at lg+, slide-in
