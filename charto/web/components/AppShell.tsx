@@ -65,7 +65,6 @@ import {
   ActiveDraftContext,
 } from "@/components/agent-panel/active-draft-context";
 import { AgentsTab } from "@/components/agent-panel/AgentsTab";
-import { ViewsTab } from "@/components/views/ViewsTab";
 import { PortfolioTab } from "@/components/agent-panel/PortfolioTab";
 import { ScreenerPage } from "@/components/screener/ScreenerPage";
 import { SettingsDialog } from "@/components/settings/SettingsTab";
@@ -111,7 +110,7 @@ type TabKey =
   | "portfolio"
   | "agents"
   | "screener"
-  | "views";
+;
 
 const NAV_ITEMS: {
   key: TabKey;
@@ -1038,18 +1037,6 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
               }
             >
               <PortfolioTab />
-            </div>
-          )}
-          {visitedTabs.has("views") && (
-            // Views tab — curated market beliefs grid + detail page.
-            <div
-              className={
-                !children && active === "views"
-                  ? "flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 pt-4 pb-6 lg:px-8 lg:pt-6 lg:pb-8"
-                  : "hidden"
-              }
-            >
-              <ViewsTab onOpenWorkflowById={openWorkflowById} />
             </div>
           )}
           {visitedTabs.has("agents") && (

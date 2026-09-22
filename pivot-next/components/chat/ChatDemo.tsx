@@ -390,6 +390,9 @@ type ChatDemoProps = {
    * collapse so hiding it never interrupts the response. */
   escapeStopsResponse?: boolean;
   /** Compact Charto-style composer used only in the side-panel presentation. */
+  /** Accepted so the shell's call site keeps working. Currently inert:
+   *  its only consumer was the mode-pill row, which this branch does not
+   *  carry (MODES/onModeChange arrive in the unimported 17ee0285). */
   compact?: boolean;
   composerPlaceholder?: string;
 };
@@ -616,7 +619,6 @@ export function ChatDemo({
   conversationId,
   onConversationIdChange,
   escapeStopsResponse = true,
-  compact = false,
   composerPlaceholder,
 }: ChatDemoProps): React.ReactElement {
   // Read the active draft context so we can attach editor_draft on outgoing
@@ -1995,7 +1997,6 @@ export function ChatDemo({
           onAddAttachment={addAttachment}
           onRemoveAttachment={removeAttachment}
           onAgentPicked={handleAgentPicked}
-          compact={compact}
           placeholderOverride={composerPlaceholder}
         />
         </div>
@@ -2462,7 +2463,6 @@ function ChatComposer({
   onAddAttachment,
   onRemoveAttachment,
   onAgentPicked,
-  compact,
   placeholderOverride,
 }: {
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
@@ -2484,7 +2484,6 @@ function ChatComposer({
   onAddAttachment: (a: ChatAttachment) => void;
   onRemoveAttachment: (key: string) => void;
   onAgentPicked: (workflow: Workflow) => void;
-  compact: boolean;
   placeholderOverride?: string;
 }): React.ReactElement {
   // The right-side button is in one of three states:
