@@ -60,6 +60,7 @@ from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+import brokers
 import dataserver as ds
 import indicators
 import paper
@@ -1276,9 +1277,73 @@ def _held_quantity(uid: int, symbol: str) -> int:
     return int(float(row[0])) if row and row[0] else 0
 
 
+# ── the live leg ─────────────────────────────────────────────────────
+#
+# Order of operations here is the whole design, and it is deliberate:
+# the BROKER goes first, the paper book second.
+#
+# The paper book is this runtime's ledger — `_held_quantity`, `in_position`
+# and every exit decision read it. If the paper fill were written first and
+# the broker then refused, the rule would believe it held shares it does not
+# own and would later try to sell them. Placing live first means the ledger
+# only ever records fills that actually happened, and a broker refusal leaves
+# the rule exactly as it was: armed, unfilled, with the reason recorded.
+#
+# When live is not armed this returns None and the book behaves as it always
+# has, which is why `_fire_entry`/`_fire_exit` below read almost unchanged.
+
+def _live_armed() -> bool:
+    """Global kill switch. Off by default: arming live money is a deployment
+    decision, never a default, and it must be revocable without a code change."""
+    import os
+    return (os.environ.get("CHARTO_LIVE_ORDERS") or "").strip().lower() in (
+        "1", "true", "yes", "on")
+
+
+def _place_live_leg(uid: int, sid: int, symbol: str, side: str, qty: int,
+                    price: float, bar_ts: int) -> Optional[dict]:
+    """Send the real order, or return None when this fill stays simulated.
+
+    Returns ``{"order_id": ...}`` on success and ``{"error": reason}`` when a
+    live path existed but the broker refused — the caller must NOT write a
+    paper fill in that case.
+    """
+    if not _live_armed():
+        return None
+    try:
+        conn = brokers.active_connection(uid)
+    except Exception as exc:                      # broker layer unavailable
+        logger.warning("live leg unavailable: %s", exc)
+        return None
+    # Connecting a broker is not consent to trade with it. Absent the explicit
+    # per-connection arming the fill stays on paper, silently and correctly.
+    if conn is None or not getattr(conn, "live_enabled", 0):
+        return None
+
+    # One key per (strategy, bar, side): the UNIQUE index behind it is what
+    # actually prevents a double-send if two ticks race the same closed bar.
+    idem = f"s{sid}:{bar_ts}:{side}"
+    try:
+        res = brokers.place_live(
+            uid, symbol, side, qty, price=price, order_type="MARKET",
+            strategy_id=sid, idem_key=idem)
+    except brokers.LiveReject as exc:
+        return {"error": str(exc)}
+    except Exception as exc:                      # noqa: BLE001
+        return {"error": f"{type(exc).__name__}: {exc}"}
+    return {"order_id": res.get("order_id"), "broker": res.get("broker")}
+
+
 def _fire_entry(s: dict, price: float, bar_ts: int) -> None:
     sid, uid = int(s["id"]), int(s["user_id"])
     qty = int(float(s["quantity"]))
+    live = _place_live_leg(uid, sid, s["symbol"], "BUY", qty, price, bar_ts)
+    if live and live.get("error"):
+        _log(sid, uid, "reject", bar_ts=bar_ts, price=price, quantity=qty,
+             detail=f"live entry refused: {live['error']}")
+        _set_error(sid, f"live entry refused: {live['error']}")
+        _bump_fire_bar(sid, bar_ts)
+        return
     try:
         res = paper.place_order(
             uid, s["symbol"], "BUY", qty, order_type="MARKET",
@@ -1303,7 +1368,9 @@ def _fire_entry(s: dict, price: float, bar_ts: int) -> None:
         _db().commit()
     STATS["fires"] += 1
     _log(sid, uid, "entry", bar_ts=bar_ts, price=fill_px, quantity=qty,
-         detail=_readback(s)["entry"], order_id=res.get("order_id"))
+         detail=_readback(s)["entry"] + (
+             f" · live {live['broker']} {live['order_id']}" if live else ""),
+         order_id=(live or {}).get("order_id") or res.get("order_id"))
 
 
 def _fire_exit(s: dict, price: float, bar_ts: int) -> None:
@@ -1327,6 +1394,13 @@ def _fire_exit(s: dict, price: float, bar_ts: int) -> None:
         _close_position(sid, "nothing held to exit")
         return
     qty = min(int(float(s["quantity"] or 0)) or held, held)
+    live = _place_live_leg(uid, sid, s["symbol"], "SELL", qty, price, bar_ts)
+    if live and live.get("error"):
+        _log(sid, uid, "reject", bar_ts=bar_ts, price=price, quantity=qty,
+             detail=f"live exit refused: {live['error']}")
+        _set_error(sid, f"live exit refused: {live['error']}")
+        _bump_fire_bar(sid, bar_ts)
+        return
     try:
         res = paper.place_order(
             uid, s["symbol"], "SELL", qty, order_type="MARKET",
@@ -1347,8 +1421,9 @@ def _fire_exit(s: dict, price: float, bar_ts: int) -> None:
         _db().commit()
     STATS["fires"] += 1
     _log(sid, uid, "exit", bar_ts=bar_ts, price=res.get("fill_price", price),
-         quantity=qty, detail=_readback(s)["exit"],
-         order_id=res.get("order_id"))
+         quantity=qty, detail=_readback(s)["exit"] + (
+             f" · live {live['broker']} {live['order_id']}" if live else ""),
+         order_id=(live or {}).get("order_id") or res.get("order_id"))
 
 
 def _bump_fire_bar(sid: int, bar_ts: int) -> None:

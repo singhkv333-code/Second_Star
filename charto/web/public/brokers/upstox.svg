@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="Upstox">
+  <title>Upstox</title>
+  <!-- Upstox mark: brand violet (#7B3FE4) tile with the white ascending bars
+       the brand uses as its "U"/upward motif. -->
+  <rect x="2" y="2" width="44" height="44" rx="11" fill="#7B3FE4"/>
+  <path fill="#FFFFFF" d="M13.4 26.6h5v8.8h-5zM21.5 20.4h5v15h-5zM29.6 12.6h5v22.8h-5z"/>
+  <path fill="#FFFFFF" opacity=".55" d="M13.4 20.2 24 14l10.6-6.1v5.2L24 19.2l-10.6 6.1z"/>
+</svg>

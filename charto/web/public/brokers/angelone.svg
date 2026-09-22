@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="Angel One">
+  <title>Angel One</title>
+  <!-- Angel One mark: brand vermilion (#E84C2F) tile with the white upward
+       chevron/wing the brand uses. Two strokes, crisp at small sizes. -->
+  <rect x="2" y="2" width="44" height="44" rx="11" fill="#E84C2F"/>
+  <path fill="#FFFFFF" d="M24 12.6 36.4 35.4h-5.6L24 22.6l-6.8 12.8h-5.6z"/>
+  <path fill="#FFFFFF" opacity=".62" d="M24 25.9l4.6 8.6h-9.2z"/>
+</svg>

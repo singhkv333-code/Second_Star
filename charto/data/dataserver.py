@@ -41,7 +41,7 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlencode, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 
 # BEFORE any sibling that does `import dataserver`. Served as a script this
 # module is named __main__, so that name resolves by loading this file a
@@ -14185,6 +14185,12 @@ except Exception as _plans_exc:  # noqa: BLE001
     logging.warning("charto plans unavailable: %s", _plans_exc)
     _plans = None
 
+try:
+    import brokers as _brokers
+except Exception as _exc:                     # noqa: BLE001
+    logging.getLogger("charto").warning("broker layer not loaded: %s", _exc)
+    _brokers = None
+
 _SCRYPT = {"n": 2 ** 14, "r": 8, "p": 1}   # ~100ms/hash, OWASP-tier for scrypt
 _SESSION_TTL = 30 * 86400
 
@@ -16329,6 +16335,44 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(*_strategies.api_get(me[0], int(tail)))
                 return self._send(404, {"error": f"no strategy route '{tail}'"})
 
+            # ── brokers ──────────────────────────────────────────
+            # One GET powers the whole picker: every broker, this user's
+            # connection state, the deep links and the per-broker field list.
+            if u.path == "/brokers" or u.path.startswith("/brokers/"):
+                if _brokers is None:
+                    return self._send(501, {"error": "the broker layer is not "
+                                                     "loaded on this server"})
+                me = _auth_user(self.headers)
+                if not me:
+                    return self._send(401, {"error": "sign in to connect a broker"})
+                tail = u.path[len("/brokers"):].strip("/")
+                try:
+                    if not tail:
+                        return self._send(200, {
+                            "brokers": _brokers.catalog(me[0]),
+                            "live_armed": _strategies is not None
+                                          and _strategies._live_armed(),
+                            "encrypted": _brokers.encryption_on()})
+                    if tail == "orders":
+                        return self._send(200, {"orders": _brokers.recent_orders(me[0])})
+                    # OAuth return leg: the broker redirects the BROWSER here.
+                    parts = tail.split("/")
+                    if len(parts) == 2 and parts[1] == "callback":
+                        q = parse_qs(u.query)
+                        payload = {k: v[0] for k, v in q.items()}
+                        try:
+                            _brokers.connect(me[0], parts[0], payload)
+                            dest = "/brokers?connected=" + parts[0]
+                        except Exception as exc:                  # noqa: BLE001
+                            dest = "/brokers?error=" + quote(str(exc)[:200])
+                        self.send_response(302)
+                        self.send_header("Location", dest)
+                        self.end_headers()
+                        return None
+                except Exception as exc:                          # noqa: BLE001
+                    return self._send(400, {"error": str(exc)})
+                return self._send(404, {"error": f"no broker route '{tail}'"})
+
             if u.path == "/plans" or u.path.startswith("/plans/"):
                 if _plans is None:
                     return self._send(501, {"error": "the plan store is not "
@@ -16491,6 +16535,45 @@ class Handler(BaseHTTPRequestHandler):
         # Cancelling a resting order, and arming/pausing/retiring a strategy.
         # POST for all of it because this server speaks GET and POST — the
         # journal router made the same call for the same reason.
+        if u.path.startswith("/brokers/"):
+            if _brokers is None:
+                return self._send(501, {"error": "the broker layer is not "
+                                                 "loaded on this server"})
+            try:
+                ln = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(ln) or b"{}")
+            except (ValueError, TypeError):
+                return self._send(400, {"error": "bad JSON body"})
+            me = _auth_user(self.headers)
+            if not me:
+                return self._send(401, {"error": "sign in to connect a broker"})
+            parts = u.path[len("/brokers/"):].strip("/").split("/")
+            broker = parts[0]
+            action = parts[1] if len(parts) > 1 else "connect"
+            try:
+                if action == "connect":
+                    return self._send(200, _brokers.connect(me[0], broker, body))
+                if action == "reconnect":
+                    out = _brokers.reconnect(me[0], broker)
+                    return self._send(200 if out.get("ok") else 409, out)
+                if action == "disconnect":
+                    return self._send(200, _brokers.disconnect(me[0], broker))
+                if action == "live":
+                    # Arming real money is its own explicit act, separate from
+                    # connecting, and it is reversible from the same switch.
+                    _brokers.upsert_broker_session(
+                        None, me[0], broker,
+                        live_enabled=bool(body.get("enabled")))
+                    return self._send(200, {"ok": True,
+                                            "live_enabled": bool(body.get("enabled"))})
+                if action == "login_url":
+                    url = _brokers.connector(broker).get_login_url(
+                        f"charto:{me[0]}")
+                    return self._send(200, {"login_url": url})
+            except Exception as exc:                              # noqa: BLE001
+                return self._send(400, {"error": str(exc)})
+            return self._send(404, {"error": f"no broker action '{action}'"})
+
         if u.path.startswith("/paper/") or u.path == "/strategies" \
                 or u.path.startswith("/strategies/") \
                 or u.path.startswith("/api/strategies"):

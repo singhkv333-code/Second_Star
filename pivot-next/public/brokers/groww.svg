@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="Groww">
+  <title>Groww</title>
+  <!-- Groww mark: brand mint (#00D09C) tile with the white "growth arrow through
+       a window" silhouette. Simplified to two shapes so it stays legible at 28px. -->
+  <rect x="2" y="2" width="44" height="44" rx="11" fill="#00D09C"/>
+  <path fill="#FFFFFF" d="M14 20.5a6.5 6.5 0 0 1 6.5-6.5H28v4.6h-7.5a1.9 1.9 0 0 0-1.9 1.9V28a1.9 1.9 0 0 0 1.9 1.9H28V34h-7.5a6.5 6.5 0 0 1-6.5-6.5z"/>
+  <path fill="#FFFFFF" d="M24.6 25.9 33 17.5v5.1l-6.1 6.1zM30.2 14.4H36v5.8h-3.6v-2.2h-2.2z"/>
+</svg>

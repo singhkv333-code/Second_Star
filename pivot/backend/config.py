@@ -87,6 +87,13 @@ class Settings(BaseSettings):
     # Leave blank to keep the Fyers connector in mock mode.
     fyers_app_id: str = ""
     fyers_secret_id: str = ""
+
+    # Upstox OAuth app (app-level, owned by Pivot — the user types nothing).
+    # Create at https://account.upstox.com/developer/apps and set the app's
+    # Redirect URL to `{backend_url}/brokers/upstox/callback`.
+    # Leave blank to keep the Upstox connector in mock mode.
+    upstox_api_key: str = ""
+    upstox_api_secret: str = ""
     # Alias accepted from env; falls back to kite_token_enc_key when unset.
     broker_token_enc_key: str = ""
 
@@ -145,6 +152,10 @@ class Settings(BaseSettings):
     sentry_traces_sample_rate: float = 0.0
     allowed_origins: str = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173"
     frontend_url: str = "http://localhost:5173"
+    # Public origin of THIS API. OAuth redirect URIs must point at the backend
+    # (the broker calls us, not the browser app), and they must match the value
+    # registered in the broker's developer console byte-for-byte.
+    backend_url: str = "http://localhost:8000"
 
     # --- Google Sign-In ---------------------------------------------------------
     # OAuth 2.0 **Web** client id from Google Cloud Console. The SAME value is

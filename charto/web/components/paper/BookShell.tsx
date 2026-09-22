@@ -20,14 +20,20 @@ import { getStoredToken } from "@/components/AppBootstrap";
 const TABS = [
   { href: "/paper", label: "Portfolio" },
   { href: "/strategies", label: "Strategies" },
+  { href: "/brokers", label: "Brokers" },
 ] as const;
 
 export function BookShell({
   active,
   children,
+  status,
 }: {
-  active: "/paper" | "/strategies";
+  active: "/paper" | "/strategies" | "/brokers";
   children: React.ReactNode;
+  /** Overrides the "Simulated" caption. The brokers page passes the real
+   *  routing state, because once a broker is armed that caption is a false
+   *  statement about where this person's orders go. */
+  status?: React.ReactNode;
 }): React.ReactElement {
   // Client-only: `getStoredToken` reads localStorage, and rendering the
   // signed-out state during SSR would flash it at every signed-in visitor.
@@ -78,7 +84,7 @@ export function BookShell({
             color: "var(--text-secondary)",
           }}
         >
-          Simulated · no order reaches a broker
+          {status ?? "Simulated · no order reaches a broker"}
         </span>
         <a
           href="/"

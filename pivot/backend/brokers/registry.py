@@ -10,21 +10,31 @@ every method takes the ``BrokerSession`` row it operates on).
 """
 from __future__ import annotations
 
+from backend.brokers.angelone import AngelOneConnector
 from backend.brokers.base import BrokerConnector
 from backend.brokers.dhan import DhanConnector
 from backend.brokers.fyers import FyersConnector
+from backend.brokers.groww import GrowwConnector
 from backend.brokers.kite import KiteConnector
+from backend.brokers.upstox import UpstoxConnector
 
 # Instantiate each connector exactly once. Stateless, so a module-level
 # singleton per broker is fine.
 _CONNECTORS: dict[str, BrokerConnector] = {
     "kite": KiteConnector(),
+    "groww": GrowwConnector(),
+    "angelone": AngelOneConnector(),
+    "upstox": UpstoxConnector(),
     "dhan": DhanConnector(),
     "fyers": FyersConnector(),
 }
 
 # Stable display/order for the FE broker picker.
-SUPPORTED_BROKERS: list[str] = ["kite", "dhan", "fyers"]
+# Ordered by Indian retail market share, then by how little the user has to
+# type: Zerodha and Upstox are pure OAuth (nothing to type at all).
+SUPPORTED_BROKERS: list[str] = [
+    "kite", "groww", "angelone", "upstox", "dhan", "fyers",
+]
 
 
 def get_connector(broker: str) -> BrokerConnector:
