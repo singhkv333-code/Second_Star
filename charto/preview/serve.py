@@ -35,7 +35,7 @@ DATA_ORIGIN = os.environ.get("CHARTO_DATA_ORIGIN", "http://127.0.0.1:5174")
 # that is the company app — so the port is spelled out rather than inherited.
 RESEARCH_ORIGIN = os.environ.get("CHARTO_RESEARCH_ORIGIN", "http://127.0.0.1:5176")
 PROXY_PREFIXES = ("/stock/", "/_next/", "/__nextjs", "/api/",
-                  "/paper", "/strategies", "/portfolio/", "/users/",
+                  "/paper", "/strategies", "/brokers", "/portfolio/", "/users/",
                   "/research/")
 
 
@@ -52,10 +52,11 @@ def _upstream(path: str) -> str | None:
     head = path.split("?", 1)[0]
     # The two book PAGES. Both split the same way and for the same reason: the
     # page is the bare path and its data is everything under it.
-    if head in ("/paper", "/paper/", "/strategies", "/strategies/"):
+    if head in ("/paper", "/paper/", "/strategies", "/strategies/",
+                "/brokers", "/brokers/"):
         return COMPANY_ORIGIN
     if head.startswith("/paper/") or head.startswith("/strategies/") \
-            or head.startswith("/api/"):
+            or head.startswith("/brokers/") or head.startswith("/api/"):
         return DATA_ORIGIN
     if head.startswith(("/portfolio/", "/users/")):
         return DATA_ORIGIN

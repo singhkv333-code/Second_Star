@@ -24,18 +24,19 @@ import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   BookOpen,
+  ChartNoAxesCombined,
   ChevronDown,
   ChevronLeft,
   ExternalLink,
   HelpCircle,
   History,
-  LayoutDashboard,
-  ListFilter,
   Keyboard,
+  LayoutDashboard,
+  Link2,
+  ListFilter,
   LogOut,
   Menu,
   MessagesSquare,
-  ChartNoAxesCombined,
   Pin,
   Plus,
   Search,
@@ -60,6 +61,7 @@ import { OrderTicketHost } from "@/components/OrderTicket";
 import {
   ActiveDraftContext,
 } from "@/components/agent-panel/active-draft-context";
+import { BrokerGrid } from "@/components/brokers/BrokerGrid";
 import { AgentsTab } from "@/components/agent-panel/AgentsTab";
 import { PortfolioTab } from "@/components/agent-panel/PortfolioTab";
 import { ChartFrame } from "@/components/chart/ChartFrame";
@@ -109,6 +111,7 @@ type TabKey =
   | "portfolio"
   | "agents"
   | "screener"
+  | "brokers"
   | "chart";
 
 const NAV_ITEMS: {
@@ -122,6 +125,10 @@ const NAV_ITEMS: {
   { key: "portfolio", label: "Portfolio", Icon: WalletCards },
   { key: "agents", label: "Strategy", Icon: WorkflowIcon },
   { key: "screener", label: "Screener", Icon: ListFilter },
+  // Where a strategy's orders actually go. It sits with Portfolio and
+  // Strategy rather than under settings, because connecting a broker is part
+  // of running a rule, not a preference.
+  { key: "brokers", label: "Brokers", Icon: Link2 },
 ];
 
 // Home is the landing surface — a fresh visit to "/" (no hash), and every
@@ -1151,6 +1158,17 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
               }
             >
               <PortfolioTab />
+            </div>
+          )}
+          {visitedTabs.has("brokers") && (
+            <div
+              className={
+                !children && active === "brokers"
+                  ? "flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 pt-4 pb-6 lg:px-8 lg:pt-6 lg:pb-8"
+                  : "hidden"
+              }
+            >
+              <BrokerGrid />
             </div>
           )}
           {visitedTabs.has("agents") && (

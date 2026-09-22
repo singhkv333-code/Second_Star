@@ -4143,6 +4143,12 @@
           ? `<div class="item" data-acct="paper"><span class="lead">`
             + Icons.svg("paperBook", "xs") + `Paper book</span></div>`
           : "")
+        // Brokers is NOT behind LOCAL_DEV. /brokers serves from the same Next
+        // app as /paper and answers on both origins, and this is the one row
+        // that decides whether a person can find where their orders go — a
+        // dev-only link would hide the connect flow from everybody in prod.
+        + `<div class="item" data-acct="brokers"><span class="lead">`
+        + Icons.svg("link", "xs") + `Brokers</span></div>`
         + `<div class="item" data-acct="settings"><span class="lead">`
         + Icons.svg("settings", "xs") + `Settings</span></div>`
         + `<div class="item" data-acct="help"><span class="lead">`
@@ -4230,6 +4236,14 @@
     if (it.dataset.acct === "shortcuts") return Shortcuts.open();
     if (it.dataset.acct === "paper") {
       window.open(COMPANY_PAGE + "/paper", "_blank", "noopener");  // see openPaper
+      return;
+    }
+    if (it.dataset.acct === "brokers") {
+      // COMPANY_PAGE for the same origin reason openPaper documents: an
+      // absolute :5175 URL is a different origin and the chart's token does
+      // not exist there, so the visitor lands signed out.
+      if (!Auth.user) return window.CHARTO_AUTH_OPEN("login");
+      window.open(COMPANY_PAGE + "/brokers", "_blank", "noopener");
       return;
     }
     if (it.dataset.acct === "logout") {

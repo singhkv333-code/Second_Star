@@ -32,6 +32,7 @@ type TabKey =
   | "portfolio"
   | "agents"
   | "screener"
+  | "brokers"
   | "chart";
 
 /** Bump when the flow changes enough that existing users should see it again. */

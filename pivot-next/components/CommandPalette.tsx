@@ -16,6 +16,7 @@ import {
   PieChart,
   Settings,
   MessageCircle,
+  Link2,
 } from "lucide-react";
 import {
   Command,
@@ -34,7 +35,8 @@ type TabKey =
   | "chat"
   | "portfolio"
   | "agents"
-  | "screener";
+  | "screener"
+  | "brokers";
 
 const NAV_ITEMS: {
   key: TabKey;
@@ -45,6 +47,7 @@ const NAV_ITEMS: {
   { key: "portfolio", label: "Portfolio", Icon: PieChart },
   { key: "agents", label: "Strategy", Icon: Settings },
   { key: "screener", label: "Screener", Icon: BarChart2 },
+  { key: "brokers", label: "Brokers", Icon: Link2 },
 ];
 
 export type CommandPaletteProps = {

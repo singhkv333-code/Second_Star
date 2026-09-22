@@ -16347,7 +16347,12 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(401, {"error": "sign in to connect a broker"})
                 tail = u.path[len("/brokers"):].strip("/")
                 try:
-                    if not tail:
+                    # The CATALOG is `/brokers/list`, not bare `/brokers` —
+                    # the bare path is the PAGE, rendered by the company app.
+                    # Same split `/paper` makes, for the same reason: nginx and
+                    # serve.py route the page to Next and everything under it
+                    # here, so a catalog on the bare path would be shadowed.
+                    if tail == "list":
                         return self._send(200, {
                             "brokers": _brokers.catalog(me[0]),
                             "live_armed": _strategies is not None
