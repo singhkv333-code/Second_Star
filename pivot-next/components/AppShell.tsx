@@ -23,7 +23,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
-  BookOpen,
   ChartNoAxesCombined,
   ChevronDown,
   ChevronLeft,
@@ -1471,7 +1470,6 @@ function AccountMenu({
   onOpenShortcuts: () => void;
   onReportBug: () => void;
 }): React.ReactElement {
-  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [_helpOpen, setHelpOpen] = useState(false);
   const [_isNarrow, setIsNarrow] = useState(false);
@@ -1612,7 +1610,8 @@ function AccountMenu({
           <div style={{ margin: "0 -5px 5px", padding: "12px 14px", color: "var(--text-secondary)", fontSize: 12, lineHeight: 1.35, borderBottom: "1px solid var(--glass-border)" }}>
             Layouts, drawings and conversations are saved to this account.
           </div>
-          <MenuItem icon={BookOpen} label="Paper book" onClick={() => { setOpen(false); router.push("/paper"); }} />
+          {/* "Paper book" lived here; removed per owner request — the paper
+              surface is reached from Portfolio, not the account menu. */}
           <MenuItem icon={Settings} label="Settings" testId="menu-settings-chart-style" onClick={() => { setOpen(false); onOpenSettings(); }} />
           <MenuItem icon={HelpCircle} label="Help" onClick={() => { setOpen(false); onReportBug(); }} />
           <div aria-hidden={true} style={{ height: 1, background: "var(--glass-border)", margin: "5px -5px" }} />
@@ -1940,7 +1939,10 @@ function Sidebar({
           button sits on the same row (hidden on lg+ via .sidebar-close-mobile). */}
       <div
         className="flex shrink-0 items-center justify-between lg:hidden"
-        style={{ margin: "-2px 0 14px", height: 32 }}
+        /* No negative top margin: .sidebar-shell's padding-top already places
+           this row on the top bar's own baseline, so pulling it up here is
+           exactly the jump the drawer was showing. */
+        style={{ margin: "0 0 14px", height: 32 }}
       >
         <button
           type="button"

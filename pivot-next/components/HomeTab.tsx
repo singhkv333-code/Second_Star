@@ -873,19 +873,17 @@ function PortfolioSummaryCard({
   );
   const moverLogos = useCompanyLogos(moverSymbols);
 
+  // Paper mode is the default, so the marker is a quiet caption rather than a
+  // pill: no box, no amber, no uppercase — just muted text beside the title.
   const badge =
     mode === "paper" ? (
       <span
         style={{
           fontFamily: "var(--font-ui)",
-          fontSize: 10,
-          fontWeight: 700,
-          letterSpacing: "0.04em",
-          textTransform: "uppercase",
-          color: "#d97706",
-          border: "1px solid #d9770655",
-          borderRadius: "var(--radius-pill)",
-          padding: "1px 6px",
+          fontSize: 11,
+          fontWeight: 400,
+          letterSpacing: "0.01em",
+          color: "var(--text-tertiary)",
         }}
       >
         Paper

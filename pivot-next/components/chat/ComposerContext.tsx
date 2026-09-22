@@ -170,7 +170,11 @@ export function detectMentionQuery(
 const FONT = "var(--font-ui)";
 
 const panelStyle: React.CSSProperties = {
-  background: "var(--bg-elevated)",
+  // A plain popup sheet, no glass. `--bg-elevated` is the HOVER/ACTIVE grey
+  // (#ececee in light), so the panel read as a dull plate rather than a white
+  // popup; `--bg-primary` is the surface token — near-white in light, the
+  // card step above true black in dark.
+  background: "var(--bg-primary)",
   border: "1px solid var(--glass-border)",
   borderRadius: "var(--radius-lg, 14px)",
   boxShadow: "0 12px 32px rgba(0,0,0,0.22)",
