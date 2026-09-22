@@ -42,6 +42,16 @@ deploy_blob="$(git hash-object "$0" 2>/dev/null || echo missing)"
 web_attempt="$web_tree-$deploy_blob"
 # Keep deploy bookkeeping OUTSIDE .next: that directory is generated output
 # and must be replaceable as a unit for a genuinely clean production build.
+# pivot-next is a SECOND compiled Next app (the shell on :3000, which serves
+# `/`). It was tracked by nothing: deploy.sh restarted charto and pivot-api and
+# rebuilt charto/web, so a pivot-next commit landed on disk and changed nothing
+# until someone ran provision_pivot_next.sh by hand. Same drift the polling
+# deploy exists to prevent, one directory over.
+pn_tree="$(git rev-parse "$remote:pivot-next" 2>/dev/null || echo missing)"
+pn_revision_file="/tmp/pivot_next_git_tree"
+pn_failed_file="/tmp/pivot_next_git_failed_attempt"
+pn_attempt="$pn_tree-$deploy_blob"
+
 web_revision_file="/tmp/charto_web_git_tree"
 web_failed_file="/tmp/charto_web_git_failed_attempt"
 web_status_file="$REPO/charto/preview/deploy-runtime.txt"
@@ -52,6 +62,34 @@ web_needs_build() {
       || [ "$(cat "$web_revision_file" 2>/dev/null || true)" != "$web_tree" ]; } \
     && { [ ! -f "$web_failed_file" ] \
       || [ "$(cat "$web_failed_file" 2>/dev/null || true)" != "$web_attempt" ]; }
+}
+
+pn_needs_build() {
+  [ "$pn_tree" != missing ] \
+    && systemctl cat pivot-next.service >/dev/null 2>&1 \
+    && { [ ! -f "$pn_revision_file" ] \
+      || [ "$(cat "$pn_revision_file" 2>/dev/null || true)" != "$pn_tree" ]; } \
+    && { [ ! -f "$pn_failed_file" ] \
+      || [ "$(cat "$pn_failed_file" 2>/dev/null || true)" != "$pn_attempt" ]; }
+}
+
+# NEVER in the same tick as rebuild_web. This box is 2 vCPU / 7.9 GB with no
+# swap, and `next build` is the heaviest thing that runs on it; two of them
+# back to back is how the chart process gets OOM-killed for a frontend rebuild
+# that has nothing to do with it. The timer fires every 30s, so deferring
+# costs one tick and the tree hash makes it self-healing.
+rebuild_pivot_next() {
+  echo "deploy: shell changed, rebuilding pivot-next"
+  if sudo -n /usr/bin/bash "$REPO/charto/deploy/provision_pivot_next.sh" \
+      > /tmp/pivot_next_deploy.log 2>&1; then
+    printf '%s\n' "$pn_tree" > "$pn_revision_file"
+    rm -f "$pn_failed_file"
+    echo "deploy: pivot-next active ($pn_tree)"
+  else
+    printf '%s\n' "$pn_attempt" > "$pn_failed_file"
+    echo "deploy: pivot-next rebuild FAILED (previous build left serving)"
+    tail -20 /tmp/pivot_next_deploy.log
+  fi
 }
 
 record_web_failure() {
@@ -193,6 +231,8 @@ if [ "$local_" = "$remote" ]; then
   apply_nginx
   if web_needs_build; then
     rebuild_web
+  elif pn_needs_build; then
+    rebuild_pivot_next
   fi
   exit 0
 fi
@@ -230,6 +270,8 @@ apply_nginx
 
 if web_needs_build; then
   rebuild_web
+elif pn_needs_build; then
+  rebuild_pivot_next
 fi
 
 # `pivot/` counts as backend too, now that it is IN the checkout.

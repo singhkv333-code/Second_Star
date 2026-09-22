@@ -90,7 +90,7 @@ while read -r p; do
   [ -n "$p" ] || continue
   p="${p#/}"
   case "$p" in
-    stock/*|_next/*|__nextjs*)
+    paper|strategies|brokers|stock/*|_next/*|__nextjs*)
       # A PAGE route is html when it is WORKING, so content-type cannot tell it
       # apart from the fall-through. The body can: only the company app's
       # output carries Next's build marker, and a redirect is proof in itself —
@@ -121,6 +121,21 @@ fe="$(grep -rhoE '\$\{(API|api|base)\}/[a-z_0-9/]+' ../preview/js/*.js 2>/dev/nu
 for p in $fe; do
   judge "/$p" "$(ask "$p")"
 done
+
+echo
+echo "4. the paths where a PAGE and an API share one route"
+# `/strategies` is a page on GET and the chart's arming endpoint on POST. A
+# GET-only probe cannot see the difference, and did not: the POST answered
+# 405 from the company app for as long as the location proxied wholesale.
+# Content-type is the tell again — the dataserver refuses in JSON.
+post_ct="$(curl -s -o /dev/null -w '%{http_code} %{content_type}' --max-time 20 \
+           -X POST -H 'Content-Type: application/json' -d '{}' \
+           "$SCHEME://$HOST/strategies" 2>/dev/null)"
+case "$post_ct" in
+  *application/json*) printf '  ok      %-22s %s\n' "POST /strategies" "$post_ct" ;;
+  *) printf '  BROKEN  %-22s %s  <- arming from the chart card cannot reach the dataserver\n' \
+            "POST /strategies" "$post_ct"; fail=1 ;;
+esac
 
 echo
 if [ "$fail" -ne 0 ]; then
