@@ -43,7 +43,7 @@ const NAV_ITEMS: {
 }[] = [
   { key: "chat", label: "Chat", Icon: MessageSquare },
   { key: "portfolio", label: "Portfolio", Icon: PieChart },
-  { key: "agents", label: "Agents", Icon: Settings },
+  { key: "agents", label: "Strategy", Icon: Settings },
   { key: "screener", label: "Screener", Icon: BarChart2 },
 ];
 

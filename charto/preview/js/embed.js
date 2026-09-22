@@ -60,6 +60,65 @@
     } catch { /* the parent went away mid-navigation; nothing to do */ }
   };
 
+  // Inside the unified shell, the chart starts with its own conversation
+  // collapsed. The shell's Quick Ask is the entry point; showing both it and
+  // the full chart conversation at once duplicates the same presentation.
+  // Use the chart's real toggle so its splitter and toolbar state stay in
+  // sync, then report every later open/close back to the shell.
+  const chatPanel = document.getElementById("chatPanel");
+  const chatToggle = document.getElementById("chatToggle");
+  const tellChatVisibility = () => tell({
+    type: "chart:chat-visibility",
+    open: !!chatPanel && !chatPanel.classList.contains("hidden"),
+  });
+  if (chatPanel && chatToggle) {
+    if (!chatPanel.classList.contains("hidden")) chatToggle.click();
+    new MutationObserver(tellChatVisibility).observe(chatPanel, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+    tellChatVisibility();
+  }
+
+  /* ── MODALS NEED THE WHOLE WINDOW ────────────────────────────────────────
+   * `position: fixed` resolves against the IFRAME's viewport, not the page's.
+   * So this app's dialogs — chart settings, indicator settings, alerts,
+   * shortcuts, the layout dialogs, the mobile sheet, the auth screen — could
+   * only ever centre inside the chart pane and dim the chart alone, leaving
+   * the shell's sidebar, top bar and right-hand rail lit and clickable behind
+   * a supposedly modal card. Framed, the pane is also lifted one header height
+   * (`.chart-shell-pane .chart-frame-wrap` in the shell's globals.css), which
+   * is why the card sat visibly high as well as inset.
+   *
+   * The fix is geometric, not per-dialog: while any full-screen overlay is
+   * open, the shell floats THIS FRAME over the whole window. Every fixed
+   * overlay inside then resolves against the real viewport at once, so the
+   * scrim covers the app and the card centres on the window — with no dialog
+   * rewritten, and no second copy of these surfaces in React.
+   *
+   * Detected by class rather than wired into ~15 call sites: every one of
+   * these is `inset: 0` + `.open`, already this app's convention.
+   */
+  const OVERLAYS = ".dlg-wrap, .ly-back, .sheet-host, .auth-screen";
+  let overlaid = null;
+  const syncOverlay = () => {
+    // `.open` is the shared convention; .ly-back is shown by inline display
+    // instead, so treat "in the DOM and not display:none" as open for it.
+    const on = Array.prototype.some.call(
+      document.querySelectorAll(OVERLAYS),
+      (n) => n.classList.contains("open") ||
+             (n.classList.contains("ly-back") && n.style.display !== "none"),
+    );
+    if (on === overlaid) return;          // only speak when it actually changes
+    overlaid = on;
+    tell({ type: "chart:overlay", open: on });
+  };
+  new MutationObserver(syncOverlay).observe(document.body, {
+    subtree: true, childList: true, attributes: true,
+    attributeFilter: ["class", "style"],
+  });
+  syncOverlay();
+
   window.addEventListener("message", (e) => {
     if (!trusted(e)) return;
     const d = e.data;

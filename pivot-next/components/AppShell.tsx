@@ -120,7 +120,7 @@ const NAV_ITEMS: {
   { key: "chart", label: "Chart", Icon: ChartNoAxesCombined },
   { key: "chat", label: "Chat", Icon: MessagesSquare },
   { key: "portfolio", label: "Portfolio", Icon: WalletCards },
-  { key: "agents", label: "Agents", Icon: WorkflowIcon },
+  { key: "agents", label: "Strategy", Icon: WorkflowIcon },
   { key: "screener", label: "Screener", Icon: ListFilter },
 ];
 
@@ -933,7 +933,10 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     <LoginIntroGate />
     <div
       className="app-shell-root flex flex-col h-screen bg-background"
-      style={{ ["--paper-banner-h" as string]: "0px" }}
+      style={{
+        ["--paper-banner-h" as string]: "0px",
+        ["--content-overlay-left" as string]: sidebarCollapsed ? "0px" : "48px",
+      }}
     >
         {(children || active !== "chart") && <TopHeader
           theme={theme}
@@ -1559,19 +1562,19 @@ function AccountMenu({
         <div
           role="menu"
           data-testid="account-menu"
+          // Glass comes from `.glass-menu` (globals.css), which carries the
+          // chart app's own --ctx-* values. A shared class rather than a second
+          // set of inline numbers, so this menu cannot drift from the chart's
+          // again — it had no rim at all and sat 6% more opaque, which read as
+          // flat beside the chart's sheet.
+          className="glass-menu"
           style={{
             position: "absolute",
-            top: "calc(100% + 8px)",
+            top: "calc(100% + 6px)",
             right: 0,
             minWidth: 244,
             padding: 5,
-            background: "color-mix(in srgb, var(--bg-card) 78%, transparent)",
-            border: "none",
-            borderRadius: 8,
-            boxShadow:
-              "inset 0 1px 0 rgba(255,255,255,0.34), inset 0 -1px 0 rgba(255,255,255,0.12), 0 14px 36px rgba(0,0,0,0.24)",
-            backdropFilter: "blur(22px) saturate(145%)",
-            WebkitBackdropFilter: "blur(22px) saturate(145%)",
+            borderRadius: 6,
             zIndex: 50,
             display: "flex",
             flexDirection: "column",

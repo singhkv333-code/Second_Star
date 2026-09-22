@@ -55,7 +55,9 @@ describe("AgentsTab", () => {
     await waitFor(() =>
       expect(screen.getByTestId("agents-empty")).toBeInTheDocument(),
     );
-    expect(screen.getByText("No agents yet")).toBeInTheDocument();
+    // Copy renamed with the Agents -> Strategies refactor (baedd37d);
+    // that commit changed AgentsTab but not this assertion.
+    expect(screen.getByText("No strategies yet")).toBeInTheDocument();
   });
 
   it("shows error state with message", async () => {

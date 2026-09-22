@@ -756,12 +756,7 @@ input[type="range"].payoff-slider::-moz-range-thumb {
   display: none;
 }
 
-/* Composer mode-pill row (Automation / Agent / Backtest / Option chain).
-   On a ~360px phone the four chips overflow a centered row and clip on both
-   edges, so the row scrolls horizontally (swipeable) with the scrollbar
-   hidden. Desktop keeps the static centered row via the `sm:` overrides on
-   the element itself. NOTE: deliberately NOT `.quartr-no-scrollbar`, which
-   forces `overflow-x: hidden` on phones and would kill the scroll. */
+/* Composer shortcut row. Option chain is the only visible shortcut for now. */
 .composer-modes {
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -1106,17 +1101,14 @@ body:has(.app-shell-root) {
   }
 }
 
-/* Full-screen content overlays (Option Strategy builder, Option Chain) — fill
-   the content area only. Full width below lg (the nav is a slide-in drawer);
-   inset past the 240px inline sidebar at lg+ so the nav stays visible. The top
-   inset (header height) is set inline on the element. */
+/* Full-screen content overlays sit beside the visible desktop sidebar and
+   expand to the viewport edge when it is collapsed. */
 .content-overlay {
   left: 0;
 }
 @media (min-width: 1024px) {
   .content-overlay {
-    left: 240px;
-    border-left: 1px solid var(--glass-border);
+    left: var(--content-overlay-left, 0px);
   }
 }
 

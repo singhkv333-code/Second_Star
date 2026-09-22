@@ -393,7 +393,7 @@ export function ComposerPlusMenu({
   }, []);
 
   return (
-    <div ref={wrapRef} style={{ position: "relative" }} className="self-end">
+    <div ref={wrapRef} style={{ position: "relative" }} className="self-center">
       <button
         type="button"
         onClick={() => {

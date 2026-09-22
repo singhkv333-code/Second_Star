@@ -22,10 +22,7 @@ import {
   CornerUpLeft,
   RotateCw,
   Square,
-  Workflow as WorkflowIcon,
-  LineChart,
   X,
-  Zap,
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
@@ -101,12 +98,11 @@ export type { ChatMode } from "@/lib/chatStream";
 // Helpers
 // ---------------------------------------------------------------------------
 
-const PLACEHOLDER_TEXT =
-  "Ask Pivot anything about your portfolio, markets, or strategies…";
+const PLACEHOLDER_TEXT = "Ask Pivot anything";
 
 // Phone-width fallback. The full placeholder gets truncated mid-word on
 // narrow screens, so swap to a single short clause that fits one line.
-const PLACEHOLDER_TEXT_MOBILE = "Ask Pivot anything…";
+const PLACEHOLDER_TEXT_MOBILE = "Ask Pivot anything";
 
 /** Maximum visual height of the chat textarea in pixels. Past this it
  * gains a vertical scrollbar; under it the textarea autosizes silently
@@ -1949,7 +1945,6 @@ export function ChatDemo({
           onStop={stop}
           loading={loading}
           mode={mode}
-          onModeChange={setMode}
           reply={reply}
           onClearReply={() => setReply(null)}
           attachments={attachments}
@@ -2007,40 +2002,9 @@ export function ChatDemo({
 }
 
 // ---------------------------------------------------------------------------
-// ChatComposer — glassy pill composer with attachment + cmd icons,
-// Send button on the right, and a row of mode pills below
-// (Automation / Agent / Backtest). Inspired by the user's reference
-// image (Image #3 in the v1 design conversation).
+// ChatComposer — floating pill composer with attachment + voice controls,
+// Send button on the right, and the single supported shortcut below.
 // ---------------------------------------------------------------------------
-
-type ModeMeta = {
-  id: Exclude<ChatMode, null>;
-  label: string;
-  icon: React.ComponentType<{ size?: number; strokeWidth?: number; "aria-hidden"?: boolean }>;
-  /** Hint shown on hover. */
-  description: string;
-};
-
-const MODES: ModeMeta[] = [
-  {
-    id: "automation",
-    label: "Automation",
-    icon: Zap,
-    description: "Single deterministic action — buy, sell, GTT, SIP, square-off",
-  },
-  {
-    id: "agent",
-    label: "Agent",
-    icon: WorkflowIcon,
-    description: "Multi-step workflow with triggers, fetches, conditions",
-  },
-  {
-    id: "backtest",
-    label: "Backtest",
-    icon: LineChart,
-    description: "Historical simulation on a strategy or expression",
-  },
-];
 
 // ---------------------------------------------------------------------------
 // UserBubble — Quartr-style user message with asymmetric radius and a
@@ -2446,7 +2410,6 @@ function ChatComposer({
   onStop,
   loading,
   mode,
-  onModeChange,
   reply,
   onClearReply,
   attachments,
@@ -2464,7 +2427,6 @@ function ChatComposer({
   onStop: () => void;
   loading: boolean;
   mode: ChatMode;
-  onModeChange: (m: ChatMode) => void;
   /** Active reply-by-selecting excerpt, shown as a dismissible quote
    * chip above the input. Null when there's no pending reply. */
   reply: string | null;
@@ -2587,7 +2549,16 @@ function ChatComposer({
             : PLACEHOLDER_TEXT;
 
   return (
-    <div className="space-y-1.5 sm:space-y-3" data-testid="chat-composer">
+    <div
+      className={cn(
+        "space-y-1.5 sm:space-y-3",
+        // Their version gates this on a `compact` prop that belongs to a
+        // ChatDemo variant this branch does not carry; unconditional here is
+        // exactly what `!compact` evaluated to on that branch's default.
+        "mx-auto w-full max-w-[32rem]",
+      )}
+      data-testid="chat-composer"
+    >
       {/* Reply-by-selecting quote chip — the excerpt the user picked
           from an assistant message. Sits just above the pill (Claude /
           ChatGPT pattern) with a dismiss button. */}
@@ -2676,12 +2647,9 @@ function ChatComposer({
           exactly one line of content height and grows via the autosize
           effect when the user types past one line; outer padding gives
           breathing room. No min-h-44 dead space below the placeholder. */}
-      {/* borderRadius is --radius-xl (24px), NOT --radius-pill (9999px):
-          CSS clamps any radius to half the box height, so a single-line
-          composer still renders as a full stadium pill, while the tall
-          multiline state stays a clean 24px rounded rectangle instead of
-          ballooning into oversized side arcs that curve inward and clip
-          the text.
+      {/* The fixed 28px radius and 54px resting height mirror the Quick Ask
+          prompt used on the other product pages. Unlike an unlimited pill
+          radius, it remains a clean rounded rectangle as the textarea grows.
 
           Stays items-center for the tuned single-line placeholder/button
           centering; the send button itself is self-end (see below) so it
@@ -2689,9 +2657,17 @@ function ChatComposer({
       <div
         className="relative"
         style={{
-          background: "var(--bg-primary)",
-          borderRadius: "var(--radius-xl)",
+          // --bg-base, not --bg-primary. --bg-primary is #fbfbfc, a deliberate
+          // card tint that reads as grey against this route's white page; the
+          // Quick Ask pill on the other surfaces sits on --bg-primary over a
+          // TINTED page, which is why it looks white there and this did not.
+          // Dark mode is unaffected: both tokens are near-black there.
+          background: "var(--bg-base)",
+          borderRadius: 28,
           border: `1px solid var(--glass-border)`,
+          boxShadow: "0 5px 18px rgba(15, 18, 22, 0.08)",
+          backdropFilter: "blur(28px) saturate(160%)",
+          WebkitBackdropFilter: "blur(28px) saturate(160%)",
         }}
       >
         {/* "@" typeahead — anchored above the pill while a mention is
@@ -2713,7 +2689,7 @@ function ChatComposer({
             this conversation, docked inside the pill above the input. */}
         <AttachmentChips attachments={attachments} onRemove={onRemoveAttachment} />
 
-        <div className="flex items-center gap-1 p-1.5 pl-2 sm:gap-1.5 sm:p-2 sm:pl-2.5">
+        <div className="chat-composer-row flex min-h-[54px] items-center gap-1.5 py-[7px] pl-2.5 pr-2">
         {/* "+" — add context (securities, agents, positions; research/web
             stubs). Sits at the left edge like ChatGPT/Claude. */}
         <ComposerPlusMenu onAttach={onAddAttachment} onAgentPicked={onAgentPicked} />
@@ -2734,7 +2710,7 @@ function ChatComposer({
             // Single-line height: 24px box matches the lineHeight below
             // so the placeholder sits centered against the send button
             // with no empty bottom strip inside the textarea.
-            "!min-h-[24px] px-0 py-0 text-[14px] sm:text-[15px]",
+            "!min-h-[24px] px-0 py-0 text-sm",
             "focus-visible:ring-0 focus-visible:ring-offset-0",
           )}
           style={{
@@ -2759,8 +2735,7 @@ function ChatComposer({
             text appends to whatever is already typed so a user can mix
             speech and keyboard in one message. */}
         <VoiceInputButton
-          className="self-end"
-          size={18}
+          className="self-center"
           data-testid="chat-voice-btn"
           onTranscript={(text) => {
             const existing = value.trimEnd();
@@ -2782,10 +2757,11 @@ function ChatComposer({
           // self-end: stays centered against a single-line textarea (the
           // button is then the taller child), drops to the bottom once the
           // textarea grows multiline.
-          className="flex h-8 w-8 shrink-0 items-center justify-center self-end"
+          className="flex h-[38px] w-[38px] shrink-0 items-center justify-center self-end"
           style={{
-            background: showStop || canSend ? "var(--text-primary)" : "var(--bg-elevated)",
-            color: showStop || canSend ? "var(--bg-primary)" : "var(--text-disabled)",
+            background: "var(--text-primary)",
+            color: "var(--bg-primary)",
+            opacity: showStop || canSend ? 1 : 0.28,
             border: "none",
             borderRadius: "var(--radius-pill)",
             cursor: showStop || canSend ? "pointer" : "not-allowed",
@@ -2816,59 +2792,11 @@ function ChatComposer({
         </div>
       </div>
 
-      {/* Mode pills — Automation / Agent / Backtest (extras kept). Quartr-styled
-          so they read as a quiet row rather than glassy chips. On phone the row
-          scrolls horizontally (the four chips overflow a ~360px width); on sm+
-          it stays a static centered row. */}
-      <div className="composer-modes flex items-center justify-start gap-2 overflow-x-auto px-0.5 sm:justify-center sm:overflow-x-visible sm:px-0">
-        {MODES.map((m) => {
-          const Icon = m.icon;
-          const isActive = mode === m.id;
-          return (
-            <button
-              key={m.id}
-              type="button"
-              onClick={() => onModeChange(isActive ? null : m.id)}
-              data-testid={`mode-${m.id}`}
-              data-active={isActive}
-              aria-pressed={isActive}
-              title={m.description}
-              className="inline-flex shrink-0 items-center"
-              style={{
-                // Borderless mode pills — same active treatment as the
-                // sidebar nav: subtle elevated bg + ink text. No border.
-                gap: 6,
-                padding: "6px 12px",
-                borderRadius: "var(--radius-sm)",
-                background: isActive ? "var(--surface-active)" : "transparent",
-                border: "none",
-                color: isActive ? "var(--text-primary)" : "var(--text-secondary)",
-                fontFamily: "var(--font-ui)",
-                fontSize: 11.5,
-                fontWeight: 500,
-                cursor: "pointer",
-                transition:
-                  "color 0.35s var(--ease-quartr), background-color 0.35s var(--ease-quartr)",
-              }}
-              onMouseEnter={(e) => {
-                if (isActive) return;
-                e.currentTarget.style.color = "var(--text-primary)";
-              }}
-              onMouseLeave={(e) => {
-                if (isActive) return;
-                e.currentTarget.style.color = "var(--text-secondary)";
-              }}
-            >
-              <Icon size={12} strokeWidth={2} aria-hidden={true} />
-              <span>{m.label}</span>
-            </button>
-          );
-        })}
-        {/* Dummy entry point — opens the full-screen option chain (mock data). */}
-        <span className="shrink-0">
-          <OptionChainLauncherCard variant="pill" />
-        </span>
-      </div>
+      {/* No shortcut row beneath the composer. The option-chain pill lived
+          here as a dummy entry point onto mock data; it is hidden so the chat
+          page ends at the composer like the other surfaces. The launcher and
+          its full-screen view are untouched, and still open from the
+          `pivot:open-option-chain` event, so restoring this is one block. */}
     </div>
   );
 }
