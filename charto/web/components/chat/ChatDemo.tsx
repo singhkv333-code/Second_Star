@@ -2675,7 +2675,10 @@ function ChatComposer({
     <div
       className={cn(
         "space-y-1.5 sm:space-y-3",
-        !compact && "mx-auto w-full max-w-[32rem]",
+        // Their version gates this on a `compact` prop that belongs to a
+        // ChatDemo variant this branch does not carry; unconditional here is
+        // exactly what `!compact` evaluated to on that branch's default.
+        "mx-auto w-full max-w-[32rem]",
       )}
       data-testid="chat-composer"
     >
