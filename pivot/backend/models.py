@@ -102,6 +102,83 @@ class WatchlistItem(Base):
     )
 
 
+class SavedScreen(Base):
+    """A named screen the user kept — either a frozen list of symbols or a
+    re-runnable set of screener filters.
+
+    TWO KINDS, one table, because the user thinks of them as one thing ("my
+    screens") and the Screener lists them in one rail:
+
+      kind="symbols"  a result set someone wants to keep. ``symbols`` is the
+                      whole screen; ``filters`` is null. This is what a chat
+                      screen becomes — charto composes filters over ITS 500-
+                      instrument daily matrix in a feature vocabulary this
+                      service does not share (vol_z20, sma20/50/200 distance),
+                      so the filters cannot be replayed here and it would be a
+                      fabrication to imply they could. We keep the symbols it
+                      matched, plus ``criteria`` (the human sentence) and
+                      ``as_of`` so the screen can always say what it was and
+                      when — a frozen set that is honestly labelled, not a live
+                      query pretending to be reproducible.
+      kind="filters"  a screen built in the Screener itself. ``filters`` holds
+                      this service's own query (sector/mcap_tier/pe_max/roe_min
+                      /custom clauses/sort), so re-opening RE-RUNS it and the
+                      membership is whatever qualifies today.
+
+    Rows are per-user (FK to users.id, CASCADE) and this is the PIVOT user, not
+    Charto's — the two user tables are disjoint, so a screen is owned by
+    whoever was signed into the shell when they pressed Save. The chart never
+    writes here; it hands a screen to the shell and the shell persists it.
+    """
+    __tablename__ = "saved_screens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    name = Column(String(120), nullable=False)
+    kind = Column(String(16), nullable=False, default="symbols")
+    # Where it came from, for the list's provenance line. Not a behaviour flag.
+    source = Column(String(16), nullable=False, default="screener")
+    # kind="symbols": the frozen membership. Plain JSON array of tickers.
+    symbols = Column(
+        JSON().with_variant(JSONB(astext_type=Text()), "postgresql"),
+        nullable=True,
+    )
+    # kind="filters": this service's own query, replayed on open.
+    filters = Column(
+        JSON().with_variant(JSONB(astext_type=Text()), "postgresql"),
+        nullable=True,
+    )
+    # The sentence the screen was described by ("price above the 20-, 50- and
+    # 200-day SMAs, volume above its 20-day average"). Shown verbatim; never
+    # re-derived from the filters, because for a chat screen we do not hold the
+    # filters that produced it.
+    criteria = Column(Text, nullable=True)
+    # The session the SOURCE screen was computed against — charto's daily
+    # matrix trails live prices, so a symbols screen that did not carry its own
+    # as-of would silently read as "today".
+    as_of = Column(String(32), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(),
+        onupdate=func.now(), nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('symbols', 'filters')",
+            name="ck_saved_screens_kind",
+        ),
+        UniqueConstraint(
+            "user_id", "name", name="uq_saved_screens_user_name",
+        ),
+    )
+
+
 class BrokerSession(Base):
     """One connection per (user, broker). Generalizes the old Kite-only
     ``kite_sessions`` table so a user can connect Zerodha Kite, Dhan, Fyers,

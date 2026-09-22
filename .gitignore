@@ -75,3 +75,6 @@ pivot/backups/
 
 # pnpm content-addressable store — a local cache, never source.
 .pnpm-store/
+
+# a 578MB corrupt Next build kept for forensics, never a commit
+.next-corrupt-*/

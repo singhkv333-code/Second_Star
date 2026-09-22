@@ -35,6 +35,8 @@ THE ADDRESS GRAMMAR (`OPERANDS` below is the machine-readable copy)
     volume profile      poc · vah · val            of the last N sessions
     a drawing           draw:D7    the drawing's price AT THE CURRENT BAR, so
                                    a sloped trendline's level moves with time
+                        draw:D7.top · draw:D7.bot · draw:D7.mid
+                                   a rectangle's edges — a zone is two of these
     a detector          pattern(bullish_engulfing) · divergence(rsi) · results()
                         1 when it completed on the last CLOSED bar, else 0
 
@@ -162,7 +164,9 @@ OPERANDS = {
     "draw:<ref>":
         "a drawing of yours, priced AT THE CURRENT BAR: draw:D7. A sloped "
         "trendline's level therefore moves with time, which a typed number "
-        "cannot do",
+        "cannot do. A rectangle carries three prices — draw:D7.top, "
+        "draw:D7.bot, draw:D7.mid — so a zone is two comparisons, one per "
+        "edge. Move the drawing on the chart and the level moves with it",
     "pattern(<kind>)":
         "1 when that pattern completed on the last CLOSED bar, else 0 — "
         "pattern(bullish_engulfing), pattern(falling_wedge). Use with is_true "
@@ -518,14 +522,14 @@ def _resolve(addr, ctx: Ctx, rule: Rule) -> float:
             raise Unspeakable(f"'{addr}' is not a price") from None
 
     if s.startswith("draw:"):
-        ref = str(addr).strip()[5:]
+        ref, _, edge = str(addr).strip()[5:].partition(".")
         mine = ctx.drawings(rule.user_id)
         got = mine.get(ref.upper())
         if got is None:
             have = ", ".join(sorted(mine)) or "none"
             raise Unspeakable(f"no drawing '{ref}' on {ctx.symbol} "
                               f"(have: {have})")
-        return _draw_price_at(got, ctx)
+        return draw_price_at(got, ctx.bar(0)[0], edge.lower())
 
     if s in ("poc", "vah", "val"):
         prof = ctx.profile()
@@ -719,14 +723,34 @@ def _session_field(s: str, ctx: Ctx) -> float:
                     "volume": "v", "last": "c", "price": "c"}[field]])
 
 
-def _draw_price_at(d: dict, ctx: Ctx) -> float:
-    """A drawing's price at the CURRENT bar.
+# A rectangle is three prices, not one. "Buy when price enters my demand zone"
+# is two comparisons against two edges, and a zone drawn as a rect is the most
+# traded drawing there is after the trendline — so the edge is named in the
+# address rather than guessed from the drawing's type.
+_EDGES = ("top", "bot", "mid")
+_ZONES = ("rect", "priceRange")
+# A parallel channel carries THREE anchors: two for the base line and one that
+# sets the offset of the parallel rail. Both rails therefore SLOPE, which is
+# why they cannot be served by the zone branch's min/max over anchor prices.
+# `regression` is deliberately absent — its rails are a computed band, not an
+# anchor the user placed, and inventing one would be a confident wrong level.
+_CHANNELS = ("channel", "flatChannel")
+
+
+def draw_price_at(d: dict, now_ts: float, edge: str = "") -> float:
+    """A drawing's price at the bar time `now_ts`.
 
     A horizontal line is its own level. A two-point line is interpolated — and
     then EXTRAPOLATED past its second anchor, because a trendline you are
     watching for a break is by definition being watched to the right of where
-    you drew it. That is the whole reason a drawing-anchored alert beats a typed
+    you drew it. That is the whole reason a drawing-anchored rule beats a typed
     number: move the line, and the level the engine watches moves with it.
+
+    `edge` picks which price a multi-price drawing means — a rectangle's top,
+    bottom or midline. A line has one price and takes no edge.
+
+    Takes a TIMESTAMP rather than the alert engine's Ctx so the strategy
+    runtime can call it too: both have a bar, only one has a Ctx.
 
     Anchors come through ds._drawing_points, which is already the one place that
     knows a drawing carries `pts` of {t, p} and that an hline has only one.
@@ -735,16 +759,48 @@ def _draw_price_at(d: dict, ctx: Ctx) -> float:
     if not pts:
         raise Unspeakable(
             f"drawing {d.get('ref') or d.get('id')} carries no price")
+    if edge:
+        if edge not in _EDGES:
+            raise Unspeakable(
+                f"'{edge}' is not an edge — use {', '.join(_EDGES)}")
+        # ONLY A ZONE HAS EDGES. A trendline also has two anchor prices, so
+        # min/max over them returns a number — the higher endpoint — which is
+        # not a level and does not slope. Answering that would be a confident
+        # wrong price on a rule the user thinks watches a zone, so the shape is
+        # checked rather than inferred from the arithmetic working out.
+        kind = d.get("type")
+        if kind in _CHANNELS:
+            base = _span_price(pts[0], pts[1], now_ts)
+            off = float(pts[2]["v"]) - _span_price(
+                pts[0], pts[1], pts[2].get("t")) if len(pts) > 2 else 0.0
+            rails = sorted((base, base + off))
+            return {"bot": rails[0], "top": rails[1],
+                    "mid": (rails[0] + rails[1]) / 2.0}[edge]
+        if kind not in _ZONES:
+            raise Unspeakable(
+                f"{d.get('ref') or d.get('id')} is a {kind}, not a zone or a "
+                f"channel — it has no {edge}. Address it without an edge")
+        vals = [float(p["v"]) for p in pts if not p.get("_flat")]
+        if len(vals) < 2:
+            raise Unspeakable(
+                f"drawing {d.get('ref') or d.get('id')} carries one price, so "
+                f"it has no {edge}; address it without an edge")
+        lo, hi = min(vals), max(vals)
+        return {"top": hi, "bot": lo, "mid": (hi + lo) / 2.0}[edge]
     flat = len(pts) < 2 or pts[1].get("_flat") \
         or d.get("type") in ("hline", "hray")
     if flat:
         return float(pts[0]["v"])
-    t1, v1 = pts[0].get("t"), float(pts[0]["v"])
-    t2, v2 = pts[1].get("t"), float(pts[1]["v"])
-    if t1 is None or t2 is None or t2 == t1:
+    return _span_price(pts[0], pts[1], now_ts)
+
+
+def _span_price(p1: dict, p2: dict, at) -> float:
+    """The price of the line through two anchors at time `at`, extrapolated."""
+    t1, v1 = p1.get("t"), float(p1["v"])
+    t2, v2 = p2.get("t"), float(p2["v"])
+    if t1 is None or t2 is None or at is None or t2 == t1:
         return v2               # no time span to slope along; the level is flat
-    now = float(ctx.bar(0)[0])
-    return v1 + (v2 - v1) * (now - float(t1)) / (float(t2) - float(t1))
+    return v1 + (v2 - v1) * (float(at) - float(t1)) / (float(t2) - float(t1))
 
 
 def _drawings_of(symbol: str, uid: int = 0) -> dict:
@@ -1947,13 +2003,27 @@ def tool_set_alert(symbol: str = "", interval: str = "5m",
         return out
     a = out["alert"]
     _touch_chart()
+    # SAY THE EXPIRY, because the model invented one when left to infer it.
+    # Measured 2026-09-21: an alert created with the default open-ended expiry
+    # was reported to the user as "valid through today", and the same alert was
+    # described two turns later as having no expiry. `expires` is already in
+    # the payload (`_row_public`), but as a raw epoch or a bare null, and the
+    # model read the null as an end date. Every other fact in this reply is
+    # quoted correctly off `_note`, so the expiry goes here in words too.
+    exp = (("It expires at "
+            + time.strftime("%H:%M on %d %b %Y",
+                            time.gmtime(a["expires"] + ds.IST_OFF))
+            + " IST — quote that time, not 'end of day'.")
+           if a.get("expires") else
+           "It is OPEN-ENDED — it has no expiry. Do not tell the user it "
+           "lapses today or on any other date.")
     return {"alert": a, "_render_hint": "alert_card",
             "_note": (f"Armed as alert {a['id']}: {a['cond']} {a['level']} on "
                       f"{a['symbol']} {a['interval']} ({a['meta']}). It is on "
                       f"the user's screen already — the widget lists it and, "
                       f"for a plain price level on the chart's own symbol, the "
                       f"price axis carries a draggable line. Do not tell them "
-                      f"to add it anywhere. " + _DELIVERY + " "
+                      f"to add it anywhere. {exp} " + _DELIVERY + " "
                       + (out.get("feed", {}).get("symbol", {}).get("note") or ""))}
 
 

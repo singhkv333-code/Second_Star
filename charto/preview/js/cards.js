@@ -2337,8 +2337,147 @@ const Cards = (() => {
     });
   }
 
+  /** A universe screen: what it looked for, what matched, and a control that
+   *  carries the membership to the Screener.
+   *
+   *  The panel lists the top rows only — the same page the reply prints — but
+   *  the BUTTON hands over `card.symbols`, which is every match. A user who
+   *  opens a 44-name screen and finds 15 has been given a different screen
+   *  than the one they were shown the count for.
+   *
+   *  The control is only rendered when this chart is FRAMED by the shell,
+   *  because the Screener is the shell's tab: standalone on :5173 there is
+   *  nowhere for it to go, and a button that does nothing is worse than no
+   *  button. `window.parent !== window` is the whole test — the frame is
+   *  same-origin by construction (next.config proxies /chart-app), which is
+   *  also why the postMessage below can name a concrete origin.
+   */
+  function screen(c) {
+    const rows = Array.isArray(c.rows) ? c.rows : [];
+    if (!rows.length) return "";
+    const syms = Array.isArray(c.symbols) ? c.symbols : rows.map((r) => r.symbol);
+    const sortKey = (c.sorted_by && c.sorted_by.feature) || "";
+    // Up to three numeric columns beyond the symbol, chosen from the row the
+    // screen actually returned — the engine already trimmed these to the
+    // features the query referenced, so this shows what was screened on
+    // rather than a fixed set that might be all nulls.
+    const SKIP = new Set(["symbol", "name", "industry", "as_of", "pattern",
+                          "universe_rate", "volume_profile"]);
+    const cols = [];
+    if (sortKey && rows.some((r) => r[sortKey] != null)) cols.push(sortKey);
+    for (const k of Object.keys(rows[0] || {})) {
+      if (cols.length >= 3) break;
+      if (SKIP.has(k) || k === sortKey) continue;
+      if (rows.some((r) => typeof r[k] === "number")) cols.push(k);
+    }
+    const label = (k) => esc(k.replace(/_/g, " "));
+    const cell = (v) => (typeof v === "number"
+      ? (Math.abs(v) >= 1000 ? v.toFixed(0) : v.toFixed(2))
+      : (v == null ? "—" : esc(String(v))));
+
+    const head = `<tr><th class="sc-rank">#</th><th>Stock</th>`
+      + cols.map((k) => `<th class="sc-num">${label(k)}</th>`).join("")
+      + `</tr>`;
+    const body = rows.map((r, i) =>
+      `<tr><td class="sc-rank">${i + 1}</td>`
+      + `<td class="sc-sym"><b>${esc(r.symbol)}</b>`
+      + (r.name && r.name !== r.symbol
+          ? `<span>${esc(r.name)}</span>` : "")
+      + `</td>`
+      + cols.map((k) => `<td class="sc-num">${cell(r[k])}</td>`).join("")
+      + `</tr>`).join("");
+
+    const framed = (() => {
+      try { return window.parent && window.parent !== window; }
+      catch { return false; }
+    })();
+    // Count line stays honest about the three numbers that differ: matched,
+    // shown here, and the universe they came from.
+    const matched = c.matched != null ? c.matched : rows.length;
+    const meta = `${matched} of ${c.universe || "?"}`
+      + (rows.length < matched ? ` · top ${rows.length}` : "")
+      + (c.as_of ? ` · ${esc(String(c.as_of))}` : "");
+
+    // Header is a two-column row: the screen on the left, its one control on
+    // the right. The button was full-width and directly under the text, which
+    // read as the panel's primary action when it is a side door — the table
+    // below it is what the user asked for.
+    return `<div class="sc-card">`
+      + `<div class="sc-head">`
+      + `<div class="sc-title">Screen</div>`
+      + (framed
+          ? `<button type="button" class="ui-btn ui-btn-sm" `
+            + `data-screen-open `
+            + `title="Open these ${syms.length} names in the Screener">`
+            + `Open`
+            + `<svg class="icon" viewBox="0 0 24 24" fill="none" `
+            + `stroke="currentColor" stroke-width="2.25" stroke-linecap="round" `
+            + `stroke-linejoin="round" aria-hidden="true">`
+            + `<path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>`
+            + `</button>`
+          : "")
+      + `</div>`
+      + (c.criteria ? `<div class="sc-crit">${esc(c.criteria)}</div>` : "")
+      + (c.ranking ? `<div class="sc-rank-line">${esc(c.ranking)}</div>` : "")
+      + `<div class="sc-meta">${meta}</div>`
+      + `<div class="sc-tablewrap"><table class="sc-table">`
+      + `<thead>${head}</thead><tbody>${body}</tbody></table></div>`
+      + `</div>`;
+  }
+
+  /** Hand this screen to the shell's Screener tab.
+   *
+   *  Charto does NOT persist the screen. It cannot: saving is per-user and the
+   *  Pivot user table and Charto's are disjoint numbering schemes over
+   *  different databases, so a screen written from here would be filed under
+   *  whichever stranger happens to hold that id on the other side. The shell
+   *  holds the Pivot session, so the shell saves. This is a handover, and the
+   *  message is the whole payload — the receiver needs nothing from us later.
+   *
+   *  Targeted at our own origin rather than "*": the frame is same-origin by
+   *  construction, and a wildcard would post a user's screen to whatever else
+   *  ever ends up hosting this page.
+   */
+  function wireScreen(box, card) {
+    const btn = box.querySelector("[data-screen-open]");
+    if (!btn) return;
+    btn.addEventListener("click", () => {
+      const syms = Array.isArray(card.symbols) && card.symbols.length
+        ? card.symbols
+        : (card.rows || []).map((r) => r.symbol).filter(Boolean);
+      if (!syms.length) return;
+      try {
+        window.parent.postMessage({
+          type: "charto:open-screen",
+          screen: {
+            symbols: syms,
+            criteria: card.criteria || "",
+            ranking: card.ranking || "",
+            as_of: card.as_of || "",
+            matched: card.matched != null ? card.matched : syms.length,
+            universe: card.universe || 0,
+            sorted_by: card.sorted_by || null,
+            filters_applied: card.filters_applied || [],
+          },
+        }, window.location.origin);
+        // Acknowledge in place. The tab switch happens in the parent, which
+        // this frame cannot observe, so without this the button looks inert
+        // on a slow switch and gets pressed again.
+        btn.classList.add("is-done");
+        const was = btn.textContent;
+        btn.textContent = "Opened in Screener";
+        setTimeout(() => {
+          btn.classList.remove("is-done");
+          btn.textContent = was;
+        }, 2400);
+      } catch (e) {
+        console.warn("[charto] screen handover failed", e);
+      }
+    });
+  }
+
   const RENDER = { patterns, trend, indicators, confirmation, timeframes,
-                   compare, move, workflow_draft: workflowDraft,
+                   compare, move, screen, workflow_draft: workflowDraft,
                    strategy_backtest: strategyBacktest,
                    option_strategy: optionStrategy,
                    option_chain: optionChain,
@@ -2391,6 +2530,7 @@ const Cards = (() => {
           btn.remove();
         });
       });
+      if (box.querySelector("[data-screen-open]")) wireScreen(box, card);
       if (box.querySelector("[data-wf]")) wireDraft(box, card);
       if (box.querySelector("[data-plan]")) wirePlan(box, card);
       // The on-chart control belongs to whichever payload owns the TRADES. A

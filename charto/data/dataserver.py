@@ -24,6 +24,7 @@ from __future__ import annotations
 import hashlib
 from collections import OrderedDict
 import hmac
+import http.client
 import json
 import logging
 import queue
@@ -5386,6 +5387,267 @@ SCREEN_FEATURE_HELP = {
 }
 
 SCREEN_OPS = ("lt", "gt")
+
+
+# How each screen feature reads in a sentence, and what unit its threshold is
+# in. Used only to LABEL a screen — never to compute one. Kept beside
+# SCREEN_FEATURES so a feature added there and missing here is obvious.
+_SCREEN_PHRASE = {
+    "close": ("price", ""),
+    "ret_1d": ("1-day return", "%"),
+    "ret_1w": ("1-week return", "%"),
+    "ret_1m": ("1-month return", "%"),
+    "ret_3m": ("3-month return", "%"),
+    "ret_6m": ("6-month return", "%"),
+    "ret_1y": ("1-year return", "%"),
+    "dist_52w_high": ("distance from the 52-week high", "%"),
+    "dist_52w_low": ("distance from the 52-week low", "%"),
+    "rsi14": ("RSI(14)", ""),
+    "atr_pct": ("ATR", "%"),
+    "sma20_rel": ("distance above the 20-day SMA", "%"),
+    "sma50_rel": ("distance above the 50-day SMA", "%"),
+    "sma200_rel": ("distance above the 200-day SMA", "%"),
+    "sma50_cross_ago": ("sessions since the 50-day SMA cross", ""),
+    "sma200_cross_ago": ("sessions since the 200-day SMA cross", ""),
+    "range_20d_pct": ("20-day range", "%"),
+    "vol_z20": ("volume vs its 20-day average (z)", ""),
+    "turnover_20d_cr": ("20-day turnover", " cr"),
+    "turnover_20d_musd": ("20-day turnover", "m USD"),
+    "vp20_pos": ("position in the 20-session value area", ""),
+    "vp20_va_width_pct": ("value-area width", "%"),
+    "vp20_poc_dist_pct": ("distance from the point of control", "%"),
+    "vp20_poc_shift_pct": ("point-of-control shift", "%"),
+}
+
+
+# The industry column is stored SQUASHED ("informationtechnologyservices"),
+# which is fine as a key and unreadable as a caption. There is no separator to
+# split on, so segmentation needs a vocabulary: greedy longest-match, left to
+# right, over the words that actually occur across the 136 stored industries.
+# Anything that fails to segment falls through as the raw slug rather than
+# being mangled — a caption that reads oddly is better than one that lies about
+# what was screened.
+_IND_WORDS = (
+    "accessories advertising aerospace agencies agrochemicals agricultural air "
+    "airlines airports alcoholic aluminum apparel appliances application asset "
+    "auto banks base beverages biotechnology broad broadcasting brewers brokers "
+    "building business capital care cars casinos casualty castings cement "
+    "chemicals "
+    "civil coal coffee com commodity communication components computer "
+    "confectioners conglomerates construction consulting consumer content "
+    "contracting copper credit cryptocurrency currency data dealerships defense "
+    "department development diagnostics discount distilleries diversified drug "
+    "drugs education electric electrical electricals electrodes electronic "
+    "electronics energy engineering entertainment equipment estate exchanges "
+    "fabrication facilities farm fertilisers finance financial fixtures food "
+    "foods footwear forgings freight furnishings gas general generic goods "
+    "graphite hardware health heavy hotels household independent index india "
+    "industrial information infrastructure inputs institutions instruments "
+    "insurance integrated internet investment itc jeeps large lending lic life "
+    "lodging logistics luxury machinery major management manufacturers "
+    "manufacturing marine marketing markets materials medical metal metals "
+    "minerals "
+    "mining miscellaneous mm mortgage motherson motors non oil operations other "
+    "packaged paints parts payments personal pesticides pharmaceuticals "
+    "plantations power precious private processing producers products property "
+    "public railroads real refining regional regulated reinsurance renewable "
+    "research resorts restaurants retail sector services shipping software "
+    "solar specialty steel stock stores supplies tata tea technology telecom "
+    "telecommunications term textile thermal tobacco tools training "
+    "transmission travel truck tyres utilities varnishes volatility wineries"
+).split()
+# Longest first so "electricals" wins over "electrical" and "financial" over
+# "finance" — a shortest-first scan would strand the tail of every such pair.
+_IND_WORDS = tuple(sorted(set(_IND_WORDS), key=len, reverse=True))
+# Segments that are initialisms, not words.
+_IND_UPPER = {"itc", "lic", "mm"}
+
+
+# For a relative feature, crossing zero means "on this side of it" rather than
+# "by this much" — (gt phrasing, lt phrasing).
+_SCREEN_ZERO_FORM = {
+    "sma20_rel": ("Above the 20-day SMA", "Below the 20-day SMA"),
+    "sma50_rel": ("Above the 50-day SMA", "Below the 50-day SMA"),
+    "sma200_rel": ("Above the 200-day SMA", "Below the 200-day SMA"),
+    "vol_z20": ("Volume above its 20-day average",
+                "Volume below its 20-day average"),
+    "ret_1d": ("Up on the day", "Down on the day"),
+    "ret_1w": ("Up on the week", "Down on the week"),
+    "ret_1m": ("Up on the month", "Down on the month"),
+    "ret_1y": ("Up on the year", "Down on the year"),
+}
+
+
+def _humanize_industry(slug: str) -> str:
+    """"informationtechnologyservices" -> "Information Technology Services"."""
+    s = str(slug or "").strip().lower()
+    if not s:
+        return ""
+    out, i = [], 0
+    while i < len(s):
+        for w in _IND_WORDS:
+            if s.startswith(w, i):
+                out.append(w)
+                i += len(w)
+                break
+        else:
+            return slug          # unsegmentable — say it exactly as stored
+    return " ".join(w.upper() if w in _IND_UPPER else w.capitalize()
+                    for w in out)
+
+
+def _screen_criteria(parsed: list, sort_by: str, desc: bool,
+                     want_inds: set | None, pattern_kind: str) -> dict:
+    """The screen, as two short lines: what it looked for, and how it ranked.
+
+    Two fields rather than one sentence because they are read differently — the
+    conditions are the screen, the ranking is only the order they arrived in,
+    and running them together made a caption nobody finished reading.
+
+    Composed from the PARSED filters, not from the user's words and not by the
+    model: this travels with the screen when it is saved, and a label that
+    drifted from the query would make a saved screen claim a membership it does
+    not have.
+    """
+    # The commonest screen there is asks for price above two or three moving
+    # averages at once, and listing them produces "Above the 20-day SMA, above
+    # the 50-day SMA, and above the 200-day SMA" — three clauses saying one
+    # thing. Collapse them into the phrase a person would use.
+    _SMA = ("sma20_rel", "sma50_rel", "sma200_rel")
+    same_side = [(n, o) for n, o, v in parsed if n in _SMA and v == 0]
+    collapse = None
+    if len(same_side) > 1 and len({o for _, o in same_side}) == 1:
+        periods = [n.removeprefix("sma").removesuffix("_rel")
+                   for n, _ in sorted(same_side, key=lambda x: _SMA.index(x[0]))]
+        side = "Above" if same_side[0][1] == "gt" else "Below"
+        collapse = (f"{side} the {', '.join(periods[:-1])}- "
+                    f"and {periods[-1]}-day SMAs").replace("- and", "- and")
+        collapse = f"{side} the {'-, '.join(periods[:-1])}- and {periods[-1]}-day SMAs"
+
+    bits = []
+    for name, op, val in parsed:
+        if collapse is not None and name in _SMA and val == 0:
+            if collapse:                 # emit once, at the first of them
+                bits.append(collapse)
+                collapse = ""
+            continue
+        phrase, unit = _SCREEN_PHRASE.get(name, (name, ""))
+        # "distance above the 200-day SMA above 0%" is what the general form
+        # produces for the commonest screen there is, and it is unreadable.
+        # A zero threshold on a RELATIVE feature is not a magnitude test, it is
+        # a side test — so say the side.
+        zero = _SCREEN_ZERO_FORM.get(name)
+        if zero and val == 0:
+            bits.append(zero[0] if op == "gt" else zero[1])
+            continue
+        bits.append(f"{phrase} {'above' if op == 'gt' else 'below'} "
+                    f"{val:g}{unit}")
+    if pattern_kind:
+        bits.append(f"a {pattern_kind.replace('_', ' ')} pattern")
+    where = ", ".join(_humanize_industry(i) for i in sorted(want_inds or []))
+
+    def _lower_lead(b: str) -> str:
+        # "Above the 50-day SMA" -> "above the ..." mid-sentence, but leave
+        # "RSI(14) below 30" and other initialisms alone.
+        return b[0].lower() + b[1:] if len(b) > 1 and b[1].islower() else b
+
+    if bits:
+        criteria = bits[0][0].upper() + bits[0][1:]
+        rest = [_lower_lead(b) for b in bits[1:]]
+        if len(rest) > 1:
+            criteria += ", " + ", ".join(rest[:-1]) + f", and {rest[-1]}"
+        elif rest:
+            criteria += f" and {rest[0]}"
+        if where:
+            criteria += f" \u2014 in {where}"
+    else:
+        criteria = where or "The whole stored universe"
+
+    order = _SCREEN_PHRASE.get(sort_by, (sort_by, ""))[0]
+    return {"criteria": criteria,
+            "ranking": f"Ranked by {order}, "
+                       f"{'highest' if desc else 'lowest'} first"}
+
+
+SCREEN_FEATURES = (
+    "close", "ret_1d", "ret_1w", "ret_1m", "ret_3m", "ret_6m", "ret_1y",
+    "dist_52w_high", "dist_52w_low", "rsi14", "atr_pct",
+    "sma20_rel", "sma50_rel", "sma200_rel",
+    "sma50_cross_ago", "sma200_cross_ago",
+    "range_20d_pct", "vol_z20", "turnover_20d_cr", "turnover_20d_musd",
+    "vp20_pos", "vp20_va_width_pct", "vp20_poc_dist_pct", "vp20_poc_shift_pct",
+)
+
+# Volume-profile features come from the swept vp_screen table, not from
+# bars_1d — they need 1-MINUTE bars, which only the hydrated symbols have.
+# That makes their coverage a fraction of the universe's, and a screen that
+# quietly ranked 54 rows as though they were 549 would be the same lie as
+# computing MFI on an index. Every screen that filters or sorts on one of
+# these reports how many instruments could be scored at all.
+_VP_FEATURES = frozenset(
+    {"vp20_pos", "vp20_va_width_pct", "vp20_poc_dist_pct",
+     "vp20_poc_shift_pct"})
+
+# Features that are arithmetic on VOLUME. The universe now holds instruments
+# with no volume at all: an index prints no traded quantity, so bars_1d
+# carries v=0 on 100% of its days (all 24 indices and India VIX). Computing
+# these anyway does not fail loudly — it fabricates. Measured on NIFTY 50:
+# turnover came out 0.0 (a real zero, and the DEFAULT sort key), OBV and A/D
+# flat 0.0, and MFI(14) reported 100.0 — a maximally-overbought reading
+# manufactured out of no data. A feature whose input does not exist is None.
+_VOLUME_FEATURES = frozenset(
+    {"vol_z20", "turnover_20d_cr", "turnover_20d_musd"})
+
+# Spelled out because an error that only lists names tells the model which
+# words are legal, not which one it meant.
+SCREEN_FEATURE_HELP = {
+    "close": "last daily close, rupees",
+    "ret_1d": "% change over the last session",
+    "ret_1w": "% over 5 sessions",
+    "ret_1m": "% over 21 sessions",
+    "ret_3m": "% over 63 sessions",
+    "ret_6m": "% over 126 sessions",
+    "ret_1y": "% over 252 sessions",
+    "dist_52w_high": "% from the 52-week high (0 = at it, negative = below)",
+    "dist_52w_low": "% above the 52-week low",
+    "rsi14": "RSI(14) on daily closes",
+    "atr_pct": "ATR(14) as % of close — daily volatility",
+    "sma20_rel": "% of close above (+) or below (-) the 20-day SMA",
+    "sma50_rel": "% of close above (+) or below (-) the 50-day SMA",
+    "sma200_rel": "% of close above (+) or below (-) the 200-day SMA",
+    "sma50_cross_ago": "sessions since close last crossed its 50-day SMA "
+                       "(either direction — sma50_rel's sign says which side "
+                       "it is on NOW); 'just crossed above' = this lt N plus "
+                       "sma50_rel gt 0. Null if no cross within ~120 sessions",
+    "sma200_cross_ago": "sessions since close last crossed its 200-day SMA "
+                        "(either direction — pair with sma200_rel's sign); "
+                        "null if no cross within ~120 sessions",
+    "range_20d_pct": "20-day high-to-low width as % of close — low = coiled",
+    "vol_z20": "last session's volume in σ of the prior 20 sessions. Null for "
+               "instruments that print no volume (indices, India VIX)",
+    "turnover_20d_cr": "avg daily close*volume over 20 sessions, RUPEES CRORE "
+                       "— INR-quoted instruments only. Null for dollar-quoted "
+                       "ones (use turnover_20d_musd) and for indices",
+    "turnover_20d_musd": "avg daily close*volume over 20 sessions, MILLIONS "
+                         "OF US DOLLARS — dollar-quoted instruments (spot "
+                         "crypto) only. Null for INR-quoted ones",
+    "vp20_pos": "where the close sits inside the 20-session VALUE AREA, as % "
+                "of that area's width: 0 = at the value-area low, 100 = at "
+                "the high, gt 100 = trading ABOVE accepted value, lt 0 = "
+                "below it. 'above value' = gt 100; 'back inside value' = "
+                "gt 0 plus lt 100",
+    "vp20_va_width_pct": "the 20-session value area as % of its point of "
+                         "control — how tightly volume agreed on price. Low "
+                         "= coiled/balanced, high = distributed",
+    "vp20_poc_dist_pct": "% the close sits above (+) or below (-) the "
+                         "20-session point of control (the most-traded price)",
+    "vp20_poc_shift_pct": "% this 20-session POC moved against the PRIOR 20 "
+                          "sessions' POC — value migration, the profile's "
+                          "own trend measure. Positive = value building "
+                          "higher",
+}
+
+SCREEN_OPS = ("lt", "gt")
 _SCREEN_SCAN_CAP = 80   # symbols a pattern pass will scan
 _screen_cache: dict = {}
 
@@ -5780,6 +6042,33 @@ def tool_screen_universe(filters: list | None = None, industry: str = "",
            "filters_applied": [{"feature": n, "op": o, "value": v}
                                for n, o, v in parsed],
            "rows": rows}
+
+    # A panel for the result, so the screen becomes a THING the user can carry
+    # somewhere rather than a table that scrolls out of the transcript. The
+    # card is what the "Open in Screener" control is attached to; without it
+    # the client sees only prose (the `tool` SSE event carries {name, ok} and
+    # nothing else), so there would be no membership to hand over.
+    #
+    # Composed here rather than asked of the model: the sentence and the list
+    # are both derived from `parsed`/`rows`, which is the same model-reads,
+    # code-computes rule the rest of this file follows. A screen whose criteria
+    # line was model-written could disagree with the filters that produced it.
+    if rows:
+        _card_add({
+            "kind": "screen",
+            **_screen_criteria(parsed, sort_by, desc, want_inds, kind),
+            "universe": universe,
+            "matched": len(survivors),
+            "as_of": as_of,
+            "sorted_by": res["sorted_by"],
+            "filters_applied": res["filters_applied"],
+            # Every symbol that MATCHED, not just the page shown: the panel
+            # lists the top rows, but "open this screen" means the screen, and
+            # a handover that silently dropped everything past `limit` would
+            # be a different screen wearing the same name.
+            "symbols": [r["symbol"] for r in survivors],
+            "rows": rows,
+        })
     if vp_used:
         pool_n = len(vp_pool)
         pool_label = (f"instruments in {'/'.join(sorted(want_inds))}"
@@ -11580,6 +11869,27 @@ def _pivot_tool(name: str):
             # showed.
             if kind == "workflow_draft" and _strategies is not None:
                 who = getattr(_req, "user", None)
+                # AN AMENDMENT RE-TRANSLATES, SO SAY WHAT MOVED.
+                #
+                # There is no patch path on this surface and deliberately no
+                # classifier reading the user's words to decide which edit they
+                # meant — the model owns that decision. What the model does not
+                # reliably do is report the parts of the rule it changed while
+                # it was in there: "make it less trigger happy" came back with
+                # a different EMA period and only the bar count mentioned. The
+                # comparison is structural, against the draft this conversation
+                # already had, and it runs BEFORE that draft is overwritten.
+                prior = _strategies._last_draft()
+                if prior:
+                    moved = _strategies.draft_delta(prior, card)
+                    if moved:
+                        result["_changed_from_previous"] = moved
+                        result["_note"] = (
+                            (result.get("_note") or "")
+                            + " This draft REPLACES the previous one. State "
+                              "every item in _changed_from_previous — the user "
+                              "asked for one change and may not have asked for "
+                              "the others.").strip()
                 _strategies.remember_draft(
                     who[0] if who else 0,
                     getattr(_req, "chat_id", "") or "", card)
@@ -12805,7 +13115,13 @@ def _urlopen_with_retry(req: urllib.request.Request, *, timeout: float,
             logging.warning("Azure request returned %s; retry %s/%s in %.2fs",
                             exc.code, attempt + 1, tries, delay)
             exc.close()
-        except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
+        # `RemoteDisconnected` is raised by `getresponse()` — the peer hung up
+        # BEFORE any status line, which is precisely the pre-response case this
+        # loop exists for. It is neither a `URLError` nor a `TimeoutError`
+        # (it subclasses `ConnectionResetError` and `BadStatusLine`), so it used
+        # to escape this tuple and surface as a 500 with an empty reply.
+        except (urllib.error.URLError, TimeoutError, socket.timeout,
+                http.client.RemoteDisconnected) as exc:
             last = exc
             if attempt >= tries:
                 raise

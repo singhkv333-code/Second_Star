@@ -292,9 +292,18 @@ def mark_price(symbol: str) -> Optional[Decimal]:
             return hit[1]
     px: Optional[Decimal] = None
     try:
+        # `_live_view` returns (forming_bar, horizon) — a TUPLE, not a dict.
+        # This read `live.get("c")`, which raised AttributeError on every live
+        # symbol and was swallowed by the except below, so the branch had never
+        # once run. It went unnoticed because the fallback is not a fallback:
+        # `get_bars` merges the forming minute itself, so the live price still
+        # arrived by the longer road. Correct answer, dead code, silent error —
+        # and it would have become a WRONG answer the day get_bars stopped
+        # folding live bars, with nothing to say it had.
         live = ds._live_view(sym)
-        if live and live.get("c"):
-            px = to_money(live["c"])
+        form = live[0] if live else None
+        if form and form[4] is not None:
+            px = to_money(form[4])
     except Exception:                                       # noqa: BLE001
         px = None
     if px is None:

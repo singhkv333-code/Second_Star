@@ -45,6 +45,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
  *  a chart on :5173 is a chart the user signed into the shell is signed out
  *  of. Same origin is the whole design, not a deployment detail.
  */
+import type { PendingScreen } from "@/lib/screensApi";
+
 const CHART_BASE = "/chart-app";
 
 type Props = {
@@ -58,10 +60,22 @@ type Props = {
    *  chart then insets everything below that header by this much so the rail
    *  is not sitting on top of its tools. 0 when nothing overlays us. */
   railWidth?: number;
+  /** The chart handing a universe screen to the Screener tab. The frame only
+   *  RELAYS it — it is the shell that owns the tab and the Pivot session that
+   *  can save a screen. */
+  onOpenScreen?: (screen: PendingScreen) => void;
 };
 
-export function ChartFrame({ symbol, theme, railWidth = 0 }: Props): React.ReactElement {
+export function ChartFrame({
+  symbol, theme, railWidth = 0, onOpenScreen,
+}: Props): React.ReactElement {
   const ref = useRef<HTMLIFrameElement>(null);
+  // The message listener is deliberately mounted ONCE (empty deps, so the
+  // chart is never re-subscribed mid-session); a callback read straight from
+  // props would be captured stale on that first render. The ref keeps the
+  // listener stable and the callback current.
+  const onScreenRef = useRef(onOpenScreen);
+  useEffect(() => { onScreenRef.current = onOpenScreen; }, [onOpenScreen]);
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -97,6 +111,25 @@ export function ChartFrame({ symbol, theme, railWidth = 0 }: Props): React.React
       const d = e.data as { type?: string } | null;
       if (d?.type === "chart:ready") { setReady(true); setFailed(false); }
       if (d?.type === "chart:error") { setReady(false); setFailed(true); }
+      if (d?.type === "charto:open-screen") {
+        // Validated like everything else off this channel: origin and source
+        // are checked above, and the payload is still treated as untrusted —
+        // a screen with no symbols is dropped rather than switching the user
+        // to an empty tab.
+        const raw = (e.data as { screen?: Partial<PendingScreen> }).screen;
+        const symbols = Array.isArray(raw?.symbols)
+          ? raw!.symbols.filter((x): x is string => typeof x === "string" && !!x)
+          : [];
+        if (!symbols.length) return;
+        onScreenRef.current?.({
+          symbols,
+          criteria: typeof raw?.criteria === "string" ? raw.criteria : "",
+          ranking: typeof raw?.ranking === "string" ? raw.ranking : undefined,
+          as_of: typeof raw?.as_of === "string" ? raw.as_of : "",
+          matched: typeof raw?.matched === "number" ? raw.matched : symbols.length,
+          universe: typeof raw?.universe === "number" ? raw.universe : 0,
+        });
+      }
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);

@@ -53,6 +53,7 @@ from __future__ import annotations
 import json
 import logging
 import queue
+import sqlite3
 import threading
 import time
 from collections import OrderedDict
@@ -173,6 +174,11 @@ def _db():
     return ds._users
 
 
+# `strategies` predates the closed-bar rule, so the watermark is added rather
+# than declared. Same shape plans.py uses for `plan_id`.
+_EVAL_BAR_COL = (
+    "ALTER TABLE strategies ADD COLUMN last_eval_bar INTEGER NOT NULL DEFAULT 0")
+
 _ready = False
 _init_lock = threading.Lock()
 
@@ -184,6 +190,10 @@ def init_db() -> None:
             return
         with ds._users_lock:
             _db().executescript(_SCHEMA)
+            try:
+                _db().execute(_EVAL_BAR_COL)
+            except sqlite3.OperationalError:
+                pass                      # already there
             _db().commit()
         _ready = True
 
@@ -310,10 +320,28 @@ class ChartoDataAccessor:
     """
 
     def __init__(self, *, default_tf: str = "1d",
-                 position: Optional[dict] = None, limit: int = 400) -> None:
+                 position: Optional[dict] = None, limit: int = 400,
+                 closed_only: bool = False, user_id: int = 0) -> None:
         self.default_tf = default_tf
         self.position = position or {}
         self.limit = limit
+        # WHOSE DRAWINGS. A drawing is owner-scoped: two accounts can each hold
+        # a D3 on RELIANCE, and resolving one against the other's line is a
+        # silent, confident wrong answer — the alert engine says so where it
+        # reads them. Anonymous (0) simply finds none, which fails the rule to
+        # UNKNOWN and holds, rather than trading someone else's geometry.
+        self.user_id = int(user_id or 0)
+        self._draw: Optional[dict] = None
+        # THE FORMING BAR IS NOT A BAR THE RULE MEANT.
+        #
+        # `get_bars` merges the live forming minute into whatever interval it
+        # folds, so with a feed running the last row is partial at EVERY
+        # interval, daily included. A rule written on "the daily close" that
+        # reads it is not reading a close — it is reading wherever price
+        # happens to be, and `offset: 1` means the wrong bar too. Dropping it
+        # here rather than at one call site is what makes every leaf in the
+        # tree agree about which bar is current.
+        self.closed_only = closed_only
         self._bars: dict[tuple[str, str], list] = {}
         self._ind: dict[tuple, dict] = {}
 
@@ -337,6 +365,8 @@ class ChartoDataAccessor:
                     for b in (data.get("bars") or [])]
         except Exception:                                   # noqa: BLE001
             rows = []
+        if self.closed_only and rows and ds._live_view(key[0]) is not None:
+            rows = rows[:-1]
         self._bars[key] = rows
         return rows
 
@@ -372,6 +402,15 @@ class ChartoDataAccessor:
         # cheaper than routing through a registry that has no entry for them.
         if key in ("volume", "volume_ma", "volume_roc"):
             return self._volume_key(key, symbol, period, offset, timeframe)
+
+        # A DRAWING IS NOT AN INDICATOR EITHER — it is the user's own geometry,
+        # and it arrives the same way volume does: intercepted before the
+        # registry, because no registry has an entry for a line somebody drew.
+        # The ref rides in `component` (D7, or D7.top for a rectangle edge)
+        # since that is the one free-text field on the node.
+        if key == "drawing":
+            return self._drawing_price(symbol, settings, comp, timeframe,
+                                       offset)
 
         mapped = _IND_COMPONENT.get((key, comp)) or _IND_COMPONENT.get((key, None))
         if mapped is None:
@@ -438,6 +477,48 @@ class ChartoDataAccessor:
         if not base:
             return None
         return float((vols[i] - base) / base * 100.0)
+
+    def _drawing_price(self, symbol: str, settings: Optional[dict],
+                       component: Optional[str], timeframe: str,
+                       offset: int) -> Optional[float]:
+        """The price of one of the user's drawings, at the bar being evaluated.
+
+        The geometry is `alerts.draw_price_at` — the same interpolation and
+        past-the-anchor extrapolation the alert engine has always used, and the
+        same `workspace_state` row the chart autosaves into, so a line dragged
+        on screen moves the level this rule fires on with no second store to
+        keep in step. Sharing it is the point: an alert and a strategy on the
+        same trendline must never disagree about where it is.
+
+        Every failure returns None, which the evaluator reads as UNKNOWN and
+        the rule HOLDS. A drawing the user deleted stops the rule rather than
+        firing it at a stale level.
+        """
+        import alerts                 # late: dataserver loads both, either order
+        # `ref` is the D-number and rides in `settings`; `component` is the
+        # edge. That split is not arbitrary — the DSL validator whitelists
+        # components against a fixed set (so it can catch a typo'd "middel")
+        # and validates settings against a typed range, which is the only one
+        # of the two that can carry an arbitrary integer.
+        try:
+            num = int((settings or {}).get("ref"))
+        except (TypeError, ValueError):
+            return None
+        ref, edge = f"D{num}", str(component or "")
+        mine = self._draw
+        if mine is None:
+            mine = self._draw = alerts._drawings_of(
+                (symbol or "").upper(), self.user_id)
+        got = mine.get(ref.strip().upper())
+        if got is None:
+            return None
+        bar = self.bar(symbol, timeframe, offset)
+        if bar is None:
+            return None
+        try:
+            return float(alerts.draw_price_at(got, bar[0], edge.strip().lower()))
+        except Exception:                                   # noqa: BLE001
+            return None                 # unspeakable geometry → UNKNOWN → hold
 
     def get_volume(self, *, symbol: str, bars: int = 1, exchange: str = "NSE",
                    offset: int = 0) -> Optional[float]:
@@ -507,7 +588,8 @@ class ChartoDataAccessor:
 _COLS = ("id", "user_id", "name", "symbol", "interval", "side", "quantity",
          "spec", "entry", "exit", "state", "note", "chat_id", "estate",
          "in_position", "entry_bar", "entry_price", "peak_pct",
-         "last_fire_bar", "last_eval", "fire_count", "last_error",
+         "last_fire_bar", "last_eval", "last_eval_bar", "fire_count",
+         "last_error",
          "created", "updated")
 
 
@@ -543,6 +625,213 @@ def _readback(d: dict) -> dict:
             "description": spec.get("description") or ""}
 
 
+def _rule_key(node):
+    """A rule's identity, canonical enough that re-proposing it matches.
+
+    The raw `entry` JSON is not that identity. Asked to keep the same rule
+    twice, the translator emitted `offset: None` once and `offset: 0` the
+    other time for the same leaf — the same bar, two strings — so an exact
+    comparison saw two rules and armed both. Absent and zero are the same
+    offset, and a null field is the same as no field, so both are dropped
+    before the compare. Keys are sorted so ordering cannot matter either.
+    """
+    if isinstance(node, dict):
+        return {k: _rule_key(v) for k, v in sorted(node.items())
+                if v is not None and not (k == "offset" and not v)}
+    if isinstance(node, list):
+        return [_rule_key(v) for v in node]
+    return node
+
+
+def _leaves(node, path: str = "") -> dict:
+    """Every scalar in a canonical rule, by path. The unit a diff compares."""
+    out: dict = {}
+    if isinstance(node, dict):
+        for k, v in node.items():
+            out.update(_leaves(v, f"{path}.{k}"))
+    elif isinstance(node, list):
+        for i, v in enumerate(node):
+            out.update(_leaves(v, f"{path}[{i}]"))
+    elif path:
+        out[path] = node
+    return out
+
+
+def _where(path: str) -> str:
+    """The readable tail of a leaf path — 'right.period', not the whole walk."""
+    return ".".join(path.lstrip(".").split(".")[-2:])
+
+
+def draft_delta(prior: dict, new: dict) -> list[str]:
+    """What actually changed between two drafts, read off the trees.
+
+    An amendment on this surface RE-TRANSLATES: there is no patch path here
+    (Pivot's is driven by a regex classifier over the user's words, which is
+    deterministic decisioning about what a person meant and deliberately not
+    imported). Re-translation is the right call — the model owns the decision —
+    but it drifts, and silently: asked to make a rule "a bit less trigger
+    happy" it moved the trend filter from a 20-day EMA to a 50-day EMA and
+    reported only the stricter bar count.
+
+    So the code does not constrain the change; it STATES it. Structural
+    comparison only, no reading of the message, and `_rule_key` canonicalises
+    first so `offset: None` and `offset: 0` do not register as an edit.
+    """
+    try:
+        a, b = parse_draft(prior), parse_draft(new)
+    except Exception:            # noqa: BLE001 — a draft that will not parse
+        return []                # has bigger problems than an unreported edit
+    out: list[str] = []
+    for f in ("symbol", "interval", "side", "quantity"):
+        if a.get(f) != b.get(f):
+            out.append(f"{f}: {a.get(f)} \u2192 {b.get(f)}")
+    for leg in ("entry", "exit"):
+        ta, tb = a.get(leg), b.get(leg)
+        if _rule_key(ta) == _rule_key(tb):
+            continue
+        if ta and not tb:
+            out.append(f"{leg} condition removed")
+            continue
+        if tb and not ta:
+            out.append(f"{leg} condition added")
+            continue
+        la, lb = _leaves(_rule_key(ta)), _leaves(_rule_key(tb))
+        changed = [f"{leg} {_where(k)}: {la[k]} \u2192 {lb[k]}"
+                   for k in la if k in lb and la[k] != lb[k]]
+        if changed:
+            out.extend(changed[:6])
+        if len(la) != len(lb) or any(k not in lb for k in la):
+            # Shape changed, so there is no field-level edit to name. The
+            # canonical leaf count is an internal number and saying it out
+            # loud would only invite the model to quote it at the user.
+            out.append(f"{leg} condition restructured, not just retuned")
+    return out
+
+
+def _refuse_unevaluable(parsed: dict, uid: int = 0) -> None:
+    """Refuse a tree the runtime could never act on, before it is armed.
+
+    `parse_draft` checks the draft's SHAPE — steps, symbol, side, size — and
+    never looked at the condition itself. Pivot ships the check that does
+    (`semantic_validate`: unknown indicator, bad component, misplaced position
+    leaf, vacuous comparison, contradictory AND) and charto had zero references
+    to it, so `RSI > 70 AND RSI < 30` armed cleanly and held forever. Borrowing
+    it beats writing a second opinion about what a valid tree is.
+
+    Charto-specific on top: a leaf this accessor cannot serve returns None →
+    UNKNOWN → HOLD, which is the same invisible non-firing. Pivot validates 26
+    indicator keys; `_IND`/`_IND_COMPONENT` map fewer, so the gap is checked
+    here rather than discovered by a rule that never fires.
+    """
+    import execution_bridge
+    ready, _ = execution_bridge.available()
+    if not ready:
+        return                      # save() already refused above; be quiet
+    try:
+        from backend.workflows.dsl.schema import Tree
+        from backend.workflows.dsl.validators import (
+            DSLValidationError, semantic_validate)
+        from pydantic import TypeAdapter
+    except Exception:                                       # noqa: BLE001
+        return                      # no validator available is not a refusal
+    for leg, tree in (("entry", parsed.get("entry")),
+                      ("exit", parsed.get("exit"))):
+        if not tree:
+            continue
+        try:
+            node = TypeAdapter(Tree).validate_python(tree)
+            semantic_validate(node, allow_position=(leg == "exit"))
+        except DSLValidationError as exc:
+            raise Unbuildable(f"The {leg} condition cannot be armed: {exc}")
+        except Exception as exc:                            # noqa: BLE001
+            raise Unbuildable(
+                f"The {leg} condition did not parse: {exc}") from None
+        for name in _unservable(node):
+            raise Unbuildable(
+                f"The {leg} condition reads '{name}', which this server "
+                f"cannot compute — the rule would arm and never fire.")
+        for bad in _bad_drawing_refs(node, uid):
+            raise Unbuildable(f"The {leg} condition {bad}")
+
+
+
+def _bad_drawing_refs(node, uid: int) -> list:
+    """Drawing leaves that name a ref the user does not have, or an edge the
+    drawing's own shape cannot give.
+
+    Caught HERE because the alternative is silence. The edge is whitelisted by
+    NAME in the DSL validator (top/bot/mid) but nothing there knows the SHAPE
+    it is being asked of, so `.bot` on a horizontal line validated cleanly,
+    resolved to None at every bar, and held forever — while the reply told the
+    user it would trigger at the lower rail. Observed twice in one run: an
+    hline given `bot`, and a channel given `bot` before channels were wired.
+    A refusal the user can read beats a rule that quietly never fires.
+    """
+    if not uid:
+        return []
+    try:
+        import alerts
+    except Exception:                                       # noqa: BLE001
+        return []
+    out, stack, mine = [], [node], {}
+    while stack:
+        n = stack.pop()
+        f = getattr(n, "__dict__", None)
+        if not isinstance(f, dict):
+            continue
+        if f.get("type") == "indicator" and \
+                str(f.get("indicator") or "").lower() == "drawing":
+            sym = str(f.get("symbol") or "").upper()
+            if sym not in mine:
+                mine[sym] = alerts._drawings_of(sym, int(uid))
+            ref = f"D{(f.get('settings') or {}).get('ref')}"
+            d = mine[sym].get(ref)
+            if d is None:
+                have = ", ".join(sorted(
+                    k for k, v in mine[sym].items()
+                    if k == str(v.get("ref") or "").upper())) or "none"
+                out.append(f"names drawing {ref} on {sym}, which you do not "
+                           f"have (yours: {have}).")
+            else:
+                edge = str(f.get("component") or "")
+                if edge:
+                    try:
+                        alerts.draw_price_at(d, 0, edge.lower())
+                    except alerts.Unspeakable as exc:
+                        out.append(str(exc) + ".")
+        for v in f.values():
+            if isinstance(v, list):
+                stack.extend(v)
+            elif hasattr(v, "__dict__"):
+                stack.append(v)
+    return out
+
+def _unservable(node) -> list:
+    """Indicator keys in a tree that `ChartoDataAccessor` has no mapping for."""
+    out, stack = [], [node]
+    while stack:
+        n = stack.pop()
+        fields = getattr(n, "__dict__", None)
+        if not isinstance(fields, dict):
+            continue
+        key = str(fields.get("indicator") or "").lower()
+        if fields.get("type") == "indicator" and key:
+            comp = fields.get("component")
+            known = (key in ("volume", "volume_ma", "volume_roc", "drawing")
+                     or (key, str(comp).lower() if comp else None)
+                     in _IND_COMPONENT
+                     or (key, None) in _IND_COMPONENT
+                     or key in _IND)
+            if not known:
+                out.append(key)
+        for v in fields.values():
+            if isinstance(v, list):
+                stack.extend(v)
+            elif hasattr(v, "__dict__"):
+                stack.append(v)
+    return out
+
+
 def save(uid: int, draft: dict, *, note: str = "", chat_id: str = "",
          arm: bool = True) -> dict:
     """Persist a draft and, by default, arm it.
@@ -560,7 +849,47 @@ def save(uid: int, draft: dict, *, note: str = "", chat_id: str = "",
         # written to end. Refuse at the door.
         raise Unbuildable(why)
     parsed = parse_draft(draft)          # raises Unbuildable with the reason
+    _refuse_unevaluable(parsed, uid)     # ...and so does this, for the TREE
     now = int(time.time())
+    entry_j = json.dumps(parsed["entry"])
+    exit_j = json.dumps(parsed["exit"]) if parsed["exit"] else None
+    # ARMING THE SAME RULE TWICE DOUBLES THE POSITION.
+    #
+    # Nothing here used to dedupe, because until the sizing gate was removed
+    # almost nothing reached this function at all. The moment drafts started
+    # arriving, one conversation produced it: an amendment armed the rule, the
+    # user then said "keep it", the model called this again, and the book held
+    # two identical armed strategies. Both evaluate the same bar, both fire,
+    # and the user gets twice the size they asked for from a word that meant
+    # "yes, the one you just made".
+    #
+    # Matched on the RULE (symbol, interval, side, quantity, entry, exit), not
+    # on the name — a re-save usually renames, and the name is the one field
+    # that does not change what fires. An already-armed identical rule is
+    # returned as-is so the caller can say "already armed" instead of
+    # insisting it saved something.
+    want = (_rule_key(parsed["entry"]), _rule_key(parsed["exit"]))
+    with ds._users_lock:
+        rows = _db().execute(
+            "SELECT id, entry, exit FROM strategies WHERE user_id=? AND "
+            "symbol=? AND interval=? AND side=? AND quantity=? AND "
+            "state='armed' ORDER BY id DESC",
+            (int(uid), parsed["symbol"], parsed["interval"], parsed["side"],
+             parsed["quantity"])).fetchall()
+    dup = next(
+        (r for r in rows
+         if (_rule_key(json.loads(r[1])),
+             _rule_key(json.loads(r[2])) if r[2] else None) == want),
+        None)
+    if dup:
+        return {"id": dup[0], "state": "armed", "already_armed": True,
+                "symbol": parsed["symbol"], "interval": parsed["interval"],
+                "quantity": parsed["quantity"],
+                "has_exit": bool(parsed["exit"]),
+                "_note": ("This exact rule was already armed as strategy "
+                          f"{dup[0]} — nothing new was created and the size is "
+                          "unchanged. Tell the user it is already running; do "
+                          "not claim a second one was saved.")}
     with ds._users_lock:
         cur = _db().execute(
             "INSERT INTO strategies (user_id, name, symbol, interval, side, "
@@ -568,8 +897,7 @@ def save(uid: int, draft: dict, *, note: str = "", chat_id: str = "",
             " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (int(uid), parsed["name"], parsed["symbol"], parsed["interval"],
              parsed["side"], parsed["quantity"], json.dumps(draft),
-             json.dumps(parsed["entry"]),
-             json.dumps(parsed["exit"]) if parsed["exit"] else None,
+             entry_j, exit_j,
              "armed" if arm else "draft", note[:400], str(chat_id or "")[:80],
              now, now))
         sid = cur.lastrowid
@@ -695,7 +1023,19 @@ def watched_symbols() -> list[str]:
 
 
 def on_bar(symbol: str, form: list, closed: bool) -> None:
-    """THE HOOK — one bounded put, then return. Same contract as alerts."""
+    """THE HOOK — one bounded put, then return. Same contract as alerts.
+
+    A CLOSED MINUTE IS THE CUE TO LOOK; whether this strategy's own bar closed
+    is decided in `_run_one`, against its own interval. `closed` used to be
+    ignored entirely, so every tick ran a full pass: a daily rule was evaluated
+    hundreds of times inside one unfinished bar, fired on the first intrabar
+    touch of its condition, and — because `estate` is persisted after every
+    pass — compared each tick against the tick before it, so `cross_up` meant
+    an intrabar wiggle rather than a bar-to-bar cross. `alerts.py` has gated on
+    this flag since it was written.
+    """
+    if not closed:
+        return
     sym = (symbol or "").upper()
     with _INDEX_LOCK:
         if sym not in _BY_SYM:
@@ -789,13 +1129,36 @@ def _set_error(sid: int, msg: str) -> None:
 
 def _run_one(s: dict) -> None:
     sid, uid, sym = int(s["id"]), int(s["user_id"]), s["symbol"]
-    acc = ChartoDataAccessor(default_tf=s["interval"])
+    acc = ChartoDataAccessor(default_tf=s["interval"], closed_only=True,
+                             user_id=uid)
     rows = acc.rows(sym, s["interval"])
     if not rows:
+        # AN ARMED RULE WITH NOTHING TO READ IS THE WORST STATE AVAILABLE: it
+        # looks armed on every screen and can never fire. This returned in
+        # silence — no error, no log, no strategy_log row — and the sweeper
+        # then re-ran it every 60s forever. Measured 2026-09-22: 17 of 36
+        # armed rules on this box were on a symbol with zero bars, every one
+        # of them with last_error=''.
+        why = (f"no {s['interval']} bars for {sym} on this server, so this "
+               f"rule cannot be evaluated — it is armed but cannot fire")
+        if (s.get("last_error") or "") != why:
+            _set_error(sid, why)
         return
     bar_ts = int(rows[-1][0])
     price = rows[-1][4]
     if price is None:
+        return
+    if s.get("last_error"):
+        _set_error(sid, "")       # bars arrived; the rule is evaluable again
+
+    # ONCE PER CLOSED BAR. A minute closing inside a 1d bar is not that bar
+    # closing, so the newest closed bar is compared against the newest one
+    # already read: nothing has closed since, and there is nothing to decide.
+    # This is what makes `estate` advance bar-to-bar — the evaluator's crossing
+    # state is only meaningful if `prev` is the PREVIOUS BAR rather than the
+    # previous pass, and without this gate a 5m rule was re-evaluated on each
+    # of its five minutes. Same gate `alerts.py` spells `last_eval_ts`.
+    if bar_ts <= int(s.get("last_eval_bar") or 0):
         return
 
     # One entry and one exit per bar, on the bar's own clock. Persisted, so a
@@ -831,16 +1194,18 @@ def _run_one(s: dict) -> None:
         peak = _update_peak(sid, s, rows[-1])
         acc.position["peak_pct"] = peak
         verdict, estate = _evaluate(s["exit"], acc, estate)
-        _persist_eval(sid, estate, bar_ts)
+        _persist_eval(sid, estate)
         if verdict is True:
             _fire_exit(s, price, bar_ts)
+        _advance_bar(sid, bar_ts)
         return
 
     if not in_pos:
         verdict, estate = _evaluate(s["entry"], acc, estate)
-        _persist_eval(sid, estate, bar_ts)
+        _persist_eval(sid, estate)
         if verdict is True:
             _fire_entry(s, price, bar_ts)
+        _advance_bar(sid, bar_ts)
 
 
 def _touch(sid: int, bar_ts: int) -> None:
@@ -850,11 +1215,29 @@ def _touch(sid: int, bar_ts: int) -> None:
         _db().commit()
 
 
-def _persist_eval(sid: int, estate: dict, bar_ts: int) -> None:
+def _persist_eval(sid: int, estate: dict) -> None:
+    """The evaluator's crossing state, for the next bar to compare against."""
     with ds._users_lock:
         _db().execute(
             "UPDATE strategies SET estate=?, last_eval=? WHERE id=?",
             (json.dumps(estate or {}), int(time.time()), int(sid)))
+        _db().commit()
+
+
+def _advance_bar(sid: int, bar_ts: int) -> None:
+    """Mark this bar decided — AFTER the order, never before.
+
+    `last_eval_bar` is what stops the bar being evaluated twice, so committing
+    it before placing the order means a crash in that window retires the bar
+    with no trade and no record: the signal is dropped silently and the next
+    sweep skips it forever. Written last, a crash simply re-evaluates the bar,
+    and `last_fire_bar` — set inside the fire itself — is what prevents the
+    double fire. That ordering is CLAUDE.md's persist-before-external-call
+    applied to the right row: the STATE goes first, the WATERMARK goes last.
+    """
+    with ds._users_lock:
+        _db().execute("UPDATE strategies SET last_eval_bar=? WHERE id=?",
+                      (int(bar_ts), int(sid)))
         _db().commit()
 
 
@@ -925,12 +1308,25 @@ def _fire_entry(s: dict, price: float, bar_ts: int) -> None:
 
 def _fire_exit(s: dict, price: float, bar_ts: int) -> None:
     sid, uid = int(s["id"]), int(s["user_id"])
-    # Sell what is actually held, not what the strategy bought. They differ the
-    # moment the user touches the position by hand, and the book is the truth.
-    qty = _held_quantity(uid, s["symbol"])
-    if qty <= 0:
+    # SELL THIS STRATEGY'S OWN LOT, BOUNDED BY WHAT IS ACTUALLY HELD.
+    #
+    # The book keeps ONE position row per symbol, so two armed rules on the
+    # same instrument share it. Selling the whole row — which is what this did
+    # — liquidates the other rule's shares and any the user bought by hand:
+    # observed with 10 RELIANCE held against a rule that opened 5. The other
+    # rule is then left `in_position=1` over an empty book and is quietly
+    # reset by `_run_one`'s "closed outside the strategy" branch, so the user
+    # is never told their position was sold by a rule that did not own it.
+    #
+    # `min` keeps the other half of the original reasoning, which was right:
+    # the book is still the truth about what remains, so a position the user
+    # has partly sold by hand exits with what is left rather than being
+    # refused for the difference.
+    held = _held_quantity(uid, s["symbol"])
+    if held <= 0:
         _close_position(sid, "nothing held to exit")
         return
+    qty = min(int(float(s["quantity"] or 0)) or held, held)
     try:
         res = paper.place_order(
             uid, s["symbol"], "SELL", qty, order_type="MARKET",

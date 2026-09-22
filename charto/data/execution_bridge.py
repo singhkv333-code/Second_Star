@@ -31,7 +31,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import contextvars
 import logging
+import re
 import sys
 import threading
 from pathlib import Path
@@ -313,6 +315,10 @@ def _ensure_pivot() -> dict[str, Any]:
                 "tool_registry": tool_registry, "STEP_REGISTRY": STEP_REGISTRY,
             }
             _state["ok"] = True
+            # Additive, once, behind the same guard as the import: both touch
+            # Pivot's modules and both are meaningless without them.
+            _register_drawing_leaf()
+            _patch_translator()
         except Exception as exc:  # noqa: BLE001 — the reason is the payload
             _state["error"] = f"{type(exc).__name__}: {exc}"
             logger.warning("execution mode unavailable: %s", _state["error"])
@@ -422,13 +428,228 @@ def _retarget(defn: dict) -> dict:
     return fn
 
 
+# ── The clarify gate that is not on this wire ────────────────────────
+#
+# `_ADAPTER` opens with "NEVER open with a question", and the prompt modules
+# were already trimmed of their clarify sections. The instruction survived
+# anyway, in the one place nobody re-read: the borrowed tool DEFINITIONS.
+#
+#   propose_dsl_workflow .parameters.properties.quantity.description
+#       "If user didn't state a size, call ASK_USER first — DO NOT emit this
+#        tool until they answer."
+#   propose_workflow .description
+#       "'buy some X' → ASK_USER."
+#
+# A parameter doc sits closer to the call than any system prompt, so it wins
+# the disagreement. Measured 2026-09-21: a fully specified rule followed by an
+# explicit "arm it on paper" produced three prose questions and zero tool
+# calls, and reproduced identically on retest. There is no ASK_USER on this
+# wire, so the model renders the question as prose and emits nothing — the
+# whole commit path stops, and the run saved zero strategies.
+#
+# Both sentences are correct about PIVOT, where ASK_USER exists and a draft
+# places a real broker order ("silent defaults have produced wrong-size
+# trades"). Neither is correct here: nothing fills until the user presses
+# Activate on the card, and then only into the simulated paper book. A
+# wrong-size paper trade costs nothing and is on screen to amend.
+#
+# So the sentence that ROUTES to the missing tool goes and the sentence that
+# FORBIDS it stays — same rule `_calibration_block` already applies to the
+# worked examples, and the same reason `_fix_borrowed_warnings` exists.
+_ASK = "ASK_USER"
+
+
+def _unask(text: str) -> str:
+    """Drop sentences routing to ASK_USER; keep the ones prohibiting it."""
+    if _ASK not in text:
+        return text
+    kept = [s for s in re.split(r"(?<=[.\n])\s+", text)
+            if _ASK not in s or re.search(r"\bdo\s*not\b|\bnever\b", s, re.I)]
+    return " ".join(kept).strip()
+
+
+# Pivot's server-side validator raises when a buy draft carries no quantity
+# (`_dsl_chat_tools.py:1463`), so stripping the schema sentence alone would
+# only move the refusal one layer down. The default is supplied here instead.
+#
+# 10 is not invented: `backtest_dsl_tree` in that same module already defaults
+# this exact field to 10 ("quantity — shares per fire, default 10"). Backtest
+# and build disagreed about one parameter in one file; this makes them agree.
+_DEFAULT_QTY = 10
+_SIZED_ACTIONS = ("buy_market", "buy_limit")
+
+_QTY_DOC = (
+    "Shares to buy, for buy_market / buy_limit. If the user did not state a "
+    f"size, OMIT this field — it defaults to {_DEFAULT_QTY} and the card "
+    "shows what was chosen, which the user can amend in the next turn. Never "
+    "withhold the draft over it."
+)
+
+
+def _unblock_sizing(fn: dict) -> dict:
+    """Rewrite the borrowed clarify routes out of one tool definition.
+
+    COPIES before rewriting, for the reason `_retarget` gives: Pivot's chat
+    reads the same registry objects in-process, and `_retarget` only copies the
+    property dicts it actually changed — every other one is still the
+    registry's own. Mutating `quantity` in place therefore edited
+    `ALL_TOOLS`, which is inert only while Pivot's chat is a separate process
+    and stops being inert at roadmap step 2.
+    """
+    fn["description"] = _unask(fn.get("description", ""))
+    params = fn.get("parameters")
+    props = (params or {}).get("properties")
+    qty = (props or {}).get("quantity")
+    if isinstance(qty, dict) and "description" in qty:
+        fn["parameters"] = {**params, "properties": {
+            **props, "quantity": {**qty, "description": _QTY_DOC}}}
+    return fn
+
+
+# ── The user's own drawings, as something a rule can be written against ──
+#
+# A trendline someone drew is a live object: it has a stable ref, it is
+# persisted in the same `workspace_state` row the chart autosaves, and dragging
+# it moves the level. `alerts.py` has been able to watch one since it was
+# written (`draw:D7`, extrapolated past the second anchor). The STRATEGY
+# runtime could not, because the DSL only speaks through the five accessor
+# methods and none of them says "a line I drew".
+#
+# Three registrations make it addressable, all into dicts Pivot's own registry
+# exposes for exactly this — `backtest_indicators` documents the first as the
+# way "newly-registered indicators are accepted without code edits in the
+# validator". Nothing in Pivot's source is forked; `charto` adds a key.
+#
+# `compute` refuses rather than returning a series. A backtest reaches the
+# registry (live evaluation is intercepted in `ChartoDataAccessor` before it
+# ever gets here), and there is no user, no symbol and no workspace behind a
+# backtest call — so the honest answer is a named boundary, not a quietly
+# empty series that would backtest as "never fired".
+_DRAW_EDGES = ("bot", "mid", "top")
+
+
+def _no_backtest(_bars, _n):
+    raise ValueError(
+        "A rule anchored to one of your drawings cannot be backtested yet: the "
+        "backtester replays bars, and a drawing is geometry you placed on the "
+        "chart rather than a series computed from them. The rule arms and "
+        "fires live; say that plainly instead of testing something else.")
+
+
+def _register_drawing_leaf() -> None:
+    """Teach Pivot's indicator registry the `drawing` leaf. Idempotent."""
+    try:
+        from backend.services import backtest_indicators as bi
+    except Exception as exc:                                # noqa: BLE001
+        logger.warning("drawing leaf unavailable: %s", exc)
+        return
+    if "drawing" in bi._REGISTRY:
+        return
+    bi._register(bi.IndicatorSpec(
+        key="drawing", label="Chart drawing", basis="price",
+        default_period=1, compute=_no_backtest))
+    # `component` carries WHICH price of a multi-price drawing — a rectangle
+    # has three. A line takes no component, and the validator's own message
+    # tells the model so.
+    bi._INDICATOR_COMPONENT_PREFIX["drawing"] = {e: e for e in _DRAW_EDGES}
+    # `ref` is the D-number. Refs are minted "D" + an integer and never
+    # recycled, so the integer alone is the whole identity.
+    bi._INDICATOR_SETTING_RULES["drawing"] = {"ref": (int, 1, 999999)}
+
+
+# What the translator is told, and only when there is something to tell.
+#
+# `propose_dsl_workflow` takes NATURAL LANGUAGE and hands it to a second model
+# to turn into a tree, so a leaf the translator has never heard of is a leaf it
+# will not emit. Pivot already extends that prompt conditionally — a default
+# symbol, an exit-grammar permission — and this follows it exactly: nothing is
+# added when the user has no drawings on the symbol, and what IS added is the
+# list of their actual refs, so the translator picks from real geometry instead
+# of inventing a ref.
+_TURN_DRAWINGS: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "charto_turn_drawings", default="")
+
+_DRAW_GRAMMAR = """
+
+DRAWINGS THE USER HAS ON THIS CHART — they may be referenced directly:
+{rows}
+Emit one as an indicator leaf: {{"type":"indicator","indicator":"drawing",
+"symbol":"<ticker>","period":1,"settings":{{"ref":<the D number>}}}} — and for a
+rectangle add "component":"top"|"bot"|"mid" to pick an edge. It resolves to that
+drawing's price AT THE BAR BEING EVALUATED, so a sloped line's level moves with
+time and moves again if the user drags it. A zone is TWO comparisons, one per
+edge. Use one ONLY when the user's words point at a drawing ("my trendline",
+"the line I drew", "that zone", "above D3"); never invent a ref that is not
+listed above."""
+
+
+def _drawing_hint(symbol: str, uid: int) -> str:
+    """The grammar block for this user's drawings on this symbol, or ''."""
+    if not uid or not symbol:
+        return ""
+    try:
+        import alerts
+        mine = alerts._drawings_of(symbol.upper(), int(uid))
+    except Exception:                                       # noqa: BLE001
+        return ""
+    rows = []
+    for ref, d in sorted(mine.items()):
+        # `_drawings_of` keys by ref AND by id so either resolves, which means
+        # one drawing can appear twice here. Advertising both would offer the
+        # model a choice between two names for the same line, so only the ref
+        # — the handle the chart itself shows — is listed.
+        if ref != str(d.get("ref") or "").upper():
+            continue
+        num = "".join(ch for ch in ref if ch.isdigit())
+        if not num:
+            continue
+        kind = str(d.get("type") or "drawing")
+        edges = " (a zone: has top/bot/mid)" if kind in (
+            "rect", "priceRange") else ""
+        rows.append(f"  {ref} — a {kind}, ref {num}{edges}")
+    return _DRAW_GRAMMAR.format(rows="\n".join(rows)) if rows else ""
+
+
+def _patch_translator() -> None:
+    """Append the drawing grammar to the NL→tree translator's prompt.
+
+    Wrapped rather than edited: Pivot's prompt is right for Pivot, where there
+    is no chart and no drawings. Idempotent.
+    """
+    try:
+        from backend.workflows.dsl import llm_translate as lt
+    except Exception as exc:                                # noqa: BLE001
+        logger.warning("translator hint unavailable: %s", exc)
+        return
+    if getattr(lt, "_charto_wrapped", False):
+        return
+    inner = lt.translate_condition_to_tree
+
+    base = lt.SYSTEM_PROMPT
+
+    async def wrapped(condition, **kw):
+        # `inner` reads the module-level SYSTEM_PROMPT synchronously, before
+        # its first await, so no other turn can run between this assignment
+        # and that read on a single-threaded loop. Restored either way so a
+        # turn without drawings never inherits a previous turn's grammar.
+        lt.SYSTEM_PROMPT = base + _TURN_DRAWINGS.get("")
+        try:
+            return await inner(condition, **kw)
+        finally:
+            lt.SYSTEM_PROMPT = base
+
+    lt.translate_condition_to_tree = wrapped
+    lt._charto_wrapped = True
+
+
 def tools() -> list[dict]:
     """Pivot's tool definitions in the Responses-API shape Charto sends.
 
     Pivot stores them in the chat-completions shape (name/description/
     parameters nested under "function"); the Responses API wants those keys
-    flat. Nothing else is rewritten — the descriptions carry the step catalog
-    and the routing order, and editing them here would fork the contract.
+    flat. The descriptions carry the step catalog and the routing order and
+    are otherwise passed through — the ONE exception is `_unblock_sizing`,
+    which removes the routes to an ASK_USER tool this wire does not have.
     """
     st = _ensure_pivot()
     if not st["ok"]:
@@ -440,7 +661,7 @@ def tools() -> list[dict]:
         if not defn:
             logger.warning("pivot tool %s missing from ALL_TOOLS", name)
             continue
-        fn = _retarget(defn.get("function") or {})
+        fn = _unblock_sizing(_retarget(defn.get("function") or {}))
         out.append({
             "type": "function",
             "name": fn.get("name", name),
@@ -867,11 +1088,30 @@ def dispatch(name: str, args: dict, *, timeout: float = 150.0) -> dict:
         return {"error": "execution_engine_unavailable", "detail": reason}
     tool_registry = _state["mods"]["tool_registry"]
     args = _drop_non_values(args)
+    if (name == "propose_dsl_workflow"
+            and args.get("action_kind") in _SIZED_ACTIONS
+            and not args.get("quantity")):
+        args["quantity"] = _DEFAULT_QTY
+
+    # Captured HERE, on the request thread, because `ds._req` is thread-local
+    # and the tool runs on the engine's loop. Only the builders translate
+    # natural language, so only they are told about drawings.
+    hint = ""
+    if name in ("propose_dsl_workflow", "backtest_dsl_tree"):
+        import dataserver as ds     # late: ds imports THIS module at load
+        who = getattr(ds._req, "user", None)
+        hint = _drawing_hint(
+            str(args.get("primary_symbol") or getattr(ds._req, "symbol", "")),
+            who[0] if who else 0)
 
     async def _run(db):
-        return await tool_registry.execute(
-            name, args or {}, kite_token="", db=db, user_id=0,
-        )
+        token = _TURN_DRAWINGS.set(hint)
+        try:
+            return await tool_registry.execute(
+                name, args or {}, kite_token="", db=db, user_id=0,
+            )
+        finally:
+            _TURN_DRAWINGS.reset(token)
 
     try:
         with _session(name) as db:

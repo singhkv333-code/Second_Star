@@ -36,6 +36,10 @@ import {
   removeFromWatchlist,
 } from "@/lib/watchlists";
 import { isError } from "@/lib/types";
+import { ScreensBar } from "@/components/screener/ScreensBar";
+import type { ActiveScreen } from "@/components/screener/ScreensBar";
+import { takePendingScreen } from "@/lib/screensApi";
+import type { SavedScreen, ScreenFilters } from "@/lib/screensApi";
 import {
   getScreenerStocks,
   getScreenerSectors,
@@ -326,9 +330,17 @@ function buildStockParams(
   sort?: StockSort,
   offset = 0,
   advancedFilters: ScreenerFilterClause[] = [],
+  screenSymbols: string[] | null = null,
 ): ScreenerStocksParams {
   const serverKey = sort ? SERVER_SORT_KEYS[sort.key] : undefined;
   return {
+    // A screen narrows the universe server-side BEFORE the other clauses, so
+    // every filter below reads as "within this screen" rather than replacing
+    // it. That is the whole point of re-hydrating a screen here instead of
+    // rendering the snapshot it arrived as.
+    symbols: screenSymbols && screenSymbols.length
+      ? screenSymbols.join(",")
+      : undefined,
     sector: filters.sector || undefined,
     mcap_tier: filters.mcap_tier || undefined,
     pe_max: filters.pe_max !== "" ? Number(filters.pe_max) : undefined,
@@ -343,6 +355,7 @@ function buildStockParams(
 
 function stocksCacheKey(p: ScreenerStocksParams): string {
   return JSON.stringify([
+    p.symbols ?? "",
     p.sector ?? "",
     p.mcap_tier ?? "",
     p.pe_max ?? "",
@@ -548,8 +561,102 @@ function StocksScreen({
   setMobileFiltersOpen: (fn: (o: boolean) => boolean) => void;
 }): React.ReactElement {
   const [filters, setFilters] = useState<StockFilters>({ ...EMPTY_STOCK_FILTERS });
+  // The screen currently open over the universe, if any. Null means the grid
+  // is the whole market, which is the ordinary case.
+  const [activeScreen, setActiveScreen] = useState<ActiveScreen | null>(null);
+  const screenSymbols = activeScreen ? activeScreen.symbols : null;
+
+  // A screen handed over from the chart. Consumed once, on mount — the chart
+  // parks it in sessionStorage and switches tabs, and this is the other half
+  // of that handover.
+  useEffect(() => {
+    const pending = takePendingScreen();
+    if (!pending) return;
+    setActiveScreen({
+      symbols: pending.symbols,
+      criteria: pending.criteria,
+      ranking: pending.ranking,
+      as_of: pending.as_of,
+      matched: pending.matched,
+      universe: pending.universe,
+      source: "chat",
+    });
+  }, []);
+
+  const openSavedScreen = useCallback((saved: SavedScreen): void => {
+    if (saved.kind === "symbols") {
+      setActiveScreen({
+        id: saved.id,
+        name: saved.name,
+        symbols: saved.symbols ?? [],
+        criteria: saved.criteria ?? "",
+        as_of: saved.as_of ?? "",
+        matched: saved.count,
+        universe: 0,
+        source: saved.source,
+      });
+      return;
+    }
+    // A filters screen is this service's own query: restore it into the
+    // filter state and let the ordinary pipeline re-run it, so the membership
+    // is whatever qualifies today rather than whatever qualified when it was
+    // saved.
+    setActiveScreen(null);
+    const f = saved.filters ?? {};
+    setFilters({
+      ...EMPTY_STOCK_FILTERS,
+      sector: f.sector ?? "",
+      mcap_tier: (f.mcap_tier ?? "") as StockFilters["mcap_tier"],
+      pe_max: f.pe_max != null ? String(f.pe_max) : "",
+      roe_min: f.roe_min != null ? String(f.roe_min) : "",
+    });
+    try {
+      setAdvancedFilters(f.filters ? JSON.parse(f.filters) : []);
+    } catch {
+      setAdvancedFilters([]);
+    }
+  }, []);
   const [advancedFilters, setAdvancedFilters] = useState<ScreenerFilterClause[]>([]);
   const [sort, setSort] = useState<StockSort>({ key: "market_cap_cr", dir: -1 });
+
+  // The Screener's own filter state as a saveable screen, or null when
+  // nothing is set — "the whole universe" is not a screen worth a name.
+  const currentScreenFilters = useMemo<ScreenFilters | null>(() => {
+    const f: ScreenFilters = {};
+    if (filters.sector) f.sector = filters.sector;
+    if (filters.mcap_tier) f.mcap_tier = filters.mcap_tier;
+    if (filters.pe_max !== "") f.pe_max = Number(filters.pe_max);
+    if (filters.roe_min !== "") f.roe_min = Number(filters.roe_min);
+    if (advancedFilters.length) f.filters = JSON.stringify(advancedFilters);
+    if (!Object.keys(f).length) return null;
+    const serverKey = SERVER_SORT_KEYS[sort.key];
+    if (serverKey) {
+      f.sort_by = serverKey;
+      f.sort_dir = sort.dir === 1 ? "asc" : "desc";
+    }
+    return f;
+  }, [filters, advancedFilters, sort]);
+
+  // That same state as a sentence. Composed from the filters themselves so the
+  // label on a saved screen can never disagree with the query it replays.
+  const currentScreenCriteria = useMemo<string>(() => {
+    const bits: string[] = [];
+    if (filters.sector) bits.push(filters.sector.replace(/_/g, " "));
+    if (filters.mcap_tier) bits.push(`${filters.mcap_tier} caps`);
+    if (filters.pe_max !== "") bits.push(`P/E under ${filters.pe_max}`);
+    if (filters.roe_min !== "") bits.push(`ROE above ${filters.roe_min}%`);
+    for (const c of advancedFilters) {
+      bits.push(`${String(c.field).replace(/_/g, " ")} ${c.op} ${c.value}`);
+    }
+    const first = bits[0];
+    if (!first) return "";
+    const head = first.charAt(0).toUpperCase() + first.slice(1);
+    const rest = bits.slice(1);
+    return rest.length
+      ? `${head}, ${rest.slice(0, -1).concat(`and ${rest[rest.length - 1]}`).join(", ")}`
+      : head;
+  }, [filters, advancedFilters]);
+
 
   // Seed state from the session cache so a return trip to the tab paints the
   // last-seen rows on the FIRST frame (no skeleton). The initial params match
@@ -599,7 +706,7 @@ function StocksScreen({
   const serverSortKey = SERVER_SORT_KEYS[sort.key] ?? null;
   const serverSortDir = serverSortKey ? sort.dir : null;
   useEffect(() => {
-    const params = buildStockParams(filters, sort, 0, advancedFilters);
+    const params = buildStockParams(filters, sort, 0, advancedFilters, screenSymbols);
     const key = stocksCacheKey(params);
     const cached = _stocksCache.get(key);
 
@@ -637,13 +744,18 @@ function StocksScreen({
     });
     return () => ctrl.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters, advancedFilters, serverSortKey, serverSortDir, reloadTick]);
+    // `screenSymbols` belongs here: it is part of the request. Without it,
+    // clearing a screen removed the banner but never refetched, so the grid
+    // kept the screen's membership while the UI claimed the whole universe —
+    // and any filter set afterwards appeared to match nothing.
+  }, [filters, advancedFilters, serverSortKey, serverSortDir, reloadTick,
+      screenSymbols]);
 
   // ── Infinite scroll: append the next page when the sentinel shows ──
   const loadMore = useCallback((): void => {
     if (loadingMore || loading) return;
     setLoadingMore(true);
-    const params = buildStockParams(filters, sort, rows.length, advancedFilters);
+    const params = buildStockParams(filters, sort, rows.length, advancedFilters, screenSymbols);
     getScreenerStocks(params).then((res) => {
       if (!isError(res)) {
         setRows((prev) => {
@@ -681,7 +793,7 @@ function StocksScreen({
     const t = setTimeout(() => {
       warmTriesRef.current += 1;
       // Drop the cache entry so the revalidation actually hits the server.
-      _stocksCache.delete(stocksCacheKey(buildStockParams(filters, sort, 0, advancedFilters)));
+      _stocksCache.delete(stocksCacheKey(buildStockParams(filters, sort, 0, advancedFilters, screenSymbols)));
       setReloadTick((x) => x + 1);
     }, 5000);
     return () => clearTimeout(t);
@@ -770,6 +882,22 @@ function StocksScreen({
       {/* Watchlist — stocks-only, sits between the title row and preset
           chips. Five numbered slots, medium cards (ticker · last ₹ · day Δ). */}
       <WatchlistStrip />
+
+      {/* Saved screens + whichever screen is open. Above the filter toolbar
+          because a screen SCOPES the filters below it — putting it under them
+          would read as one more filter rather than the set they apply to. */}
+      <ScreensBar
+        active={activeScreen}
+        onOpen={openSavedScreen}
+        onClear={() => setActiveScreen(null)}
+        onSaved={(saved) =>
+          setActiveScreen((prev) =>
+            prev ? { ...prev, id: saved.id, name: saved.name } : prev)
+        }
+        currentFilters={currentScreenFilters}
+        currentCriteria={currentScreenCriteria}
+        resolvedCount={activeScreen ? total : null}
+      />
 
       {/* Mobile bottom sheet — portal to document.body; StockFilterRail returns
           null on desktop so this never takes layout space at wide viewports. */}

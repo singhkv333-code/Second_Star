@@ -41,11 +41,18 @@ import urllib.request
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, Header, Query
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+from typing_extensions import Literal
 
+from backend.auth.jwt_handler import get_jti_from_token, verify_token
+from backend.auth.revocation import is_revoked
 from backend.cache import redis_client
+from backend.database import get_db
+from backend.models import SavedScreen
 from backend.routers._deps import require_user
+from backend.routers._errors import http_error, unauthenticated
 from backend.services.sector_universe import (
     _UNIVERSE as _SECTOR_UNIVERSE,
 )
@@ -1015,6 +1022,15 @@ def get_screener_stocks(
         max_length=8000,
         description="JSON array of composable standardized filter clauses",
     ),
+    symbols: Optional[str] = Query(
+        None,
+        max_length=8000,
+        description=(
+            "comma-separated tickers to restrict the grid to — the membership "
+            "of a saved 'symbols' screen. Applied BEFORE every other filter, "
+            "so sector/mcap/PE/ROE stack on top of it"
+        ),
+    ),
     sort_by: str = Query("market_cap_cr"),
     sort_dir: Optional[str] = Query(
         None, pattern="^(asc|desc)$",
@@ -1033,6 +1049,29 @@ def get_screener_stocks(
     # incrementally, but filters/sorts always run over the full universe.
     universe = _full_universe()
     rows = universe
+
+    # A symbols screen is a MEMBERSHIP, so it narrows the universe before any
+    # other clause — every later filter then reads as "within this screen".
+    # Names we cannot serve are reported rather than silently dropped: a screen
+    # saved off charto's 500-instrument matrix can name an instrument that is
+    # not in this service's equity universe (an index, a commodity, a crypto
+    # pair), and a grid that just came back short would look like data loss.
+    if symbols is not None:
+        want = [s.strip().upper() for s in symbols.split(",") if s.strip()]
+        if not want:
+            notes.append("symbols was empty — symbol filter ignored")
+        else:
+            want_set = set(want)
+            rows = [r for r in rows if r["symbol"].upper() in want_set]
+            missing = sorted(want_set - {r["symbol"].upper() for r in rows})
+            if missing:
+                shown = ", ".join(missing[:8])
+                more = f" and {len(missing) - 8} more" if len(missing) > 8 else ""
+                notes.append(
+                    f"{len(missing)} of {len(want_set)} symbols are not in this "
+                    f"screener's equity universe and are not shown: "
+                    f"{shown}{more}"
+                )
 
     if sector:
         want = _sector_slug(sector)
@@ -1509,3 +1548,189 @@ def screener_sparklines(
                 pass
 
     return ScreenerSparklinesResponse(series=series, source=source)
+
+
+# ── Saved screens ─────────────────────────────────────────────────────
+#
+# A screen the user kept. Two kinds share one table and one rail (see
+# backend.models.SavedScreen): "symbols" is a frozen membership — what a screen
+# handed over from the chart's chat becomes — and "filters" is this service's
+# own query, re-run on open.
+#
+# AUTH IS DELIBERATELY NARROWER HERE than everywhere else in this router.
+# `require_user` accepts EITHER a Pivot JWT OR a Charto session token and
+# returns an int from whichever it resolved. Those two id spaces are disjoint —
+# Charto user 2 and Pivot user 2 are different people — so writing
+# `saved_screens.user_id` (FK → users.id) from a Charto-resolved id would file
+# one person's screen under another's account. Every other endpoint in this
+# router only READS a shared universe, where the ambiguity is harmless; these
+# own per-user rows, so they demand a genuine Pivot access token and reject the
+# Charto fallback. This costs nothing: the chart never writes a screen — it
+# hands one to the shell, and the shell holds the Pivot JWT.
+
+
+def require_pivot_user(authorization: str = Header(default=None)) -> int:
+    """Resolve a PIVOT access JWT to a user_id. Rejects Charto session tokens.
+
+    See the section header: `require_user`'s Charto fallback is unsafe for
+    per-user rows keyed to `users.id`.
+    """
+    if not authorization:
+        raise unauthenticated("missing token")
+    token = authorization.replace("Bearer ", "", 1)
+    payload = verify_token(token, "access")
+    if not payload:
+        raise unauthenticated(
+            "this endpoint needs a Pivot sign-in — a Charto chart session "
+            "cannot own a saved screen"
+        )
+    jti = get_jti_from_token(token)
+    if jti and is_revoked(jti):
+        raise unauthenticated("invalid token")
+    sub = payload.get("sub")
+    try:
+        return int(sub)
+    except (TypeError, ValueError) as exc:
+        raise unauthenticated("invalid token") from exc
+
+
+class SavedScreenIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    kind: Literal["symbols", "filters"] = "symbols"
+    source: Literal["chat", "screener"] = "screener"
+    symbols: Optional[list[str]] = None
+    filters: Optional[dict] = None
+    criteria: Optional[str] = None
+    as_of: Optional[str] = None
+
+
+class SavedScreenOut(BaseModel):
+    id: int
+    name: str
+    kind: str
+    source: str
+    symbols: Optional[list[str]] = None
+    filters: Optional[dict] = None
+    criteria: Optional[str] = None
+    as_of: Optional[str] = None
+    count: int = 0
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class SavedScreensResponse(BaseModel):
+    screens: list[SavedScreenOut]
+
+
+def _screen_out(row: "SavedScreen") -> SavedScreenOut:
+    syms = list(row.symbols or []) if row.kind == "symbols" else None
+    return SavedScreenOut(
+        id=row.id,
+        name=row.name,
+        kind=row.kind,
+        source=row.source,
+        symbols=syms,
+        filters=(row.filters or None) if row.kind == "filters" else None,
+        criteria=row.criteria,
+        as_of=row.as_of,
+        # For a filters screen the membership is whatever qualifies today, so
+        # there is no honest count to give here without re-running the query.
+        count=len(syms or []) if row.kind == "symbols" else 0,
+        created_at=row.created_at.isoformat() if row.created_at else None,
+        updated_at=row.updated_at.isoformat() if row.updated_at else None,
+    )
+
+
+@router.get(
+    "/screens",
+    response_model=SavedScreensResponse,
+    summary="The signed-in user's saved screens, newest first",
+)
+def list_saved_screens(
+    user_id: int = Depends(require_pivot_user),
+    db: Session = Depends(get_db),
+) -> SavedScreensResponse:
+    rows = (
+        db.query(SavedScreen)
+        .filter(SavedScreen.user_id == user_id)
+        .order_by(SavedScreen.updated_at.desc())
+        .all()
+    )
+    return SavedScreensResponse(screens=[_screen_out(r) for r in rows])
+
+
+@router.post(
+    "/screens",
+    response_model=SavedScreenOut,
+    summary="Save a screen (upserts on name, so re-saving updates in place)",
+)
+def create_saved_screen(
+    body: SavedScreenIn,
+    user_id: int = Depends(require_pivot_user),
+    db: Session = Depends(get_db),
+) -> SavedScreenOut:
+    name = body.name.strip()
+    if not name:
+        raise http_error(422, "invalid_name", "a screen needs a name")
+
+    if body.kind == "symbols":
+        syms = [s.strip().upper() for s in (body.symbols or []) if s.strip()]
+        # Order-preserving dedupe: the rank the screen arrived in is the rank
+        # the user saw in chat, and it is the only ordering a frozen membership
+        # carries.
+        seen: set[str] = set()
+        syms = [s for s in syms if not (s in seen or seen.add(s))]
+        if not syms:
+            raise http_error(
+                422, "empty_screen",
+                "a symbols screen needs at least one ticker",
+            )
+        payload_symbols, payload_filters = syms, None
+    else:
+        if not isinstance(body.filters, dict) or not body.filters:
+            raise http_error(
+                422, "empty_screen",
+                "a filters screen needs at least one filter",
+            )
+        payload_symbols, payload_filters = None, body.filters
+
+    # Upsert on (user_id, name) — the table's unique constraint. Saving the
+    # same name twice is the user correcting a screen, not an error to show.
+    row = (
+        db.query(SavedScreen)
+        .filter(SavedScreen.user_id == user_id, SavedScreen.name == name)
+        .one_or_none()
+    )
+    if row is None:
+        row = SavedScreen(user_id=user_id, name=name)
+        db.add(row)
+    row.kind = body.kind
+    row.source = body.source
+    row.symbols = payload_symbols
+    row.filters = payload_filters
+    row.criteria = (body.criteria or None)
+    row.as_of = (body.as_of or None)
+    db.commit()
+    db.refresh(row)
+    return _screen_out(row)
+
+
+@router.delete(
+    "/screens/{screen_id}",
+    summary="Delete one saved screen",
+)
+def delete_saved_screen(
+    screen_id: int,
+    user_id: int = Depends(require_pivot_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    row = (
+        db.query(SavedScreen)
+        .filter(SavedScreen.id == screen_id, SavedScreen.user_id == user_id)
+        .one_or_none()
+    )
+    if row is None:
+        raise http_error(404, "not_found", "no such screen")
+    db.delete(row)
+    db.commit()
+    return {"deleted": screen_id}

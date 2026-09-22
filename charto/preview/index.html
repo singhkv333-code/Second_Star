@@ -3391,6 +3391,94 @@ body.two-columns .readout .row { display: none; }
            color: var(--muted-foreground); margin: 0; }
 /* One primary, ghosts beneath — never a grid of equal buttons. */
 .wf-cta { display: flex; flex-direction: column; gap: 8px; }
+/* ── shadcn Button, ported ────────────────────────────────────────────
+   The chart is vanilla JS, so shadcn's React <Button> cannot be imported
+   here — this is its default variant reproduced against the tokens this
+   file already defines (they are the same --foreground/--background/--ring
+   convention shadcn generates, so the port is a re-spelling, not a
+   re-design). Kept as `.ui-btn` rather than folded into .wf-primary
+   because that one is deliberately a PILL; this is the rectangular
+   control. Matches shadcn: h-9, rounded-md, px-4, text-sm, font-medium,
+   focus-visible ring, disabled:opacity-50. */
+.ui-btn { display: inline-flex; align-items: center; justify-content: center;
+          gap: 8px; height: 36px; padding: 0 16px; width: 100%;
+          border: 0; border-radius: var(--radius-sm);
+          background: var(--foreground); color: var(--background);
+          font: inherit; font-size: var(--text-sm);
+          font-weight: var(--weight-medium); line-height: 1;
+          white-space: nowrap; cursor: pointer;
+          transition: opacity var(--dur) var(--ease-quartr),
+                      transform var(--dur) var(--ease-quartr); }
+.ui-btn:hover:not(:disabled) { opacity: .9; }
+.ui-btn:active:not(:disabled) { transform: scale(.985); }
+.ui-btn:focus-visible { outline: 2px solid var(--ring, var(--foreground));
+                        outline-offset: 2px; }
+.ui-btn:disabled { opacity: .5; cursor: not-allowed; }
+.ui-btn svg.icon { width: 14px; height: 14px; }
+/* Confirmation state after the handover — same button, no layout shift. */
+.ui-btn.is-done { opacity: .75; }
+/* shadcn's `sm` size, and its `outline` variant. The screen card uses both:
+   the control is a side door out of the panel, not its primary action, so it
+   is quiet and sized to its own text rather than the panel's width. */
+.ui-btn-sm { height: 28px; padding: 0 11px; gap: 6px;
+             font-size: var(--text-xs); width: auto;
+             border-radius: var(--radius-xs); }
+.ui-btn-sm svg.icon { width: 12px; height: 12px; opacity: .75; }
+.ui-btn-sm:hover:not(:disabled) svg.icon { opacity: 1; }
+.ui-btn-outline { background: transparent; color: var(--foreground);
+                  border: 1px solid var(--border); }
+.ui-btn-outline:hover:not(:disabled) { background: var(--accent); opacity: 1; }
+
+/* ── screen card ─────────────────────────────────────────────────────── */
+/* The panel was legible but airless — four lines of text stacked at 2px gaps
+   with a full-width control under them. The fix is spacing and hierarchy, not
+   more copy: one idea per line, each line a different weight, and room between
+   them. */
+.sc-card { display: flex; flex-direction: column; gap: 8px; }
+/* Label left, the one control right, both on the SAME line — the control now
+   aligns to the "SCREEN" eyebrow rather than floating beside a paragraph, so
+   it reads as this panel's affordance instead of a stray button. */
+.sc-head { display: flex; align-items: center; justify-content: space-between;
+           gap: 12px; min-height: 28px; margin-bottom: 2px; }
+.sc-title { font-size: var(--text-2xs); font-weight: var(--weight-medium);
+            letter-spacing: .08em; text-transform: uppercase;
+            color: var(--muted-foreground); }
+/* The text now runs the panel's full width beneath the head row, instead of
+   flowing around a vertically-centred button that left a ragged hole in it. */
+/* The conditions ARE the screen — the one line that gets read at full size. */
+.sc-crit { font-size: var(--text-md, 14px); color: var(--foreground);
+           line-height: 1.5; letter-spacing: -0.005em; }
+/* The ranking is only the order the rows arrived in: its own line, caption
+   weight, so it stops competing with the conditions the way the old run-on
+   sentence did. */
+.sc-rank-line { font-size: var(--text-xs); color: var(--muted-foreground);
+                line-height: 1.5; }
+.sc-meta { font-size: var(--text-2xs); color: var(--muted-foreground);
+           letter-spacing: .02em; margin-top: 2px; padding-bottom: 10px;
+           border-bottom: 1px solid var(--border); }
+/* The table scrolls INSIDE the card. A screen can carry three numeric
+   columns and long instrument names, and letting it widen the panel would
+   push the chat column itself sideways. */
+.sc-tablewrap { overflow-x: auto; }
+.sc-table { width: 100%; border-collapse: collapse; font-size: var(--text-xs); }
+.sc-table th { text-align: left; font-weight: var(--weight-medium);
+               color: var(--muted-foreground); font-size: var(--text-2xs);
+               letter-spacing: .03em; text-transform: uppercase;
+               padding: 0 8px 6px 0; white-space: nowrap; }
+.sc-table td { padding: 6px 8px 6px 0; border-top: 1px solid var(--border);
+               vertical-align: baseline; }
+.sc-table tr:first-child td { border-top: 0; }
+.sc-rank { width: 22px; color: var(--muted-foreground);
+           font-variant-numeric: tabular-nums; }
+.sc-sym { white-space: nowrap; }
+.sc-sym b { font-weight: var(--weight-medium); }
+/* The company name is context, not a column — it sits under the ticker so a
+   long name cannot set the table's width. */
+.sc-sym span { display: block; font-size: var(--text-2xs);
+               color: var(--muted-foreground); max-width: 190px;
+               overflow: hidden; text-overflow: ellipsis; }
+.sc-num { text-align: right; font-variant-numeric: tabular-nums;
+          white-space: nowrap; }
 .wf-primary { height: 32px; width: 100%; border: 0; border-radius: 999px;
               background: var(--foreground); color: var(--background); cursor: pointer;
               font: inherit; font-size: var(--text-xs); font-weight: var(--weight-medium);
@@ -8537,7 +8625,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- before chat.js, which asks it to render the panels a tool prints as the
        reply streams in. It reads Sym (store.js) for the instrument's currency
        and grouping, and nothing else — a renderer with no state of its own -->
-  <script src="./js/cards.js?v=51"></script>
+  <script src="./js/cards.js?v=55"></script>
   <script src="./js/layers-panel.js?v=11"></script>
   <script src="./js/chat.js?v=167"></script>
   <script src="./js/journal.js?v=6"></script>

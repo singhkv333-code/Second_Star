@@ -147,6 +147,10 @@ export type ScreenerStocksParams = {
   dy_min?: number;
   ret_min?: number;
   filters?: string;
+  /** Comma-separated tickers — restricts the grid to a saved screen's
+   *  membership. Applied server-side BEFORE every other filter, so sector /
+   *  mcap / PE / ROE stack on top of a screen rather than replacing it. */
+  symbols?: string;
   sort_by?: ScreenerSortBy;
   /** Overrides the field's default direction (server nulls always sink). */
   sort_dir?: "asc" | "desc";
@@ -275,6 +279,7 @@ export function getScreenerStocks(
       dy_min: params.dy_min,
       ret_min: params.ret_min,
       filters: params.filters,
+      symbols: params.symbols,
       sort_by: params.sort_by,
       sort_dir: params.sort_dir,
       limit: params.limit,

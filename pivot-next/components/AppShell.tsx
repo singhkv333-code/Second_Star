@@ -63,6 +63,8 @@ import {
 import { AgentsTab } from "@/components/agent-panel/AgentsTab";
 import { PortfolioTab } from "@/components/agent-panel/PortfolioTab";
 import { ChartFrame } from "@/components/chart/ChartFrame";
+import { putPendingScreen } from "@/lib/screensApi";
+import type { PendingScreen } from "@/lib/screensApi";
 import { ScreenerPage } from "@/components/screener/ScreenerPage";
 import { SettingsDialog } from "@/components/settings/SettingsTab";
 import { DashboardTab } from "@/components/DashboardTab";
@@ -602,6 +604,23 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     };
   }, []);
 
+  // `goTab` is declared below (it depends on the router), and the screen
+  // handover is passed to ChartFrame above it — this ref bridges the two
+  // without reordering the file or making the callback identity unstable.
+  const goTabRef = useRef<((key: TabKey) => void) | null>(null);
+
+  /** The chart handed over a universe screen. Park it where the Screener will
+   *  look, then go there.
+   *
+   *  Order matters: the Screener reads the pending screen when it mounts, and
+   *  on a first visit `goTab` is what mounts it — writing after the switch
+   *  would land a tick too late and the tab would open on the ordinary
+   *  universe instead of the screen the user just pressed. */
+  const openScreenFromChart = useCallback((screen: PendingScreen): void => {
+    putPendingScreen(screen);
+    goTabRef.current?.("screener");
+  }, []);
+
   const goTab = useCallback((key: TabKey): void => {
     setActive(key);
     setMobileNavOpen(false);
@@ -618,6 +637,8 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
       router.push(`/#${key}`);
     }
   }, [pathname, router]);
+
+  useEffect(() => { goTabRef.current = goTab; }, [goTab]);
 
   const openChart = useCallback((symbol: string): void => {
     setChartSymbol(symbol.trim().toUpperCase());
@@ -1099,6 +1120,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
                 symbol={chartSymbol}
                 theme={resolvedTheme}
                 railWidth={!sidebarCollapsed && isDesktop ? SIDEBAR_RAIL_W : 0}
+                onOpenScreen={openScreenFromChart}
               />
             </div>
           )}
