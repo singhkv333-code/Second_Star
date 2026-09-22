@@ -1076,20 +1076,40 @@ function AddStockMenu({
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
-  // When the "+" tile sits near the right edge of the viewport (the common
-  // case — it lives at the end of the watchlist row), a left-anchored 260px
-  // popover overflows the viewport and widens the whole document, producing a
-  // horizontal scrollbar that clips the left of the page. Anchor it to the
-  // tile's right edge instead so it opens leftward and stays on-screen.
-  const [alignRight, setAlignRight] = useState(false);
+  // The popover is positioned in VIEWPORT coordinates (position: fixed) and
+  // clamped to the window, not anchored left-or-right off the tile. Anchoring
+  // only chose a side: on a phone the "+" tile is narrower than the popover,
+  // so whichever edge it hugged the other end still ran off-screen — which is
+  // the dropdown overflowing the page on phones. Clamping cannot overflow at
+  // any viewport width, and `fixed` also escapes the watchlist row's own
+  // horizontal scroll container, which was clipping the panel.
+  const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
   const ref = useRef<HTMLDivElement | null>(null);
 
-  // Decide open direction from the trigger's live position each time it opens.
+  // Measure the trigger each time the popover opens, and keep it pinned while
+  // the page scrolls or resizes underneath it.
   useLayoutEffect(() => {
-    if (!open || !ref.current) return;
-    const rect = ref.current.getBoundingClientRect();
-    // 260 = popover width; 12 = a small safety gutter from the viewport edge.
-    setAlignRight(rect.left + POPOVER_WIDTH + 12 > window.innerWidth);
+    if (!open) return;
+    const place = (): void => {
+      const el = ref.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const GUTTER = 12;
+      // Never wider than the viewport minus a gutter on each side.
+      const width = Math.min(POPOVER_WIDTH, window.innerWidth - GUTTER * 2);
+      const left = Math.min(
+        Math.max(GUTTER, rect.left),
+        window.innerWidth - width - GUTTER,
+      );
+      setPos({ top: rect.bottom + 6, left, width });
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
   }, [open]);
 
   useEffect(() => {
@@ -1155,17 +1175,16 @@ function AddStockMenu({
         <Plus size={24} strokeWidth={2} aria-hidden="true" />
       </button>
 
-      {open && (
+      {open && pos && (
         <div
           style={{
-            position: "absolute",
-            top: "calc(100% + 6px)",
-            // Open leftward (anchored to the tile's right edge) when there
-            // isn't room on the right, so the popover never pushes the
-            // document wider than the viewport.
-            ...(alignRight ? { right: 0 } : { left: 0 }),
-            zIndex: 20,
-            width: POPOVER_WIDTH,
+            position: "fixed",
+            top: pos.top,
+            left: pos.left,
+            zIndex: 60,
+            width: pos.width,
+            maxHeight: `calc(100dvh - ${pos.top + 12}px)`,
+            overflow: "hidden",
             background: "var(--bg-primary)",
             border: "1px solid var(--glass-border)",
             borderRadius: "var(--radius-md)",

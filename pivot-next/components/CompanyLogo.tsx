@@ -49,7 +49,11 @@ export function CompanyLogo({
         style={{
           ...box,
           background: hue ? `${hue}22` : "var(--surface-2, rgba(0,0,0,0.05))",
-          border: hue ? `1px solid ${hue}55` : "1px solid var(--border, rgba(0,0,0,0.08))",
+          // No rim at all. The tinted fill already reads as a tile, so the
+          // border only drew a box around a placeholder and made it louder
+          // than the real logos beside it. This matches ScreenerPage's own
+          // BrandGlyph, which arrived at `border: none` for the same reason.
+          border: "none",
           color: tint,
           fontFamily: "var(--font-ui)",
           fontSize: Math.round(size * 0.43),
@@ -72,7 +76,7 @@ export function CompanyLogo({
       style={{
         ...box,
         background: "var(--surface-1, #fff)",
-        border: "1px solid var(--border, rgba(0,0,0,0.08))",
+        border: "1px solid var(--border, rgba(0,0,0,0.04))",
         padding: Math.round(size * 0.12),
       }}
       onError={() => setErrored(true)}

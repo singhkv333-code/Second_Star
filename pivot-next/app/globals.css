@@ -1100,6 +1100,10 @@ input[type="range"].payoff-slider::-moz-range-thumb {
   background: transparent !important;
 }
 .top-header--chart .brand-slot,
+/* The mobile hamburger lives in this bar too. Without it listed here the
+   header's `pointer-events: none` swallowed every tap on it, so the nav
+   drawer could not be opened from the chart tab on a phone at all. */
+.top-header--chart [data-testid="mobile-nav-trigger"],
 .top-header--chart > .ml-auto {
   pointer-events: auto;
 }
@@ -1243,10 +1247,12 @@ input[type="range"].payoff-slider::-moz-range-thumb {
     left: 0;
     z-index: 50;
     width: min(82vw, 320px) !important;
-    padding: calc(var(--safe-top) + 12px) 14px 16px;
-    /* Full-height overlay drawer — pad its top past the camera cutout so the
-       brand + close button aren't hidden under the notch. */
-    padding-top: calc(var(--safe-top) + 12px);
+    padding: 0 14px 16px;
+    /* Full-height overlay drawer. The top pad is a header's worth of room so
+       the drawer's wordmark lands on the SAME baseline as the one in the top
+       bar behind it — opening the drawer must not make the brand jump up.
+       --safe-top keeps it clear of the camera cutout on notched devices. */
+    padding-top: calc(var(--safe-top) + (var(--header-h, 56px) - 32px) / 2);
     transform: translateX(-100%);
     transition: transform 260ms var(--ease-quartr, cubic-bezier(0.22, 1, 0.36, 1));
     box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
@@ -1602,6 +1608,14 @@ body:has(.app-shell-root) {
      mirrors the same breakpoint pivot. */
   .screener-filter-toggle {
     display: inline-flex !important;
+    /* Borderless on phones — the ring around a 38px icon button read as a
+       stray chip beside the borderless title row. The icon alone is the
+       affordance; the active state still fills. */
+    border-color: transparent !important;
+    background: transparent !important;
+  }
+  .screener-filter-toggle[aria-expanded="true"] {
+    background: var(--surface-active) !important;
   }
   .screener-filter-close {
     display: inline-flex !important;

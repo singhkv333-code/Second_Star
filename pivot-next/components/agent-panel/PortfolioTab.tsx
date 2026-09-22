@@ -335,13 +335,20 @@ export function PortfolioTab(): React.ReactElement {
                       display: "inline-flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      minWidth: 16,
+                      // A single digit in a 16px circle sat low and left: the
+                      // UI font's default numerals carry side bearings and sit
+                      // on a baseline, and `lineHeight: 1` left no room to
+                      // centre them. Tabular figures even out the bearings and
+                      // a square box with no padding + lineHeight 0 lets
+                      // flexbox centre the glyph on both axes.
+                      width: 16,
                       height: 16,
-                      padding: "0 4px",
-                      borderRadius: 8,
+                      padding: 0,
+                      borderRadius: 999,
                       fontSize: 10,
                       fontWeight: 600,
-                      lineHeight: 1,
+                      lineHeight: 0,
+                      fontVariantNumeric: "tabular-nums",
                       background: active
                         ? "var(--bg-primary)"
                         : "rgba(245,158,11,0.16)",
@@ -2569,6 +2576,263 @@ function TxnSideBadge({ side }: { side: string }): React.ReactElement {
 }
 
 // ---------------------------------------------------------------------------
+// PendingOrdersListMobile / TradeHistoryListMobile — the phone presentation of
+// the Orders and History tabs.
+//
+// Both tabs are wide tables (720px / 760px minimums) inside a horizontal
+// scroller, so on a phone the user saw the symbol and had to swipe sideways
+// for quantity, price and time. These render the SAME fields as stacked cards
+// in the HoldingCardMobile idiom — a muted meta line, a symbol line carrying
+// the headline figure, and a second meta line — so everything is on screen at
+// once and the page scrolls only downward, like the portfolio overview.
+// ---------------------------------------------------------------------------
+
+/** Shared card chrome for both phone lists. */
+function TxnCardMobile({
+  symbol,
+  logoUrl,
+  last,
+  topLeft,
+  topRight,
+  headline,
+  bottomLeft,
+  bottomRight,
+  trailing,
+}: {
+  symbol: string;
+  logoUrl?: string | null;
+  last: boolean;
+  topLeft: React.ReactNode;
+  topRight?: React.ReactNode;
+  headline: React.ReactNode;
+  bottomLeft: React.ReactNode;
+  bottomRight?: React.ReactNode;
+  trailing?: React.ReactNode;
+}): React.ReactElement {
+  const muted: React.CSSProperties = { fontSize: 11.5, color: "var(--text-tertiary)" };
+  return (
+    <div
+      style={{
+        padding: "16px 4px",
+        borderBottom: last ? "none" : "1px solid var(--glass-border)",
+      }}
+    >
+      <div className="flex items-start" style={{ gap: 12 }}>
+        <HoldingGlyph symbol={symbol} hueKey={SECTOR_MAP[symbol]} logoUrl={logoUrl} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {/* Row 1 — side + type  |  status or date */}
+          <div className="flex items-center justify-between" style={{ gap: 10, marginBottom: 7 }}>
+            <span className="inline-flex items-center" style={{ gap: 8, minWidth: 0 }}>
+              {topLeft}
+            </span>
+            {topRight}
+          </div>
+          {/* Row 2 — symbol  |  headline figure */}
+          <div className="flex items-center justify-between" style={{ gap: 10, marginBottom: 7 }}>
+            <Link
+              href={`/stock/${encodeURIComponent(symbol)}`}
+              style={{
+                fontSize: 15,
+                fontWeight: 600,
+                color: "var(--text-primary)",
+                letterSpacing: "-0.015em",
+                textDecoration: "none",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {symbol}
+            </Link>
+            {headline}
+          </div>
+          {/* Row 3 — the remaining meta, split left/right */}
+          <div className="flex items-center justify-between" style={{ gap: 10 }}>
+            <span
+              style={{
+                ...muted,
+                minWidth: 0,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {bottomLeft}
+            </span>
+            {bottomRight ? <span style={{ ...muted, whiteSpace: "nowrap" }}>{bottomRight}</span> : null}
+          </div>
+          {trailing ? <div style={{ marginTop: 11 }}>{trailing}</div> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PendingOrdersListMobile({
+  rows,
+  logos,
+  cancelling,
+  onCancel,
+}: {
+  rows: OpenOrder[];
+  logos: Record<string, string | null | undefined>;
+  cancelling: Set<string>;
+  onCancel: (o: OpenOrder) => Promise<void>;
+}): React.ReactElement {
+  return (
+    <div data-testid="pending-orders-list-mobile">
+      {rows.map((o, i) => {
+        const busy = cancelling.has(o.id);
+        const priceShown =
+          o.price != null && o.price > 0
+            ? `₹${o.price.toLocaleString("en-IN")}`
+            : o.trigger_price != null && o.trigger_price > 0
+              ? `₹${o.trigger_price.toLocaleString("en-IN")} (trig)`
+              : "Market";
+        return (
+          <div key={o.id} style={{ opacity: busy ? 0.5 : 1 }}>
+            <TxnCardMobile
+              symbol={o.symbol}
+              logoUrl={logos[o.symbol.toUpperCase()]}
+              last={i === rows.length - 1}
+              topLeft={
+                <>
+                  <TxnSideBadge side={o.transaction_type} />
+                  <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>
+                    {o.order_type}
+                  </span>
+                </>
+              }
+              topRight={
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 5,
+                    padding: "2px 8px",
+                    borderRadius: 999,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    whiteSpace: "nowrap",
+                    background: o.queued ? "rgba(245,158,11,0.12)" : "var(--bg-secondary)",
+                    color: o.queued ? "#b45309" : "var(--text-secondary)",
+                  }}
+                >
+                  {o.queued && <Clock className="h-3 w-3" aria-hidden="true" />}
+                  {orderStatusLabel(o)}
+                </span>
+              }
+              headline={
+                <span
+                  className="tabular-nums"
+                  style={{
+                    fontSize: 14.5,
+                    fontWeight: 600,
+                    color: "var(--text-primary)",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {priceShown}
+                </span>
+              }
+              bottomLeft={`Qty. ${o.quantity} · ${o.exchange || "NSE"}`}
+              bottomRight={fmtOrderDateTime(o.placed_at)}
+              trailing={
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void onCancel(o)}
+                  disabled={busy}
+                  data-testid={`cancel-order-m-${o.id}`}
+                  aria-label={`Cancel ${o.transaction_type} ${o.quantity} ${o.symbol}`}
+                  className="h-8 w-full gap-1.5 rounded-md border-border/70 text-xs font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:ring-destructive/40 [&_svg]:size-3.5"
+                >
+                  {busy ? (
+                    <>
+                      <Loader2 className="animate-spin" aria-hidden="true" />
+                      Cancelling
+                    </>
+                  ) : (
+                    <>
+                      <X aria-hidden="true" />
+                      Cancel
+                    </>
+                  )}
+                </Button>
+              }
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function TradeHistoryListMobile({
+  rows,
+  logos,
+  fmt,
+}: {
+  rows: TradeRow[];
+  logos: Record<string, string | null | undefined>;
+  fmt: (iso: string) => { date: string; time: string };
+}): React.ReactElement {
+  return (
+    <div data-testid="trade-history-list-mobile">
+      {rows.map((t, i) => {
+        const { date, time } = fmt(t.datetime);
+        return (
+          <TxnCardMobile
+            key={t.id}
+            symbol={t.symbol}
+            logoUrl={logos[t.symbol.toUpperCase()]}
+            last={i === rows.length - 1}
+            topLeft={
+              <>
+                <TxnSideBadge side={t.side} />
+                <span
+                  style={{
+                    fontSize: 11.5,
+                    color: "var(--text-tertiary)",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {t.agent}
+                </span>
+              </>
+            }
+            topRight={
+              <span style={{ fontSize: 11.5, color: "var(--text-tertiary)", whiteSpace: "nowrap" }}>
+                {date}
+              </span>
+            }
+            headline={
+              <span
+                className="tabular-nums"
+                style={{
+                  fontSize: 14.5,
+                  fontWeight: 600,
+                  color: "var(--text-primary)",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {t.amount > 0 ? `₹${t.amount.toLocaleString("en-IN")}` : "—"}
+              </span>
+            }
+            bottomLeft={`Qty. ${t.quantity} · ${
+              t.price > 0 ? `₹${t.price.toLocaleString("en-IN")}` : "—"
+            }`}
+            bottomRight={time}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // PendingOrders — the "Orders" tab. Lists still-open (cancellable) orders:
 // AMOs queued while the market was closed, resting LIMIT / trigger orders, and
 // anything the broker still reports as not-yet-complete. Each row can be
@@ -2716,8 +2980,19 @@ function PendingOrders({
 
   return (
     <div className="flex flex-col" style={{ gap: 12 }} data-testid="pending-orders">
+      {/* Phones: stacked cards in the holdings idiom — every field on screen
+          at once. The 720px-wide table below needed a sideways swipe just to
+          reach qty and price, which is the scroll the owner called out. */}
+      <div className="lg:hidden">
+        <PendingOrdersListMobile
+          rows={rows}
+          logos={logos}
+          cancelling={cancelling}
+          onCancel={handleCancel}
+        />
+      </div>
       <div
-        className="overflow-x-auto"
+        className="hidden overflow-x-auto lg:block"
         style={{
           WebkitOverflowScrolling: "touch",
           background: "var(--bg-base)",
@@ -2961,8 +3236,12 @@ function TradeHistory(): React.ReactElement {
 
   return (
     <div className="flex flex-col" style={{ gap: 12 }}>
+      {/* Phones: stacked cards, same idiom as holdings and pending orders. */}
+      <div className="lg:hidden">
+        <TradeHistoryListMobile rows={rows ?? []} logos={logos} fmt={fmt} />
+      </div>
       <div
-        className="overflow-x-auto"
+        className="hidden overflow-x-auto lg:block"
         style={{
           WebkitOverflowScrolling: "touch",
           background: "var(--bg-base)",
