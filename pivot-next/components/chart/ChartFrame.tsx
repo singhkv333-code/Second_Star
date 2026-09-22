@@ -54,12 +54,6 @@ type Props = {
   symbol?: string;
   /** "dark" | "light", pushed to the chart whenever the shell's theme changes. */
   theme?: "dark" | "light";
-  /** Width in px of the shell's nav rail, which overlays this frame's left
-   *  edge on the chart route. The frame spans the full window so the chart's
-   *  header can act as the shell's ONE top bar and reach the left edge; the
-   *  chart then insets everything below that header by this much so the rail
-   *  is not sitting on top of its tools. 0 when nothing overlays us. */
-  railWidth?: number;
   /** The chart handing a universe screen to the Screener tab. The frame only
    *  RELAYS it — it is the shell that owns the tab and the Pivot session that
    *  can save a screen. */
@@ -70,7 +64,7 @@ type Props = {
 };
 
 export function ChartFrame({
-  symbol, theme, railWidth = 0, onOpenScreen, onChatVisibilityChange,
+  symbol, theme, onOpenScreen, onChatVisibilityChange,
 }: Props): React.ReactElement {
   const ref = useRef<HTMLIFrameElement>(null);
   // The message listener is deliberately mounted ONCE (empty deps, so the
@@ -151,7 +145,7 @@ export function ChartFrame({
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, []);
+  }, [onChatVisibilityChange]);
 
   useEffect(() => {
     setReady(false);
@@ -174,14 +168,17 @@ export function ChartFrame({
     post({ type: "pivot:theme", mode: theme });
   }, [ready, theme, post]);
 
-  // Same contract for the rail inset: the chart cannot measure a rail that
-  // belongs to the parent document, so the shell states it. Sent on ready and
-  // on every later change (the rail can collapse), so the chart's tools move
-  // out from under it instead of hiding beneath it.
+  // The shell's global Quick Ask is only a presentation bridge on Chart. The
+  // message is handed to Charto's own chat model and thread; Pivot Copilot is
+  // deliberately not involved on this route.
   useEffect(() => {
-    if (!ready) return;
-    post({ type: "pivot:railpad", width: railWidth });
-  }, [ready, railWidth, post]);
+    const onChartAsk = (event: Event): void => {
+      const text = (event as CustomEvent<{ text?: string }>).detail?.text?.trim();
+      if (text) post({ type: "pivot:chart-ask", text });
+    };
+    window.addEventListener("pivot:chart-ask", onChartAsk);
+    return () => window.removeEventListener("pivot:chart-ask", onChartAsk);
+  }, [post]);
 
   return (
     <div
@@ -202,7 +199,6 @@ export function ChartFrame({
         setReady(false);
         post({ type: "pivot:hello" });
         if (theme) post({ type: "pivot:theme", mode: theme });
-        post({ type: "pivot:railpad", width: railWidth });
       }}
       onError={() => setFailed(true)}
       style={{ visibility: ready && !failed ? "visible" : "hidden" }}

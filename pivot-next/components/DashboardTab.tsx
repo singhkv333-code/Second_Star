@@ -31,6 +31,7 @@ import {
 } from "@/lib/api";
 import { isError } from "@/lib/types";
 import { ChatDemo, type ChatDemoSeed, type ResumeConversation } from "@/components/chat/ChatDemo";
+import type { ChatAttachment } from "@/components/chat/ComposerContext";
 import type { WorkflowDraft } from "@/components/chat/WorkflowDraftCard";
 import type { Workflow as WorkflowT } from "@/lib/types";
 
@@ -41,8 +42,7 @@ import type { Workflow as WorkflowT } from "@/lib/types";
 type DashboardTabProps = {
   /** Open the workflow editor panel (forwarded to ChatDemo). */
   onOpenWorkflow: (workflow: WorkflowT) => void;
-  /** Forwarded from ChatDemo: true once the user has sent ≥1 message.
-   * AppShell uses this to hide the Active Agents rail. */
+  /** Forwarded from ChatDemo: true once the user has sent ≥1 message. */
   onChatActiveChange?: (active: boolean) => void;
   /**
    * Called when a chat turn yields a new or amended workflow_draft_card.
@@ -59,6 +59,11 @@ type DashboardTabProps = {
   onSeededPromptConsumed?: () => void;
   /** Resume a persisted sidebar conversation (forwarded to ChatDemo). */
   resume?: ResumeConversation;
+  pageContext?: ChatAttachment;
+  conversationId?: string;
+  onConversationIdChange?: (id: string) => void;
+  compact?: boolean;
+  composerPlaceholder?: string;
 };
 
 type MeState =
@@ -199,6 +204,11 @@ export function DashboardTab({
   seededPrompt,
   onSeededPromptConsumed,
   resume,
+  pageContext,
+  conversationId,
+  onConversationIdChange,
+  compact = false,
+  composerPlaceholder,
 }: DashboardTabProps): React.ReactElement {
   const [me, setMe] = useState<MeState>({ kind: "loading" });
   const [pendingPrompt, setPendingPrompt] = useState<string | undefined>(undefined);
@@ -246,7 +256,14 @@ export function DashboardTab({
   // ── Quartr-style empty-state intro: greeting + quick-action chips
   //    centered. The dashboard intro replaces ChatDemo's default tip
   //    card via the `intro` prop.
-  const intro = (
+  const intro = compact ? (
+    <div className="px-6 text-center" data-testid="copilot-panel-intro">
+      <div className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>Pivot Copilot</div>
+      <p className="mt-2 text-sm" style={{ color: "var(--text-tertiary)" }}>
+        Ask about the page behind this panel or continue your current thread.
+      </p>
+    </div>
+  ) : (
     <div
       className="relative flex w-full flex-col items-center"
       style={{ gap: 28 }}
@@ -300,6 +317,12 @@ export function DashboardTab({
         onDemoSeedConsumed={() => setDemoSeed(undefined)}
         onDraftFromChat={onDraftFromChat}
         resume={resume}
+        pageContext={pageContext}
+        conversationId={conversationId}
+        onConversationIdChange={onConversationIdChange}
+        escapeStopsResponse={!compact}
+        compact={compact}
+        composerPlaceholder={composerPlaceholder}
       />
     </div>
   );
@@ -357,4 +380,3 @@ function ActionChip({
     </button>
   );
 }
-
