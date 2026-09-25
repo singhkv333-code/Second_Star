@@ -361,6 +361,19 @@ input[type="range"].payoff-slider::-moz-range-thumb {
   * { scrollbar-width: none; }
   *::-webkit-scrollbar { width: 0; height: 0; }
   .top-header { border-bottom: none !important; }
+  /* …except a floating dropdown. The rule above is about PAGE scroll
+     regions reading edge-to-edge; an overlay list is the opposite case —
+     it is short, it sits on top of the page, and the rail is the only cue
+     that there is more below the seventh row. `*` also outranks the
+     .cas-scroll rules further down (same specificity, later wins), so
+     without this carve-out the autosuggest lost its 6px rail on every
+     window under 1024px and Chrome drew its own default thumb instead.
+     `scrollbar-width` is reset to `auto`, NOT `thin`: thin would make
+     Chromium abandon the webkit rules for its own ~10px bar, which is the
+     same trap the main .cas-scroll block documents. Firefox still gets
+     `thin` from the @supports block further down. */
+  .cas-scroll { scrollbar-width: auto; }
+  .cas-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
 }
 
 /* ─── Quartr animations ────────────────────────────────────────────── */
@@ -495,6 +508,45 @@ input[type="range"].payoff-slider::-moz-range-thumb {
     transform 240ms cubic-bezier(0.22, 1, 0.36, 1),
     opacity 180ms ease,
     visibility 0s;
+}
+
+/* Drag handle on the panel's left seam. The hit area is 10px wide but the
+   visible line is the 2px border already there, so the seam does not thicken
+   on hover — it just lights up, the way the chart's handle does. */
+.copilot-resize-handle {
+  position: absolute;
+  top: 0;
+  left: -4px;
+  z-index: 3;
+  width: 10px;
+  height: 100%;
+  cursor: col-resize;
+  background: transparent;
+  touch-action: none;
+}
+
+.copilot-resize-grip {
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 4px;
+  height: 36px;
+  border-radius: var(--radius-pill);
+  background: var(--glass-border-focus);
+  opacity: 0;
+  transform: translateY(-50%);
+  transition: opacity 140ms ease;
+}
+
+.copilot-resize-handle:hover .copilot-resize-grip,
+.copilot-resize-handle:focus-visible .copilot-resize-grip,
+.copilot-resize-handle:active .copilot-resize-grip {
+  opacity: 0.75;
+}
+
+.copilot-resize-handle:focus-visible {
+  outline: 2px solid hsl(var(--accent));
+  outline-offset: -2px;
 }
 
 .copilot-panel-header {
@@ -984,6 +1036,37 @@ input[type="range"].payoff-slider::-moz-range-thumb {
   display: inline-flex;
   animation: copyTickPop 260ms var(--ease-quartr) forwards;
   color: inherit;
+}
+
+/* Thin scrollbar for the company-autosuggest dropdown.
+   Two engines, two mechanisms, and they must BOTH be stated:
+
+   - Chromium honours ::-webkit-scrollbar. The app's base layer already sets
+     a 6px rail globally, so Chrome was never the problem here.
+   - Firefox ignores ::-webkit-scrollbar completely and draws the OS default:
+     a wide rail WITH STEPPER ARROWS at both ends. Only `scrollbar-width`
+     reaches it.
+
+   `scrollbar-width: thin` does make Chromium switch to its own thin bar
+   (~10px, ignoring the webkit rules), so it is scoped to @supports on
+   Firefox's selector-free feature test below rather than set outright —
+   Chrome keeps the 6px webkit rail, Firefox gets its narrow bar. */
+.cas-scroll::-webkit-scrollbar { width: 6px; }
+.cas-scroll::-webkit-scrollbar-track { background: transparent; margin: 6px 0; }
+/* Kept on ONE line, like its neighbours. As a multi-line block this exact
+   rule was silently dropped from the compiled bundle — the rail and the
+   :hover state shipped, the resting thumb did not, so the dropdown drew a
+   6px track with the browser's own default thumb in it. */
+.cas-scroll::-webkit-scrollbar-thumb { background: var(--glass-border-hover); border-radius: 3px; border: 0; }
+.cas-scroll::-webkit-scrollbar-thumb:hover { background: var(--glass-border-focus); }
+
+/* Firefox only: it supports scrollbar-width but NOT the webkit pseudo, which
+   is exactly what this query tests. */
+@supports (scrollbar-width: thin) and (not selector(::-webkit-scrollbar)) {
+  .cas-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--glass-border-hover) transparent;
+  }
 }
 
 /* Hide the horizontal scrollbar on the Portfolio Performance range-pills

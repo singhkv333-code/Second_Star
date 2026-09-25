@@ -2,16 +2,13 @@
 
 /** Company research surface: price, business, financials, then ownership. */
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { format, parseISO } from "date-fns";
 import {
   AlertCircle,
-  ChartNoAxesCombined,
-  ChevronDown,
   ChevronRight,
   Maximize2,
-  Minimize2,
   Search,
   X,
 } from "lucide-react";
@@ -49,6 +46,7 @@ import { ResearchExtensions } from "@/components/stock/ResearchExtensions";
 import { DeepSections } from "@/components/stock/DeepSections";
 import { SECTION_GAP } from "@/components/stock/chrome";
 import { RowTrend } from "@/components/stock/RowTrend";
+import { Select } from "./stock/Select";
 import "./stock/stock-research.css";
 import { TechnicalPanel } from "@/components/stock/TechnicalPanel";
 
@@ -785,29 +783,6 @@ function Header({
           {fmtDelta(quote.change)} ({fmtPct(quote.change_pct)})
         </span>
       </div>
-      <button
-        type="button"
-        aria-label={`Open ${quote.symbol} chart`}
-        title={`Open ${quote.symbol} chart`}
-        onClick={() => window.dispatchEvent(new CustomEvent("pivot:open-chart", { detail: { symbol: quote.symbol } }))}
-        className="inline-flex shrink-0 items-center justify-center"
-        style={{
-          height: isPhone ? 34 : 38,
-          padding: isPhone ? "0 9px" : "0 13px",
-          gap: 7,
-          border: "none",
-          borderRadius: "var(--radius-sm)",
-          background: "var(--surface-active)",
-          color: "var(--text-primary)",
-          fontFamily: "var(--font-ui)",
-          fontSize: 12.5,
-          fontWeight: 500,
-          cursor: "pointer",
-        }}
-      >
-        <ChartNoAxesCombined size={16} strokeWidth={1.9} aria-hidden="true" />
-        {!isPhone && <span>Open chart</span>}
-      </button>
     </div>
   );
 }
@@ -1353,19 +1328,6 @@ function ChartCard({
   // needing that filtering logic ripped out.
   const minDate = "";
   const maxDate = "";
-  // Fullscreen overlay: the Maximize2 button lifts the entire card to a
-  // fixed surface that covers most of the viewport; the chart's height
-  // grows to fill the freed space. Esc dismisses.
-  const [expanded, setExpanded] = useState(false);
-  useEffect(() => {
-    if (!expanded) return;
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") setExpanded(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [expanded]);
-
   // ── Metric series (PE Ratio / EV/EBITDA) ─────────────────────────────
   // Fetched per-ticker when a fundamental metric is selected. In Price
   // mode this state is empty and unused — the parent-supplied `series`
@@ -1703,51 +1665,12 @@ function ChartCard({
   );
 
   return (
-    <>
-      {expanded && (
-        <div
-          aria-hidden="true"
-          onClick={() => setExpanded(false)}
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.55)",
-            zIndex: 60,
-          }}
-        />
-      )}
     <Card
       transparent
       padding="0"
       className="flex h-full min-h-0 flex-col"
-      style={
-        expanded
-          ? {
-              position: "fixed",
-              top: 24,
-              left: 24,
-              right: 24,
-              bottom: 24,
-              // Override Tailwind's `h-full` (height: 100%) which, combined
-              // with `top/bottom`, leaves the box over-constrained — CSS
-              // honors the height and pushes the bottom edge below the
-              // viewport, clipping the footer summary. Using `auto` lets
-              // the implicit height (= 100vh - 48px) drive the layout.
-              height: "auto",
-              zIndex: 61,
-              background: "var(--bg-primary)",
-              border: "1px solid var(--glass-border)",
-              borderRadius: "var(--radius-md)",
-              boxShadow: "0 30px 80px rgba(0,0,0,0.45)",
-              // Vertical scroll catches the case where the chart aspect
-              // forces total content past the available height (e.g. with
-              // many comparison tickers in the footer summary).
-              overflow: "hidden auto",
-            }
-          : undefined
-      }
     >
-      {/* ── Row 1: full-width search pill + maximize ──────────────────── */}
+      {/* ── Row 1: full-width search pill + open-in-chart ─────────────── */}
       <div
         className="flex items-center"
         style={{
@@ -1795,12 +1718,20 @@ function ChartCard({
         </div>
         <button
           type="button"
-          onClick={() => setExpanded((v) => !v)}
-          aria-label={expanded ? "Collapse chart" : "Expand chart"}
-          aria-pressed={expanded}
+          // The chart page is the real expansion of this panel: it carries the
+          // indicators, drawings and intraday resolutions a research preview
+          // cannot. Opening it beats a fullscreen copy of the same preview.
+          onClick={() =>
+            primarySym &&
+            window.dispatchEvent(
+              new CustomEvent("pivot:open-chart", { detail: { symbol: primarySym } }),
+            )
+          }
+          aria-label={primarySym ? `Open ${primarySym} chart` : "Open chart"}
+          title={primarySym ? `Open ${primarySym} chart` : "Open chart"}
           data-testid="chart-expand-btn"
-          // Hidden on phones — the fullscreen chart overlay is a
-          // desktop/tablet affordance; there's no room for it on mobile.
+          // Hidden on phones — the full chart workspace is a desktop/tablet
+          // affordance; there's no room for it on mobile.
           className="inline-flex shrink-0 items-center justify-center max-sm:hidden"
           style={{
             width: 36,
@@ -1821,11 +1752,7 @@ function ChartCard({
             e.currentTarget.style.borderColor = "var(--glass-border)";
           }}
         >
-          {expanded ? (
-            <Minimize2 size={14} strokeWidth={2} aria-hidden="true" />
-          ) : (
-            <Maximize2 size={14} strokeWidth={2} aria-hidden="true" />
-          )}
+          <Maximize2 size={14} strokeWidth={2} aria-hidden="true" />
         </button>
       </div>
 
@@ -1855,14 +1782,9 @@ function ChartCard({
         style={{
           position: "relative",
           width: "100%",
-          // Expanded: grow to fill the remaining flex space inside the
-          // fixed overlay card so the chart consumes the freed area.
-          // Collapsed: pinned to a comfortable inline height.
-          height: expanded ? "auto" : chartHeight,
-          flex: expanded ? 1 : undefined,
-          minHeight: expanded ? 0 : undefined,
-          // Lets the box shrink back below the canvas's stale expanded width
-          // instead of the canvas dictating the column width on collapse.
+          height: chartHeight,
+          // Lets the box shrink rather than letting the canvas dictate the
+          // column width.
           minWidth: 0,
           padding: "0 18px",
         }}
@@ -1898,7 +1820,7 @@ function ChartCard({
               volume={volumePoints}
               height="100%"
               intraday={range === "1D" || range === "1W"}
-              refitKey={expanded ? "expanded" : "collapsed"}
+              refitKey="inline"
             />
           )
         ) : metricSeriesDefs.length === 0 ? (
@@ -2083,7 +2005,6 @@ function ChartCard({
         </div>
       )}
     </Card>
-    </>
   );
 }
 
@@ -2148,114 +2069,14 @@ function MetricSelector({
   value: Metric;
   onChange: (m: Metric) => void;
 }): React.ReactElement {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement | null>(null);
-
-  // Click-outside to dismiss
-  useEffect(() => {
-    if (!open) return;
-    const onDocClick = (e: MouseEvent): void => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, [open]);
-
+  // The product's one dropdown — see components/stock/Select.tsx.
   return (
-    <div ref={ref} style={{ position: "relative" }}>
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        className="inline-flex w-full items-center sm:w-auto"
-        style={{
-          gap: 8,
-          height: 38,
-          padding: "0 14px",
-          background: "var(--bg-base)",
-          border: "1px solid var(--glass-border)",
-          borderRadius: "var(--radius-sm)",
-          color: "var(--text-primary)",
-          fontFamily: "var(--font-ui)",
-          fontSize: 12,
-          cursor: "pointer",
-          minWidth: 124,
-          justifyContent: "space-between",
-        }}
-      >
-        {value}
-        <ChevronDown
-          size={14}
-          strokeWidth={2}
-          style={{
-            color: "var(--text-tertiary)",
-            transform: open ? "rotate(180deg)" : "rotate(0deg)",
-            transition: "transform 0.18s var(--ease-quartr)",
-          }}
-          aria-hidden="true"
-        />
-      </button>
-
-      {open && (
-        <ul
-          role="listbox"
-          style={{
-            position: "absolute",
-            top: "calc(100% + 6px)",
-            right: 0,
-            margin: 0,
-            padding: 6,
-            listStyle: "none",
-            background: "var(--bg-primary)",
-            border: "1px solid var(--glass-border)",
-            borderRadius: "var(--radius-sm)",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
-            minWidth: 180,
-            zIndex: 10,
-          }}
-        >
-          {METRIC_OPTIONS.map((m) => {
-            const active = m === value;
-            return (
-              <li key={m} role="option" aria-selected={active}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onChange(m);
-                    setOpen(false);
-                  }}
-                  className="flex items-center w-full"
-                  style={{
-                    width: "100%",
-                    padding: "8px 12px",
-                    background: active ? "var(--surface-active)" : "transparent",
-                    border: "none",
-                    borderRadius: "var(--radius-xs)",
-                    color: "var(--text-primary)",
-                    fontFamily: "var(--font-ui)",
-                    fontSize: 12.5,
-                    cursor: "pointer",
-                    textAlign: "left",
-                    transition: "background-color 0.15s var(--ease-quartr)",
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!active) e.currentTarget.style.background = "var(--surface-hover)";
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!active) e.currentTarget.style.background = "transparent";
-                  }}
-                >
-                  {m}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </div>
+    <Select
+      ariaLabel="Chart metric"
+      value={value}
+      onChange={(v) => onChange(v as Metric)}
+      options={METRIC_OPTIONS.map((m) => ({ value: m, label: m }))}
+    />
   );
 }
 
@@ -3158,8 +2979,11 @@ function FinancialsPanel({
                     padding: "6px 14px", border: "none", background: "transparent",
                     fontSize: 12.5, fontFamily: "var(--font-ui)",
                     fontWeight: active ? 600 : 400,
-                    color: active ? "var(--pivot-blue, #1b7cc7)" : "var(--text-secondary)",
-                    borderBottom: active ? "2px solid var(--pivot-blue, #1b7cc7)" : "2px solid transparent",
+                    // Ink, not accent — the same language the section nav at
+                    // the top of the page uses, so the two tab strips a reader
+                    // meets on one page mark themselves the same way.
+                    color: active ? "var(--text-primary)" : "var(--text-secondary)",
+                    borderBottom: active ? "2px solid var(--text-primary)" : "2px solid transparent",
                     cursor: "pointer", marginBottom: -1, transition: "color 0.15s, border-color 0.15s",
                   }}>
                     {t === "financials" ? "Balance Sheet"
@@ -3257,7 +3081,7 @@ function FinancialsPanel({
                       padding: "12px 6px", fontSize: 11, fontWeight: 600,
                       textTransform: "uppercase", letterSpacing: "0.06em",
                       textAlign: "right", whiteSpace: "nowrap",
-                      color: i === periods.length - 1 ? "var(--pivot-blue, #1b7cc7)" : "var(--text-tertiary)",
+                      color: i === periods.length - 1 ? "var(--text-primary)" : "var(--text-tertiary)",
                     }}>
                       {y}
                     </th>
@@ -3388,7 +3212,7 @@ function FinancialsLikeTable({ title, subtitle, rows, minRows }: {
               {FY_YEARS.map((y, i) => {
                 const isLatest = i === latestIdx;
                 return (
-                  <th key={y} style={{ padding: "9px 14px", fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", textAlign: "right", whiteSpace: "nowrap", color: isLatest ? "var(--pivot-blue, #1b7cc7)" : "var(--text-tertiary)" }}>
+                  <th key={y} style={{ padding: "9px 14px", fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", textAlign: "right", whiteSpace: "nowrap", color: isLatest ? "var(--text-primary)" : "var(--text-tertiary)" }}>
                     {y}
                   </th>
                 );

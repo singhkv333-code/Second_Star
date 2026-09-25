@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { CustomSeriesRenderItem } from "echarts";
 import { cashBridge, type CashStep } from "./researchMath";
 import { BasisSelect, Figure, ResearchPanel, ResearchState, StatementSource, useResearchStatement, decimal, chartBase, categoryAxis, valueAxis } from "./ResearchPanel";
+import { Select } from "./Select";
 const EChart = dynamic(() => import("./EChart"), { ssr: false, loading: () => <div className="research-chart-loading" /> });
 const short = (v: number): string => new Intl.NumberFormat("en-IN", { maximumFractionDigits: 1, notation: "compact" }).format(v);
 
@@ -45,7 +46,7 @@ export function CapitalAllocationPanel({ symbol }: { symbol: string }) {
   const usable = !!grid?.available && rows.some((r) => r.operating !== null || r.investing !== null || r.financing !== null);
   return <ResearchPanel id="stock-capital" title="Capital allocation" controls={<BasisSelect value={basis} onChange={setBasis} />}>
     {!usable || !grid || !bridge ? <ResearchState {...state} message="Reported cash-flow history is unavailable for this company." /> : <>
-      <div className="research-module-toolbar"><div className="research-choice" aria-label="Cash flow chart"><button type="button" data-label="Cash bridge" aria-pressed={mode === "bridge"} onClick={() => setMode("bridge")}>Cash bridge</button><button type="button" data-label="Across the years" aria-pressed={mode === "history"} onClick={() => setMode("history")}>Across the years</button></div>{mode === "bridge" ? <select aria-label="Cash flow reporting period" value={active} onChange={(e) => setPeriod(e.target.value)}>{grid.periods.map((p) => <option key={p}>{p}</option>)}</select> : <span className="research-meta">{rows.length} annual periods</span>}</div>
+      <div className="research-module-toolbar"><div className="research-choice" aria-label="Cash flow chart"><button type="button" data-label="Cash bridge" aria-pressed={mode === "bridge"} onClick={() => setMode("bridge")}>Cash bridge</button><button type="button" data-label="Across the years" aria-pressed={mode === "history"} onClick={() => setMode("history")}>Across the years</button></div>{mode === "bridge" ? <Select ariaLabel="Cash flow reporting period" value={active} onChange={setPeriod} options={grid.periods.map((p) => ({ value: p, label: p }))} /> : <span className="research-meta">{rows.length} annual periods</span>}</div>
       <div className="research-chart-layout">
         <div className="research-chart-main">
           <div className="research-chart-caption"><span>{mode === "bridge" ? `Cash movement · ${active}` : "Sources and uses of cash"}</span><span>{unitLabel}</span></div>

@@ -5,6 +5,7 @@ import { getResearchPrices, type OhlcResponse } from "@/lib/api";
 import { isError } from "@/lib/types";
 import { alignPrices, performance, RETURN_WINDOWS, windowPrices, type ReturnWindow } from "./researchMath";
 import { Figure, ResearchPanel, ResearchState, signedPercent, decimal, chartBase, categoryAxis, valueAxis } from "./ResearchPanel";
+import { Select } from "./Select";
 const EChart = dynamic(() => import("./EChart"), { ssr: false, loading: () => <div className="research-chart-loading" /> });
 const BENCHMARKS = [{ symbol: "NIFTY 50", name: "Nifty 50", exchange: "NSE" }, { symbol: "SENSEX", name: "Sensex", exchange: "BSE" }, { symbol: "NIFTY BANK", name: "Nifty Bank", exchange: "NSE" }] as const;
 const dateLabel = (v: string): string => new Date(`${v}T00:00:00Z`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
@@ -42,7 +43,7 @@ export function BenchmarkPerformancePanel({ symbol, exchange }: { symbol: string
   const stock = performance(selected, "stock"), index = performance(selected, "benchmark");
   const rows = RETURN_WINDOWS.map((r) => { const points = windowPrices(aligned, r); return { range: r, points, stock: performance(points, "stock"), index: performance(points, "benchmark") }; });
   const relative = stock && index ? stock.total - index.total : null;
-  return <ResearchPanel id="stock-benchmarks" title="Benchmark comparison" controls={<select aria-label="Performance benchmark" value={benchmark} onChange={(e) => setBenchmark(e.target.value)}>{BENCHMARKS.map((b) => <option key={b.symbol} value={b.symbol}>{b.name}</option>)}</select>}>
+  return <ResearchPanel id="stock-benchmarks" title="Benchmark comparison" controls={<Select ariaLabel="Performance benchmark" value={benchmark} onChange={setBenchmark} options={BENCHMARKS.map((b) => ({ value: b.symbol, label: b.name }))} />}>
     {!current?.data || aligned.length < 2 ? <ResearchState loading={!current} error={!!current?.error} retry={() => setAttempt((n) => n + 1)} message="There are not enough matching daily prices to compare this stock with the selected benchmark." /> : <>
       <div className="research-module-toolbar"><div className="research-choice" aria-label="Performance chart mode"><button type="button" data-label="Growth of 100" aria-pressed={mode === "growth"} onClick={() => setMode("growth")}>Growth of 100</button><button type="button" data-label="Drawdown" aria-pressed={mode === "drawdown"} onClick={() => setMode("drawdown")}>Drawdown</button></div><div className="research-choice research-periods" aria-label="Benchmark time range">{RETURN_WINDOWS.map((r) => <button type="button" data-label={r} aria-pressed={range === r} key={r} onClick={() => setRange(r)}>{r}</button>)}</div></div>
       <div className="research-chart-layout">

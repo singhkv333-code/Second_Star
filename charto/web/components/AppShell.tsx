@@ -1215,7 +1215,14 @@ function TopHeader({
         <PivotLogo fontSize={22} />
       </button>
 
-      {/* Search — Quartr pill, sized + bordered, no Tailwind background.
+      {/* Search — Quartr pill, sized and filled, NO rule around it. The
+          border was the only hairline in the header, so the field read as a
+          control sitting on the bar rather than part of it. The fill does
+          that job instead: --muted, the EXACT grey the chart header's
+          ticker badge wears (charto/preview's .symbol), so the field reads
+          as a filled chip in the header rather than an outlined box on it.
+          It was --bg-elevated, a step darker, which made the same chip look
+          like two different greys across the chart and the shell.
           Hidden below lg; mobile users get the CommandPalette via the
           account menu / keyboard shortcut. */}
       <div
@@ -1225,10 +1232,9 @@ function TopHeader({
           maxWidth: 360,
           height: 38,
           padding: "0 16px",
-          background: "var(--bg-primary)",
-          border: "1px solid var(--glass-border)",
+          background: "hsl(var(--muted))",
+          border: "none",
           borderRadius: "var(--radius-pill)",
-          transition: "border-color 0.2s var(--ease-quartr)",
           position: "relative",
         }}
       >

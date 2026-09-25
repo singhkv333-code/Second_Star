@@ -134,6 +134,42 @@ const METRIC_REFRESH_MS = 30_000;
 const ACTIVE_COPILOT_KEY = "pivot:active-copilot-conversation";
 const COPILOT_CONTEXT_KEY = "pivot:copilot-page-context";
 
+/* Copilot side-panel width ------------------------------------------------
+   The panel was a fixed 25vw: `--copilot-side-w` was READ by globals.css in
+   both places that matter (the panel's own width and .copilot-main-with-panel's
+   padding) but nothing ever wrote it, so the fallback was the only value it
+   ever had. The chart page has had a draggable panel since the agent editor
+   landed; screener, portfolio and the company page were the pages where a
+   table and the panel had to share a viewport and neither could give.
+
+   Same storage shape as AgentPanel's own handle, under its own key, because
+   the two panels are sized for different work — a workflow editor wants to be
+   wide, a screener copilot usually wants to be narrow. */
+const COPILOT_PANEL_MIN_WIDTH = 320;
+const COPILOT_PANEL_MAX_WIDTH = 900;
+const COPILOT_PANEL_LS_KEY = "pivot.copilotPanelWidth";
+// Below this the panel is 100vw via globals.css, so a handle would resize
+// something the user cannot see the edge of.
+const COPILOT_PANEL_DESKTOP_MIN = 821;
+
+/** The widest the panel may be without starving the page beside it. */
+function clampCopilotWidth(w: number): number {
+  const maxW = Math.min(COPILOT_PANEL_MAX_WIDTH, window.innerWidth - 420);
+  return Math.max(COPILOT_PANEL_MIN_WIDTH, Math.min(maxW, w));
+}
+
+function readStoredCopilotWidth(): number | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const v = window.localStorage.getItem(COPILOT_PANEL_LS_KEY);
+    if (!v) return null;
+    const n = parseInt(v, 10);
+    return Number.isFinite(n) ? clampCopilotWidth(n) : null;
+  } catch {
+    return null;
+  }
+}
+
 type CopilotPageContext =
   | { kind: "page"; page: "home" | "portfolio" | "agents" | "screener"; label: string }
   | { kind: "security"; symbol: string; name: string };
@@ -314,6 +350,11 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   // Presentation state only. The chat component stays mounted while this
   // toggles, so side-panel/full-workspace transitions cannot fork a thread.
   const [copilotPanelOpen, setCopilotPanelOpen] = useState(false);
+  // Dragged width of the Copilot side panel. Read from localStorage on the
+  // first client render only — reading during SSR would hand the server a
+  // different number than the client and hydrate mismatched.
+  const [copilotWidth, setCopilotWidth] = useState<number | null>(null);
+  const [copilotResizable, setCopilotResizable] = useState(false);
   const [chartChatOpen, setChartChatOpen] = useState(false);
   const [activeConversationId, setActiveConversationId] = useState<string | undefined>(
     readStoredConversationId,
@@ -432,6 +473,102 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     if (!copilotPanelOpen) return;
     requestAnimationFrame(() => window.dispatchEvent(new Event("pivot:focus-composer")));
   }, [copilotPanelOpen]);
+
+  // Copilot panel width: hydrate the stored value and track whether the
+  // viewport is wide enough for the panel to have a left edge to drag.
+  useEffect(() => {
+    setCopilotWidth(readStoredCopilotWidth());
+    const mq = window.matchMedia(`(min-width: ${COPILOT_PANEL_DESKTOP_MIN}px)`);
+    const onChange = (e: MediaQueryListEvent) => setCopilotResizable(e.matches);
+    setCopilotResizable(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+
+  // Publish the width to CSS. globals.css already reads --copilot-side-w for
+  // BOTH the panel and the main region's padding, so writing it here keeps
+  // the two in lockstep — the page beside the panel reflows with the drag
+  // instead of sliding under it. Null (nothing stored yet) leaves the
+  // variable unset so the stylesheet's 25vw default still applies.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const root = document.documentElement;
+    if (copilotWidth != null && copilotResizable) {
+      root.style.setProperty("--copilot-side-w", `${copilotWidth}px`);
+    } else {
+      root.style.removeProperty("--copilot-side-w");
+    }
+  }, [copilotWidth, copilotResizable]);
+
+  // A window that shrinks can leave a stored width wider than the room left
+  // for the page; re-clamp rather than letting the panel squeeze the table out.
+  useEffect(() => {
+    if (!copilotResizable) return;
+    const onResize = () => {
+      setCopilotWidth((w) => (w == null ? w : clampCopilotWidth(w)));
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [copilotResizable]);
+
+  const copilotDragRef = useRef<{ x: number; w: number } | null>(null);
+
+  const onCopilotResizeStart = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (!copilotResizable) return;
+      event.preventDefault();
+      const startW =
+        copilotWidth ??
+        clampCopilotWidth(
+          document.querySelector<HTMLElement>(".copilot-side-panel--open")
+            ?.getBoundingClientRect().width ?? window.innerWidth * 0.25,
+        );
+      copilotDragRef.current = { x: event.clientX, w: startW };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+    },
+    [copilotResizable, copilotWidth],
+  );
+
+  const onCopilotResizeMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = copilotDragRef.current;
+    if (!drag) return;
+    // Panel is pinned right, so dragging LEFT (smaller clientX) widens it.
+    setCopilotWidth(clampCopilotWidth(drag.w + (drag.x - event.clientX)));
+  }, []);
+
+  const onCopilotResizeEnd = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (!copilotDragRef.current) return;
+    copilotDragRef.current = null;
+    try { event.currentTarget.releasePointerCapture(event.pointerId); } catch { /* already gone */ }
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+    setCopilotWidth((w) => {
+      if (w != null) {
+        try { window.localStorage.setItem(COPILOT_PANEL_LS_KEY, String(w)); }
+        catch { /* storage unavailable */ }
+      }
+      return w;
+    });
+  }, []);
+
+  // Keyboard resize — a pointer-only handle is unreachable without a mouse.
+  const onCopilotResizeKey = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    const step = event.shiftKey ? 64 : 16;
+    let dir = 0;
+    if (event.key === "ArrowLeft") dir = 1;
+    else if (event.key === "ArrowRight") dir = -1;
+    else return;
+    event.preventDefault();
+    setCopilotWidth((w) => {
+      const base = w ?? window.innerWidth * 0.25;
+      const next = clampCopilotWidth(base + dir * step);
+      try { window.localStorage.setItem(COPILOT_PANEL_LS_KEY, String(next)); }
+      catch { /* storage unavailable */ }
+      return next;
+    });
+  }, []);
 
   // Hash + theme init
   useEffect(() => {
@@ -1131,6 +1268,35 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
             role={copilotPanelOpen && (Boolean(children) || active !== "chat") ? "complementary" : undefined}
             aria-label={copilotPanelOpen && (Boolean(children) || active !== "chat") ? "Pivot Copilot" : undefined}
           >
+              {copilotPanelOpen && copilotResizable
+                && (Boolean(children) || (active !== "chat" && active !== "chart")) && (
+                /* Left-edge drag handle. Pointer events (not mouse) so a
+                   trackpad, pen or touch-capable desktop all drag the same
+                   way, and pointer capture keeps the drag alive when the
+                   cursor outruns the 6px strip. */
+                <div
+                  role="separator"
+                  aria-orientation="vertical"
+                  aria-label="Resize Copilot panel"
+                  tabIndex={0}
+                  className="copilot-resize-handle"
+                  data-testid="copilot-resize-handle"
+                  onPointerDown={onCopilotResizeStart}
+                  onPointerMove={onCopilotResizeMove}
+                  onPointerUp={onCopilotResizeEnd}
+                  onPointerCancel={onCopilotResizeEnd}
+                  onKeyDown={onCopilotResizeKey}
+                  onDoubleClick={() => {
+                    // Back to the stylesheet's 25vw.
+                    setCopilotWidth(null);
+                    try { window.localStorage.removeItem(COPILOT_PANEL_LS_KEY); }
+                    catch { /* storage unavailable */ }
+                  }}
+                  title="Drag to resize · double-click to reset"
+                >
+                  <span aria-hidden={true} className="copilot-resize-grip" />
+                </div>
+              )}
               {(Boolean(children) || (active !== "chat" && active !== "chart")) && (
                 <div className="copilot-panel-header" data-testid="copilot-panel-header" aria-label="Copilot panel controls">
                   <button
@@ -1307,7 +1473,15 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
           placeholder={quickAskPlaceholder}
           contextLabel={quickAskContextLabel}
           onSubmit={askFromQuickComposer}
-          visible={active === "chart" ? !chartChatOpen : !copilotPanelOpen}
+          /* The drawer is a full-height overlay on phones, but QuickAsk is
+             fixed to the bottom of the VIEWPORT at a higher layer, so it
+             floated over the open menu — a prompt bar docked to a nav sheet
+             it has nothing to do with, and still tabbable behind it. It hides
+             for the menu the same way it already hides for an open panel. */
+          visible={
+            !mobileNavOpen
+            && (active === "chart" ? !chartChatOpen : !copilotPanelOpen)
+          }
         />
       )}
 
@@ -1484,7 +1658,14 @@ function TopHeader({
         <PivotWordmark className="top-header-wordmark" fontSize={22} />
       </button>
 
-      {/* Search — Quartr pill, sized + bordered, no Tailwind background.
+      {/* Search — Quartr pill, sized and filled, NO rule around it. The
+          border was the only hairline in the header, so the field read as a
+          control sitting on the bar rather than part of it. The fill does
+          that job instead: --muted, the EXACT grey the chart header's
+          ticker badge wears (charto/preview's .symbol), so the field reads
+          as a filled chip in the header rather than an outlined box on it.
+          It was --bg-elevated, a step darker, which made the same chip look
+          like two different greys across the chart and the shell.
           Hidden below lg; mobile users get the CommandPalette via the
           account menu / keyboard shortcut. */}
       {variant === "default" && <div
@@ -1494,10 +1675,9 @@ function TopHeader({
           maxWidth: 300,
           height: 30,
           padding: "0 12px",
-          background: "var(--bg-primary)",
-          border: "1px solid var(--glass-border)",
+          background: "hsl(var(--muted))",
+          border: "none",
           borderRadius: "var(--radius-pill)",
-          transition: "border-color 0.2s var(--ease-quartr)",
           position: "relative",
         }}
       >

@@ -276,6 +276,7 @@ export function CompanyAutosuggest({
         <ul
           id="company-autosuggest-list"
           role="listbox"
+          className="cas-scroll"
           aria-label={showingRecent ? "Recent searches" : "Company suggestions"}
           style={{
             position: "absolute",

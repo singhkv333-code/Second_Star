@@ -6176,7 +6176,23 @@ svg.icon.op {
   .sym-picker .item > svg { width: 14px; height: 14px; color: var(--foreground); flex: none; }
   .sym-picker .pick-list .item .lead { flex: 1; gap: 10px; }
   .sym-picker .pick-note { margin: 7px -1px -1px; padding: 9px 10px 5px; border-top: 1px solid color-mix(in srgb, var(--foreground) 8%, transparent); color: var(--foreground); font-size: 10.5px; line-height: 1.4; }
-  #symList, .sym-picker .pick-list { max-height: 430px; overflow-y: auto; }
+  /* The list — not the popover — is what scrolls here, so the .dropdown
+     scrollbar rule above never reaches it and the instrument picker was the
+     one place in the app still painting the UA's full-width bar. Same 6px
+     thumb, same inset track as every other scrolling surface. */
+  #symList, .sym-picker .pick-list {
+    max-height: 430px; overflow-y: auto;
+    scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent;
+  }
+  #symList::-webkit-scrollbar, .sym-picker .pick-list::-webkit-scrollbar { width: 6px; }
+  #symList::-webkit-scrollbar-track,
+  .sym-picker .pick-list::-webkit-scrollbar-track { background: transparent; margin: 6px 0; }
+  #symList::-webkit-scrollbar-thumb,
+  .sym-picker .pick-list::-webkit-scrollbar-thumb {
+    background: var(--scroll-thumb); border-radius: var(--radius-2xs); border: 0;
+  }
+  #symList::-webkit-scrollbar-thumb:hover,
+  .sym-picker .pick-list::-webkit-scrollbar-thumb:hover { background: var(--faint); }
   /* ── the instrument row ──────────────────────────────────────────────
      Both instrument lists — the header pill's menu and the floating picker
      opened from a legend — draw this, from Universe.rowHTML. One company
@@ -8393,7 +8409,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        shared set, and a classic script cannot reach a const declared by one
        that has not run yet -->
   <script src="./js/auth.js?v=3"></script>
-  <script src="./js/indicators.js?v=34"></script>
+  <script src="./js/indicators.js?v=35"></script>
   <!-- before both legends: each asks it whether the series runs behind a row
        or a chip, which is what puts the plate there -->
   <script src="./js/occlusion.js?v=1"></script>

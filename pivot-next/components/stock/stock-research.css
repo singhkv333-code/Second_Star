@@ -6,7 +6,10 @@
 .research-sector { margin-left: auto; }
 .research-nav { display: flex; gap: 28px; overflow-x: auto; border-block: 1px solid var(--research-rule); scrollbar-width: thin; }
 .research-nav a { padding: 16px 0; white-space: nowrap; color: var(--text-secondary); font-size: 12px; text-decoration: none; border-bottom: 2px solid transparent; }
-.research-nav a:hover, .research-nav a:focus-visible { color: var(--text-primary); border-bottom-color: var(--pivot-blue); }
+/* The section strip marks its place in ink, not in accent: a coloured rule
+   under one of eight words is the loudest thing on a page whose job is to be
+   read. The active/hover word goes primary and the rule goes with it. */
+.research-nav a:hover, .research-nav a:focus-visible { color: var(--text-primary); border-bottom-color: var(--text-primary); }
 .research-snapshot { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); padding: 25px 0; border-bottom: 1px solid var(--research-rule); }
 .research-snapshot > div { padding: 0 22px; border-right: 1px solid var(--research-rule); }
 .research-snapshot > div:first-child { padding-left: 0; }
@@ -25,7 +28,7 @@
 .stock-research table { font-variant-numeric: tabular-nums; }
 .stock-research table tbody tr:hover { background: color-mix(in srgb,var(--text-primary) 3%,transparent); }
 .stock-research table thead th { background: var(--bg-secondary); }
-.stock-research button:focus-visible, .research-nav a:focus-visible { outline: 2px solid var(--pivot-blue); outline-offset: 4px; }
+.stock-research button:focus-visible, .research-nav a:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 4px; }
 .research-price button[aria-label="Buy"], .research-price button[aria-label="Sell"] { flex: 0 1 128px !important; min-height: 38px !important; height: 38px !important; font-size: 13px !important; border-radius: 7px !important; }
 @media(max-width:1279px) { .research-company { grid-column: 1; grid-row: 2; } }
 @media(max-width:639px) { .stock-research { padding: 6px 0 48px; } .research-eyebrow { margin-bottom: 18px; } .research-nav { gap: 22px; } .research-snapshot { grid-template-columns: repeat(2,minmax(0,1fr)); row-gap: 20px; } .research-snapshot > div { padding: 0 12px; } .research-snapshot > div:first-child { padding-left: 12px; } .research-snapshot > div:nth-child(2n) { border: 0; } .research-snapshot strong { font-size: 21px; } .research-profile-stats { grid-template-columns: 1fr !important; } }
@@ -34,3 +37,66 @@
   .research-snapshot > div { flex: 0 0 150px; border-right: 1px solid var(--research-rule) !important; }
   .research-snapshot > div:last-child { border: 0 !important; }
 }
+
+/* ── the dropdown ──────────────────────────────────────────────────────
+   One dropdown across the product, restated from the chart page's own
+   (`charto/preview`). The page used to wear a native <select>, which can only
+   ever be half a control — the browser draws the option list, so a styled
+   trigger opened an OS popup with a blue-filled selected row under it. The
+   chart hides the real select and paints a button beside it; components/stock/
+   Select.tsx is that button, and this is its sheet.
+
+   Trigger: a GHOST button. 30px, transparent fill AND border, 6px radius, the
+   fill arriving on hover — the chart's `.btn`. Not a bordered input box: these
+   sit beside a panel heading, where a boxed field reads as something to type
+   into.
+
+   Menu: 6px box, 5px padding, rows 7px/9px on --radius-xs, and the live row
+   marked by INK AND A TICK with the fill left to mean "under the pointer". */
+.pv-select { position: relative; display: inline-flex; }
+.pv-select-btn {
+  display: inline-flex; align-items: center; justify-content: space-between; gap: 7px;
+  height: 30px; padding: 0 11px; border-radius: 6px; cursor: pointer;
+  background: transparent; border: 1px solid transparent; color: var(--text-primary);
+  font-family: var(--font-ui); font-size: 12.5px; font-weight: 500;
+  white-space: nowrap; font-variant-numeric: tabular-nums;
+  transition: background-color .15s var(--ease-quartr, ease), color .15s var(--ease-quartr, ease);
+}
+.pv-select-btn .val { overflow: hidden; text-overflow: ellipsis; }
+.pv-select-btn > svg { flex: none; color: var(--text-tertiary); }
+.pv-select-btn:hover { background: var(--surface-hover); }
+.pv-select-btn[aria-expanded="true"] { background: var(--surface-active); }
+.pv-select-btn:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 1px; }
+
+.pv-select-menu {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 60;
+  margin: 0; padding: 5px; list-style: none; min-width: 172px;
+  background: var(--bg-primary); border: 1px solid var(--glass-border);
+  border-radius: 6px; box-shadow: 0 10px 30px rgba(0, 0, 0, .14);
+  max-height: 320px; overflow-y: auto; overscroll-behavior: contain;
+  scrollbar-width: thin; outline: none;
+  animation: pv-select-pop .13s var(--ease-quartr, ease-out);
+}
+.pv-select-menu.is-left { right: auto; left: 0; }
+@keyframes pv-select-pop { from { opacity: 0; transform: translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) { .pv-select-menu { animation: none; } }
+
+.pv-select-menu .item {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  padding: 7px 9px; border-radius: var(--radius-xs); cursor: pointer;
+  font-family: var(--font-ui); font-size: 12.5px; color: var(--text-primary);
+}
+/* Hover/keyboard focus is the ONLY fill in this menu. */
+.pv-select-menu .item.active { background: var(--surface-hover); }
+/* The live row: ink and a tick. No plate. */
+.pv-select-menu .item.on { font-weight: 600; }
+.pv-select-menu .item.on > svg { flex: none; color: var(--text-primary); }
+/* Group label — the uppercase micro-label over a full-bleed hairline, pulled
+   out past the sheet's padding and set back on the rows' text edge. */
+.pv-select-menu .head {
+  margin: 3px -5px 4px; padding: 7px 14px 6px;
+  border-bottom: 1px solid var(--glass-border);
+  font-family: var(--font-ui); font-size: 10px; font-weight: 600;
+  letter-spacing: .07em; text-transform: uppercase; color: var(--text-tertiary);
+}
+.pv-select-menu .head:first-child { margin-top: -2px; }

@@ -2,6 +2,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { getStatement, type StatementResponse, type StatementType } from "@/lib/api";
 import { isError } from "@/lib/types";
+import { Select } from "./Select";
 
 export function useResearchStatement(symbol: string, type: StatementType, basis: "consolidated" | "standalone") {
   const [attempt, setAttempt] = useState(0);
@@ -32,7 +33,7 @@ export function ResearchState({ loading, error, retry, message }: { loading: boo
   </div>;
 }
 export function BasisSelect({ value, onChange }: { value: "consolidated" | "standalone"; onChange: (v: "consolidated" | "standalone") => void }) {
-  return <select aria-label="Reporting basis" value={value} onChange={(e) => onChange(e.target.value as "consolidated" | "standalone")}><option value="consolidated">Consolidated</option><option value="standalone">Standalone</option></select>;
+  return <Select ariaLabel="Reporting basis" value={value} onChange={(v) => onChange(v as "consolidated" | "standalone")} options={[{ value: "consolidated", label: "Consolidated" }, { value: "standalone", label: "Standalone" }]} />;
 }
 export function StatementSource({ data, requested }: { data: StatementResponse; requested: string }) {
   return <span>{data.source === "moneycontrol" ? "Moneycontrol" : data.source || "Source unavailable"} · {data.basis === "consolidated" ? "Consolidated" : "Standalone"}{data.basis !== requested ? " (available basis)" : ""}</span>;

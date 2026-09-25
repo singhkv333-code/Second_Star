@@ -41,7 +41,6 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { StockHoverActions } from "@/components/StockHoverActions";
 import {
@@ -512,6 +511,46 @@ function Section({
   );
 }
 
+/* Bar — the one loading shape this page is made of.
+ *
+ * The shared <Skeleton> primitive could not be used here. It paints its own
+ * border and a gradient mixed from --background/--muted, which is the shadcn
+ * palette; this page is built from --bg-primary/--surface-track and its Card
+ * below is deliberately BORDERLESS. So every skeleton drew a bordered box on
+ * a card that has no border — a loading state that looked like a different
+ * component than the thing it was loading.
+ *
+ * This is the same material the agents summary header uses: a solid
+ * --surface-track fill at 0.7, no border, no shadow. Shape it with width and
+ * height at the call site so each one stands in for the content it replaces.
+ */
+function Bar({
+  w = "100%",
+  h,
+  radius = 4,
+  style,
+}: {
+  w?: number | string;
+  h: number;
+  radius?: number;
+  style?: React.CSSProperties;
+}): React.ReactElement {
+  return (
+    <span
+      aria-hidden={true}
+      style={{
+        display: "block",
+        width: w,
+        height: h,
+        borderRadius: radius,
+        background: "var(--surface-track)",
+        opacity: 0.7,
+        ...style,
+      }}
+    />
+  );
+}
+
 function Card({
   children,
   padding = 20,
@@ -554,8 +593,8 @@ function PortfolioValueHead({
   if (!summary) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <Skeleton style={{ height: 36, width: 160 }} />
-        <Skeleton style={{ height: 14, width: 200 }} />
+        <Bar w={160} h={36} radius={6} />
+        <Bar w={200} h={14} />
       </div>
     );
   }
@@ -817,7 +856,7 @@ const CHART_H = 216;
 function PerformanceChartSkeleton(): React.ReactElement {
   return (
     <div data-testid="portfolio-perf-loading" style={{ width: "100%" }}>
-      <Skeleton style={{ width: "100%", height: CHART_H, borderRadius: 10 }} />
+      <Bar w="100%" h={CHART_H} radius={10} />
     </div>
   );
 }
@@ -1122,7 +1161,7 @@ function PerformanceFooter({
   // holdings" below, which is a real, resolved empty state) — a slim
   // skeleton instead of the real footer or a premature empty message.
   if (!summary) {
-    return <Skeleton style={{ marginTop: 10, height: 13, width: 260 }} />;
+    return <Bar w={260} h={13} style={{ marginTop: 10 }} />;
   }
 
   if (!stats) {
@@ -2123,10 +2162,10 @@ function PortfolioScores({ reloadKey }: { reloadKey: number }): React.ReactEleme
         >
           {[0, 1, 2].map((i) => (
             <Card key={i} padding="22px 24px">
-              <Skeleton style={{ height: 14, width: "55%", marginBottom: 16 }} />
-              <Skeleton style={{ height: 36, width: "40%", marginBottom: 16 }} />
-              <Skeleton style={{ height: 8, width: "100%", marginBottom: 14 }} />
-              <Skeleton style={{ height: 12, width: "90%" }} />
+              <Bar w="55%" h={14} style={{ marginBottom: 16 }} />
+              <Bar w="40%" h={36} radius={6} style={{ marginBottom: 16 }} />
+              <Bar w="100%" h={8} radius={9999} style={{ marginBottom: 14 }} />
+              <Bar w="90%" h={12} />
             </Card>
           ))}
         </div>
@@ -2424,14 +2463,66 @@ function ScoreCard({
 function PortfolioLoading(): React.ReactElement {
   return (
     <div className="flex flex-col" style={{ gap: 28 }} data-testid="portfolio-loading">
+      {/* Holdings — a header rule then rows, each row standing in for its
+          own columns (symbol + name on the left, three figures right), not
+          one flat slab per row. */}
       <Card padding={0} style={{ overflow: "hidden" }}>
-        <Skeleton style={{ height: 40, width: "100%" }} />
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 16,
+            padding: "12px 20px",
+            borderBottom: "1px solid var(--glass-border)",
+          }}
+        >
+          <Bar w={92} h={10} />
+          <div style={{ display: "flex", gap: 28 }}>
+            <Bar w={56} h={10} />
+            <Bar w={56} h={10} />
+            <Bar w={56} h={10} />
+          </div>
+        </div>
         {[0, 1, 2, 3, 4].map((i) => (
-          <Skeleton key={i} style={{ height: 56, width: "100%", marginTop: 1 }} />
+          <div
+            key={i}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 16,
+              padding: "14px 20px",
+              borderTop: i === 0 ? "none" : "1px solid var(--glass-border)",
+            }}
+          >
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <Bar w={i % 2 === 0 ? 84 : 66} h={12} />
+              <Bar w={i % 2 === 0 ? 132 : 108} h={9} />
+            </div>
+            <div style={{ display: "flex", gap: 28 }}>
+              <Bar w={56} h={12} />
+              <Bar w={56} h={12} />
+              <Bar w={56} h={12} />
+            </div>
+          </div>
         ))}
       </Card>
+
+      {/* Asset allocation — a donut and its legend, so the shape of what is
+          coming is readable before it lands. */}
       <Card>
-        <Skeleton style={{ height: 220, width: 220 }} />
+        <div style={{ display: "flex", alignItems: "center", gap: 28 }}>
+          <Bar w={220} h={220} radius={9999} style={{ flex: "none" }} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1 }}>
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <Bar w={10} h={10} radius={3} style={{ flex: "none" }} />
+                <Bar w={i % 2 === 0 ? "62%" : "46%"} h={11} />
+              </div>
+            ))}
+          </div>
+        </div>
       </Card>
     </div>
   );
@@ -2682,9 +2773,38 @@ function PendingOrders({
 
   if (rows === null) {
     return (
-      <div className="flex flex-col" style={{ gap: 10 }}>
+      <div
+        className="flex flex-col"
+        style={{
+          gap: 0,
+          background: "var(--bg-base)",
+          borderRadius: "var(--radius-md)",
+          overflow: "hidden",
+        }}
+      >
         {[0, 1, 2].map((i) => (
-          <Skeleton key={i} className="h-14 w-full rounded-2xl" />
+          <div
+            key={i}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 16,
+              padding: "16px 18px",
+              borderTop: i === 0 ? "none" : "1px solid var(--glass-border)",
+            }}
+          >
+            {/* symbol */}
+            <Bar w={i % 2 === 0 ? 78 : 64} h={12} />
+            {/* side / type / qty / price / placed / status */}
+            <div style={{ display: "flex", alignItems: "center", gap: 22 }}>
+              <Bar w={38} h={10} />
+              <Bar w={44} h={10} />
+              <Bar w={30} h={10} />
+              <Bar w={52} h={10} />
+              <Bar w={58} h={16} radius={9999} />
+            </div>
+          </div>
         ))}
       </div>
     );

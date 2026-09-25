@@ -1,42 +1,43 @@
 .research-extensions { min-width:0; margin-top:36px; padding:0 20px; display:flex; flex-direction:column; gap:36px; }
-.research-module { min-width:0; scroll-margin-top:90px; border-top:1px solid var(--glass-border); padding-top:24px; }
+/* No rule over the heading. The 36px gap between modules already separates
+   them, and a full-width hairline above every h2 drew a second boundary the
+   spacing had already made — loudest of all above the first module, where it
+   cut the page in half under the panel above it. */
+.research-module { min-width:0; scroll-margin-top:90px; padding-top:24px; }
 .research-module-head { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:12px; }
 .research-module h2 { font-size:21px; font-weight:600; letter-spacing:-.022em; color:var(--text-primary); margin:0; line-height:1.3; }
 .research-module-controls { flex-shrink:0; }
-/* The research dropdowns matched nothing: a native arrow, a 7px radius and an
-   11px label, beside chart and option controls that all use the platform's
-   own chevron, --radius-sm and a focus ring. This is that control, restated
-   with the tokens rather than with numbers. */
-.research-module select {
-  max-width:100%; padding:6px 28px 6px 11px; font-family:var(--font-ui); font-size:12px; font-weight:500; line-height:1.4;
-  color:var(--text-primary); background-color:var(--bg-primary); border:1px solid var(--glass-border); border-radius:var(--radius-sm); cursor:pointer;
-  -webkit-appearance:none; -moz-appearance:none; appearance:none;
-  background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2384909c' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat:no-repeat; background-position:right 9px center; background-size:12px;
-  transition:border-color .15s var(--ease-quartr,ease), background-color .15s var(--ease-quartr,ease);
-}
-.research-module select:hover { border-color:var(--glass-border-hover,var(--glass-border)); background-color:var(--bg-secondary); }
-.research-module select:focus-visible { outline:2px solid var(--pivot-blue); outline-offset:2px; }
-/* The chevron is a background image, so it cannot inherit currentColor —
-   dark mode gets its own lighter glyph. */
-.dark .research-module select { background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239aa4ae' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); }
-.research-module-toolbar { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; padding:0 0 16px; }
+/* The research dropdowns are components/stock/Select.tsx now — a button and a
+   real menu, not a native <select> whose option list the browser draws. The
+   control is styled once in stock-research.css; nothing about it is restated
+   here. The negative right margin pulls the ghost trigger's 11px padding back
+   so its LABEL lines up with the panel edge, not its hover box. */
+.research-module-controls .pv-select-btn { margin-right:-11px; }
+/* The toolbar carries the rule its tabs sit ON, the way the Financial
+   Performance strip does — the underline that marks the live tab has to
+   terminate against something or it reads as a stray dash. */
+.research-module-toolbar { display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:10px; padding:0 0 14px; border-bottom:1px solid var(--glass-border); margin-bottom:16px; }
+.research-module-toolbar .research-meta { padding-bottom:7px; }
 /* These were the last glass-track toggles on the page. `chrome.tsx`'s
    Segmented — which Flows, Patterns, Peers and Quarters all use — retired that
    look on the reasoning that a bordered, filled, shadowed track around two
    words draws four things to say one. The type carries the state instead:
    the live option is ink at 600, the rest are secondary. */
-.research-choice { display:flex; flex-wrap:wrap; align-items:center; gap:16px; padding:0; border:0; background:none; box-shadow:none; }
-.research-choice button { color:var(--text-secondary); background:transparent; border:0; border-radius:var(--radius-xs); padding:0; font-family:var(--font-ui); font-size:12.5px; font-weight:400; cursor:pointer; transition:color .15s var(--ease-quartr,ease); }
-.research-choice button[aria-pressed="true"] { color:var(--text-primary); font-weight:600; background:none; box-shadow:none; }
+.research-choice { display:flex; flex-wrap:wrap; align-items:flex-end; gap:0; padding:0; border:0; background:none; box-shadow:none; }
+.research-choice button { color:var(--text-secondary); background:transparent; border:0; border-bottom:2px solid transparent; border-radius:0; padding:6px 14px; margin-bottom:-1px; font-family:var(--font-ui); font-size:12.5px; font-weight:400; cursor:pointer; transition:color .15s var(--ease-quartr,ease), border-color .15s var(--ease-quartr,ease); }
+.research-choice button[aria-pressed="true"] { color:var(--text-primary); font-weight:600; border-bottom-color:var(--text-primary); background:none; box-shadow:none; }
+/* The first tab's label lines up with the panel's left edge, not with its
+   hover box — the strip is chrome, the heading above it is the margin. */
+.research-choice button:first-child { padding-left:0; }
 /* Reserve the bold width up front so switching options does not nudge the
    row's layout as the label thickens. */
 .research-choice button::after { content:attr(data-label); display:block; height:0; overflow:hidden; visibility:hidden; font-weight:600; pointer-events:none; }
 .research-choice button:hover { color:var(--text-primary); }
-.research-choice button:focus-visible { outline:2px solid var(--pivot-blue); outline-offset:4px; }
-/* Range labels are two characters; the 16px word gap that suits "Cash bridge"
-   reads as a scatter here. */
-.research-periods { gap:12px; }
+.research-choice button:focus-visible { outline:2px solid var(--text-primary); outline-offset:4px; }
+/* Range labels are two characters, so the 14px tab padding that suits
+   "Across the years" reads as a scatter here. */
+.research-periods button { padding-left:9px; padding-right:9px; }
+.research-periods button:first-child { padding-left:0; }
 .research-meta { color:var(--text-tertiary); font-size:10px; }
 .research-chart-layout { display:grid; grid-template-columns:minmax(0,1fr) 224px; gap:24px; align-items:start; }
 .research-chart-main { min-width:0; }
@@ -100,7 +101,8 @@
   .research-chart-caption { align-items:flex-start; }
   .research-chart-key { gap:10px; }
   .research-figure strong { font-size:23px; }
-  .research-choice { gap:14px; }
+  .research-choice button { padding-left:10px; padding-right:10px; }
+  .research-choice button:first-child { padding-left:0; }
   .research-return-table caption span { display:block; float:none; margin-top:4px; }
 }
 @media(prefers-reduced-motion:reduce) { .research-choice button { transition:none; } }
