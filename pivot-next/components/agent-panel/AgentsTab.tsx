@@ -60,6 +60,7 @@ import {
   getWorkflowsSummary,
   listEquityBaskets,
   listRegisteredOptionStrategies,
+  returnTone,
   withdrawRegisteredOptionStrategy,
   type EquityBasket,
   type RegisteredOptionStrategy,
@@ -67,6 +68,7 @@ import {
   type WorkflowPerformance,
   type WorkflowsSummary,
 } from "@/lib/agentsApi";
+import { toast } from "sonner";
 import { isError } from "@/lib/types";
 import type { Workflow, WorkflowStatus, WorkflowSummary } from "@/lib/types";
 import { AgentsSummaryHeader } from "./AgentsSummaryHeader";
@@ -221,6 +223,10 @@ export function AgentsTab({
   const [filter, setFilter] = useState<Filter>("all");
   const [state, setState] = useState<FetchState>({ kind: "loading" });
   const [openingId, setOpeningId] = useState<string | null>(null);
+  // The agent whose full definition is being fetched for "Edit with chat".
+  // Separate from `openingId` (the row-click path) so the two spinners cannot
+  // fight over one card.
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   // Summary header — loaded once (independent of the status filter).
   const [summary, setSummary] = useState<WorkflowsSummary | null>(null);
@@ -360,19 +366,41 @@ export function AgentsTab({
     if (!onEditWithChat) return;
     // Fetch the full workflow (incl. steps) so the chat surface can target
     // THIS exact agent for amendment, not guess from the name.
+    //
+    // Both failure paths used to `return` in silence, which made this a DEAD
+    // BUTTON on any error: the user clicks "Edit with chat", the fetch 500s or
+    // the network drops, and absolutely nothing happens on screen. A button
+    // that does nothing reads as a broken app, and the user's only recourse is
+    // to click it again. Say what went wrong instead.
+    setEditingId(wf.id);
     getWorkflow(wf.id)
       .then((result) => {
-        if (isError(result)) return;
+        if (isError(result)) {
+          toast.error("Couldn't open this agent for editing", {
+            description: result.error.message,
+          });
+          return;
+        }
         onEditWithChat(result.data);
       })
-      .catch(() => {});
+      .catch((err: unknown) => {
+        toast.error("Couldn't open this agent for editing", {
+          description: err instanceof Error ? err.message : "Please try again.",
+        });
+      })
+      .finally(() => setEditingId((cur) => (cur === wf.id ? null : cur)));
   };
 
   const handleDeleteWorkflow = (id: string): void => {
     setDeletingId(id);
     deleteWorkflow(id)
       .then((result) => {
-        if (isError(result)) return;
+        if (isError(result)) {
+          toast.error("Couldn't delete this agent", {
+            description: result.error.message,
+          });
+          return;
+        }
         // Optimistically drop from the grid, then refresh the summary counts.
         setState((prev) =>
           prev.kind === "ok"
@@ -381,7 +409,11 @@ export function AgentsTab({
         );
         loadSummary();
       })
-      .catch(() => {})
+      .catch((err: unknown) => {
+        toast.error("Couldn't delete this agent", {
+          description: err instanceof Error ? err.message : "Please try again.",
+        });
+      })
       .finally(() => setDeletingId((cur) => (cur === id ? null : cur)));
   };
 
@@ -389,14 +421,23 @@ export function AgentsTab({
     setDeletingId(id);
     withdrawRegisteredOptionStrategy(id)
       .then((result) => {
-        if (isError(result)) return;
+        if (isError(result)) {
+          toast.error("Couldn't withdraw this strategy", {
+            description: result.error.message,
+          });
+          return;
+        }
         setOptionsState((prev) =>
           prev.kind === "ok"
             ? { kind: "ok", items: prev.items.filter((s) => s.id !== id) }
             : prev,
         );
       })
-      .catch(() => {})
+      .catch((err: unknown) => {
+        toast.error("Couldn't withdraw this strategy", {
+          description: err instanceof Error ? err.message : "Please try again.",
+        });
+      })
       .finally(() => setDeletingId((cur) => (cur === id ? null : cur)));
   };
 
@@ -579,6 +620,7 @@ export function AgentsTab({
                     perfFromSummary={perfByWorkflowId.get(wf.id)}
                     summaryLoading={summaryLoading}
                     isOpening={openingId === wf.id}
+                    isEditing={editingId === wf.id}
                     isDeleting={deletingId === wf.id}
                     onSelect={() => handleSelect(wf.id)}
                     onEditWithChat={
@@ -691,6 +733,7 @@ function AgentMiniCard({
   perfFromSummary,
   summaryLoading,
   isOpening,
+  isEditing,
   isDeleting,
   onSelect,
   onEditWithChat,
@@ -705,6 +748,8 @@ function AgentMiniCard({
    *  batched summary (the common path) is still on its way. */
   summaryLoading: boolean;
   isOpening: boolean;
+  /** The full definition is being fetched for "Edit with chat". */
+  isEditing: boolean;
   isDeleting: boolean;
   onSelect: () => void;
   onEditWithChat?: () => void;
@@ -865,6 +910,9 @@ function AgentMiniCard({
       {onEditWithChat && (
         <button
           type="button"
+          // Disabled while the definition is in flight, so a slow fetch cannot
+          // be double-clicked into two chat sessions for the same agent.
+          disabled={isEditing}
           onClick={(e) => {
             e.stopPropagation();
             onEditWithChat();
@@ -872,14 +920,16 @@ function AgentMiniCard({
           onKeyDown={(e) => e.stopPropagation()}
           data-testid={`agent-edit-with-chat-${workflow.id}`}
           aria-label={`Edit ${workflow.name} with chat`}
+          aria-busy={isEditing}
           className={cn(
             "inline-flex items-center justify-center gap-1.5 rounded-lg border border-border/60 bg-background/60 px-3 py-2 text-[12px] font-medium text-foreground/80",
             "transition-colors hover:border-border hover:bg-muted hover:text-foreground",
             "focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+            isEditing && "opacity-60 cursor-wait",
           )}
         >
           <MessageSquarePlus className="h-3.5 w-3.5" aria-hidden="true" />
-          Edit with chat
+          {isEditing ? "Opening…" : "Edit with chat"}
         </button>
       )}
 
@@ -950,7 +1000,14 @@ function PerformanceBlock({
     if (backtestLoading) {
       return <Skeleton className="h-[56px] w-full rounded-md" style={{ marginTop: 14 }} />;
     }
-    if (backtest?.eligible) {
+    // A backtest that produced NO TRADES has no return to report. Its
+    // equity curve is a flat line at the starting balance and
+    // total_return_pct is 0.0, which `>= 0` reads as a gain — so the card
+    // rendered a green line under "+0.0%" for a strategy whose rule never
+    // fired once in a year of history. "Never triggered" and "broke even"
+    // are very different findings, and the second is the one the user needs.
+    const btTraded = backtest?.eligible ? backtest.metrics.n_trades > 0 : false;
+    if (backtest?.eligible && btTraded) {
       const btSeries = backtest.equity_curve.map((p) => ({ date: p.t, nav: p.v }));
       const btPositive = backtest.metrics.total_return_pct >= 0;
       return (
@@ -984,7 +1041,11 @@ function PerformanceBlock({
       <div className="flex flex-col" style={{ marginTop: 14, gap: 8 }} data-testid="agent-no-runs">
         <NavSparkline series={FLAT_PLACEHOLDER_SERIES} positive={false} dashed neutral />
         <div className="flex items-center justify-between gap-2 text-[11px]">
-          <span className="text-muted-foreground">No runs yet</span>
+          <span className="text-muted-foreground">
+            {backtest?.eligible && !btTraded
+              ? "No trades in 1y backtest"
+              : "No runs yet"}
+          </span>
           {perf && perf.run_count > 0 && series.length < 2 && (
             <span className="text-muted-foreground tabular-nums">
               {perf.run_count} run{perf.run_count === 1 ? "" : "s"} · no NAV history
@@ -996,13 +1057,36 @@ function PerformanceBlock({
   }
 
   const returnPct = perf?.return_pct ?? null;
-  const positive = (returnPct ?? 0) >= 0;
+  // A return we do not have is not a return of zero. `returnTone` keeps
+  // "unknown" separate from "flat", so the NAV line and the "—" render muted
+  // instead of profit-green. See lib/agentsApi.ts.
+  const tone = returnTone(returnPct);
 
   return (
     <div className="flex flex-col" style={{ marginTop: 14, gap: 8 }}>
-      <NavSparkline series={series} positive={positive} />
+      <NavSparkline
+        series={series}
+        positive={tone === "profit"}
+        neutral={tone === "unknown"}
+      />
       <div className="flex items-center justify-between gap-2 text-[11px]">
-        <span className="tabular-nums" style={{ fontWeight: 600, color: positive ? "var(--color-profit)" : "var(--color-loss)" }}>
+        <span
+          className="tabular-nums"
+          style={{
+            fontWeight: 600,
+            color:
+              tone === "unknown"
+                ? "var(--text-tertiary)"
+                : tone === "profit"
+                  ? "var(--color-profit)"
+                  : "var(--color-loss)",
+          }}
+          title={
+            tone === "unknown"
+              ? "No forward-test return for this agent yet"
+              : undefined
+          }
+        >
           {returnPct === null
             ? "—"
             : `${returnPct >= 0 ? "+" : "−"}${Math.abs(returnPct).toFixed(1)}%`}

@@ -82,6 +82,28 @@ export type WorkflowPerformance = {
   has_data: boolean;
 };
 
+
+/**
+ * How an agent's return should READ on a card.
+ *
+ * `unknown` is a state of its own, and that is the whole point. `return_pct`
+ * is null whenever the backend has no live mark and no cached scorecard — an
+ * agent with runs but no forward-test track record, most commonly. The card
+ * prints "—" for that, correctly, but the colour used to be decided by
+ * `(return_pct ?? 0) >= 0`, which reads a MISSING return as zero and zero as
+ * a gain. The result was a profit-green sparkline and a profit-green dash:
+ * the app showing a user a win it had no evidence for, in the one channel
+ * (colour) people read before they read the number.
+ *
+ * A return we do not have is not a return of zero.
+ */
+export type ReturnTone = "profit" | "loss" | "unknown";
+
+export function returnTone(pct: number | null | undefined): ReturnTone {
+  if (pct === null || pct === undefined || !Number.isFinite(pct)) return "unknown";
+  return pct >= 0 ? "profit" : "loss";
+}
+
 /** `GET /api/workflows/{id}/performance` — NAV sparkline + run stats for a
  *  single agent card. `has_data` false → render "No runs yet". */
 export function getWorkflowPerformance(

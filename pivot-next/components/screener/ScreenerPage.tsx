@@ -38,7 +38,7 @@ import {
 import { isError } from "@/lib/types";
 import { ScreensBar } from "@/components/screener/ScreensBar";
 import type { ActiveScreen } from "@/components/screener/ScreensBar";
-import { takePendingScreen } from "@/lib/screensApi";
+import { PENDING_SCREEN_EVENT, takePendingScreen } from "@/lib/screensApi";
 import type { SavedScreen, ScreenFilters } from "@/lib/screensApi";
 import {
   getScreenerStocks,
@@ -566,21 +566,26 @@ function StocksScreen({
   const [activeScreen, setActiveScreen] = useState<ActiveScreen | null>(null);
   const screenSymbols = activeScreen ? activeScreen.symbols : null;
 
-  // A screen handed over from the chart. Consumed once, on mount — the chart
-  // parks it in sessionStorage and switches tabs, and this is the other half
-  // of that handover.
+  // A screen handed over from the chart or a chat reply: parked in
+  // sessionStorage, then the tab switches. Read on mount (first visit) and on
+  // the park event (the tab stays mounted afterwards, so mount runs once).
   useEffect(() => {
-    const pending = takePendingScreen();
-    if (!pending) return;
-    setActiveScreen({
-      symbols: pending.symbols,
-      criteria: pending.criteria,
-      ranking: pending.ranking,
-      as_of: pending.as_of,
-      matched: pending.matched,
-      universe: pending.universe,
-      source: "chat",
-    });
+    const consume = (): void => {
+      const pending = takePendingScreen();
+      if (!pending) return;
+      setActiveScreen({
+        symbols: pending.symbols,
+        criteria: pending.criteria,
+        ranking: pending.ranking,
+        as_of: pending.as_of,
+        matched: pending.matched,
+        universe: pending.universe,
+        source: "chat",
+      });
+    };
+    consume();
+    window.addEventListener(PENDING_SCREEN_EVENT, consume);
+    return () => window.removeEventListener(PENDING_SCREEN_EVENT, consume);
   }, []);
 
   const openSavedScreen = useCallback((saved: SavedScreen): void => {

@@ -50,8 +50,22 @@ const SOURCE_NAMES: Record<string, string> = {
   "money.rediff.com": "Rediff Money",
   "euronext.com": "Euronext",
   "investing.com": "Investing.com",
-  "bseindia.com": "BSE India",
-  "nseindia.com": "NSE India",
+  "bseindia.com": "BSE",
+  "nseindia.com": "NSE",
+  "nsearchives.nseindia.com": "NSE",
+  "sebi.gov.in": "SEBI",
+  "rbi.org.in": "RBI",
+  "pib.gov.in": "PIB",
+  "bajajauto.com": "Bajaj Auto",
+  "wikipedia.org": "Wikipedia",
+  "en.wikipedia.org": "Wikipedia",
+  "tradingview.com": "TradingView",
+  "screener.in": "Screener",
+  "trendlyne.com": "Trendlyne",
+  "valueresearchonline.com": "Value Research",
+  "autocarindia.com": "Autocar India",
+  "indianexpress.com": "Indian Express",
+  "timesofindia.indiatimes.com": "Times of India",
 };
 
 /** Bare registrable-ish host, lowercased, `www.`/`m.`/`amp.` stripped. */
@@ -133,8 +147,11 @@ function withGainLossColoring(children: React.ReactNode): React.ReactNode {
 // as a chip, the stray "(" ")" look odd — strip parens that wrap a lone link.
 const CITATION_IN_PARENS_RE =
   /\(\s*(\[[^\]]+\]\((?:https?:)?[^\s)]+\))\s*\)/g;
+// A provider citation token ("\uE200cite\uE202turn1search0\uE201") can show
+// mid-stream before the backend swaps it for a link in the final text.
+const CITE_TOKEN_RE = /\uE200cite\uE202[^\uE201]*\uE201/g;
 function stripCitationParens(text: string): string {
-  return text.replace(CITATION_IN_PARENS_RE, "$1");
+  return text.replace(CITE_TOKEN_RE, "").replace(CITATION_IN_PARENS_RE, "$1");
 }
 
 type Props = {
@@ -182,17 +199,17 @@ function AssistantMessage({ text, className }: Props): React.JSX.Element {
         remarkPlugins={[remarkGfm]}
         components={{
           h1: ({ children }) => (
-            <h1 className="mt-4 text-xl font-semibold tracking-tight text-foreground first:mt-0">
+            <h1 className="!mt-8 text-[24px] font-semibold leading-8 tracking-tight text-foreground first:!mt-0">
               {children}
             </h1>
           ),
           h2: ({ children }) => (
-            <h2 className="mt-5 text-lg font-semibold tracking-tight text-foreground first:mt-0">
+            <h2 className="!mt-7 text-[21px] font-semibold leading-7 tracking-tight text-foreground first:!mt-0">
               {children}
             </h2>
           ),
           h3: ({ children }) => (
-            <h3 className="mt-4 text-base font-semibold text-foreground first:mt-0">
+            <h3 className="!mt-7 text-[19px] font-semibold leading-7 tracking-tight text-foreground first:!mt-0">
               {children}
             </h3>
           ),
@@ -241,28 +258,31 @@ function AssistantMessage({ text, className }: Props): React.JSX.Element {
                 </Link>
               );
             }
-            // External link → render as a compact gray SOURCE CHIP with the
-            // outlet's proper name + favicon, not an underlined domain link.
+            // External link → a source pill: the site's logo, then its name
+            // (ChatGPT's citation look). A report citation carries its page.
             const host = href ? hostFromHref(href) : null;
             if (host) {
-              const label = sourceLabel(host);
+              const page = /#page=(\d+)/.exec(href ?? "")?.[1];
+              const label = page ? `${sourceLabel(host)} · p.${page}` : sourceLabel(host);
+              const linkText = typeof children === "string" ? children : "";
               return (
                 <a
                   href={href}
                   target="_blank"
                   rel="noopener noreferrer"
-                  title={label}
-                  className="mx-0.5 inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-[1px] align-middle text-[11px] font-medium leading-none text-muted-foreground no-underline transition-colors hover:bg-muted/70 hover:text-foreground"
+                  title={linkText && linkText !== host ? linkText : href}
+                  data-testid="source-chip"
+                  className="mx-0.5 inline-flex max-w-[190px] items-center gap-1.5 rounded-full bg-muted py-[3px] pl-[3px] pr-2.5 align-[1px] text-[11.5px] font-medium leading-none text-muted-foreground no-underline transition-colors hover:bg-foreground/10 hover:text-foreground"
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={`https://www.google.com/s2/favicons?domain=${host}&sz=64`}
                     alt=""
-                    width={12}
-                    height={12}
-                    className="h-3 w-3 shrink-0 rounded-sm"
+                    width={16}
+                    height={16}
+                    className="h-4 w-4 shrink-0 rounded-full bg-white object-contain ring-1 ring-black/5"
                     onError={(e) => {
-                      (e.currentTarget as HTMLImageElement).style.display = "none";
+                      (e.currentTarget as HTMLImageElement).style.visibility = "hidden";
                     }}
                   />
                   <span className="truncate">{label}</span>

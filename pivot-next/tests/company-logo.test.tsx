@@ -35,4 +35,14 @@ describe("CompanyLogo", () => {
     expect(screen.queryByAltText("Infosys logo")).toBeNull();
     expect(screen.getByText("I")).toBeInTheDocument();
   });
+
+  it("draws a SharePerks tile edge to edge, but pads a wordmark on a plate", () => {
+    const tile = "https://company-logo.shareperks.in/logo/INE002A01018/icon.svg";
+    render(<CompanyLogo logoUrl={tile} name="Reliance Industries" symbol="RELIANCE" />);
+    const t = screen.getByAltText("Reliance Industries logo") as HTMLImageElement;
+    expect(t.style.padding).toBe("");
+    expect(t.style.background).toBe("");
+    render(<CompanyLogo logoUrl={LOGO} name="Infosys" symbol="INFY" />);
+    expect((screen.getByAltText("Infosys logo") as HTMLImageElement).style.padding).not.toBe("");
+  });
 });

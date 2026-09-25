@@ -5,10 +5,10 @@
  * these assert the rendered style attribute — that is the actual contract with
  * the Perplexity look (row tint on hover, arrow and text to full foreground).
  */
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { FollowUpSuggestions } from "@/components/chat/FollowUpSuggestions";
+import { FollowUpSuggestions, useFollowUps } from "@/components/chat/FollowUpSuggestions";
 
 const QS = [
   "How does HDFC Bank compare with ICICI Bank on valuation?",
@@ -62,5 +62,40 @@ describe("FollowUpSuggestions", () => {
     const row = screen.getAllByTestId("followup-item")[0]!;
     expect(row.tagName).toBe("BUTTON");
     expect(row.className).toContain("w-full");
+  });
+});
+
+describe("useFollowUps", () => {
+  const A = "An answer long enough to earn follow-ups. ".repeat(8);
+
+  it("an aborted request does not leave the answer without suggestions", async () => {
+    // Coming back to the chat restores the thread in steps; each step re-runs
+    // the hook and aborts the request before it. The pair used to be marked
+    // done when the request STARTED, so the last run skipped it: no block.
+    const f = vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () => new Response(JSON.stringify({ suggestions: QS })),
+    );
+    const { result, rerender } = renderHook(
+      ({ on }: { on: boolean }) => useFollowUps("q-abort", A, on),
+      { initialProps: { on: true } },
+    );
+    rerender({ on: false }); // aborts the first request
+    rerender({ on: true });
+    await waitFor(() => expect(result.current).toEqual(QS));
+    expect(f).toHaveBeenCalledTimes(2);
+    f.mockRestore();
+  });
+
+  it("a remount shows the settled set at once, without asking again", async () => {
+    const f = vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () => new Response(JSON.stringify({ suggestions: QS })),
+    );
+    const first = renderHook(() => useFollowUps("q-remount", A, true));
+    await waitFor(() => expect(first.result.current).toEqual(QS));
+    first.unmount();
+    const again = renderHook(() => useFollowUps("q-remount", A, true));
+    expect(again.result.current).toEqual(QS);
+    expect(f).toHaveBeenCalledTimes(1);
+    f.mockRestore();
   });
 });

@@ -20,6 +20,7 @@ raising — a never-traded user is a valid, empty book.
 from __future__ import annotations
 
 import datetime as dt
+import logging
 from decimal import Decimal
 from typing import Callable, Optional
 
@@ -34,6 +35,8 @@ from backend.paper.valuation import (
     position_market_value,
     position_unrealized_pnl,
 )
+
+logger = logging.getLogger(__name__)
 from backend.routers.portfolio import resolve_sector, universe_by_symbols
 
 PriceFn = Callable[[str], Optional[Decimal]]
@@ -172,6 +175,38 @@ def account_summary(
         .count()
     )
 
+    # ── Does the book add up? ────────────────────────────────────────────
+    #
+    # Total P&L is derived one way (nav − starting_capital) and its parts are
+    # derived another (unrealized from marks, realized from the position rows).
+    # On a healthy book those agree by construction, so a gap means the stored
+    # cash column has drifted from the fill ledger and every figure resting on
+    # cash — nav, Total P&L, the header chip, the Agents-tab headline — is
+    # quoting a number the book cannot support.
+    #
+    # Found 2026-09-23 on a dev account: the header read +₹1,71,788 (+34.36%)
+    # while unrealized + realized came to −₹62,209, a ₹2.34 lakh gap, because
+    # fills had been written without the matching cash debit (gross buys of
+    # ₹11.15L against ₹5L of starting capital). 50 of the other 51 accounts
+    # reconciled to within ₹0.32, so the invariant is sound and it was the data
+    # that was wrong — but nothing anywhere said so, and a fabricated gain shown
+    # confidently is the one failure this app treats as never acceptable.
+    #
+    # The check is free: all three terms are already in hand. The tolerance is
+    # absolute-plus-relative because money_to_float rounds each term
+    # independently, so a large book accumulates a few paise of honest drift.
+    pnl_gap = float(total_pnl - (unrealized_pnl + realized_pnl_cum))
+    tolerance = max(1.0, abs(float(starting_capital)) * 1e-6)
+    books_reconciled = abs(pnl_gap) <= tolerance
+    if not books_reconciled:
+        logger.warning(
+            "paper book does not reconcile for user %s: total_pnl %.2f vs "
+            "unrealized %.2f + realized %.2f (gap %.2f). Stored cash has "
+            "drifted from the fill ledger; NAV-derived figures are unsafe.",
+            user_id, float(total_pnl), float(unrealized_pnl),
+            float(realized_pnl_cum), pnl_gap,
+        )
+
     return {
         "exists": True,
         "mode": account.mode,
@@ -192,6 +227,10 @@ def account_summary(
         "num_positions": num_positions,
         "num_open_orders": num_open_orders,
         "is_stale": is_stale,
+        # False ⇒ nav / total_pnl are not supported by the book's own parts.
+        # Surfaces that headline a P&L should say so rather than quote it flat.
+        "books_reconciled": books_reconciled,
+        "pnl_gap": money_to_float(to_money(pnl_gap)),
     }
 
 

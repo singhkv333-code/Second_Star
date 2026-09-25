@@ -430,7 +430,8 @@ def screen_from_enrich(
     # (without it, parallel plans reorder equal-valued rows run-to-run).
     sql = f"""
         SELECT ticker, name, industry, market_cap,
-               {", ".join(f"val_{m}" for m in metric_fields)}, ctx_yr1_pct
+               {", ".join(f"val_{m}" for m in metric_fields)}, ctx_yr1_pct,
+               COUNT(*) OVER () AS total_matched
         FROM ({inner}) t
         {"WHERE " + " AND ".join(outer_where) if outer_where else ""}
         ORDER BY val_{sf} {order} NULLS LAST, ticker ASC
@@ -457,13 +458,14 @@ def screen_from_enrich(
         for m in metric_fields:
             v = r[metric_idx[m]]
             rec[m] = round(float(v), 2) if v is not None else None
-        if r[-1] is not None:  # ctx_yr1_pct — appended last in the SELECT
-            rec["one_year_pct"] = round(float(r[-1]), 1)
+        if r[-2] is not None:  # ctx_yr1_pct — just before total_matched
+            rec["one_year_pct"] = round(float(r[-2]), 1)
         results.append(rec)
 
     notes.append("sector + P/E from company profiles (yfinance) — not the MC ratios DB")
     return {
         "count": len(results),
+        "total_matched": int(rows[0][-1]) if rows else 0,
         "results": results,
         "applied_filters": [dict(f) for f in valid_filters],
         "sorted_by": {"field": sf, "dir": sort_dir},
@@ -910,6 +912,8 @@ def _apply_exclude(result: dict, exclude: list[str] | None) -> dict:
     out = dict(result)
     out["results"] = kept
     out["count"] = len(kept)
+    if "total_matched" in out:
+        out["total_matched"] = max(len(kept), out["total_matched"] - dropped)
     excl_note = f"excluded per your stated preference: dropped {dropped} name(s) matching {', '.join(terms)}"
     out["note"] = f"{result.get('note')}; {excl_note}" if result.get("note") else excl_note
     return out
@@ -1139,6 +1143,8 @@ def screen_by_fundamentals(
 
     # ── 3. Build one CTE per metric (branch by kind) ─────────────────────
     params: dict = {"floor": floor}
+    # Company restriction pushed into every statement_lines scan (see 5).
+    scope_sql = ""
     cte_sqls: list[str] = []
     select_cols: list[str] = []
     join_sqls: list[str] = []
@@ -1277,7 +1283,7 @@ def screen_by_fundamentals(
                                sl.sc_id, sl.basis, sl.value_numeric AS v,
                                sl.period_end
                         FROM mc.statement_lines sl
-                        WHERE sl.line_item = ANY(:{items_key})
+                        WHERE /*SCOPE*/sl.line_item = ANY(:{items_key})
                           AND sl.value_numeric IS NOT NULL
                           AND sl.period_end IS NOT NULL
                           AND (sl.statement <> 'ratios' OR sl.source IN ('mc_html', 'mc_api'))
@@ -1330,7 +1336,7 @@ def screen_by_fundamentals(
                     SELECT DISTINCT ON (sl.sc_id)
                            sl.sc_id, sl.value_numeric AS v
                     FROM mc.statement_lines sl
-                    WHERE sl.line_item = ANY(:{pe_key})
+                    WHERE /*SCOPE*/sl.line_item = ANY(:{pe_key})
                       AND sl.value_numeric IS NOT NULL
                       AND sl.value_numeric > 0 AND sl.value_numeric <= 1.0
                       AND (:floor IS NULL OR sl.period_end >= :floor)
@@ -1348,7 +1354,7 @@ def screen_by_fundamentals(
                                sl.sc_id, sl.basis, sl.value_numeric AS v,
                                sl.period_end
                         FROM mc.statement_lines sl
-                        WHERE sl.line_item = ANY(:{gr_key})
+                        WHERE /*SCOPE*/sl.line_item = ANY(:{gr_key})
                           AND sl.value_numeric IS NOT NULL
                           AND sl.period_end IS NOT NULL
                           AND (sl.statement <> 'ratios' OR sl.source IN ('mc_html', 'mc_api'))
@@ -1404,7 +1410,7 @@ def screen_by_fundamentals(
                     SELECT n.sc_id, (n.v / NULLIF(d.v, 0)) AS v
                     FROM (SELECT DISTINCT ON (sl.sc_id) sl.sc_id, sl.value_numeric AS v
                           FROM mc.statement_lines sl
-                          WHERE sl.line_item = ANY(:{num_key})
+                          WHERE /*SCOPE*/sl.line_item = ANY(:{num_key})
                             AND sl.value_numeric IS NOT NULL
                             AND (:floor IS NULL OR sl.period_end >= :floor)
                             AND (sl.statement <> 'ratios' OR sl.source IN ('mc_html', 'mc_api'))
@@ -1412,7 +1418,7 @@ def screen_by_fundamentals(
                                    sl.period_end DESC NULLS LAST) n
                     JOIN (SELECT DISTINCT ON (sl.sc_id) sl.sc_id, sl.value_numeric AS v
                           FROM mc.statement_lines sl
-                          WHERE sl.line_item = ANY(:{den_key})
+                          WHERE /*SCOPE*/sl.line_item = ANY(:{den_key})
                             AND sl.value_numeric IS NOT NULL
                             AND (:floor IS NULL OR sl.period_end >= :floor)
                             AND (sl.statement <> 'ratios' OR sl.source IN ('mc_html', 'mc_api'))
@@ -1437,7 +1443,7 @@ def screen_by_fundamentals(
                     SELECT DISTINCT ON (sl.sc_id)
                            sl.sc_id, sl.value_numeric AS v
                     FROM mc.statement_lines sl
-                    WHERE sl.line_item = ANY(:{items_key})
+                    WHERE /*SCOPE*/sl.line_item = ANY(:{items_key})
                       AND sl.value_numeric IS NOT NULL
                       {extra}
                       AND (:floor IS NULL OR sl.period_end >= :floor)
@@ -1509,6 +1515,14 @@ def screen_by_fundamentals(
             params["sector_prefixes"] = prefixes
             where_parts.append(
                 f"{_corrected_industry_slug_sql()} ILIKE ANY(:sector_prefixes)"
+            )
+            # Read only the sector's own filings. The metric CTEs are
+            # MATERIALIZED, so the outer sector filter can't reach inside them:
+            # an auto-ancillary EPS screen read all 147k EPS rows of the whole
+            # market (22s cold) and hit the 60s statement timeout under load.
+            scope_sql = (
+                "sl.sc_id IN (SELECT c.sc_id FROM mc.companies c WHERE c.is_active "
+                f"AND {_corrected_industry_slug_sql()} ILIKE ANY(:sector_prefixes)) AND "
             )
         else:
             notes.append(
@@ -1638,13 +1652,16 @@ def screen_by_fundamentals(
     sql = f"""
     WITH {", ".join(cte_sqls)}
     SELECT c.sc_id, c.company_name, c.nse_symbol, c.ticker, c.industry_slug,
-           {", ".join(select_cols)}
+           {", ".join(select_cols)},
+           COUNT(*) OVER () AS total_matched
     FROM mc.companies c
     {" ".join(join_sqls)}
     WHERE {" AND ".join(where_parts)}
     ORDER BY val_{sort_field} {order_dir} NULLS LAST, c.sc_id ASC
     LIMIT :lim
     """
+
+    sql = sql.replace("/*SCOPE*/", scope_sql)
 
     owns = session is None
     s = session or FinancialsSessionLocal()
@@ -1709,6 +1726,9 @@ def screen_by_fundamentals(
 
     out: dict = {
         "count": len(results),
+        # Every company passing the screen, before `limit`. Without it the
+        # model reported the row cap as the answer ("returns 100 stocks").
+        "total_matched": int(rows[0].get("total_matched") or len(results)) if rows else 0,
         "results": results,
         "applied_filters": valid_filters,
         "sorted_by": {"field": sort_field, "dir": sort_dir},
@@ -1979,6 +1999,73 @@ def render_screen_markdown(data: dict) -> str | None:
     if "include small caps" in note:
         lines += ["", "_Say “include small caps” to widen this screen._"]
     return "\n".join(lines)
+
+
+def with_verified_names(data: dict) -> dict:
+    """Swap Moneycontrol's display names for company_identity's verified ones.
+
+    mc.companies.company_name is cut at 15 characters ("Ventive Hospita",
+    "Mahindra Life"). Handed those, the model "fixed" them from memory, which
+    is a name the tool never said. One batched lookup; any failure keeps the
+    rows as they were.
+    """
+    rows = data.get("results") or []
+    syms = sorted({str(r.get("symbol") or "").upper() for r in rows} - {""})
+    if not syms:
+        return data
+    try:
+        from backend.database import SessionLocal
+
+        with SessionLocal() as db:
+            names = dict(db.execute(text(
+                "SELECT DISTINCT ON (verified_symbol) verified_symbol, verified_name "
+                "FROM company_identity WHERE verified_symbol = ANY(:s) "
+                "ORDER BY verified_symbol, mc_is_primary DESC, "
+                "mc_metric_count DESC NULLS LAST"), {"s": syms}).fetchall())
+    except Exception as exc:  # noqa: BLE001 — names are a nicety, rows are not
+        logger.debug("[screen] verified-name lookup failed: %s", exc)
+        return data
+    out_rows = []
+    for r in rows:
+        full = (names.get(str(r.get("symbol") or "").upper()) or "").strip()
+        if full:
+            r = {**r, "name": re.sub(r"\s+(Limited|Ltd\.?)$", "", full)}
+        out_rows.append(r)
+    return {**data, "results": out_rows}
+
+
+def screen_card_columns(data: dict) -> list[dict]:
+    """Columns for the chat's screen results card: market cap, the ranked
+    metric, the other screened metrics, then 1-year return — the same choice
+    render_screen_markdown makes. Each carries its unit so the card formats
+    values without guessing; values themselves are the rows, untouched."""
+    results = data.get("results") or []
+    if not results:
+        return []
+    gy = data.get("growth_years")
+
+    def label(m: str) -> str:
+        base = _METRIC_LABELS.get(m, m.replace("_", " ").title())
+        return f"{base} ({gy}y CAGR)" if gy and m.endswith("_growth") else base
+
+    def unit(m: str) -> str:
+        if m in _CR_METRICS:
+            return "cr"
+        if m in _PCT_METRICS:
+            return "pct_signed" if m.endswith("_growth") else "pct"
+        return "num"
+
+    ranked = (data.get("sorted_by") or {}).get("field")
+    metrics = ([ranked] if ranked and ranked != "market_cap" else []) + [
+        m for m in results[0]
+        if m in _METRIC_LABELS and m not in (ranked, "market_cap")]
+    cols: list[dict] = []
+    if any(r.get("market_cap_cr") is not None for r in results):
+        cols.append({"key": "market_cap_cr", "label": "Market Cap", "unit": "cr"})
+    cols += [{"key": m, "label": label(m), "unit": unit(m)} for m in metrics]
+    if any(r.get("one_year_pct") is not None for r in results):
+        cols.append({"key": "one_year_pct", "label": "1Y Return", "unit": "pct_signed"})
+    return cols
 
 
 # ── Batch gate-input fetch (latency path for the strategy builder) ──────────

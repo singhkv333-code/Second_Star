@@ -363,3 +363,64 @@ def test_nav_curve_two_days_ordered(session):
 def test_nav_curve_no_account_empty(session):
     u = _user(session)
     assert nav_curve(session, u.id) == []
+
+
+# ── the book has to add up ───────────────────────────────────────────────
+
+
+def test_a_healthy_book_reconciles(session):
+    """Total P&L is derived from NAV; its parts are derived from the rows.
+
+    On a book built only through PaperBroker those two agree by construction,
+    which is what makes the gap worth reporting when it appears.
+    """
+    u = _user(session)
+    _buy(session, u.id, "INFY", 10, 100)
+    _buy(session, u.id, "TCS", 5, 200)
+    marks = {"INFY": to_money(110), "TCS": to_money(190)}
+
+    s = account_summary(session, u.id, price_fn=lambda sym: marks[sym])
+
+    assert s["books_reconciled"] is True
+    assert abs(s["pnl_gap"]) <= 1.0
+    assert abs(s["total_pnl"] - (s["unrealized_pnl"] + s["realized_pnl_cum"])) <= 1.0
+
+
+def test_cash_drifting_from_the_ledger_is_reported_not_hidden(session):
+    """Stored cash is a column, so it CAN drift from the fills that moved it.
+
+    Found on a real dev book 2026-09-23: the header read +₹1,71,788 (+34.36%)
+    while unrealized + realized came to −₹62,209, because fills had been
+    written without the matching cash debit. NAV-derived Total P&L looked
+    great and was quoting money the book could not support. 50 of the other
+    51 accounts reconciled to within ₹0.32, so the invariant was sound and it
+    was the data that was wrong — but nothing said so anywhere.
+
+    The flag does not repair the book. It makes the lie detectable.
+    """
+    u = _user(session)
+    _buy(session, u.id, "INFY", 10, 100)
+    marks = {"INFY": to_money(110)}
+
+    before = account_summary(session, u.id, price_fn=lambda sym: marks[sym])
+    assert before["books_reconciled"] is True
+
+    # Money appears in the account that no fill accounts for.
+    acct = _account(session, u.id)
+    acct.cash_available = to_money(acct.cash_available) + to_money(50_000)
+    session.flush()
+
+    after = account_summary(session, u.id, price_fn=lambda sym: marks[sym])
+    assert after["books_reconciled"] is False
+    assert round(after["pnl_gap"]) == 50_000
+    # And the inflated figure is still returned, so the caller decides what to
+    # do with it — the flag is the signal, not a silent substitution.
+    assert after["total_pnl"] == before["total_pnl"] + 50_000
+
+
+def test_rounding_dust_does_not_trip_the_flag(session):
+    """Each money field rounds independently, so a few paise is honest."""
+    u = _user(session)
+    _buy(session, u.id, "INFY", 3, 333.33)
+    s = account_summary(session, u.id, price_fn=lambda sym: to_money("333.34"))
+    assert s["books_reconciled"] is True

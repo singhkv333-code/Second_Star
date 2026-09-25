@@ -68,6 +68,7 @@ import {
 import { useTradingMode } from "@/lib/trading-mode";
 import { useLiveQuote } from "@/hooks/useLiveQuote";
 import { useCompanyLogos } from "@/hooks/useCompanyLogos";
+import { isTileLogo } from "@/components/CompanyLogo";
 
 // ---------------------------------------------------------------------------
 // Static reference maps (Quartr parity)
@@ -1462,9 +1463,13 @@ function HoldingGlyph({
           flexShrink: 0,
           borderRadius: "var(--radius-sm)",
           objectFit: "contain",
-          background: "var(--surface-1, #fff)",
-          border: "1px solid var(--glass-border)",
-          padding: 4,
+          ...(isTileLogo(logoUrl)
+            ? { boxShadow: "0 0 0 1px var(--glass-border)" }
+            : {
+                background: "var(--surface-1, #fff)",
+                border: "1px solid var(--glass-border)",
+                padding: 4,
+              }),
         }}
       />
     );

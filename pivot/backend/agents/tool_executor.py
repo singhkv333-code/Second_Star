@@ -132,6 +132,9 @@ def _build_handlers() -> dict:
         # retail capability tools (2026-05-29): fundamental screen,
         # single-stock fundamentals + news, IPO feed
         "screen_fundamentals":        _screen_fundamentals,
+        "scan_technicals":            _scan_technicals,
+        "show_price_chart":           _show_price_chart,
+        "read_annual_report":         _read_annual_report,
         "fetch_fundamentals":         _fetch_fundamentals,
         "query_financials":           _query_financials,
         "get_company_research":       _get_company_research,
@@ -1431,6 +1434,184 @@ async def _screen_fundamentals(a, kt, db, uid):
         growth_years=a.get("growth_years"),
         title=(a.get("title") or "").strip() or None,
     )
+    if out.get("results"):
+        # The rows reach the user as a card; the model writes the reading.
+        # (Before this, only the legacy engine showed them, by pasting its
+        # own markdown table, so the flex engine's reply had nothing below it.)
+        # The hint goes FIRST: a long result is trimmed for the model, and a
+        # hint at the tail was the first thing lost.
+        import asyncio
+        from backend.services.fundamentals_screen import (
+            screen_card_columns, with_verified_names,
+        )
+        out = await asyncio.to_thread(with_verified_names, out)
+        out = {"_render_hint": "screen_results_card",
+               "columns": screen_card_columns(out), **out}
+    return {"success": True, "data": out, "logiccard": None}
+
+
+# Units for the scan card, by charto feature. Formatting only: the values are
+# charto's, untouched.
+_SCAN_UNITS = {
+    "close": "inr", "rsi14": "num", "vol_z20": "num",
+    "sma50_cross_ago": "int", "sma200_cross_ago": "int",
+    "atr_pct": "pct", "range_20d_pct": "pct", "vp20_va_width_pct": "pct",
+    "vp20_pos": "pct", "turnover_20d_cr": "cr",
+}
+_SCAN_LABELS = {
+    "close": "Price", "ret_1d": "1D", "ret_1w": "1W", "ret_1m": "1M",
+    "ret_3m": "3M", "ret_6m": "6M", "ret_1y": "1Y", "rsi14": "RSI(14)",
+    "dist_52w_high": "From 52W High", "dist_52w_low": "Above 52W Low",
+    "atr_pct": "ATR %", "sma20_rel": "vs 20D SMA", "sma50_rel": "vs 50D SMA",
+    "sma200_rel": "vs 200D SMA", "sma50_cross_ago": "50D Cross (days)",
+    "sma200_cross_ago": "200D Cross (days)", "range_20d_pct": "20D Range",
+    "vol_z20": "Volume (σ)", "turnover_20d_cr": "Turnover (20D)",
+    "vp20_pos": "In Value Area", "vp20_va_width_pct": "Value Area Width",
+    "vp20_poc_dist_pct": "vs POC", "vp20_poc_shift_pct": "POC Shift",
+}
+
+
+def _run_charto_scan(spec: dict) -> dict:
+    import json as _json
+    import os
+    import urllib.parse
+    import urllib.request
+
+    base = os.getenv("CHARTO_INTERNAL_URL", "http://127.0.0.1:5174").rstrip("/")
+    url = f"{base}/screen/run?" + urllib.parse.urlencode({"spec": _json.dumps(spec)})
+    with urllib.request.urlopen(url, timeout=45) as r:  # noqa: S310 — internal service
+        return _json.loads(r.read().decode("utf-8"))
+
+
+async def _scan_technicals(a, kt, db, uid):
+    """Market-wide technical scan on charto's engine, shaped as a screen card."""
+    import asyncio
+    from backend.services.fundamentals_screen import with_verified_names
+
+    spec = {k: a[k] for k in ("filters", "industry", "pattern", "pattern_within",
+                              "sort", "limit") if a.get(k) not in (None, "", [])}
+    try:
+        out = await asyncio.to_thread(_run_charto_scan, spec)
+    except Exception as exc:  # noqa: BLE001 — the model reads it and says so
+        return {"success": False, "data": {}, "logiccard": None,
+                "error": f"technical scan unavailable: {type(exc).__name__}: {exc}"[:300]}
+    if out.get("error") or not out.get("rows"):
+        # A vocabulary miss (closest industries, the pattern list) or an empty
+        # result: the model reads it and re-calls or reports. No card.
+        out.pop("_note", None) if not out.get("error") else None
+        return {"success": True, "data": out, "logiccard": None}
+
+    feats = [f["feature"] for f in out.get("filters_applied") or []]
+    sort_f = (out.get("sorted_by") or {}).get("feature")
+    keys = ["close"] + [k for k in dict.fromkeys(feats + [sort_f]) if k and k != "close"]
+    results = []
+    for r in out["rows"]:
+        row = {"symbol": r["symbol"], "name": r.get("name"),
+               "sector": r.get("industry")}
+        row.update({k: r.get(k) for k in keys})
+        if r.get("pattern"):
+            p = r["pattern"]
+            row["pattern"] = f"{str(p.get('kind', '')).replace('_', ' ')}" + (
+                f", {p['bars_ago']}d ago" if p.get("bars_ago") is not None else "")
+        results.append(row)
+    columns = [{"key": k, "label": _SCAN_LABELS.get(k, k),
+                "unit": _SCAN_UNITS.get(k, "pct_signed")} for k in keys]
+    if any("pattern" in r for r in results):
+        columns.append({"key": "pattern", "label": "Pattern", "unit": "text"})
+
+    data = {
+        "_render_hint": "screen_results_card",
+        "columns": columns,
+        "title": (a.get("title") or "").strip() or out.get("criteria") or "Technical scan",
+        "count": len(results),
+        "total_matched": out.get("matched", len(results)),
+        "universe": out.get("universe"),
+        "as_of": out.get("as_of"),
+        "criteria": out.get("criteria"),
+        "ranking": out.get("ranking"),
+        "sorted_by": out.get("sorted_by"),
+        "applied_filters": [
+            {"field": f["feature"], "op": ">" if f["op"] == "gt" else "<",
+             "value": f["value"]} for f in out.get("filters_applied") or []],
+        "symbols": out.get("symbols") or [r["symbol"] for r in results],
+        "results": results,
+    }
+    for extra in ("volume_profile_coverage",):
+        if out.get(extra):
+            data[extra] = out[extra]
+    data = await asyncio.to_thread(with_verified_names, data)
+    return {"success": True, "data": data, "logiccard": None}
+
+
+def _charto_has_bars(symbol: str) -> dict:
+    """{} unless charto says `symbol` is unknown, then its own 404 body (which
+    carries `did_you_mean`). Busy or slow is not unknown: the card loads its
+    own bars and says so itself if they don't come."""
+    import json as _json
+    import os
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
+    base = os.getenv("CHARTO_INTERNAL_URL", "http://127.0.0.1:5174").rstrip("/")
+    url = f"{base}/bars?" + urllib.parse.urlencode(
+        {"symbol": symbol, "interval": "1d", "limit": 1})
+    try:
+        with urllib.request.urlopen(url, timeout=5) as r:  # noqa: S310 — internal
+            return {} if _json.loads(r.read()).get("bars") else {"error": "no bars"}
+    except urllib.error.HTTPError as e:
+        if e.code != 404:
+            return {}
+        try:
+            return _json.loads(e.read()) or {"error": "unknown symbol"}
+        except Exception:  # noqa: BLE001
+            return {"error": "unknown symbol"}
+    except Exception:  # noqa: BLE001 — timeout / refused: not a verdict
+        return {}
+
+
+async def _show_price_chart(a, kt, db, uid):
+    """A chart card for one or two companies. It checks the symbols exist in
+    charto's bar store and nothing more: the card fetches its own bars, so no
+    price ever enters the model's context."""
+    import asyncio
+    from backend.services.fundamentals_screen import with_verified_names
+
+    syms = [str(s).strip().upper() for s in (a.get("symbols") or []) if str(s).strip()]
+    syms = list(dict.fromkeys(syms))[:2]
+    if not syms:
+        return {"success": False, "data": {}, "logiccard": None,
+                "error": "symbols is required"}
+    checks = await asyncio.gather(*[asyncio.to_thread(_charto_has_bars, s) for s in syms])
+    missing = {s: c for s, c in zip(syms, checks) if c}
+    if missing:
+        return {"success": False, "data": {"not_charted": missing}, "logiccard": None,
+                "error": "no price history for " + ", ".join(missing)}
+    named = await asyncio.to_thread(
+        with_verified_names, {"results": [{"symbol": s} for s in syms]})
+    return {"success": True, "logiccard": None, "data": {
+        "_render_hint": "price_chart_card",
+        "symbols": [{"symbol": r["symbol"], "name": r.get("name") or r["symbol"]}
+                    for r in named["results"]],
+        "range": a.get("range") if a.get("range") in
+        ("1D", "1W", "1M", "3M", "6M", "1Y", "5Y") else "1Y",
+        "shown": "chart card shown above your reply; it has no prices for you",
+    }}
+
+
+async def _read_annual_report(a, kt, db, uid):
+    import asyncio
+    from backend.services import annual_report
+
+    try:
+        out = await asyncio.to_thread(
+            annual_report.read, a.get("symbol") or "", a.get("query") or "",
+            a.get("pages"), a.get("year"))
+    except Exception as exc:  # noqa: BLE001 — the model says it could not read it
+        return {"success": False, "data": {}, "logiccard": None,
+                "error": f"annual report unavailable: {type(exc).__name__}: {exc}"[:300]}
+    if out.get("error"):
+        return {"success": False, "data": {}, "logiccard": None, "error": out["error"]}
     return {"success": True, "data": out, "logiccard": None}
 
 

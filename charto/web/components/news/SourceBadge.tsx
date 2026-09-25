@@ -26,10 +26,15 @@ export const SOURCE_DOMAIN: Record<string, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// SourceLogo — tiny rounded square showing a publication's favicon logo.
-// Falls back to a first-letter monogram on load error (clearbit may be
-// blocked or rate-limited — the fallback is silent, no console spam).
+// SourceLogo — tiny rounded square showing a publication's logo.
+// Publishers aren't listed companies, so they come from logo.dev by domain
+// (Clearbit's logo API was shut down; its host no longer resolves).
+// fallback=404 turns an unknown domain into an error → our monogram, rather
+// than a generated letter tile that looks like a logo.
 // ---------------------------------------------------------------------------
+
+// Publishable (pk_) — the same token the backend puts in company logo URLs.
+const LOGODEV_TOKEN = "pk_X3WtLGU0RTuTq-o9GTLEsg";
 
 type SourceLogoProps = {
   sourceId: string;
@@ -70,7 +75,7 @@ export function SourceLogo({ sourceId, size = 18 }: SourceLogoProps): React.Reac
 
   return (
     <img
-      src={`https://logo.clearbit.com/${domain}`}
+      src={`https://img.logo.dev/${domain}?token=${LOGODEV_TOKEN}&size=64&retina=true&format=png&fallback=404`}
       alt={sourceId + " logo"}
       title={sourceId}
       width={size}

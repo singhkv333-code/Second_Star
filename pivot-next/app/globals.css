@@ -898,53 +898,63 @@ input[type="range"].payoff-slider::-moz-range-thumb {
   }
 }
 
-/* ── Chat backend-steps waiting indicator (Notion-AI style) ────────────
-   A vertical timeline that GROWS downward while the system works: one
-   plain word per step, a small dot per row, a thin connector line
-   linking the dots. No chips, no ticks, nothing fades away — earlier
-   steps simply settle into the muted colour; the newest word shimmers. */
-@keyframes chatStepIn {
-  from { opacity: 0; transform: translateY(4px); }
-  to   { opacity: 1; transform: translateY(0);   }
-}
-.chat-step {
-  animation: chatStepIn 320ms var(--ease-quartr) both;
-  position: relative;
+/* ── Chat loader: one line, morphing in place ─────────────────────────
+   ▮▮▮  6s  Checking NIFTY 50 and SENSEX
+   Fixed height and no wrapping, so the reply below never jumps. The
+   elapsed timer comes BEFORE the phrase at a fixed width, so a longer
+   phrase pushes nothing. Words shared with the previous phrase stay put;
+   the rest blur out together, then the new words blur in one after
+   another (ChatDemo MorphText) and join the `.shimmer` sweep on landing. */
+.status-line {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 24px;
-}
-.chat-step-dot {
-  /* Soft grey for EVERY dot, active included — the Notion reference is
-     grey-on-grey throughout, never a black accent. */
-  flex: 0 0 auto;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--text-tertiary) 65%, var(--bg-primary));
-}
-/* Connector: every row except the first draws a short line ABOVE its
-   dot, joining it to the previous row's dot. */
-.chat-step + .chat-step::before {
-  content: "";
-  position: absolute;
-  left: 2px;
-  top: -12px;
-  width: 1px;
-  height: 20px;
-  background: var(--glass-border);
-}
-.chat-step-label {
+  height: 24px;
+  white-space: nowrap;
   font-family: var(--font-ui);
-  font-size: 12.5px;
+  font-size: 13px;
   letter-spacing: -0.005em;
   color: var(--text-tertiary);
 }
-/* The capitalised lead word ("Querying", "Fetching") carries a touch more
-   weight than its supporting words ("fundamentals", "market data"). */
-.chat-step-word {
-  font-weight: 550;
+.status-elapsed {
+  min-width: 3ch;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--text-tertiary) 70%, var(--bg-primary));
+}
+.status-phrase {
+  font-weight: 500;
+}
+/* An animating word paints its own solid grey: a child on its own
+   opacity/filter/transform layer is left out of the parent's
+   background-clip:text and would otherwise render invisible. */
+.status-word {
+  display: inline-block;
+  white-space: pre;
+  color: var(--text-tertiary);
+  -webkit-text-fill-color: var(--text-tertiary);
+}
+@keyframes statusWordIn {
+  from { opacity: 0; filter: blur(6px); transform: translateY(3px); }
+  to   { opacity: 1; filter: blur(0);   transform: translateY(0); }
+}
+@keyframes statusWordOut {
+  from { opacity: 1; filter: blur(0); }
+  to   { opacity: 0; filter: blur(4px); }
+}
+.status-word-in {
+  animation: statusWordIn 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.status-word-out {
+  animation: statusWordOut 160ms ease-in both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .status-word-in,
+  .status-word-out {
+    animation: none;
+  }
+  .status-word-out {
+    display: none;
+  }
 }
 
 /* Hide native browser clear button on the topbar global search; we

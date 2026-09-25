@@ -798,6 +798,10 @@ tool("screen_fundamentals",
      "MANY-company tool ('pharma stocks with P/E under 25', 'ROE > 18 and "
      "positive revenue growth', 'cheap banking stocks'); for ONE company use "
      "fetch_fundamentals.\n\n"
+     "The user sees every returned row as a table card under your reply "
+     "(company, market cap, the screened metrics, 1-year return). Don't "
+     "rewrite the rows as a table; say what the screen shows: how many pass "
+     "(total_matched), the pattern, the standouts and what to check next.\n\n"
      "FIELD COVERAGE — pick the POPULATED field, not just the literal word:\n"
      " • 'return on capital(-employed)' → `roce` (populated); `roic` is SPARSE "
      "(a roic screen usually comes back empty) — prefer roce and say so.\n"
@@ -875,13 +879,17 @@ tool("screen_fundamentals",
          "sort_by": {"type": "object", "properties": {
                          "field": {"type": "string", "enum": list(_SCREEN_FIELDS)},
                          "dir":   {"type": "string", "enum": ["asc", "desc"]}}},
-         "limit":   {"type": "integer", "minimum": 1, "maximum": 100, "default": 15},
+         "limit":   {"type": "integer", "minimum": 1, "maximum": 100, "default": 15,
+                     "description": "Rows returned, best first. The result's "
+                     "`total_matched` is how many companies pass the screen; "
+                     "`count` is only the rows sent back, so report "
+                     "total_matched as the size of the result."},
          "exclude": {"type": "array", "items": {"type": "string"},
                      "description": "Sectors, 'PSU', or named companies/tickers "
                      "to carve out of the results (hard-filtered, not advisory)."},
          "title": {"type": "string", "maxLength": 90,
-                     "description": "REQUIRED with presentation='table': a "
-                     "short, specific title rendered as the reply's heading "
+                     "description": "A short, specific title shown as the "
+                     "heading over the result rows "
                      "(3–9 words, title case). Make it reflect THIS ask — "
                      "'Profitable Growers: P/E Above 10, ROE Above 20%' or "
                      "'Cheapest Large Caps by Earnings' — never a generic "
@@ -913,6 +921,103 @@ tool("screen_fundamentals",
      },
      [],
      defaults={"limit": 15})
+
+# Market-wide TECHNICAL scan. The engine is charto's screen_universe, reached
+# over its /screen/run route, so the chart chat and this chat compute one scan
+# one way; nothing here re-derives an indicator.
+_SCAN_FEATURES = {
+    "close": "last daily close, ₹",
+    "ret_1d": "% change over the last session", "ret_1w": "% over 5 sessions",
+    "ret_1m": "% over 21 sessions", "ret_3m": "% over 63 sessions",
+    "ret_6m": "% over 126 sessions", "ret_1y": "% over 252 sessions",
+    "dist_52w_high": "% from the 52-week high (0 = at it, negative = below)",
+    "dist_52w_low": "% above the 52-week low",
+    "rsi14": "RSI(14) on daily closes",
+    "atr_pct": "ATR(14) as % of close, daily volatility",
+    "sma20_rel": "% the close is above (+) or below (-) its 20-day SMA",
+    "sma50_rel": "% the close is above (+) or below (-) its 50-day SMA",
+    "sma200_rel": "% the close is above (+) or below (-) its 200-day SMA",
+    "sma50_cross_ago": "sessions since the close last crossed its 50-day SMA, "
+                       "either way; 'just crossed above' = this lt N plus sma50_rel gt 0",
+    "sma200_cross_ago": "sessions since the close last crossed its 200-day SMA; "
+                        "pair with sma200_rel's sign for the direction",
+    "range_20d_pct": "20-day high-to-low width as % of close (low = coiled)",
+    "vol_z20": "last session's volume in standard deviations of the prior 20",
+    "turnover_20d_cr": "average daily traded value over 20 sessions, ₹ crore",
+    "vp20_pos": "close inside the 20-session value area, % of its width "
+                "(gt 100 = above accepted value, lt 0 = below)",
+    "vp20_va_width_pct": "20-session value-area width as % of its POC (low = balanced)",
+    "vp20_poc_dist_pct": "% the close is above (+) or below (-) the 20-session POC",
+    "vp20_poc_shift_pct": "% the 20-session POC moved vs the prior 20 (value migration)",
+}
+
+tool("scan_technicals",
+     "Scan the whole stock universe on end-of-day TECHNICALS: momentum, trend, "
+     "52-week position, volatility, volume, moving-average crosses, volume "
+     "profile and daily chart or candlestick patterns ('stocks near their "
+     "52-week high with RSI above 60', 'fresh golden crosses', 'coiled names', "
+     "'bull flags in banks', 'oversold large-volume names'). For accounting "
+     "ratios and growth use screen_fundamentals; for a mixed ask call both and "
+     "say which names appear in both.\n\n"
+     "Compose any combination: each filter is one feature, gt or lt, and a "
+     "number; a band is two filters on the same feature. The user sees every "
+     "returned row as a table card under your reply, so write what the scan "
+     "shows rather than the rows. The result carries `universe` (how many "
+     "stocks were scanned), `matched` and `as_of` (the session the values are "
+     "from): state both the universe and the date, because this is a scan of "
+     "a fixed universe at one close, not a live market-wide feed. vp20_* "
+     "features cover only the symbols with minute bars; when "
+     "`volume_profile_coverage` is present, report its count. Price action is "
+     "arithmetic, not a view: close as analysis, not advice.",
+     {"filters": {"type": "array", "description": "All must pass.",
+                  "items": {"type": "object", "properties": {
+                      "feature": {"type": "string", "enum": list(_SCAN_FEATURES),
+                                  "description": "; ".join(
+                                      f"{k}: {v}" for k, v in _SCAN_FEATURES.items())},
+                      "op": {"type": "string", "enum": ["gt", "lt"]},
+                      "value": {"type": "number"}},
+                      "required": ["feature", "op", "value"]}},
+      "industry": {"type": "string",
+                   "description": "Narrow to one industry in plain words "
+                   "('private banks', 'pharmaceuticals'). A miss returns the "
+                   "closest industry names; re-call with one of them."},
+      "pattern": {"type": "string",
+                  "description": "Require a recent daily pattern, e.g. "
+                  "bull_flag, ascending_triangle, double_bottom, "
+                  "bullish_engulfing, hammer. An unknown name returns the "
+                  "full list."},
+      "pattern_within": {"type": "integer", "minimum": 1, "maximum": 120,
+                         "description": "How many sessions old the pattern may "
+                         "be (default 5)."},
+      "sort": {"type": "string", "enum": list(_SCAN_FEATURES),
+               "description": "Feature to rank by; defaults to the first "
+               "filter's (smallest first when that filter is lt)."},
+      "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 15,
+                "description": "Rows returned. `matched` is how many passed; "
+                "report that as the size of the result."},
+      "title": {"type": "string", "maxLength": 90,
+                "description": "A short, specific title shown as the heading "
+                "over the rows (3-9 words, title case)."}},
+     [],
+     defaults={"limit": 15})
+
+tool("show_price_chart",
+     "Put an interactive price chart of one or two companies at the top of "
+     "your reply. Call it alongside your other tools whenever the answer is about "
+     "one specific company, or compares two; never for a market-wide or "
+     "multi-stock answer. The chart loads its own prices in the browser, so "
+     "this result holds no prices: take every figure you state from your "
+     "other tools. An unknown symbol comes back with suggestions.",
+     {"symbols": {"type": "array", "minItems": 1, "maxItems": 2,
+                  "items": {"type": "string"},
+                  "description": "NSE symbols, e.g. [\"PETRONET\"] or "
+                  "[\"TCS\", \"INFY\"]. Two are drawn as % change from the "
+                  "window's start."},
+      "range": {"type": "string",
+                "enum": ["1D", "1W", "1M", "3M", "6M", "1Y", "5Y"],
+                "description": "Opening window, fitted to the question; the "
+                "user can switch it. Default 1Y."}},
+     ["symbols"])
 
 tool("fetch_fundamentals",
      "Snapshot of ONE stock's fundamentals AND company profile. Returns: P/E, "
@@ -1001,11 +1106,30 @@ tool("get_company_research",
       ], "default": "profit_loss", "description": "Grid returned by statements."}},
      ["symbol", "sections"], defaults={"basis": "consolidated"})
 
+tool("read_annual_report",
+     "Read a company's annual report itself (about 3,970 companies, the full "
+     "text of each). Returns the pages that best match `query`, with their "
+     "text, or the pages you name. Use it for what the report says in its own "
+     "words: segment and product detail, capacity, order book, strategy, "
+     "risks, management discussion, notes to accounts, anything the "
+     "structured data lacks. Cite the page you quote: the result gives the "
+     "link format.",
+     {"symbol": {"type": "string", "description": "NSE ticker, uppercase."},
+      "query": {"type": "string",
+                "description": "What you are looking for, in the report's likely "
+                "words ('export volumes by region', 'capacity utilisation')."},
+      "pages": {"type": "array", "items": {"type": "integer"}, "maxItems": 6,
+                "description": "Read these pages instead of searching, e.g. the "
+                "`other_matching_pages` of a previous call."},
+      "year": {"type": "string",
+               "description": "Report year such as '2024-2025'; default latest."}},
+     ["symbol"])
+
 tool("get_symbol_news",
      "Recent news headlines for ONE stock via yfinance. Use for 'recent news "
      "on X', 'what's happening with X', 'any news on X'. Returns "
      "{title, publisher, link, published}. If empty, say so — do not fabricate "
-     "headlines. For macro / non-company current-affairs use web_search_brief.",
+     "headlines. For anything else current, search the web.",
      {"symbol": {"type": "string", "description": "NSE ticker, uppercase."},
       "limit":  {"type": "integer", "minimum": 1, "maximum": 50, "default": 5}},
      ["symbol"],

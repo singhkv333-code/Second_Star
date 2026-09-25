@@ -178,11 +178,15 @@ user message
   packs in `prompts/modules/*.md` assembled by `prompts/assembler.py`. The old
   monolithic `system.md` was retired 2026-07-03. Changing agent behaviour is
   almost always editing one of these.
-- **The model sees every tool, every turn.** `tool_router.py` does *not* narrow
-  the tool set — the ~40-regex keyword router was deleted 2026-07-16 because
-  misroutes (the right tool not being offered) were the second-largest source
-  of failures, and a byte-stable toolset prefix-caches so its marginal cost is
-  near zero. `tool_router`'s remaining job is **prompt-module selection**.
+- **Every tool is reachable every turn, and code never narrows the set.** The
+  ~40-regex keyword router was deleted 2026-07-16 because misroutes (the right
+  tool not being offered) were the second-largest source of failures. Since
+  2026-09-24 the flex engine keeps 24 core tools loaded and puts specialised
+  groups (orders, options, automations, IPOs, quant research, fixed income)
+  behind the provider's hosted `tool_search` (`flex_chat.NAMESPACES`): the
+  model sees each group's description and opens it itself, in the same
+  response. The hosted `web_search` (India-located) is on every turn.
+  `tool_router`'s remaining job is **prompt-module selection**.
 - **A tool + its prompt module + its evals is one unit.** Change any leg and
   re-run the others' evals before merging.
 - **Single-shot tool calls.** The pipeline does not retry the LLM's call on

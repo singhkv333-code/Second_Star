@@ -305,6 +305,10 @@ _MAX_HOP_ERROR_RETRIES = 2
 # from the schema but still routable). Order/draft/register tools stay
 # serial — side-effect ordering matters there.
 _PARALLEL_READ_TOOLS: frozenset = frozenset({
+    # market-wide technical scan (charto's engine, over HTTP)
+    "scan_technicals",
+    "show_price_chart",
+    "read_annual_report",
     # consolidated read tools
     "get_market_data", "get_portfolio", "get_indicators", "get_ipo",
     "calculate",
@@ -8755,6 +8759,12 @@ class ChatService:
                 )
                 text_out = render_screen_markdown(hop_screen_data) or ""
                 if text_out:
+                    # The pasted table IS the rows here; without this the
+                    # screen's card would render the same rows a second time.
+                    if isinstance(raw_data.get("screen_fundamentals"), dict):
+                        raw_data["screen_fundamentals"] = {
+                            k: v for k, v in raw_data["screen_fundamentals"].items()
+                            if k != "_render_hint"}
                     self.store.append(conv_id, message, text_out)
                     self.store.clear_pending(conv_id)
                     total = int((time.monotonic() - turn_started) * 1000)
@@ -10895,6 +10905,12 @@ class ChatService:
                 )
                 text_out = render_screen_markdown(hop_screen_data) or ""
                 if text_out:
+                    # The pasted table IS the rows here; without this the
+                    # screen's card would render the same rows a second time.
+                    if isinstance(raw_data.get("screen_fundamentals"), dict):
+                        raw_data["screen_fundamentals"] = {
+                            k: v for k, v in raw_data["screen_fundamentals"].items()
+                            if k != "_render_hint"}
                     self.store.append(conv_id, message, text_out)
                     self.store.clear_pending(conv_id)
                     total = int((time.monotonic() - turn_started) * 1000)

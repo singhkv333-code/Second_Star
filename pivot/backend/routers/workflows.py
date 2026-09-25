@@ -767,6 +767,30 @@ class _WorkflowsSummaryResponse(BaseModel):
     has_data: bool = False
 
 
+def _traded_nav_series(series: list["_NavPoint"]) -> list["_NavPoint"]:
+    """Drop a NAV series that never leaves zero: it is not a track record.
+
+    A ForwardIdea attached to a workflow accrues a nightly PaperIdeaNavSnapshot
+    whether or not the agent ever deployed capital, so an agent that has never
+    opened a position builds up months of ``idea_nav = 0``. Those rows are
+    real, and they are a record of NOTHING HAPPENING.
+
+    Passed on as a series they were actively misleading. `has_data` was
+    ``bool(series)``, and a list of thirty-five zeros is truthy, so the Agents
+    tab took its "this agent has a track record" branch and drew a flat line
+    across the card. Measured on the live book 2026-09-23: five of one user's
+    twelve agents were in this state, four of them with 35+ all-zero snapshots.
+
+    Returning [] instead puts those cards back on the honest "No runs yet"
+    branch, which already exists and already says the useful thing
+    ("85 runs · no NAV history").
+
+    An idea that deployed and then went to zero keeps its series: its earlier
+    points are non-zero, so it is not caught here.
+    """
+    return series if any(abs(p.nav) > 1e-9 for p in series) else []
+
+
 def _live_idea_return_pct(db: Session, idea) -> Optional[float]:
     """An agent's LIVE return %, marked on read — the SAME number the agent
     Positions view headlines, so the card / strategy-list % can never disagree
@@ -1001,6 +1025,7 @@ def workflows_summary(
                         "live idea nav tail failed for %s", idea.id, exc_info=True
                     )
 
+            series = _traded_nav_series(series)
             strategy_returns.append(
                 _StrategyReturn(
                     workflow_id=wf_id,
@@ -1483,6 +1508,9 @@ def workflow_performance(
         except Exception:  # noqa: BLE001 — sparkline tail is best-effort
             logger.debug("live idea nav tail failed for %s", idea.id, exc_info=True)
 
+    # Same rule as the batched summary: an all-zero NAV series is an agent
+    # that never deployed capital, not a track record. See _traded_nav_series.
+    series = _traded_nav_series(series)
     has_data = bool(series) or run_count > 0
 
     return _WorkflowPerformanceResponse(

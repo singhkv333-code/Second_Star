@@ -100,6 +100,8 @@ import {
   setTradingMode,
   type TradingMode,
 } from "@/lib/trading-mode";
+import { buildPageContext, type ContextTab } from "@/lib/pageContext";
+import { getBrokers } from "@/lib/brokersApi";
 
 // ---------------------------------------------------------------------------
 // Tab definitions
@@ -139,7 +141,7 @@ const ACTIVE_COPILOT_KEY = "pivot:active-copilot-conversation";
 const COPILOT_CONTEXT_KEY = "pivot:copilot-page-context";
 
 type CopilotPageContext =
-  | { kind: "page"; page: "home" | "portfolio" | "agents" | "screener"; label: string }
+  | { kind: "page"; page: "home" | "portfolio" | "agents" | "screener" | "brokers"; label: string }
   | { kind: "security"; symbol: string; name: string };
 
 function readStoredConversationId(): string | undefined {
@@ -318,6 +320,11 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   // Presentation state only. The chat component stays mounted while this
   // toggles, so side-panel/full-workspace transitions cannot fork a thread.
   const [copilotPanelOpen, setCopilotPanelOpen] = useState(false);
+  // Which brokers are connected, for the Brokers tab's grounding line. Fetched
+  // only once the tab has actually been opened: an unvisited tab has nothing to
+  // ground, and this should never become a request every session pays for.
+  const [brokerNames, setBrokerNames] = useState<string[] | undefined>(undefined);
+  const [brokersLiveArmed, setBrokersLiveArmed] = useState(false);
   const [chartChatOpen, setChartChatOpen] = useState(false);
   const [activeConversationId, setActiveConversationId] = useState<string | undefined>(
     readStoredConversationId,
@@ -415,6 +422,8 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
       next = { kind: "page", page: "agents", label: "My agents" };
     } else if (!children && active === "screener") {
       next = { kind: "page", page: "screener", label: "Screener" };
+    } else if (!children && active === "brokers") {
+      next = { kind: "page", page: "brokers", label: "Brokers" };
     }
     if (!next) return;
     setCopilotContext(next);
@@ -1069,6 +1078,44 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
             ? "Ask about my agents…"
             : "Ask Pivot…";
 
+  // Broker state for the grounding line. Refreshed whenever the tab is opened,
+  // so a connection made moments ago is reflected in the very next question.
+  useEffect(() => {
+    if (children || active !== "brokers") return;
+    let cancelled = false;
+    getBrokers()
+      .then((catalog) => {
+        if (cancelled) return;
+        setBrokerNames(catalog.brokers.filter((b) => b.connected).map((b) => b.name));
+        setBrokersLiveArmed(Boolean(catalog.live_armed));
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [active, children]);
+
+  // The grounding block that rides with every question asked from this shell.
+  //
+  // It is built from state the shell ALREADY holds — the metric strip's
+  // portfolio summary (on its own 30s timer), the trading mode, the focused
+  // security — so knowing where the user is standing costs no extra request.
+  //
+  // The chart tab is deliberately absent. A chart question is routed to
+  // Charto, which builds its own far richer chart envelope, and a second,
+  // thinner one arriving beside it could only contradict it.
+  const chatPageContext = useMemo(() => {
+    if (!children && active === "chart") return undefined;
+    const tab: ContextTab =
+      copilotContext.kind === "security" ? "chat" : (copilotContext.page as ContextTab);
+    return buildPageContext(tab, {
+      summary: metrics.kind === "ok" ? metrics.summary : undefined,
+      tradingMode,
+      symbol: copilotContext.kind === "security" ? copilotContext.symbol : undefined,
+      name: copilotContext.kind === "security" ? copilotContext.name : undefined,
+      brokersConnected: brokerNames,
+      brokersLiveArmed,
+    });
+  }, [active, children, copilotContext, metrics, tradingMode, brokerNames, brokersLiveArmed]);
+
   return (
     <ActiveDraftContext.Provider value={activeDraftCtx}>
     {/* Brand intro — plays once, right after login/signup (armLoginIntro). */}
@@ -1242,6 +1289,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
                   onSeededPromptConsumed={clearSeededChatPrompt}
                   resume={resumeConv}
                   pageContext={copilotContext.kind === "security" ? copilotContext : undefined}
+                  chatPageContext={chatPageContext}
                   conversationId={activeConversationId}
                   onConversationIdChange={rememberConversationId}
                   compact={Boolean(children) || (active !== "chat" && active !== "chart")}

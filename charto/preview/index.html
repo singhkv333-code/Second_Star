@@ -6404,6 +6404,9 @@ svg.icon.op {
     width: 34px; height: 34px; object-fit: contain; flex: none;
     background: none; border-radius: 0; border: 0; box-shadow: none;
   }
+  /* Except a company tile (SharePerks): it IS a square with its own
+     background, so hard corners are the tile's edge, not artwork. */
+  .inst-row .ir-logo[src*="company-logo.shareperks.in"] { border-radius: 8px; }
   /* A logo that 404s is HIDDEN, not removed. Removing it collapsed the 34px
      slot and every name on that row jumped left — one dead file and the
      column stopped being a column. */
@@ -8630,7 +8633,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        and grouping, and nothing else — a renderer with no state of its own -->
   <script src="./js/cards.js?v=55"></script>
   <script src="./js/layers-panel.js?v=11"></script>
-  <script src="./js/chat.js?v=167"></script>
+  <script src="./js/chat.js?v=168"></script>
   <script src="./js/journal.js?v=6"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it

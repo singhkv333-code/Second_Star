@@ -95,19 +95,26 @@ _ENV_PATH = Path(__file__).resolve().parents[2] / "pivot" / ".env"
 # Deployment name is overridable via CHARTO_LLM_MODEL in pivot/.env. It is
 # deliberately NOT pivot's LLM_MODEL: the backend runs its own deployment
 # (gpt-5.4-mini) and Charto should not drag it onto a different model.
-LLM_DEPLOYMENT_DEFAULT = "gpt-5.6-luna"
+LLM_DEPLOYMENT_DEFAULT = "gpt-6-luna"
 # The deployment to fall back to when the primary is not serving. A SECOND
 # deployment on the same resource, not a second resource: measured 2026-08-31,
 # `gpt-5.6-luna` returned 503 "no healthy upstream" while `gpt-5.4-mini`,
 # `gpt-5.4` and `gpt-5.4-nano` on the same endpoint answered normally — so an
 # outage here is per-deployment and a sibling is the whole remedy.
 #
-# It is a DEGRADED arm, deliberately named as such: the A/B that chose luna had
-# mini ~1.5x slower and returning about half the facts. This exists so chat
-# survives an outage, never as a silent second default — hence the cooldown
-# below, which sends traffic back to the primary as soon as it is serving.
+# It is a SECOND-BEST arm, not a crippled one: since 2026-09-23 the fallback is
+# gpt-5.6-luna, the model this app shipped on until that date, rather than
+# gpt-5.4-mini (which the A/B that originally chose luna had ~1.5x slower and
+# returning about half the facts). It exists so chat survives an outage, never
+# as a silent second default — hence the cooldown below, which sends traffic
+# back to the primary as soon as it is serving.
+#
+# Measured 2026-09-23 on one prompt, n=3 per arm, same endpoint:
+#   gpt-6-luna    median 4.43s   ~390 output tokens
+#   gpt-5.6-luna  median 9.39s   ~581 output tokens
+# So a demotion costs roughly 2x latency and buys a working answer.
 # Set CHARTO_LLM_FALLBACK="" to disable and fail loudly instead.
-LLM_FALLBACK_DEFAULT = "gpt-5.4-mini"
+LLM_FALLBACK_DEFAULT = "gpt-5.6-luna"
 # How long to stay on the fallback before probing the primary again. Long
 # enough that a sustained outage is not re-probed on every turn, short enough
 # that a recovered primary is picked up within one coffee.
@@ -12303,16 +12310,61 @@ def _n(v) -> str:
 # side pane, so the model is told the shape of the surface it is writing into
 # and picks the structure itself. Nothing here rewrites its output — when the
 # reply comes back badly shaped, this block is what gets edited.
+#
+# THIS BLOCK WAS REWRITTEN 2026-09-23, and the reason is worth keeping. The
+# previous version described the pane accurately and then said almost nothing
+# about what a good answer reads like, so the only things steering prose were
+# the grounding contracts, which are a wall of "never". A model given many
+# prohibitions and no target writes defensively: label-and-colon bullets, bold
+# on every noun, hedges on every claim. Measured over six live turns, the old
+# block produced a definition of a candlestick pattern as a SIX-ITEM NUMBERED
+# LIST with five bolded labels.
+#
+# So this block now says what good looks like, in the positive, and the
+# negations that remain are only the ones that are genuinely non-negotiable.
+# That is not a style preference: telling a model what to avoid reliably
+# under-performs telling it what to do, because the prohibition still names
+# the thing and naming it makes it available.
+#
+# THE DASH. First pass said only which punctuation to REACH FOR, on the theory
+# that a positive instruction beats a prohibition. It got most of the way
+# there (11 em dashes across six live turns down to 3) but not all, so the
+# line now also names the dash and says what to write instead. That ordering
+# is deliberate and is what the evidence supports: lead with the target, then
+# add the one specific constraint that the target alone did not carry.
+#
+# It is NOT post-processed, and should not be. `_n()` renders a missing value
+# as an em dash, so a blanket substitution on the reply would silently turn
+# "no data" into a comma in any answer that quoted one.
 FORMAT_RULES = """\
-## The surface you're writing into
-Your reply renders as markdown in a resizable pane beside the chart. The text
-column runs roughly 45 to 90 characters wide depending on how the user has
-sized it — that shapes line and table width, not how much you write. Answer at
-whatever length the question deserves. Headings, bullets, emphasis and pipe
-tables all render; pick whatever shape fits. The one thing a narrow column
-punishes is repeated figures buried in prose — the same fields across several
-dates, bars or symbols read far better as a compact table (numbers
-right-aligned with `|---:|`).
+## Writing the answer
+Your reply renders as markdown in a resizable pane beside the chart, a column
+roughly 45 to 90 characters wide. That shapes table width, not how much you
+write.
+
+Open with the answer. The first sentence carries the finding itself, so a
+reader who stops there still has what they asked for; the evidence and the
+caveats follow it.
+
+Write in prose. Paragraphs are the right shape for a reading, an explanation
+or a judgement, because the argument lives in how the facts connect and a
+list of fragments throws those connections away. Reach for a pipe table when
+the data is genuinely repetitive — the same fields across several dates, bars
+or symbols — with numbers right-aligned using `|---:|`. Reach for a list when
+the content is a real sequence of steps or a set of genuinely parallel items.
+
+Punctuate with commas, colons, semicolons, full stops and parentheses. Where
+a dash would interrupt a sentence, use a comma or a colon instead, or start a
+new sentence; the one place a dash belongs is a numeric range (1,289-1,299).
+Use bold once or twice in a reply, for the one number or name that carries it,
+and let sentence structure do the rest of the emphasis.
+
+Be specific and be brief. Name the price, the touch count, the interval. The
+concrete sentence beats the careful one: "support at 1,310.20 has held four
+times" says more than "there appears to be potential support in the 1,310
+area". Match the length to the question — a one-line question takes a one-line
+answer, and a reader who asked for a reading wants the reading, not a tour of
+how you got it.
 
 PLACING A PANEL. Whenever a tool result says a panel was rendered, PLACE IT:
 write `[[panel]]` on its own line, with a blank line either side, at the point
@@ -12327,9 +12379,44 @@ the reading of it. Lead with a sentence of context, place the panel, then say
 what it means. One marker per panel, in the order the tools ran: two sweeps
 means the first `[[panel]]` is the first sweep's, so with several panels head
 each one and place it under its own heading. The only panel worth leaving
-unplaced is one that IS the entire answer, with no prose before it. Never
-write the word "panel" in brackets for any other reason, and never mention
-the marker or explain that you are placing anything."""
+unplaced is one that IS the entire answer, with no prose before it. Write
+`[[panel]]` for this purpose alone, and say nothing about the marker itself."""
+
+
+# How to take the question. Separate from FORMAT_RULES because it governs what
+# gets answered rather than how it reads.
+#
+# Both halves are repairs to observed behaviour:
+#
+# THE CLARIFYING QUESTION. Asked "how does the pattern change for this" one
+# turn after a levels answer, the model replied with two bolded alternatives
+# and a question mark, and nothing else. The user had asked a perfectly
+# ordinary follow-up and got homework. A clarifying question is right when the
+# readings genuinely diverge; it is a poor default, because the likelier
+# reading answered plus a one-clause check costs the user nothing and a bare
+# question costs them a whole round trip.
+#
+# THE SCREEN IS NOT THE LIMIT. The envelope describes the chart, and the model
+# kept reading that as the boundary of what it may look at: "the chart is
+# currently focused on 3MINDIA, so I won't infer RELIANCE's pattern without
+# switching back to it" — when every chart-reading tool takes `symbol` and
+# RELIANCE was one call away. Saying the reach out loud is what stops it.
+ANSWERING_RULES = """\
+## Taking the question
+Answer the most plausible reading. When a question could point at two things,
+answer the likelier one and name the other in a clause, so the reader gets an
+answer and the correction is one word away. Ask which they meant when the two
+readings lead somewhere genuinely different and nothing in the conversation
+settles it.
+
+Read any instrument Charto holds bars for, not only the one on screen. Every
+chart-reading tool takes `symbol`: when the question names a different one,
+pass it and read it. The chart is the default subject when nobody names one,
+never a limit on what you can look at.
+
+A question about what something means, with no symbol in it, is a question
+about the idea. Answer it directly, from what you know, without reaching for
+the chart."""
 
 # The reading contract (~150 tokens). Five tools now read the chart itself and
 # their SUBJECTS overlap almost completely — all five compute some of the same
@@ -12700,37 +12787,47 @@ def _render_chart(ctx: dict, focused: bool = True) -> str:
 # turn, and which one is a coin toss the user experiences as the app refusing
 # at random. So the research half is named, and added only in research mode.
 _RESEARCH_CONTRACT = (
-        " Describe structure rather than prescribing trades: no buy/sell calls, "
-        "and never assume a position or direction the user hasn't stated. If "
-        "asked for a target or stop, give the levels and what would invalidate "
-        "them, and say plainly that this is analysis, not advice."
+        " Describe structure rather than prescribing trades: give the levels "
+        "and what would invalidate them, and let the reader draw the "
+        "conclusion. Where the answer bears on a position, close it with one "
+        "plain sentence saying this is analysis, not advice."
 )
 
 
+# Rewritten 2026-09-23 alongside FORMAT_RULES, and for the same reason.
+#
+# Everything this block protects is genuinely non-negotiable — a fabricated
+# price, an invented level, a guessed chart state are each worse than no
+# answer — so nothing was dropped. What changed is the GRAMMAR. It was fifteen
+# negations in three hundred words, and a model reading it wrote as if every
+# sentence might be the one that breaks a rule: hedged, fragmented, and
+# reluctant to commit to a reading it had the data for.
+#
+# Each rule is now stated as the thing to do, with the failure named once
+# where the failure is specific enough to be worth naming (the invented reason
+# for a missing drawing is the one that earned its sentence — it sent a user to
+# press a button that was already pressed).
 _CONTEXT_CONTRACT = (
-        "\nThese facts describe the chart(s) above. For anything they don't contain "
-        "— a specific bar or date, a level, an indicator not listed — call a tool; "
-        "never guess and never estimate. The trajectory points describe shape only: "
-        "never quote one as a level, zone, or target. Support and resistance come "
-        "only from get_levels: quote its prices with their touch counts, and if it "
-        "returns nothing say so rather than naming a price yourself. Every number "
-        "you state must come from these facts or a tool result (arithmetic on them "
-        "is fine — say when you're doing it). Be concise and concrete."
+        "\nThese facts describe the chart(s) above, and they are live: the symbol "
+        "and interval named there are the chart's right now, not a memory of an "
+        "earlier turn. Every number you state comes from these facts or from a "
+        "tool result, and arithmetic on them is fine as long as you say you are "
+        "doing it. For anything the block does not contain — a specific bar or "
+        "date, a level, an indicator not listed — call a tool. Support and "
+        "resistance come from get_levels: quote its prices with their touch "
+        "counts, and when it finds none, say it found none. Read the trajectory "
+        "points as shape, which is all they describe."
         # A user saying "I don't see it" was being answered with an invented
         # reason — "the drawings are on 1w, the chart displays 1d" — while the
         # chart was on 1w and this very block said so. Guessing at a chart
         # state you were handed is worse than a wrong answer: it sends the
         # user to click a button that is already pressed, and it closes the
         # question so the real fault is never found.
-        "\n\nThe interval and symbol above are THE chart's, live — not a "
-        "guess and not a memory of an earlier turn. Never tell the user their "
-        "chart is on a timeframe or symbol other than the one stated here, "
-        "and never explain a missing drawing by a chart state you did not "
-        "read off this block. If you drew something and the user says they "
-        "cannot see it, do not invent a reason: say plainly that it should be "
-        "on the chart, name the interval it was drawn on as given above, and "
-        "re-draw or ask what they do see. 'I don't know why' is an allowed "
-        "answer; a fabricated disconnect is not."
+        "\n\nWhen the user says they cannot see something you drew, say plainly "
+        "that it should be on the chart, name the interval it was drawn on as "
+        "given above, and offer to redraw or ask what they do see. \"I don't "
+        "know why\" is a good answer there; a reason you did not read off this "
+        "block is the one thing that is not."
 )
 
 
@@ -13494,7 +13591,7 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
     # context sent" stays an honest record of everything the model was told.
     mode_rules = (_execution_system()
                   if getattr(_req, "chat_mode", "chat") == "execution" else "")
-    common = (build_context_block(context), FORMAT_RULES)
+    common = (build_context_block(context), FORMAT_RULES, ANSWERING_RULES)
     mode_context = ((mode_rules,) if mode_rules else (READING_RULES, CAUSAL_RULES))
     block = "\n\n".join(x for x in (*common, *mode_context) if x)
     wire: list[dict] = []
@@ -13600,7 +13697,7 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
         return
     mode_rules = (_execution_system()
                   if getattr(_req, "chat_mode", "chat") == "execution" else "")
-    common = (build_context_block(context), FORMAT_RULES)
+    common = (build_context_block(context), FORMAT_RULES, ANSWERING_RULES)
     mode_context = ((mode_rules,) if mode_rules else (READING_RULES, CAUSAL_RULES))
     block = "\n\n".join(x for x in (*common, *mode_context) if x)
     wire: list[dict] = []
@@ -15426,7 +15523,8 @@ _QUOTE_MIN_TAIL = 3000   # ≥2 sessions of minutes on every venue we carry
 
 _HEAVY_HTTP_PATHS = frozenset({
     "/bars", "/quotes", "/symbols", "/indicator", "/volume_profile",
-    "/patterns/draw", "/company", "/screen", "/screen/features", "/peers", "/news",
+    "/patterns/draw", "/company", "/screen", "/screen/features", "/screen/run",
+    "/peers", "/news",
     "/profile", "/financials", "/results", "/deals", "/delivery",
     "/fut_oi", "/classification", "/benchmark", "/live", "/replay",
 })
@@ -16060,6 +16158,34 @@ class Handler(BaseHTTPRequestHandler):
                     "coverage": len(clean),
                     "source": "charto_daily_matrix",
                 })
+            if u.path == "/screen/run":
+                # Pivot chat's market-wide technical scan. The SAME engine the
+                # chart chat calls (screen_universe), so a scan asked in either
+                # place is one computation: filters, industry, daily patterns
+                # and the volume-profile coverage note. `spec` is the tool's
+                # own JSON arguments; anything else is dropped.
+                try:
+                    spec = json.loads(q.get("spec") or "{}")
+                except ValueError:
+                    return self._send(400, {"error": "spec must be JSON"})
+                if not isinstance(spec, dict):
+                    return self._send(400, {"error": "spec must be an object"})
+                allowed = ("filters", "industry", "pattern", "pattern_within",
+                           "sort", "limit")
+                out = tool_screen_universe(
+                    **{k: spec[k] for k in allowed if k in spec})
+                # The engine also composes the chart's screen panel on this
+                # thread. Take it (a later request on the thread must not
+                # inherit it) and pass on what the panel knows that the rows
+                # do not: every matched symbol and the criteria sentence.
+                panel = next((c for c in _card_take()
+                              if c.get("kind") == "screen"), None)
+                if panel and "error" not in out:
+                    out["symbols"] = panel.get("symbols") or []
+                    for key in ("criteria", "ranking"):
+                        if panel.get(key):
+                            out[key] = panel[key]
+                return self._send(200, out)
             if u.path == "/indicators":
                 # the catalogue the chart builds its menu from — one list, so
                 # the menu and the model can never disagree about what exists

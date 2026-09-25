@@ -42,8 +42,17 @@ export type ChatDonePayload = {
 // SSE event discriminated union -----------------------------------------------
 
 export type SseStart = { type: "start" };
-export type SseToolStart = { type: "tool_start"; name: string };
-export type SseToolDone = { type: "tool_done"; name: string; ok: boolean; error: string | null };
+/** `hint` is what the call is about, read off the model's own arguments
+ *  ("NIFTY 50", "TCS and INFY"); absent when the arguments name nothing. */
+export type SseToolStart = { type: "tool_start"; name: string; hint?: string };
+export type SseToolDone = {
+  type: "tool_done";
+  name: string;
+  ok: boolean;
+  error: string | null;
+  /** A card that leads the reply (the price chart), sent before the text ends. */
+  card?: Record<string, unknown>;
+};
 export type SseDelta = { type: "delta"; text: string };
 export type SseReplace = { type: "replace"; text: string };
 export type SseError = { type: "error"; message: string };

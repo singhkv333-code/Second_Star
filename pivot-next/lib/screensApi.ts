@@ -203,12 +203,19 @@ export function loadScreenRows(
 
 export const PENDING_KEY = "pivot.screener.pendingScreen.v1";
 
+/** Fired after a screen is parked. A Screener that is already mounted (it
+ *  stays mounted, hidden, after its first visit) reads it on this event; a
+ *  first visit reads it on mount. Without the event every handover after the
+ *  first opened the tab on the ordinary universe. */
+export const PENDING_SCREEN_EVENT = "pivot:pending-screen";
+
 export function putPendingScreen(s: PendingScreen): void {
   try {
     window.sessionStorage.setItem(PENDING_KEY, JSON.stringify(s));
   } catch {
     /* storage may be denied; the tab switch still happens */
   }
+  window.dispatchEvent(new Event(PENDING_SCREEN_EVENT));
 }
 
 /** Read and CLEAR the pending screen — it is consumed once, by whichever

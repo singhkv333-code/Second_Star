@@ -29,6 +29,7 @@ import {
   getMe,
   type UserProfile,
 } from "@/lib/api";
+import type { ChatPageContext } from "@/lib/chatStream";
 import { isError } from "@/lib/types";
 import { ChatDemo, type ChatDemoSeed, type ResumeConversation } from "@/components/chat/ChatDemo";
 import type { ChatAttachment } from "@/components/chat/ComposerContext";
@@ -60,6 +61,10 @@ type DashboardTabProps = {
   /** Resume a persisted sidebar conversation (forwarded to ChatDemo). */
   resume?: ResumeConversation;
   pageContext?: ChatAttachment;
+  /** The surface grounding block (see lib/pageContext.ts). Distinct from
+   *  `pageContext`, which is a composer ATTACHMENT the user can see and
+   *  remove; this one is ambient and rides with the request. */
+  chatPageContext?: ChatPageContext;
   conversationId?: string;
   onConversationIdChange?: (id: string) => void;
   compact?: boolean;
@@ -205,6 +210,7 @@ export function DashboardTab({
   onSeededPromptConsumed,
   resume,
   pageContext,
+  chatPageContext,
   conversationId,
   onConversationIdChange,
   compact = false,
@@ -318,6 +324,7 @@ export function DashboardTab({
         onDraftFromChat={onDraftFromChat}
         resume={resume}
         pageContext={pageContext}
+        chatPageContext={chatPageContext}
         conversationId={conversationId}
         onConversationIdChange={onConversationIdChange}
         escapeStopsResponse={!compact}

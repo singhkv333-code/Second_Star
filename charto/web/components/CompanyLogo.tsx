@@ -2,6 +2,14 @@
 
 import React, { useState } from "react";
 
+/** True for a logo that is already a finished square tile (SharePerks' icons,
+ *  which carry their own background). Those draw edge to edge; padding and a
+ *  white plate would put a tile inside a tile. Wordmarks (logo.dev) still get
+ *  the padded plate so they don't touch the edge. */
+export function isTileLogo(url?: string | null): boolean {
+  return !!url && url.includes("company-logo.shareperks.in/");
+}
+
 /**
  * CompanyLogo — renders a company's logo (img.logo.dev, served by the
  * backend StockQuote.logo_url) inside a rounded square, falling back to a
@@ -69,7 +77,11 @@ export function CompanyLogo({
       width={size}
       height={size}
       className="shrink-0 object-contain"
-      style={{
+      style={isTileLogo(logoUrl) ? {
+        ...box,
+        // A hairline so a tile with a white background still has an edge.
+        boxShadow: "0 0 0 1px var(--border, rgba(0,0,0,0.06))",
+      } : {
         ...box,
         background: "var(--surface-1, #fff)",
         border: "1px solid var(--border, rgba(0,0,0,0.08))",

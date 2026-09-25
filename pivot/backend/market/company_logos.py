@@ -1,6 +1,10 @@
-"""Company logo resolution (logo.dev), keyed by domain.
+"""Company logo resolution: SharePerks by ISIN, then logo.dev by domain.
 
 Resolution order for a user symbol/ticker:
+  0. SharePerks (``shareperks_logos.json``, ticker -> ISIN) — square icons
+     drawn for ticker lists, 3,155 Indian listings. Only tickers on that list
+     get a URL: its icon route answers 200 with a placeholder for an unknown
+     ISIN. In-memory, so it is checked before Redis and costs nothing.
   1. Curated override (``logo_domain_overrides.json``) — a hand/script-built
      symbol→correct-domain map that corrects the symbols whose guessed domain
      points at the wrong brand. Highest priority.
@@ -14,6 +18,11 @@ Resolution order for a user symbol/ticker:
      known-wrong ones, so it beats a monogram where the enrichment DB has
      no website row.
   4. ``None`` — the frontend falls back to a first-letter monogram.
+
+Every logo.dev URL carries ``fallback=404``. Without it logo.dev answers 200
+with a generated letter tile for a domain it doesn't know, and we stored 12 of
+those as if they were logos (POLICYBZR, HAL, CUB, …). A 404 lets the frontend
+draw OUR monogram, which at least doesn't pretend to be a brand.
 
 Everything fails closed: a disabled / unreachable DB, a missing token, or
 any exception returns ``None`` rather than raising, so a logo lookup can
@@ -44,7 +53,9 @@ logger = logging.getLogger(__name__)
 # enrich-website ONLY, so any symbol with just an override or just a precomputed
 # logo (RELIANCE, ICICIBANK, SBIN, …) was cached as a monogram miss for a week.
 _CACHE_TTL_SECONDS = 7 * 24 * 3600  # logos change rarely; cache a week
-_CACHE_PREFIX = "company_logo:v4:"
+# v5 = logo.dev URLs carry fallback=404 (a cached v4 URL would still serve a
+# generated letter tile as if it were a logo).
+_CACHE_PREFIX = "company_logo:v5:"
 # Curated symbol→domain corrections, loaded once. See _load_overrides.
 _OVERRIDES_PATH = Path(__file__).with_name("logo_domain_overrides.json")
 # Sentinel cached for "we looked, found nothing" so a miss doesn't re-hit
@@ -74,6 +85,28 @@ def _load_overrides() -> dict[str, str]:
 # Loaded once at import; small file, stable for the process lifetime.
 _DOMAIN_OVERRIDES: dict[str, str] = _load_overrides()
 
+# ticker(UPPER) -> ISIN for every listing SharePerks has a real logo for.
+# Refresh with scripts/sync_shareperks_logos.py.
+_SHAREPERKS_PATH = Path(__file__).with_name("shareperks_logos.json")
+_SHAREPERKS_URL = "https://company-logo.shareperks.in/logo/{isin}/icon.svg"
+
+
+def _load_shareperks() -> dict[str, str]:
+    try:
+        return json.loads(_SHAREPERKS_PATH.read_text(encoding="utf-8"))["tickers"]
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[company_logos] shareperks map load failed err=%s", exc)
+        return {}
+
+
+_SHAREPERKS: dict[str, str] = _load_shareperks()
+
+
+def shareperks_logo_url(symbol: str) -> Optional[str]:
+    """SharePerks icon URL for a ticker on its list, else None."""
+    isin = _SHAREPERKS.get((symbol or "").strip().upper())
+    return _SHAREPERKS_URL.format(isin=isin) if isin else None
+
 
 def override_logo_url(symbol: str) -> Optional[str]:
     """img.logo.dev URL for a symbol whose domain we've curated, else None.
@@ -89,7 +122,8 @@ def logo_url_for_domain(domain: str) -> Optional[str]:
     token = (settings.logodev_publishable_token or "").strip()
     if not token or not domain:
         return None
-    return f"https://img.logo.dev/{domain}?token={token}&size=128&format=png"
+    return (f"https://img.logo.dev/{domain}?token={token}"
+            "&size=128&format=png&fallback=404")
 
 
 def _domain_from_website(website: Optional[str]) -> Optional[str]:
@@ -117,6 +151,9 @@ def get_logo_url(symbol_or_sc_id: str) -> Optional[str]:
     key_in = (symbol_or_sc_id or "").strip().upper()
     if not key_in:
         return None
+    sp = shareperks_logo_url(key_in)
+    if sp:
+        return sp
 
     cache_key = _CACHE_PREFIX + key_in
     try:
@@ -164,6 +201,18 @@ def get_logo_urls(symbols: list[str]) -> dict[str, Optional[str]]:
         return {}
 
     out: dict[str, Optional[str]] = {}
+
+    # 0. SharePerks — in-memory, so it never needs Redis or a DB.
+    rest: list[str] = []
+    for k in uniq:
+        sp = shareperks_logo_url(k)
+        if sp:
+            out[k] = sp
+        else:
+            rest.append(k)
+    uniq = rest
+    if not uniq:
+        return out
 
     # 1. One Redis MGET for the whole page (vs one GET per row).
     try:

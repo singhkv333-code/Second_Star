@@ -406,11 +406,29 @@ class LLMOpenAI(LLMClient):
             return final
 
 
+# Sampling-era families: they take `temperature` and have no `reasoning` knob.
+# This is the list that STOPS growing, which is why it is the one we keep.
+_LEGACY_SAMPLING_PREFIXES = ("gpt-3", "gpt-35", "gpt-4")
+
+
 def _is_reasoning_model(name: str) -> bool:
-    """True for GPT-5 family + o-series. Used to decide whether to
-    send reasoning.effort and whether to skip temperature."""
+    """True for every reasoning-era model. Decides two things at once: send
+    `reasoning.effort`, and withhold `temperature` (reasoning models 400 on it).
+
+    This used to be an ALLOWLIST of reasoning prefixes — ("gpt-5", "o1", "o3",
+    "o4") — and it broke the day a new family shipped: switching LLM_MODEL to
+    gpt-6-luna (2026-09-23) made every chat call send `temperature` and every
+    call 400 with "Unsupported parameter: 'temperature'", while reasoning.effort
+    was silently dropped. An allowlist of the FUTURE is wrong by construction.
+
+    So it is inverted: any `gpt-*` is reasoning unless it belongs to a known
+    sampling-era family, and that denylist is finite because those families
+    are no longer being released.
+    """
     n = (name or "").lower()
-    return n.startswith(("gpt-5", "o1", "o3", "o4"))
+    if n.startswith(("o1", "o3", "o4")):
+        return True
+    return n.startswith("gpt-") and not n.startswith(_LEGACY_SAMPLING_PREFIXES)
 
 
 # ── Streaming ──────────────────────────────────────────────────────
@@ -494,6 +512,7 @@ async def stream_openai(
     response_format: Optional[Literal["json_object"]] = None,
     prompt_cache_key: Optional[str] = None,
     hosted_tools: Optional[list[dict[str, Any]]] = None,
+    previous_response_id: Optional[str] = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Stream a Responses API call.
 
@@ -532,6 +551,11 @@ async def stream_openai(
         "input": _messages_to_input(messages),
         "max_output_tokens": max_output_tokens,
     }
+    # Continue a stored response: the provider keeps what that response saw
+    # (web pages it searched, its reasoning), and `messages` carries only
+    # what is new, the tool outputs.
+    if previous_response_id:
+        payload["previous_response_id"] = previous_response_id
     if temperature is not None and not _is_reasoning_model(client.model):
         payload["temperature"] = temperature
     if reasoning_effort and _is_reasoning_model(client.model):

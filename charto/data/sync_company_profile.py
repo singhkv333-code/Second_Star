@@ -12,8 +12,9 @@ of them disagree on company name across the two databases.
                                     (CEO, P/B, EV/Sales, EV/EBITDA)
   mc.v_latest_pl      sc_id      -> EPS (consolidated preferred) for P/E
 
-Logos follow Pivot's ladder exactly (backend/market/company_logos.py): the
-curated override domain first, then the company's real website domain, and
+Logos follow Pivot's ladder exactly (backend/market/company_logos.py):
+SharePerks' square icon by ISIN when the ticker is on its list, then the
+curated override domain, then the company's real website domain, and
 only then the precomputed mc.companies.logo_url — whose domain was *guessed*
 from the name, so it serves the wrong brand for names like RELIANCE
 (reliance.com is not ril.com). No guess is ever preferred over a known domain.
@@ -22,6 +23,8 @@ Prices are NOT copied: the page reads them from charto's own bars, so the
 number on the company page and the number on the chart cannot disagree.
 
 Run:  pivot/.venv/bin/python charto/data/sync_company_profile.py
+      pivot/.venv/bin/python charto/data/sync_company_profile.py --logos-only
+        (re-resolve logo_url for the rows already stored; no Postgres needed)
 """
 from __future__ import annotations
 
@@ -86,15 +89,52 @@ def _domain(website: str | None) -> str | None:
 # soft on a hidpi screen at the 32px the chat and company page draw a mark.
 # Kept identical to sync_instrument_logos.LOGO_FMT so a company logo and a
 # crypto logo are never two different qualities in the same list.
-LOGO_QUERY = f"token={LOGO_TOKEN}&size=256&retina=true&format=png"
+# fallback=404: without it logo.dev answers 200 with a generated letter tile
+# for a domain it doesn't know, and 12 of those were stored as logos.
+LOGO_QUERY = f"token={LOGO_TOKEN}&size=256&retina=true&format=png&fallback=404"
+
+# ticker -> ISIN for every listing SharePerks has a real logo for (its icon
+# route answers 200 with a placeholder otherwise). Pivot's file, one list.
+SHAREPERKS = json.loads(
+    (PIVOT_MARKET / "shareperks_logos.json").read_text())["tickers"]
+SHAREPERKS_URL = "https://company-logo.shareperks.in/logo/{isin}/icon.svg"
 
 
 def _logo(sym: str, website: str | None, precomputed: str | None,
           overrides: dict) -> str | None:
+    isin = SHAREPERKS.get(sym.upper())
+    if isin:
+        return SHAREPERKS_URL.format(isin=isin)
     dom = overrides.get(sym.upper()) or _domain(website)
     if dom:
         return f"https://img.logo.dev/{dom}?{LOGO_QUERY}"
+    if precomputed and "img.logo.dev" in precomputed and "fallback=" not in precomputed:
+        precomputed += "&fallback=404"
     return precomputed or None
+
+
+def _overrides() -> dict:
+    return {k.upper(): v.strip().lower()
+            for k, v in json.loads(
+                (PIVOT_MARKET / "logo_domain_overrides.json").read_text()).items()
+            if not k.startswith("_") and isinstance(v, str)}
+
+
+def logos_only() -> None:
+    """Re-resolve logo_url for the stored rows, from their stored website and
+    the stored URL as the last resort. The full sync needs both Postgres
+    databases; a logo change shouldn't."""
+    db = sqlite3.connect(HERE / "charto_bars.db")
+    ov = _overrides()
+    rows = db.execute("SELECT symbol, website, logo_url FROM company_profile").fetchall()
+    new = [(_logo(s, w, u, ov), s) for s, w, u in rows]
+    db.executemany("UPDATE company_profile SET logo_url = ? WHERE symbol = ?", new)
+    db.commit()
+    db.close()
+    sp = sum(1 for u, _ in new if u and "shareperks" in u)
+    ld = sum(1 for u, _ in new if u and "logo.dev" in u)
+    print(f"company_profile logos: {sp} SharePerks · {ld} logo.dev · "
+          f"{len(new) - sp - ld} none (of {len(new)})")
 
 
 def _yf_ratios(raw: dict) -> tuple:
@@ -165,10 +205,7 @@ def main() -> None:
     en = {r[0]: r[1:] for r in ec.fetchall()}
     enr.close()
 
-    overrides = {k.upper(): v.strip().lower()
-                 for k, v in json.loads(
-                     (PIVOT_MARKET / "logo_domain_overrides.json").read_text()).items()
-                 if not k.startswith("_") and isinstance(v, str)}
+    overrides = _overrides()
 
     rows, disagree = [], []
     now = int(time.time())
@@ -227,4 +264,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    logos_only() if "--logos-only" in sys.argv else main()

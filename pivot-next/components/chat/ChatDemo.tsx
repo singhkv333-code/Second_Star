@@ -58,6 +58,15 @@ import { VoiceInputButton } from "@/components/VoiceInputButton";
 import AssistantMessage from "@/components/chat/AssistantMessage";
 import { IpoApplicationCard } from "@/components/chat/IpoApplicationCard";
 import { IpoListCard } from "@/components/chat/IpoListCard";
+import {
+  ScreenResultsCard,
+  type ScreenResultsPayload,
+} from "@/components/chat/ScreenResultsCard";
+import {
+  PriceChartCard,
+  PriceChartSkeleton,
+  type PriceChartPayload,
+} from "@/components/chat/PriceChartCard";
 import { IpoListedCard } from "@/components/chat/IpoListedCard";
 import { OptionStrategyCard } from "@/components/chat/OptionStrategyCard";
 import { OptionChainLauncherCard } from "@/components/chat/OptionChainLauncherCard";
@@ -77,6 +86,8 @@ import type { CompanySearchResult } from "@/lib/api";
 import type { Workflow, IpoApplicationPayload, IpoListPayload, IpoListedPayload, OptionChainPayload, OptionStrategyPayload, PortfolioGreeksPayload, ClarifyCard as ClarifyCardData, StrategyBuilderCard as StrategyBuilderCardData, ClarifyAnswerRecord } from "@/lib/types";
 import { useActiveDraft } from "@/components/agent-panel/active-draft-context";
 import { getAccessToken } from "@/lib/authToken";
+import type { ChatPageContext } from "@/lib/chatStream";
+import { statusPhrase } from "@/lib/chatStatus";
 import {
   streamChat,
   type ChatDonePayload,
@@ -121,6 +132,8 @@ const EXAMPLE_PROMPT =
  * (e.g. "Drafting workflow…") instead of just "Loading…". */
 type ToolPill = {
   name: string;
+  /** What the call is about ("NIFTY 50"), from the tool's own arguments. */
+  hint?: string;
   /** undefined = still running, true = success, false = error */
   ok: boolean | undefined;
 };
@@ -128,53 +141,22 @@ type ToolPill = {
 
 
 
-/** Self-contained status row for the streaming bubble.
- *
- * Shows in one line:
- *   <spinner>  <one-sentence description of what the model is doing>  ·  <elapsed>s
- *
- * Updates every 250ms so the elapsed counter ticks; the sentence
- * derives from the most recent `tools` and `hasText` props. The user
- * asked for a clean way to track time themselves and see what stage
- * the LLM is at — this is that widget. */
 /**
- * Backend-steps waiting indicator — Notion-AI style.
+ * The loader: one line that never grows.
  *
- * A vertical timeline that grows downward while the system works: one
- * PLAIN WORD per step ("Thinking", "Querying", "Fetching", …), a small
- * dot per row, a thin connector line between dots. No chips, no ticks;
- * earlier steps stay visible in the muted colour and the newest word
- * shimmers. The words are representative of the KIND of work; a real
- * tool call maps onto its word via `toolStepWord` so genuine backend
- * activity shows through as it happens.
+ *   ▮▮▮  6s  Checking NIFTY 50 and SENSEX
+ *
+ * The phrase changes IN PLACE. Words shared with the previous phrase stay
+ * put; the rest blur out together, then the new words blur in one after
+ * another, and the whole line carries the grey `.shimmer` sweep. The timer
+ * sits BEFORE the phrase at a fixed width, so a longer phrase moves nothing.
+ *
+ * Every phrase is true. Before any tool runs it only says the model is
+ * thinking; a running tool shows what it is doing and, when the backend
+ * sends one, what it is about (`hint`, read off the model's own arguments).
+ * The old loader walked a script ("Querying fundamentals", "Searching
+ * news") on a timer whatever the model was actually doing.
  */
-/** One step: a capitalised lead word plus one or two plain supporting
- *  words saying WHAT is being read/queried/fetched — no symbols. */
-type Step = { word: string; detail: string };
-
-const STEP_SCRIPT: readonly Step[] = [
-  { word: "Thinking", detail: "" },
-  { word: "Reading", detail: "context" },
-  { word: "Querying", detail: "fundamentals" },
-  { word: "Fetching", detail: "market data" },
-  { word: "Computing", detail: "indicators" },
-  { word: "Searching", detail: "news" },
-];
-
-/** Lead word + support for a REAL tool call. */
-function toolStep(name: string): Step {
-  const n = name.toLowerCase();
-  if (/portfolio|holding|position|paper/.test(n)) return { word: "Querying", detail: "portfolio" };
-  if (/fundamental|financ|screen|compan/.test(n)) return { word: "Querying", detail: "fundamentals" };
-  if (/price|ohlc|quote|index|market_data|52wk|history/.test(n)) return { word: "Fetching", detail: "prices" };
-  if (/news|event|sentiment/.test(n)) return { word: "Searching", detail: "news" };
-  if (/backtest/.test(n)) return { word: "Computing", detail: "backtest" };
-  if (/compare|correlat/.test(n)) return { word: "Computing", detail: "comparison" };
-  if (/calculat|greek|margin|indicator/.test(n)) return { word: "Computing", detail: "metrics" };
-  if (/order|basket/.test(n)) return { word: "Preparing", detail: "order" };
-  if (/propose|build|create|workflow|strategy/.test(n)) return { word: "Drafting", detail: "strategy" };
-  return { word: "Working", detail: "" };
-}
 
 /** Mini price-chart ticker — three bars rising/falling on
  *  independent periods so the trio reads as a live equalizer
@@ -193,78 +175,89 @@ function WittyTicker(): React.ReactElement {
   );
 }
 
-/** One timeline row: dot + lead word (slightly weighted) + supporting
- *  words. The newest line shimmers as a whole. */
-function StepRow({ step, active }: { step: Step; active: boolean }): React.ReactElement {
-  return (
-    <div className={`chat-step ${active ? "chat-step-active" : ""}`}>
-      <span className="chat-step-dot" aria-hidden={true} />
-      <span className={`chat-step-label ${active ? "shimmer" : ""}`}>
-        <span className="chat-step-word">{step.word}</span>
-        {step.detail ? ` ${step.detail}` : ""}
-      </span>
-    </div>
-  );
-}
+const WORD_OUT_MS = 160;
+const WORD_IN_MS = 360;
+const WORD_STAGGER_MS = 70;
+/** A phrase stays fully readable at least this long after it lands, so a
+ *  burst of parallel tool starts doesn't strobe; the latest phrase wins. */
+const MIN_DWELL_MS = 800;
 
-/** The Notion-style vertical step timeline. Grows downward — every step
- *  stays visible; dots connect with a thin line (CSS ::before on rows).
- *  Walks `STEP_SCRIPT` while the model thinks (no looping — holds on the
- *  last word), surfaces real tool calls as their own word, and appends
- *  "Writing" once reply text starts streaming. */
-function ChatSteps({
-  tools,
-  hasText,
+/**
+ * Word-by-word morph. `settled` words carry the parent's shimmer; words
+ * that are animating paint their own solid grey, because a child with its
+ * own opacity/filter/transform layer is left out of the parent's
+ * `background-clip: text` and would otherwise go INVISIBLE mid-animation.
+ * Once a word lands it drops its animation class and joins the sweep, so
+ * the shine runs continuously across the whole line.
+ */
+function MorphText({
+  text,
+  onLanded,
 }: {
-  tools: ToolPill[];
-  hasText: boolean;
+  text: string;
+  /** Fires once every word of `text` has landed. */
+  onLanded?: () => void;
 }): React.ReactElement {
-  const [steps, setSteps] = useState<Step[]>([STEP_SCRIPT[0]!]);
-  const cursor = useRef<number>(1);
-  const seenTools = useRef<Set<string>>(new Set());
+  // `landed` is the phrase fully on screen, and it is STATE, not a ref:
+  // StrictMode runs an effect, cleans it up and runs it again, and a ref
+  // marked "shown" before the timers fired made the re-run a no-op, so the
+  // first "Thinking" never appeared. A cancelled run now just redoes it.
+  const [landed, setLanded] = useState<string>("");
+  const [settled, setSettled] = useState<string[]>([]);
+  const [leaving, setLeaving] = useState<string[]>([]);
+  const [entering, setEntering] = useState<string[]>([]);
+  const [gen, setGen] = useState(0);
+  const landedCb = useRef(onLanded);
+  landedCb.current = onLanded;
 
-  // Never repeat the line that's already at the bottom of the timeline.
-  const pushStep = (s: Step): void => {
-    setSteps((prev) => {
-      const last = prev[prev.length - 1];
-      return last && last.word === s.word && last.detail === s.detail
-        ? prev
-        : [...prev, s];
-    });
-  };
-
-  // Scripted progression while thinking — unhurried cadence, no loop.
   useEffect(() => {
-    if (hasText) return;
-    const iv = window.setInterval(() => {
-      if (cursor.current >= STEP_SCRIPT.length) return; // hold on the last line
-      pushStep(STEP_SCRIPT[cursor.current]!);
-      cursor.current += 1;
-    }, 2600);
-    return () => window.clearInterval(iv);
-  }, [hasText]);
+    if (text === landed) return;
+    const prev = landed ? landed.split(" ") : [];
+    const next = text.split(" ");
+    let keep = 0;
+    while (keep < prev.length && keep < next.length && prev[keep] === next[keep]) keep += 1;
+    const out = prev.slice(keep);
+    const inc = next.slice(keep);
+    const timers: number[] = [];
 
-  // Surface real tool calls as they begin (once per tool).
-  useEffect(() => {
-    const pending = tools.find((t) => t.ok === undefined);
-    if (!pending || seenTools.current.has(pending.name)) return;
-    seenTools.current.add(pending.name);
-    pushStep(toolStep(pending.name));
-  }, [tools]);
+    setSettled(next.slice(0, keep));
+    setLeaving(out);
+    setEntering([]);
+    timers.push(window.setTimeout(() => {
+      setLeaving([]);
+      setEntering(inc);
+      setGen((g) => g + 1);
+      const inMs = WORD_IN_MS + Math.max(0, inc.length - 1) * WORD_STAGGER_MS;
+      timers.push(window.setTimeout(() => {
+        setSettled(next);
+        setEntering([]);
+        setLanded(text);
+        landedCb.current?.();
+      }, inMs));
+    }, out.length ? WORD_OUT_MS : 0));
+    return () => timers.forEach((t) => window.clearTimeout(t));
+  }, [text, landed]);
 
-  // Reply text streaming → the final step.
-  useEffect(() => {
-    if (hasText) pushStep({ word: "Writing", detail: "reply" });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasText]);
-
-  const lastIdx = steps.length - 1;
   return (
-    <div className="flex flex-col" style={{ gap: 4 }}>
-      {steps.map((s, i) => (
-        <StepRow key={`${i}-${s.word}-${s.detail}`} step={s} active={i === lastIdx} />
+    <span className="status-phrase shimmer">
+      {settled.map((w, i) => (
+        <span key={`s${i}-${w}`}>{i > 0 ? " " : ""}{w}</span>
       ))}
-    </div>
+      {leaving.map((w, i) => (
+        <span key={`l${i}-${w}`} className="status-word status-word-out">
+          {settled.length + i > 0 ? " " : ""}{w}
+        </span>
+      ))}
+      {entering.map((w, i) => (
+        <span
+          key={`e${gen}-${i}`}
+          className="status-word status-word-in"
+          style={{ animationDelay: `${i * WORD_STAGGER_MS}ms` }}
+        >
+          {settled.length + i > 0 ? " " : ""}{w}
+        </span>
+      ))}
+    </span>
   );
 }
 
@@ -273,33 +266,49 @@ function StreamingStatusBar({
   tools,
   hasText,
 }: {
-  startedAt: number;
+  startedAt?: number;
   tools: ToolPill[];
   hasText: boolean;
 }): React.ReactElement {
+  const [t0] = useState<number>(() => startedAt ?? Date.now());
   const [now, setNow] = useState<number>(() => Date.now());
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 250);
     return () => window.clearInterval(id);
   }, []);
-  const elapsedSec = Math.max(0, Math.round((now - startedAt) / 1000));
+  const elapsedMs = Math.max(0, now - t0);
+  const elapsedSec = Math.round(elapsedMs / 1000);
 
-  // Header row keeps the "load bar" (the 3-bar ticker) + a live elapsed
-  // counter; the backend-steps stack below shows WHAT the system is doing
-  // (routing → queries → data → tools → compute → compose). The old
-  // cycling adjectives are gone — steps carry the signal now.
+  const target = statusPhrase(tools, hasText, elapsedMs);
+  const [shown, setShown] = useState<string>(target);
+  // Dwell counts from when the phrase has fully LANDED, so it is readable
+  // for MIN_DWELL_MS, not partly spent on its own blur-in. Until then the
+  // next phrase waits (latest wins).
+  const [landedAt, setLandedAt] = useState<number | null>(null);
+  useEffect(() => {
+    if (target === shown || landedAt === null) return;
+    const wait = MIN_DWELL_MS - (Date.now() - landedAt);
+    const id = window.setTimeout(() => {
+      setLandedAt(null);
+      setShown(target);
+    }, Math.max(0, wait));
+    return () => window.clearTimeout(id);
+  }, [target, shown, landedAt]);
+
   return (
     <div
-      className="flex flex-col gap-2"
+      className="status-line"
       data-testid="streaming-status"
+      role="status"
+      aria-label={shown}
     >
-      <div className="flex items-center gap-2.5 text-xs text-muted-foreground">
-        <WittyTicker />
-        <span className="tabular-nums" aria-label={`${elapsedSec} seconds elapsed`}>
-          {elapsedSec}s
-        </span>
-      </div>
-      <ChatSteps tools={tools} hasText={hasText} />
+      <WittyTicker />
+      <span className="status-elapsed tabular-nums" aria-hidden={true}>
+        {elapsedSec}s
+      </span>
+      <span aria-hidden={true} style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
+        <MorphText text={shown} onLanded={() => setLandedAt(Date.now())} />
+      </span>
     </div>
   );
 }
@@ -311,7 +320,14 @@ type Message =
   /** Transient streaming bubble — replaced by a final kind on `done`.
    * `startedAt` is the unix-ms timestamp when the bubble was created;
    * the `StreamingStatusBar` reads it to render an elapsed counter. */
-  | { kind: "streaming"; text: string; tools: ToolPill[]; startedAt: number }
+  | {
+      kind: "streaming";
+      text: string;
+      tools: ToolPill[];
+      startedAt: number;
+      /** The price chart leading this reply; "pending" draws its skeleton. */
+      chart?: PriceChartPayload | "pending";
+    }
   | { kind: "draft"; draft: WorkflowDraft; intro: string }
   | { kind: "indicator_backtest"; payload: IndicatorBacktestPayload; intro: string }
   | { kind: "financial_backtest"; payload: FinancialBacktestPayload; intro: string }
@@ -319,6 +335,8 @@ type Message =
   | { kind: "synthetic_security"; payload: SyntheticSecurityPayload; intro: string }
   | { kind: "ipo_application"; payload: IpoApplicationPayload; intro: string }
   | { kind: "ipo_list"; payload: IpoListPayload; intro: string }
+  | { kind: "screen_results"; payload: ScreenResultsPayload; intro: string }
+  | { kind: "price_chart"; payload: PriceChartPayload; intro: string }
   | { kind: "ipo_listed"; payload: IpoListedPayload; intro: string }
   | { kind: "option_chain"; payload: OptionChainPayload; intro: string }
   | { kind: "option_strategy"; payload: OptionStrategyPayload; intro: string }
@@ -382,6 +400,11 @@ type ChatDemoProps = {
    * the same attachment chip and sent through the same request path as
    * user-selected context. */
   pageContext?: ChatAttachment;
+  /** Ambient surface grounding (lib/pageContext.ts) — which tab the composer
+   *  is floating over and what that tab can reach. Sent with every turn as
+   *  `page_context`; unlike `pageContext` above it is not an attachment chip
+   *  and the user does not manage it. */
+  chatPageContext?: ChatPageContext;
   /** Existing active id used while a persisted transcript is rehydrating. */
   conversationId?: string;
   /** Announces the stable backend conversation id owned by this instance. */
@@ -521,6 +544,22 @@ function hintToMessage(
     };
   }
 
+  if (hint === "screen_results_card" && rawData && Array.isArray(rawData.results)) {
+    return {
+      kind: "screen_results",
+      payload: rawData as unknown as ScreenResultsPayload,
+      intro: responseText,
+    };
+  }
+
+  if (hint === "price_chart_card" && rawData && Array.isArray(rawData.symbols)) {
+    return {
+      kind: "price_chart",
+      payload: rawData as unknown as PriceChartPayload,
+      intro: responseText,
+    };
+  }
+
   if (hint === "ipo_list_card" && rawData) {
     return {
       kind: "ipo_list",
@@ -616,6 +655,7 @@ export function ChatDemo({
   onDraftFromChat,
   resume,
   pageContext,
+  chatPageContext,
   conversationId,
   onConversationIdChange,
   escapeStopsResponse = true,
@@ -667,6 +707,12 @@ export function ChatDemo({
   const pageContextKeyRef = useRef<string | null>(
     pageContext ? attachmentKey(pageContext) : null,
   );
+  // Held in a ref rather than closed over: the surface block changes whenever
+  // the portfolio poll lands or the user switches tab, and rebuilding `send`
+  // on each of those would tear down the composer's handlers mid-conversation.
+  // The send path wants the value AT SEND TIME, which is exactly what a ref is.
+  const chatPageContextRef = useRef<ChatPageContext | undefined>(chatPageContext);
+  useEffect(() => { chatPageContextRef.current = chatPageContext; }, [chatPageContext]);
   // Reply-by-selecting state. `reply` is the snippet the user committed
   // to reply to (shown as a quote chip above the composer + sent with
   // the next message). `selectionReply` is the transient floating
@@ -1147,6 +1193,13 @@ export function ChatDemo({
         clarifyMsgIdxRef.current = -1;
       }
       next[streamingIdx] = finalMessage;
+      // A price chart rides along with another card (a draft, a backtest):
+      // the backend hoists the other one, and the chart leads the reply.
+      const chart = (data.raw_data as Record<string, unknown> | null | undefined)
+        ?.show_price_chart as PriceChartPayload | undefined;
+      if (finalMessage.kind !== "price_chart" && Array.isArray(chart?.symbols)) {
+        next.splice(streamingIdx, 0, { kind: "price_chart", payload: chart!, intro: "" });
+      }
       return next;
     });
   }
@@ -1268,9 +1321,12 @@ export function ChatDemo({
         quote,
         editorDraft,
         wireAttachments,
+        chatPageContextRef.current,
       );
 
+      let finished = false;
       for await (const event of gen) {
+        if (event.type === "done") finished = true;
         switch (event.type) {
           case "start":
             // Bubble already appended; nothing extra to do.
@@ -1283,7 +1339,13 @@ export function ChatDemo({
               if (bubble?.kind !== "streaming") return prev;
               next[streamingIdx] = {
                 ...bubble,
-                tools: [...bubble.tools, { name: event.name, ok: undefined }],
+                tools: [
+                  ...bubble.tools,
+                  { name: event.name, hint: event.hint, ok: undefined },
+                ],
+                ...(event.name === "show_price_chart" && !bubble.chart
+                  ? { chart: "pending" as const }
+                  : {}),
               };
               return next;
             });
@@ -1300,7 +1362,13 @@ export function ChatDemo({
                   ? { ...p, ok: event.ok }
                   : p,
               );
-              next[streamingIdx] = { ...bubble, tools };
+              const chart =
+                event.name !== "show_price_chart"
+                  ? bubble.chart
+                  : event.ok && Array.isArray(event.card?.symbols)
+                    ? (event.card as unknown as PriceChartPayload)
+                    : undefined; // failed: the model may re-call it
+              next[streamingIdx] = { ...bubble, tools, chart };
               return next;
             });
             break;
@@ -1361,6 +1429,12 @@ export function ChatDemo({
             } catch { /* non-browser env */ }
             break;
         }
+      }
+      // A stream that closes without `done` was cut somewhere on the way (a
+      // proxy timeout, a dropped connection, a server restart). Say so:
+      // without this the bubble kept its loader forever.
+      if (!finished) {
+        throw new Error("The connection closed before the answer finished. Please try again.");
       }
     } catch (err) {
       if ((err as { name?: string }).name === "AbortError") return;
@@ -1431,15 +1505,20 @@ export function ChatDemo({
   // threading state through the send path) means a restored conversation gets
   // them too, not just one sent in this session. The hook is called here, once
   // per render, because it cannot be called inside the message map.
+  // A reply that carries a card (a screen, a backtest, a draft) keeps its
+  // text in `intro`, not as an "assistant" message; reading only "assistant"
+  // skipped every carded answer, so they never got suggestions.
   const lastExchange = ((): { q: string; a: string } => {
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
-      if (!m || m.kind !== "assistant") continue;
+      if (!m || m.kind === "user") break;
+      const text = m.kind === "assistant" ? m.text : "intro" in m ? m.intro : "";
+      if (!text) continue;
       for (let j = i - 1; j >= 0; j--) {
         const u = messages[j];
-        if (u && u.kind === "user") return { q: u.text, a: m.text };
+        if (u && u.kind === "user") return { q: u.text, a: text };
       }
-      return { q: "", a: m.text };
+      return { q: "", a: text };
     }
     return { q: "", a: "" };
   })();
@@ -1550,6 +1629,15 @@ export function ChatDemo({
                         tools={msg.tools}
                         hasText={msg.text.length > 0}
                       />
+                      {msg.chart && (
+                        <div className="mt-3">
+                          {msg.chart === "pending" ? (
+                            <PriceChartSkeleton />
+                          ) : (
+                            <PriceChartCard payload={msg.chart} />
+                          )}
+                        </div>
+                      )}
                       {msg.text ? (
                         // While text is streaming we still want copy/retry
                         // available the moment any text exists, so wrap
@@ -1698,6 +1786,38 @@ export function ChatDemo({
                   <div className="flex justify-start">
                     <SyntheticSecurityCard payload={msg.payload} />
                   </div>
+                </div>
+              );
+            }
+            if (msg.kind === "screen_results") {
+              return (
+                <div key={idx} className="flex flex-col gap-3">
+                  {msg.intro && (
+                    <div className="flex justify-start">
+                      <div className="flex w-full items-start">
+                        <AssistantBubble text={msg.intro} onRetry={onRetryAssistant}>
+                          <AssistantMessage text={msg.intro} />
+                        </AssistantBubble>
+                      </div>
+                    </div>
+                  )}
+                  <ScreenResultsCard payload={msg.payload} />
+                </div>
+              );
+            }
+            if (msg.kind === "price_chart") {
+              return (
+                <div key={idx} className="flex flex-col gap-3">
+                  <PriceChartCard payload={msg.payload} />
+                  {msg.intro && (
+                    <div className="flex justify-start">
+                      <div className="flex w-full items-start">
+                        <AssistantBubble text={msg.intro} onRetry={onRetryAssistant}>
+                          <AssistantMessage text={msg.intro} />
+                        </AssistantBubble>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             }
@@ -1926,39 +2046,7 @@ export function ChatDemo({
               aria-live="polite"
               aria-label="Generating response"
             >
-              <div
-                className="inline-flex items-center"
-                style={{
-                  gap: 12,
-                  padding: "10px 14px",
-                  borderRadius: "var(--radius-md)",
-                  background: "var(--bg-primary)",
-                  border: "1px solid var(--glass-border)",
-                  fontFamily: "var(--font-ui)",
-                  fontSize: 13,
-                  color: "var(--text-secondary)",
-                  position: "relative",
-                  overflow: "hidden",
-                }}
-              >
-                <WittyTicker />
-                <span className="chat-step-label shimmer">Thinking</span>
-                {/* Subtle shimmer across the bubble's bottom edge so
-                    something is always animating even when the phrase
-                    is between cycles. */}
-                <span
-                  aria-hidden={true}
-                  className="witty-shimmer"
-                  style={{
-                    position: "absolute",
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    height: 2,
-                    pointerEvents: "none",
-                  }}
-                />
-              </div>
+              <StreamingStatusBar tools={[]} hasText={false} />
             </div>
           )}
         </div>

@@ -14,21 +14,16 @@
   // same-origin behind a proxy, explicit port in local dev (see main.js)
   const LOCAL_DEV = ["localhost", "127.0.0.1"].includes(location.hostname);
   const API = LOCAL_DEV ? "http://127.0.0.1:5174" : "";
-  /* Execution mode is a LAPTOP-ONLY surface for now.
+  /* Execution mode was laptop-only while the deployed box had nowhere to keep
+   * a strategy: a visitor could compose a rule, be told it was saved, and
+   * find nothing afterwards. The paper book and /strategies now hold them, and
+   * the deployed dataserver loads Pivot's engine (/health?deep=1 reports
+   * execution ok), so it is on everywhere since 2026-09-25.
    *
-   * It builds and simulates a strategy well and then forgets it: there is no
-   * saved-strategy list behind the deployed box, so a visitor can compose a
-   * rule, be told it was saved, and find nothing afterwards. Shipping that to
-   * anyone who opens the site is worse than not offering it yet.
-   *
-   * The half that is finished — Research — is what the site answers with, so
-   * the switch STAYS, both halves visible and the same size. A control that
-   * vanished in production would make the mode itself undiscoverable and
-   * leave the remaining half looking like a lone unexplained label. It is
-   * inert and says why on hover instead, which is the honest version of the
-   * same screen. One flag, read in setChatMode below, so the click, the
-   * arrow keys and the phone menu are all governed by a single rule. */
-  const EXECUTION_ENABLED = LOCAL_DEV;
+   * One flag, read in setChatMode below, so the click, the arrow keys and the
+   * phone menu are all governed by a single rule. Set false and the switch
+   * stays, inert, saying "Coming soon" on hover. */
+  const EXECUTION_ENABLED = true;
   const el = (id) => document.getElementById(id);
   const msgsEl = el("chatMsgs"), threadEl = el("thread"), input = el("chatInput"),
         sendBtn = el("chatSend"), panel = el("chatPanel");

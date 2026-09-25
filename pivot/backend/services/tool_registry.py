@@ -12,6 +12,7 @@ is real.
 from __future__ import annotations
 
 import json
+from typing import Any
 import logging
 import math
 import re
@@ -275,7 +276,38 @@ class ToolResult:
         # single round. Give that one batched result enough room for quarterly
         # rows/cited facts; every other tool keeps the established small cap.
         cap = 24_000 if self.name == "get_company_research" else 6_000
-        return json.dumps(self.data, default=str)[:cap]
+        return _fit_for_llm(self.data, cap)
+
+
+def _fit_for_llm(data: Any, cap: int) -> str:
+    """JSON for the model within ``cap`` characters, still valid JSON.
+
+    A plain ``[:cap]`` cut a 100-row screen after row 39 mid-object: the model
+    got broken JSON with no sign anything was missing, and lost the
+    ``_render_hint`` at the tail. Here the longest top-level list is trimmed to
+    the rows that fit and the result says so; only a result with no list to
+    trim falls back to the raw cut.
+    """
+    raw = json.dumps(data, default=str)
+    if len(raw) <= cap or not isinstance(data, dict):
+        return raw[:cap]
+    lists = [(k, v) for k, v in data.items() if isinstance(v, list) and v]
+    if not lists:
+        return raw[:cap]
+    key, rows = max(lists, key=lambda kv: len(json.dumps(kv[1], default=str)))
+    card = bool(data.get("_render_hint"))
+    lo, hi = 0, len(rows)
+    best = None
+    while lo <= hi:  # largest prefix that fits, with the note included
+        n = (lo + hi) // 2
+        note = (f"{n} of {len(rows)} {key} shown to you, trimmed for length"
+                + ("; the user's card shows all of them" if card else ""))
+        s = json.dumps({**data, key: rows[:n], "_trimmed": note}, default=str)
+        if len(s) <= cap:
+            best, lo = s, n + 1
+        else:
+            hi = n - 1
+    return best if best is not None else raw[:cap]
 
 
 def get_tool_schema() -> list[dict]:

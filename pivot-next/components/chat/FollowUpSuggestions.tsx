@@ -14,7 +14,7 @@
 "use client";
 
 import { CornerDownRight } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { getAccessTokenSync } from "@/lib/authToken";
 
@@ -98,6 +98,11 @@ function FollowUpRow({
   );
 }
 
+// Suggestions by question+answer, for the tab's lifetime. Coming back to a
+// thread (a route change remounts the chat) shows the same set at once instead
+// of a fresh model call, and a different set each time.
+const settled = new Map<string, string[]>();
+
 /**
  * Ask the backend what to suggest, once, after `answer` settles.
  *
@@ -112,7 +117,6 @@ export function useFollowUps(
   enabled: boolean,
 ): string[] {
   const [suggestions, setSuggestions] = useState<string[]>([]);
-  const keyRef = useRef<string>("");
 
   useEffect(() => {
     // Short answers ("hi", a price) have no natural next question that isn't
@@ -121,9 +125,16 @@ export function useFollowUps(
       setSuggestions([]);
       return;
     }
-    const key = `${question} ${answer}`;
-    if (keyRef.current === key) return;
-    keyRef.current = key;
+    // Only a result that ARRIVED marks a pair as done. Marking it when the
+    // request started meant a request aborted mid-flight (the thread restores
+    // in steps after a route change, and each step re-runs this) left the pair
+    // "done" with nothing to show, so the block stayed empty.
+    const key = `${question}\u0000${answer}`;
+    const known = settled.get(key);
+    if (known) {
+      setSuggestions(known);
+      return;
+    }
     setSuggestions([]);
 
     const ac = new AbortController();
@@ -151,9 +162,9 @@ export function useFollowUps(
         if (!res.ok) return;
         const data: { suggestions?: unknown } = await res.json();
         if (Array.isArray(data.suggestions)) {
-          setSuggestions(
-            data.suggestions.filter((s): s is string => typeof s === "string"),
-          );
+          const got = data.suggestions.filter((s): s is string => typeof s === "string");
+          if (got.length) settled.set(key, got);
+          setSuggestions(got);
         }
       } catch {
         // Best-effort by design — the answer stands without suggestions.

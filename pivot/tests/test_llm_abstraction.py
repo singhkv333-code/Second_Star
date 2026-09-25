@@ -245,6 +245,18 @@ def test_is_reasoning_model_classification():
     assert _is_reasoning_model("") is False
 
 
+def test_new_model_families_are_reasoning_by_default():
+    """gpt-6-luna 400'd on every call because the check was an allowlist of
+    reasoning prefixes and gpt-6 wasn't on it, so `temperature` was sent."""
+    for name in ("gpt-6-luna", "gpt-6-sol", "gpt-6-astra", "gpt-5.6-luna",
+                 "gpt-7", "gpt-oss-120b"):
+        assert _is_reasoning_model(name) is True, name
+    # The sampling-era families still get temperature.
+    for name in ("gpt-4", "gpt-4o", "gpt-4.1-mini", "gpt-35-turbo",
+                 "gpt-3.5-turbo", "claude-opus-5", "mistral-large"):
+        assert _is_reasoning_model(name) is False, name
+
+
 @pytest.mark.asyncio
 async def test_openai_returns_error_on_missing_key():
     client = LLMOpenAI(model="gpt-5-mini", api_key="")
