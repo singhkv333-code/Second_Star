@@ -146,11 +146,12 @@ export function Segmented({
               fontFamily: "var(--font-ui)",
               fontSize: 12.5,
               fontWeight: on ? 600 : 400,
-              color: on
-                ? underline ? "var(--pivot-blue, #1b7cc7)" : "var(--text-primary)"
-                : "var(--text-secondary)",
+              // Underlined and plain segments both mark the live option in
+              // ink. An accent rule under one of four words was the loudest
+              // thing in a panel whose job is to be read.
+              color: on ? "var(--text-primary)" : "var(--text-secondary)",
               borderBottom: underline
-                ? `2px solid ${on ? "var(--pivot-blue, #1b7cc7)" : "transparent"}`
+                ? `2px solid ${on ? "var(--text-primary)" : "transparent"}`
                 : "none",
               transition: "color 150ms ease, border-color 150ms ease",
             }}

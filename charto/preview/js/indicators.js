@@ -290,13 +290,29 @@ const Indicators = (() => {
    * purpose, and MACD's signal is meant to contrast with MACD. Only the
    * unnamed fallback rotates.
    *
+   * PANE indicators rotate too, and this was not always so. They were held at
+   * slot 0 on the reasoning that each one owns its own box, so nothing could
+   * collide. Nothing collides, but a stack of them all comes out the same s1
+   * gold: CCI, ATR and Williams %R below one chart were three identical gold
+   * lines, and the legend swatch that is supposed to say WHICH study a row
+   * belongs to said nothing. Panes are read as a COLUMN, so they need to
+   * differ from each other for the same reason two SMAs do.
+   *
+   * They rotate on their OWN pool, though, keyed by `slotPool`. A shared
+   * counter would let four moving averages on price push the first oscillator
+   * to s5, which makes a pane's colour depend on how many overlays happen to
+   * be loaded — the same CCI coming back a different colour tomorrow. Two
+   * pools keep each column's sequence stable and starting at s1.
+   *
    * The slot is stored in the instance's own style, so it survives a reload
    * and a recolour, and the lowest free one is reused after a removal
    * rather than drifting up forever. */
-  function allocSlot() {
+  function allocSlot(pool) {
     const used = new Set();
     for (const s of LIVE.values()) {
-      const v = s && s.style && s.style.slot;
+      if (!s || !s.style) continue;
+      if ((s.style.slotPool || "overlay") !== pool) continue;
+      const v = s.style.slot;
       if (Number.isInteger(v)) used.add(v);
     }
     for (let i = 0; i < 64; i++) if (!used.has(i)) return i;
@@ -449,7 +465,7 @@ const Indicators = (() => {
     return out;
   }
 
-  function factorySettings(def, slot) {
+  function factorySettings(def, slot, slotPool) {
     const params = {};
     for (const f of def.inputs || []) {
       if (f.key !== "period") params[f.key] = f.default;
@@ -462,7 +478,8 @@ const Indicators = (() => {
       symbol: "",
       style: {
         plots: plotDefaults(def, slot),
-        slot,          // null on pane indicators — they do not rotate
+        slot,
+        slotPool,      // "overlay" or "pane" — each rotates on its own pool
         precision: "default",
         statusLine: true,
         inputsStatusLine: true,
@@ -500,7 +517,6 @@ const Indicators = (() => {
    *  session saved in dark comes back wearing dark's line colours on white. */
   function refreshThemeColors(def, s) {
     const slot = Number.isInteger(s.style && s.style.slot) ? s.style.slot : 0;
-    const paneKind = def.kind !== "overlay";
     (def.lines || []).forEach((n, i) => {
       const plot = s.style.plots[n];
       if (!plot || plot.custom) return;
@@ -513,7 +529,7 @@ const Indicators = (() => {
         plot.color = Theme.c("histUp");
         plot.colorDown = Theme.c("histDown");
       } else {
-        plot.color = roleColor(n, i + (paneKind ? 0 : slot));
+        plot.color = roleColor(n, i + slot);
       }
     });
   }
@@ -528,13 +544,16 @@ const Indicators = (() => {
     // allocated BEFORE the merges so a saved slot still wins, and the
     // entry is parked in LIVE first so two indicators added in the same
     // tick cannot both be handed the same one
-    const rotates = def.kind === "overlay";
-    let s = factorySettings(def, rotates ? allocSlot() : null);
+    const pool = def.kind === "overlay" ? "overlay" : "pane";
+    let s = factorySettings(def, allocSlot(pool), pool);
     LIVE.set(id, s);
     if (FACTORY[def.name]) s = merge(s, FACTORY[def.name]);
     if (SAVED[id]) s = merge(s, SAVED[id]);
-    if (rotates && !Number.isInteger(s.style.slot)) s.style.slot = allocSlot();
-    if (!rotates) s.style.slot = null;
+    // A blob saved before panes rotated carries slot:null and no pool, so the
+    // pool is re-stamped from the def (the kind is the truth, not the blob)
+    // and a missing slot is allocated rather than falling back to 0.
+    s.style.slotPool = pool;
+    if (!Number.isInteger(s.style.slot)) s.style.slot = allocSlot(pool);
     refreshThemeColors(def, s);
     LIVE.set(id, s);
     return s;

@@ -27,7 +27,6 @@ import {
   XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { getRun, getWorkflow, listRuns, listWorkflows } from "@/lib/api";
 import { isError } from "@/lib/types";
@@ -569,11 +568,54 @@ function ChecklistIcon({ kind }: { kind: ChecklistKind }): React.ReactElement {
 // Skeleton
 // ---------------------------------------------------------------------------
 
+/* Same rule as the agents grid: a skeleton is a picture of the card. Three
+   bare h-44 blocks drew empty bordered boxes in the shadcn primitive's own
+   palette, which is not the palette the rail's cards are built from — so the
+   loading state read as a different surface than the thing it was loading.
+   Wear the card's shell and stand in for its parts: chip + status pill, the
+   two-line title, and the checklist rows under their rule. */
 function AgentRailSkeleton(): React.ReactElement {
+  const bar = (w: string | number, h: number, radius = 4) => (
+    <span
+      style={{
+        display: "block",
+        width: w,
+        height: h,
+        borderRadius: radius,
+        background: "var(--surface-track)",
+        opacity: 0.7,
+      }}
+    />
+  );
+
   return (
     <div className="flex flex-col gap-3" data-testid="rail-loading">
       {Array.from({ length: 3 }).map((_, i) => (
-        <Skeleton key={i} className="h-44 w-full rounded-2xl" />
+        <div
+          key={i}
+          className={cn(
+            "flex flex-col gap-4 rounded-2xl border border-border/50 bg-card px-5 py-5",
+            "shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_20px_-12px_rgba(15,23,42,0.08)]",
+          )}
+          aria-hidden={true}
+        >
+          <div className="flex items-center justify-between gap-3">
+            {bar(72, 18, 6)}
+            {bar(58, 20, 9999)}
+          </div>
+          <div className="flex flex-col gap-1.5">
+            {bar("80%", 15)}
+            {bar("52%", 15)}
+          </div>
+          <div className="flex flex-col gap-2.5 border-t border-border/40 pt-4">
+            {Array.from({ length: 3 }).map((_, j) => (
+              <div key={j} className="flex items-center gap-2.5">
+                {bar(14, 14, 9999)}
+                {bar(j === 1 ? "68%" : "84%", 10)}
+              </div>
+            ))}
+          </div>
+        </div>
       ))}
     </div>
   );

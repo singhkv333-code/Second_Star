@@ -6,6 +6,7 @@ import * as React from "react";
 
 import type { DealsResponse } from "@/lib/api";
 import { EmptyNote, PanelHead } from "./chrome";
+import { Select } from "./Select";
 
 // The earth pair this started on — a muted moss against a terracotta — sat at
 // nearly the same lightness and chroma, so the two legs of a block overlapped
@@ -54,7 +55,7 @@ export function DealsPanel({ data }: { data: DealsResponse }): React.ReactElemen
   const deals = [...(data.deals ?? [])].filter(d => kind === "all" || d.kind === kind).sort((a,b) => b.d.localeCompare(a.d));
   const shown = all ? deals : deals.slice(0, 8);
   return <div>
-    <PanelHead title="Bulk and block deals" right={<select aria-label="Deal type" value={kind} onChange={e => { setKind(e.target.value); setAll(false); }} style={{ background: "var(--bg-secondary)", border: "1px solid var(--glass-border)", borderRadius: 8, padding: "7px 12px", fontSize: 12 }}><option value="all">All deals</option><option value="bulk">Bulk</option><option value="block">Block</option></select>} />
+    <PanelHead title="Bulk and block deals" right={<Select ariaLabel="Deal type" value={kind} onChange={(v) => { setKind(v); setAll(false); }} options={[{ value: "all", label: "All deals" }, { value: "bulk", label: "Bulk" }, { value: "block", label: "Block" }]} />} />
     {!deals.length ? <EmptyNote>No {kind === "all" ? "bulk or block" : kind} deals reported.</EmptyNote> : <div style={{ overflowX: "auto", marginTop: 16 }}>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, minWidth: 650 }}>
         <thead><tr>{["Date", "Participant", "Type", "Side", "Quantity", "Price", "Value"].map((h,i) => <th key={h} style={{ textAlign: i > 3 ? "right" : "left", padding: "10px 12px", fontWeight: 500, color: "var(--text-secondary)" }}>{h}</th>)}</tr></thead>
