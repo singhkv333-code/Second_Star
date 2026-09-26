@@ -21,7 +21,7 @@
  * operates on plain cell text without fighting React reconciliation.
  */
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowDown, ArrowUp, ArrowUpDown, Loader2 } from "lucide-react";
 import { searchCompanies } from "@/lib/api";
@@ -150,7 +150,7 @@ export function SmartMarkdownTable({ node }: { node: unknown }): React.ReactElem
     new Map(),
   );
   const inFlightRef = useRef<Set<string>>(new Set());
-  const [, bumpResolved] = useState(0);
+  const [resolvedTick, bumpResolved] = useState(0);
 
   // ── Column plan ────────────────────────────────────────────────────
   const plan = useMemo(() => {
@@ -271,11 +271,38 @@ export function SmartMarkdownTable({ node }: { node: unknown }): React.ReactElem
     () =>
       plan.nameCol === -1
         ? []
-        : rows.map((r) => staticTickerFor(r)).filter((t): t is string => !!t),
+        : rows.map((r) => tickerFor(r)).filter((t): t is string => !!t),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [rows, plan.nameCol, plan.tickerCol],
+    [rows, plan.nameCol, plan.tickerCol, resolvedTick],
   );
   const logos = useCompanyLogos(logoSymbols);
+
+  // Rows named but not tickered ("Infosys", "Bajaj Auto") are resolved when
+  // the table appears, all at once, not on hover: resolved lazily, they drew a
+  // letter until someone happened to point at them.
+  useEffect(() => {
+    if (plan.nameCol === -1) return;
+    const names = Array.from(new Set(
+      rows
+        .filter((r) => !staticTickerFor(r))
+        .map((r) => (r[plan.nameCol] ?? "").trim())
+        .filter((n) => n && !resolvedRef.current.has(n) && !inFlightRef.current.has(n)),
+    )).slice(0, 40);
+    if (names.length === 0) return;
+    names.forEach((n) => inFlightRef.current.add(n));
+    void Promise.all(
+      names.map((name) =>
+        searchCompanies(name, 1)
+          .then((res) => {
+            const hit = !isError(res) ? res.data.results[0] : undefined;
+            if (hit) resolvedRef.current.set(name, { symbol: hit.symbol, name: hit.name });
+          })
+          .catch(() => {})
+          .finally(() => inFlightRef.current.delete(name)),
+      ),
+    ).then(() => bumpResolved((n) => n + 1));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, plan.nameCol, plan.tickerCol]);
 
   // Frozen lead columns: Rank (when it leads) + the name column stay pinned
   // while the metric columns scroll horizontally underneath.

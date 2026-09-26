@@ -127,6 +127,14 @@ class ConditionalGZipMiddleware:
 
 app.add_middleware(ConditionalGZipMiddleware, minimum_size=1500)
 
+# The stored-logo URL is /api/pivot/companies/logo/..., which nginx on the VM
+# rewrites to /api/companies/logo/...; locally the Next proxy forwards /api/*
+# unchanged, so the same handler answers at the alias too.
+from backend.routers.companies import company_logo_image  # noqa: E402
+
+app.add_api_route("/api/pivot/companies/logo/{symbol}", company_logo_image,
+                  methods=["GET"], include_in_schema=False)
+
 app.include_router(auth_router)
 app.include_router(orders_router)
 app.include_router(chat_router)

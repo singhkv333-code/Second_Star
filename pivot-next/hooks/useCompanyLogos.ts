@@ -19,6 +19,42 @@ import { getCompanyLogos } from "@/lib/api";
 // UPPER symbol → URL | null. null = confirmed miss (don't refetch).
 const _cache = new Map<string, string | null>();
 
+// The map also lives in localStorage for a week, so a reload or a new tab
+// draws every known logo on first paint instead of asking the API again. The
+// images themselves are same-origin and cached forever (their URL carries the
+// content version), so a known symbol costs no request at all.
+const STORE_KEY = "pivot:logos:v1";
+const STORE_TTL_MS = 7 * 24 * 3600 * 1000;
+let _persistTimer: ReturnType<typeof setTimeout> | null = null;
+
+(function hydrate(): void {
+  if (typeof window === "undefined") return;
+  try {
+    const raw = window.localStorage.getItem(STORE_KEY);
+    if (!raw) return;
+    const saved = JSON.parse(raw) as { at: number; map: Record<string, string | null> };
+    if (!saved || Date.now() - saved.at > STORE_TTL_MS) return;
+    for (const [k, v] of Object.entries(saved.map)) _cache.set(k, v);
+  } catch {
+    // Storage blocked or corrupt: the in-memory cache still works.
+  }
+})();
+
+function persist(): void {
+  if (typeof window === "undefined" || _persistTimer) return;
+  _persistTimer = setTimeout(() => {
+    _persistTimer = null;
+    try {
+      window.localStorage.setItem(
+        STORE_KEY,
+        JSON.stringify({ at: Date.now(), map: Object.fromEntries(_cache) }),
+      );
+    } catch {
+      // Quota or privacy mode: nothing to do.
+    }
+  }, 500);
+}
+
 export function useCompanyLogos(
   symbols: string[],
 ): Record<string, string | null> {
@@ -40,6 +76,7 @@ export function useCompanyLogos(
       // Record every requested symbol — even those the backend omitted — so a
       // confirmed miss is cached as null and never refetched.
       missing.forEach((s) => _cache.set(s, map[s] ?? null));
+      persist();
       force((n) => n + 1);
     });
     return () => {

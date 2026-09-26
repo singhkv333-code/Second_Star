@@ -151,7 +151,9 @@ def get_logo_url(symbol_or_sc_id: str) -> Optional[str]:
     key_in = (symbol_or_sc_id or "").strip().upper()
     if not key_in:
         return None
-    sp = shareperks_logo_url(key_in)
+    from backend.market import logo_store
+
+    sp = logo_store.path_for(key_in) or shareperks_logo_url(key_in)
     if sp:
         return sp
 
@@ -202,10 +204,13 @@ def get_logo_urls(symbols: list[str]) -> dict[str, Optional[str]]:
 
     out: dict[str, Optional[str]] = {}
 
-    # 0. SharePerks — in-memory, so it never needs Redis or a DB.
+    # 0. Our own copy (logo_store): same-origin, cached forever by the browser.
+    #    SharePerks next — in-memory, so neither needs Redis or a DB per call.
+    from backend.market import logo_store
+
     rest: list[str] = []
     for k in uniq:
-        sp = shareperks_logo_url(k)
+        sp = logo_store.path_for(k) or shareperks_logo_url(k)
         if sp:
             out[k] = sp
         else:

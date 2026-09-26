@@ -7,7 +7,8 @@ import React, { useState } from "react";
  *  white plate would put a tile inside a tile. Wordmarks (logo.dev) still get
  *  the padded plate so they don't touch the edge. */
 export function isTileLogo(url?: string | null): boolean {
-  return !!url && url.includes("company-logo.shareperks.in/");
+  // SharePerks tiles, direct or from our own copy (logo_store marks them).
+  return !!url && (url.includes("company-logo.shareperks.in/") || url.includes("tile=1"));
 }
 
 /**

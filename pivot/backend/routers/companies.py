@@ -14,7 +14,7 @@ from typing import Optional
 import urllib.parse
 import urllib.request
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import Response, APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel
 
 from backend.config import settings
@@ -238,7 +238,7 @@ def company_logos(
     one round-trip. Unknown symbols map to ``null`` → FE monogram fallback.
     """
     _auth(authorization)
-    from backend.market.company_logos import get_logo_url
+    from backend.market.company_logos import get_logo_urls
 
     # De-dupe (preserving order) and cap the batch.
     seen: dict[str, None] = {}
@@ -249,11 +249,37 @@ def company_logos(
         if len(seen) >= _MAX_LOGO_SYMBOLS:
             break
 
-    out: dict[str, Optional[str]] = {}
-    for sym in seen:
-        try:
-            out[sym] = get_logo_url(sym)
-        except Exception:  # noqa: BLE001 — never let one bad symbol 500 the batch
-            out[sym] = None
+    # One batched resolve for the page. The per-symbol loop this replaced paid
+    # ~2 remote DB round-trips per cold row, so a 10-row table waited seconds.
+    try:
+        found = get_logo_urls(list(seen))
+    except Exception:  # noqa: BLE001 — logos are decorative; never 500 the page
+        found = {}
+    return CompanyLogosResponse(logos={sym: found.get(sym) for sym in seen})
 
-    return CompanyLogosResponse(logos=out)
+
+@router.get("/logo/{symbol}", include_in_schema=False)
+def company_logo_image(
+    symbol: str,
+    if_none_match: Optional[str] = Header(None),
+) -> Response:
+    """A stored logo, from our own table (logo_store). Public, like any image:
+    an <img> cannot send a bearer token. The URL carries the content version,
+    so the response is cacheable forever."""
+    from backend.market import logo_store
+
+    got = logo_store.image(symbol)
+    if got is None:
+        return Response(status_code=404)
+    body, ctype, sha = got
+    etag = f'"{sha[:16]}"'
+    headers = {
+        "Cache-Control": "public, max-age=31536000, immutable",
+        "ETag": etag,
+        # An SVG opened directly is a document; this one may not run anything.
+        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
+        "X-Content-Type-Options": "nosniff",
+    }
+    if if_none_match == etag:
+        return Response(status_code=304, headers=headers)
+    return Response(content=body, media_type=ctype, headers=headers)
