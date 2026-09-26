@@ -272,11 +272,14 @@ class ToolResult:
         """Compact JSON string the model sees as the tool result."""
         if not self.success:
             return json.dumps({"error": self.error or "tool failed"})
-        # Company research intentionally replaces several narrower calls in a
-        # single round. Give that one batched result enough room for quarterly
-        # rows/cited facts; every other tool keeps the established small cap.
-        cap = 24_000 if self.name == "get_company_research" else 6_000
-        return _fit_for_llm(self.data, cap)
+        # The model sees the whole result. The old 6,000-character cap (~1.5k
+        # tokens) handed it a slice of every screen, statement and report and
+        # the answers were as thin as the slice. What remains is a guard
+        # against a runaway payload overflowing the context, not a budget.
+        return _fit_for_llm(self.data, LLM_RESULT_GUARD)
+
+
+LLM_RESULT_GUARD = 200_000   # characters, ~50k tokens
 
 
 def _fit_for_llm(data: Any, cap: int) -> str:

@@ -148,10 +148,16 @@ function withGainLossColoring(children: React.ReactNode): React.ReactNode {
 const CITATION_IN_PARENS_RE =
   /\(\s*(\[[^\]]+\]\((?:https?:)?[^\s)]+\))\s*\)/g;
 // A provider citation token ("\uE200cite\uE202turn1search0\uE201") can show
-// mid-stream before the backend swaps it for a link in the final text.
-const CITE_TOKEN_RE = /\uE200cite\uE202[^\uE201]*\uE201/g;
+// mid-stream before the backend swaps it for a link in the final text. One the
+// model opened and never closed runs on with its own deliberation ("cite not
+// needed? Wait..."), so an open token hides through the end of its paragraph.
+const CITE_TOKEN_RE = /\uE200[^\uE201]*?(?:\uE201|(?=\n\n)|$)/g;
+const STRAY_TOKEN_RE = /[\uE200-\uE202]/g;
 function stripCitationParens(text: string): string {
-  return text.replace(CITE_TOKEN_RE, "").replace(CITATION_IN_PARENS_RE, "$1");
+  return text
+    .replace(CITE_TOKEN_RE, "")
+    .replace(STRAY_TOKEN_RE, "")
+    .replace(CITATION_IN_PARENS_RE, "$1");
 }
 
 type Props = {

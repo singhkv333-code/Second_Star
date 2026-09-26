@@ -506,7 +506,7 @@ async def stream_openai(
     *,
     tools: Optional[list[ToolDef]] = None,
     tool_choice: Literal["auto", "required", "none"] = "auto",
-    max_output_tokens: int = 4000,
+    max_output_tokens: Optional[int] = 4000,
     reasoning_effort: Optional[ReasoningEffort] = None,
     temperature: float = 0.2,
     response_format: Optional[Literal["json_object"]] = None,
@@ -549,8 +549,10 @@ async def stream_openai(
     payload: dict[str, Any] = {
         "model": client.model,
         "input": _messages_to_input(messages),
-        "max_output_tokens": max_output_tokens,
     }
+    # None means no ceiling: the model's own maximum applies.
+    if max_output_tokens:
+        payload["max_output_tokens"] = max_output_tokens
     # Continue a stored response: the provider keeps what that response saw
     # (web pages it searched, its reasoning), and `messages` carries only
     # what is new, the tool outputs.

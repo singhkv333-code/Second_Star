@@ -160,3 +160,24 @@ def test_citation_tokens_become_links_from_their_annotations():
     own = "p.48.\ue200cite\ue202https://nsearchives.nseindia.com/ar.pdf#page=48\ue201"
     assert flex_chat._with_links(own, []) == \
         "p.48. ([nsearchives.nseindia.com](https://nsearchives.nseindia.com/ar.pdf#page=48))"
+
+
+def test_an_unclosed_citation_token_does_not_print_the_models_deliberation():
+    """Seen live: '...P/E < 35. \ue200cite not needed? Wait no citations not
+    required; ... Need avoid cite markers. Fine.' then the next section."""
+    text = ("They cleared a quality screen with P/E < 35. \ue200cite not needed? "
+            "Wait no citations not required. Fine.\n\n### My 3 picks\n- TCS")
+    assert flex_chat._with_links(text, []) == \
+        "They cleared a quality screen with P/E < 35. \n\n### My 3 picks\n- TCS"
+
+
+def test_no_ceiling_on_output_history_or_tool_results():
+    from backend.services.tool_registry import LLM_RESULT_GUARD, ToolResult
+    assert flex_chat.MAX_OUTPUT_TOKENS is None and flex_chat.HISTORY_MESSAGES is None
+    rows = [{"symbol": f"S{i}", "note": "x" * 200} for i in range(100)]   # ~23k chars
+    out = ToolResult(name="screen_fundamentals", args={}, success=True,
+                     data={"results": rows}).to_llm_string()
+    assert '"S99"' in out and "_trimmed" not in out
+    assert LLM_RESULT_GUARD >= 200_000
+    b = " ".join(flex_chat.BRIEF.split())
+    assert "sentence or two" not in b and "no length limit" in b

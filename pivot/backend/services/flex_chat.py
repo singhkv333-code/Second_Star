@@ -51,13 +51,15 @@ logger = logging.getLogger(__name__)
 # Tool rounds per turn. Tools are withdrawn on the last one so the model must
 # answer from what it already fetched rather than stop mid-thought.
 MAX_ROUNDS = 6
-# Reasoning tokens count against this, so it is generous on purpose: a budget
-# that only fits the prose truncates the answer whenever the model thinks hard.
-MAX_OUTPUT_TOKENS = 8000
+# No output ceiling: the model's own maximum applies. 8,000 was shared with
+# the reasoning tokens (medium effort spends thousands), so the visible answer
+# got what was left after the model had thought.
+MAX_OUTPUT_TOKENS: Optional[int] = None
 # One tool call cannot hold the whole turn hostage (yfinance can hang).
 TOOL_TIMEOUT_S = 60.0
-# History sent back to the model, in messages (user + assistant).
-HISTORY_MESSAGES = 12
+# History sent back to the model: the whole conversation. It is text only and
+# prefix-cached; the last 12 messages forgot what a long chat had established.
+HISTORY_MESSAGES: Optional[int] = None
 # Byte-stable cache key: the brief + tool schema are identical every turn, so
 # the ~26k-token prefix is served from the provider's prompt cache.
 CACHE_KEY = "pivot-flex-v1"
@@ -124,7 +126,8 @@ Every number you state comes from a tool result, a web page you searched, or
 the context below. Pivot's tools come first for prices, fundamentals, filings
 and scans. For what they don't hold (monthly sales, commentary, events, news),
 search the web, preferring the company's own releases, NSE and BSE filings and
-regulators over press. Cite each web fact where you use it: ([site](url)). Say
+regulators over press. Cite each web fact where you use it, only ever as a
+markdown link: ([site](url)); Pivot's own data needs no citation. Say
 something is unavailable only after both come up empty. Prices, levels, ratios and dates are never
 written from memory.
 Kite is the primary market feed; when a result's `source` is anything else
@@ -163,9 +166,8 @@ connects facts, in short paragraphs. Use a markdown table to compare the same
 fields across several items, unless a card already shows them. An analytical
 answer ends with what to watch or check next.
 
-Be specific: name the level, the percentage, the date. Match length to the
-question: a quick fact gets a sentence or two and no headings; a request for
-analysis gets the full shape.
+Be specific: name the level, the percentage, the date. There is no length
+limit: give every answer the depth and data it deserves.
 
 Punctuate with commas, colons, semicolons, full stops and parentheses. Where a
 dash would interrupt a sentence, use a comma or colon, or start a new sentence;
@@ -482,9 +484,13 @@ def _is_permanent(error: str) -> bool:
 _CITE_TOKEN = re.compile("\ue200cite\ue202([^\ue201]*)\ue201")
 
 
+_OPEN_TOKEN = re.compile("\ue200[^\ue201]*?(?:\ue201|(?=\n\n)|\Z)", re.S)
+_STRAY = {0xE200: None, 0xE201: None, 0xE202: None}
+
+
 def _with_links(text: str, annotations: list[dict]) -> str:
     """Each citation token becomes ([host](url)) from its annotation."""
-    if "\ue200" not in text:
+    if not any(c in text for c in "\ue200\ue201\ue202"):
         return text
     by_span = {(a.get("start_index"), a.get("end_index")): a for a in annotations}
     queue = list(annotations)
@@ -502,7 +508,11 @@ def _with_links(text: str, annotations: list[dict]) -> str:
         pad = "" if m.start() == 0 or text[m.start() - 1].isspace() else " "
         return f"{pad}([{host}]({url}))"
 
-    return _CITE_TOKEN.sub(link, text)
+    text = _CITE_TOKEN.sub(link, text)
+    # A token the model opened and never closed carries whatever it wrote
+    # next: "\ue200cite not needed? Wait no citations not required; ..." is
+    # its deliberation, printed. Drop it through the end of that paragraph.
+    return _OPEN_TOKEN.sub("", text).translate(_STRAY)
 
 
 FAILURE_TEXT = (
@@ -565,7 +575,7 @@ async def stream_turn(
             active_draft=active,
         )),
     ]
-    for m in history[-HISTORY_MESSAGES:]:
+    for m in (history[-HISTORY_MESSAGES:] if HISTORY_MESSAGES else history):
         if m.get("role") in ("user", "assistant") and m.get("content"):
             messages.append(LLMMessage(role=m["role"], content=m["content"]))
     messages.append(LLMMessage(role="user", content=message))
@@ -677,8 +687,7 @@ async def stream_turn(
                         {**raw_data, "_llm_unavailable": True}, started, breakdown)
             return
         if truncated:
-            logger.warning("flex round %d hit the %d-token ceiling", round_no,
-                           MAX_OUTPUT_TOKENS)
+            logger.warning("flex round %d hit the model's output ceiling", round_no)
 
         round_text = _with_links("".join(text_parts), annotations)
         if not calls:

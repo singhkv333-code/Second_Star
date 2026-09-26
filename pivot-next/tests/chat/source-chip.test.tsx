@@ -22,4 +22,14 @@ describe("source chips", () => {
       "Annual report 2024-2025, p.56",
     );
   });
+
+  it("never prints the deliberation after an unclosed citation token", () => {
+    render(
+      <AssistantMessage
+        text={"P/E < 35. \uE200cite not needed? Wait no citations. Fine.\n\n### My 3 picks"}
+      />,
+    );
+    expect(document.body.textContent).not.toContain("Wait no citations");
+    expect(document.body.textContent).toContain("My 3 picks");
+  });
 });
