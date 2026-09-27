@@ -1019,6 +1019,19 @@ tool("show_price_chart",
                 "user can switch it. Default 1Y."}},
      ["symbols"])
 
+tool("get_valuation_band",
+     "Where one stock's P/E sits within its own history: today's trailing P/E, "
+     "its median, the middle-50% band, the high and low, and today's percentile "
+     "over the window. Use it whenever valuation bears on the answer: is X "
+     "expensive or cheap, overvalued, a buy at this price, a full analysis, or "
+     "one leg of a comparison (call once per company, in parallel). Computed "
+     "from market cap over trailing net profit; loss-making days are left out, "
+     "and `earnings_basis` says which profit series was used.",
+     {"symbol": {"type": "string", "description": "NSE symbol, e.g. \"TCS\"."},
+      "years": {"type": "integer", "minimum": 1, "maximum": 10,
+                "description": "History window in years. Default 5."}},
+     ["symbol"])
+
 tool("fetch_fundamentals",
      "Snapshot of ONE stock's fundamentals AND company profile. Returns: P/E, "
      "ROE, ROCE, D/E, net margin, EPS, book value, dividend payout (financials "

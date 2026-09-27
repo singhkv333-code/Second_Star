@@ -225,7 +225,36 @@ def _history_for(
         rows.append((r.period_end, float(r.value_numeric), r.unit))
         if unit is None and r.unit:
             unit = r.unit
-    return rows, unit
+    return rows, FIELD_UNITS.get(field, unit)
+
+
+# MC stamps its table header ("Rs. Cr.") on every row, so ROE, margins and EPS
+# all arrived labelled as crore. The unit is a property of the field.
+_PER_SHARE = ("eps_basic", "eps_diluted", "book_value_per_share",
+              "net_profit_per_share", "sales_per_share")
+_PERCENT = ("casa_pct", "dividend_payout", "ebitda_margin", "gross_margin",
+            "gross_npa_pct", "net_interest_margin", "net_npa_pct",
+            "net_profit_margin", "operating_margin", "roa", "roce", "roe", "roic")
+_MULTIPLE = ("asset_turnover", "current_ratio", "debt_to_equity", "ev_to_ebitda",
+             "interest_coverage", "inventory_turnover", "price_to_book",
+             "quick_ratio", "receivables_turnover", "pe")
+FIELD_UNITS: dict[str, str] = {
+    **{f: "Rs per share" for f in _PER_SHARE},
+    **{f: "%" for f in _PERCENT},
+    **{f: "x" for f in _MULTIPLE},
+    "earnings_yield": "fraction",
+}
+
+# How each field is named on a chart.
+FIELD_LABELS: dict[str, str] = {
+    "eps_basic": "EPS", "eps_diluted": "Diluted EPS", "book_value_per_share": "Book value per share",
+    "net_profit_per_share": "Net profit per share", "sales_per_share": "Sales per share",
+    "roe": "ROE", "roce": "ROCE", "roa": "ROA", "roic": "ROIC", "casa_pct": "CASA ratio",
+    "ebitda_margin": "EBITDA margin", "gross_npa_pct": "Gross NPA", "net_npa_pct": "Net NPA",
+    "ev_to_ebitda": "EV/EBITDA", "price_to_book": "P/B", "pe": "P/E",
+    "debt_to_equity": "Debt to equity", "cash_from_ops": "Cash from operations",
+    "enterprise_value_cr": "Enterprise value",
+}
 
 
 def _fetch_limit_for_agg(agg: str, years: int) -> int:
@@ -363,6 +392,7 @@ async def query_financials(args: dict[str, Any]) -> dict[str, Any]:
     }
     total_rows = 0
     row_cap_hit = False
+    drawn: dict[str, dict[str, tuple[list, str | None]]] = {}   # field -> sym -> history
     fetch_limit = _fetch_limit_for_agg(agg, years)
 
     # One session for the whole call — resolve_symbol + every history lookup
@@ -420,6 +450,7 @@ async def query_financials(args: dict[str, Any]) -> dict[str, Any]:
                     }
                     continue
 
+                drawn.setdefault(field, {})[sym_key] = (hist, unit)
                 if agg == "latest":
                     per_field[field] = _agg_latest(hist, unit)
                     total_rows += 1
@@ -457,6 +488,19 @@ async def query_financials(args: dict[str, Any]) -> dict[str, Any]:
         )
     if notes:
         result["note"] = " | ".join(notes)
+    # Bars of each field over the years, a colour per company, drawn from the
+    # rows the aggregates above were computed on; the model places them.
+    from backend.services.chart_series import bar_chart
+    charts = []
+    for field, per_sym in drawn.items():
+        chart = bar_chart(
+            FIELD_LABELS.get(field) or field.replace("_", " ").capitalize(),
+            [(sym, [(pe, v) for pe, v, _ in h]) for sym, (h, _) in per_sym.items()],
+            unit=next((u for _, u in per_sym.values() if u), "") or "")
+        if chart:
+            charts.append(chart)
+    if charts:
+        result["_charts"] = charts
     # NOTE: no `_render_hint` — the FE chat renderer has no matching hint, so
     # per house rules the LLM narrates a markdown table from this JSON itself.
     return result
@@ -481,7 +525,7 @@ TOOL_DESCRIPTION = (
     "up to 12 annual periods. Aggregations: latest (current snapshot), "
     "series (year-by-year newest-first), max/min (best/worst year in window), "
     "cagr (geometric growth oldest→newest), yoy (latest vs prior year, "
-    "absolute + %). Returns DB-declared units and per-(symbol,field) nulls "
+    "absolute + %). Returns each field's unit (Rs. Cr., %, x, Rs per share) and per-(symbol,field) nulls "
     "with a short note when data is missing — never fabricates. Best for: "
     "any fundamentals question including history — 'max profit year for "
     "Reliance', 'has HDFC ROE been falling', 'TCS 5y revenue CAGR', 'INFY "
@@ -506,7 +550,10 @@ TOOL_PROPERTIES: dict[str, dict[str, Any]] = {
         "minItems": 1,
         "maxItems": _MAX_FIELDS,
         "description": (
-            "1-8 fundamentals identifiers. Includes 'pe' (synthesised as "
+            "Up to 15 fields in one call. Ask for the figure together with the "
+            "ones that explain it, so the answer can say why it moved and not "
+            "only that it did: profit with revenue and its margins, ROE with "
+            "margin and debt, EPS with net profit. Includes 'pe' (synthesised as "
             "1/earnings_yield) plus every FIELD_MAP key: revenue, net_profit, "
             "operating_profit, eps_basic, eps_diluted, interest_expense, "
             "total_debt, total_equity, reserves, cash_from_ops, roe, roce, "

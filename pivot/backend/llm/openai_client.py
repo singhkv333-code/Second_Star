@@ -513,6 +513,7 @@ async def stream_openai(
     prompt_cache_key: Optional[str] = None,
     hosted_tools: Optional[list[dict[str, Any]]] = None,
     previous_response_id: Optional[str] = None,
+    verbosity: Optional[Literal["low", "medium", "high"]] = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Stream a Responses API call.
 
@@ -578,6 +579,9 @@ async def stream_openai(
         payload["tool_choice"] = tool_choice if tool_choice in {"required", "none"} else "auto"
     if response_format == "json_object":
         payload["text"] = {"format": {"type": "json_object"}}
+    if verbosity:
+        # The provider's own dial for how fully the model writes (default medium).
+        payload["text"] = {**payload.get("text", {}), "verbosity": verbosity}
     if prompt_cache_key:
         payload["prompt_cache_key"] = prompt_cache_key
 

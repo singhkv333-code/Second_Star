@@ -2155,7 +2155,7 @@ export type ConversationMessage = {
    * `card` may be absent for old rows or oversized payloads.
    * Callers should guard with `tool_payload?.card`.
    */
-  tool_payload?: { _render_hint: string; card?: Record<string, unknown> } | null;
+  tool_payload?: { _render_hint?: string; card?: Record<string, unknown>; _charts?: unknown } | null;
 };
 
 /**

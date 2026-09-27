@@ -385,11 +385,17 @@ def compare_performance(
                 row["fundamentals"] = _fundamentals_row(sym)
             if "technicals" in want:
                 row["technicals"] = _technicals_row(prices)
+    from backend.services.chart_series import series_chart
+    chart = series_chart(
+        f"{' vs '.join(price_dict)} · {period}",
+        [(sym, zip(ser.index, ser.values)) for sym, ser in price_dict.items()],
+    )
     return {
         "period": period,
         "metric": metric,
         "symbols": list(price_dict.keys()),
         "comparison": table,
+        **({"_charts": [chart]} if chart else {}),
     }
 
 

@@ -40,8 +40,9 @@ def test_the_brief_describes_targets_and_carries_the_non_negotiables():
     assert "paper book" in b                     # simulate, don't execute
     assert "never written from memory" in b      # never fabricate
     assert "`source` is anything else" in b      # tag the relay when not Kite
-    # A short brief is the point: the legacy core prompt was 994 lines.
-    assert len(b.split()) < 600
+    # A short brief is the point: the legacy core prompt was 994 lines. It is
+    # prompt-cached, so the bound is about focus, not cost.
+    assert len(b.split()) < 700
 
 
 def test_scripted_and_redundant_tools_are_withheld():
@@ -180,4 +181,5 @@ def test_no_ceiling_on_output_history_or_tool_results():
     assert '"S99"' in out and "_trimmed" not in out
     assert LLM_RESULT_GUARD >= 200_000
     b = " ".join(flex_chat.BRIEF.split())
-    assert "sentence or two" not in b and "no length limit" in b
+    assert "sentence or two" not in b and "as deep as the data supports" in b
+    assert flex_chat.VERBOSITY == "high"

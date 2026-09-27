@@ -67,6 +67,7 @@ import {
   PriceChartSkeleton,
   type PriceChartPayload,
 } from "@/components/chat/PriceChartCard";
+import { registerCharts, stripChartMarkers } from "@/lib/inlineCharts";
 import { IpoListedCard } from "@/components/chat/IpoListedCard";
 import { OptionStrategyCard } from "@/components/chat/OptionStrategyCard";
 import { OptionChainLauncherCard } from "@/components/chat/OptionChainLauncherCard";
@@ -426,7 +427,7 @@ export type ResumeConversation = {
     role: "user" | "assistant";
     content: string;
     /** Persisted card payload — present when the backend saved a card with this turn. */
-    tool_payload?: { _render_hint: string; card?: Record<string, unknown> } | null;
+    tool_payload?: { _render_hint?: string; card?: Record<string, unknown>; _charts?: unknown } | null;
   }>;
 };
 
@@ -677,6 +678,7 @@ export function ChatDemo({
         }
         // Try to restore the card from tool_payload.
         const tp = m.tool_payload;
+        registerCharts(tp?._charts);
         if (tp?._render_hint) {
           // Reconstruct rawData: spread card fields alongside _render_hint so
           // hintToMessage's field-access pattern (rawData.name, rawData.steps …)
@@ -726,13 +728,14 @@ export function ChatDemo({
   // the pills below the composer. Persists across turns so the user
   // can stay "in agent mode" while iterating on a workflow.
   const [mode, setMode] = useState<ChatMode>(null);
-  // Rolling history for the backend's conversation context. A resumed
-  // conversation seeds it from the stored transcript (last 20 turns).
+  // The whole conversation goes to the backend as context: a resumed one is
+  // seeded from its stored transcript. No window: the backend sends it all
+  // to the model (prefix-cached), and a 20-message window forgot what a long
+  // chat had established.
   const historyRef = useRef<ChatHistoryMessage[]>(
     (resume?.messages ?? [])
       .filter((m) => m.content)
-      .map((m) => ({ role: m.role, content: m.content }))
-      .slice(-20),
+      .map((m) => ({ role: m.role, content: m.content })),
   );
   // Stable per-session id. Generated lazily inside useRef so it survives
   // re-renders but is regenerated on a fresh mount. Resuming a sidebar
@@ -1192,6 +1195,7 @@ export function ChatDemo({
         // Non-clarify final message: the flow is done, reset clarify tracking.
         clarifyMsgIdxRef.current = -1;
       }
+      registerCharts((data.raw_data as Record<string, unknown> | null | undefined)?._charts);
       next[streamingIdx] = finalMessage;
       // A price chart rides along with another card (a draft, a backtest):
       // the backend hoists the other one, and the chart leads the reply.
@@ -1352,6 +1356,7 @@ export function ChatDemo({
             break;
 
           case "tool_done":
+            registerCharts(event.charts);
             setMessages((prev) => {
               const next = [...prev];
               const bubble = next[streamingIdx];
@@ -1419,7 +1424,7 @@ export function ChatDemo({
               ...historyRef.current,
               { role: "user" as const, content: trimmed },
               { role: "assistant" as const, content: event.response ?? "" },
-            ].slice(-20);
+            ];
 
             resolveStreamingMessage(event, streamingIdx);
             // The backend persisted this turn — nudge the sidebar's
@@ -1630,12 +1635,10 @@ export function ChatDemo({
                         hasText={msg.text.length > 0}
                       />
                       {msg.chart && (
+                        // A skeleton until the answer is complete: the card
+                        // arrives with the full reply, not ahead of it.
                         <div className="mt-3">
-                          {msg.chart === "pending" ? (
-                            <PriceChartSkeleton />
-                          ) : (
-                            <PriceChartCard payload={msg.chart} />
-                          )}
+                          <PriceChartSkeleton />
                         </div>
                       )}
                       {msg.text ? (
@@ -1649,7 +1652,7 @@ export function ChatDemo({
                             text={msg.text}
                             onRetry={onRetryAssistant}
                           >
-                            <AssistantMessage text={msg.text} />
+                            <AssistantMessage text={msg.text} chartsPending />
                           </AssistantBubble>
                         </div>
                       ) : null /* No text yet — the StreamingStatusBar above
@@ -2334,7 +2337,8 @@ function UserBubble({
  * <textarea> + document.execCommand("copy"). Returns true when
  * the write succeeded, false otherwise.
  */
-async function copyToClipboard(text: string): Promise<boolean> {
+async function copyToClipboard(raw: string): Promise<boolean> {
+  const text = stripChartMarkers(raw);
   if (!text) return false;
   if (typeof navigator !== "undefined" && navigator.clipboard) {
     try {

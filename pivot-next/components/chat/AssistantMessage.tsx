@@ -2,10 +2,12 @@
 
 import { memo } from "react";
 import Link from "next/link";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
 import { SmartMarkdownTable } from "@/components/chat/SmartMarkdownTable";
+import { InlineChart } from "@/components/chat/InlineChart";
+import { splitCharts } from "@/lib/inlineCharts";
 
 // ── Ticker detection ─────────────────────────────────────────────────────
 // Matches NSE/BSE-listed symbols: optional exchange prefix, all-uppercase
@@ -163,6 +165,8 @@ function stripCitationParens(text: string): string {
 type Props = {
   text: string;
   className?: string;
+  /** The reply is still streaming: charts show as skeletons until it is whole. */
+  chartsPending?: boolean;
 };
 
 /**
@@ -182,28 +186,7 @@ type Props = {
  * user's text selection survive long enough to use the "reply by
  * selecting" gesture — otherwise the selection collapses mid-render.
  */
-function AssistantMessage({ text, className }: Props): React.JSX.Element {
-  return (
-    <div
-      // Marks this prose as a valid source for the "reply by selecting"
-      // gesture — ChatDemo's selection listener only surfaces the
-      // floating Reply button for text highlighted inside this element.
-      data-reply-source=""
-      className={cn(
-        // Base reading column — generous max-width so paragraphs breathe
-        // but we don't fight the parent layout.
-        // No max-width of its own: the answer fills the reading column so it
-        // lines up flush with the composer below it, ChatGPT-style. The
-        // column itself (AppShell) is what sets the measure.
-        "w-full text-[15px] leading-7 text-foreground",
-        // Vertical rhythm between block elements; matches ChatGPT/Claude.
-        "[&>*+*]:mt-3",
-        className,
-      )}
-    >
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
+const MARKDOWN_COMPONENTS: Components = {
           h1: ({ children }) => (
             <h1 className="!mt-8 text-[24px] font-semibold leading-8 tracking-tight text-foreground first:!mt-0">
               {children}
@@ -367,10 +350,36 @@ function AssistantMessage({ text, className }: Props): React.JSX.Element {
           // It consumes the raw hast node and re-renders the table itself,
           // so the thead/th/td component overrides below never fire.
           table: ({ node }) => <SmartMarkdownTable node={node} />,
-        }}
-      >
-        {stripCitationParens(text)}
-      </ReactMarkdown>
+};
+
+function AssistantMessage({ text, className, chartsPending }: Props): React.JSX.Element {
+  return (
+    <div
+      // Marks this prose as a valid source for the "reply by selecting"
+      // gesture — ChatDemo's selection listener only surfaces the
+      // floating Reply button for text highlighted inside this element.
+      data-reply-source=""
+      className={cn(
+        // Base reading column — generous max-width so paragraphs breathe
+        // but we don't fight the parent layout.
+        // No max-width of its own: the answer fills the reading column so it
+        // lines up flush with the composer below it, ChatGPT-style. The
+        // column itself (AppShell) is what sets the measure.
+        "w-full text-[15px] leading-7 text-foreground",
+        // Vertical rhythm between block elements; matches ChatGPT/Claude.
+        "[&>*+*]:mt-3",
+        className,
+      )}
+    >
+      {splitCharts(stripCitationParens(text)).map((part, i) =>
+        typeof part === "string" ? (
+          <ReactMarkdown key={i} remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
+            {part}
+          </ReactMarkdown>
+        ) : (
+          <InlineChart key={i} id={part.chart} pending={chartsPending} />
+        ),
+      )}
     </div>
   );
 }

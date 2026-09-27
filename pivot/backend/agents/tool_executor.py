@@ -135,6 +135,7 @@ def _build_handlers() -> dict:
         "scan_technicals":            _scan_technicals,
         "show_price_chart":           _show_price_chart,
         "read_annual_report":         _read_annual_report,
+        "get_valuation_band":         _get_valuation_band,
         "fetch_fundamentals":         _fetch_fundamentals,
         "query_financials":           _query_financials,
         "get_company_research":       _get_company_research,
@@ -1599,6 +1600,20 @@ async def _show_price_chart(a, kt, db, uid):
     }}
 
 
+async def _get_valuation_band(a, kt, db, uid):
+    import asyncio
+    from backend.services.valuation_band import pe_band
+
+    try:
+        years = int(a.get("years") or 5)
+    except (TypeError, ValueError):
+        years = 5
+    data = await asyncio.to_thread(pe_band, str(a.get("symbol", "")), years)
+    ok = bool(data.get("available"))
+    return {"success": ok, "data": data, "logiccard": None,
+            **({} if ok else {"error": data.get("error")})}
+
+
 async def _read_annual_report(a, kt, db, uid):
     import asyncio
     from backend.services import annual_report
@@ -1658,6 +1673,17 @@ async def _get_company_research(a, kt, db, uid):
         filing_topics=list(a.get("filing_topics") or []),
         statement=str(a.get("statement", "profit_loss")),
     )
+    quarters = ((result.get("sections") or {}).get("quarters") or {}).get("quarters") or []
+    if quarters:
+        # The page's own quarterly rows as bars, offered for the model to place.
+        from backend.services.chart_series import bar_chart
+        sym = str(result.get("symbol") or a.get("symbol", "")).upper()
+        charts = [bar_chart(f"Quarterly {name}", [(sym, [(q.get("period_end"), q.get(key))
+                                                         for q in quarters])],
+                            unit="Rs. Cr.", quarterly=True, max_periods=8)
+                  for key, name in (("revenue", "revenue"), ("net_profit", "net profit"))]
+        if any(charts):
+            result = {**result, "_charts": [c for c in charts if c]}
     return {
         "success": bool(result.get("available")),
         "data": result,

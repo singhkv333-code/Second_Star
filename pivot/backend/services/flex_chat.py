@@ -37,6 +37,7 @@ import json
 import logging
 import os
 import re
+import uuid
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, AsyncIterator, Optional
@@ -65,6 +66,10 @@ HISTORY_MESSAGES: Optional[int] = None
 CACHE_KEY = "pivot-flex-v1"
 
 EFFORT = (os.environ.get("FLEX_CHAT_EFFORT") or "medium").strip().lower()
+# The provider's dial for how fully the model writes. Its default (medium) is
+# tuned for API replies; measured on 2026-09-27, high writes ~15% more on the
+# same question at no latency cost.
+VERBOSITY = (os.environ.get("FLEX_CHAT_VERBOSITY") or "high").strip().lower()
 
 # Tools the flexible engine does not offer, and why.
 _WITHHELD = {
@@ -118,9 +123,13 @@ paper-trade strategies.
 
 ## How to work
 Use your tools freely. Call several in one round when a question needs several
-facts; they run in parallel. Read what they return before you answer, and if a
-result is thin or failed, try another tool or say what is missing. You decide
-which tools a question needs; nothing has been pre-selected for you.
+facts; they run in parallel. A question about a company, a sector or the market
+usually needs several angles at once (figures over time, recent quarters,
+peers, valuation, price, news and the web for what drove them), so gather them
+together rather than answering from one. Read what they return before you
+answer, and if a result is thin or failed, try another tool or say what is
+missing. You decide which tools a question needs; nothing has been
+pre-selected for you.
 
 Every number you state comes from a tool result, a web page you searched, or
 the context below. Pivot's tools come first for prices, fundamentals, filings
@@ -166,8 +175,13 @@ connects facts, in short paragraphs. Use a markdown table to compare the same
 fields across several items, unless a card already shows them. An analytical
 answer ends with what to watch or check next.
 
-Be specific: name the level, the percentage, the date. There is no length
-limit: give every answer the depth and data it deserves.
+Write the way a sharp analyst writes a client note. Beyond the headline
+figure, cover what drove it (margins, segments, volumes, pricing, one-offs),
+how it compares with peers, the sector or its own history, what the price
+already implies, and the risks and signposts ahead. A narrow factual question
+still gets its direct answer first, then the context that makes the number
+mean something. Be specific: name the level, the percentage, the date. Length
+follows the evidence: go as deep as the data supports, never padded.
 
 Punctuate with commas, colons, semicolons, full stops and parentheses. Where a
 dash would interrupt a sentence, use a comma or colon, or start a new sentence;
@@ -349,6 +363,15 @@ def _parallel_safe() -> frozenset:
     from backend.services.chat_service import _PARALLEL_READ_TOOLS
 
     return _PARALLEL_READ_TOOLS
+
+
+CHART_NOTE = (
+    "Put these charts in your reply. Write each marker alone on its own line "
+    "directly after the paragraph that discusses its numbers, so the chart sits "
+    "beside the words it illustrates, never as the first or last line. Place "
+    "each one that shows something you discuss; leave one out only when it "
+    "repeats another."
+)
 
 
 def _card_of(data: Any) -> Optional[dict]:
@@ -612,6 +635,7 @@ async def stream_turn(
                 tool_choice="none" if last_round else "auto",
                 max_output_tokens=MAX_OUTPUT_TOKENS,
                 reasoning_effort=EFFORT,
+                verbosity=VERBOSITY,
                 temperature=None,
                 prompt_cache_key=CACHE_KEY,
                 hosted_tools=hosted or None,
@@ -754,6 +778,18 @@ async def stream_turn(
             chart = _card_of(r.data) if r.success else None
             if chart is not None and chart.get("_render_hint") == "price_chart_card":
                 done_ev["card"] = chart
+            offered = r.data.pop("_charts", None) if isinstance(r.data, dict) else None
+            if r.success and offered:
+                # Charts of this result's own data. Each gets an id the model
+                # can place inline as [[chart:id]]; the browser has it already.
+                refs = []
+                for ch in offered:
+                    ch["id"] = uuid.uuid4().hex[:6]
+                    raw_data.setdefault("_charts", {})[ch["id"]] = ch
+                    refs.append({"marker": f"[[chart:{ch['id']}]]", "shows": ch.get("title")})
+                r.data["charts"] = refs
+                r.data["charts_note"] = CHART_NOTE
+                done_ev["charts"] = offered
             yield done_ev
             if r.success:
                 if r.logiccard:

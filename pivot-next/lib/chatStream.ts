@@ -52,6 +52,8 @@ export type SseToolDone = {
   error: string | null;
   /** A card that leads the reply (the price chart), sent before the text ends. */
   card?: Record<string, unknown>;
+  /** Charts of this tool's data, placed in the reply by `[[chart:id]]`. */
+  charts?: Record<string, unknown>[];
 };
 export type SseDelta = { type: "delta"; text: string };
 export type SseReplace = { type: "replace"; text: string };

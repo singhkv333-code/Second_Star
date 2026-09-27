@@ -276,7 +276,12 @@ class ToolResult:
         # tokens) handed it a slice of every screen, statement and report and
         # the answers were as thin as the slice. What remains is a guard
         # against a runaway payload overflowing the context, not a budget.
-        return _fit_for_llm(self.data, LLM_RESULT_GUARD)
+        # `_charts` are the user's charts of the data above: points the model
+        # already has as numbers, so they are drawn, never read.
+        data = self.data
+        if isinstance(data, dict) and "_charts" in data:
+            data = {k: v for k, v in data.items() if k != "_charts"}
+        return _fit_for_llm(data, LLM_RESULT_GUARD)
 
 
 LLM_RESULT_GUARD = 200_000   # characters, ~50k tokens

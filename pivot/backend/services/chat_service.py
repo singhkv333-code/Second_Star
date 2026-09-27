@@ -309,6 +309,7 @@ _PARALLEL_READ_TOOLS: frozenset = frozenset({
     "scan_technicals",
     "show_price_chart",
     "read_annual_report",
+    "get_valuation_band",
     # consolidated read tools
     "get_market_data", "get_portfolio", "get_indicators", "get_ipo",
     "calculate",

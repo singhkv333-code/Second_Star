@@ -409,7 +409,7 @@ def _persist_turn(
                 )
                 db.add(convo)
             db.add(ConversationMessage(
-                conversation_id=conv_id, role="user", content=user_msg[:8000],
+                conversation_id=conv_id, role="user", content=user_msg,
             ))
             if assistant_text or render_hint:
                 payload = None
@@ -418,10 +418,16 @@ def _persist_turn(
                     bounded = _bounded_card(card)
                     if bounded is not None:
                         payload["card"] = bounded
+                # Charts the reply placed inline: without them a resumed
+                # thread would show bare [[chart:id]] markers.
+                if isinstance(card, dict) and card.get("_charts"):
+                    payload = {**(payload or {}), "_charts": card["_charts"]}
                 db.add(ConversationMessage(
                     conversation_id=conv_id,
                     role="assistant",
-                    content=(assistant_text or "")[:16000],
+                    # Whole: a long analysis cut at 16,000 characters came
+                    # back truncated on reload and in later turns' history.
+                    content=assistant_text or "",
                     tool_payload=payload,
                 ))
             convo.last_message_at = now
