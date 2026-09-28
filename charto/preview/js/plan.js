@@ -21,16 +21,10 @@ const Plan = (() => {
   let beatTimer = null;
   let evicted = false;
 
-  const tabId = (() => {
-    try {
-      let id = sessionStorage.getItem("charto:tab");
-      if (!id) {
-        id = Math.random().toString(36).slice(2) + Date.now().toString(36);
-        sessionStorage.setItem("charto:tab", id);
-      }
-      return id;
-    } catch { return Math.random().toString(36).slice(2); }
-  })();
+  // One id per page LOAD, never stored: "Duplicate tab" copies
+  // sessionStorage, which made two open tabs share one lease. A reload is a
+  // new id too, and the old one is released on pagehide below.
+  const tabId = Math.random().toString(36).slice(2) + Date.now().toString(36);
 
   const headers = (extra) => (typeof Auth !== "undefined"
     ? Auth.headers(extra) : Object.assign({}, extra || {}));

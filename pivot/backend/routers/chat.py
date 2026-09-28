@@ -892,6 +892,10 @@ async def chat(
         await asyncio.to_thread(_meter.refund, authorization, credit_key,
                                 db=db, user_id=user_id)
         raise
+    if not (turn.response or "").strip():
+        # a turn that produced no answer is not charged, thrown or not
+        await asyncio.to_thread(_meter.refund, authorization, credit_key,
+                                db=db, user_id=user_id, why="empty")
 
     if turn.sanitised:
         logger.warning("post-processor stripped output for user %s conv %s",
