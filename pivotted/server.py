@@ -21,12 +21,14 @@ Run:  pivotted/run.sh          (or pivot/.venv/bin/python pivotted/server.py)
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 import ssl
 import sys
 import time
+import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -383,6 +385,55 @@ def chat_stream_pivot(messages: list[dict]):
         yield {"type": "error", "message": f"the answer was cut off — {detail}"}
 
 
+# ── AI credits ─────────────────────────────────────────────────────────────
+# A research turn spends the same AI credits as a chart-chat turn. Charto owns
+# the ledger (charto/data/entitlements.py), so this asks its /billing/consume:
+# with the visitor's own charto session when the company page sends one, and
+# otherwise with the service key and the visitor's address, which charto
+# hashes and meters at the signed-out allowance. Charto unreachable → the turn
+# is allowed and logged, unless PIVOTTED_METER_FAIL_CLOSED=1.
+_CHARTO = os.environ.get("CHARTO_INTERNAL_URL", "http://127.0.0.1:5174").rstrip("/")
+
+
+def _meter(headers, key: str, client: str, refund: bool = False):
+    """(ok, status, body). body is charto's 402 refusal when not ok."""
+    auth = headers.get("Authorization") or ""
+    # The service key always rides along: it is what lets charto accept a
+    # refund, which a visitor's own bearer is never allowed to issue.
+    h = {"Content-Type": "application/json",
+         "X-Internal-Key": os.environ.get("CHARTO_INTERNAL_KEY", "")}
+    payload = {"feature": "ai.credits", "idem_key": key, "meta": "research"}
+    if auth.startswith("Bearer ") and len(auth) > 12:
+        h["Authorization"] = auth
+    # Always: if the bearer turns out expired, charto meters the visitor's
+    # own address rather than a bucket every such visitor would share.
+    payload["client"] = client
+    if refund:
+        payload.update(refund=True, why="error")
+    req = urllib.request.Request(_CHARTO + "/billing/consume", method="POST",
+                                 data=json.dumps(payload).encode(), headers=h)
+    try:
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return True, r.status, json.loads(r.read() or b"{}")
+    except urllib.error.HTTPError as exc:
+        try:
+            out = json.loads(exc.read() or b"{}")
+        except ValueError:
+            out = {}
+        if exc.code == 402:
+            return False, 402, out
+        logging.error("pivotted meter: charto answered %s; turn allowed "
+                      "UNMETERED (is CHARTO_INTERNAL_KEY set?)",
+                        exc.code)
+        return True, 200, {}
+    except Exception as exc:                                # noqa: BLE001
+        logging.warning("pivotted meter: charto unreachable: %s", exc)
+        if os.environ.get("PIVOTTED_METER_FAIL_CLOSED") == "1":
+            return False, 503, {"error": "Usage metering is unavailable.",
+                                "code": "meter_unavailable"}
+        return True, 200, {}
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "pivotted"
 
@@ -445,11 +496,24 @@ class Handler(BaseHTTPRequestHandler):
         if not messages:
             return self._send(400, {"error": "messages[] required"})
         messages = _apply_attachments(messages, body.get("attachments"))
+        client = (self.headers.get("X-Real-IP")
+                  or (self.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
+                  or self.client_address[0])
+        # The client's Idempotency-Key only scopes the key; the content is
+        # always in it, so one header cannot carry many questions for one credit.
+        key = hashlib.sha256(
+            (f"research|{str(self.headers.get('Idempotency-Key') or '')[:80]}|"
+             f"{body.get('conversation_id') or ''}|{len(messages)}|"
+             + json.dumps(messages[-1], default=str)[:4000]).encode()).hexdigest()[:32]
+        ok, code, verdict = _meter(self.headers, key, client)
+        if not ok:
+            return self._send(code, verdict)
+        meter = (key, client)
         try:
             if path == "/chat/stream":
-                return self._stream(messages, dialect="pivot")
+                return self._stream(messages, dialect="pivot", meter=meter)
             if body.get("stream"):
-                return self._stream(messages, dialect="native")
+                return self._stream(messages, dialect="native", meter=meter)
             out = chat(messages)
             # Pivot's non-streaming caller reads `response`; ours reads
             # `text`. Both are present so either can consume this.
@@ -457,9 +521,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, out)
         except Exception as exc:       # noqa: BLE001
             logging.exception("pivotted: turn failed")
+            _meter(self.headers, key, client, refund=True)
             return self._send(500, {"error": str(exc)})
 
-    def _stream(self, messages: list[dict], dialect: str = "native") -> None:
+    def _stream(self, messages: list[dict], dialect: str = "native",
+                meter: tuple | None = None) -> None:
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
@@ -469,14 +535,19 @@ class Handler(BaseHTTPRequestHandler):
         self._cors()
         self.end_headers()
         gen = chat_stream_pivot if dialect == "pivot" else chat_stream
+        failed = False
         try:
             for frame in gen(messages):
+                if isinstance(frame, dict) and (frame.get("type") == "error" or (
+                        frame.get("type") == "done" and frame.get("error"))):
+                    failed = True
                 self.wfile.write(
                     f"data: {json.dumps(frame, default=str)}\n\n".encode())
                 self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError):
             pass               # the user navigated away mid-answer
         except Exception as exc:       # noqa: BLE001
+            failed = True
             logging.exception("pivotted: stream failed")
             try:
                 self.wfile.write(
@@ -484,6 +555,8 @@ class Handler(BaseHTTPRequestHandler):
                     .encode())
             except OSError:
                 pass
+        if failed and meter:
+            _meter(self.headers, meter[0], meter[1], refund=True)
 
     def log_message(self, fmt: str, *args) -> None:
         pass

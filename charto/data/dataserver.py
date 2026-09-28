@@ -489,6 +489,11 @@ def _scene_add(annotation: dict) -> None:
     if "owner" not in annotation and annotation.get("kind") not in ("clear", "clear_levels"):
         src = annotation.get("source") or {}
         annotation["owner"] = src.get("tool", "scene")
+    # …and WHICH chart: a clear too, so replacing the hourly's patterns never
+    # wipes the 5-minute's. See run_tool / _chart_target.
+    target = getattr(_scene, "target", None)
+    if target and "chart" not in annotation:
+        annotation["chart"] = dict(target)
     if not hasattr(_scene, "items"):
         _scene.items = []
     if not hasattr(_scene, "drawn"):
@@ -9826,6 +9831,18 @@ def tool_open_chart(symbol: str = "", interval: str = "", replace: bool = False,
                 "allowed": sorted(_OPEN_INTERVALS)}
     if err := _ensure_symbol(sym):
         return err          # the pane is never opened on a symbol with no bars
+    if not replace:
+        # A new pane is one more chart in this tab; the plan caps that
+        # (`chart.panes`) exactly as a saved layout is capped.
+        who = getattr(_req, "user", None)
+        on_screen = len(getattr(_req, "chart_pairs", None) or []) or 1
+        try:
+            _ent.check_count(who[0] if who else None, "chart.panes", on_screen + 1)
+        except _ent.PlanLimit as exc:
+            return {**exc.body(), "_note": (
+                "No pane was opened: the user's plan caps charts per tab. Say "
+                "so in one line using `error`, name `upgrade_to`, and offer to "
+                "swap the focused pane instead (replace=true).")}
     op = {"kind": "open_chart", "symbol": sym, "interval": iv,
           "replace": bool(replace)}
     if layout:
@@ -9838,37 +9855,22 @@ def tool_open_chart(symbol: str = "", interval: str = "", replace: bool = False,
     # reading what it deliberately put on screen this turn.
     if sym not in (getattr(_req, "charts", None) or []):
         _req.charts = (getattr(_req, "charts", None) or []) + [sym]
-    # Which of the two placements you chose decides whether anything can ever
-    # be drawn on the result, and nothing here used to say so: an added pane is
-    # a reference chart with no drawing layer, and "opened" read as done to a
-    # model that had just promised to draw.
+    # Every pane takes ink, so what it draws this turn routes here too.
+    _req.chart_pairs = (getattr(_req, "chart_pairs", None) or []) + [(sym, iv)]
     on_main = bool(getattr(_req, "drawable", True))
     if replace and on_main:
-        placement = (f"swapped the main chart — {sym} IS the main chart now, "
-                     f"so it is drawable")
+        placement = f"swapped the main chart — {sym} IS the main chart now"
         read = ("The workspace RELOADS onto this chart, so this must be the "
                 "last thing you do this turn: say the chart is open and that "
                 "you can mark levels on it when asked. Do not draw in this "
                 "same turn — the reload would discard the drawing while your "
                 "reply claimed it landed.")
-    elif replace:
-        placement = ("swapped the focused reference pane; the main chart is "
-                     "unchanged, so this chart still cannot be drawn on")
-        read = ("A reference pane has no drawing layer. If the user wants "
-                "something drawn here, say the chart would have to be opened "
-                "as the main chart, and that selecting the main chart first is "
-                "what makes that possible.")
     else:
-        placement = ("added a REFERENCE pane; the layout grows to fit. It can "
-                     "be read but never drawn on")
-        read = ("Reading it works; drawing on it does not — only the main "
-                "chart carries drawings. If the ask was to DRAW something for "
-                "this symbol, this was not the call: it has to become the main "
-                "chart (open_chart replace=true while the main chart is in "
-                "focus). Say that plainly rather than reporting it as drawn.")
+        placement = ("swapped the focused pane" if replace
+                     else "added a pane; the layout grows to fit")
+        read = (f"Read and draw on it by passing symbol='{sym}' (and its "
+                f"interval) to the chart tools.")
     return {"opened": sym, "interval": iv, "placement": placement,
-            "drawable": bool(replace and on_main),
-            "main_chart": str(getattr(_req, "main_chart", "") or ""),
             "_read": "The chart is now on screen. Say so in a few words and "
                      "answer whatever was actually asked — do not describe the "
                      "layout mechanics, and do not claim to see anything on it "
@@ -10694,7 +10696,7 @@ TOOLS = [
          "lookback_sessions": {"type": "integer", "description": "used when no dates given — last N sessions, default 10, max 60"}},
       "required": []}},
     {"type": "function", "name": "open_chart",
-     "description": "Put a chart on the user's screen yourself. Use when the answer is about an instrument that is NOT already open — 'show me TCS', 'pull up the Nifty', 'compare this with HDFCBANK', 'open it on the daily' — and when a follow-up is clearly about a different symbol than the one in focus. Opening ADDS a reference pane and the layout grows to fit; pass replace=true to change what the focused chart shows instead of adding another. DRAWABILITY decides which one you want: an added pane can be read but NEVER drawn on, because only the main chart carries drawings. So if the user wants levels, marks or a plan DRAWN for a symbol that is not the main chart, the only route is replace=true while the main chart is in focus — that makes the symbol the main chart (the workspace reloads onto it, so end the turn there and draw when next asked). The symbol is validated before the pane opens, so a bad ticker fails here rather than opening an empty chart. Opening a chart does NOT read it: call the reading tools afterwards for anything you intend to say about it.",
+     "description": "Put a chart on the user's screen yourself. Use when the answer is about an instrument that is NOT already open — 'show me TCS', 'pull up the Nifty', 'compare this with HDFCBANK', 'open it on the daily' — and when a follow-up is clearly about a different symbol than the one in focus. Opening ADDS a reference pane and the layout grows to fit; pass replace=true to change what the focused chart shows instead of adding another. Every pane can be read and drawn on: aim the chart tools at it with its symbol and interval. The symbol is validated before the pane opens, so a bad ticker fails here rather than opening an empty chart. Opening a chart does NOT read it: call the reading tools afterwards for anything you intend to say about it.",
      "parameters": {"type": "object", "properties": {
          "symbol": {"type": "string", "description": "ticker to open, e.g. 'TCS'"},
          "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w", "1mo"], "description": "default 1d"},
@@ -12045,63 +12047,28 @@ for _t in TOOLS:
         _t["parameters"]["properties"].setdefault("symbol", dict(_SYMBOL_ARG))
 
 
-_INK_ARGS = ("draw", "mark_points", "connect", "mark_levels", "remove",
-             "clear_marks")
+def _chart_target(sym: str, args: dict) -> dict:
+    """The chart a tool call's ink belongs to: its symbol and interval.
 
-
-def _wants_ink(args: dict) -> list:
-    """Which arguments of this call would put something on the user's chart."""
-    return [k for k in _INK_ARGS if args.get(k)]
-
-
-def _no_ink_note(want: str = "") -> str:
-    """Why this cannot be drawn, and the route that actually exists.
-
-    The drawing layer belongs to ONE chart — the page's main chart. A
-    secondary pane has none at all. So "click the {want} pane and I'll draw
-    it there" is never true: on a secondary pane it fails again with the same
-    refusal, and when {want} has no pane it names something that isn't on
-    screen. Both were being said, because the refusal knew what it could not
-    do and not where the ink could go. It knows now (`_req.main_chart`).
+    Every chart on screen can be drawn on. A call names its interval when it
+    computes on one (get_patterns, get_levels); otherwise it means the chart
+    that symbol is showing, the focused one first. The browser routes each
+    mark to the pane showing this symbol at this interval, so patterns found
+    on the hourly land on the hourly pane.
     """
-    main = str(getattr(_req, "main_chart", "") or getattr(_req, "symbol", "") or "")
-    # No symbol argument means the working chart — which, on a reference pane,
-    # is still not the main chart. Without this default the note fell back to
-    # "select the main chart", i.e. draw THIS pane's levels onto a different
-    # instrument: the same mistake in the other direction.
-    want = str(want or getattr(_req, "symbol", "") or "").upper()
-    lead = (f"Only the main chart carries drawings, and the main chart is "
-            f"{main}. A secondary pane has no drawing layer, so clicking one "
-            f"never makes it drawable — do not tell the user to click a pane "
-            f"to get this drawn.")
-    if want and main and want != main.upper():
-        # The one real route: that symbol has to BECOME the main chart.
-        # open_chart(replace=true) swaps the FOCUSED chart, so it only reaches
-        # the main chart while the main chart is the focused one — which is
-        # exactly the case where drawing was refused for the symbol alone.
-        if getattr(_req, "drawable", True):
-            return (lead + f" To draw {want} it has to become the main chart: "
-                    f"say so and offer it, and if the user agrees call "
-                    f"open_chart with symbol='{want}' and replace=true, then "
-                    f"draw. Otherwise quote the {want} values in the reply.")
-        return (lead + f" The focused pane is a reference chart, so nothing "
-                f"can be drawn from here at all. Quote the {want} values, and "
-                f"say {want} would have to be opened as the main chart for "
-                f"them to be drawn.")
-    return (lead + " The focused pane is a reference chart. Quote the values "
-            "in the reply, and say the user can select the main chart to have "
-            "them drawn there.")
+    iv = str((args or {}).get("interval") or "")
+    if not iv:
+        if sym == str(getattr(_req, "focus_symbol", "") or "").upper():
+            iv = str(getattr(_req, "ctx_interval", "") or "")
+        else:
+            iv = next((i for s, i in getattr(_req, "chart_pairs", []) or [] if s == sym), "")
+    return {"symbol": sym, "interval": iv}
 
 
 def run_tool(name: str, args: dict) -> dict:
     fn = _DISPATCH.get(name)
     if not fn:
         return {"error": f"unknown tool {name}"}
-    # draw_shape / mark / plan_position exist only to draw — the whole call
-    # is ink, so there is no version of them that a reference pane can serve.
-    if name in ("draw_shape", "mark", "plan_position") and not getattr(_req, "drawable", True):
-        return {"error": "this chart cannot be drawn on",
-                "_note": _no_ink_note(str((args or {}).get("symbol") or ""))}
     # `symbol` is routing, not a parameter of the computation: the tools that
     # take it in their own signature (get_peers) keep it, and for everything
     # else it swaps the request's working chart for the length of this one
@@ -12111,13 +12078,6 @@ def run_tool(name: str, args: dict) -> dict:
     want = str(args.pop("symbol", "") or "").upper().strip() \
         if name in _CHART_SCOPED and "symbol" not in _fn_params(fn) else ""
     prev = getattr(_req, "symbol", "RELIANCE")
-    # The chart in focus may itself be a secondary pane, which has no drawing
-    # layer at all. Anything that would put ink on the screen is refused with
-    # the reason — the alternative is a reply that says "drawn" while the line
-    # appears on a different chart than the one it was computed from.
-    if not getattr(_req, "drawable", True) and _wants_ink(args):
-        return {"error": "this chart cannot be drawn on",
-                "_note": _no_ink_note(want)}
     if want and want != prev:
         # `symbol=` means "which chart on screen to read" — its own description
         # says so — but nothing checked it, and the model does not only pick
@@ -12168,23 +12128,17 @@ def run_tool(name: str, args: dict) -> dict:
                               f"this conversation are: {open_now}. Say which ones "
                               f"you can read rather than answering for one you "
                               f"cannot.")}
-        # Reading another chart is free; DRAWING on one is not. The scene layer
-        # and the indicator panes belong to the chart in focus, so a request to
-        # draw while aimed elsewhere would compute on one instrument and put
-        # the line on another. Refused with the reason, never silently dropped.
-        drawing = _wants_ink(args)
-        if drawing:
-            return {"error": f"cannot draw on {want} from here",
-                    "_note": (f"Reading {want} works — drop "
-                              f"{', '.join(drawing)} and the same call returns "
-                              f"the values. " + _no_ink_note(want))}
         _req.symbol = want
+    # Whatever this call draws belongs to the chart it computed on; _scene_add
+    # stamps it so the browser puts it on that pane, not the focused one.
+    _scene.target = _chart_target(want or str(prev).upper(), args)
     try:
         out = _run_tool(name, fn, args)
     finally:
         # every stamp below reads the working chart, so it is restored only
         # once the whole result is built
         _req.symbol = prev
+        _scene.target = None
     # A result that came from another chart must carry that chart's name, or
     # two tool results in the same turn are indistinguishable in the reply.
     if want and isinstance(out, dict):
@@ -12618,25 +12572,14 @@ def _render_context(ctx: dict) -> str:
         block += "\n\n" + "\n\n".join(_render_chart(c, focused=False) for c in others)
         names = ", ".join(f"{c['symbol']} ({c['interval']})"
                           for c in [ctx] + others)
-        # Focus and drawability are two different things, and saying "the
-        # focused chart is the one carrying drawings" made them one: a focused
-        # SECONDARY pane carries none of it, and the chart that does may not be
-        # the one in focus at all.
-        main = str(ctx.get("main_chart") or "")
-        named = f" ({main})" if main else ""
-        owns = (f"It is also the main chart, so it is the one carrying drawings, "
-                f"chat annotations and pinned bars."
-                if ctx.get("drawable") is not False else
-                f"It is a reference pane: the drawings, chat annotations and "
-                f"pinned bars live on the main chart{named}, the only chart "
-                f"anything can be drawn on.")
         block += (
-            f"\n\nThe user has {len(others) + 1} charts in this conversation: {names}. "
-            f"Every chart-reading tool takes `symbol` — pass one of these to aim it at "
-            f"that chart, and call it once per chart when a question spans them. "
-            f"{ctx.get('symbol')} is the one in focus; a bare 'this chart' means it. "
-            f"{owns} "
-            f"Attribute every number to the chart it came from.")
+            f"\n\nThe user has {len(others) + 1} charts on screen: {names}. "
+            f"Every chart-reading tool takes `symbol`, and the pattern and level "
+            f"tools take `interval`: pass them to aim a call at one of these charts, "
+            f"once per chart when a question spans them. Anything a call draws "
+            f"lands on the chart showing that symbol at that interval. "
+            f"{ctx.get('symbol')} ({ctx.get('interval')}) is the one in focus; a "
+            f"bare 'this chart' means it. Attribute every number to its chart.")
     contract = _CONTEXT_CONTRACT
     if getattr(_req, "chat_mode", "chat") != "execution":
         contract += _RESEARCH_CONTRACT
@@ -12690,25 +12633,6 @@ def _render_chart(ctx: dict, focused: bool = True) -> str:
     # would invite the model to reason about their absence.
     if not focused:
         return "\n".join(L)
-
-    # Where ink can land, said on the way in rather than only as a refusal.
-    # "The chart in focus is the drawable one" is false twice over — a focused
-    # secondary pane has no drawing layer, and a question about a symbol that
-    # is not the main chart cannot be drawn at all — and the model, left to
-    # fill the gap, sent users to click panes that could never take the ink.
-    main = str(ctx.get("main_chart") or "")
-    if ctx.get("drawable") is False:
-        L.append(f"NOT DRAWABLE: this is a reference pane and has no drawing "
-                 f"layer. The only chart that can be drawn on is the main "
-                 f"chart{f' ({main})' if main else ''}. If something is asked "
-                 f"to be drawn, give the geometry in words and say it can be "
-                 f"drawn on the main chart — clicking this pane will not make "
-                 f"it drawable.")
-    elif main:
-        L.append(f"Drawings land on the main chart ({main}) and nowhere else. "
-                 f"Levels read from another symbol cannot be drawn here — "
-                 f"quote them, or offer to open that symbol as the main chart "
-                 f"(open_chart replace=true) and draw them there.")
 
     if ctx.get("pins"):
         for p in ctx["pins"]:
@@ -14248,6 +14172,204 @@ _users.execute("CREATE UNIQUE INDEX IF NOT EXISTS layouts_share "
 _users.commit()
 _users_lock = threading.Lock()
 
+# Plans and payments. Bound to this connection and lock rather than imported
+# the other way round: entitlements.py must never `import dataserver`, or a
+# server started as __main__ would meter against a second copy of the store.
+# NOT optional, unlike the modules below: a server that cannot say what a
+# plan allows must not serve the things plans limit.
+import entitlements as _ent  # noqa: E402
+import billing as _billing  # noqa: E402
+
+_ent.bind(_users, _users_lock)
+_ADMIN_EMAILS = {e.strip().lower() for e in
+                 (environ.get("CHARTO_ADMIN_EMAILS") or "").split(",") if e.strip()}
+
+
+def _credit_view(c: dict) -> dict:
+    """What the client is told about the meter after a turn: enough to show
+    'N left' without a second request."""
+    lim = c.get("limit")
+    return {"used": c.get("used"), "limit": lim,
+            "left": None if lim is None else max(0, lim - (c.get("used") or 0)),
+            "resets_at": c.get("resets_at")}
+
+
+def _plan_downgraded(uid: int) -> None:
+    """What a lapsed plan no longer covers is paused, never deleted."""
+    if _alerts is not None:
+        _alerts.enforce_caps(uid)
+
+
+_billing.on_downgrade = _plan_downgraded
+
+
+def _plan_sweep_loop() -> None:
+    """Hourly: bring every account with armed alerts inside its plan.
+
+    The webhook and the grant route already do this the moment a plan drops.
+    This catches the drops that arrive as NOTHING — a comp that reaches its
+    end date, a grace period that runs out with no `halted` event — because
+    the effective plan is computed on read and no event marks the moment it
+    changed. enforce_caps is a no-op for anyone inside their plan."""
+    while True:
+        time.sleep(3600)
+        if _alerts is None:
+            continue
+        try:
+            with _users_lock:
+                uids = [r[0] for r in _users.execute(
+                    "SELECT DISTINCT user_id FROM alerts WHERE state='armed'")]
+            for uid in uids:
+                _alerts.enforce_caps(uid)
+        except Exception as exc:                            # noqa: BLE001
+            logging.warning("charto plan sweep failed: %s", exc)
+
+
+# ── parallel charts: a lease per open chart tab ────────────────────────────
+# "Parallel charts" is how many chart tabs one account may have open at once
+# (TradingView's "parallel chart connections": one browser tab is one, however
+# many panes its layout holds). Each tab renews a lease every 60 s; a tab that
+# stops renewing lapses after _LEASE_TTL, so a crashed tab frees its slot.
+#
+# At the limit the OLDEST tab is evicted rather than the new one refused —
+# TradingView's behaviour, and the right one: the tab the user just opened is
+# the one they are looking at. The evicted tab learns on its next renewal
+# (402, code "evicted") and pauses its live feed with a note, never silently.
+#
+# Held in memory on purpose: a restart forgets every lease, and each open tab
+# simply renews into a fresh table on its next beat.
+_LEASE_TTL = 150
+_leases: dict[str, dict[str, float]] = {}
+_evicted: dict[str, dict[str, float]] = {}
+_leases_lock = threading.Lock()
+
+
+def _chart_lease(uid: int | None, client: str, body: dict) -> tuple[int, dict]:
+    tab = str(body.get("tab_id") or "")[:64]
+    if not tab:
+        return 400, {"error": "tab_id is required"}
+    subject = _ent.subject_for(uid, client)
+    lim = _ent.value(uid, "chart.parallel")
+    now = time.time()
+    with _leases_lock:
+        held = {t: ts for t, ts in _leases.get(subject, {}).items()
+                if now - ts < _LEASE_TTL}
+        gone = {t: ts for t, ts in _evicted.get(subject, {}).items()
+                if now - ts < _LEASE_TTL}
+        if body.get("release"):
+            held.pop(tab, None)
+        elif tab in gone and not body.get("reclaim"):
+            _leases[subject], _evicted[subject] = held, gone
+            plan = _ent.plan_of(uid)
+            return 402, {**_ent.PlanLimit(
+                "chart.parallel", plan, code="evicted", limit=lim,
+                used=len(held),
+                message=(f"This chart was paused because you opened more than "
+                         f"{lim} charts at once on the "
+                         f"{_ent.CATALOG['plans'][plan]['name']} plan.")
+            ).body()}
+        else:
+            gone.pop(tab, None)
+            held[tab] = now
+            while lim is not None and len(held) > lim:
+                oldest = min((t for t in held if t != tab), key=held.get)
+                held.pop(oldest)
+                gone[oldest] = now
+        _leases[subject], _evicted[subject] = held, gone
+        n = len(held)
+    return 200, {"active": n, "limit": lim, "renew_in": 60}
+
+
+def _admin_grant(by: str, body: dict) -> tuple[int, dict]:
+    """Comp a plan, or set one feature, for one account — with a reason and
+    an end date, recorded in entitlement_grants and never edited in place."""
+    email = str(body.get("email") or "").strip().lower()
+    with _users_lock:
+        row = _users.execute("SELECT id FROM users WHERE email=?",
+                             (email,)).fetchone()
+    if not row:
+        return 404, {"error": f"no account for {email or 'that email'}"}
+    reason = str(body.get("reason") or "").strip()
+    if not reason:
+        return 400, {"error": "a grant needs a reason"}
+    try:
+        gid = _ent.grant(row[0], reason=reason, granted_by=by,
+                         plan=body.get("plan") or None,
+                         feature=body.get("feature") or None,
+                         value_=body.get("value"),
+                         days=int(body["days"]) if body.get("days") else None)
+    except (ValueError, TypeError) as exc:
+        return 400, {"error": str(exc)}
+    if _ent.CATALOG["plans"][_ent.plan_of(row[0])]["rank"] <= 0:
+        _plan_downgraded(row[0])
+    return 200, {"grant_id": gid, "billing": _ent.summary(row[0])}
+
+
+def _layout_plan_refusal(uid: int, spec) -> tuple[int, dict] | None:
+    """Charts per tab and indicators per chart, checked where a layout is
+    SAVED. Indicators are fetched one series at a time by a stateless route,
+    so the server cannot count them while they are on screen; the client
+    enforces that live, and this is the check it cannot skip. A layout
+    already saved over the limit (before a downgrade) still opens."""
+    if not isinstance(spec, dict):
+        return None
+    try:
+        charts = spec.get("charts") or []
+        _ent.check_count(uid, "chart.panes", len(charts))
+        inds = ((spec.get("workspace") or {}).get("indicators") or [])
+        _ent.check_count(uid, "chart.indicators", len(inds))
+    except _ent.PlanLimit as exc:
+        return exc.status, exc.body()
+    return None
+
+
+# ── historical bars: how far back a plan may scroll ────────────────────────
+_HIST_CUT: dict[tuple, tuple[float, int | None]] = {}
+
+
+def _history_cutoff(symbol: str, interval: str, depth: int) -> int | None:
+    """The time of the `depth`-th bar back from the latest, or None when the
+    series is shorter than that. Cached a minute: it moves one bar at a time."""
+    key = (symbol, interval, depth)
+    hit = _HIST_CUT.get(key)
+    if hit and time.time() - hit[0] < 60:
+        return hit[1]
+    head = get_bars(symbol, interval, None, depth)
+    bars = head.get("bars") or []
+    cut = bars[0]["t"] if len(bars) >= depth else None
+    _HIST_CUT[key] = (time.time(), cut)
+    return cut
+
+
+def _bars_for_plan(uid: int | None, symbol: str, interval: str,
+                   to: int | None, limit: int) -> dict:
+    # Intraday only, as on TradingView: a daily chart shows the whole listed
+    # history on every plan, and depth is what minute data costs to serve.
+    depth = _ent.value(uid, "chart.history_bars")
+    if depth is None or interval not in INTRADAY_MIN:
+        return get_bars(symbol, interval, to, limit)
+    if to is None:
+        out = get_bars(symbol, interval, None, min(limit, depth))
+        if len(out.get("bars") or []) >= depth and out.get("has_more"):
+            out = {**out, "has_more": False}
+            out["history_limit"] = _history_note(uid, depth)
+        return out
+    cut = _history_cutoff(symbol, interval, depth)
+    out = get_bars(symbol, interval, to, limit)
+    if cut is None:
+        return out
+    bars = [b for b in (out.get("bars") or []) if b["t"] >= cut]
+    if len(bars) < len(out.get("bars") or []) or (bars and bars[0]["t"] == cut):
+        out = {**out, "bars": bars, "has_more": False,
+               "history_limit": _history_note(uid, depth)}
+    return out
+
+
+def _history_note(uid: int | None, depth: int) -> dict:
+    plan = _ent.plan_of(uid)
+    return {"limit": depth, "plan": plan,
+            "upgrade_to": _ent.upgrade_for("chart.history_bars", plan)}
+
 # Loaded only after the users table exists: journal.py adds foreign-keyed
 # records to this same durable account database. A broken optional feature
 # must not stop charts, chat or auth from starting.
@@ -15778,6 +15900,116 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _client_ip(self) -> str:
+        """The visitor's address as nginx saw it. Only ever hashed (the
+        signed-out AI meter), never stored or logged as is."""
+        fwd = (self.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
+        return self.headers.get("X-Real-IP") or fwd or self.client_address[0]
+
+    def _billing_get(self, path: str) -> tuple[int, dict]:
+        if path == "/billing/plans":
+            return 200, {**_ent.public_catalog(),
+                         "checkout": _billing.configured()}
+        me = _auth_user(self.headers)
+        uid = me[0] if me else None
+        counts = {}
+        if uid and _alerts is not None:
+            counts = {f"alerts.{k}": v
+                      for k, v in _alerts.armed_counts(uid).items()}
+        out = _ent.summary(uid, counts, client=self._client_ip())
+        out["checkout"] = _billing.configured()
+        return 200, out
+
+    def _billing_post(self, path: str, raw: bytes) -> tuple[int, dict]:
+        # The webhook is the one route here that is NOT signed in: Razorpay
+        # calls it, and the HMAC over the untouched body is its credential.
+        if path == "/billing/webhook":
+            return _billing.api_webhook(raw, self.headers)
+        try:
+            body = json.loads(raw or b"{}")
+        except ValueError:
+            return 400, {"error": "bad JSON body"}
+        if not isinstance(body, dict):
+            return 400, {"error": "bad JSON body"}
+        if path == "/billing/consume":
+            return self._billing_consume(body)
+        me = _auth_user(self.headers)
+        if path == "/charts/lease":
+            return _chart_lease(me[0] if me else None, self._client_ip(), body)
+        if not me:
+            return 401, {"error": "sign in to manage your plan"}
+        if path == "/billing/checkout":
+            return _billing.api_checkout(me[0], me[1], body)
+        if path == "/billing/verify":
+            return _billing.api_verify(me[0], body)
+        if path == "/billing/cancel":
+            return _billing.api_cancel(me[0])
+        if path == "/admin/billing/grant":
+            if str(me[1]).lower() not in _ADMIN_EMAILS:
+                return 403, {"error": "not an admin"}
+            return _admin_grant(me[1], body)
+        return 404, {"error": f"no billing route {path}"}
+
+    def _billing_consume(self, body: dict) -> tuple[int, dict]:
+        """Metering for OTHER services (pivot's chat). Charto stays the only
+        writer of the ledger; pivot asks here instead of opening the file.
+
+        Two ways in: the user's own charto bearer (pivot forwards it), or the
+        service key plus an email, for a pivot account signed in with pivot's
+        own JWT. Only quota features can be debited — a caller cannot use
+        this route to change a limit or a flag."""
+        me = _auth_user(self.headers)
+        uid = me[0] if me else None
+        plan_override = None
+        key = environ.get("CHARTO_INTERNAL_KEY") or ""
+        got = self.headers.get("X-Internal-Key") or ""
+        service = bool(key) and hmac.compare_digest(key, got)
+        # A refund is the SERVICE saying its own turn failed. An end user's
+        # bearer can spend credits but never give them back, or the meter
+        # would be a formality.
+        if body.get("refund") and not service:
+            return 403, {"error": "refunds are issued by the service only"}
+        if uid is None:
+            if not service:
+                return 401, {"error": "sign in to use this"}
+            email = str(body.get("email") or "").strip().lower()
+            if email:
+                with _users_lock:
+                    row = _users.execute("SELECT id FROM users WHERE email=?",
+                                         (email,)).fetchone()
+                uid = row[0] if row else None
+            # Never meter a service call on NOBODY: with no account and no
+            # client, every such caller would share one anonymous bucket.
+            if uid is None and not str(body.get("client") or "").strip():
+                if not email:
+                    return 400, {"error": "an account email or a client "
+                                          "address is required"}
+                # a pivot account with no charto account: its own bucket, at
+                # the Free allowance — signed in, just not here
+                body = {**body, "client": f"email:{email}"}
+                plan_override = "free"
+        feature = str(body.get("feature") or "")
+        f = _ent.CATALOG["features"].get(feature)
+        if not f or f["kind"] != "quota":
+            return 400, {"error": f"'{feature}' is not a metered feature"}
+        idem = str(body.get("idem_key") or "")
+        if not idem:
+            return 400, {"error": "idem_key is required"}
+        client = str(body.get("client") or "")
+        if body.get("refund"):
+            return 200, {"refunded": _ent.refund(uid, feature, idem, client=client,
+                                                 why=str(body.get("why") or ""))}
+        try:
+            amount = max(1, min(int(body.get("amount") or 1), 50))
+        except (TypeError, ValueError):
+            return 400, {"error": "amount must be a whole number"}
+        try:
+            return 200, _ent.consume(uid, feature, idem, amount, client=client,
+                                     meta=str(body.get("meta") or "")[:80],
+                                     plan=plan_override)
+        except _ent.PlanLimit as exc:
+            return exc.status, exc.body()
+
     def _account_post(self, path: str, body: dict) -> tuple[int, dict]:
         """Accounts and saved work. Everything past /auth/* needs a session."""
         if path == "/auth/signup":
@@ -15861,6 +16093,9 @@ class Handler(BaseHTTPRequestHandler):
                 if not cur.rowcount:
                     return 404, {"error": "no such layout"}
                 return 200, {"id": lid, "autosave": bool(body["autosave"])}
+            refusal = _layout_plan_refusal(uid, body.get("spec"))
+            if refusal:
+                return refusal
             return _layout_save(
                 uid, str(body.get("name") or ""), body.get("spec") or {},
                 lid=lid, symbols=body.get("symbols") or [],
@@ -15892,9 +16127,15 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:  # noqa: BLE001
             logging.warning("charto sse failed: %s", exc)
 
-    def _send_stream(self, messages: list, context: dict | None) -> None:
+    def _send_stream(self, messages: list, context: dict | None,
+                     meter: tuple | None = None) -> None:
         """SSE. No Content-Length and no buffering — the whole point is that
-        the first token reaches the screen before the turn is finished."""
+        the first token reaches the screen before the turn is finished.
+
+        `meter` is the credit debited for this turn. It is refunded when the
+        turn ends in an error of ours or the model's; a reader who closes the
+        tab mid-answer still used the model, so that is not refunded."""
+        failed = False
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache, no-transform")
@@ -15904,11 +16145,17 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         try:
             for ev in llm_chat_stream(messages, context):
+                if meter and ev.get("type") == "done":
+                    if ev.get("error"):
+                        failed = True
+                    else:
+                        ev = {**ev, "credits": _credit_view(meter[3])}
                 self.wfile.write(f"data: {json.dumps(ev, default=str)}\n\n".encode())
                 self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError):
             pass                                       # user navigated away mid-answer
         except Exception as exc:  # noqa: BLE001
+            failed = True
             logging.warning("charto sse failed: %s", exc)
             try:
                 self.wfile.write(
@@ -15916,6 +16163,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.flush()
             except Exception:  # noqa: BLE001
                 pass
+        if meter and failed:
+            _ent.refund(meter[0], "ai.credits", meter[1], client=meter[2],
+                        why="error")
 
     def _send_alerts(self, uid: int) -> None:
         """SSE of this user's fired alerts. The same shape as _send_live and for
@@ -16001,6 +16251,9 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/health":
                 deep = q.get("deep", "").lower() in ("1", "true", "yes")
                 return self._send(*_health_report(deep=deep),
+                                  headers={"Cache-Control": "no-store"})
+            if u.path in ("/billing/plans", "/billing/me"):
+                return self._send(*self._billing_get(u.path),
                                   headers={"Cache-Control": "no-store"})
             # The Portfolio and Strategies pages, which are Pivot's own
             # components reused unchanged. They read the Agent System's paths,
@@ -16122,7 +16375,12 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(404, err)
                 to = int(q["to"]) if q.get("to") else None
                 limit = min(int(q.get("limit", 3000)), 20000)
-                return self._send(200, get_bars(symbol, interval, to, limit))
+                # How far back is a plan feature. Signed-out and bearer-less
+                # requests read at the Free depth, which is the safe side.
+                me = _auth_user(self.headers) if self.headers.get(
+                    "Authorization") else None
+                return self._send(200, _bars_for_plan(
+                    me[0] if me else None, symbol, interval, to, limit))
             if u.path == "/quotes":
                 want = (q.get("symbols") or "").split(",")
                 if len([s for s in want if s.strip()]) > _QUOTES_MAX:
@@ -16207,6 +16465,14 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(400, {"error": f"unknown indicator {name}"})
                 interval = q.get("interval", "1d")
                 limit = min(int(q.get("limit", 3000)), 20000)
+                # The same intraday depth as /bars: a series is the bars it is
+                # computed from, so it cannot reach further back than they do.
+                if interval in INTRADAY_MIN:
+                    me = _auth_user(self.headers) if self.headers.get(
+                        "Authorization") else None
+                    depth = _ent.value(me[0] if me else None, "chart.history_bars")
+                    if depth is not None:
+                        limit = min(limit, depth)
                 rows = _rows(interval, limit)
                 if not rows:
                     return self._send(400, {"error": "no bars"})
@@ -16806,6 +17072,16 @@ class Handler(BaseHTTPRequestHandler):
             if tail.startswith("playbooks/") and tail.split("/")[-1].isdigit():
                 return self._send(*_journal.api_playbook(me[0], body, int(tail.split("/")[-1])))
             return self._send(404, {"error": f"no journal route '{tail}'"})
+        if u.path.startswith("/billing/") or u.path in (
+                "/admin/billing/grant", "/charts/lease"):
+            try:
+                ln = int(self.headers.get("Content-Length", 0))
+            except ValueError:
+                ln = 0
+            if ln > 256 * 1024:
+                return self._send(413, {"error": "body too large"})
+            raw = self.rfile.read(ln) if ln else b""
+            return self._send(*self._billing_post(u.path, raw))
         if u.path == "/alerts" or u.path.startswith("/alerts/"):
             if _alerts is None:
                 return self._send(501, {"error": "the alert engine is not "
@@ -16964,6 +17240,14 @@ class Handler(BaseHTTPRequestHandler):
                 keep.append(c)
             ctx["charts"] = keep
             _req.charts = charts
+            # symbol → interval for every chart on screen, so ink from a tool
+            # that names no interval lands on the pane showing that symbol
+            _wire_iv = {"D": "1d", "W": "1w", "M": "1mo"}
+            _req.focus_symbol = sym
+            _req.chart_pairs = [
+                (str(c.get("symbol") or "").upper(),
+                 _wire_iv.get(str(c.get("interval") or ""), str(c.get("interval") or "")))
+                for c in [ctx, *keep] if isinstance(c, dict) and c.get("symbol")]
             # a reference pane has no drawing layer; the envelope says which
             # kind of chart is in focus and the tools honour it
             _req.drawable = ctx.get("drawable") is not False
@@ -16973,9 +17257,38 @@ class Handler(BaseHTTPRequestHandler):
             # cannot work. Older frontends don't send it; the focused chart is
             # then the best available answer and matches the old behaviour.
             _req.main_chart = str(ctx.get("main_chart") or sym or "").upper()
+            # AI credits, debited BEFORE the model runs — a turn the plan
+            # cannot pay for must not cost a model call — and idempotent on
+            # the turn, so the client's retry of the same message is not a
+            # second charge. A turn that fails is refunded (_send_stream).
+            uid = _req.user[0] if _req.user else None
+            client = self._client_ip()
+            # The key is derived HERE from the turn's content. A client
+            # turn_id only scopes it: trusting it alone let one id carry any
+            # number of different questions for a single credit.
+            turn = hashlib.sha256(
+                (f"{str(body.get('turn_id') or '')[:80]}|"
+                 f"{_req.chat_id or int(time.time()) // 60}|{len(messages)}|"
+                 + json.dumps(messages[-1], default=str)[:4000]).encode()
+            ).hexdigest()[:32]
+            try:
+                credit = _ent.consume(uid, "ai.credits", turn, 1, client=client,
+                                      meta=_req.chat_mode)
+            except _ent.PlanLimit as exc:
+                return self._send(exc.status, exc.body())
+            meter = (uid, turn, client, credit)
             if body.get("stream"):
-                return self._send_stream(messages, ctx)
-            return self._send(200, llm_chat(messages, ctx))
+                return self._send_stream(messages, ctx, meter)
+            try:
+                out = llm_chat(messages, ctx)
+            except Exception:
+                _ent.refund(uid, "ai.credits", turn, client=client, why="error")
+                raise
+            if out.get("error"):
+                _ent.refund(uid, "ai.credits", turn, client=client, why="error")
+            else:
+                out["credits"] = _credit_view(credit)
+            return self._send(200, out)
         except Exception as exc:  # noqa: BLE001
             # LOG the traceback, don't just relay the string. A chat turn that
             # 500s writes nothing to the log otherwise, so the only record of
@@ -17059,6 +17372,8 @@ if __name__ == "__main__":
               f"catch-up {_boot.get('catch_up')}")
     except Exception as _exc:                                  # noqa: BLE001
         print(f"charto alerts UNAVAILABLE: {_exc}")
+    threading.Thread(target=_plan_sweep_loop, name="plan-sweep",
+                     daemon=True).start()
 
     # The paper book and the strategy runtime, after the alerts for the same
     # reason the alerts come after the venues: `start()` sweeps every armed

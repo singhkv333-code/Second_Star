@@ -1827,7 +1827,7 @@
       // back is recorded: a layout change can retire a chosen pane, and the
       // fallback has to be visible rather than silent.
       let context = window.__charto
-        ? window.__charto.getChartContext(chosen) : null;
+        ? window.__charto.getChartContext(chosenCharts().map((c) => c.pane)) : null;
       if (journal) context = Object.assign({}, context || {}, { journal });
       // Stamp the turn with what was on screen when it was asked. Only the
       // mirrored archive uses it, so a later session can find "that ITC
@@ -1861,7 +1861,13 @@
                                chat_id: activeId, mode: chatMode }),
         signal: requestAbort.signal,
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        // A plan refusal (402) says exactly what ran out and when it resets;
+        // "HTTP 402" would tell the user nothing they can act on.
+        let msg = `HTTP ${res.status}`;
+        try { const e = await res.json(); if (e && e.error) msg = e.error; } catch {}
+        throw new Error(msg);
+      }
       // The follow-ups arrive on the tail of this same stream, so their sink
       // is handed to the reader up front. It resolves on the ANSWER, not on
       // them — everything below runs at the same moment it always did.
@@ -1932,7 +1938,8 @@
       // cost the drawing, never the reply.
       if (d.scene_patch && d.scene_patch.length && window.__charto) {
         try {
-          window.__charto.scene.apply(d.scene_patch);
+          // each mark to the pane it was computed on — see main.js
+          window.__charto.applyScenePatch(d.scene_patch);
         } catch (e) {
           console.warn("[charto] scene patch failed", e);
         }
@@ -2260,9 +2267,15 @@
     ? window.__charto.charts()
     : [{ pane: 0, symbol: Sym.name, interval: "", primary: true }];
 
-  /** The chosen panes as chart records, dropping any the layout has retired. */
+  /** The chosen panes as chart records, dropping any the layout has retired.
+   *  Unpinned, that is everything on screen, the selected chart first: the
+   *  conversation is about what the user is looking at, all of it. */
   function chosenCharts() {
     const open = openCharts();
+    if (!pinned) {
+      const a = window.__chartoActivePane || 0;
+      return [...open.filter((c) => c.pane === a), ...open.filter((c) => c.pane !== a)];
+    }
     const byPane = new Map(open.map((c) => [c.pane, c]));
     const list = chosen.map((p) => byPane.get(p)).filter(Boolean);
     return list.length ? list : [open[0]];
@@ -2304,7 +2317,7 @@
       }),
       pinned ? `<div class="sep"></div><div class="item" data-pane="follow">`
         + `<span class="lead">${Icons.svg("check", "sm")}`
-        + `Your choice — click to follow the selected chart again</span></div>` : "",
+        + `Your choice — click to follow the screen again</span></div>` : "",
       open.length === 1
         ? `<div class="pick-note">Split the layout to put a second chart on `
           + `screen; anything open can join the conversation.</div>`

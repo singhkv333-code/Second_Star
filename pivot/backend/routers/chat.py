@@ -16,13 +16,14 @@ import os
 import re
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
 from backend.security.throttle import rate_limit
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from backend.auth.jwt_handler import get_user_id_from_token
+from backend.billing import meter as _meter
 from backend.database import get_db
 from backend.kite.auth import read_kite_access_token
 from backend.models import User
@@ -815,6 +816,7 @@ async def _refresh_summary_bg(user_id: int, raw_conv_id) -> None:
 async def chat(
     request: ChatRequest,
     background_tasks: BackgroundTasks,
+    http_request: Request,
     authorization: str = Header(None),
     db: Session = Depends(get_db),
 ):
@@ -869,14 +871,27 @@ async def chat(
     # labelled grounding block, same mechanism as the reply quote.
     llm_msg = _with_attachment_context(llm_msg, request.attachments)
 
-    turn = await _chat_service.handle(
-        llm_msg, conv_id, ctx,
-        # Always pass the FE's history (even when empty) — this is the
-        # session boundary signal. None would re-hydrate from Redis.
-        history_override=history,
-        mode_override=request.mode,
-        editor_draft=request.editor_draft,
-    )
+    # AI credits — see backend/billing/meter.py. After the slash shortcuts,
+    # which are deterministic and never reach a model.
+    credit_key = _meter.turn_key(conv_id, request.messages,
+                                 http_request.headers.get("Idempotency-Key", ""))
+    debit = await asyncio.to_thread(_meter.debit, authorization, credit_key,
+                                    db=db, user_id=user_id)
+    if not debit.ok:
+        return JSONResponse(status_code=debit.status, content=debit.body)
+    try:
+        turn = await _chat_service.handle(
+            llm_msg, conv_id, ctx,
+            # Always pass the FE's history (even when empty) — this is the
+            # session boundary signal. None would re-hydrate from Redis.
+            history_override=history,
+            mode_override=request.mode,
+            editor_draft=request.editor_draft,
+        )
+    except Exception:
+        await asyncio.to_thread(_meter.refund, authorization, credit_key,
+                                db=db, user_id=user_id)
+        raise
 
     if turn.sanitised:
         logger.warning("post-processor stripped output for user %s conv %s",
@@ -938,6 +953,7 @@ async def chat(
         })
 
     return _json_safe({
+        "credits": debit.credits,
         "response": turn.response,
         "intent": None,                       # intent classifier removed
         "tools_called": turn.tools_called,
@@ -985,6 +1001,7 @@ async def _with_keepalive(events, every: float = KEEPALIVE_S):
 @router.post("/stream", dependencies=[Depends(rate_limit("chat", 40, 60))])
 async def chat_stream(
     request: ChatRequest,
+    http_request: Request,
     authorization: str = Header(None),
     db: Session = Depends(get_db),
 ):
@@ -1046,6 +1063,17 @@ async def chat_stream(
     # synthetic SSE sequence (start → delta → done) so the FE sees
     # the same shape as a normal stream.
     slash_result = await _maybe_run_slash(last_msg)
+
+    # AI credits, debited before the model runs; refunded if the stream ends
+    # in an error. A slash shortcut never reaches a model and is not charged.
+    debit = None
+    credit_key = _meter.turn_key(conv_id, request.messages,
+                                 http_request.headers.get("Idempotency-Key", ""))
+    if slash_result is None:
+        debit = await asyncio.to_thread(_meter.debit, authorization, credit_key,
+                                        db=db, user_id=user_id)
+        if not debit.ok:
+            return JSONResponse(status_code=debit.status, content=debit.body)
 
     async def gen():
         if slash_result is not None:
@@ -1152,8 +1180,24 @@ async def chat_stream(
             logger.exception("chat_stream gen failed: %s", e)
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)[:200]})}\n\n"
 
+    async def metered():
+        failed = False
+        async for chunk in gen():
+            try:
+                ev = json.loads(chunk[6:]) if chunk.startswith("data: ") else {}
+            except ValueError:
+                ev = {}
+            if ev.get("type") == "error":
+                failed = True
+            elif ev.get("type") == "done" and debit and debit.credits:
+                chunk = f"data: {json.dumps({**ev, 'credits': debit.credits}, default=str)}\n\n"
+            yield chunk
+        if failed and debit:
+            await asyncio.to_thread(_meter.refund, authorization, credit_key,
+                                    db=db, user_id=user_id)
+
     return StreamingResponse(
-        gen(),
+        metered(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache, no-transform",

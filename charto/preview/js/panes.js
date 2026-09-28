@@ -38,6 +38,8 @@ const Panes = (() => {
   let onSettings = null;
   // the server's own vocabulary; the header's D/W/M are display labels
   const WIRE = { D: "1d", W: "1w", M: "1mo" };
+  const IV_SEC = { "1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600,
+                   "1d": 86400, "1w": 604800, "1mo": 2592000 };
   const DISP = { "1d": "D", "1w": "W", "1mo": "M" };
   const PAGE = { "1m": 3000, "5m": 2500, "15m": 2000, "30m": 2000, "1h": 2000, D: 2000, W: 700, M: 200 };
 
@@ -227,7 +229,9 @@ const Panes = (() => {
     const qs = new URLSearchParams({
       symbol, interval: WIRE[interval] || interval, limit: String(limit),
     });
-    const res = await Net.get(`${API}/bars?${qs}`);
+    const res = await Net.get(`${API}/bars?${qs}`,
+      // the session decides how far back intraday history goes (plan depth)
+      typeof Auth !== "undefined" ? { headers: Auth.headers() } : undefined);
     if (!res.ok) throw new Error(`dataserver HTTP ${res.status}`);
     const d = await res.json();
     // the axis shift belongs to the SYMBOL — crypto folds on UTC, NSE on IST
@@ -303,6 +307,53 @@ const Panes = (() => {
       openSettings: (id) => { if (onSettings) onSettings(id, sub.ind); },
       onChange: () => document.dispatchEvent(
         new CustomEvent("charto:indicators-changed")),
+    });
+
+    /* What the chat draws for THIS chart. A pattern found on the hourly
+     * belongs on the hourly pane, so every pane carries a scene: the primary's
+     * renderer, reading this pane's bars, clock and indicator strips. main.js
+     * routes each drawn item here by the chart it was computed on. */
+    const paneRows = () => {
+      const out = [{ key: "price", label: "price", pane: candle.getPane(), series: candle }];
+      for (const [, a] of sub.ind.active || []) {
+        if (a.def.kind !== "pane" || !a.series.length) continue;
+        out.push({ key: a.def.name, period: a.def.period, label: a.def.label,
+                   pane: a.series[0].getPane(), series: a.series[0] });
+      }
+      return out;
+    };
+    const rowRect = (p) => {
+      const pe = p.pane.getHTMLElement && p.pane.getHTMLElement();
+      return pe ? pe.getBoundingClientRect() : null;
+    };
+    sub.sceneAbort = new AbortController();
+    sub.scene = Scene.create(chart, candle, {
+      getBars: () => sub.bars,
+      container: canvas,
+      panes: paneRows,
+      paneAt: (y) => (paneRows().find((p) => {
+        const r = rowRect(p);
+        return r && y >= r.top && y <= r.bottom;
+      }) || { key: "price" }).key,
+      yIn: (y, key) => {
+        const r = rowRect(paneRows().find((p) => p.key === key) || paneRows()[0]);
+        return r ? y - r.top : y;
+      },
+      getIntervalSec: () => IV_SEC[WIRE[sub.interval] || sub.interval] || 60,
+      // detectors speak exchange time; this pane's axis runs on its symbol's clock
+      toChartTime: (t) => t + Sym.of(sub.symbol).tz,
+      fromChartTime: (t) => t - Sym.of(sub.symbol).tz,
+      isCursorMode: () => true,
+      onHover: () => {},
+      onSelect: () => {},
+      onIndicator: (a) => {
+        const id = sub.ind.ensureFromId(String(a.name || "").split("@")[0]);
+        if (id && !sub.ind.isActive(id)) {
+          Promise.resolve(sub.ind.toggle(id, sub.bars)).catch(() => {});
+        }
+      },
+      onChange: () => document.dispatchEvent(new CustomEvent("charto:pane-scene-changed")),
+      signal: sub.sceneAbort.signal,
     });
 
     /* The crosshair's plates, the same module the primary uses. `panes()` is
@@ -384,6 +435,8 @@ const Panes = (() => {
       const next = String(s || "").toUpperCase();
       if (!next || next === sub.symbol) return;
       sub.symbol = next;
+      // what was drawn belonged to the old instrument's prices
+      sub.scene.setItems([]);
       titleEl.innerHTML = `${next}<span class="sep">·</span>loading…`;
       ohlcEl.innerHTML = "";
       if (subs[active - 1] === sub) emitActive();
@@ -410,6 +463,7 @@ const Panes = (() => {
     };
     sub.destroy = () => {
       sub.destroyed = true;
+      sub.sceneAbort.abort();   // the scene's window listeners go with the pane
       // first: a settings edit must never reach a chart that is going away
       ChartSettings.unregister(sub.settings);
       // before the chart goes: the legend holds a sink on the manager and
@@ -672,6 +726,8 @@ const Panes = (() => {
       return subs.map((s, i) => ({ pane: i + 1, symbol: s.symbol,
                                    interval: s.interval, bars: s.bars.length }));
     },
+    /** The secondary panes, in screen order — for routing what the chat drew. */
+    all() { return subs.slice(); },
     /** The indicator manager the one toolbar drives. */
     activeInd() { const s = this.activeSub(); return s ? s.ind : null; },
     /** Route an interval choice to the selected pane. Returns false when the

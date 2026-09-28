@@ -1274,7 +1274,7 @@ const Scene = (() => {
         env.onChange(count());   // persists the moved geometry
       }
       drag = null; setScroll(true);
-    });
+    }, { signal: env.signal });   // a secondary pane's scene lets go on teardown
 
     /* Delete removes the SELECTED shape — the whole linked group, because a
      * pattern's outline, fill and neckline are one object to everyone except
@@ -1305,7 +1305,7 @@ const Scene = (() => {
       setSel(null); state.hover = null;
       syncMarkers(); _ru(); env.onChange(count());
       if (env.setStatus) env.setStatus("removed from the chart");
-    });
+    }, { signal: env.signal });
 
     env.container.addEventListener("click", (e) => {
       if (!env.isCursorMode()) return;

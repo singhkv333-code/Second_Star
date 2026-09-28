@@ -238,7 +238,9 @@ const Indicators = (() => {
       const v = (params || {})[f.key];
       if (v != null && v !== "") q.set(f.key, String(v));
     }
-    const r = await Net.get(`${BASE}/indicator?${q}`);
+    const r = await Net.get(`${BASE}/indicator?${q}`,
+      // the session decides how far back intraday history goes (plan depth)
+      typeof Auth !== "undefined" ? { headers: Auth.headers() } : undefined);
     if (!r.ok) throw new Error((await r.json()).error || "indicator failed");
     const lines = (await r.json()).lines;
     for (const k of Object.keys(lines)) {

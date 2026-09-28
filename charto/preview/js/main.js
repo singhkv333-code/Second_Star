@@ -267,7 +267,9 @@
   async function fetchBars(interval, toRaw, limit) {
     const qs = new URLSearchParams({ symbol: SYMBOL, interval, limit: String(limit) });
     if (toRaw) qs.set("to", String(toRaw));
-    const res = await Net.get(`${API}/bars?${qs}`);
+    const res = await Net.get(`${API}/bars?${qs}`,
+      // the session decides how far back intraday history goes (plan depth)
+      typeof Auth !== "undefined" ? { headers: Auth.headers() } : undefined);
     if (!res.ok) throw new Error(`dataserver HTTP ${res.status}`);
     const d = await res.json();
     return {
@@ -748,6 +750,13 @@
     const iv = Panes.primaryActive ? state.interval : m.interval;
     if (def.intradayOnly && ["1d", "1w", "1mo", "D", "W", "M"].includes(iv) && !m.isActive(id)) {
       status("VWAP is session-anchored — switch to an intraday interval");
+      return;
+    }
+    // Mirrors the plan's indicators-per-chart cap; the saved layout is where
+    // the server enforces it (see data/dataserver.py _layout_plan_refusal).
+    if (!m.isActive(id) && typeof Plan !== "undefined"
+        && !Plan.allows("chart.indicators", m.active.size + 1)) {
+      status(Plan.refusal("chart.indicators"));
       return;
     }
     Promise.resolve(m.toggle(id, state.bars))
@@ -1831,18 +1840,8 @@
       if (!w) return { status: "loading", symbol: sub.symbol, interval: sub.interval };
       return {
         ...w.env,
-        // The backend renders `source` verbatim on the envelope's header line,
-        // so the pane's nature is said where the model will actually read it —
-        // a key it does not render would have been a note to nobody.
-        source: `${w.env.source} · secondary pane — drawings, chat annotations `
-          + `and pinned bars live on the main chart, not this one`,
-        // and the tools enforce it: a reference pane has no drawing layer, so
-        // "drawn" must never be said about one
+        // not the page's main chart: replacing it swaps this pane, not the page
         drawable: false,
-        // WHICH chart is the drawable one. Without this the envelope says only
-        // that this pane cannot be drawn on, and the model has to guess where
-        // ink could go — it guessed "click this pane", which is the one thing
-        // that never works. The main chart is the page's own symbol.
         main_chart: SYMBOL,
         indicators: sub.ind.snapshot(w.first.time).map((x) => ({
           ...x, now: r2(x.now),
@@ -2082,6 +2081,11 @@
       // ensure() mints a def for ANY period, so the line drawn is the line
       // computed — mapping onto presets drew RSI 14 for a quoted RSI 26
       const id = ind.ensure(name, period);
+      if (id && !ind.isActive(id) && typeof Plan !== "undefined"
+          && !Plan.allows("chart.indicators", ind.active.size + 1)) {
+        status(Plan.refusal("chart.indicators"));
+        return;
+      }
       if (id && !ind.isActive(id)) {
         Promise.resolve(a.params && Object.keys(a.params).length
           ? ind.applySettings(id, { params: a.params }) : null)
@@ -3956,6 +3960,12 @@
             + Icons.layoutSvg(L.spec, "sm") + `</button>`).join("")
         + `</div></div>`).join("");
 
+  // Another tab took this one's parallel-chart slot. Said, never silent; the
+  // proper surface for it (a banner with "use this tab") is a design item.
+  document.addEventListener("charto:evicted", (e) => {
+    status((e.detail && e.detail.error) || "This chart was paused by your plan's tab limit.");
+  });
+
   function paintLayoutBtn() {
     // The trigger wears the layout you are in, so the header says which one
     // without opening the menu.
@@ -3975,6 +3985,11 @@
     const it = e.target.closest("[data-layout]");
     if (!it) return;
     layoutMenu.classList.remove("open");
+    const L = Panes.LAYOUTS[it.dataset.layout];
+    if (L && typeof Plan !== "undefined" && !Plan.allows("chart.panes", L.panes)) {
+      status(Plan.refusal("chart.panes"));
+      return;
+    }
     Panes.apply(it.dataset.layout);   // paint + persist ride on onChange below
   });
   // Selecting a pane re-aims the WHOLE toolbar: the segmented control shows
@@ -4629,7 +4644,31 @@
     });
   })();
 
-  window.__charto = { chart, candle, state, draw, ind, scene, pins,
+  /* What the chat drew goes to the chart it was computed on. The dataserver
+   * stamps each item with `chart: {symbol, interval}`; the pane showing that
+   * symbol at that interval takes it, then any pane on that symbol, and the
+   * main chart otherwise (and for anything unstamped). */
+  const wireIv = (iv) => ({ D: "1d", W: "1w", M: "1mo" })[iv] || String(iv || "");
+  function applyScenePatch(patch) {
+    const groups = new Map();
+    for (const a of patch || []) {
+      const c = a.chart || {};
+      const sym = String(c.symbol || "").toUpperCase();
+      const iv = wireIv(c.interval);
+      let to = scene;
+      if (sym && !(sym === SYMBOL && (!iv || iv === wireIv(state.interval)))) {
+        const subs = Panes.all();
+        const hit = subs.find((s) => s.symbol === sym && wireIv(s.interval) === iv)
+          || (sym !== SYMBOL && subs.find((s) => s.symbol === sym));
+        if (hit) to = hit.scene;
+      }
+      if (!groups.has(to)) groups.set(to, []);
+      groups.get(to).push(a);
+    }
+    for (const [sc, items] of groups) sc.apply(items);
+  }
+
+  window.__charto = { chart, candle, state, draw, ind, scene, pins, applyScenePatch,
                       getChartContext, charts: chartList, panes: Panes,
                       /* The trash's model, so the phone's sheet offers the same
                        * choices the rail's menu does rather than a "clear all"

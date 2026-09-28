@@ -103,12 +103,16 @@ import threading
 import time
 
 import dataserver as ds
+import entitlements as ent
 import indicators
 
 log = logging.getLogger("charto.alerts")
 
 # ── caps, all of them about a shared box rather than about taste ────────────
-MAX_PER_USER = 200          # TradingView's own ceiling is this order
+# The PLAN decides how many alerts a user may keep armed (entitlements.py,
+# `alerts.price` / `alerts.technical`). This is only the box's own ceiling
+# on rows of any state, sized above the largest plan's two caps together.
+MAX_PER_USER = 2500
 MAX_CONDITIONS = 4          # a rule nobody can read is a rule nobody trusts
 MAX_LOG_ROWS = 500          # per user, trimmed on write
 # avg(...,500) needs 500 CLOSED bars plus the current/forming one. Keep the
@@ -1576,6 +1580,117 @@ def _validate(body: dict, uid: int) -> tuple[dict, str, str, str, int | None]:
     return spec, symbol, interval, freq, expires
 
 
+# ══ the plan ═══════════════════════════════════════════════════════════════
+# Plans cap ARMED alerts in two classes, by TradingView's own rule: a price
+# alert compares the instrument's price (a bar's OHLC, a session or window
+# high/low) with a number, crossing or above/below. Everything else is
+# technical — an indicator, an average, volume, the profile, a detector, a
+# DRAWING (TV files trendline and zone alerts as technical), and the channel
+# and percent-move ops. The class is read off the addresses the engine
+# already parses, so no new column exists to drift from the rule it describes.
+
+_PRICE_ADDR = re.compile(
+    r"^(open|high|low|close|hl2|hlc3|ohlc4)(\[\d+\])?$"
+    r"|^(day|pday|\d+[dw])\.(open|high|low|close)$")
+_PRICE_OPS = {"cross", "cross_up", "cross_down", "above", "below"}
+# Held across count → insert, so two creates racing for the last slot cannot
+# both win it.
+_PLAN_LOCK = threading.Lock()
+
+
+def alert_class(spec: dict) -> str:
+    for c in spec.get("when") or []:
+        if c.get("op") not in _PRICE_OPS:
+            return "technical"
+        for k in ("left", "right", "right2"):
+            v = c.get(k)
+            if v is None or isinstance(v, (int, float)):
+                continue
+            s = str(v).strip().lower()
+            try:
+                float(s)
+                continue
+            except ValueError:
+                pass
+            if not _PRICE_ADDR.match(s):
+                return "technical"
+    return "price"
+
+
+def armed_counts(uid: int, exclude: int | None = None) -> dict:
+    with ds._users_lock:
+        rows = _db().execute("SELECT id, spec FROM alerts WHERE user_id=? AND "
+                             "state='armed'", (uid,)).fetchall()
+    out = {"price": 0, "technical": 0}
+    for aid, spec in rows:
+        if aid == exclude:
+            continue
+        try:
+            out[alert_class(json.loads(spec))] += 1
+        except (ValueError, TypeError):
+            continue
+    return out
+
+
+def _plan_gate(uid: int, spec: dict, expires: int | None, *, arming: bool,
+               exclude: int | None = None) -> tuple[int | None, str]:
+    """Raise ent.PlanLimit, or answer (expires as the plan allows, a note).
+
+    An expiry past the plan's horizon is brought in to the horizon rather than
+    refused — the alert the user asked for still exists, and the note says the
+    date it will lapse, which is what TradingView does too."""
+    if len(spec.get("when") or []) > 1:
+        ent.require_flag(uid, "alerts.multi_condition")
+    if arming:
+        cls = alert_class(spec)
+        ent.check_limit(uid, f"alerts.{cls}", armed_counts(uid, exclude)[cls])
+    days = ent.value(uid, "alerts.expiry_days")
+    if days is None:
+        return expires, ""
+    cap = int(time.time()) + int(days) * 86400
+    if expires and expires <= cap:
+        return expires, ""
+    return cap, (f"Alerts on the {ent.plan_of(uid).replace('_', ' ').title()} "
+                 f"plan last {days} days, so this one expires then.")
+
+
+def enforce_caps(uid: int) -> dict:
+    """Bring a user's ARMED alerts inside their plan, after a downgrade.
+
+    Pauses, never deletes: the newest alerts over each cap are paused with a
+    note saying why, and expiries past the plan's horizon are brought in. An
+    upgrade later lets the user re-arm every one of them unchanged."""
+    paused, clamped = [], 0
+    with ds._users_lock:
+        rows = _db().execute("SELECT id, spec, expires FROM alerts WHERE "
+                             "user_id=? AND state='armed' ORDER BY created ASC, "
+                             "id ASC", (uid,)).fetchall()
+    by = {"price": [], "technical": []}
+    for aid, spec, _exp in rows:
+        try:
+            by[alert_class(json.loads(spec))].append(aid)
+        except (ValueError, TypeError):
+            continue
+    for cls, ids in by.items():
+        lim = ent.value(uid, f"alerts.{cls}")
+        if lim is not None and len(ids) > lim:
+            for aid in ids[lim:]:
+                _set_state(aid, "paused", why="over plan limit")
+                paused.append(aid)
+    days = ent.value(uid, "alerts.expiry_days")
+    if days is not None:
+        cap = int(time.time()) + int(days) * 86400
+        with ds._users_lock:
+            cur = _db().execute("UPDATE alerts SET expires=? WHERE user_id=? AND "
+                                "state='armed' AND (expires IS NULL OR expires>?)",
+                                (cap, uid, cap))
+            clamped = cur.rowcount
+            _db().commit()
+    if paused or clamped:
+        _load_index()
+    return {"paused": paused, "expiry_clamped": clamped}
+
+
 # ══ the HTTP surface ═══════════════════════════════════════════════════════
 # GET/POST only: dataserver's Handler implements those two and OPTIONS, and
 # `layouts` already models delete-by-body-flag. Following it beats teaching the
@@ -1637,15 +1752,20 @@ def api_create(uid: int, body: dict) -> tuple[int, dict]:
     except Unspeakable as exc:
         return 400, vocab(str(exc))
     now = int(time.time())
-    with ds._users_lock:
-        cur = _db().execute(
-            "INSERT INTO alerts (user_id,symbol,interval,spec,freq,state,note,"
-            "created,expires,cstate,all_ok) VALUES (?,?,?,?,?,'armed',?,?,?,"
-            "'[]',0)",
-            (uid, symbol, interval, json.dumps(spec), freq,
-             str(body.get("note") or "")[:400], now, expires))
-        aid = cur.lastrowid
-        _db().commit()
+    with _PLAN_LOCK:
+        try:
+            expires, plan_note = _plan_gate(uid, spec, expires, arming=True)
+        except ent.PlanLimit as exc:
+            return exc.status, exc.body()
+        with ds._users_lock:
+            cur = _db().execute(
+                "INSERT INTO alerts (user_id,symbol,interval,spec,freq,state,"
+                "note,created,expires,cstate,all_ok) VALUES (?,?,?,?,?,'armed',"
+                "?,?,?,'[]',0)",
+                (uid, symbol, interval, json.dumps(spec), freq,
+                 str(body.get("note") or "")[:400], now, expires))
+            aid = cur.lastrowid
+            _db().commit()
     # Arm it before it is indexed: a rule that enters _BY_SYM unseeded could be
     # evaluated by the very next tick with no side recorded (header point 1).
     with ds._users_lock:
@@ -1665,7 +1785,10 @@ def api_create(uid: int, body: dict) -> tuple[int, dict]:
     with ds._users_lock:
         row = _db().execute(f"SELECT {_LIST_COLS} FROM alerts WHERE id=?",
                             (aid,)).fetchone()
-    return 200, {"alert": _row_public(row), "feed": feed_health(symbol)}
+    out = {"alert": _row_public(row), "feed": feed_health(symbol)}
+    if plan_note:
+        out["plan_note"] = plan_note
+    return 200, out
 
 
 def api_patch(uid: int, aid: int, body: dict) -> tuple[int, dict]:
@@ -1742,6 +1865,39 @@ def api_patch(uid: int, aid: int, body: dict) -> tuple[int, dict]:
         sets += ["spec=?", "interval=?", "cstate=?", "all_ok=?",
                  "last_eval_ts=?"]
         args += [json.dumps(spec), interval, "[]", 0, 0]
+    # The plan, on the rule as it will be AFTER this patch. Re-arming or
+    # re-writing an armed rule takes a slot (its own is excluded, so editing
+    # an alert already inside the cap never refuses); extending an armed
+    # rule's expiry is brought inside the plan's horizon.
+    final_state = str(body.get("state", cur.state)).lower()
+    final_spec = json.loads(args[sets.index("spec=?")]) if "spec=?" in sets \
+        else cur.spec
+    retaking = final_state == "armed" and (
+        cur.state != "armed" or "spec=?" in sets)
+    _PLAN_LOCK.acquire()
+    try:
+        return _patch_write(uid, aid, cur, body, sets, args, final_state,
+                            final_spec, retaking)
+    finally:
+        _PLAN_LOCK.release()
+
+
+def _patch_write(uid, aid, cur, body, sets, args, final_state, final_spec,
+                 retaking) -> tuple[int, dict]:
+    if final_state == "armed" and (retaking or "expires" in body):
+        final_exp = (args[sets.index("expires=?")] if "expires=?" in sets
+                     else cur.expires)
+        try:
+            capped, plan_note = _plan_gate(uid, final_spec, final_exp,
+                                           arming=retaking, exclude=aid)
+        except ent.PlanLimit as exc:
+            return exc.status, exc.body()
+        if capped != final_exp:
+            if "expires=?" in sets:
+                args[sets.index("expires=?")] = capped
+            else:
+                sets.append("expires=?")
+                args.append(capped)
     if not sets:
         return 400, {"error": "nothing to change"}
     with ds._users_lock:
@@ -1999,8 +2155,16 @@ def tool_set_alert(symbol: str = "", interval: str = "5m",
     code, out = api_create(user_id, {
         "symbol": symbol or ds._sym(), "interval": interval, "when": when or [],
         "all": all, "freq": freq, "expires": expires, "note": note})
+    if code == 402:
+        return {**out, "_note": (
+            "Nothing was armed: the user's plan does not cover this alert. Say "
+            "so in one line using `error`, and name `upgrade_to` as the plan "
+            "that would. Offer to pause or delete an existing alert instead. "
+            "No sales language.")}
     if code != 200:
         return out
+    if out.get("plan_note"):
+        out["alert"]["plan_note"] = out["plan_note"]
     a = out["alert"]
     _touch_chart()
     # SAY THE EXPIRY, because the model invented one when left to infer it.
