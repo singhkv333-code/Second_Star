@@ -674,46 +674,67 @@
    *  still running would tick a counter on an answer that already landed. */
   function createWait(host) {
     const t0 = performance.now();
+    // ONE line that never grows — ▮▮▮  6s  Testing 5 candidates on RELIANCE —
+    // the main chat's loader. The phrase changes in place; the newest
+    // reasoning, when the model streams any, sits under it.
     host.innerHTML = '<div class="wait-head">'
       + '<span class="wait-ticker" aria-hidden="true">'
       + '<span class="wait-bar"></span><span class="wait-bar"></span><span class="wait-bar"></span>'
-      + '</span><span class="wait-secs" aria-live="off">0s</span></div>'
-      + '<div class="wait-steps"></div>';
-    const rows = host.querySelector(".wait-steps");
+      + '</span><span class="wait-secs" aria-live="off">0s</span>'
+      + '<span class="wait-phrase shimmer" role="status"></span></div>'
+      + '<div class="chat-thought" hidden></div>';
+    const phrase = host.querySelector(".wait-phrase");
+    const note = host.querySelector(".chat-thought");
     const secs = host.querySelector(".wait-secs");
     const seen = new Set();
     let last = null, cursor = 1, real = false;
-    // part id → { title, text, row, body }. Kept after the wait closes so
-    // the turn can file them under the answer as its "Thought for Ns".
+    // part id → raw summary text. Kept after the wait closes so the turn can
+    // file them under the answer as its "Thought for Ns".
     const thoughts = new Map();
 
-    const lastStep = () => {
-      const all = rows.querySelectorAll(".chat-step");
-      return all[all.length - 1] || null;
-    };
+    // Word-by-word morph, as the main chat does it: words shared with the
+    // shown phrase stay put, the rest blur out together, the new ones blur in
+    // one after another. A phrase stays readable DWELL ms after it lands so a
+    // burst of tool starts cannot strobe; the latest target wins.
+    const OUT = 160, IN = 360, STAGGER = 70, DWELL = 800;
+    let shown = "", target = "", landedAt = 0, busy = false, timer = 0;
+    const words = (t) => (t ? t.split(" ") : []);
+    const wordSpans = (ws, from, cls) => ws.map((w, i) =>
+      `<span class="wait-word ${cls}" style="animation-delay:${cls === "wait-word-in" ? i * STAGGER : 0}ms">`
+      + `${from + i > 0 ? " " : ""}${esc(w)}</span>`).join("");
+    function morph() {
+      timer = 0;
+      if (busy || target === shown) return;
+      const wait = DWELL - (performance.now() - landedAt);
+      if (shown && wait > 0) { timer = setTimeout(morph, wait); return; }
+      busy = true;
+      const next = target, prev = words(shown), nxt = words(next);
+      let keep = 0;
+      while (keep < prev.length && keep < nxt.length && prev[keep] === nxt[keep]) keep++;
+      const settled = esc(nxt.slice(0, keep).join(" "));
+      const out = prev.slice(keep), inc = nxt.slice(keep);
+      phrase.innerHTML = settled + wordSpans(out, keep, "wait-word-out");
+      setTimeout(() => {
+        phrase.innerHTML = settled + wordSpans(inc, keep, "wait-word-in");
+        setTimeout(() => {
+          // landed: plain text again, so the shimmer runs across the line
+          phrase.textContent = next;
+          shown = next; landedAt = performance.now(); busy = false;
+          if (target !== shown) morph();
+        }, IN + Math.max(0, inc.length - 1) * STAGGER);
+      }, out.length ? OUT : 0);
+    }
+    function say(text) {
+      target = text;
+      if (!timer) morph();
+    }
 
     function push(step) {
-      // never repeat the line already at the bottom — a second "Reading price
-      // history" is a row that says nothing the row above it did not
-      if (last && last.word === step.word && last.detail === step.detail) return null;
-      // The last STEP, not the last child: a thought's body sits after its
-      // step in the same list, so lastElementChild is often that body — it
-      // has no label, and reading one off it threw mid-stream.
-      const prev = lastStep();
-      if (prev) prev.querySelector(".chat-step-label")?.classList.remove("shimmer");
-      // only the newest step shows its reasoning; older ones keep a title
-      rows.querySelectorAll(".chat-thought:not(.chat-thought-past)")
-        .forEach((b) => b.classList.add("chat-thought-past"));
-      const row = document.createElement("div");
-      row.className = "chat-step";
-      row.innerHTML = '<span class="chat-step-dot" aria-hidden="true"></span>'
-        + '<span class="chat-step-label shimmer">'
-        + `<span class="chat-step-word">${esc(step.word)}</span>`
-        + (step.detail ? ` ${esc(step.detail)}` : "") + "</span>";
-      rows.appendChild(row);
+      // never repeat the phrase already showing
+      if (last && last.word === step.word && last.detail === step.detail) return;
       last = step;
+      say(step.detail ? `${step.word} ${step.detail}` : step.word);
       if (atBottom()) toBottom();
-      return row;
     }
     push(STEP_SCRIPT[0]);
 
@@ -768,34 +789,22 @@
        *  titled step; its text grows under that step until the next one. */
       thought(part, delta) {
         real = true;
-        let th = thoughts.get(part);
-        if (!th) {
-          th = { raw: "", row: null, body: null };
-          thoughts.set(part, th);
-        }
-        th.raw += delta || "";
-        const { title, text } = splitThought(th.raw);
-        if (!th.row) {
-          // wait for the title to close before opening the step, so a
-          // half-streamed "**Weig" never becomes a heading
-          if (!title && th.raw.trimStart().startsWith("**")) return;
-          if (host.hidden) { host.hidden = false; run(); }
-          th.row = push({ word: title || "Thinking", detail: "" }) || lastStep();
-          th.body = document.createElement("div");
-          th.body.className = "chat-thought";
-          // after the step and any body already under it, so a repeated
-          // title keeps its parts in order
-          let at = th.row;
-          while (at.nextElementSibling?.classList.contains("chat-thought")) at = at.nextElementSibling;
-          at.after(th.body);
-        }
-        th.body.textContent = text.trim();
+        const raw = (thoughts.get(part) || "") + (delta || "");
+        thoughts.set(part, raw);
+        const { title, text } = splitThought(raw);
+        // wait for the title to close, so a half-streamed "**Weig" never
+        // becomes the phrase
+        if (!title && raw.trimStart().startsWith("**")) return;
+        if (host.hidden) { host.hidden = false; run(); }
+        push({ word: title || "Thinking", detail: "" });
+        note.textContent = text.trim();
+        note.hidden = !note.textContent;
         if (atBottom()) toBottom();
       },
       /** The turn's reasoning, for filing beside the answer. */
       thoughts() {
         return [...thoughts.values()]
-          .map((th) => splitThought(th.raw))
+          .map((raw) => splitThought(raw))
           .filter((t) => t.title || t.text.trim());
       },
       elapsed() { return Math.round((performance.now() - t0) / 1000); },
@@ -826,7 +835,7 @@
           delete host.dataset.closing;
         }, 200);
       },
-      stop() { halt(); host.remove(); },
+      stop() { halt(); clearTimeout(timer); host.remove(); },
     };
   }
 

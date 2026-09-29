@@ -4646,12 +4646,37 @@ body.two-columns .readout .row { display: none; }
   .wait, .scan { transition: none; }
   .scan.card-in { opacity: 1; transform: none; }
 }
+/* ▮▮▮  6s  Testing 5 candidates on RELIANCE — one line, fixed height and no
+   wrapping, so the reply below never jumps. The timer comes BEFORE the
+   phrase at a fixed width, so a longer phrase moves nothing. */
 .wait-head {
-  display: flex; align-items: center; gap: 10px;
-  font-size: var(--text-xs); color: var(--muted-foreground);
+  display: flex; align-items: center; gap: 10px; height: 24px;
+  white-space: nowrap; font-size: var(--text-md); letter-spacing: -.005em;
+  color: var(--muted-foreground);
 }
 .wait-ticker { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; }
-.wait-secs { font-variant-numeric: tabular-nums; }
+.wait-secs {
+  min-width: 3ch; font-size: var(--text-sm); font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--muted-foreground) 70%, var(--background));
+}
+.wait-phrase { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+/* An animating word paints its own solid grey: a child on its own
+   opacity/filter/transform layer is left out of the parent's
+   background-clip:text and would otherwise render invisible. */
+.wait-word {
+  display: inline-block; white-space: pre;
+  color: var(--faint); -webkit-text-fill-color: var(--faint);
+}
+@keyframes waitWordIn {
+  from { opacity: 0; filter: blur(6px); transform: translateY(3px); }
+  to   { opacity: 1; filter: blur(0);   transform: none; }
+}
+@keyframes waitWordOut {
+  from { opacity: 1; filter: blur(0); }
+  to   { opacity: 0; filter: blur(4px); }
+}
+.wait-word-in  { animation: waitWordIn 360ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.wait-word-out { animation: waitWordOut 160ms ease-in both; }
 .wait-bar {
   display: inline-block; width: 3px; height: 14px; border-radius: 1.5px;
   background: var(--muted-foreground); transform-origin: bottom;
@@ -4664,48 +4689,25 @@ body.two-columns .readout .row { display: none; }
 @keyframes waitBar2 { 0%, 100% { transform: scaleY(1); }   30% { transform: scaleY(.55); } 70% { transform: scaleY(.4); } }
 @keyframes waitBar3 { 0%, 100% { transform: scaleY(.4); }  40% { transform: scaleY(.8); }  80% { transform: scaleY(1); } }
 
-.wait-steps { display: flex; flex-direction: column; gap: 4px; }
 @keyframes waitStepIn {
   from { opacity: 0; transform: translateY(4px); }
   to   { opacity: 1; transform: none; }
 }
-.chat-step {
-  position: relative; display: flex; align-items: center; gap: 10px;
-  min-height: 24px; animation: waitStepIn .32s var(--ease-quartr) both;
-}
-/* Soft grey for EVERY dot, the newest included — the reference is
-   grey-on-grey throughout, and an accent on the live row would read as a
-   status colour rather than as a position in a list. */
-.chat-step-dot {
-  flex: none; width: 5px; height: 5px; border-radius: 50%;
-  background: color-mix(in srgb, var(--muted-foreground) 65%, var(--background));
-}
-/* the connector: every row but the first draws the line ABOVE its own dot */
-.chat-step + .chat-step::before {
-  content: ""; position: absolute; left: 2px; top: -12px;
-  width: 1px; height: 20px; background: var(--border);
-}
-.chat-step-label {
-  font-size: var(--text-md); letter-spacing: -.005em; color: var(--faint);
-}
-/* the lead word carries a touch more weight than the words supporting it */
-.chat-step-word { font-weight: var(--weight-display); }
 
-/* What the model has worked out so far, under the step it belongs to. Muted,
-   smaller than the step, indented to the label so the timeline's line and
-   dots stay the spine. Older steps drop their text: the newest reasoning is
-   the one being read, and the rest is in the "Thought for" log afterwards. */
+/* What the model has worked out so far, under the line. Only the newest
+   part: the rest is in the "Thought for" log afterwards. */
 .chat-thought {
-  margin: -2px 0 4px 15px; font-size: var(--text-sm); line-height: 1.5;
+  margin: 0 0 4px 0; font-size: var(--text-sm); line-height: 1.5;
   color: var(--muted-foreground); white-space: pre-wrap;
   animation: waitStepIn .32s var(--ease-quartr) both;
 }
-.chat-thought.chat-thought-past { display: none; }
+.chat-thought[hidden] { display: none; }
 .thought-log { margin-bottom: 10px; font-size: var(--text-sm); color: var(--muted-foreground); }
 .thought-log > summary {
   cursor: pointer; list-style: none; width: fit-content;
-  font-size: var(--text-xs); color: var(--faint);
+  font-size: var(--text-md); color: var(--muted-foreground);
 }
+.thought-log > summary:hover { color: var(--foreground); }
 .thought-log > summary::-webkit-details-marker { display: none; }
 .thought-log > summary::after { content: " ›"; }
 .thought-log[open] > summary::after { content: " ⌄"; }
@@ -4736,7 +4738,7 @@ body.two-columns .readout .row { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .shimmer { animation: none; color: var(--faint); -webkit-text-fill-color: currentColor; }
   .wait-bar { animation: none; }
-  .chat-step { animation: none; }
+  .wait-word-in, .wait-word-out { animation: none; }
   .chat-thought { animation: none; }
 }
 
@@ -8851,7 +8853,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        and grouping, and nothing else — a renderer with no state of its own -->
   <script src="./js/cards.js?v=56"></script>
   <script src="./js/layers-panel.js?v=11"></script>
-  <script src="./js/chat.js?v=171"></script>
+  <script src="./js/chat.js?v=172"></script>
   <script src="./js/journal.js?v=6"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it

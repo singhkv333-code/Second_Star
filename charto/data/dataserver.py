@@ -11562,8 +11562,12 @@ TOOLS = [
          "whether each is currently holding a position, and how many times it "
          "has fired. Use it for 'what am I running', 'what have I got armed', "
          "'did anything trigger', and before pausing or deleting one so the id "
-         "is real. If it comes back empty, say nothing is running — do not "
-         "imply something might be."),
+         "is real. The `id` is a handle for pause_strategy / delete_strategy "
+         "and nothing else: the user never sees it, so in the reply call a "
+         "strategy by its `name` or its rule (`readback.entry` — 'your "
+         "RSI(14) < 30 rule on RELIANCE'), never 'strategy #84'. If it comes "
+         "back empty, say nothing is running — do not imply something might "
+         "be."),
      "parameters": {"type": "object", "properties": {
          "state": {"type": "string", "enum": ["armed", "paused", "draft", "retired"],
                    "description": "narrow to one state; omit for everything live"}}}},
@@ -11574,7 +11578,7 @@ TOOLS = [
          "being evaluated. Prefer this to deleting whenever the user might want "
          "it back."),
      "parameters": {"type": "object", "properties": {
-         "strategy_id": {"type": "integer"},
+         "strategy_id": {"type": "integer", "description": "the `id` from list_strategies — internal; never quote it to the user"},
          "resume": {"type": "boolean", "description": "true to re-arm it"}},
       "required": ["strategy_id"]}},
     {"type": "function", "name": "delete_strategy",
@@ -11583,7 +11587,7 @@ TOOLS = [
          "paper book — they are what actually happened and the strategy is "
          "their provenance."),
      "parameters": {"type": "object", "properties": {
-         "strategy_id": {"type": "integer"}}, "required": ["strategy_id"]}},
+         "strategy_id": {"type": "integer", "description": "the `id` from list_strategies — internal; never quote it to the user"}}, "required": ["strategy_id"]}},
     {"type": "function", "name": "paper_portfolio",
      "description": (
          "The user's simulated portfolio: cash, NAV, every open position with "
