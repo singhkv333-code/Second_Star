@@ -39,7 +39,7 @@ Every plan refusal from every service returns HTTP **402**:
 
 | Sheet row | Key | Enforced at |
 |---|---|---|
-| AI credits 15 / 200 / 500 | `ai.credits` (quota, monthly; paid plans reset on the billing date) | charto `POST /chat`; pivot `POST /chat` and `/chat/stream`; pivotted research chat. Signed out: 3 per day per hashed IP |
+| AI credits 15 / 200 / 500 a month, 1 credit = 1 prompt | `ai.credits` (quota, monthly; paid plans reset on the billing date, others on the 1st, IST) | charto `POST /chat`; pivot `POST /chat` and `/chat/stream`; pivotted research chat. Signed out: 3 a month per hashed IP |
 | Price alerts 20 / 400 / 1000 | `alerts.price` (armed) | `alerts.api_create` / `api_patch`: HTTP and chat `set_alert` / `update_alert` |
 | Technical alerts 20 / 100 / 1000 | `alerts.technical` (armed) | same. TradingView's rule applies: indicator, average, volume, profile, detector, **drawing**, channel and %-move alerts count as technical |
 | Multi-condition alerts ✓✓✓ | `alerts.multi_condition` | same |
@@ -82,13 +82,15 @@ Until step 2 is done, checkout, verify, cancel and webhook answer 503 `billing_u
 
 ## Open, to settle last
 
-1. **AI credits: daily or monthly?** On the sheet, 15 / 200 / 500 sits between the two rows. It is built as a monthly pool, and each plan's window is one field in the catalog.
-2. **The anonymous chat policy.** It is built as 3 credits a day per hashed IP. The alternative is to require sign-in for chat.
-3. **Credit weights.** Every turn costs 1 today. Should execution mode, web search or attachments cost more?
-4. **"AI summaries" 10 / U / U.** The key exists (`ai.summaries`) but no surface consumes it yet. Which feature is it: the company-page ask bar, `explain_move`, or a new summary card?
-5. **The "Alerts F" row.** It has no numbers, and no fundamental alert exists. The key `alerts.fundamental` is set to 0 for everyone.
-6. **Historical bars for Pro and Pro+.** These are blank on the sheet and built as unlimited. TradingView uses 20K / 40K.
-7. **Not built yet, so nothing is gated:**
+Settled 2026-09-29:
+- AI credits are monthly for every plan, including signed out (3 a month per hashed IP).
+- 1 credit = 1 prompt. Follow-ups, titles and failed turns cost nothing.
+- AI summaries are an upcoming feature for financial documents. The key and numbers are ready; nothing consumes them yet.
+
+Still open:
+1. **The "Alerts F" row.** It has no numbers, and no fundamental alert exists. The key `alerts.fundamental` is set to 0 for everyone.
+2. **Historical bars for Pro and Pro+.** These are blank on the sheet and built as unlimited. TradingView uses 20K / 40K.
+3. **Not built yet, so nothing is gated:**
    - watchlist alerts (Pro ✓)
    - screener alerts (3 / 50 / 75)
    - saved screens (5 / 50 / 50)
@@ -96,10 +98,10 @@ Until step 2 is done, checkout, verify, cancel and webhook answer 503 `billing_u
    - ads (Ad-free Pro ✓; Pivot shows no ads)
 
    The keys and numbers are in the catalog, ready.
-8. **Grandfathering.** Real accounts that already hold more than 20 armed price or technical alerts are paused by the next hourly sweep once this ships. The options are a launch comp grant, or a one-off `entitlement_grants` row per existing account.
-9. **Unmetered model routes:**
+4. **Grandfathering.** Real accounts that already hold more than 20 armed price or technical alerts are paused by the next hourly sweep once this ships. The options are a launch comp grant, or a one-off `entitlement_grants` row per existing account.
+5. **Unmetered model routes:**
    - `POST /audio/transcribe` (paid speech-to-text, signed in)
    - `POST /suggest` (legacy, anonymous)
-10. **Security, unrelated to the paywall:**
+6. **Security, unrelated to the paywall:**
     - `GET /live` is an unauthenticated admin route that starts and stops venue drivers.
     - `POST /execution/backtest` is anonymous.

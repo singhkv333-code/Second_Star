@@ -38,13 +38,13 @@
     "ai.credits": {
       "kind": "quota", "window": "month", "label": "AI credits",
       "unit": "credits",
-      "values": {"anonymous": {"limit": 3, "window": "day"}, "free": 15, "pro": 200, "pro_plus": 500},
-      "pending": "sheet places 15/200/500 between the Daily and Monthly rows; built as a monthly pool"
+      "values": {"anonymous": 3, "free": 15, "pro": 200, "pro_plus": 500},
+      "_doc": "Settled 2026-09-29: every pool is monthly, and 1 credit = 1 prompt the user sends. Follow-up suggestions, titles and refunded (failed) turns are not prompts and cost nothing."
     },
     "ai.summaries": {
       "kind": "quota", "window": "month", "label": "AI summaries",
       "values": {"anonymous": 0, "free": 10, "pro": null, "pro_plus": null},
-      "pending": "which surface counts as an AI summary is not yet defined"
+      "pending": "upcoming: summaries of financial documents; no surface consumes it yet"
     },
     "alerts.price": {
       "kind": "limit", "label": "Price alerts",
