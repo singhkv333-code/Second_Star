@@ -54,8 +54,8 @@ const PAGE = 10;
 export const TABLE_CLS = {
   shell: "w-full overflow-hidden rounded-xl border border-border bg-card",
   table: "w-full border-collapse text-[13px] leading-normal",
-  headRow: "border-b border-border/60 text-[11.5px] text-muted-foreground",
-  head: "whitespace-nowrap px-3 py-2 font-medium",
+  headRow: "border-b border-border/60 text-foreground",
+  head: "whitespace-nowrap px-3 py-2 font-semibold",
   row: "border-b border-border/40 last:border-b-0 hover:bg-muted/40",
   rank: "w-10 px-3 py-2 text-right tabular-nums text-muted-foreground",
   cell: "px-3 py-2 text-foreground",
@@ -63,10 +63,22 @@ export const TABLE_CLS = {
   footRow: "border-t border-border/60 bg-muted/30 text-[12.5px] text-muted-foreground",
 };
 
-/** A column of sentences wraps inside a bounded width, so one long cell
- *  grows its row's height instead of stretching the whole table. */
-export function WrapText({ children }: { children: React.ReactNode }): React.ReactElement {
-  return <div className="min-w-[160px] max-w-[280px] whitespace-normal leading-5">{children}</div>;
+/** A column of sentences wraps, so one long cell grows its row's height
+ *  instead of stretching the whole table. Bounded at 280px by default; `fill`
+ *  lets it take whatever width the table has spare (the chat's prose tables,
+ *  where a capped column left half the answer's width empty). */
+export function WrapText({
+  children,
+  fill = false,
+}: {
+  children: React.ReactNode;
+  fill?: boolean;
+}): React.ReactElement {
+  return (
+    <div className={`min-w-[160px] whitespace-normal leading-5 ${fill ? "" : "max-w-[280px]"}`}>
+      {children}
+    </div>
+  );
 }
 
 /** Logo, name and ticker; hovering swaps the name for the quick actions,

@@ -9,8 +9,8 @@
  *     column is FOLDED INTO the company column (logo, name, ticker beneath).
  *   • A company table gets the "#" rank column and a "Median of N" row;
  *     numeric columns are right-aligned and sortable by their header.
- *   • A column of sentences wraps inside a bounded width instead of widening
- *     the whole table.
+ *   • A column of sentences wraps, and takes the width the table has spare
+ *     (the answer's full width) rather than a fixed cap.
  *   • The company cell links to the stock page and swaps in the quick-action
  *     bar on hover.
  *
@@ -471,7 +471,7 @@ export function SmartMarkdownTable({ node }: { node: unknown }): React.ReactElem
                       key={ci}
                       className={`${TABLE_CLS.cell} ${longText[ci] ? "" : "whitespace-nowrap"}`}
                     >
-                      {longText[ci] ? <WrapText>{cell}</WrapText> : cell}
+                      {longText[ci] ? <WrapText fill>{cell}</WrapText> : cell}
                     </td>
                   );
                 })}

@@ -33,8 +33,10 @@ describe("SmartMarkdownTable", () => {
     expect(screen.getByText("INFY")).toBeInTheDocument();
     expect(screen.getByText("Median of 3")).toBeInTheDocument();
     expect(screen.getByText("22.3x", { selector: "tfoot td" })).toBeInTheDocument();
-    // A column of sentences wraps in a bounded box rather than widening the table.
-    expect(screen.getByText(/slower growth/).className).toContain("max-w-[280px]");
+    // A column of sentences wraps, using the width the answer has rather than a cap.
+    const prose = screen.getByText(/slower growth/).className;
+    expect(prose).toContain("whitespace-normal");
+    expect(prose).not.toContain("max-w-[280px]");
   });
 
   it("leaves a non-company table without rank or median", () => {
