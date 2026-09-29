@@ -202,8 +202,11 @@ _SYMBOL_ARG = {
 # tests, so it never needed the companions. Stripping just those left
 # draw_ids / draw_mode / draw_as / max_draw on seven tools: arguments for
 # choosing which shapes to draw and how, on a surface that does not exist.
-_INK_ARGS_ALL = frozenset(ds._INK_ARGS) | {
-    "draw_ids", "draw_mode", "draw_as", "max_draw"}
+# The list is ours: charto dropped `_INK_ARGS` when every pane became
+# drawable (8c9dd265), and importing it killed this server at boot.
+_INK_ARGS_ALL = frozenset({
+    "draw", "mark_points", "connect", "mark_levels", "remove", "clear_marks",
+    "draw_ids", "draw_mode", "draw_as", "max_draw"})
 
 
 def _charto_tools() -> list[dict]:
@@ -224,7 +227,7 @@ def _charto_tools() -> list[dict]:
                 prop["description"] = _derust(prop["description"])
         spec["parameters"]["required"] = [
             r for r in spec["parameters"].get("required", [])
-            if r not in ds._INK_ARGS]
+            if r not in _INK_ARGS_ALL]
         out.append(spec)
     return out
 
