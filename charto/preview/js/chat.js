@@ -687,17 +687,23 @@
     // the turn can file them under the answer as its "Thought for Ns".
     const thoughts = new Map();
 
+    const lastStep = () => {
+      const all = rows.querySelectorAll(".chat-step");
+      return all[all.length - 1] || null;
+    };
+
     function push(step) {
       // never repeat the line already at the bottom — a second "Reading price
       // history" is a row that says nothing the row above it did not
       if (last && last.word === step.word && last.detail === step.detail) return null;
-      const prev = rows.lastElementChild;
-      if (prev) {
-        prev.querySelector(".chat-step-label").classList.remove("shimmer");
-        // only the newest step shows its reasoning; older ones keep a title
-        const body = prev.querySelector(".chat-thought");
-        if (body) body.classList.add("chat-thought-past");
-      }
+      // The last STEP, not the last child: a thought's body sits after its
+      // step in the same list, so lastElementChild is often that body — it
+      // has no label, and reading one off it threw mid-stream.
+      const prev = lastStep();
+      if (prev) prev.querySelector(".chat-step-label")?.classList.remove("shimmer");
+      // only the newest step shows its reasoning; older ones keep a title
+      rows.querySelectorAll(".chat-thought:not(.chat-thought-past)")
+        .forEach((b) => b.classList.add("chat-thought-past"));
       const row = document.createElement("div");
       row.className = "chat-step";
       row.innerHTML = '<span class="chat-step-dot" aria-hidden="true"></span>'
@@ -774,11 +780,14 @@
           // half-streamed "**Weig" never becomes a heading
           if (!title && th.raw.trimStart().startsWith("**")) return;
           if (host.hidden) { host.hidden = false; run(); }
-          th.row = push({ word: title || "Thinking", detail: "" })
-            || rows.lastElementChild;
+          th.row = push({ word: title || "Thinking", detail: "" }) || lastStep();
           th.body = document.createElement("div");
           th.body.className = "chat-thought";
-          th.row.after(th.body);
+          // after the step and any body already under it, so a repeated
+          // title keeps its parts in order
+          let at = th.row;
+          while (at.nextElementSibling?.classList.contains("chat-thought")) at = at.nextElementSibling;
+          at.after(th.body);
         }
         th.body.textContent = text.trim();
         if (atBottom()) toBottom();
@@ -1535,7 +1544,7 @@
    * is. The record is already the same object; this only makes it durable. */
   document.addEventListener("charto:card-updated", () => saveTurns());
 
-  function failTurn(turn, msg) {
+  function failTurn(turn, msg, ours = false) {
     endWait(turn);
     turn.classList.add("error");
     // A panel the stream got as far as inserting goes with the turn. The
@@ -1544,7 +1553,9 @@
     // itself is dropped from the record, so leaving the card would strand a
     // scan under an error, pointing at annotations that are not on the chart.
     turn.querySelectorAll(".scan").forEach((n) => n.remove());
-    turn.querySelector(".prose").textContent = `Couldn't reach the model — ${msg}`;
+    turn.querySelector(".prose").textContent = ours
+      ? `Something went wrong showing this reply — ${msg}`
+      : `Couldn't reach the model — ${msg}`;
     toBottom();
   }
 
@@ -2065,7 +2076,10 @@
       } else {
         turns.pop();   // keep the thread consistent with what the model saw
         saveTurns();
-        failTurn(turn, e.message || String(e));
+        // A TypeError that is not a failed fetch is this page's own bug, and
+        // blaming the model for it sends the reader looking in the wrong place.
+        const ours = e instanceof TypeError && !/fetch|network|load failed/i.test(e.message || "");
+        failTurn(turn, e.message || String(e), ours);
       }
     } finally {
       pending = false;
