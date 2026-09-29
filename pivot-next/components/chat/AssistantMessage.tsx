@@ -344,9 +344,9 @@ const MARKDOWN_COMPONENTS: Components = {
               {children}
             </pre>
           ),
-          // Tables render through SmartMarkdownTable: sortable numeric/name
-          // columns, ink-black header, per-cell borders, company cells
-          // linked to /stock/[symbol], Kite-style hover quick actions.
+          // Tables render through SmartMarkdownTable, in the screen card's
+          // design: company cells linked to /stock/[symbol], sortable
+          // numeric columns, hover quick actions.
           // It consumes the raw hast node and re-renders the table itself,
           // so the thead/th/td component overrides below never fire.
           table: ({ node }) => <SmartMarkdownTable node={node} />,

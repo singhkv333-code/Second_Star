@@ -14,7 +14,7 @@
 
 import React, { useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { ChevronDown, ListFilter } from "lucide-react";
+import { ChevronDown, ListFilter, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CompanyLogo } from "@/components/CompanyLogo";
 import { StockHoverActions } from "@/components/StockHoverActions";
@@ -46,6 +46,77 @@ export type ScreenResultsPayload = {
 };
 
 const PAGE = 10;
+
+// ── The chat's one table design ─────────────────────────────────────────
+// A screen's rows and a table the model writes in markdown render through
+// these same pieces (see SmartMarkdownTable), so every table reads alike.
+
+export const TABLE_CLS = {
+  shell: "w-full overflow-hidden rounded-xl border border-border bg-card",
+  table: "w-full border-collapse text-[13px] leading-normal",
+  headRow: "border-b border-border/60 text-[11.5px] text-muted-foreground",
+  head: "whitespace-nowrap px-3 py-2 font-medium",
+  row: "border-b border-border/40 last:border-b-0 hover:bg-muted/40",
+  rank: "w-10 px-3 py-2 text-right tabular-nums text-muted-foreground",
+  cell: "px-3 py-2 text-foreground",
+  num: "whitespace-nowrap px-3 py-2 text-right tabular-nums text-foreground",
+  footRow: "border-t border-border/60 bg-muted/30 text-[12.5px] text-muted-foreground",
+};
+
+/** A column of sentences wraps inside a bounded width, so one long cell
+ *  grows its row's height instead of stretching the whole table. */
+export function WrapText({ children }: { children: React.ReactNode }): React.ReactElement {
+  return <div className="min-w-[160px] max-w-[280px] whitespace-normal leading-5">{children}</div>;
+}
+
+/** Logo, name and ticker; hovering swaps the name for the quick actions,
+ *  which land exactly where the name was. */
+export function CompanyCell({
+  symbol,
+  name,
+  logoUrl,
+  hovered,
+  onOpen,
+  busy,
+}: {
+  symbol: string | null;
+  name: string;
+  logoUrl?: string | null;
+  hovered: boolean;
+  onOpen: () => void;
+  busy?: boolean;
+}): React.ReactElement {
+  return (
+    <div className="relative flex min-w-[180px] max-w-[280px] items-center gap-2.5">
+      {symbol && (
+        <CompanyLogo logoUrl={logoUrl ?? null} name={name || symbol} symbol={symbol} size={28} />
+      )}
+      <button
+        type="button"
+        onClick={onOpen}
+        className="min-w-0 text-left"
+        style={{ visibility: hovered && symbol ? "hidden" : "visible" }}
+        title={`Open ${name || symbol}`}
+      >
+        <div className="flex items-center gap-1.5 truncate font-semibold text-foreground">
+          <span className="truncate">{name || symbol}</span>
+          {busy && <Loader2 size={11} className="shrink-0 animate-spin" aria-hidden />}
+        </div>
+        {symbol && symbol !== name && (
+          <div className="text-[11.5px] text-muted-foreground">{symbol}</div>
+        )}
+      </button>
+      {hovered && symbol && (
+        <StockHoverActions
+          symbol={symbol}
+          name={name || symbol}
+          className="absolute"
+          style={{ left: 38, top: "50%", marginTop: -14, padding: 2, zIndex: 5 }}
+        />
+      )}
+    </div>
+  );
+}
 
 /** The middle of the returned rows, for reading any one row against the set.
  *  Presentation arithmetic over what the card already shows; null when
@@ -159,10 +230,7 @@ export function ScreenResultsCard({
   };
 
   return (
-    <div
-      className="w-full overflow-hidden rounded-xl border border-border bg-card"
-      data-testid="screen-results-card"
-    >
+    <div className={TABLE_CLS.shell} data-testid="screen-results-card">
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 pt-3.5 pb-2">
         <h3 className="text-[15px] font-semibold text-foreground">
           {payload.title || "Screen results"}
@@ -186,13 +254,16 @@ export function ScreenResultsCard({
       )}
 
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-[13px]">
+        <table className={TABLE_CLS.table}>
           <thead>
-            <tr className="border-y border-border/60 text-[11.5px] text-muted-foreground">
-              <th className="w-10 px-3 py-2 text-right font-medium">#</th>
-              <th className="px-3 py-2 text-left font-medium">Company</th>
+            <tr className={`border-t ${TABLE_CLS.headRow}`}>
+              <th className={`w-10 text-right ${TABLE_CLS.head}`}>#</th>
+              <th className={`text-left ${TABLE_CLS.head}`}>Company</th>
               {cols.map((c) => (
-                <th key={c.key} className="whitespace-nowrap px-3 py-2 text-right font-medium">
+                <th
+                  key={c.key}
+                  className={`${c.unit === "text" ? "text-left" : "text-right"} ${TABLE_CLS.head}`}
+                >
                   {c.label}
                 </th>
               ))}
@@ -202,61 +273,37 @@ export function ScreenResultsCard({
             {shown.map((r, i) => (
               <tr
                 key={r.symbol}
-                className="border-b border-border/40 last:border-b-0 hover:bg-muted/40"
+                className={TABLE_CLS.row}
                 onMouseEnter={() => setHover(i)}
                 onMouseLeave={() => setHover(null)}
               >
-                <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
-                  {i + 1}
-                </td>
+                <td className={TABLE_CLS.rank}>{i + 1}</td>
                 <td className="px-3 py-2">
-                  <div className="relative flex min-w-[180px] items-center gap-2.5">
-                    <CompanyLogo
-                      logoUrl={logos[r.symbol.toUpperCase()] ?? null}
-                      name={r.name || r.symbol}
-                      symbol={r.symbol}
-                      size={28}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => router.push(`/stock/${encodeURIComponent(r.symbol)}`)}
-                      className="min-w-0 text-left"
-                      style={{ visibility: hover === i ? "hidden" : "visible" }}
-                      title={`Open ${r.name || r.symbol}`}
-                    >
-                      <div className="truncate font-semibold text-foreground">
-                        {r.name || r.symbol}
-                      </div>
-                      <div className="text-[11.5px] text-muted-foreground">{r.symbol}</div>
-                    </button>
-                    {hover === i && (
-                      <StockHoverActions
-                        symbol={r.symbol}
-                        name={r.name || r.symbol}
-                        className="absolute"
-                        style={{ left: 38, top: "50%", marginTop: -14, padding: 2, zIndex: 5 }}
-                      />
-                    )}
-                  </div>
+                  <CompanyCell
+                    symbol={r.symbol}
+                    name={r.name || r.symbol}
+                    logoUrl={logos[r.symbol.toUpperCase()]}
+                    hovered={hover === i}
+                    onOpen={() => router.push(`/stock/${encodeURIComponent(r.symbol)}`)}
+                  />
                 </td>
-                {cols.map((c) => (
-                  <td
-                    key={c.key}
-                    className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-foreground"
-                    style={{ color: tone(r[c.key], c.unit) }}
-                  >
-                    {fmt(r[c.key], c.unit)}
-                  </td>
-                ))}
+                {cols.map((c) =>
+                  c.unit === "text" ? (
+                    <td key={c.key} className={TABLE_CLS.cell}>
+                      <WrapText>{fmt(r[c.key], c.unit)}</WrapText>
+                    </td>
+                  ) : (
+                    <td key={c.key} className={TABLE_CLS.num} style={{ color: tone(r[c.key], c.unit) }}>
+                      {fmt(r[c.key], c.unit)}
+                    </td>
+                  ),
+                )}
               </tr>
             ))}
           </tbody>
           {medians.some((m) => m !== null) && (
             <tfoot>
-              <tr
-                className="border-t border-border/60 bg-muted/30 text-[12.5px] text-muted-foreground"
-                data-testid="screen-median-row"
-              >
+              <tr className={TABLE_CLS.footRow} data-testid="screen-median-row">
                 <td className="px-3 py-2" />
                 <td className="px-3 py-2 font-medium">Median of {rows.length}</td>
                 {cols.map((c, i) => (

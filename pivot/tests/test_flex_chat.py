@@ -181,5 +181,5 @@ def test_no_ceiling_on_output_history_or_tool_results():
     assert '"S99"' in out and "_trimmed" not in out
     assert LLM_RESULT_GUARD >= 200_000
     b = " ".join(flex_chat.BRIEF.split())
-    assert "sentence or two" not in b and "as deep as the data supports" in b
+    assert "sentence or two" not in b and "go deep" in b
     assert flex_chat.VERBOSITY == "high"

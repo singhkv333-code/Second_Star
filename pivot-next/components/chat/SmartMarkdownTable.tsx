@@ -1,20 +1,18 @@
 "use client";
 
 /**
- * SmartMarkdownTable — the chat's markdown tables, upgraded from a passive
- * grid into a small data surface:
+ * SmartMarkdownTable — the chat's markdown tables, drawn in the screen card's
+ * design (ScreenResultsCard's TABLE_CLS, CompanyCell, WrapText) so the chat
+ * has one table, whoever wrote it:
  *
- *   • Clear column division (cell borders, numeric columns right-aligned,
- *     ink-black semibold header row).
- *   • Column hygiene: all-empty columns (e.g. a "Flag" column with no
- *     flags) are dropped, and a Symbol/Ticker column is FOLDED INTO the
- *     Name column — the name is what the user reads, the ticker is what
- *     the links/actions need — instead of burning width twice.
- *   • Click-to-sort on the columns where sorting means something — numeric
- *     columns and the name column — with an explicit direction indicator.
- *   • The name cell is bold, gets the widest column, links to the stock
- *     page, and hosts the Kite-style quick-action bar INLINE right next to
- *     the name while its row is hovered (never floating over other cells).
+ *   • Column hygiene: all-empty columns are dropped, and a Symbol/Ticker
+ *     column is FOLDED INTO the company column (logo, name, ticker beneath).
+ *   • A company table gets the "#" rank column and a "Median of N" row;
+ *     numeric columns are right-aligned and sortable by their header.
+ *   • A column of sentences wraps inside a bounded width instead of widening
+ *     the whole table.
+ *   • The company cell links to the stock page and swaps in the quick-action
+ *     bar on hover.
  *
  * Receives the raw hast <table> node from react-markdown and re-renders the
  * table itself (the markdown children are ignored) so all of the above
@@ -23,11 +21,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowDown, ArrowUp, ArrowUpDown, Loader2 } from "lucide-react";
+import { ArrowDown, ArrowUp } from "lucide-react";
 import { searchCompanies } from "@/lib/api";
 import { isError } from "@/lib/types";
-import { StockHoverActions } from "@/components/StockHoverActions";
-import { CompanyLogo } from "@/components/CompanyLogo";
+import { CompanyCell, TABLE_CLS, WrapText } from "@/components/chat/ScreenResultsCard";
 import { useCompanyLogos } from "@/hooks/useCompanyLogos";
 import { colorizeGainLoss } from "@/components/chat/AssistantMessage";
 
@@ -128,6 +125,23 @@ function isNumericColumn(rows: string[][], col: number): boolean {
   if (vals.length === 0) return false;
   const numeric = vals.filter((v) => !Number.isNaN(parseNum(v))).length;
   return numeric / vals.length >= 0.6;
+}
+
+/** A value written the way its column writes its own: the same currency
+ * prefix, unit suffix, decimals, grouping and sign convention. */
+function formatLike(samples: string[], v: number): string {
+  const first = (samples[0] ?? "").trim().replace(/^\((.*)\)$/, "$1").replace(/^[+\-−]/, "");
+  const prefix = /^[^\d.]*/.exec(first)?.[0] ?? "";
+  const suffix = /[^\d.]*$/.exec(first)?.[0] ?? "";
+  const decimals = Math.max(0, ...samples.map((x) => /\.(\d+)/.exec(x)?.[1]?.length ?? 0));
+  const abs = Math.abs(v).toLocaleString("en-IN", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+    useGrouping: samples.some((x) => x.includes(",")),
+  });
+  const core = `${prefix}${abs}${suffix}`;
+  if (v < 0) return samples.some((x) => /^\(.*\)$/.test(x.trim())) ? `(${core})` : `-${core}`;
+  return v > 0 && samples.some((x) => x.trim().startsWith("+")) ? `+${core}` : core;
 }
 
 // ── The table ────────────────────────────────────────────────────────────
@@ -304,29 +318,35 @@ export function SmartMarkdownTable({ node }: { node: unknown }): React.ReactElem
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, plan.nameCol, plan.tickerCol]);
 
-  // Frozen lead columns: Rank (when it leads) + the name column stay pinned
-  // while the metric columns scroll horizontally underneath.
+  // A rank column the model wrote leads as the card's "#"; a company table
+  // without one gets it, as a screen does.
   const firstVis = plan.visible[0];
-  const rankLeads =
-    firstVis !== undefined && RANK_HEADER_RE.test((header[firstVis] ?? "").trim());
-  const nameVisIdx = plan.visible.indexOf(plan.nameCol);
-  const stickyCount =
-    plan.nameCol !== -1 && (nameVisIdx === 0 || (rankLeads && nameVisIdx === 1))
-      ? nameVisIdx + 1
-      : rankLeads
-        ? 1
-        : 0;
-  const RANK_W = 52; // px — fixed so the name column's sticky offset is exact
-  const stickyStyle = (vi: number): React.CSSProperties | undefined =>
-    vi < stickyCount
-      ? {
-          position: "sticky",
-          left: vi === 0 ? 0 : rankLeads ? RANK_W : 0,
-          zIndex: 2,
-          background: "hsl(var(--background))",
-          ...(vi === 0 && rankLeads ? { width: RANK_W, minWidth: RANK_W } : {}),
-        }
-      : undefined;
+  const rankCol =
+    firstVis !== undefined && RANK_HEADER_RE.test((header[firstVis] ?? "").trim())
+      ? firstVis
+      : -1;
+  const addRank = rankCol === -1 && plan.nameCol !== -1;
+  const dataCols = plan.visible.filter((i) => i !== rankCol);
+  // Columns of sentences wrap inside a bounded width (see WrapText).
+  const longText = header.map(
+    (_, i) =>
+      !plan.numeric[i] &&
+      i !== plan.nameCol &&
+      rows.some((r) => (r[i] ?? "").length > 28),
+  );
+  // The screen card's median row, for a company table with enough rows.
+  const medians = useMemo(
+    () =>
+      header.map((_, i) => {
+        if (plan.nameCol === -1 || !plan.numeric[i] || i === rankCol) return null;
+        const cells = rows.map((r) => r[i] ?? "").filter((v) => !Number.isNaN(parseNum(v)));
+        const xs = cells.map(parseNum).sort((a, b) => a - b);
+        if (xs.length < 3) return null;
+        const m = xs.length >> 1;
+        return formatLike(cells, xs.length % 2 ? xs[m]! : (xs[m - 1]! + xs[m]!) / 2);
+      }),
+    [header, rows, plan, rankCol],
+  );
 
   const resolveForHover = (row: string[]): void => {
     if (tickerFor(row)) return; // already resolvable
@@ -371,175 +391,114 @@ export function SmartMarkdownTable({ node }: { node: unknown }): React.ReactElem
   }
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-border">
-      {/* border-separate (not collapse): collapsed borders detach from
-          position:sticky cells and smear while the rest scrolls. */}
-      <table className="w-full border-separate border-spacing-0 text-sm">
-        <thead>
-          <tr>
-            {plan.visible.map((i, vi) => {
-              const active = sort?.col === i;
-              const isName = i === plan.nameCol;
-              return (
-                <th
-                  key={i}
-                  onClick={() => toggleSort(i)}
-                  aria-sort={
-                    active ? (sort!.dir === "asc" ? "ascending" : "descending") : undefined
-                  }
-                  style={{
-                    ...(isName ? { width: "44%", minWidth: 220 } : {}),
-                    ...(stickyStyle(vi) ?? {}),
-                    // stickyStyle sets an opaque `background`; the glass classes
-                    // below paint background-color + a gradient image, so clear
-                    // the shorthand or it wins and the cell stays flat grey.
-                    ...(vi < stickyCount ? { background: undefined } : {}),
-                  }}
-                  className={[
-                    "border-b border-border px-3 py-2.5",
-                    // Liquid glass — see .md-table-head in globals.css.
-                    "md-table-head",
-                    vi < stickyCount ? "md-table-head-sticky" : "",
-                    // Ink-black header — the row must read as the table's
-                    // anchor, not another data row.
-                    "text-[13px] font-semibold text-foreground",
-                    vi < plan.visible.length - 1 ? "border-r border-border/50" : "",
-                    plan.numeric[i] ? "text-right" : "text-left",
-                    sortable[i]
-                      ? "cursor-pointer select-none transition-colors hover:bg-foreground/[0.045]"
-                      : "",
-                  ].join(" ")}
-                >
-                  <span className="inline-flex items-center gap-1">
-                    {header[i]}
-                    {sortable[i] &&
-                      (active ? (
-                        sort!.dir === "asc" ? (
-                          <ArrowUp size={12} strokeWidth={2.2} aria-hidden="true" />
-                        ) : (
-                          <ArrowDown size={12} strokeWidth={2.2} aria-hidden="true" />
-                        )
-                      ) : (
-                        <ArrowUpDown
-                          size={11}
-                          strokeWidth={2}
-                          aria-hidden="true"
-                          className="opacity-35"
-                        />
-                      ))}
-                  </span>
-                </th>
-              );
-            })}
-          </tr>
-        </thead>
-        <tbody>
-          {sortedRows.map((row, ri) => (
-            <tr
-              key={ri}
-              onMouseEnter={() => {
-                setHoverRow(ri);
-                if (plan.nameCol >= 0) resolveForHover(row);
-              }}
-              onMouseLeave={() => setHoverRow(null)}
-              className="hover:bg-muted/40"
-            >
-              {plan.visible.map((ci, vi) => {
-                const cell = row[ci] ?? "";
-                const isName = ci === plan.nameCol && cell.trim() !== "";
-                const ticker = isName ? tickerFor(row) : null;
-                const showActions = isName && hoverRow === ri && !!ticker;
+    <div className={TABLE_CLS.shell}>
+      <div className="overflow-x-auto">
+        <table className={TABLE_CLS.table}>
+          <thead>
+            <tr className={TABLE_CLS.headRow}>
+              {(addRank || rankCol !== -1) && (
+                <th className={`w-10 text-right ${TABLE_CLS.head}`}>#</th>
+              )}
+              {dataCols.map((i) => {
+                const active = sort?.col === i;
                 return (
-                  <td
-                    key={ci}
-                    style={stickyStyle(vi)}
+                  <th
+                    key={i}
+                    onClick={() => toggleSort(i)}
+                    aria-sort={
+                      active ? (sort!.dir === "asc" ? "ascending" : "descending") : undefined
+                    }
                     className={[
-                      "border-b border-border/50 px-3 py-2 align-middle",
-                      vi < plan.visible.length - 1 ? "border-r border-border/40" : "",
-                      plan.numeric[ci]
-                        ? "text-right tabular-nums text-foreground"
-                        : "text-foreground",
+                      TABLE_CLS.head,
+                      plan.numeric[i] ? "text-right" : "text-left",
+                      sortable[i] ? "cursor-pointer select-none hover:text-foreground" : "",
+                      active ? "text-foreground" : "",
                     ].join(" ")}
                   >
-                    {isName ? (
-                      <>
-                        {ticker && (
-                          <span className="mr-2 inline-block align-middle">
-                            <CompanyLogo
-                              logoUrl={logos[ticker] ?? null}
-                              name={cell.replace(PAREN_TICKER_RE, "").trim() || ticker}
-                              symbol={ticker}
-                              size={30}
-                            />
-                          </span>
-                        )}
-                        {/* The name and the quick-action bar share one box:
-                            hovering FLIPS the name out and the bar in, so the
-                            bar lands exactly where the name was instead of
-                            floating over it. A right-pinned bar covered long
-                            names (129px bar vs 57px of free space) while
-                            clearing short ones — the same row reading as
-                            broken or fine purely by name length. `visibility`
-                            (not `display`) keeps the name's width reserved, so
-                            the column never reflows on hover. */}
-                        <span className="relative inline-flex items-center align-middle">
-                          <button
-                            type="button"
-                            onClick={() => void openCompany(row)}
-                            title={`Open ${cell}`}
-                            aria-hidden={showActions}
-                            tabIndex={showActions ? -1 : undefined}
-                            className="inline-flex items-center gap-1.5 font-semibold text-foreground underline-offset-2 hover:text-primary hover:underline"
-                            style={{
-                              background: "none",
-                              border: "none",
-                              padding: 0,
-                              cursor: "pointer",
-                              font: "inherit",
-                              fontWeight: 600,
-                              whiteSpace: "nowrap",
-                              visibility: showActions ? "hidden" : "visible",
-                            }}
-                          >
-                            {cell}
-                            {resolving === cell.trim() && (
-                              <Loader2
-                                size={11}
-                                className="animate-spin"
-                                aria-hidden="true"
-                              />
-                            )}
-                          </button>
-                          {showActions && ticker && (
-                            <StockHoverActions
-                              symbol={ticker}
-                              name={cell.trim()}
-                              className="absolute"
-                              style={{
-                                // Anchored to the name's own left edge — the
-                                // bar occupies the name's slot exactly.
-                                left: 0,
-                                top: "50%",
-                                marginTop: -14,
-                                padding: 2,
-                                zIndex: 5,
-                              }}
-                            />
-                          )}
-                        </span>
-                      </>
-                    ) : plan.numeric[ci] ? (
-                      colorizeGainLoss(cell, `cell-${ri}-${ci}`)
-                    ) : (
-                      cell
-                    )}
-                  </td>
+                    <span className="inline-flex items-center gap-1">
+                      {header[i]}
+                      {active &&
+                        (sort!.dir === "asc" ? (
+                          <ArrowUp size={11} strokeWidth={2.2} aria-hidden="true" />
+                        ) : (
+                          <ArrowDown size={11} strokeWidth={2.2} aria-hidden="true" />
+                        ))}
+                    </span>
+                  </th>
                 );
               })}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {sortedRows.map((row, ri) => (
+              <tr
+                key={ri}
+                onMouseEnter={() => {
+                  setHoverRow(ri);
+                  if (plan.nameCol >= 0) resolveForHover(row);
+                }}
+                onMouseLeave={() => setHoverRow(null)}
+                className={TABLE_CLS.row}
+              >
+                {addRank && <td className={TABLE_CLS.rank}>{ri + 1}</td>}
+                {rankCol !== -1 && <td className={TABLE_CLS.rank}>{row[rankCol]}</td>}
+                {dataCols.map((ci) => {
+                  const cell = row[ci] ?? "";
+                  if (ci === plan.nameCol && cell.trim() !== "") {
+                    const ticker = tickerFor(row);
+                    return (
+                      <td key={ci} className="px-3 py-2">
+                        <CompanyCell
+                          symbol={ticker}
+                          name={cell.replace(PAREN_TICKER_RE, "").trim() || cell}
+                          logoUrl={ticker ? logos[ticker] : null}
+                          hovered={hoverRow === ri}
+                          busy={resolving === cell.trim()}
+                          onOpen={() => void openCompany(row)}
+                        />
+                      </td>
+                    );
+                  }
+                  if (plan.numeric[ci]) {
+                    return (
+                      <td key={ci} className={TABLE_CLS.num}>
+                        {colorizeGainLoss(cell, `cell-${ri}-${ci}`)}
+                      </td>
+                    );
+                  }
+                  return (
+                    <td
+                      key={ci}
+                      className={`${TABLE_CLS.cell} ${longText[ci] ? "" : "whitespace-nowrap"}`}
+                    >
+                      {longText[ci] ? <WrapText>{cell}</WrapText> : cell}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+          {medians.some((m) => m !== null) && (
+            <tfoot>
+              <tr className={TABLE_CLS.footRow}>
+                {(addRank || rankCol !== -1) && <td className="px-3 py-2" />}
+                {dataCols.map((ci) => (
+                  <td
+                    key={ci}
+                    className={
+                      ci === plan.nameCol
+                        ? "whitespace-nowrap px-3 py-2 font-medium"
+                        : "whitespace-nowrap px-3 py-2 text-right tabular-nums"
+                    }
+                  >
+                    {ci === plan.nameCol ? `Median of ${rows.length}` : (medians[ci] ?? "")}
+                  </td>
+                ))}
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
     </div>
   );
 }

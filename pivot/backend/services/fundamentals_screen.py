@@ -931,6 +931,8 @@ def screen_by_fundamentals(
     exclude: list[str] | None = None,
     growth_years: int | None = None,
     title: str | None = None,
+    symbols: list[str] | None = None,
+    metrics: list[str] | None = None,
     session: Session | None = None,
 ) -> dict:
     """Return companies passing every fundamental constraint in `filters`.
@@ -971,6 +973,13 @@ def screen_by_fundamentals(
         hard-filtered out of the result AFTER ranking — see
         :func:`_apply_exclude`. Never silently dropped; a drop is disclosed
         in the returned `note`.
+    symbols
+        Optional named companies to scope the screen to: a side-by-side
+        comparison. Scoped rows are LEFT-joined, so a metric the DB lacks for
+        one name shows as null instead of dropping the name, and an
+        implausible value is nulled rather than filtering the row.
+    metrics
+        Extra fields shown as columns without filtering on them.
 
     Returns
     -------
@@ -1059,6 +1068,15 @@ def screen_by_fundamentals(
             continue
         valid_filters.append({"field": field, "op": op, "value": value})
 
+    scoped = sorted({str(x).strip().upper() for x in symbols or [] if str(x).strip()})
+    shown: list[str] = []
+    for m in metrics or []:
+        mf = _normalise_field(str(m))
+        if mf in field_defs and field_defs[mf]["kind"] != "unsupported":
+            shown.append(mf)
+        else:
+            notes.append(f"unknown metric {m!r} skipped")
+
     # ── 2. Determine the sort field. Supports a SORT-ONLY screen where
     # the user named no hard threshold — we RANK instead of hard-filter:
     #   "cheap banking stocks"      -> sector=bank, sort pe asc
@@ -1075,7 +1093,7 @@ def screen_by_fundamentals(
             sort_dir = "asc" if sd == "asc" else "desc"
         elif sf:
             notes.append(f"cannot sort by {sf!r}")
-    if sort_field is None and valid_filters:
+    if sort_field is None and (valid_filters or scoped or shown):
         # No ordering from the caller. We deliberately do NOT invent an
         # opinionated metric ranking — which metric a "best/strongest" screen
         # ranks by is the model's judgment to make via an explicit sort_by, not
@@ -1102,7 +1120,7 @@ def screen_by_fundamentals(
         sort_dir = "desc"
         notes.append("no metric given — ranked by market cap (largest first)")
 
-    if not valid_filters and sort_field is None:
+    if not valid_filters and sort_field is None and not shown:
         return {
             "count": 0,
             "results": [],
@@ -1111,11 +1129,12 @@ def screen_by_fundamentals(
             or "give me a metric (PE/ROE/ROCE/D-E/payout) or a sector to screen",
         }
 
-    metric_fields = list(
-        {f["field"] for f in valid_filters}
-        | {f["value_field"] for f in valid_filters if f.get("value_field")}
-        | {sort_field}
-    )
+    metric_fields = list(dict.fromkeys(
+        shown
+        + [f["field"] for f in valid_filters]
+        + [f["value_field"] for f in valid_filters if f.get("value_field")]
+        + [sort_field]
+    ))
 
     # ── 2b. Route SECTOR screens to the enrich DB (clean sectors + real P/E) ─
     # when every referenced metric is one enrich serves cleanly (pe/roe/payout).
@@ -1123,7 +1142,7 @@ def screen_by_fundamentals(
     # (see _ENRICH_SECTOR_INDUSTRIES). A bare sector ranking (no explicit numeric
     # filter, no cap word) gets a recognizable-name floor so micro-caps don't
     # dominate. Falls through to the mc path on any enrich miss.
-    if (_enrich_can_serve(sector, {m for m in metric_fields if m})
+    if (not scoped and _enrich_can_serve(sector, {m for m in metric_fields if m})
             and not any(f.get("value_field") for f in valid_filters)):
         apply_default_floor = (not valid_filters) and (tier is None)
         enr = screen_from_enrich(
@@ -1170,11 +1189,12 @@ def screen_by_fundamentals(
             valid_filters = [f for f in valid_filters if f["field"] != "market_cap"]
             if sort_field == "market_cap":
                 sort_field = valid_filters[0]["field"] if valid_filters else "roe"
-            metric_fields = list(
-                {f["field"] for f in valid_filters}
-                | {f["value_field"] for f in valid_filters if f.get("value_field")}
-                | {sort_field}
-            )
+            metric_fields = list(dict.fromkeys(
+                shown
+                + [f["field"] for f in valid_filters]
+                + [f["value_field"] for f in valid_filters if f.get("value_field")]
+                + [sort_field]
+            ))
     else:
         # Market cap isn't screened here — still surface it as a CONTEXT
         # column (LEFT JOIN, never filters or reorders): size is the one
@@ -1530,6 +1550,14 @@ def screen_by_fundamentals(
                 f"{', '.join(sorted(_SECTOR_SLUG_PREFIXES))}) — sector filter ignored"
             )
 
+    if scoped:
+        params["scope_syms"] = scoped
+        where_parts.append("UPPER(COALESCE(c.nse_symbol, c.ticker)) = ANY(:scope_syms)")
+        scope_sql = (
+            "sl.sc_id IN (SELECT c.sc_id FROM mc.companies c WHERE "
+            "UPPER(COALESCE(c.nse_symbol, c.ticker)) = ANY(:scope_syms)) AND "
+        )
+
     # ── 5a. Market-cap tier / floor via REAL caps from the enrich DB ─────
     # Restrict by actual market cap (enrich.company_profile.market_cap, keyed by
     # the same sc_id) so "large cap" surfaces every genuine large cap — not just
@@ -1609,27 +1637,42 @@ def screen_by_fundamentals(
     if tier in ("large", "mid"):
         _PLAUSIBLE = {**_PLAUSIBLE, "roe": "BETWEEN -50 AND 80",
                       "roce": "BETWEEN -50 AND 80"}
+    bounds: dict[str, str] = {}
     for mf in metric_fields:
+        if mf not in val_expr:
+            continue
         kind = field_defs[mf]["kind"]
         if kind == "pe_from_ey":
             # keep the displayed P/E (real-or-derived) in (0, 500].
             pe_val = val_expr[mf]
-            where_parts.append(f"{pe_val} > 0 AND {pe_val} <= 500")
+            bounds[mf] = f"{pe_val} > 0 AND {pe_val} <= 500"
         elif kind == "growth":
             # Base-effect artifacts on tiny prior-year values produce absurd
             # "growth" (a ₹2 Cr → ₹20 Cr shell reads +900%). A real company
             # rarely grows a line item more than ~300% YoY, so cap there — this
             # keeps aggressive-but-plausible growers and drops the shells that
             # otherwise dominate a "fastest-growing" rank.
-            where_parts.append(f"{val_expr[mf]} BETWEEN -100 AND 300")
+            bounds[mf] = f"{val_expr[mf]} BETWEEN -100 AND 300"
         elif kind == "peg":
             # already >0 by construction (CASE guards pe>0 and growth>0); cap
             # the upper end so a near-zero-growth denominator can't produce an
             # absurd PEG that dominates the ORDER BY.
-            where_parts.append(f"{val_expr[mf]} <= 50")
+            bounds[mf] = f"{val_expr[mf]} <= 50"
         elif mf in _PLAUSIBLE:
-            where_parts.append(f"{val_expr[mf]} {_PLAUSIBLE[mf]}")
-    notes.append("data-quality bounds applied (extreme outliers excluded)")
+            bounds[mf] = f"{val_expr[mf]} {_PLAUSIBLE[mf]}"
+    if scoped:
+        # A comparison keeps every named company: an implausible value is
+        # shown as missing, and a metric the DB lacks leaves the row in place.
+        join_sqls = [j if j.startswith("LEFT ") else "LEFT " + j for j in join_sqls]
+        select_cols = [
+            next((f"CASE WHEN {c} THEN {val_expr[m]} END AS val_{m}"
+                  for m, c in bounds.items() if col.endswith(f" AS val_{m}")), col)
+            for col in select_cols
+        ]
+        notes.append("data-quality bounds applied (implausible values shown as missing)")
+    else:
+        where_parts.extend(bounds.values())
+        notes.append("data-quality bounds applied (extreme outliers excluded)")
 
     # ── 5c. Symbol-collision dedup (P5 follow-up, 2026-05-29) ────────────
     # The DB has impostor rows: e.g. "Reliance Infra"/"Reliance Info" carry

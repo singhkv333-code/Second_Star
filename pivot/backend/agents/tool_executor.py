@@ -1381,15 +1381,70 @@ async def _get_performance_metrics(a, kt, db, uid):
     return {"success": success, "data": data, "logiccard": None}
 
 
+# Price-based risk columns for the screen card, from the calculators
+# compare_performance uses: card key -> (label, unit, compare_assets key).
+_RISK_COLS = {
+    "total_return": ("Return", "pct_signed", "total_return_pct"),
+    "volatility": ("Volatility", "pct", "volatility_pct"),
+    "sharpe": ("Sharpe", "num", "sharpe"),
+    "max_drawdown": ("Max Drawdown", "pct_signed", "max_drawdown_pct"),
+}
+
+
+def _risk_values(table: dict, keys: list[str]) -> dict[str, dict]:
+    """{SYMBOL: {key: value}} from a compare_assets table; NaN becomes None."""
+    import math
+
+    out: dict[str, dict] = {}
+    for sym, res in (table.get("results") or {}).items():
+        if not isinstance(res, dict) or "error" in res:
+            continue
+        row = {}
+        for k in keys:
+            v = res.get(_RISK_COLS[k][2])
+            ok = isinstance(v, (int, float)) and math.isfinite(v)
+            row[k] = round(float(v), 2) if ok else None
+        out[str(sym).upper()] = row
+    return out
+
+
+def _risk_for(symbols: list[str], keys: list[str]) -> dict[str, dict]:
+    from backend.core.calculations import compare_assets
+    from backend.core.data.historical import get_close_dict
+
+    try:
+        prices = get_close_dict(symbols, period="1y")
+        return _risk_values(compare_assets(prices, metrics=keys), keys)
+    except Exception as exc:  # noqa: BLE001 — the columns show as missing
+        logger.debug("[screen] risk columns unavailable: %s", exc)
+        return {}
+
+
 async def _compare_performance(a, kt, db, uid):
+    import asyncio
     from backend.core.tools.strategy_tools import compare_performance
+    from backend.services.fundamentals_screen import with_verified_names
+    period = a.get("period", "1y")
     data = compare_performance(
         symbols=a.get("symbols", []),
-        period=a.get("period", "1y"),
+        period=period,
         metric=a.get("metric", "sharpe"),
         include=a.get("include") or None,
     )
     success = "error" not in data
+    vals = _risk_values(data.get("comparison") or {}, list(_RISK_COLS)) if success else {}
+    if vals:
+        # The same card a screen renders; `comparison` stays for plan steps.
+        per = str(period).replace("mo", "M").upper()
+        data = await asyncio.to_thread(with_verified_names, {
+            "_render_hint": "screen_results_card",
+            "title": f"{' vs '.join(vals)} · {per}",
+            "columns": [{"key": k, "label": f"{lbl} ({per})", "unit": unit}
+                        for k, (lbl, unit, _) in _RISK_COLS.items()],
+            "results": [{"symbol": sym, **v} for sym, v in vals.items()],
+            "count": len(vals),
+            **data,
+        })
     return {"success": success, "data": data, "logiccard": None}
 
 
@@ -1424,6 +1479,8 @@ async def _get_returns(a, kt, db, uid):
 
 async def _screen_fundamentals(a, kt, db, uid):
     from backend.services.fundamentals_screen import screen_by_fundamentals
+    wanted = list(a.get("metrics") or [])
+    risk = [m for m in wanted if m in _RISK_COLS]
     out = screen_by_fundamentals(
         filters=a.get("filters") or [],
         sector=a.get("sector"),
@@ -1434,7 +1491,14 @@ async def _screen_fundamentals(a, kt, db, uid):
         exclude=a.get("exclude") or None,
         growth_years=a.get("growth_years"),
         title=(a.get("title") or "").strip() or None,
+        symbols=a.get("symbols") or None,
+        metrics=[m for m in wanted if m not in _RISK_COLS] or None,
     )
+    missing = sorted({str(x).strip().upper() for x in a.get("symbols") or []}
+                     - {str(r.get("symbol") or "").upper() for r in out.get("results") or []})
+    if missing:
+        out["note"] = "; ".join(filter(None, [
+            out.get("note"), f"no fundamentals on file for {', '.join(missing)}"]))
     if out.get("results"):
         # The rows reach the user as a card; the model writes the reading.
         # (Before this, only the legacy engine showed them, by pasting its
@@ -1446,8 +1510,15 @@ async def _screen_fundamentals(a, kt, db, uid):
             screen_card_columns, with_verified_names,
         )
         out = await asyncio.to_thread(with_verified_names, out)
-        out = {"_render_hint": "screen_results_card",
-               "columns": screen_card_columns(out), **out}
+        cols = screen_card_columns(out)
+        if risk:
+            rows = out["results"][:30]
+            vals = await asyncio.to_thread(_risk_for, [r["symbol"] for r in rows], risk)
+            out["results"] = [{**r, **vals.get(str(r["symbol"]).upper(), {})}
+                              for r in out["results"]]
+            cols += [{"key": k, "label": f"{_RISK_COLS[k][0]} (1Y)",
+                      "unit": _RISK_COLS[k][1]} for k in risk]
+        out = {"_render_hint": "screen_results_card", "columns": cols, **out}
     return {"success": True, "data": out, "logiccard": None}
 
 

@@ -919,13 +919,13 @@ def _read_intent_gate(
             and _named_symbol_count(msg) >= 2
             and "compare_performance" in selected_names):
         return (
-            selected_names | {"compare_performance"},
+            selected_names | {"compare_performance", "screen_fundamentals"},
             "required",
-            "## Multi-stock comparison — call the tool, never recall\n"
-            "Call compare_performance with ALL named symbols and report "
-            "only its real returned numbers. NEVER state one symbol's "
-            "data from memory while only fetching the other — that "
-            "fabricates.",
+            "## Multi-stock comparison — call the tools, never recall\n"
+            "Fetch every named symbol with the tools whose metrics answer "
+            "the question, and report only their returned numbers. NEVER "
+            "state one symbol's data from memory while only fetching the "
+            "other — that fabricates.",
         )
     # Ownership/promoter/pledge ask — eval50 found a fabricated pledge %
     # for ZEEL with zero tools fired. Pivot's fundamentals data carries

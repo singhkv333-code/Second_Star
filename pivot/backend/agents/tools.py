@@ -722,21 +722,11 @@ tool("get_performance_metrics",
      ["symbol"])
 
 tool("compare_performance",
-     "Compare/rank 1+ tickers by a metric over a period (a single symbol works — it returns that one's return/vol/drawdown table). Use for ANY "
-     "multi-stock comparison: 'compare RELIANCE and TCS', 'INFY vs TCS "
-     "which gave better return last year', 'compare returns of HDFCBANK "
-     "and ICICIBANK over 3 years', 'which is better WIPRO or INFOSYS', "
-     "'rank these by Sharpe'. CRITICAL: for a two-stock comparison you "
-     "MUST call this with BOTH symbols — never fetch one stock's number "
-     "and state the other's from memory (that fabricates). Returns the "
-     "full side-by-side table "
-     "(total return %, volatility, Sharpe, max drawdown) for every "
-     "symbol with a declared winner. IF the user also wants PE/ROE and/or "
-     "SMA/RSI compared, set `include` below in THIS SAME call — do not "
-     "separately call fetch_fundamentals/get_market_data once per "
-     "symbol for a comparison ask, that's slower and the model routinely "
-     "forgets half the calls, silently dropping metrics the user asked "
-     "for.",
+     "Price-based return and risk of named tickers over a period: total "
+     "return, volatility, Sharpe and max drawdown for each, ranked by "
+     "`metric` and shown as a table card. A single symbol returns its own "
+     "figures. For valuation, profitability or growth side by side, "
+     "screen_fundamentals takes `symbols`.",
      {
          "symbols":  {"type": "array", "items": {"type": "string"}},
          "period":   {"type": "string", "default": "1y"},
@@ -797,7 +787,8 @@ tool("screen_fundamentals",
      "LIST of companies passing EVERY numeric constraint (filters AND-ed). The "
      "MANY-company tool ('pharma stocks with P/E under 25', 'ROE > 18 and "
      "positive revenue growth', 'cheap banking stocks'); for ONE company use "
-     "fetch_fundamentals.\n\n"
+     "fetch_fundamentals. With `symbols` it compares those named companies "
+     "side by side on whichever `metrics` answer the question.\n\n"
      "The user sees every returned row as a table card under your reply "
      "(company, market cap, the screened metrics, 1-year return). Don't "
      "rewrite the rows as a table; say what the screen shows: how many pass "
@@ -879,6 +870,14 @@ tool("screen_fundamentals",
          "sort_by": {"type": "object", "properties": {
                          "field": {"type": "string", "enum": list(_SCREEN_FIELDS)},
                          "dir":   {"type": "string", "enum": ["asc", "desc"]}}},
+         "symbols": {"type": "array", "items": {"type": "string"},
+                     "description": "NSE tickers to compare; scopes the result "
+                     "to exactly these names. Filters are optional here."},
+         "metrics": {"type": "array", "items": {"type": "string", "enum":
+                     list(_SCREEN_FIELDS) + ["volatility", "sharpe", "max_drawdown"]},
+                     "description": "Columns shown without filtering on them. "
+                     "volatility, sharpe and max_drawdown are 1-year price "
+                     "measures."},
          "limit":   {"type": "integer", "minimum": 1, "maximum": 100, "default": 15,
                      "description": "Rows returned, best first. The result's "
                      "`total_matched` is how many companies pass the screen; "
