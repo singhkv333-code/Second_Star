@@ -4705,15 +4705,46 @@ body.two-columns .readout .row { display: none; }
 .thought-log { margin-bottom: 10px; font-size: var(--text-sm); color: var(--muted-foreground); }
 .thought-log > summary {
   cursor: pointer; list-style: none; width: fit-content;
+  display: inline-flex; align-items: center; gap: 7px;
   font-size: var(--text-md); color: var(--muted-foreground);
 }
 .thought-log > summary:hover { color: var(--foreground); }
 .thought-log > summary::-webkit-details-marker { display: none; }
-.thought-log > summary::after { content: " ›"; }
-.thought-log[open] > summary::after { content: " ⌄"; }
-.thought-part { margin: 8px 0 0 0; padding-left: 12px; border-left: 1px solid var(--border); }
-.thought-title { color: var(--foreground); font-weight: var(--weight-display); margin-bottom: 2px; }
-.thought-text { white-space: pre-wrap; line-height: 1.5; }
+/* A drawn chevron, not the › / ⌄ glyphs: those sit at different heights in
+   the font, so the open one dropped below the line. One shape, centred on
+   the text, turning from right to down. */
+.thought-log > summary::after {
+  content: ""; width: 5px; height: 5px; margin-top: -1px;
+  border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg); transition: transform 160ms var(--ease-quartr);
+}
+.thought-log[open] > summary::after { transform: translateY(-2px) rotate(45deg); }
+/* The steps hang off ONE continuous line, a dot at each title — a timeline,
+   not a stack of separately-ruled boxes. Air between steps and under the
+   summary so a long think reads as a sequence of distinct moves. */
+.thought-body {
+  position: relative; margin: 12px 0 18px 3px; padding-left: 18px;
+  display: flex; flex-direction: column; gap: 16px;
+}
+.thought-body::before {
+  content: ""; position: absolute; left: 0; top: 8px; bottom: 6px;
+  width: 1px; background: var(--border);
+}
+.thought-part { position: relative; }
+.thought-part::before {
+  content: ""; position: absolute; left: -22px; top: 6px;
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--background);
+  border: 1px solid color-mix(in srgb, var(--muted-foreground) 70%, var(--background));
+}
+.thought-title {
+  color: var(--foreground); font-size: var(--text-md);
+  font-weight: var(--weight-display); margin-bottom: 4px;
+}
+.thought-text {
+  white-space: pre-wrap; font-size: var(--text-base); line-height: 1.6;
+  color: var(--muted-foreground);
+}
 
 /* Grey letters with a LIGHTER band sweeping through — never a white flash.
    The highlight mixes the base grey toward the page, so it reads as soft
@@ -8853,7 +8884,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        and grouping, and nothing else — a renderer with no state of its own -->
   <script src="./js/cards.js?v=56"></script>
   <script src="./js/layers-panel.js?v=11"></script>
-  <script src="./js/chat.js?v=172"></script>
+  <script src="./js/chat.js?v=173"></script>
   <script src="./js/journal.js?v=6"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it

@@ -867,9 +867,11 @@
       const log = document.createElement("details");
       log.className = "thought-log";
       log.innerHTML = `<summary>Thought for ${w.elapsed()}s</summary>`
+        + '<div class="thought-body">'
         + parts.map((p) => '<div class="thought-part">'
           + (p.title ? `<div class="thought-title">${esc(p.title)}</div>` : "")
-          + `<div class="thought-text">${esc(p.text.trim())}</div></div>`).join("");
+          + `<div class="thought-text">${esc(p.text.trim())}</div></div>`).join("")
+        + "</div>";
       host.before(log);
     }
     w.stop();
