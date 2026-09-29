@@ -1597,7 +1597,7 @@ tool("backtest_dsl_tree",
          },
          "start_date": {
              "type": "string",
-             "description": "OPTIONAL ISO YYYY-MM-DD. Defaults to 3y before end_date.",
+             "description": "OPTIONAL ISO YYYY-MM-DD. Defaults to 5y before end_date.",
          },
          "end_date": {
              "type": "string",
@@ -1606,36 +1606,33 @@ tool("backtest_dsl_tree",
          "exit_condition": {
              "type": "string",
              "description": (
-                 "OPTIONAL natural-language EXIT rule. Pass verbatim whenever "
-                 "the user describes SELL/EXIT/close ('sell when RSI > 70', "
-                 "'exit on 8% drawdown from peak', 'close after 30 bars'). "
-                 "Overrides exit_kind/bars/pct; engine evaluates the "
-                 "translated exit tree each bar the position is open."
+                 "Natural-language EXIT rule ('sell when RSI > 70', 'exit on "
+                 "8% drawdown from peak', 'close after 30 bars'). A backtest "
+                 "needs an exit and none is assumed for you: pass the user's "
+                 "verbatim when they gave one; otherwise choose the exit that "
+                 "fits the idea and say in the reply that you chose it. "
+                 "Overrides exit_kind."
              ),
          },
          "interval": {
              "type": "string",
              "description": (
-                 "REQUIRED bar interval — 1m/5m/15m/30m/1h/daily/weekly/"
-                 "monthly. CRITICAL: indicator 'period' (RSI(14), SMA(50)) "
-                 "counts BARS of THIS interval (RSI(14) on 15m = 14 "
-                 "fifteen-minute bars, not 14 days). If user named a "
-                 "timeframe, pass it; if NOT, OMIT — platform asks (do not "
-                 "guess daily). Intraday windows shallow (1m→7d, "
-                 "5/15/30m→60d, 1h→730d); handler clamps."
+                 "Bar interval — 1m/5m/15m/30m/1h/daily/weekly/monthly. "
+                 "Indicator 'period' (RSI(14), SMA(50)) counts BARS of THIS "
+                 "interval (RSI(14) on 15m = 14 fifteen-minute bars). Use the "
+                 "user's timeframe; if they named none, pick the one the idea "
+                 "is about and say so. Intraday windows are shallow (1m→7d, "
+                 "5/15/30m→60d, 1h→730d); the handler clamps."
              ),
          },
          "exit_kind": {
              "type": "string",
              "enum": ["n_day_hold", "stop_loss_pct", "hold_to_end"],
-             "default": "n_day_hold",
              "description": (
-                 "n_day_hold: exit after exit_bars bars at next open "
-                 "(DEFAULT when no sell rule). stop_loss_pct: exit at stop "
-                 "price on bar-low. hold_to_end: NEVER sell early — carry "
-                 "to final bar, mark-to-market. Use hold_to_end when user "
-                 "says hold / don't sell / buy-and-hold, OR gives no exit "
-                 "AND phrases a hold ('buy RELIANCE Jan 2023 and hold')."
+                 "A declarative exit, when exit_condition is not given. "
+                 "n_day_hold: exit after exit_bars bars at next open. "
+                 "stop_loss_pct: exit at the stop price on bar-low. "
+                 "hold_to_end: never sell early — carry to the final bar."
              ),
          },
          "initial_position": {
@@ -1659,8 +1656,7 @@ tool("backtest_dsl_tree",
          },
          "exit_bars": {
              "type": "integer",
-             "default": 10,
-             "description": "Used when exit_kind=n_day_hold.",
+             "description": "Required when exit_kind=n_day_hold.",
          },
          "exit_pct": {
              "type": "number",
@@ -1670,27 +1666,28 @@ tool("backtest_dsl_tree",
          },
          "starting_capital": {
              "type": "number",
-             "default": 100000,
              "description": (
-                 "The ACTUAL ₹ amount being deployed, if known from this "
-                 "conversation — never leave at the default when a real "
-                 "figure was stated."
+                 "₹ the result is expressed in (₹ outcome = capital × "
+                 "return). The return % does not depend on it. Pass the "
+                 "user's figure when this conversation has one; default "
+                 "₹1,00,000."
              ),
          },
          "quantity": {
              "type": "integer",
-             "default": 10,
+             "description": "Shares per entry — only with sizing_mode='fixed'.",
          },
          "sizing_mode": {
              "type": "string",
-             "enum": ["fixed", "pct_equity", "vol_target", "atr_risk"],
-             "default": "fixed",
+             "enum": ["full", "fixed", "pct_equity", "vol_target", "atr_risk"],
              "description": (
-                 "fixed=`quantity`; pct_equity=`pct` of equity; "
-                 "vol_target=annualised `target_vol`; atr_risk=`risk_pct` "
-                 "per trade with stop at `atr_mult`×ATR. Use when user says "
-                 "'volatility targeting', 'risk N% per trade', 'ATR-based "
-                 "size', or '% of capital'."
+                 "full (default): fully invested whenever the rule is in a "
+                 "position, fractional shares — the return is the RULE's and "
+                 "is the same at any capital. Use another mode only when the "
+                 "user's strategy itself sizes positions: pct_equity=`pct` of "
+                 "equity; vol_target=annualised `target_vol`; atr_risk="
+                 "`risk_pct` per trade with stop at `atr_mult`×ATR; fixed="
+                 "`quantity` whole shares."
              ),
          },
          "pct": {"type": "number", "description":

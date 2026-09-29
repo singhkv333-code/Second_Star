@@ -77,15 +77,15 @@ The index is the TRIGGER symbol ONLY — never an `action.place_order` symbol. 1
        "left": {"type": "pct_change", "symbol": "NIFTY", "bars": 1},
        "right": {"type": "constant", "value": 0.01}}}},
     {"step_type": "action.place_order",
-     "config": {"symbol": "RELIANCE", "side": "buy", "quantity": 1, "order_type": "market"}},
+     "config": {"symbol": "RELIANCE", "side": "buy", "quantity": "<size>", "order_type": "market"}},
     {"step_type": "action.place_order",
-     "config": {"symbol": "TCS", "side": "buy", "quantity": 1, "order_type": "market"}},
+     "config": {"symbol": "TCS", "side": "buy", "quantity": "<size>", "order_type": "market"}},
     {"step_type": "action.place_order",
-     "config": {"symbol": "INFY", "side": "buy", "quantity": 1, "order_type": "market"}}
+     "config": {"symbol": "INFY", "side": "buy", "quantity": "<size>", "order_type": "market"}}
   ]
 }
 ```
-Every listed equity MUST appear as an `action.place_order` target — never drop one.
+Every listed equity MUST appear as an `action.place_order` target — never drop one. Sizes are the user's, or yours to choose and state; `<size>` above is a placeholder.
 "buy nifty 10 shares" (index as the buy target, no other ticker) is different — that
 IS trying to trade the index, so nudge to the ETF (NIFTYBEES).
 

@@ -87,6 +87,15 @@ class PlanTests(unittest.TestCase):
             out = plans.parse({"legs": legs, "capital_inr": 100000})
             self.assertEqual(len(out["legs"]), n)
 
+    def test_weights_near_100_are_scaled_to_exactly_100(self):
+        """105% used to be accepted as written and spent 105% of the capital."""
+        legs = [{"symbol": f"S{i}", "weight_pct": 35, "why": "x"}
+                for i in range(3)]
+        out = plans.parse({"legs": legs, "capital_inr": 100000})
+        self.assertAlmostEqual(sum(l["weight_pct"] for l in out["legs"]), 100.0,
+                               places=4)
+        self.assertTrue(any("scaled" in a for a in out["spec"]["assumptions"]))
+
     def test_a_dropped_leg_is_caught(self):
         """Nine legs at 10% is a basket that lost one on the way out, and the
         90% total is the only evidence of it."""

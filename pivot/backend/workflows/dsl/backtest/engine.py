@@ -32,8 +32,9 @@ inherits the change for free.
 from __future__ import annotations
 
 import logging
+import math
 import uuid
-from datetime import date as date_cls, datetime, timezone
+from datetime import date as date_cls, datetime, timedelta, timezone
 from typing import Optional
 
 import pandas as pd
@@ -93,9 +94,23 @@ def run_backtest(
     exit_tree = _TREE_ADAPTER.validate_python(exit_policy.tree)
     semantic_validate(exit_tree, allow_position=True)
 
+    # WARM-UP COMES FROM BEFORE THE WINDOW, NOT OUT OF IT.
+    #
+    # The window used to be fetched from `start_date` and the first
+    # `period + 5` bars of it spent warming the indicators up. An EMA(200)
+    # rule on a three-year daily window therefore could not trade for its
+    # first ~10 months, while buy & hold — measured from bar 0 — owned all
+    # three years, and the equity curve carried ten flat months into CAGR
+    # and Sharpe. The two sides of "versus holding" were not the same window.
+    #
+    # So the history the indicators need is fetched in front of the window,
+    # and every number below — equity curve, benchmark, CAGR — starts at
+    # `start_date`. Both trees count: an exit on EMA(200) needs the same
+    # history as an entry on it.
+    need = max(_warmup_need(tree), _warmup_need(exit_tree))
     loaded = load_bars(
-        tree, start=request.start_date, end=request.end_date, fetcher=fetcher,
-        interval=request.interval,
+        tree, start=_history_start(request, need), end=request.end_date,
+        fetcher=fetcher, interval=request.interval,
         primary_symbol=request.primary_symbol, exchange=request.exchange,
     )
 
@@ -107,7 +122,15 @@ def run_backtest(
         )
     primary_bars = loaded.by_symbol[primary_key]
 
-    warmup_idx = _compute_warmup_idx(tree, len(loaded.master_dates))
+    # The first bar ON or after start_date. When the source had enough
+    # history in front of the window this is also where warm-up ends; when it
+    # did not (a recent listing, a shallow intraday source) the remaining
+    # warm-up falls inside the window and `window_bars_lost` says how much.
+    first_in_window = int(loaded.master_dates.searchsorted(
+        pd.Timestamp(request.start_date)))
+    total = len(loaded.master_dates)
+    warmup_idx = min(max(first_in_window, min(need, total)),
+                     max(0, total - 2))
 
     state = _SimState(
         request=request,
@@ -116,6 +139,7 @@ def run_backtest(
         warmup_idx=warmup_idx,
         exit_policy=exit_policy,
     )
+    state.first_in_window = min(first_in_window, warmup_idx)
     _simulate(tree, exit_tree, state)
 
     metrics = _metrics_from_sim(state)
@@ -165,6 +189,7 @@ class _SimState:
         self.fire_bars: int = 0
         self.unknown_bars: int = 0
         self.bars_evaluated: int = 0
+        self.first_in_window: int = warmup_idx
 
 
 class _OpenPos:
@@ -179,7 +204,7 @@ class _OpenPos:
 
     def __init__(
         self, *, entry_idx: int, entry_date: date_cls, entry_price: float,
-        qty: int, costs: float, trade_id: int,
+        qty: float, costs: float, trade_id: int,
     ) -> None:
         self.entry_idx = entry_idx
         self.entry_date = entry_date
@@ -287,12 +312,14 @@ def _simulate(tree, exit_tree, st: _SimState) -> None:
     _seed_initial_position(st, buy_cost)
 
     for idx in range(total_bars):
+        if idx < st.first_in_window:
+            continue   # history in front of the window: indicators only
         bar_date = _idx_date(st.loaded.master_dates, idx)
         close = _safe_close(st.primary_bars, idx)
         _record_equity(st, bar_date, close)
 
         if idx < st.warmup_idx:
-            continue
+            continue   # inside the window but the indicators are not warm
 
         accessor.advance_to(idx)
         ev = evaluate(tree, accessor=accessor, prev_state=entry_state)
@@ -374,6 +401,12 @@ def _close_via_policy(
         # Lowered stop_loss_pct: fill at exactly the stop price on
         # the current bar (realistic Indian-retail SL semantic).
         exit_price = pos.entry_price * (1.0 - float(policy.stop_price_pct))
+        # A bar that OPENS through the stop cannot fill at the stop: the
+        # order fills at the open, which is worse. Otherwise a gap-down
+        # overnight would be booked as the loss the user asked for.
+        _open = _safe_open(st.primary_bars, signal_idx)
+        if _open is not None and _open < exit_price:
+            exit_price = _open
         _close_position_at_price(
             st, exit_idx=signal_idx, exit_price=exit_price,
             exit_reason="stop_loss", sell_cost_fn=sell_cost_fn,
@@ -468,7 +501,7 @@ def _atr_value(hist: pd.DataFrame, period: int) -> Optional[float]:
     return atr if atr > 0 else None  # NaN > 0 is False → None
 
 
-def _size_position(st: _SimState, entry_idx: int, price: float) -> int:
+def _size_position(st: _SimState, entry_idx: int, price: float) -> float:
     """Shares for an entry at ``entry_idx``'s open (Phase 2.2). ``fixed`` →
     request.quantity; the others derive from current equity + the entry price +
     (vol/atr) the asset's realised vol / ATR over bars STRICTLY BEFORE the entry
@@ -483,8 +516,9 @@ def _size_position(st: _SimState, entry_idx: int, price: float) -> int:
     fallback = int(st.request.quantity)
     hist = st.primary_bars.iloc[:entry_idx]  # bars before the entry bar
 
+    # `shares` is the unrounded target; rounding is decided once, below.
     if sizing.mode == "pct_equity":
-        qty = int((equity * sizing.pct) / price)
+        shares = (equity * sizing.pct) / price
     elif sizing.mode == "vol_target":
         if len(hist) < max(sizing.vol_lookback // 2, 5):
             return fallback
@@ -505,7 +539,7 @@ def _size_position(st: _SimState, entry_idx: int, price: float) -> int:
         if ann_vol <= 1e-9:
             return 0
         notional = min(equity * (sizing.target_vol / ann_vol), equity)
-        qty = int(notional / price)
+        shares = notional / price
     elif sizing.mode == "atr_risk":
         atr = _atr_value(hist, sizing.atr_period)
         if atr is None:
@@ -513,12 +547,24 @@ def _size_position(st: _SimState, entry_idx: int, price: float) -> int:
         risk_per_share = atr * sizing.atr_mult
         if risk_per_share <= 0:
             return 0
-        qty = int((equity * sizing.risk_pct) / risk_per_share)
+        shares = (equity * sizing.risk_pct) / risk_per_share
     else:
         return fallback
 
+    if getattr(sizing, "fractional", False):
+        # FRACTIONAL: the rule's return, not the lot's. Whole shares make the
+        # percentage depend on the capital — ₹1L of a ₹1,400 stock is 71
+        # shares and ~₹600 idle, ₹10L is 714 and ~₹400 idle — and the 2%
+        # headroom below idles more. Sized exactly to what the cash buys after
+        # the buy leg's charges (costs are proportional, so the same fraction
+        # at any capital), the percentage is a property of the rule and a
+        # rupee figure is simply capital × that percentage.
+        from backend.services.trading_costs import leg_bps
+        cap = equity / (price * (1.0 + leg_bps("buy"))) * (1.0 - 1e-9)
+        return max(0.0, min(shares, cap))
+
     max_qty = int(equity * 0.98 / price)  # no leverage, leave headroom for costs
-    return max(0, min(qty, max_qty))
+    return max(0, min(int(shares), max_qty))
 
 
 def _seed_initial_position(st: _SimState, buy_cost_fn) -> None:
@@ -530,7 +576,8 @@ def _seed_initial_position(st: _SimState, buy_cost_fn) -> None:
     ip = st.request.initial_position
     if ip is None:
         return
-    open_px = _safe_open(st.primary_bars, 0)
+    start = st.first_in_window
+    open_px = _safe_open(st.primary_bars, start)
     basis = float(ip.avg_price) if ip.avg_price is not None else open_px
     if basis is None or basis <= 0 or open_px is None:
         return  # no usable price to seed against
@@ -540,8 +587,8 @@ def _seed_initial_position(st: _SimState, buy_cost_fn) -> None:
     net_debit, charges = buy_cost_fn(basis, qty)
     st.cash -= net_debit
     st.position = _OpenPos(
-        entry_idx=0,
-        entry_date=ip.entry_date or _idx_date(st.loaded.master_dates, 0),
+        entry_idx=start,
+        entry_date=ip.entry_date or _idx_date(st.loaded.master_dates, start),
         entry_price=basis,
         qty=qty,
         costs=charges,
@@ -631,6 +678,35 @@ def _close_position_at_price(
 
 
 # ── Warmup ─────────────────────────────────────────────────────────
+
+
+def _history_start(request: BacktestRequest, need: int) -> date_cls:
+    """Where to start FETCHING so ``need`` bars exist before start_date.
+
+    Calendar days per bar come from the interval's bars-per-year, padded for
+    weekends and holidays (252 trading days in 365). An intraday source with a
+    shallow rolling window cannot serve history past it, so the fetch is never
+    pushed beyond that cap — the loader would fail rather than return less.
+    """
+    from backend.core.data.intervals import (
+        bars_per_year, is_intraday, max_lookback_days,
+    )
+    days_per_bar = 365.25 / max(bars_per_year(request.interval), 1.0)
+    pad = int(math.ceil(need * days_per_bar * 1.5)) + 10
+    start = request.start_date - timedelta(days=pad)
+    if is_intraday(request.interval):
+        cap = max_lookback_days(request.interval, has_kite=False)
+        if cap is not None:
+            start = max(start, date_cls.today() - timedelta(days=int(cap)))
+            start = min(start, request.start_date)
+    return start
+
+
+def _warmup_need(tree) -> int:
+    """Bars of history ``tree`` reads before it can evaluate. 0 for None."""
+    if tree is None:
+        return 0
+    return _compute_warmup_idx(tree, 10 ** 9)
 
 
 def _compute_warmup_idx(tree, total_bars: int) -> int:
@@ -733,7 +809,7 @@ def _metrics_from_sim(st: _SimState) -> BacktestMetrics:
         trust_verdict,
     )
     from backend.services.forward_stats import forward_stats_block
-    from backend.services.trading_costs import leg_bps
+    from backend.backtester.engine import buy_cost, sell_cost
     _equity_vals = [p.equity for p in st.equity_curve]
     # rf=0: the sim holds idle capital in cash at 0%, so subtracting a 6.5%
     # risk-free rate charges every flat/cash day a −rf excess and drags Sharpe
@@ -765,13 +841,21 @@ def _metrics_from_sim(st: _SimState) -> BacktestMetrics:
 
     # Buy-and-hold benchmark on the primary symbol, net of one round-trip.
     _bench = None
+    _bench_dd = None
     try:
-        closes = st.primary_bars["close"]
+        # The same window the equity curve covers: from start_date, not from
+        # the history fetched in front of it for the indicators.
+        closes = st.primary_bars["close"].iloc[st.first_in_window:].dropna()
         if len(closes) >= 2 and float(closes.iloc[0]) > 0:
-            _rt = (1 - leg_bps("buy")) * (1 - leg_bps("sell"))
-            _bench = (
-                float(closes.iloc[-1]) / float(closes.iloc[0]) * _rt - 1.0
-            ) * 100.0
+            # The same cost functions the trades pay, on a reference notional
+            # (brokerage is per order, so the size matters a little).
+            _c0, _c1 = float(closes.iloc[0]), float(closes.iloc[-1])
+            _q = 100_000.0 / _c0
+            _debit, _ = buy_cost(_c0, _q)
+            _credit, _ = sell_cost(_c1, _q)
+            _bench = (_credit / _debit - 1.0) * 100.0
+            _peak = closes.cummax()
+            _bench_dd = float(((_peak - closes) / _peak).max()) * 100.0
     except Exception:
         _bench = None
 
@@ -796,6 +880,8 @@ def _metrics_from_sim(st: _SimState) -> BacktestMetrics:
         sharpe_ratio=_sharpe,
         sortino_ratio=_sortino,
         benchmark_return_pct=(round(_bench, 2) if _bench is not None else None),
+        benchmark_max_drawdown_pct=(
+            round(_bench_dd, 2) if _bench_dd is not None else None),
         ending_value=ending,
         forward_stats=_forward_stats,
         monte_carlo=_monte_carlo,
@@ -836,7 +922,9 @@ def _diagnostics_from_sim(
 ) -> BacktestDiagnostics:
     return BacktestDiagnostics(
         bars_evaluated=st.bars_evaluated,
-        warmup_bars_skipped=st.warmup_idx,
+        # Bars INSIDE the requested window lost to warm-up — zero whenever
+        # the source had the history in front of it.
+        warmup_bars_skipped=max(0, st.warmup_idx - st.first_in_window),
         unknown_value_bars=st.unknown_bars,
         fire_bars=st.fire_bars,
         symbols_loaded=[f"{s}:{e}" for (s, e) in loaded.by_symbol.keys()],

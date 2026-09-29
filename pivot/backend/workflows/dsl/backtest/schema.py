@@ -159,7 +159,11 @@ def lower_exit_policy(policy) -> "ExitPolicyTree":
             tree={
                 "type": "comparison", "op": ">=",
                 "left": {"type": "position", "field": "bars_held"},
-                "right": {"type": "constant", "value": float(policy.bars)},
+                # The order fills at the NEXT bar's open, so the signal bar is
+                # N-1 bars after the entry bar: entry open -> exit open is N
+                # bars. (>= N used to hold N+1.)
+                "right": {"type": "constant",
+                          "value": float(max(int(policy.bars) - 1, 0))},
             },
             exit_at="next_open",
         )
@@ -180,6 +184,10 @@ class Sizing(_Strict):
     mode: Literal["fixed", "pct_equity", "vol_target", "atr_risk"] = "fixed"
     # pct_equity — deploy this fraction of current equity per entry.
     pct: float = Field(default=0.20, gt=0.0, le=1.0)
+    # Fractional shares. A backtest measures a RULE, and whole-share rounding
+    # makes its percentage depend on the capital it happened to be given. With
+    # this on, the return is capital-invariant and ₹ = capital × return.
+    fractional: bool = False
     # vol_target — target annualised position volatility + realised-vol lookback.
     target_vol: float = Field(default=0.15, gt=0.0, le=2.0)
     vol_lookback: int = Field(default=20, ge=5, le=252)
@@ -317,7 +325,7 @@ class TradeRow(_Strict):
     entry_price: float
     exit_date: Optional[date]
     exit_price: Optional[float]
-    quantity: int
+    quantity: float   # whole unless sizing.fractional
     gross_pnl: float
     costs: float
     net_pnl: float
@@ -449,6 +457,10 @@ class BacktestMetrics(_Strict):
     # Buy-and-hold of the primary symbol over the window, net of one
     # round-trip cost — so strategy vs benchmark is apples-to-apples.
     benchmark_return_pct: Optional[float] = None
+    # Deepest peak-to-trough fall of that same buy-and-hold over the same
+    # window, as a positive magnitude (same convention as max_drawdown_pct).
+    # A rule sold as downside protection is judged against THIS number.
+    benchmark_max_drawdown_pct: Optional[float] = None
     ending_value: float
     # Statistical-rigor battery (PSR / MinTRL / DSR) on the equity curve.
     forward_stats: Optional[ForwardStats] = None

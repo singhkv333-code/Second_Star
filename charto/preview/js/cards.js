@@ -537,7 +537,14 @@ const Cards = (() => {
         + (v.rationale ? `<span>${esc(v.rationale)}</span>` : "")
         + `</div>` : "";
 
-    const strip = stat("Return", pct(m.total_return_pct), way(m.total_return_pct))
+    // The percentage is the RULE's (fully invested while in a position), so
+    // the rupee figure is just capital × it — shown so "+7.6%" also reads as
+    // what it would have meant for the money.
+    const inr = fin(m.pnl_inr) && fin(m.starting_capital)
+      ? `${Number(m.pnl_inr) < 0 ? "−" : "+"}₹${Math.abs(Math.round(m.pnl_inr)).toLocaleString("en-IN")}`
+        + ` on ₹${Math.round(m.starting_capital).toLocaleString("en-IN")}`
+      : "";
+    const strip = stat("Return", pct(m.total_return_pct), way(m.total_return_pct), inr)
       + stat("CAGR", fin(m.cagr_pct) ? pct(m.cagr_pct) : "—", way(m.cagr_pct))
       + stat("Max drawdown", depth(m.max_drawdown_pct), "down")
       /* Hit rate is over CLOSED round-trips, and a strategy that has not
@@ -554,19 +561,33 @@ const Cards = (() => {
              fin(fs.deflated_sharpe) ? `deflated ${num(fs.deflated_sharpe)}` : "")
       // …and the count says WHICH it is counting, for the same reason.
       + stat("Trades", m.n_trades ?? "—", "",
-             closedCount === 0 && openCount > 0 ? `${openCount} still held` : "");
+             closedCount === 0 && openCount > 0 ? `${openCount} still held`
+               : fin(m.capital_utilization_pct)
+                 ? `in the market ${Math.round(m.capital_utilization_pct)}% of the time` : "");
 
     // The comparison that decides whether any of this was worth doing. Two
     // figures the payload already carries, drawn against one shared scale so
     // the gap is a length rather than a subtraction the reader performs.
     const bench = m.benchmark_return_pct != null
       ? m.benchmark_return_pct : c.bench_buy_hold_return_pct;
+    // Return is half the comparison. For anything sold as protection the
+    // other half — how deep each one fell — is the one that decides it, so
+    // the worst drop is drawn on its own shared scale beneath.
+    const benchDd = m.benchmark_max_drawdown_pct;
     const versus = (fin(m.total_return_pct) && fin(bench))
-      ? section("Versus holding", "", bars([
+      ? section("Versus holding", "same window", bars([
           { label: "Strategy", value: m.total_return_pct,
             text: pct(m.total_return_pct), tone: way(m.total_return_pct) },
           { label: "Buy & hold", value: bench, text: pct(bench), tone: way(bench) },
-        ], { signed: true }))
+        ], { signed: true })
+        + (fin(benchDd) && fin(m.max_drawdown_pct)
+          ? bars([
+              { label: "Strategy, worst drop", value: Math.abs(m.max_drawdown_pct),
+                text: depth(m.max_drawdown_pct), tone: "down" },
+              { label: "Buy & hold, worst drop", value: Math.abs(benchDd),
+                text: depth(benchDd), tone: "down" },
+            ])
+          : ""))
       : "";
 
     const curve = equityChart(c.equity_curve || [], c.signals || []);

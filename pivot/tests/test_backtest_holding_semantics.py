@@ -353,15 +353,30 @@ def _patch_handler(monkeypatch, symbol: str = "TCS"):
     )
 
 
-def test_handler_default_exit_carries_assumption(monkeypatch):
-    """No exit rule stated → the default 10-bar hold is surfaced as an
-    explicit assumption (never silent)."""
+def test_handler_requires_an_exit(monkeypatch):
+    """No exit stated → refused with a message that names the ways to give
+    one. The old default (sell after 10 bars) measured the default, not
+    the idea; which exit fits an idea is the caller's judgement."""
     _patch_handler(monkeypatch)
-    out = _run_handler({
-        "condition": "buy TCS", "primary_symbol": "TCS", "interval": "1d",
-    })
-    assert any("10-bar hold (assumed)" in a for a in out["assumptions"]), out["assumptions"]
-    assert "Assumptions:" in out["summary_text"]
+    with pytest.raises(ValueError, match="needs an exit"):
+        _run_handler({
+            "condition": "buy TCS", "primary_symbol": "TCS", "interval": "1d",
+        })
+
+
+def test_handler_default_sizing_is_capital_invariant(monkeypatch):
+    """Default sizing is fully invested in fractional shares: the return %
+    is identical at any capital and ₹ P&L is capital × return."""
+    _patch_handler(monkeypatch)
+    base = {"condition": "buy TCS", "primary_symbol": "TCS", "interval": "1d",
+            "exit_kind": "n_day_hold", "exit_bars": 5}
+    small = _run_handler({**base, "starting_capital": 12_345})
+    big = _run_handler({**base, "starting_capital": 25_000_000})
+    assert small["metrics"]["total_return_pct"] == pytest.approx(
+        big["metrics"]["total_return_pct"], abs=1e-9)
+    for out, cap in ((small, 12_345), (big, 25_000_000)):
+        assert out["metrics"]["pnl_inr"] == pytest.approx(
+            cap * out["metrics"]["total_return_pct"] / 100, abs=0.01)
 
 
 def test_handler_explicit_exit_kind_has_no_default_assumption(monkeypatch):
@@ -458,6 +473,7 @@ def test_handler_does_not_misfire_on_benign_short_phrasing(monkeypatch):
     out = _run_handler({
         "condition": "buy TCS when momentum is short-term bullish",
         "primary_symbol": "TCS", "interval": "1d",
+        "exit_kind": "hold_to_end",
     })
     assert "metrics" in out  # ran normally, no ValueError raised
 
@@ -470,6 +486,7 @@ def test_handler_does_not_misfire_on_short_ma_crossover(monkeypatch):
     out = _run_handler({
         "condition": "buy TCS when the short SMA crosses above the long SMA",
         "primary_symbol": "TCS", "interval": "1d",
+        "exit_kind": "hold_to_end",
     })
     assert "metrics" in out  # ran normally, no ValueError raised
 

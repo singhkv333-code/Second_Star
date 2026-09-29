@@ -56,14 +56,26 @@ def test_guarded_result_threads_redirect():
     assert g.redirect_to == "propose_workflow"
 
 
-def test_dsl_multi_action_ticker_refusal_is_typed():
-    """The multi-action-ticker guard must raise ToolRedirect (not bare
-    ValueError) so the redirect survives any truncation of the prose."""
-    import inspect
+def test_dsl_builder_no_longer_redirects_on_keywords(monkeypatch):
+    """The regex guards (multi-ticker, trailing-stop, schedule) are gone: a
+    condition naming several tickers, or an exit that says "trailing stop",
+    reaches the translator instead of being redirected by a word list. What
+    the grammar cannot express is refused by the translator/validator."""
+    import asyncio
 
     from backend.services import _dsl_chat_tools as d
 
-    src = inspect.getsource(d)
-    assert 'raise ToolRedirect(\n            f"propose_dsl_workflow is single-symbol' in src
-    assert 'redirect_to="propose_workflow"' in src
-    assert 'redirect_to="propose_holding_action"' in src
+    tree = {"type": "comparison", "op": ">",
+            "left": {"type": "price", "symbol": "RELIANCE", "exchange": "NSE",
+                     "basis": "close"},
+            "right": {"type": "constant", "value": 1}}
+
+    async def _t(condition, **kw):
+        return tree, {}
+
+    monkeypatch.setattr(d, "translate_condition_to_tree", _t)
+    out = asyncio.run(d.propose_dsl_workflow({
+        "condition": "buy RELIANCE and TCS when NIFTY rises 1%",
+        "exit_condition": "trailing stop of 8%",
+        "primary_symbol": "RELIANCE", "quantity": 5}))
+    assert out["_render_hint"] == "workflow_draft_card"

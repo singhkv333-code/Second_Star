@@ -245,15 +245,26 @@ def parse(spec: dict) -> dict:
             "The legs are weighted, so the plan needs `capital_inr` to turn "
             "those weights into share counts. Choose an amount and say what "
             "you chose.")
+    notes: list[str] = []
     if weighted:
         total = sum(l["weight_pct"] for l in weighted)
-        # Weights are the model's, and a model that emits 9 legs at 11% each
-        # has made an arithmetic slip rather than a decision. Wide enough not
-        # to nag about rounding, tight enough that a real slip is caught.
+        # A total far from 100 is a doubled or dropped leg (nine names at 10%
+        # is a basket that lost one on the way out) and is refused: scaling it
+        # would quietly deploy a portfolio nobody described. A total NEAR 100
+        # is rounding (33.3 x 3), and rounding is arithmetic, which is the
+        # code's job: the weights are scaled to add to exactly 100, so 105%
+        # no longer spends 105% of the capital and rejects its last leg.
         if not 95.0 <= total <= 105.0:
             raise Unbuildable(
                 f"The weights total {total:.1f}%, not 100%. Re-weight the "
                 "legs so they add up.")
+        if abs(total - 100.0) > 1e-9 and len(weighted) == len(legs):
+            k = 100.0 / total
+            for l in weighted:
+                l["weight_pct"] = round(l["weight_pct"] * k, 6)
+            notes.append(
+                f"Weights summed to {total:.1f}%; scaled proportionally to "
+                "100%.")
 
     name = str(spec.get("name") or "").strip()[:160]
     if not name:
@@ -267,7 +278,7 @@ def parse(spec: dict) -> dict:
         "legs": legs,
         "spec": {
             "assumptions": [str(a)[:300] for a in
-                            (spec.get("assumptions") or [])][:12],
+                            (spec.get("assumptions") or [])][:11] + notes,
             "evidence": [str(e)[:300] for e in (spec.get("evidence") or [])][:12],
             "horizon": str(spec.get("horizon") or "")[:120],
             "review": str(spec.get("review") or "")[:300],

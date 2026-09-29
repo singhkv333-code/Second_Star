@@ -588,34 +588,39 @@
    * timeline that GROWS, one plain word per step, so the pane accumulates a
    * record of the work rather than repainting a spinner.
    *
-   * The words are Charto's, because the work is Charto's: Pivot queries
-   * fundamentals and searches news, this reads a chart. Two sources feed the
-   * list and they are different in kind —
+   * Three sources feed the list, and every line they write is TRUE —
    *
-   *   · the SCRIPT below is representative. It walks forward on a slow
-   *     cadence and holds on its last line rather than looping, because a
-   *     list that cycles is a spinner with extra steps.
-   *   · a real tool call overrides it with what actually happened. The
-   *     server emits `tool` the moment one lands, so genuine work shows
-   *     through the moment there is genuine work to show.
+   *   · the clock. Before anything real has happened the only honest thing
+   *     to say is that the model is thinking, and after a while that it is
+   *     still thinking. The old script walked "Reading the chart… Measuring
+   *     levels…" on a timer whatever the turn was doing, which in Execution
+   *     mode narrated chart work during a strategy build.
+   *   · a tool, the moment it STARTS (`tool_start`), with its subject.
+   *   · the model's own reasoning summary (`thought`): a titled step with a
+   *     few sentences under it saying what it has worked out so far. The
+   *     title joins the timeline; the text shows under the newest step and
+   *     is kept, collapsed, beside the answer once the turn is done.
    *
-   * Nothing here claims a tool ran that did not. A scripted line names a
-   * KIND of work ("Reading the chart") and never a number, a level or a
-   * result — the same rule the replies themselves are held to.
+   * The clock stands down at the first real signal.
    */
   const STEP_SCRIPT = [
-    { word: "Thinking", detail: "" },
-    { word: "Reading", detail: "the chart" },
-    { word: "Scanning", detail: "price history" },
-    { word: "Measuring", detail: "levels" },
-    { word: "Checking", detail: "indicators" },
-    { word: "Weighing", detail: "the evidence" },
+    { word: "Thinking", detail: "", at: 0 },
+    { word: "Thinking", detail: "it through", at: 6000 },
+    { word: "Still", detail: "working on it", at: 16000 },
   ];
 
   /** A lead word + its supporting words for a tool that actually ran. Keyed
    *  off the dataserver's own tool names (data/dataserver.py, TOOLS). */
-  function toolStep(name) {
+  function toolStep(name, hint) {
     const n = String(name || "").toLowerCase();
+    const on = hint ? ` ${hint}` : "";
+    if (/evaluate_strategies/.test(n)) return { word: "Testing", detail: hint || "the candidates" };
+    if (/^propose_|build_strategy/.test(n)) return { word: "Drafting", detail: "the strategy" + (hint ? ` for${on}` : "") };
+    if (/backtest/.test(n)) return { word: "Backtesting", detail: hint || "" };
+    if (/scan_pairs|cointegration/.test(n)) return { word: "Testing", detail: "pairs" };
+    if (/register_plan/.test(n)) return { word: "Registering", detail: "the plan" };
+    if (/save_strategy/.test(n)) return { word: "Saving", detail: "the strategy" };
+    if (/read_symbol/.test(n)) return { word: "Reading", detail: hint || "the instrument" };
     if (/open_chart/.test(n)) return { word: "Opening", detail: "the chart" };
     if (/draw_shape/.test(n)) return { word: "Drawing", detail: "on the chart" };
     if (/trendline/.test(n)) return { word: "Fitting", detail: "trendlines" };
@@ -649,14 +654,22 @@
     const rows = host.querySelector(".wait-steps");
     const secs = host.querySelector(".wait-secs");
     const seen = new Set();
-    let last = null, cursor = 1;
+    let last = null, cursor = 1, real = false;
+    // part id → { title, text, row, body }. Kept after the wait closes so
+    // the turn can file them under the answer as its "Thought for Ns".
+    const thoughts = new Map();
 
     function push(step) {
       // never repeat the line already at the bottom — a second "Reading price
       // history" is a row that says nothing the row above it did not
-      if (last && last.word === step.word && last.detail === step.detail) return;
+      if (last && last.word === step.word && last.detail === step.detail) return null;
       const prev = rows.lastElementChild;
-      if (prev) prev.querySelector(".chat-step-label").classList.remove("shimmer");
+      if (prev) {
+        prev.querySelector(".chat-step-label").classList.remove("shimmer");
+        // only the newest step shows its reasoning; older ones keep a title
+        const body = prev.querySelector(".chat-thought");
+        if (body) body.classList.add("chat-thought-past");
+      }
       const row = document.createElement("div");
       row.className = "chat-step";
       row.innerHTML = '<span class="chat-step-dot" aria-hidden="true"></span>'
@@ -666,8 +679,16 @@
       rows.appendChild(row);
       last = step;
       if (atBottom()) toBottom();
+      return row;
     }
     push(STEP_SCRIPT[0]);
+
+    /** A summary part reads "**Title**\n\nWhat was worked out…". */
+    function splitThought(t) {
+      const m = /^\s*\*\*(.+?)\*\*\s*/.exec(t);
+      return m ? { title: m[1].trim(), text: t.slice(m[0].length) }
+               : { title: "", text: t };
+    }
 
     // The two intervals are started and stopped together, and more than once:
     // the wait stands down while the answer is streaming and comes back if
@@ -680,9 +701,9 @@
         secs.textContent = Math.max(0, Math.round((performance.now() - t0) / 1000)) + "s";
       }, 250);
       walk = setInterval(() => {
-        if (cursor >= STEP_SCRIPT.length) return;   // hold on the last line
-        push(STEP_SCRIPT[cursor++]);
-      }, 2600);
+        if (real || cursor >= STEP_SCRIPT.length) return;   // hold on the last line
+        if (performance.now() - t0 >= STEP_SCRIPT[cursor].at) push(STEP_SCRIPT[cursor++]);
+      }, 500);
     }
     function halt() {
       clearInterval(clock); clearInterval(walk);
@@ -695,7 +716,8 @@
        *  bars did one kind of work, not three. A tool AFTER the answer began
        *  means the turn narrated and then went back to work, so the wait
        *  comes back with it. */
-      tool(name) {
+      tool(name, hint) {
+        real = true;
         if (seen.has(name)) return;
         seen.add(name);
         // Cancel a close in flight as well as reopening a finished one, or a
@@ -706,8 +728,40 @@
           host.style.maxHeight = "";
         }
         if (host.hidden) { host.hidden = false; run(); }
-        push(toolStep(name));
+        push(toolStep(name, hint));
       },
+      /** The model's reasoning summary, streamed. A new part opens a new
+       *  titled step; its text grows under that step until the next one. */
+      thought(part, delta) {
+        real = true;
+        let th = thoughts.get(part);
+        if (!th) {
+          th = { raw: "", row: null, body: null };
+          thoughts.set(part, th);
+        }
+        th.raw += delta || "";
+        const { title, text } = splitThought(th.raw);
+        if (!th.row) {
+          // wait for the title to close before opening the step, so a
+          // half-streamed "**Weig" never becomes a heading
+          if (!title && th.raw.trimStart().startsWith("**")) return;
+          if (host.hidden) { host.hidden = false; run(); }
+          th.row = push({ word: title || "Thinking", detail: "" })
+            || rows.lastElementChild;
+          th.body = document.createElement("div");
+          th.body.className = "chat-thought";
+          th.row.after(th.body);
+        }
+        th.body.textContent = text.trim();
+        if (atBottom()) toBottom();
+      },
+      /** The turn's reasoning, for filing beside the answer. */
+      thoughts() {
+        return [...thoughts.values()]
+          .map((th) => splitThought(th.raw))
+          .filter((t) => t.title || t.text.trim());
+      },
+      elapsed() { return Math.round((performance.now() - t0) / 1000); },
       /** The answer is arriving. Two live animations at once read as two
        *  things happening at once, so the wait steps aside the moment there
        *  is text — the caret in the prose is the only thing still moving.
@@ -757,7 +811,22 @@
    *  call it, and a turn that never had one is not an error. */
   function endWait(turn) {
     if (!turn.__wait) return;
-    turn.__wait.stop();
+    const w = turn.__wait;
+    const parts = w.thoughts();
+    const host = turn.querySelector(".wait");
+    if (parts.length && host) {
+      // What the model worked out on the way, kept with the answer and
+      // closed by default: the reasoning is there for whoever wants to check
+      // it, and out of the way of whoever does not.
+      const log = document.createElement("details");
+      log.className = "thought-log";
+      log.innerHTML = `<summary>Thought for ${w.elapsed()}s</summary>`
+        + parts.map((p) => '<div class="thought-part">'
+          + (p.title ? `<div class="thought-title">${esc(p.title)}</div>` : "")
+          + `<div class="thought-text">${esc(p.text.trim())}</div></div>`).join("");
+      host.before(log);
+    }
+    w.stop();
     turn.__wait = null;
   }
 
@@ -911,6 +980,12 @@
           text += ev.text;
           turn.__streamText = text;
           paint();
+        } else if (ev.type === "tool_start") {
+          // the tool is RUNNING — say so now, not when it lands, or a
+          // 20-second evaluation shows the step before it the whole time
+          if (turn.__wait) turn.__wait.tool(ev.name, ev.hint);
+        } else if (ev.type === "thought") {
+          if (turn.__wait) turn.__wait.thought(ev.part, ev.delta);
         } else if (ev.type === "tool") {
           tools.push(ev.name);
           // a landed tool is the only progress signal a multi-round turn has —

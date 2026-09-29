@@ -156,6 +156,12 @@ EXIT GRAMMAR (only when the user is explicitly describing an exit condition):
       "basis": "close"|"low"|"high"   // only for unrealised_pct / unrealised_abs
     }
 
+  DIRECTION: drawdown_from_peak_pct is a DEPTH — zero at the peak and
+  growing as price falls from it (0.08 = 8% below the peak). A trailing stop
+  ("falls 8% from the peak", "8% off the high") is therefore ">=" 0.08, never
+  "<=": "<=" is true on almost every bar and would sell the position the bar
+  after it was bought.
+
   ALL of these position fields are wired and supported. Do NOT punt back
   with messages like "this system can't read entry price" or "the
   drawdown clause needs to be expressed differently" — emit the tree.

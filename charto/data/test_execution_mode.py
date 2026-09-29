@@ -45,7 +45,7 @@ def test_the_contract_tells_it_to_act_before_it_asks() -> None:
     """
     _execution_mode()
     block = server._execution_system()
-    assert "NEVER open with a question" in block
+    assert "Do not open with a question" in block
     # And the rules that said the opposite are gone with the modules that
     # carried them. `sips`, `order_sizing` and `stoploss` between them named
     # eleven tools this wire does not have, three of them as ASK_USER-first
@@ -268,7 +268,20 @@ def test_bridge_offers_exactly_the_pivot_tools_it_declares() -> None:
     ready, reason = execution_bridge.available()
     assert ready, reason
     assert ([t["name"] for t in execution_bridge.tools()]
-            == list(execution_bridge.PIVOT_TOOLS))
+            == [*execution_bridge.PIVOT_TOOLS, *execution_bridge.OWN_TOOLS])
+
+
+def test_backtests_are_on_request_and_candidates_are_the_models() -> None:
+    """The contract no longer orders a backtest on every build, and the
+    candidate evaluator carries no menu of strategy families."""
+    block = execution_bridge.system_prompt()
+    assert "Research → decide → test → register is ONE turn" not in block
+    assert "A backtest is shown when the user asks for one" in block
+    spec = execution_bridge.OWN_TOOLS["evaluate_strategies"]
+    item = spec["parameters"]["properties"]["candidates"]["items"]
+    # entry/exit are free text the model writes; nothing enumerates them
+    assert "enum" not in item["properties"]["entry"]
+    assert "enum" not in item["properties"]["exit"]
 
 
 def test_unavailable_engine_degrades_instead_of_raising(monkeypatch) -> None:
@@ -286,7 +299,7 @@ def test_unavailable_engine_degrades_instead_of_raising(monkeypatch) -> None:
     assert execution_bridge.tools() == []
     # The adapter survives an unavailable engine — it is Charto's own text,
     # not Pivot's, so a mode that cannot build can still explain itself.
-    assert "NEVER open with a question" in execution_bridge.system_prompt()
+    assert "Do not open with a question" in execution_bridge.system_prompt()
     result = execution_bridge.dispatch("propose_dsl_workflow", {})
     assert result["error"] == "execution_engine_unavailable"
 

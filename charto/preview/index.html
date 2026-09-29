@@ -4504,6 +4504,28 @@ body.two-columns .readout .row { display: none; }
 /* the lead word carries a touch more weight than the words supporting it */
 .chat-step-word { font-weight: var(--weight-display); }
 
+/* What the model has worked out so far, under the step it belongs to. Muted,
+   smaller than the step, indented to the label so the timeline's line and
+   dots stay the spine. Older steps drop their text: the newest reasoning is
+   the one being read, and the rest is in the "Thought for" log afterwards. */
+.chat-thought {
+  margin: -2px 0 4px 15px; font-size: var(--text-sm); line-height: 1.5;
+  color: var(--muted-foreground); white-space: pre-wrap;
+  animation: waitStepIn .32s var(--ease-quartr) both;
+}
+.chat-thought.chat-thought-past { display: none; }
+.thought-log { margin-bottom: 10px; font-size: var(--text-sm); color: var(--muted-foreground); }
+.thought-log > summary {
+  cursor: pointer; list-style: none; width: fit-content;
+  font-size: var(--text-xs); color: var(--faint);
+}
+.thought-log > summary::-webkit-details-marker { display: none; }
+.thought-log > summary::after { content: " ›"; }
+.thought-log[open] > summary::after { content: " ⌄"; }
+.thought-part { margin: 8px 0 0 0; padding-left: 12px; border-left: 1px solid var(--border); }
+.thought-title { color: var(--foreground); font-weight: var(--weight-display); margin-bottom: 2px; }
+.thought-text { white-space: pre-wrap; line-height: 1.5; }
+
 /* Grey letters with a LIGHTER band sweeping through — never a white flash.
    The highlight mixes the base grey toward the page, so it reads as soft
    silver on light and a soft glow on dark. `repeat`, not `no-repeat`: a
@@ -4528,6 +4550,7 @@ body.two-columns .readout .row { display: none; }
   .shimmer { animation: none; color: var(--faint); -webkit-text-fill-color: currentColor; }
   .wait-bar { animation: none; }
   .chat-step { animation: none; }
+  .chat-thought { animation: none; }
 }
 
 /* Streaming cursor. `inline-block` with a nudged vertical-align keeps it on
@@ -8632,9 +8655,9 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- before chat.js, which asks it to render the panels a tool prints as the
        reply streams in. It reads Sym (store.js) for the instrument's currency
        and grouping, and nothing else — a renderer with no state of its own -->
-  <script src="./js/cards.js?v=55"></script>
+  <script src="./js/cards.js?v=56"></script>
   <script src="./js/layers-panel.js?v=11"></script>
-  <script src="./js/chat.js?v=169"></script>
+  <script src="./js/chat.js?v=170"></script>
   <script src="./js/journal.js?v=6"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it

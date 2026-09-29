@@ -30,12 +30,15 @@ better one. The execution prompt says this in as many words.
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import contextvars
 import logging
 import re
 import sys
 import threading
+from collections import OrderedDict
+from datetime import date
 from pathlib import Path
 from typing import Any, Optional
 
@@ -165,102 +168,114 @@ _ADAPTER = """
 You research, decide, and register. The user brings an objective; you find the
 instruments, read them, form a view, and leave behind something the runtime can
 run without you. Nothing you register is executed by a model — it is a frozen
-manifest a dumb loop fills. That is why you may reason freely here: your
-judgement is spent once, in this turn, and recorded.
+manifest a dumb loop fills. Your judgement is spent once, in this turn, and
+recorded, so spend it well: think about what the user is actually asking for
+before you decide how to express it.
 
 ## Act, then ask
 
-NEVER open with a question. A question first is a wasted turn: the user asked
-for work, and every value you might ask for is one you can choose better than
-they can guess. Choose it, do the work, show the result, and put the question
-LAST — as an amendment to something that already exists.
+Do not open with a question. The user asked for work, and every value you might
+ask for is one you can choose. Choose it, do the work, show the result, and put
+any question LAST, as an offer to amend something that already exists ("I sized
+it at X — say the word and I'll re-cut it at Y"). Ask first only when no answer
+would let you proceed.
 
-- Missing amount, count, horizon, universe, sector, lookback, threshold: pick
-  one, use it, list it under `assumptions`, and name it in one line of prose.
-- Present the amendment as an offer, not a gate: "I sized it at X — say the
-  word and I'll re-cut it at Y."
-- Ask a real question only when NO answer would let you proceed, and even then
-  ask it after everything that does not depend on it is already built.
-- A vague objective is a specification, not a gap. "Momentum", "defensive",
-  "quality", "AI exposure", "something that will run next month" each name a
-  construction you already know. Build the standard one and say which you chose.
-  Which strategy to build is never a question you put to the user.
+A qualitative objective — "defensive", "momentum", "quality", "protect the
+downside" — is yours to interpret. Say in one line what you took it to mean,
+then build that.
+
+## Choosing how to express an idea
+
+When the user gives an objective rather than an exact rule, there are many ways
+to express it, and the first one that comes to mind is rarely the best. Write
+several genuinely different candidates — different mechanisms, not one rule with
+nudged numbers — each with an entry and an exit, and run them together with
+`evaluate_strategies`. They are tested in parallel on the same window; the
+results come back to you and are not shown to the user.
+
+Then judge them against what the user asked for, not against raw return. "Protect
+the downside even if the upside is small" is won by the candidate that cuts the
+worst drawdown most for the least return given up versus holding; "momentum" by
+return and consistency; a mean-reversion idea by hit rate and trade quality.
+Weigh the trust verdict and trade count: a winner on four trades is a guess.
+Every candidate is a trial, and the deflated Sharpe already charges for how many
+you tried.
+
+Build the winner with `propose_dsl_workflow`, passing its entry and exit text
+exactly as tested, so the rule on the card is the rule you tested. In the reply,
+name the candidates you tried, say why the winner won, and quote its numbers
+beside buy & hold. If none of them serves the objective, say so and say what the
+evidence does support — never present the least-bad candidate as good.
+
+When the user states an exact rule, build it as stated; do not substitute a
+better one without asking.
+
+## Backtests are on request
+
+A backtest is shown when the user asks for one ("backtest it", "how would it have
+done", "test this") or presses Backtest on the card. Do not run
+`backtest_dsl_tree` or `backtest_workflow` unasked, and do not attach a backtest
+to a build. `evaluate_strategies` is your own homework, not a backtest shown to
+the user.
 
 ## What registration means
 
-Two verbs, and the difference is the shape of the thing, not its size.
-
 - `register_plan` — a SELECTION. Several instruments, or one with no condition:
-  "buy the top 10", "the best AI name for next month", "put 3 lakh to work".
-  Legs carry a size and a reason each; the plan carries the reasoning.
-- `save_strategy` — a RULE. One instrument watched by a condition tree, built
-  by `propose_dsl_workflow` or `propose_workflow` first. Call it directly on
-  the draft this conversation already produced; never rebuild the draft.
+  "buy the top 10", "put 3 lakh to work". Legs carry a size and a reason each.
+- `save_strategy` — a RULE. One instrument watched by a condition tree, built by
+  `propose_dsl_workflow` or `propose_workflow` first. Call it on the draft this
+  conversation already produced; never rebuild the draft to save it.
 
-Both are register-not-execute. Nothing fills until the user presses Activate on
-the card. So register in the same turn you decided — do not ask permission to
-register, and do not describe a plan you did not register. A described plan is
-gone when the turn ends; a registered one is on screen with a button.
+Both are register-not-execute: nothing fills until the user presses Activate,
+and then only into the simulated paper book. Register in the turn you decided;
+a described plan is gone when the turn ends. Never claim something is saved,
+armed, bought or running without a tool call that returned an id.
 
-Never claim something is saved, armed, bought or running without a tool call
-that returned an id.
+## Research
 
-## Research is part of the job
+An answer about a company needs the company in it. `screen_universe` ranks the
+stored universe on price features; `read_symbol` and `compare_symbols` price
+names against each other and a benchmark; `explain_move` and `search_news` say
+what has been happening; `get_results` dates the last earnings; `get_peers`
+places a name in its industry. Quote what you read, with its date. Research as
+much as the decision needs and no more.
 
-An answer about a company needs the company in it. Before you select names,
-read them: `screen_universe` ranks the whole stored universe on price features,
-`read_symbol` and `compare_symbols` price them against each other and against a
-benchmark, `explain_move` and `search_news` say what has been happening and
-why, `get_results` dates the last earnings, `get_peers` places a name among its
-own industry. Quote what you read, with its date. A selection with no readings
-behind it is a guess wearing a card.
+## Boundaries
 
-Then test what you can. `backtest_dsl_tree` and `backtest_workflow` run a rule;
-`backtest_portfolio` runs a cross-section (five names minimum); `scan_pairs`,
-`test_cointegration` and `backtest_pairs` handle relationships between two
-instruments. A rule you can test and did not is a rule you are guessing about.
-`build_strategy` screens and weights a basket for you and returns what it
-assumed — use it when you want its construction, and register the result.
+The book is SIMULATED and long-only; no order reaches a broker from here. The
+card says so — do not append "this is only a draft" or "review before arming".
 
-Research → decide → test → register is ONE turn. Do not stop after the research
-to report what you found and wait; finish.
+Alerts are Charto's: "tell me when", "alert me" → `set_alert`.
 
-## Boundaries, stated once and not repeated
+Options are not on this surface. Downside control is a regime filter, an exit
+(`unrealised_pct`, `peak_unrealised_pct`, `drawdown_from_peak_pct`, `bars_held`
+are the stop, the trailing stop and the time stop), position sizing, or how a
+basket is composed.
 
-The book is SIMULATED and long-only. No real order reaches a broker from here.
-The card says so, so you do not have to — never append "this is only a draft",
-"no order has been placed" or "review before arming". Say what the plan DOES.
+Scope is India: NSE/BSE equities, indices, MCX commodities, crypto. Out of scope,
+name the nearest listed proxy with a number.
 
-Alerts are Charto's, not a workflow. "Tell me when", "alert me", "ping me" →
-`set_alert`. The proposal tools refuse notify-only drafts.
-
-Options are not on this surface. Downside control here is a regime filter, an
-exit (`unrealised_pct`, `peak_unrealised_pct`, `drawdown_from_peak_pct`,
-`bars_held` are the stop, the trailing stop and the time stop), or how a basket
-is composed — never a hedge this surface cannot build.
-
-Scope is India: NSE/BSE equities, indices, MCX commodities, crypto. Out of
-scope, name the nearest listed proxy with a number rather than refusing flat.
+A reply that selects or recommends instruments ends with "…this is analysis, not
+financial advice."
 
 ## The numbers
 
-Every figure you state comes from a tool result or from the chart line above.
-Never invent a price, a level, a weight or a date. If a tool returns nothing,
-say it is unavailable — silence and a guess are both worse.
+Every figure you state comes from a tool result or the instrument line. Never
+invent a price, level, weight or date; if a tool returns nothing, say it is
+unavailable.
 
-Do not do arithmetic that a tool will do for you. Send `weight_pct` and
-`capital_inr`; the share counts are computed against the live mark when the
-user presses. Send the condition in English to `propose_dsl_workflow`; it
-translates. Fill only fields the user's ask actually implies — an unrequested
-stop-loss, a ₹1 notional or an empty date are parameters you invented, and
-`quantity` with `notional_inr` on one leg is rejected outright.
+Returns are the RULE's: fully invested whenever it holds a position, so they
+compare directly with buy & hold over the same window, and a rupee figure is
+capital × return. Do not do arithmetic a tool does for you: send `weight_pct`
+and `capital_inr`, and send conditions in English to `propose_dsl_workflow`.
+A size the user did not give is yours to choose — state it. Fill no other field
+the ask does not imply: an unrequested stop-loss is a parameter you invented.
 
-The instrument in the composer is the DEFAULT subject and nothing more. A
-symbol the user names wins, any stored symbol is readable whether or not it is
-on screen, and what is open on the workspace constrains nothing.
+The instrument in the composer is the default subject and nothing more. A symbol
+the user names wins, and any stored symbol is readable.
 
-When a tool returns an error, read it — it names the missing field or the
-better tool. Fix it and call again rather than narrating the failure.
+When a tool returns an error, read it — it names the missing field or the better
+tool. Fix it and call again rather than narrating the failure.
 """.strip()
 
 
@@ -319,6 +334,7 @@ def _ensure_pivot() -> dict[str, Any]:
             # Pivot's modules and both are meaningless without them.
             _register_drawing_leaf()
             _patch_translator()
+            _patch_fetcher()
         except Exception as exc:  # noqa: BLE001 — the reason is the payload
             _state["error"] = f"{type(exc).__name__}: {exc}"
             logger.warning("execution mode unavailable: %s", _state["error"])
@@ -468,21 +484,18 @@ def _unask(text: str) -> str:
     return " ".join(kept).strip()
 
 
-# Pivot's server-side validator raises when a buy draft carries no quantity
-# (`_dsl_chat_tools.py:1463`), so stripping the schema sentence alone would
-# only move the refusal one layer down. The default is supplied here instead.
-#
-# 10 is not invented: `backtest_dsl_tree` in that same module already defaults
-# this exact field to 10 ("quantity — shares per fire, default 10"). Backtest
-# and build disagreed about one parameter in one file; this makes them agree.
-_DEFAULT_QTY = 10
-_SIZED_ACTIONS = ("buy_market", "buy_limit")
+# The size is the MODEL's to choose, not this seam's. A fixed 10 used to be
+# injected here whenever a buy arrived without one, which was a parameter
+# nobody chose: 10 shares of a ₹40 stock and of a ₹40,000 one are not the same
+# decision. Pivot's validator still refuses a buy with no quantity; its error
+# now tells the model to choose one and say so, which costs a round only when
+# the model skipped the instruction below.
 
 _QTY_DOC = (
     "Shares to buy, for buy_market / buy_limit. If the user did not state a "
-    f"size, OMIT this field — it defaults to {_DEFAULT_QTY} and the card "
-    "shows what was chosen, which the user can amend in the next turn. Never "
-    "withhold the draft over it."
+    "size, choose one that fits the idea and the instrument's price, pass it, "
+    "and say in the reply what you chose — the user can amend it next turn. "
+    "Never withhold the draft over it."
 )
 
 
@@ -610,6 +623,10 @@ def _drawing_hint(symbol: str, uid: int) -> str:
     return _DRAW_GRAMMAR.format(rows="\n".join(rows)) if rows else ""
 
 
+_TRANSLATIONS: "OrderedDict[tuple, Any]" = OrderedDict()
+_TRANSLATIONS_MAX = 512
+
+
 def _patch_translator() -> None:
     """Append the drawing grammar to the NL→tree translator's prompt.
 
@@ -628,18 +645,285 @@ def _patch_translator() -> None:
     base = lt.SYSTEM_PROMPT
 
     async def wrapped(condition, **kw):
+        # THE SAME ENGLISH IS THE SAME TREE. The translator is a model call,
+        # so the same sentence could come back as two different trees — and
+        # the builder translates the entry that `evaluate_strategies` already
+        # translated and tested. Without this, the rule on the card could be
+        # a different parse of the text whose numbers the reply just quoted.
+        # Keyed on everything that shapes the parse; `cache_key` only names a
+        # provider-side prompt cache and does not.
+        hint = _TURN_DRAWINGS.get("")
+        key = (str(condition).strip(), hint, tuple(sorted(
+            (k, repr(v)) for k, v in kw.items() if k != "cache_key")))
+        hit = _TRANSLATIONS.get(key)
+        if hit is not None:
+            _TRANSLATIONS.move_to_end(key)
+            return copy.deepcopy(hit)
         # `inner` reads the module-level SYSTEM_PROMPT synchronously, before
         # its first await, so no other turn can run between this assignment
         # and that read on a single-threaded loop. Restored either way so a
         # turn without drawings never inherits a previous turn's grammar.
-        lt.SYSTEM_PROMPT = base + _TURN_DRAWINGS.get("")
+        lt.SYSTEM_PROMPT = base + hint
         try:
-            return await inner(condition, **kw)
+            out = await inner(condition, **kw)
         finally:
             lt.SYSTEM_PROMPT = base
+        _TRANSLATIONS[key] = copy.deepcopy(out)
+        while len(_TRANSLATIONS) > _TRANSLATIONS_MAX:
+            _TRANSLATIONS.popitem(last=False)
+        return out
 
     lt.translate_condition_to_tree = wrapped
     lt._charto_wrapped = True
+
+
+# ── One fetch per window, however many candidates read it ─────────────
+#
+# `evaluate_strategies` runs its candidates at once, and each one loads its
+# own bars. Twelve simultaneous identical requests against Kite's historical
+# endpoint (a few requests a second, stricter on daily) is how some of them
+# end up rate-limited and falling through to yfinance — candidates judged
+# against each other on DIFFERENT data, with nothing in the result saying so.
+# So the fetcher is memoised by (symbol, window, interval) with a per-key
+# lock: the first caller fetches, the rest wait for it and read the same
+# frame. A short TTL keeps a live session from reading yesterday's bars.
+_BARS: "OrderedDict[tuple, tuple[float, Any]]" = OrderedDict()
+_BARS_LOCKS: dict[tuple, threading.Lock] = {}
+_BARS_GUARD = threading.Lock()
+_BARS_TTL_S = 300.0
+_BARS_MAX = 64
+
+
+def _patch_fetcher() -> None:
+    """Memoise the DSL engine's OHLCV fetcher. Idempotent."""
+    try:
+        from backend.backtester import engine as be
+    except Exception as exc:                                # noqa: BLE001
+        logger.warning("bar memo unavailable: %s", exc)
+        return
+    if getattr(be, "_charto_memo", False):
+        return
+    inner = be._fetch_ohlcv
+
+    def fetch(symbol, start, end, *, interval="1d"):
+        import time
+        key = (str(symbol).upper(), str(start), str(end), str(interval))
+        with _BARS_GUARD:
+            lock = _BARS_LOCKS.setdefault(key, threading.Lock())
+        with lock:
+            hit = _BARS.get(key)
+            if hit is not None and time.monotonic() - hit[0] < _BARS_TTL_S:
+                return hit[1].copy()
+            df = inner(symbol, start, end, interval=interval)
+            with _BARS_GUARD:
+                _BARS[key] = (time.monotonic(), df)
+                _BARS.move_to_end(key)
+                while len(_BARS) > _BARS_MAX:
+                    old, _ = _BARS.popitem(last=False)
+                    _BARS_LOCKS.pop(old, None)
+            return df.copy()
+
+    be._fetch_ohlcv = fetch
+    be._charto_memo = True
+
+
+# ── Tools this surface owns ──────────────────────────────────────────
+#
+# `evaluate_strategies` is the builder's homework: several candidate ways of
+# expressing one idea, tested side by side so the model can choose between
+# them. The candidates are the model's — no menu of strategy families lives
+# here, because a list of the constructions we thought of is a ceiling on the
+# ones it can. It reuses `backtest_dsl_tree` whole (translation, engine, the
+# trust battery) and adds only the parallelism, the shared trial count and a
+# compact result. It renders nothing: its numbers are for the judgement, and
+# the user sees the one that won, on the card the builder makes.
+_MAX_CANDIDATES = 12
+
+OWN_TOOLS: dict[str, dict] = {
+    "evaluate_strategies": {
+        "type": "function",
+        "name": "evaluate_strategies",
+        "description": (
+            "Test several candidate rules for one instrument side by side, in "
+            "parallel, on the same window — the numbers come back to YOU to "
+            "judge and nothing is shown to the user. Use it when deciding HOW "
+            "to express an objective: write the candidates yourself, as many "
+            "genuinely different mechanisms as the idea deserves, each with an "
+            "entry and an exit. Then choose the one that best serves what the "
+            "user asked for and build it with propose_dsl_workflow using the "
+            "SAME entry and exit text. Candidates differ by their rules only: "
+            "each is measured fully invested while in a position — the way "
+            "the paper runtime arms it — so returns compare directly with buy "
+            "& hold over the same window. Every candidate counts as a trial "
+            "in its deflated Sharpe."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "primary_symbol": {
+                    "type": "string",
+                    "description": "The instrument every candidate trades."},
+                "candidates": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": _MAX_CANDIDATES,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string", "description":
+                                     "A short label you will refer to it by."},
+                            "entry": {"type": "string", "description":
+                                      "Entry condition in plain English."},
+                            "exit": {"type": "string", "description":
+                                     "Exit condition in plain English — a "
+                                     "reversal, a stop, a trailing stop, a "
+                                     "time stop, or 'hold to the end'."},
+                        },
+                        "required": ["name", "entry", "exit"],
+                    },
+                },
+                "interval": {
+                    "type": "string",
+                    "description": ("Bar interval every candidate runs on. "
+                                    "The composer's interval unless the idea "
+                                    "is about another timeframe.")},
+                "start_date": {"type": "string", "description":
+                               "Optional ISO date; default five years back."},
+                "end_date": {"type": "string", "description":
+                             "Optional ISO date; default today."},
+                "starting_capital": {"type": "number", "description":
+                                     "₹ the rupee figures are expressed in; "
+                                     "the returns do not depend on it."},
+            },
+            "required": ["primary_symbol", "candidates", "interval"],
+        },
+    },
+}
+
+
+def _pct(v: Any, nd: int = 2) -> Optional[float]:
+    return round(float(v), nd) if isinstance(v, (int, float)) else None
+
+
+async def _evaluate_strategies(args: dict) -> dict:
+    """Run every candidate through `backtest_dsl_tree` at once, then score
+    each at the FINAL trial count and hand back one compact row per
+    candidate."""
+    from backend.services._dsl_chat_tools import backtest_dsl_tree
+    from backend.services.backtest.validation import trust_verdict
+    from backend.services.backtest.validation.trials import record_and_deflate
+
+    cands = [c for c in (args.get("candidates") or []) if isinstance(c, dict)]
+    if len(cands) < 2:
+        return {"error": "evaluate_strategies needs at least two candidates — "
+                         "for one rule, build it; the user can press Backtest."}
+    cands = cands[:_MAX_CANDIDATES]
+    base = {k: args[k] for k in ("primary_symbol", "interval", "start_date",
+                                 "end_date", "starting_capital") if args.get(k)}
+
+    async def one(c: dict):
+        # Every candidate is measured the way the paper runtime ARMS a rule:
+        # in or out of the instrument, nothing else. Sizing variants were on
+        # offer here and a live run showed the cost — the model chose an
+        # ATR-sized candidate, could only build it as a fixed share count,
+        # and quoted the sized numbers for a rule that behaves differently.
+        # A candidate that cannot be armed is not a candidate.
+        a = {**base, "condition": str(c.get("entry") or ""),
+             "exit_condition": str(c.get("exit") or "")}
+        try:
+            return c, await backtest_dsl_tree(a), None
+        except Exception as exc:                            # noqa: BLE001
+            return c, None, str(exc)[:400]
+
+    ran = await asyncio.gather(*(one(c) for c in cands))
+
+    # Candidates finished in whatever order they finished, so each was
+    # deflated against however many had registered before it. The trial count
+    # that is TRUE is the final one; re-scoring is idempotent per fingerprint.
+    rows: list[dict] = []
+    window = bench = None
+    for c, out, err in ran:
+        row: dict[str, Any] = {"name": c.get("name"), "entry": c.get("entry"),
+                               "exit": c.get("exit")}
+        if err or not isinstance(out, dict):
+            row["error"] = err or "no result"
+            rows.append(row)
+            continue
+        m = out.get("metrics") or {}
+        fs = m.get("forward_stats")
+        verdict = m.get("trust_verdict")
+        group, fp = out.get("_trial_group"), out.get("_trial_fingerprint")
+        if fs and group and fp:
+            fs = record_and_deflate(fs, group, fp)
+            verdict = trust_verdict(
+                forward_stats=fs, monte_carlo=m.get("monte_carlo"),
+                sub_periods=m.get("sub_periods"),
+                total_return_pct=float(m.get("total_return_pct") or 0.0),
+                n_trades=int(m.get("n_trades") or 0))
+        window = window or out.get("period_label")
+        bench = bench or {
+            "return_pct": _pct(m.get("benchmark_return_pct")),
+            "max_drawdown_pct": _pct(m.get("benchmark_max_drawdown_pct")),
+        }
+        # How long a position is typically held. An exit that fires the bar
+        # after every entry shows up here as a one-day hold and hundreds of
+        # trades, which is the tell of an exit written the wrong way round.
+        holds = sorted(
+            (date.fromisoformat(t["exit_date"])
+             - date.fromisoformat(t["entry_date"])).days
+            for t in (out.get("trades") or [])
+            if t.get("exit_date") and t.get("entry_date"))
+        row.update({
+            "reads_as": out.get("tree_summary"),
+            "median_hold_days": holds[len(holds) // 2] if holds else None,
+            "return_pct": _pct(m.get("total_return_pct")),
+            "cagr_pct": _pct(m.get("cagr_pct")),
+            "max_drawdown_pct": _pct(m.get("max_drawdown_pct")),
+            "pnl_inr": _pct(m.get("pnl_inr"), 0),
+            "time_in_market_pct": _pct(m.get("capital_utilization_pct"), 0),
+            "trades": m.get("n_trades"),
+            "win_rate_pct": _pct(m.get("hit_rate_pct"), 0),
+            "sharpe": _pct(m.get("sharpe")),
+            "psr": _pct((fs or {}).get("psr")),
+            "deflated_sharpe": _pct((fs or {}).get("deflated_sharpe")),
+            "trials_counted": (fs or {}).get("num_trials"),
+            "verdict": (verdict or {}).get("label"),
+            "verdict_why": (verdict or {}).get("rationale"),
+        })
+        if out.get("assumptions"):
+            row["assumptions"] = out["assumptions"]
+        rows.append(row)
+
+    return {
+        "symbol": base.get("primary_symbol"),
+        "window": window,
+        "interval": base.get("interval"),
+        "capital_inr": float(base.get("starting_capital") or 100_000),
+        "buy_and_hold": bench,
+        "candidates": rows,
+        "_note": (
+            "For your judgement only — none of this was shown to the user. "
+            "Judge against what the user asked for (for downside protection: "
+            "the drawdown cut versus buy & hold for the return given up), "
+            "weigh the verdict and the trade count, then build the winner with "
+            "propose_dsl_workflow passing its entry and exit text unchanged. "
+            "Name the candidates you tried in the reply and quote the winner's "
+            "numbers beside buy & hold. If none serves the objective, say so."),
+    }
+
+
+async def _backtest_draft(args: dict) -> dict:
+    """The draft card's Backtest button: the card's OWN trees, no
+    re-translation, on the same engine and defaults the chat uses."""
+    from backend.services._dsl_chat_tools import backtest_dsl_draft
+    return await backtest_dsl_draft(args)
+
+
+# `backtest_dsl_draft` is a handler without a tool definition: the button
+# calls it, the model never does — the model's way to test a draft it built
+# is to be asked, and then `backtest_dsl_tree`.
+_OWN_HANDLERS = {"evaluate_strategies": _evaluate_strategies,
+                 "backtest_dsl_draft": _backtest_draft}
 
 
 def tools() -> list[dict]:
@@ -661,7 +945,7 @@ def tools() -> list[dict]:
         if not defn:
             logger.warning("pivot tool %s missing from ALL_TOOLS", name)
             continue
-        fn = _unblock_sizing(_retarget(defn.get("function") or {}))
+        fn = _override(name, _unblock_sizing(_retarget(defn.get("function") or {})))
         out.append({
             "type": "function",
             "name": fn.get("name", name),
@@ -669,7 +953,21 @@ def tools() -> list[dict]:
             "parameters": fn.get("parameters")
             or {"type": "object", "properties": {}, "required": []},
         })
-    return out
+    return out + [dict(t) for t in OWN_TOOLS.values()]
+
+
+def _override(name: str, fn: dict) -> dict:
+    """This surface's own wording for a borrowed tool, where it has one.
+
+    `execution_tool_docs.apply` replaces DESCRIPTION TEXT only — parameter
+    names, types and `required` stay Pivot's, because Pivot's handler is what
+    reads them. A missing module leaves the borrowed text as it is.
+    """
+    try:
+        from execution_tool_docs import apply
+    except Exception:                                       # noqa: BLE001
+        return fn
+    return apply({**fn, "name": fn.get("name") or name})
 
 
 def _calibration_block() -> str:
@@ -720,7 +1018,7 @@ def _calibration_block() -> str:
         "## Calibration examples",
         "",
         "The ideal first call for one prompt. `conf` is how sure the routing "
-        "is; below 0.6, ask one question instead of guessing.",
+        "is.",
         "",
     ]
     for i, ex in enumerate(rows, start=1):
@@ -1088,25 +1386,36 @@ def dispatch(name: str, args: dict, *, timeout: float = 150.0) -> dict:
         return {"error": "execution_engine_unavailable", "detail": reason}
     tool_registry = _state["mods"]["tool_registry"]
     args = _drop_non_values(args)
-    if (name == "propose_dsl_workflow"
-            and args.get("action_kind") in _SIZED_ACTIONS
-            and not args.get("quantity")):
-        args["quantity"] = _DEFAULT_QTY
+    import dataserver as ds         # late: ds imports THIS module at load
+    # WHICH CONVERSATION THIS TRIAL BELONGS TO. The Deflated Sharpe charges a
+    # result for every variant tried in the same research session, and it
+    # finds the session through Pivot's turn context — which nothing on this
+    # surface ever set, so every Charto backtest was scored as the only one
+    # ever run. Captured here on the request thread (`ds._req` is
+    # thread-local) and set inside the coroutine, which is where the engine's
+    # context is copied from.
+    chat = str(getattr(ds._req, "chat_id", "") or "")
+    who = getattr(ds._req, "user", None)
+    trial_group = (f"charto:{chat}" if chat
+                   else f"charto:u{who[0]}" if who else None)
 
     # Captured HERE, on the request thread, because `ds._req` is thread-local
     # and the tool runs on the engine's loop. Only the builders translate
     # natural language, so only they are told about drawings.
     hint = ""
-    if name in ("propose_dsl_workflow", "backtest_dsl_tree"):
-        import dataserver as ds     # late: ds imports THIS module at load
-        who = getattr(ds._req, "user", None)
+    if name in ("propose_dsl_workflow", "backtest_dsl_tree",
+                "evaluate_strategies"):
         hint = _drawing_hint(
             str(args.get("primary_symbol") or getattr(ds._req, "symbol", "")),
             who[0] if who else 0)
 
     async def _run(db):
+        from backend.services.turn_context import set_conversation_id
+        set_conversation_id(trial_group)
         token = _TURN_DRAWINGS.set(hint)
         try:
+            if name in _OWN_HANDLERS:
+                return await _OWN_HANDLERS[name](args)
             return await tool_registry.execute(
                 name, args or {}, kite_token="", db=db, user_id=0,
             )
@@ -1124,6 +1433,8 @@ def dispatch(name: str, args: dict, *, timeout: float = 150.0) -> dict:
         logger.exception("pivot tool %s failed", name)
         return {"error": "execution_tool_failed", "detail": str(exc)[:600]}
 
+    if isinstance(result, dict):
+        return result           # an own tool: already the model's payload
     if not result.success:
         # Pivot's errors are written FOR the model — they name the missing
         # field or the tool that should have been called. Pass them through

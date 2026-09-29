@@ -11920,7 +11920,8 @@ def _pivot_tool(name: str):
 #
 # So the collision is refused instead of resolved. Whoever adds the name has
 # to decide which engine owns it, which is a decision and not a merge order.
-_collisions = sorted(set(execution_bridge.PIVOT_TOOLS) & set(_DISPATCH))
+_BRIDGE_TOOLS = (*execution_bridge.PIVOT_TOOLS, *execution_bridge.OWN_TOOLS)
+_collisions = sorted(set(_BRIDGE_TOOLS) & set(_DISPATCH))
 if _collisions:
     raise RuntimeError(
         "execution_bridge.PIVOT_TOOLS would overwrite Charto's own "
@@ -11929,7 +11930,7 @@ if _collisions:
         "Rename one side or drop the name from PIVOT_TOOLS — do not rely on "
         "assignment order."
     )
-for _n in execution_bridge.PIVOT_TOOLS:
+for _n in _BRIDGE_TOOLS:
     _DISPATCH[_n] = _pivot_tool(_n)
 
 
@@ -13320,7 +13321,11 @@ def _stream_once(wire: list[dict], allow_tools: bool, model: str):
         "tools": _tools_for_request(),
         "tool_choice": "auto" if allow_tools else "none",
         "max_output_tokens": 2000,
-        "reasoning": {"effort": LLM_EFFORT},
+        # `summary` streams the model's reasoning as titled paragraphs while
+        # it reasons (measured on gpt-6-luna: first text ~3s before the first
+        # output token). The reader sees what is being worked out instead of
+        # a timer; the answer's own tokens and latency are unchanged.
+        "reasoning": {"effort": LLM_EFFORT, "summary": "auto"},
         "service_tier": LLM_SERVICE_TIER,
         "stream": True,
     }
@@ -13652,6 +13657,13 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
                     if d:
                         text_parts.append(d)
                         yield {"type": "delta", "text": d}
+                elif t == "response.reasoning_summary_text.delta":
+                    # One part per titled paragraph; the id keeps a new round's
+                    # reasoning from appending to the last round's paragraph.
+                    yield {"type": "thought",
+                           "part": f"{_round}.{ev.get('output_index', 0)}."
+                                   f"{ev.get('summary_index', 0)}",
+                           "delta": ev.get("delta") or ""}
                 elif t == "response.output_item.done":
                     item = ev.get("item") or {}
                     if item.get("type") == "function_call":
@@ -13707,6 +13719,8 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
                 args = json.loads(args) if isinstance(args, str) else args
             except json.JSONDecodeError:
                 args = {}
+            yield {"type": "tool_start", "name": call.get("name"),
+                   "hint": _tool_hint(call.get("name", ""), args)}
             result = run_tool(call.get("name", ""), args)
             scene_patch.extend(_scene_take())
             view_ops.extend(_view_take())
@@ -13729,6 +13743,18 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
            "usage": {"input_tokens": tok_in, "output_tokens": tok_out},
            "context_preview": block, "tools_used": tool_trace,
            "scene_patch": scene_patch, "view_ops": view_ops, "cards": cards}
+
+
+def _tool_hint(name: str, args: dict) -> str:
+    """What a running tool is ABOUT, read off the model's own arguments —
+    never invented. Empty when the arguments name nothing worth saying."""
+    if not isinstance(args, dict):
+        return ""
+    sym = str(args.get("primary_symbol") or args.get("symbol") or "").upper()
+    if name == "evaluate_strategies":
+        n = len(args.get("candidates") or [])
+        return f"{n} candidates" + (f" on {sym}" if sym else "")
+    return sym
 
 
 IST_OFF = 19800  # +05:30
@@ -17140,8 +17166,8 @@ class Handler(BaseHTTPRequestHandler):
             finally:
                 _chat_slot_release()
         if u.path == "/execution/backtest":
-            # The draft card's Backtest button. It runs the SAME tool the
-            # model would call, with the draft's own steps — but a button is
+            # The draft card's Backtest button. It runs the SAME engine the
+            # model's backtest uses, on the draft's own trees — but a button is
             # not a question, and routing it through a chat turn would spend
             # an inference hop restating a request the card already holds
             # exactly. Pivot's own card calls its API directly for this
@@ -17155,9 +17181,9 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(steps, list) or not steps:
                 return self._send(400, {"error": "steps[] required"})
             args = {"steps": steps, "name": str(body.get("name") or "Draft")}
-            # `period` is the FETCH window (default 5y); start/end clip it
-            # afterwards. A one-click backtest names none of them and gets the
-            # tool's own defaults, which is the right answer for a button.
+            # A one-click backtest names no window and gets the tool's own
+            # defaults (five years to today), which is the right answer for a
+            # button. `period` is the workflow backtester's fetch window.
             for key in ("period", "start_date", "end_date", "interval",
                         "benchmark_symbol"):
                 if body.get(key):
@@ -17173,7 +17199,16 @@ class Handler(BaseHTTPRequestHandler):
                      "retry_after_s": _DATA_RETRY_AFTER_S},
                     headers={"Retry-After": str(_DATA_RETRY_AFTER_S)})
             try:
-                res = execution_bridge.dispatch("backtest_workflow", args)
+                # A DSL draft is tested on ITS OWN trees by the same engine the
+                # chat uses — one derivation, so the button and the reply can
+                # never show two different numbers for one rule. Anything the
+                # DSL engine cannot express (a schedule, a basket) still goes
+                # to the step-by-step workflow backtester.
+                is_dsl = any(isinstance(st, dict)
+                             and st.get("step_type") == "trigger.compound"
+                             for st in steps)
+                res = execution_bridge.dispatch(
+                    "backtest_dsl_draft" if is_dsl else "backtest_workflow", args)
                 return self._send(400 if res.get("error") else 200, res)
             finally:
                 _data_slot_release()

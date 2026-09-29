@@ -27,7 +27,6 @@ import json
 import logging
 import re
 
-from backend.services.tool_errors import ToolRedirect
 import uuid
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
@@ -39,53 +38,6 @@ from backend.workflows.dsl.llm_translate import (
 
 
 logger = logging.getLogger(__name__)
-
-
-# Tokens that look like NSE tickers (3-15 uppercase letters) but aren't.
-# Used to count REAL tickers in a NL condition string when deciding
-# whether the prompt is single-symbol (DSL handles it) vs multi-symbol
-# (must go through propose_workflow with one branch per symbol).
-_DSL_NON_TICKER_TOKENS: frozenset[str] = frozenset({
-    # Day-of-week / time
-    "MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN",
-    "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY",
-    "SATURDAY", "SUNDAY", "TODAY", "YESTERDAY", "TOMORROW",
-    # Exchanges / boilerplate
-    "NSE", "BSE", "INR", "IST", "EOD",
-    # Indicators / order types
-    "RSI", "SMA", "EMA", "MACD", "ADX", "ATR", "BB", "VIX",
-    "WMA", "OBV", "VWAP", "CCI", "MFI", "ROC", "TRIX", "PSAR",
-    "GTT", "OCO", "SL", "TP", "MP", "MIS", "CNC", "NRML",
-    # Logical / order-noise words that get uppercased by accident
-    "AND", "OR", "NOT", "IF", "WHEN", "THEN", "ELSE", "AT", "ON",
-    "OF", "TO", "FROM", "IN", "IS", "AS",
-    "BUY", "SELL", "PLACE", "SET", "ADD", "STOP", "LOSS",
-    "AGENT", "STRATEGY", "WORKFLOW", "AUTOMATION", "ALERT",
-    "MARKET", "LIMIT", "OPEN", "CLOSE", "HIGH", "LOW",
-    "PRICE", "QUANTITY", "SHARES", "STOCK", "STOCKS",
-    "ENTIRE", "FULL", "WHOLE", "ALL", "COMPLETE", "TOTAL", "EVERY",
-    "HOLDING", "HOLDINGS", "POSITION", "POSITIONS",
-    # Signal / pattern words that get uppercased mid-condition and were
-    # being mis-read as ACTION tickers (e.g. "bullish MACD crossover" →
-    # phantom tickers BULLISH/CROSSOVER → false multi-symbol reroute).
-    "BULLISH", "BEARISH", "NEUTRAL", "CROSS", "CROSSOVER", "CROSSES",
-    "GOLDEN", "DEATH", "SIGNAL", "LINE", "HISTOGRAM", "HIST",
-    "BAND", "BANDS", "UPPER", "LOWER", "MIDDLE",
-    "OVERSOLD", "OVERBOUGHT", "BREAKOUT", "BREAKDOWN", "FLIP",
-    "PEAK", "TROUGH", "TREND", "MOMENTUM", "DIP", "DAILY", "WEEKLY",
-    "MONTHLY", "PROFIT", "GAIN", "LOSS", "TARGET", "TRAILING",
-    # Comparison / condition verbs that appear inside an entry/exit clause
-    # and were being mis-collected as ACTION tickers ("RSI below 35 and
-    # exits if it falls 5%" → phantom tickers BELOW/EXITS/FALLS).
-    "ABOVE", "BELOW", "UNDER", "OVER", "EXIT", "EXITS", "ENTER", "ENTERS",
-    "ENTRY", "FALL", "FALLS", "RISE", "RISES", "DROP", "DROPS", "HIT",
-    "HITS", "REACH", "REACHES", "BREACH", "BREACHES", "MOVE", "MOVES",
-    "GOES", "TURNS", "AFTER", "BEFORE", "UNTIL", "WHILE", "THAN", "WITH",
-    "RUNNING", "AVERAGE", "VOLUME", "SPIKE",
-})
-
-
-_TICKER_TOKEN_RE = re.compile(r"\b[A-Z][A-Z0-9\-_]{2,15}\b")
 
 
 def _word_cap(text: str, cap: int = 90) -> str:
@@ -103,40 +55,6 @@ def _word_cap(text: str, cap: int = 90) -> str:
     if sp > cap // 2:
         cut = cut[:sp]
     return cut + "…"
-
-
-def _distinct_tickers_in(*texts: str) -> list[str]:
-    """Return the distinct ticker-shaped tokens across all supplied
-    strings, filtering out NSE/RSI/EMA/etc. that match the same regex
-    but aren't tickers. Used by the multi-symbol guard below."""
-    seen: list[str] = []
-    seen_set: set[str] = set()
-    for txt in texts:
-        if not txt:
-            continue
-        for m in _TICKER_TOKEN_RE.finditer(txt):
-            tok = m.group(0).upper()
-            if tok in _DSL_NON_TICKER_TOKENS:
-                continue
-            if tok in seen_set:
-                continue
-            seen_set.add(tok)
-            seen.append(tok)
-    return seen
-
-
-_ACTION_VERB_RE = re.compile(
-    r"\b(buy|buys|buying|sell|sells|selling|short|exit)\b",
-    re.IGNORECASE,
-)
-# Tokens that interrupt a "buy A and B" sequence — once we hit one
-# of these in the post-verb scan, we stop collecting tickers.
-_ACTION_TERMINATORS_RE = re.compile(
-    r"\b(when|if|whenever|while|at\s+(?:\d|the\s+open|the\s+close|"
-    r"market\s+open|market\s+close|open|close)|on\s+(?:mon|tue|wed|"
-    r"thu|fri|sat|sun)|every|after|before|until|till)\b",
-    re.IGNORECASE,
-)
 
 
 # Deterministic parser for the COMMON position-relative exit phrasings, so
@@ -240,89 +158,6 @@ def _fallback_position_exit(text: str) -> Optional[dict]:
     if m and (v := _first_group(m)) is not None:
         return _cmp("bars_held", ">=", int(v))
     return None
-
-
-_INDICATOR_OR_PRICE_RE = re.compile(
-    r"\b(?:rsi|sma|ema|wma|macd|adx|atr|cci|mfi|stoch|bollinger|bb|"
-    r"donchian|keltner|supertrend|aroon|williams|obv|vwap|roc|trix|"
-    r"psar|ichimoku|volume|price|close|open|high|low|"
-    r"drawdown|peak|trough|"
-    r">|<|crosses?\s+(?:above|below)|reaches?|hits?|breaches?|"
-    r"oversold|overbought|"
-    r"above|below|under|over|"
-    r"\d+(?:\.\d+)?\s*%)\b",
-    re.IGNORECASE,
-)
-
-
-def _has_indicator_or_price_word(text: str) -> bool:
-    """True when the text mentions an indicator name or price-comparison
-    operator. Used to distinguish schedule-only phrases ("every Monday
-    at open buy 5 NIFTYBEES") from condition-shaped phrases ("RSI<30 on
-    Mondays")."""
-    return bool(_INDICATOR_OR_PRICE_RE.search(text or ""))
-
-
-def _has_multi_action_tickers(condition: str) -> bool:
-    """True when the condition string contains 2+ distinct
-    action-ticker pairs (the user is asking for orders on multiple
-    symbols). False when only ONE action-ticker pair appears (a
-    legitimate cross-symbol trigger, fine for DSL).
-
-    Strategy: split on action verbs and within the action span
-    (verb → end of clause / trigger word), collect ticker-shaped
-    tokens. 2+ distinct in the action span = multi-action.
-
-    Examples:
-      "buy RELIANCE 10 and TCS 5 when RSI<30" → True  (2 actions)
-      "buy 10 HDFCBANK when ICICIBANK drops 3%" → False (1 action)
-      "sell my INFY and TCS at 3pm" → True (2 actions)
-    """
-    if not condition:
-        return False
-    msg = condition
-    distinct: set[str] = set()
-    for verb_match in _ACTION_VERB_RE.finditer(msg):
-        start = verb_match.end()
-        rest = msg[start: start + 200]
-        # Trim at the first trigger word — "when ICICIBANK drops"
-        # marks the end of the action span.
-        term = _ACTION_TERMINATORS_RE.search(rest)
-        action_span = rest[: term.start()] if term else rest
-        for m in _TICKER_TOKEN_RE.finditer(action_span):
-            tok = m.group(0).upper()
-            if tok in _DSL_NON_TICKER_TOKENS:
-                continue
-            distinct.add(tok)
-        if len(distinct) >= 2:
-            return True
-    return len(distinct) >= 2
-
-
-def _action_tickers_in(*texts: str) -> list[str]:
-    """Distinct ticker tokens that appear inside an ACTION span (after
-    a buy/sell verb, before the trigger word). Unlike
-    `_distinct_tickers_in`, this excludes trigger-only symbols (e.g.
-    NIFTY in "buy RELIANCE when NIFTY rises 1%"), so the multi-symbol
-    redirect suggests only the symbols the user actually wants ordered.
-    """
-    found: list[str] = []
-    seen: set[str] = set()
-    for txt in texts:
-        if not txt:
-            continue
-        for verb_match in _ACTION_VERB_RE.finditer(txt):
-            start = verb_match.end()
-            rest = txt[start: start + 200]
-            term = _ACTION_TERMINATORS_RE.search(rest)
-            span = rest[: term.start()] if term else rest
-            for m in _TICKER_TOKEN_RE.finditer(span):
-                tok = m.group(0).upper()
-                if tok in _DSL_NON_TICKER_TOKENS or tok in seen:
-                    continue
-                seen.add(tok)
-                found.append(tok)
-    return found
 
 
 # ── Non-structural amendment PATCH (P1, 2026-05-29 retail eval) ──────
@@ -463,6 +298,27 @@ def _patch_dsl_draft(prior: dict, fields: dict):
         return None
 
 
+def _tree_exchange(tree: Any, symbol: str) -> str:
+    """The exchange the tree's own leaves name for ``symbol`` (NSE when it names
+    none). The translator already puts MCX on commodity leaves; the trigger step
+    must agree with them rather than assert NSE."""
+    sym = (symbol or "").upper()
+    found: list[str] = []
+
+    def _walk(n: Any) -> None:
+        if isinstance(n, dict):
+            if str(n.get("symbol") or "").upper() == sym and n.get("exchange"):
+                found.append(str(n["exchange"]).upper())
+            for v in n.values():
+                _walk(v)
+        elif isinstance(n, list):
+            for v in n:
+                _walk(v)
+
+    _walk(tree)
+    return found[0] if found else "NSE"
+
+
 def _tree_has_indicator(tree: Any) -> bool:
     """True when a translated DSL tree (dict, pre-validation) contains at
     least one IndicatorNode, or a PriceNode with offset > 0 — i.e. the
@@ -553,8 +409,7 @@ async def backtest_dsl_tree(args: dict) -> dict:
       interval          — bar interval the backtest runs on
                           (1m/3m/5m/10m/15m/30m/1h/1d/1wk/1mo;
                           aliases 'daily'/'weekly'/'day' supported).
-                          Default '1d'. ASK the user if their prompt
-                          doesn't pin a timeframe — 'period' on every
+                          Default '1d'; say which you used. 'period' on every
                           indicator is counted in BARS of this interval
                           (RSI(14, 15m) ≠ RSI(14, daily)). Intraday
                           intervals have shallow rolling windows
@@ -564,13 +419,17 @@ async def backtest_dsl_tree(args: dict) -> dict:
       exit_condition    — Optional NL EXIT condition. When set, the
                           tool translates it to a DSL exit tree and
                           overrides the declarative exit_kind/bars/pct.
-      exit_kind         — "n_day_hold" | "stop_loss_pct"
-                          (default n_day_hold). Ignored when
-                          exit_condition is set.
-      exit_bars         — int, used when exit_kind=n_day_hold (default 10)
+      exit_kind         — "n_day_hold" | "stop_loss_pct" | "hold_to_end".
+                          Ignored when exit_condition is set. One of the
+                          two is REQUIRED — no exit is assumed.
+      exit_bars         — int, required when exit_kind=n_day_hold
       exit_pct          — float in 0..1, used when exit_kind=stop_loss_pct
-      starting_capital  — ₹, default 100_000
-      quantity          — shares per fire, default 10
+      starting_capital  — ₹ the result is expressed in, default 100_000.
+                          The return % does not depend on it.
+      sizing_mode       — default "full": fully invested while in a
+                          position, fractional shares, so the return is
+                          the rule's and ₹ = capital × return.
+      quantity          — shares per fire, only with sizing_mode="fixed"
     """
     args = args or {}
     condition = (args.get("condition") or "").strip()
@@ -579,15 +438,17 @@ async def backtest_dsl_tree(args: dict) -> dict:
     # Normalize the interval up-front so every downstream branch (date
     # clamping, payload assembly, diagnostics) sees the canonical form.
     from backend.core.data.intervals import (
-        is_intraday as _is_intraday,
-        max_lookback_days as _max_lookback_days,
         normalize_interval as _normalize_interval,
     )
     interval = _normalize_interval(args.get("interval"))
-    if not condition:
+    has_holding = (isinstance(args.get("initial_position"), dict)
+                   and bool((args.get("initial_position") or {}).get("quantity")))
+    if not condition and not has_holding:
         raise ValueError(
             "backtest_dsl_tree needs a 'condition' (natural-language "
-            "entry condition like 'Buy TCS when RSI(14) drops below 30')."
+            "entry condition like 'Buy TCS when RSI(14) drops below 30'). "
+            "Omit it only with initial_position, to test an exit on a "
+            "holding the user already owns."
         )
     if not primary:
         raise ValueError(
@@ -616,39 +477,196 @@ async def backtest_dsl_tree(args: dict) -> dict:
             "this as a long backtest and describe it as a short."
         )
 
-    # 51-sweep arg-repair: "I hold 50 INFY at 1400 — backtest a 10%
-    # trailing stop" arrives with the TRAILING rule in `condition` (the
-    # entry slot), which the semantic validator rightly rejects
-    # (position leaves aren't entry logic). With a seeded holding and no
-    # exit_condition, an exit-shaped condition IS the exit rule: move it
-    # there and disable fresh entries so only the held position is
-    # tested (engine-supported — see test_backtest_holding_semantics A3).
-    _seeded_exit_repair = False
-    if (isinstance(args.get("initial_position"), dict)
-            and (args.get("initial_position") or {}).get("quantity")
-            and not exit_condition_text
-            and re.search(r"\b(?:trail(?:ing)?|stop[- ]?loss|from\s+"
-                          r"(?:the\s+)?peak|take[- ]?profit|book\s+"
-                          r"profits?|exit|sell)\b", condition, re.I)
-            and not re.search(r"\b(?:buy|enter|long|accumulate|add)\b",
-                              condition, re.I)):
-        exit_condition_text = condition
-        # Plain comparison (never-fires) — "crosses above" tripped the
-        # self-comparison/tautology detector on retest.
-        condition = f"price of {primary} is above 99999999"
-        _seeded_exit_repair = True
-
-    try:
-        tree, tx_meta = await translate_condition_to_tree(
-            condition,
-            primary_symbol=primary,
-            cache_key="dsl.chat.backtest.v1",
+    assumptions: list[str] = []
+    tx_meta: dict = {}
+    if condition:
+        try:
+            tree, tx_meta = await translate_condition_to_tree(
+                condition,
+                primary_symbol=primary,
+                cache_key="dsl.chat.backtest.v1",
+            )
+        except TranslationError as exc:
+            raise ValueError(
+                f"could not translate condition into a DSL tree: {exc}"
+            ) from None
+    else:
+        # A holding-only test: the caller left the entry out on purpose (that
+        # is the whole signal — no wording is read). The entry is a comparison
+        # that cannot become true, so only the seeded position is simulated.
+        tree = {"type": "comparison", "op": ">",
+                "left": {"type": "price", "symbol": primary,
+                         "exchange": "NSE", "basis": "close"},
+                "right": {"type": "constant", "value": 1e12}}
+        assumptions.append(
+            "No entry rule was given, so no new positions are opened: only "
+            "your existing holding is tested against the exit rule."
         )
-    except TranslationError as exc:
-        raise ValueError(
-            f"could not translate condition into a DSL tree: {exc}"
-        ) from None
 
+    exit_policy, exit_tx_meta = await _exit_policy_from_args(
+        args, exit_condition_text, primary, assumptions)
+    return await _run_and_shape(
+        args, tree=tree, primary=primary, exit_policy=exit_policy,
+        assumptions=assumptions, tx_meta=tx_meta,
+        exit_tx_meta=exit_tx_meta, interval=interval)
+
+
+def _leaf_timeframe(tree: Any) -> Optional[str]:
+    """The first ``timeframe`` any leaf of ``tree`` names, or None."""
+    if isinstance(tree, dict):
+        if tree.get("timeframe"):
+            return str(tree["timeframe"])
+        for v in tree.values():
+            tf = _leaf_timeframe(v)
+            if tf:
+                return tf
+    elif isinstance(tree, list):
+        for v in tree:
+            tf = _leaf_timeframe(v)
+            if tf:
+                return tf
+    return None
+
+
+async def backtest_dsl_draft(args: dict) -> dict:
+    """Backtest the trees a draft ALREADY holds — no re-translation.
+
+    ``steps`` is the ``steps[]`` of a ``propose_dsl_workflow`` draft: the entry
+    tree sits in its ``trigger.compound`` step and the exit tree, when there is
+    one, in ``trigger.exit_compound``. Running THOSE trees means the number on
+    the button is the strategy on the card, not a second translation of a
+    paraphrase of it. A draft with no exit rule is held to the end of the
+    window, and the result says so.
+
+    Args: steps (required), name, start_date, end_date, interval,
+    starting_capital, and any sizing argument ``backtest_dsl_tree`` takes.
+    """
+    from backend.core.data.intervals import normalize_interval as _normalize_interval
+    from backend.workflows.dsl.schema import normalize_tree_aliases
+
+    args = args or {}
+    steps = [x for x in (args.get("steps") or []) if isinstance(x, dict)]
+    if not steps:
+        raise ValueError("backtest_dsl_draft needs the draft's steps[].")
+    entry = exit_tree = None
+    primary = ""
+    for st in steps:
+        kind = str(st.get("step_type") or "")
+        cfg = st.get("config") or {}
+        if kind == "trigger.compound" and entry is None:
+            entry = cfg.get("entry")
+            primary = primary or str(cfg.get("symbol") or "")
+        elif kind == "trigger.exit_compound" and exit_tree is None:
+            exit_tree = cfg.get("entry")
+            primary = primary or str(cfg.get("target_symbol") or "")
+        elif kind == "action.place_order" and not primary:
+            primary = str(cfg.get("symbol") or "")
+    if not isinstance(entry, dict):
+        raise ValueError(
+            "This draft has no compound entry condition to test (its steps "
+            f"are: {', '.join(str(x.get('step_type')) for x in steps)})."
+        )
+    primary = primary.strip().upper()
+    if not primary:
+        raise ValueError("This draft does not name the instrument it trades.")
+    interval = _normalize_interval(
+        args.get("interval") or _leaf_timeframe(entry)
+        or _leaf_timeframe(exit_tree))
+
+    assumptions: list[str] = []
+    if isinstance(exit_tree, dict):
+        exit_policy = {"kind": "tree",
+                       "tree": normalize_tree_aliases(exit_tree),
+                       "exit_at": "next_open"}
+    else:
+        exit_policy = {"kind": "hold_to_end"}
+        assumptions.append(
+            "This draft has no exit rule, so the position is held to the end "
+            "of the window — which is also what it does when armed.")
+    out = await _run_and_shape(
+        args, tree=normalize_tree_aliases(entry), primary=primary,
+        exit_policy=exit_policy, assumptions=assumptions, tx_meta={},
+        exit_tx_meta=None, interval=interval)
+    if args.get("name"):
+        out["name"] = str(args["name"])
+    return out
+
+
+async def _exit_policy_from_args(args: dict, exit_condition_text: str,
+                                 primary: str, assumptions: list):
+    """The exit the caller asked for, as an engine exit policy. No exit is
+    assumed: which exit fits an idea is a judgement the caller makes and states."""
+    # Exit policy — exit_condition (NL) wins over declarative fields
+    # so a chat prompt like "buy on RSI<30, sell on RSI>70" gets a
+    # real tree exit and not a degenerate AND.
+    exit_tx_meta: Optional[dict] = None
+    if exit_condition_text:
+        try:
+            exit_tree_dict, exit_tx_meta = await translate_condition_to_tree(
+                exit_condition_text,
+                allow_position=True,
+                primary_symbol=primary,
+                cache_key="dsl.chat.backtest.exit.v1",
+            )
+        except TranslationError as exc:
+            raise ValueError(
+                f"could not translate exit_condition into a DSL tree: "
+                f"{exc}"
+            ) from None
+        from backend.workflows.dsl.schema import normalize_tree_aliases
+        exit_policy = {
+            "kind": "tree",
+            "tree": normalize_tree_aliases(exit_tree_dict),
+            "exit_at": "next_open",
+        }
+    else:
+        exit_kind_raw = args.get("exit_kind")
+        exit_kind = (exit_kind_raw or "n_day_hold").lower()
+        if exit_kind not in ("n_day_hold", "stop_loss_pct", "hold_to_end"):
+            exit_kind = "n_day_hold"
+        if exit_kind == "hold_to_end":
+            # Carry the position to the final bar — the buy-and-hold /
+            # "don't sell" shape. No early exit is ever taken.
+            exit_policy = {"kind": "hold_to_end"}
+            assumptions.append(
+                "Exit: held to the end of the window (no early sell)."
+            )
+        elif exit_kind == "n_day_hold":
+            # NO EXIT IS ASSUMED. The default used to be a 10-bar hold that
+            # nobody asked for — a trend-following entry sold two weeks later
+            # measures the 10-bar hold, not the idea. Which exit fits an idea
+            # is a judgement, so the model makes it and says it made it.
+            if not exit_kind_raw or not args.get("exit_bars"):
+                raise ValueError(
+                    "backtest_dsl_tree needs an exit and none is assumed. "
+                    "Pass exit_condition — the user's sell rule verbatim, or, "
+                    "if they gave none, the exit that fits this idea (and say "
+                    "you chose it) — or exit_kind='hold_to_end', or "
+                    "exit_kind='n_day_hold' with exit_bars."
+                )
+            bars = int(args["exit_bars"])
+            exit_policy = {"kind": "n_day_hold", "bars": bars}
+        else:
+            if not args.get("exit_pct"):
+                raise ValueError(
+                    "exit_kind='stop_loss_pct' needs exit_pct (a fraction, "
+                    "0.08 = 8%) — no stop distance is assumed."
+                )
+            v = max(0.001, min(0.5, float(args["exit_pct"])))
+            exit_policy = {"kind": "stop_loss_pct", "value": v}
+    return exit_policy, exit_tx_meta
+
+
+async def _run_and_shape(args: dict, *, tree: dict, primary: str,
+                         exit_policy: dict, assumptions: list,
+                         tx_meta: dict, exit_tx_meta, interval: str) -> dict:
+    """Window, sizing, engine run and the card payload — shared by every entry
+    point (`backtest_dsl_tree`, `backtest_dsl_draft`), so a rule tested from a
+    sentence and the same rule tested from its draft answer in one shape."""
+    from backend.core.data.intervals import (
+        is_intraday as _is_intraday,
+        max_lookback_days as _max_lookback_days,
+    )
     # Date window — default to 5 years ending today. (Was 3y; the other two
     # backtest engines — workflow_backtester + indicator_backtest — already
     # default to 5y, and 3y starved slow signals: a 50/200 golden cross fired
@@ -699,65 +717,6 @@ async def backtest_dsl_tree(args: dict) -> dict:
     # Assumptions the reply MUST surface (never silent). The default
     # n_day_hold exit and any seeded initial position are recorded here
     # and threaded into both the structured payload and summary_text.
-    assumptions: list[str] = []
-    if _seeded_exit_repair:
-        assumptions.append(
-            "The stated rule is an EXIT rule on your existing holding — "
-            "fresh entries were disabled; only the seeded position is "
-            "tested against it."
-        )
-
-    # Exit policy — exit_condition (NL) wins over declarative fields
-    # so a chat prompt like "buy on RSI<30, sell on RSI>70" gets a
-    # real tree exit and not a degenerate AND.
-    exit_tx_meta: Optional[dict] = None
-    if exit_condition_text:
-        try:
-            exit_tree_dict, exit_tx_meta = await translate_condition_to_tree(
-                exit_condition_text,
-                allow_position=True,
-                primary_symbol=primary,
-                cache_key="dsl.chat.backtest.exit.v1",
-            )
-        except TranslationError as exc:
-            raise ValueError(
-                f"could not translate exit_condition into a DSL tree: "
-                f"{exc}"
-            ) from None
-        from backend.workflows.dsl.schema import normalize_tree_aliases
-        exit_policy = {
-            "kind": "tree",
-            "tree": normalize_tree_aliases(exit_tree_dict),
-            "exit_at": "next_open",
-        }
-    else:
-        exit_kind_raw = args.get("exit_kind")
-        exit_kind = (exit_kind_raw or "n_day_hold").lower()
-        if exit_kind not in ("n_day_hold", "stop_loss_pct", "hold_to_end"):
-            exit_kind = "n_day_hold"
-        if exit_kind == "hold_to_end":
-            # Carry the position to the final bar — the buy-and-hold /
-            # "don't sell" shape. No early exit is ever taken.
-            exit_policy = {"kind": "hold_to_end"}
-            assumptions.append(
-                "Exit: held to the end of the window (no early sell)."
-            )
-        elif exit_kind == "n_day_hold":
-            bars = int(args.get("exit_bars") or 10)
-            exit_policy = {"kind": "n_day_hold", "bars": bars}
-            if not exit_kind_raw:
-                # Default exit — the user stated no sell rule. Surface it
-                # explicitly so the reply never silently ships a hidden
-                # 10-bar sale as if it were the user's plan.
-                assumptions.append(
-                    f"Exit: {bars}-bar hold (assumed) — say 'hold till end' "
-                    f"to carry the position to the window end, or give a "
-                    f"sell rule."
-                )
-        else:
-            v = float(args.get("exit_pct") or 0.05)
-            v = max(0.001, min(0.5, v))
-            exit_policy = {"kind": "stop_loss_pct", "value": v}
 
     # Build BacktestRequest and run engine in a worker thread.
     from backend.workflows.dsl.backtest.engine import run_backtest
@@ -771,10 +730,27 @@ async def backtest_dsl_tree(args: dict) -> dict:
     # Position sizing (Phase 2.2). Default 'fixed' uses quantity; the others size
     # from equity + the asset's volatility/ATR. Only the keys relevant to the
     # chosen mode are forwarded — the Sizing model fills the rest with defaults.
-    sizing_mode = str(args.get("sizing_mode") or "fixed").lower()
-    if sizing_mode not in ("fixed", "pct_equity", "vol_target", "atr_risk"):
-        sizing_mode = "fixed"
-    sizing: dict = {"mode": sizing_mode}
+    #
+    # THE RETURN IS THE RULE'S, NOT THE LOT'S. The default used to be 10
+    # whole shares against ₹1,00,000: a ₹1,400 stock put ~14% of the account
+    # to work and left the rest idle, so the rule's return arrived divided by
+    # ~7 and set beside a buy & hold that owned the full ₹1L. "full" is
+    # fully invested whenever the rule holds a position, in fractional
+    # shares, so the percentage is the same at any capital and a rupee figure
+    # is capital × percentage. The other modes are a strategy's OWN sizing
+    # and keep their meaning; "fixed" is whole shares only when asked for.
+    sizing_mode = str(args.get("sizing_mode") or "full").lower()
+    if sizing_mode not in ("full", "fixed", "pct_equity", "vol_target", "atr_risk"):
+        sizing_mode = "full"
+    if sizing_mode == "full":
+        sizing: dict = {"mode": "pct_equity", "pct": 1.0, "fractional": True}
+    elif sizing_mode == "fixed":
+        if not args.get("quantity"):
+            raise ValueError(
+                "sizing_mode='fixed' needs quantity (shares per entry).")
+        sizing = {"mode": "fixed"}
+    else:
+        sizing = {"mode": sizing_mode, "fractional": True}
     if sizing_mode == "pct_equity" and args.get("pct") is not None:
         sizing["pct"] = float(args["pct"])
     elif sizing_mode == "vol_target":
@@ -827,7 +803,7 @@ async def backtest_dsl_tree(args: dict) -> dict:
         "start_date": start_d.isoformat(),
         "end_date": end_d.isoformat(),
         "starting_capital": float(args.get("starting_capital") or 100_000.0),
-        "quantity": int(args.get("quantity") or 10),
+        "quantity": int(args.get("quantity") or 1),
         "sizing": sizing,
         "exit_policy": exit_policy,
         "save": False,
@@ -883,13 +859,12 @@ async def backtest_dsl_tree(args: dict) -> dict:
     _mc_dict = metrics.monte_carlo.model_dump() if metrics.monte_carlo else None
     _sp_dict = metrics.sub_periods.model_dump() if metrics.sub_periods else None
     _grp = trial_group_for(None)  # conversation, from turn_context
+    _fingerprint = strategy_fingerprint(
+        tree, primary, start_d.isoformat(), end_d.isoformat(), exit_policy,
+        sizing,
+    )
     if _fs_dict and _grp:
-        _fs_dict = record_and_deflate(
-            _fs_dict, _grp,
-            strategy_fingerprint(
-                tree, primary, start_d.isoformat(), end_d.isoformat(), exit_policy,
-            ),
-        )
+        _fs_dict = record_and_deflate(_fs_dict, _grp, _fingerprint)
     _verdict_dict = trust_verdict(
         forward_stats=_fs_dict, monte_carlo=_mc_dict, sub_periods=_sp_dict,
         total_return_pct=float(metrics.total_return_pct),
@@ -903,7 +878,10 @@ async def backtest_dsl_tree(args: dict) -> dict:
     _nt = (_fs_dict or {}).get("num_trials") or 1
     _dsr = (_fs_dict or {}).get("deflated_sharpe")
     _sizing_txt = ""
-    if sizing.get("mode") == "vol_target":
+    if sizing_mode == "full":
+        _sizing_txt = ("Fully invested while in a position, so the return "
+                       "is the rule's at any capital.")
+    elif sizing.get("mode") == "vol_target":
         _sizing_txt = f"Sized to a {sizing.get('target_vol', 0.15):.0%} annualised vol target."
     elif sizing.get("mode") == "atr_risk":
         _sizing_txt = (
@@ -918,28 +896,24 @@ async def backtest_dsl_tree(args: dict) -> dict:
     # table. Signed values keep +/- so the FE colours them green / red.
     # No `**bold**` in table cells — the FE renders cells as raw strings, so
     # emphasis leaks literal asterisks; signed values get gain/loss colouring.
+    _capital = float(request.starting_capital)
+    _pnl_inr = _capital * float(metrics.total_return_pct) / 100.0
     _mrows: list[tuple[str, str]] = [
-        ("Strategy return (whole account)", f"{metrics.total_return_pct:+.1f}%"),
+        ("Strategy return", f"{metrics.total_return_pct:+.1f}%"),
+        (f"On ₹{_capital:,.0f}", f"{'+' if _pnl_inr >= 0 else '−'}₹{abs(_pnl_inr):,.0f}"),
     ]
-    if metrics.return_on_deployed_pct is not None:
-        # Un-annualized, dollar-weighted return on capital actually put at
-        # risk — distinct from the whole-account figure above, which is
-        # diluted by however long capital sat idle in cash. Shown together
-        # with capital_utilization_pct so a rare-trigger strategy can't
-        # read as "always performs this well" from this row alone.
-        _mrows.append((
-            "Return on capital deployed",
-            f"{metrics.return_on_deployed_pct:+.1f}%",
-        ))
     if metrics.capital_utilization_pct is not None:
         _mrows.append((
-            "Capital deployed",
+            "Time in market",
             f"{metrics.capital_utilization_pct:.0f}% of the window",
         ))
     if metrics.benchmark_return_pct is not None:
-        _mrows.append(("Buy & hold", f"{metrics.benchmark_return_pct:+.1f}%"))
+        _mrows.append(("Buy & hold, same window", f"{metrics.benchmark_return_pct:+.1f}%"))
     _mrows.append(("Trades", f"{metrics.total_trades}"))
     _mrows.append(("Max drawdown", f"{metrics.max_drawdown_pct:.1f}%"))
+    if metrics.benchmark_max_drawdown_pct is not None:
+        _mrows.append(("Buy & hold max drawdown",
+                       f"{metrics.benchmark_max_drawdown_pct:.1f}%"))
     _mrows.append(("Win rate", f"{metrics.win_rate_pct:.0f}%"))
     if metrics.sharpe_ratio is not None:
         _mrows.append(("Sharpe", f"{metrics.sharpe_ratio:.2f}"))
@@ -982,7 +956,8 @@ async def backtest_dsl_tree(args: dict) -> dict:
             "entry_price": float(t.entry_price),
             "exit_date": t.exit_date.isoformat() if t.exit_date else None,
             "exit_price": float(t.exit_price) if t.exit_price is not None else None,
-            "quantity": int(t.quantity),
+            "quantity": (int(t.quantity) if float(t.quantity).is_integer()
+                         else round(float(t.quantity), 4)),
             "net_pnl": float(t.net_pnl),
             "return_pct": float(t.return_pct),
             "exit_reason": t.exit_reason,
@@ -1030,8 +1005,13 @@ async def backtest_dsl_tree(args: dict) -> dict:
             "return_on_deployed_pct": metrics.return_on_deployed_pct,
             "capital_utilization_pct": metrics.capital_utilization_pct,
             "benchmark_return_pct": metrics.benchmark_return_pct,
+            "benchmark_max_drawdown_pct": metrics.benchmark_max_drawdown_pct,
             "starting_capital": float(request.starting_capital),
             "ending_value": float(metrics.ending_value),
+            # ₹ is DERIVED: capital × the rule's return. Under the default
+            # sizing the percentage does not depend on the capital at all.
+            "pnl_inr": round(_pnl_inr, 2),
+            "sizing_mode": sizing_mode,
             # Statistical-rigor battery (PSR/DSR/MinTRL · Monte-Carlo ·
             # sub-periods · Trust verdict) — same Trust panel as the
             # workflow-backtest card; DSR + verdict are trial-deflated above.
@@ -1063,6 +1043,10 @@ async def backtest_dsl_tree(args: dict) -> dict:
         },
         "translation_meta": tx_meta,
         "exit_translation_meta": exit_tx_meta,
+        # Lets a caller that ran several variants re-deflate each one at the
+        # final trial count (record_and_deflate is idempotent on it).
+        "_trial_fingerprint": _fingerprint,
+        "_trial_group": _grp,
     }
 
 
@@ -1132,12 +1116,10 @@ async def propose_dsl_workflow(args: dict) -> dict:
     # observed to draft an alert despite the system-prompt boundary.
     if action_kind == "notify_only":
         raise ValueError(
-            "Price/condition ALERTS and notifications aren't available right "
-            "now — Pivot doesn't send alerts, pings, or 'tell me when' "
-            "messages. Do NOT draft an alert/notify workflow. State this "
-            "boundary in one plain line. Only if the user wants to ACT at that "
-            "level, offer a broker-held GTT/threshold ORDER instead — never for "
-            "a 'just alert / don't trade' ask."
+            "propose_dsl_workflow builds ORDER automations (buy_market / "
+            "buy_limit). A notify-only rule is an alert, which is a separate "
+            "tool on this surface: use it for 'tell me when', or build an "
+            "order automation if the user wants to act at that level."
         )
     exit_condition_text = (args.get("exit_condition") or "").strip()
     # User-specified bar interval flows onto every IndicatorNode in the
@@ -1164,175 +1146,12 @@ async def propose_dsl_workflow(args: dict) -> dict:
             "symbol the action fires on."
         )
 
-    # Early-bail: trailing-stop / exit-only intents on a holding
-    # belong in propose_holding_action, not DSL. The DSL requires
-    # an entry condition; "set 2% trailing stop on my INFY" has no
-    # entry. The LLM keeps picking DSL anyway, so refuse here with
-    # a structured route hint.
-    _COMBINED = (condition + " " + exit_condition_text).lower()
-    _IS_TRAILING_STOP = bool(re.search(
-        r"\btrailing\s+(?:stop|sl)|\btrail\s+(?:a\s+)?\d|"
-        r"\b\d+%?\s+from\s+(?:peak|high|top)|"
-        r"\bdrawdown\s+from\s+peak\b",
-        _COMBINED,
-    ))
-    _HAS_HOLDING_REF = bool(re.search(
-        r"\b(?:my|existing|current)\s+(?:position|holding|stake)\b|"
-        r"\bon\s+my\s+\w+\s+(?:position|holding|stake)?\b",
-        _COMBINED,
-    ))
-    _MISSING_ENTRY_VERB = not re.search(
-        r"\b(?:buy|enter|long|when|if|whenever|crosses?|>|<|"
-        r"above|below|reaches?|hits?|breaches?)\b",
-        condition.lower(),
-    )
-    if _IS_TRAILING_STOP and (_HAS_HOLDING_REF or _MISSING_ENTRY_VERB):
-        raise ToolRedirect(
-            "propose_dsl_workflow needs an ENTRY condition (buy/enter "
-            "trigger), but the prompt is exit-only / a trailing stop "
-            "on an existing holding. Use propose_holding_action with "
-            "action_kind='set_stoploss' and sl_offset_pct=N for "
-            "trailing-percentage stops. If this is part of a fresh "
-            "buy-entry workflow, include both entry AND exit "
-            "conditions in this tool's args (condition='when X', "
-            "exit_condition='trail N% from peak').",
-            redirect_to="propose_holding_action",
-        )
-
-    # Schedule-shaped condition or exit_condition — the DSL grammar
-    # expects PRICE/INDICATOR/AGGREGATE leaves, not scheduling. When
-    # the user packs a time-anchored phrase ("every Monday at open
-    # buy 5 NIFTYBEES" / "on Friday close squareoff full NIFTYBEES")
-    # into the condition or exit slot, the translator fails with
-    # tautology errors. Detect and refuse with structured route hint.
-    _SCHED_RE = re.compile(
-        r"\b(?:every\s+(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|"
-        r"thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?|"
-        r"weekday|day|week|month)|"
-        r"on\s+(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|"
-        r"thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)|"
-        r"squareoff|square[\s-]off|"
-        r"at\s+(?:market\s+)?(?:open|close)|"
-        r"\d{1,2}:\d{2}\s*(?:am|pm|ist)?)",
-        re.IGNORECASE,
-    )
-    if (
-        (_SCHED_RE.search(condition) and not _has_indicator_or_price_word(condition))
-        or (
-            exit_condition_text
-            and _SCHED_RE.search(exit_condition_text)
-            and not _has_indicator_or_price_word(exit_condition_text)
-        )
-    ):
-        raise ToolRedirect(
-            "propose_dsl_workflow can only translate price / "
-            "indicator / aggregate conditions, NOT scheduling phrases. "
-            "The prompt has a time-anchored leg (\"every Monday at "
-            "open\" / \"on Friday close\" / \"squareoff\"). Use "
-            "propose_workflow with one branch per time-anchored leg "
-            "(trigger.schedule + action.* per branch).",
-            redirect_to="propose_workflow",
-        )
-
-    # External-event-trigger detector — global price (crypto/forex/global
-    # commodity), earnings beats/misses, and webhook delivery are NOT DSL
-    # condition shapes. The DSL grammar covers price/indicator/aggregate
-    # leaves on the primary equity symbol; non-Kite assets and event
-    # triggers belong in propose_workflow with the matching trigger.* /
-    # notify.webhook step. Catch the obvious phrasings here so the user
-    # gets a clean route hint instead of a translator failure.
-    _EXT_EVENT_RE = re.compile(
-        r"\b(?:bitcoin|btc|ethereum|eth|"
-        r"usdinr|eurusd|gbpusd|forex|"
-        r"wti\s+crude|brent|xauusd|xagusd|"
-        r"earnings\s+(?:beat|miss|meet)|"
-        r"beats?\s+(?:eps|earnings)|misses?\s+(?:eps|earnings)|"
-        r"post\s+to\s+(?:my\s+)?(?:webhook|endpoint|url)|"
-        r"ping\s+(?:my\s+)?(?:webhook|endpoint|url))\b",
-        re.IGNORECASE,
-    )
-    if _EXT_EVENT_RE.search(condition) or (
-        exit_condition_text and _EXT_EVENT_RE.search(exit_condition_text)
-    ):
-        raise ValueError(
-            "propose_dsl_workflow translates only price / indicator / "
-            "aggregate conditions on a single equity symbol. Global "
-            "crypto / forex / non-Kite-commodity prices belong in "
-            "propose_workflow with a trigger.global_price step; earnings "
-            "beat/miss/meet asks belong in propose_workflow with a "
-            "trigger.earnings step; webhook delivery is a notify.webhook "
-            "action step. Re-route via propose_workflow."
-        )
-
-    # Multi-trigger semicolon detector — "Every Monday at open buy 5
-    # NIFTYBEES; on Friday close squareoff full NIFTYBEES" packs TWO
-    # time-anchored triggers into one condition string. DSL is
-    # single-trigger. Refuse and point at propose_workflow.
-    _SEMI_PARTS = [p.strip() for p in re.split(r"[;]+", condition) if p.strip()]
-    if len(_SEMI_PARTS) >= 2:
-        # Each part has its own time/condition anchor → looks like
-        # branches, not a single compound condition.
-        _ANCHOR_RE = re.compile(
-            r"\b(?:every|at\s+(?:open|close|\d)|"
-            r"on\s+(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|"
-            r"thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)|"
-            r"when|if)\b",
-            re.IGNORECASE,
-        )
-        if all(_ANCHOR_RE.search(p) for p in _SEMI_PARTS):
-            raise ToolRedirect(
-                f"propose_dsl_workflow is single-trigger but the "
-                f"prompt has {len(_SEMI_PARTS)} semicolon-separated "
-                "trigger clauses, each with its own anchor (time / "
-                "schedule / condition). Use propose_workflow with "
-                "one branch per clause — each branch is a "
-                "(trigger.* + action.*) pair.",
-                redirect_to="propose_workflow",
-            )
-
-    # ── Multi-symbol guard ────────────────────────────────────────
-    # propose_dsl_workflow is SINGLE-ACTION-SYMBOL: one entry trigger
-    # fires actions on the primary symbol, optionally with one exit
-    # branch on the same symbol.
-    #
-    # Two failure shapes to distinguish:
-    #
-    # (1) Multi-ACTION ticker — "buy RELIANCE, TCS and BAJFINANCE when
-    #     they drop 2% from open". The user expects orders on ALL named
-    #     symbols. The DSL would silently use only the primary, dropping
-    #     the others. → refuse and route to propose_workflow.
-    #
-    # (2) Cross-symbol TRIGGER — "buy 10 HDFCBANK when ICICIBANK drops
-    #     3% intraday". The user expects ONE action (HDFCBANK) gated by
-    #     a condition on a different symbol (ICICIBANK). The DSL's
-    #     PriceLeaf / IndicatorLeaf grammar accepts arbitrary symbols
-    #     on leaves, so this IS supported. Refusing here forces the LLM
-    #     into prose and disappoints the user.
-    #
-    # Heuristic: only fire the guard when MULTIPLE distinct tickers
-    # appear immediately AFTER an action verb (buy/sell). A single
-    # action ticker + condition tickers elsewhere is fine.
-    # C6: action tickers frequently live ONLY in the original user
-    # prompt ("buy RELIANCE, TCS and BAJAJFIN when NIFTY rises 1%"),
-    # never in the `condition` arg the model passes here. Scan the
-    # threaded user message (uppercased) too — otherwise the guard sees
-    # one symbol, builds a single-ticker draft, and silently drops the
-    # rest (the "applies to RELIANCE only" UI bug).
-    user_msg = (args.get("__user_message") or "").upper()
-    action_tickers = _action_tickers_in(condition, exit_condition_text, user_msg)
-    extras = [t for t in action_tickers if t != primary]
-    if extras:
-        all_named = sorted(set([primary] + action_tickers))
-        raise ToolRedirect(
-            f"propose_dsl_workflow is single-symbol but the request "
-            f"names multiple ACTION tickers ({', '.join(all_named)}). "
-            f"Use propose_workflow with "
-            f"action.allocate_notional(symbols=[{', '.join(all_named)}]) "
-            f"so ONE trigger fans the order across every named symbol. "
-            f"Do NOT build for just the first symbol and tell the user "
-            f"to duplicate the card.",
-            redirect_to="propose_workflow",
-        )
+    # No keyword gates here. What a phrase MEANS (a schedule, a trailing stop on
+    # a holding, a second symbol) is the calling model's judgement, and what the
+    # grammar cannot express is refused by the translator and `semantic_validate`
+    # below with an error that names the problem. Regexes over the user's words
+    # used to redirect valid asks ("RSI(14) < 30" with a trailing stop) to tools
+    # that are not on every surface, and hard-refused crypto and MCX underlyings.
 
     try:
         tree, tx_meta = await translate_condition_to_tree(
@@ -1457,17 +1276,16 @@ async def propose_dsl_workflow(args: dict) -> dict:
             "silently register a buy for a short ask."
         )
 
-    # Refuse silent qty=1 default for buy actions. The user must
-    # have specified a quantity (the LLM should have asked first).
+    # A buy needs an explicit size; the caller chooses it (and says so).
     # notify_only is exempt because no order is placed.
     raw_qty = args.get("quantity")
     if action_kind in ("buy_market", "buy_limit"):
         if raw_qty is None or (isinstance(raw_qty, (int, float)) and int(raw_qty) <= 0):
             raise ValueError(
                 "propose_dsl_workflow: 'quantity' is required when "
-                f"action_kind='{action_kind}'. Call ASK_USER first: "
-                "'How many shares per fire?'. Do NOT default to 1 — "
-                "silent defaults have produced wrong-size trades."
+                f"action_kind='{action_kind}'. Choose a size that fits the "
+                "idea, pass it, and state it in the reply so the user can "
+                "change it — do not stop to ask."
             )
     qty = int(raw_qty) if raw_qty is not None else 1
     limit_px = args.get("limit_price")
@@ -1517,7 +1335,7 @@ async def propose_dsl_workflow(args: dict) -> dict:
             "config": {
                 "entry": tree,
                 "symbol": primary,
-                "exchange": "NSE",
+                "exchange": _tree_exchange(tree, primary),
             },
         },
         entry_action,

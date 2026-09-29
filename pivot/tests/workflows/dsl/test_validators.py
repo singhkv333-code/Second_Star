@@ -284,7 +284,8 @@ def test_lower_n_day_hold_produces_bars_held_tree():
     t = lowered.tree
     assert t["op"] == ">="
     assert t["left"]["field"] == "bars_held"
-    assert t["right"]["value"] == 7.0
+    # fills at the next open, so the signal bar is N-1 bars after entry: N bars held
+    assert t["right"]["value"] == 6.0
 
 
 # ── Aggregate op semantics ──────────────────────────────────────────
