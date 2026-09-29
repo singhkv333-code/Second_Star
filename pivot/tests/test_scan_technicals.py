@@ -16,7 +16,7 @@ SCAN = {
     "symbols": [f"S{i}" for i in range(31)],
     "rows": [{"symbol": "S0", "name": "Zero", "industry": "banks",
               "close": 100.0, "rsi14": 71.0, "ret_1m": 4.2,
-              "pattern": {"kind": "bull_flag", "bars_ago": 2}}],
+              "pattern": {"pattern": "bull_flag", "bars_ago": 2}}],
 }
 
 
@@ -35,7 +35,7 @@ def test_scan_becomes_a_screen_card_with_units(monkeypatch):
     assert [(c["key"], c["unit"]) for c in d["columns"]] == [
         ("close", "inr"), ("rsi14", "num"), ("ret_1m", "pct_signed"),
         ("pattern", "text")]
-    assert d["results"][0]["pattern"] == "bull flag, 2d ago"
+    assert d["results"][0]["pattern"] == "Bull flag, 2 sessions ago"
     assert d["total_matched"] == 31 and len(d["symbols"]) == 31
     assert d["applied_filters"] == [{"field": "rsi14", "op": ">", "value": 60}]
     assert d["title"] == "Strong RSI" and d["as_of"] == "22 Jul 2026"

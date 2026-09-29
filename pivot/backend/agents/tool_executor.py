@@ -1529,6 +1529,10 @@ _SCAN_UNITS = {
     "sma50_cross_ago": "int", "sma200_cross_ago": "int",
     "atr_pct": "pct", "range_20d_pct": "pct", "vp20_va_width_pct": "pct",
     "vp20_pos": "pct", "turnover_20d_cr": "cr",
+    "close_pos": "num", "vol_ratio20": "num", "streak": "int", "adx14": "num",
+    "bb_pct_b": "num", "bb_width_pct": "pct", "stoch_k": "num",
+    "supertrend_dir": "int", "orb15_pos": "num", "orb30_pos": "num",
+    "macd_hist_pct": "num",
 }
 _SCAN_LABELS = {
     "close": "Price", "ret_1d": "1D", "ret_1w": "1W", "ret_1m": "1M",
@@ -1540,6 +1544,13 @@ _SCAN_LABELS = {
     "vol_z20": "Volume (σ)", "turnover_20d_cr": "Turnover (20D)",
     "vp20_pos": "In Value Area", "vp20_va_width_pct": "Value Area Width",
     "vp20_poc_dist_pct": "vs POC", "vp20_poc_shift_pct": "POC Shift",
+    "gap_pct": "Gap", "ret_open": "From Open", "close_pos": "Close in Range",
+    "hi20_break_pct": "vs 20D High", "lo20_break_pct": "vs 20D Low",
+    "vol_ratio20": "Volume (x avg)", "streak": "Streak", "adx14": "ADX(14)",
+    "macd_hist_pct": "MACD Hist %", "bb_pct_b": "Bollinger %B",
+    "bb_width_pct": "Band Width", "stoch_k": "Stoch %K",
+    "supertrend_dir": "Supertrend", "orb15_pos": "vs 15m Range",
+    "orb30_pos": "vs 30m Range",
 }
 
 
@@ -1583,8 +1594,11 @@ async def _scan_technicals(a, kt, db, uid):
         row.update({k: r.get(k) for k in keys})
         if r.get("pattern"):
             p = r["pattern"]
-            row["pattern"] = f"{str(p.get('kind', '')).replace('_', ' ')}" + (
-                f", {p['bars_ago']}d ago" if p.get("bars_ago") is not None else "")
+            ago = p.get("bars_ago")
+            when = ("" if ago is None else ", latest session" if ago == 0
+                    else f", {ago} session{'s' if ago != 1 else ''} ago")
+            name = str(p.get("pattern") or "").replace("_", " ")
+            row["pattern"] = (name[:1].upper() + name[1:] + when) if name else None
         results.append(row)
     columns = [{"key": k, "label": _SCAN_LABELS.get(k, k),
                 "unit": _SCAN_UNITS.get(k, "pct_signed")} for k in keys]
@@ -1608,7 +1622,7 @@ async def _scan_technicals(a, kt, db, uid):
         "symbols": out.get("symbols") or [r["symbol"] for r in results],
         "results": results,
     }
-    for extra in ("volume_profile_coverage",):
+    for extra in ("minute_bar_coverage",):
         if out.get(extra):
             data[extra] = out[extra]
     data = await asyncio.to_thread(with_verified_names, data)

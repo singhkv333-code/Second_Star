@@ -5320,87 +5320,6 @@ def tool_compare_symbols(symbols: list | None = None, interval: str = "1d",
 # features below are plain arithmetic on those bars — the model composes any
 # combination of them; this code only validates and computes.
 
-SCREEN_FEATURES = (
-    "close", "ret_1d", "ret_1w", "ret_1m", "ret_3m", "ret_6m", "ret_1y",
-    "dist_52w_high", "dist_52w_low", "rsi14", "atr_pct",
-    "sma20_rel", "sma50_rel", "sma200_rel",
-    "sma50_cross_ago", "sma200_cross_ago",
-    "range_20d_pct", "vol_z20", "turnover_20d_cr", "turnover_20d_musd",
-    "vp20_pos", "vp20_va_width_pct", "vp20_poc_dist_pct", "vp20_poc_shift_pct",
-)
-
-# Volume-profile features come from the swept vp_screen table, not from
-# bars_1d — they need 1-MINUTE bars, which only the hydrated symbols have.
-# That makes their coverage a fraction of the universe's, and a screen that
-# quietly ranked 54 rows as though they were 549 would be the same lie as
-# computing MFI on an index. Every screen that filters or sorts on one of
-# these reports how many instruments could be scored at all.
-_VP_FEATURES = frozenset(
-    {"vp20_pos", "vp20_va_width_pct", "vp20_poc_dist_pct",
-     "vp20_poc_shift_pct"})
-
-# Features that are arithmetic on VOLUME. The universe now holds instruments
-# with no volume at all: an index prints no traded quantity, so bars_1d
-# carries v=0 on 100% of its days (all 24 indices and India VIX). Computing
-# these anyway does not fail loudly — it fabricates. Measured on NIFTY 50:
-# turnover came out 0.0 (a real zero, and the DEFAULT sort key), OBV and A/D
-# flat 0.0, and MFI(14) reported 100.0 — a maximally-overbought reading
-# manufactured out of no data. A feature whose input does not exist is None.
-_VOLUME_FEATURES = frozenset(
-    {"vol_z20", "turnover_20d_cr", "turnover_20d_musd"})
-
-# Spelled out because an error that only lists names tells the model which
-# words are legal, not which one it meant.
-SCREEN_FEATURE_HELP = {
-    "close": "last daily close, rupees",
-    "ret_1d": "% change over the last session",
-    "ret_1w": "% over 5 sessions",
-    "ret_1m": "% over 21 sessions",
-    "ret_3m": "% over 63 sessions",
-    "ret_6m": "% over 126 sessions",
-    "ret_1y": "% over 252 sessions",
-    "dist_52w_high": "% from the 52-week high (0 = at it, negative = below)",
-    "dist_52w_low": "% above the 52-week low",
-    "rsi14": "RSI(14) on daily closes",
-    "atr_pct": "ATR(14) as % of close — daily volatility",
-    "sma20_rel": "% of close above (+) or below (-) the 20-day SMA",
-    "sma50_rel": "% of close above (+) or below (-) the 50-day SMA",
-    "sma200_rel": "% of close above (+) or below (-) the 200-day SMA",
-    "sma50_cross_ago": "sessions since close last crossed its 50-day SMA "
-                       "(either direction — sma50_rel's sign says which side "
-                       "it is on NOW); 'just crossed above' = this lt N plus "
-                       "sma50_rel gt 0. Null if no cross within ~120 sessions",
-    "sma200_cross_ago": "sessions since close last crossed its 200-day SMA "
-                        "(either direction — pair with sma200_rel's sign); "
-                        "null if no cross within ~120 sessions",
-    "range_20d_pct": "20-day high-to-low width as % of close — low = coiled",
-    "vol_z20": "last session's volume in σ of the prior 20 sessions. Null for "
-               "instruments that print no volume (indices, India VIX)",
-    "turnover_20d_cr": "avg daily close*volume over 20 sessions, RUPEES CRORE "
-                       "— INR-quoted instruments only. Null for dollar-quoted "
-                       "ones (use turnover_20d_musd) and for indices",
-    "turnover_20d_musd": "avg daily close*volume over 20 sessions, MILLIONS "
-                         "OF US DOLLARS — dollar-quoted instruments (spot "
-                         "crypto) only. Null for INR-quoted ones",
-    "vp20_pos": "where the close sits inside the 20-session VALUE AREA, as % "
-                "of that area's width: 0 = at the value-area low, 100 = at "
-                "the high, gt 100 = trading ABOVE accepted value, lt 0 = "
-                "below it. 'above value' = gt 100; 'back inside value' = "
-                "gt 0 plus lt 100",
-    "vp20_va_width_pct": "the 20-session value area as % of its point of "
-                         "control — how tightly volume agreed on price. Low "
-                         "= coiled/balanced, high = distributed",
-    "vp20_poc_dist_pct": "% the close sits above (+) or below (-) the "
-                         "20-session point of control (the most-traded price)",
-    "vp20_poc_shift_pct": "% this 20-session POC moved against the PRIOR 20 "
-                          "sessions' POC — value migration, the profile's "
-                          "own trend measure. Positive = value building "
-                          "higher",
-}
-
-SCREEN_OPS = ("lt", "gt")
-
-
 # How each screen feature reads in a sentence, and what unit its threshold is
 # in. Used only to LABEL a screen — never to compute one. Kept beside
 # SCREEN_FEATURES so a feature added there and missing here is obvious.
@@ -5429,6 +5348,21 @@ _SCREEN_PHRASE = {
     "vp20_va_width_pct": ("value-area width", "%"),
     "vp20_poc_dist_pct": ("distance from the point of control", "%"),
     "vp20_poc_shift_pct": ("point-of-control shift", "%"),
+    "gap_pct": ("opening gap", "%"),
+    "ret_open": ("move from the open", "%"),
+    "close_pos": ("close within the day's range", ""),
+    "hi20_break_pct": ("distance above the prior 20-day high", "%"),
+    "lo20_break_pct": ("distance above the prior 20-day low", "%"),
+    "vol_ratio20": ("volume vs its 20-day average", "x"),
+    "streak": ("closing streak", " sessions"),
+    "adx14": ("ADX(14)", ""),
+    "macd_hist_pct": ("MACD histogram", "%"),
+    "bb_pct_b": ("Bollinger %B", ""),
+    "bb_width_pct": ("Bollinger Band width", "%"),
+    "stoch_k": ("Stochastic %K", ""),
+    "supertrend_dir": ("Supertrend direction", ""),
+    "orb15_pos": ("position vs the 15-minute opening range", ""),
+    "orb30_pos": ("position vs the 30-minute opening range", ""),
 }
 
 
@@ -5487,6 +5421,14 @@ _SCREEN_ZERO_FORM = {
     "ret_1w": ("Up on the week", "Down on the week"),
     "ret_1m": ("Up on the month", "Down on the month"),
     "ret_1y": ("Up on the year", "Down on the year"),
+    "gap_pct": ("Gapped up", "Gapped down"),
+    "ret_open": ("Closed above the open", "Closed below the open"),
+    "hi20_break_pct": ("Closed above the prior 20-day high",
+                       "Below the prior 20-day high"),
+    "lo20_break_pct": ("Above the prior 20-day low",
+                       "Closed below the prior 20-day low"),
+    "macd_hist_pct": ("MACD above its signal", "MACD below its signal"),
+    "supertrend_dir": ("Supertrend up", "Supertrend down"),
 }
 
 
@@ -5588,7 +5530,15 @@ SCREEN_FEATURES = (
     "sma50_cross_ago", "sma200_cross_ago",
     "range_20d_pct", "vol_z20", "turnover_20d_cr", "turnover_20d_musd",
     "vp20_pos", "vp20_va_width_pct", "vp20_poc_dist_pct", "vp20_poc_shift_pct",
+    "gap_pct", "ret_open", "close_pos", "hi20_break_pct", "lo20_break_pct",
+    "vol_ratio20", "streak", "adx14", "macd_hist_pct", "bb_pct_b",
+    "bb_width_pct", "stoch_k", "supertrend_dir", "orb15_pos", "orb30_pos",
 )
+
+# Opening-range features read the first minutes of the last session, so like
+# the volume profile they exist only for symbols holding 1-minute bars, and a
+# screen on them reports how many could be scored.
+_ORB_FEATURES = frozenset({"orb15_pos", "orb30_pos"})
 
 # Volume-profile features come from the swept vp_screen table, not from
 # bars_1d — they need 1-MINUTE bars, which only the hydrated symbols have.
@@ -5608,7 +5558,7 @@ _VP_FEATURES = frozenset(
 # flat 0.0, and MFI(14) reported 100.0 — a maximally-overbought reading
 # manufactured out of no data. A feature whose input does not exist is None.
 _VOLUME_FEATURES = frozenset(
-    {"vol_z20", "turnover_20d_cr", "turnover_20d_musd"})
+    {"vol_z20", "vol_ratio20", "turnover_20d_cr", "turnover_20d_musd"})
 
 # Spelled out because an error that only lists names tells the model which
 # words are legal, not which one it meant.
@@ -5657,6 +5607,37 @@ SCREEN_FEATURE_HELP = {
                           "sessions' POC — value migration, the profile's "
                           "own trend measure. Positive = value building "
                           "higher",
+    "gap_pct": "% the last session opened above (+) or below (-) the prior "
+               "close",
+    "ret_open": "% the last session closed above (+) or below (-) its own open",
+    "close_pos": "where the last close sits in that session's high-low range, "
+                 "0 = at the low, 100 = at the high",
+    "hi20_break_pct": "% the close sits above (+) or below (-) the highest "
+                      "high of the 20 sessions before it; gt 0 = a fresh "
+                      "20-day breakout",
+    "lo20_break_pct": "% the close sits above (+) or below (-) the lowest low "
+                      "of the 20 sessions before it; lt 0 = a fresh 20-day "
+                      "breakdown",
+    "vol_ratio20": "last session's volume as a multiple of its prior 20-session "
+                   "average (2 = double). Null for instruments that print no "
+                   "volume",
+    "streak": "consecutive higher closes (+N) or lower closes (-N) up to the "
+              "last session",
+    "adx14": "ADX(14), trend strength regardless of direction (above 25 = "
+             "trending)",
+    "macd_hist_pct": "MACD(12,26,9) histogram as % of close; positive = MACD "
+                     "above its signal line",
+    "bb_pct_b": "close within the Bollinger Bands(20,2): 0 = lower band, 100 "
+                "= upper band, beyond either = outside the bands",
+    "bb_width_pct": "Bollinger Band(20,2) width as % of the middle band; low "
+                    "= a squeeze",
+    "stoch_k": "Stochastic %K(14,3), 0-100",
+    "supertrend_dir": "Supertrend(10,3) direction: 1 = up, -1 = down",
+    "orb15_pos": "the last close inside the last session's opening range (its "
+                 "first 15 minutes), as % of that range's width: gt 100 = "
+                 "closed above it (an upside opening-range breakout), lt 0 = "
+                 "below it. Needs 1-minute bars",
+    "orb30_pos": "the same against the first 30 minutes' range",
 }
 
 SCREEN_OPS = ("lt", "gt")
@@ -5785,7 +5766,78 @@ def _screen_row_features(rows: list[tuple], ccy: str = "INR") -> dict:
         m = sum(vols) / len(vols)
         sd = (sum((x - m) ** 2 for x in vols) / len(vols)) ** 0.5
         f["vol_z20"] = round((rows[-1][5] - m) / sd, 2) if sd else None
+        f["vol_ratio20"] = round(rows[-1][5] / m, 2) if m else None
+    _, o, h, lo, _, _ = rows[-1]
+    if n >= 2:
+        f["gap_pct"] = _rel(o, closes[-2])
+    f["ret_open"] = _rel(c, o)
+    f["close_pos"] = round((c - lo) / (h - lo) * 100, 1) if h > lo else None
+    if n >= 21:
+        prior = rows[-21:-1]
+        f["hi20_break_pct"] = _rel(c, max(r[2] for r in prior))
+        f["lo20_break_pct"] = _rel(c, min(r[3] for r in prior))
+    if n >= 2:
+        up = closes[-1] > closes[-2]
+        k = 0
+        for i in range(n - 1, 0, -1):
+            if closes[i] == closes[i - 1] or (closes[i] > closes[i - 1]) != up:
+                break
+            k += 1
+        f["streak"] = k if up else -k
+    # The chart's own indicator code, so a screen and a chart read one number.
+    # Bollinger and Stochastic are plain windows, exact on their last 40 bars;
+    # the recursive smoothers (ADX, Supertrend, MACD) get 300 to converge.
+    for name, bars, lines in (
+            ("adx", 300, (("adx14", "adx", 1),)),
+            ("bbands", 40, (("bb_pct_b", "percent_b", 100),
+                            ("bb_width_pct", "bandwidth", 100))),
+            ("stoch", 40, (("stoch_k", "k", 1),)),
+            ("supertrend", 300, (("supertrend_dir", "direction", 1),)),
+            ("macd", 300, (("macd_hist_pct", "histogram", 100 / c if c else 0),))):
+        try:
+            last = indicators.compute(name, rows[-bars:])["last"]
+        except ValueError:          # too little history for this window
+            continue
+        for key, line, scale in lines:
+            v = last.get(line)
+            f[key] = None if v is None or not scale else round(
+                v * scale, 3 if key == "macd_hist_pct" else 2)
     return f
+
+
+def _orb_rows(by_sym: dict) -> dict:
+    """Opening-range features for the last stored session of every symbol that
+    holds 1-minute bars: the day's close against the high-low range of its
+    first 15 and 30 minutes, as % of that range's width (vp20_pos's scale).
+
+    Only the opening minutes are read (an index range on the primary key), and
+    the session is the one bars_1d ends on, so the value dates with the rest of
+    the matrix. A 24-hour market has no opening range and gets no row.
+    """
+    out: dict = {}
+    for s, rows in by_sym.items():
+        if quote_ccy(s) == "USD":
+            continue
+        day, close = rows[-1][0], rows[-1][4]
+        try:
+            mins = _con.execute(
+                "SELECT ts,h,l FROM bars WHERE symbol=? AND ts>=? AND ts<? "
+                "ORDER BY ts LIMIT 30", (s, day, day + 86400)).fetchall()
+        except sqlite3.Error:
+            return {}                  # no minute store on this box
+        if not mins:
+            continue
+        t0, row = mins[0][0], {}
+        for key, m in (("orb15_pos", 15), ("orb30_pos", 30)):
+            w = [b for b in mins if b[0] < t0 + m * 60]
+            if len(w) < m * 2 // 3:    # a gappy open is not a range
+                continue
+            hi, lo = max(b[1] for b in w), min(b[2] for b in w)
+            if hi > lo:
+                row[key] = round((close - lo) / (hi - lo) * 100, 1)
+        if row:
+            out[s] = row
+    return out
 
 
 def _screen_features() -> dict:
@@ -5817,6 +5869,8 @@ def _screen_features() -> dict:
         row = vp.get(s)
         if row:
             f.update(row)
+    for s, row in _orb_rows(by_sym).items():
+        feats[s].update(row)
     last_day = {s: _ist_day(r[-1][0]) for s, r in by_sym.items() if r}
     days = list(last_day.values())
     mode_day = max(set(days), key=days.count) if days else None
@@ -5906,20 +5960,25 @@ def tool_screen_universe(filters: list | None = None, industry: str = "",
     if sort_by and sort_by not in SCREEN_FEATURES:
         return _screen_vocab(f"cannot sort by '{sort_by}'")
 
-    kind = str(pattern or "").lower().strip()
+    # Pattern names travel as words ("bull flag") both ways: the ids are
+    # snake_case, and a model handed ids writes them into its reply verbatim.
+    kind = _squash(str(pattern or ""), "_")
     if kind and kind not in patterns.CHART_KINDS + patterns.CANDLE_KINDS:
-        return {"error": f"unknown pattern '{kind}'",
-                "available": {"chart": list(patterns.CHART_KINDS),
-                              "candlestick": list(patterns.CANDLE_KINDS)},
-                "_note": ("Nothing was screened. Re-call with one exact name "
-                          "from this list, or drop `pattern`.")}
+        return {"error": f"unknown pattern '{pattern}'",
+                "available": {
+                    "chart": [k.replace("_", " ") for k in patterns.CHART_KINDS],
+                    "candlestick": [k.replace("_", " ")
+                                    for k in patterns.CANDLE_KINDS]},
+                "_note": ("Nothing was screened. Re-call with one name from "
+                          "this list, or drop `pattern`.")}
 
     # A volume profile needs 1-MINUTE bars and most of the universe is stored
     # daily until something hydrates it, so these features score a subset. The
     # screen says how big that subset is rather than presenting a ranking of
     # 54 rows as a ranking of 549.
-    vp_used = any(nm in _VP_FEATURES for nm, _, _ in parsed) \
-        or sort_by in _VP_FEATURES
+    minute_used = sorted(({nm for nm, _, _ in parsed} | {sort_by})
+                         & (_VP_FEATURES | _ORB_FEATURES))
+    vp_used = bool(minute_used)
     # Counted over the set actually being screened. Reported universe-wide,
     # "54 of 549" next to an industry-filtered table read as "54 of 549
     # cryptocurrency instruments" — the model localised a global number to
@@ -5929,7 +5988,8 @@ def tool_screen_universe(filters: list | None = None, industry: str = "",
         return not want_inds or cls.get(sym, (sym, None))[1] in want_inds
 
     vp_pool = [f for s, f in feats.items() if _in_pool(s)] if vp_used else []
-    vp_scored = sum(1 for f in vp_pool if f.get("vp20_pos") is not None)
+    vp_scored = sum(1 for f in vp_pool
+                    if all(f.get(k) is not None for k in minute_used))
 
     survivors = []
     for sym, f in feats.items():
@@ -6085,23 +6145,22 @@ def tool_screen_universe(filters: list | None = None, industry: str = "",
         pool_n = len(vp_pool)
         pool_label = (f"instruments in {'/'.join(sorted(want_inds))}"
                       if want_inds else "stored instruments")
-        res["volume_profile_coverage"] = {
+        res["minute_bar_coverage"] = {
+            "features": minute_used,
             "scored": vp_scored, "pool": pool_n, "universe": universe,
-            "window_sessions": 20,
-            "_note": (f"Volume-profile features are built from 1-MINUTE bars, "
-                      f"which only {vp_scored} of the {pool_n} {pool_label} "
-                      f"currently have — the rest hold daily bars only and "
+            "_note": (f"These features are built from 1-MINUTE bars, which "
+                      f"only {vp_scored} of the {pool_n} {pool_label} "
+                      f"currently have: the rest hold daily bars only and "
                       f"were scored as null, so they are absent from this "
                       f"ranking rather than ranked last. Say '{vp_scored} of "
                       f"{pool_n}' and describe the pool exactly as written "
                       f"here; do not restate it against the whole "
-                      f"{universe}-instrument universe. Indices and India VIX "
-                      f"print no volume and can never be scored."),
+                      f"{universe}-instrument universe."),
         }
     if want_inds:
         res["industry_matched"] = sorted(want_inds)
     if kind:
-        res["pattern"] = kind
+        res["pattern"] = kind.replace("_", " ")
         res["pattern_within_sessions"] = within
         res["symbols_scanned_for_pattern"] = scanned
         if unscanned:
@@ -6128,7 +6187,8 @@ def tool_screen_universe(filters: list | None = None, industry: str = "",
         note.insert(1, f"{len(survivors)} names matched and {len(rows)} are "
                        f"shown — say so rather than implying the list is whole.")
     if kind:
-        note.insert(1, f"A {kind} counts only if it completed within the last "
+        note.insert(1, f"A {kind.replace('_', ' ')} counts only if it "
+                       f"completed within the last "
                        f"{within} sessions — say the window, and quote each "
                        f"hit's own bars_ago rather than implying it printed "
                        f"today.")
@@ -6144,7 +6204,7 @@ def tool_screen_universe(filters: list | None = None, industry: str = "",
     if unscanned:
         note.insert(1, f"The pattern scan stopped at {_SCREEN_SCAN_CAP} names, "
                        f"so {unscanned} matching symbols were never checked "
-                       f"for {kind} — say the scan was capped.")
+                       f"for a {kind.replace('_', ' ')}: say the scan was capped.")
     if stale_shown:
         note.insert(1, f"{stale_shown} shown row(s) carry their own as_of "
                        f"because their last stored session differs from the "

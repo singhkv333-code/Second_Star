@@ -948,6 +948,24 @@ _SCAN_FEATURES = {
     "vp20_va_width_pct": "20-session value-area width as % of its POC (low = balanced)",
     "vp20_poc_dist_pct": "% the close is above (+) or below (-) the 20-session POC",
     "vp20_poc_shift_pct": "% the 20-session POC moved vs the prior 20 (value migration)",
+    "gap_pct": "% the last session opened above (+) or below (-) the prior close",
+    "ret_open": "% the last session closed above (+) or below (-) its own open",
+    "close_pos": "last close within that session's high-low range, 0 = low, 100 = high",
+    "hi20_break_pct": "% the close is above (+) or below (-) the prior 20 sessions' "
+                      "highest high; gt 0 = a fresh 20-day breakout",
+    "lo20_break_pct": "% the close is above (+) or below (-) the prior 20 sessions' "
+                      "lowest low; lt 0 = a fresh 20-day breakdown",
+    "vol_ratio20": "last session's volume as a multiple of its prior 20-session average",
+    "streak": "consecutive higher (+N) or lower (-N) closes up to the last session",
+    "adx14": "ADX(14) trend strength, direction-free (above 25 = trending)",
+    "macd_hist_pct": "MACD(12,26,9) histogram as % of close; gt 0 = MACD above signal",
+    "bb_pct_b": "close within Bollinger Bands(20,2): 0 = lower band, 100 = upper",
+    "bb_width_pct": "Bollinger Band(20,2) width as % of the middle band (low = squeeze)",
+    "stoch_k": "Stochastic %K(14,3), 0-100",
+    "supertrend_dir": "Supertrend(10,3) direction, 1 = up, -1 = down",
+    "orb15_pos": "last close vs the last session's first-15-minute range, % of its "
+                 "width (gt 100 = closed above it: an opening-range breakout; lt 0 = below)",
+    "orb30_pos": "the same against the first 30 minutes' range",
 }
 
 tool("scan_technicals",
@@ -964,9 +982,9 @@ tool("scan_technicals",
      "shows rather than the rows. The result carries `universe` (how many "
      "stocks were scanned), `matched` and `as_of` (the session the values are "
      "from): state both the universe and the date, because this is a scan of "
-     "a fixed universe at one close, not a live market-wide feed. vp20_* "
-     "features cover only the symbols with minute bars; when "
-     "`volume_profile_coverage` is present, report its count. Price action is "
+     "a fixed universe at one close, not a live market-wide feed. vp20_* and "
+     "orb* features cover only the symbols with minute bars; when "
+     "`minute_bar_coverage` is present, report its count. Price action is "
      "arithmetic, not a view: close as analysis, not advice.",
      {"filters": {"type": "array", "description": "All must pass.",
                   "items": {"type": "object", "properties": {
@@ -981,10 +999,9 @@ tool("scan_technicals",
                    "('private banks', 'pharmaceuticals'). A miss returns the "
                    "closest industry names; re-call with one of them."},
       "pattern": {"type": "string",
-                  "description": "Require a recent daily pattern, e.g. "
-                  "bull_flag, ascending_triangle, double_bottom, "
-                  "bullish_engulfing, hammer. An unknown name returns the "
-                  "full list."},
+                  "description": "Require a recent daily chart or candlestick "
+                  "pattern, in plain words (bull flag, double bottom, "
+                  "hammer). An unknown name returns the full list."},
       "pattern_within": {"type": "integer", "minimum": 1, "maximum": 120,
                          "description": "How many sessions old the pattern may "
                          "be (default 5)."},
