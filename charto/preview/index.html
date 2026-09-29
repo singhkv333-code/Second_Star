@@ -4709,6 +4709,7 @@ body.two-columns .readout .row { display: none; }
   font-size: var(--text-md); color: var(--muted-foreground);
 }
 .thought-log > summary:hover { color: var(--foreground); }
+.thought-log-plain { font-size: var(--text-md); }
 .thought-log > summary::-webkit-details-marker { display: none; }
 /* A drawn chevron, not the › / ⌄ glyphs: those sit at different heights in
    the font, so the open one dropped below the line. One shape, centred on
@@ -8884,7 +8885,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        and grouping, and nothing else — a renderer with no state of its own -->
   <script src="./js/cards.js?v=56"></script>
   <script src="./js/layers-panel.js?v=11"></script>
-  <script src="./js/chat.js?v=173"></script>
+  <script src="./js/chat.js?v=174"></script>
   <script src="./js/journal.js?v=6"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it

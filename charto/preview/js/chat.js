@@ -193,10 +193,17 @@
     // Newest first, and never in place: `turns` is the live thread, and
     // stripping a card off one of those objects would blank the panel the
     // user is looking at.
+    // The reasoning behind a "Thought for" line is the same kind of weight
+    // (a few KB a turn): the newest few keep it, older ones keep the line.
+    let think = KEEP_CARDS;
     rec.turns = turns.slice(-KEEP_TURNS).reverse().map((t) => {
-      if (!t.cards) return t;
-      if (left > 0) { left--; return t; }
-      const { cards, ...rest } = t;   // eslint-disable-line no-unused-vars
+      let out = t;
+      if (t.thought && t.thought.parts && t.thought.parts.length && think-- <= 0) {
+        out = { ...out, thought: { secs: t.thought.secs, parts: [] } };
+      }
+      if (!t.cards) return out;
+      if (left > 0) { left--; return out; }
+      const { cards, ...rest } = out;   // eslint-disable-line no-unused-vars
       return rest;
     }).reverse();
     rec.updated = Date.now();
@@ -858,24 +865,29 @@
   function endWait(turn) {
     if (!turn.__wait) return;
     const w = turn.__wait;
-    const parts = w.thoughts();
     const host = turn.querySelector(".wait");
-    if (parts.length && host) {
-      // What the model worked out on the way, kept with the answer and
-      // closed by default: the reasoning is there for whoever wants to check
-      // it, and out of the way of whoever does not.
-      const log = document.createElement("details");
-      log.className = "thought-log";
-      log.innerHTML = `<summary>Thought for ${w.elapsed()}s</summary>`
+    if (host) host.before(thoughtLog(w.elapsed(), w.thoughts()));
+    w.stop();
+    turn.__wait = null;
+  }
+
+  /** "Thought for Ns" — on EVERY turn, as the main chat shows it, not only
+   *  the ones whose model streamed a reasoning summary (a short turn often
+   *  streams none, and the line vanished). With reasoning it opens, closed by
+   *  default: there for whoever wants to check it, out of the way otherwise.
+   *  Without, it is a plain line — an arrow that opens onto nothing is a lie. */
+  function thoughtLog(secs, parts) {
+    const log = document.createElement(parts.length ? "details" : "div");
+    log.className = parts.length ? "thought-log" : "thought-log thought-log-plain";
+    log.innerHTML = parts.length
+      ? `<summary>Thought for ${secs}s</summary>`
         + '<div class="thought-body">'
         + parts.map((p) => '<div class="thought-part">'
           + (p.title ? `<div class="thought-title">${esc(p.title)}</div>` : "")
           + `<div class="thought-text">${esc(p.text.trim())}</div></div>`).join("")
-        + "</div>";
-      host.before(log);
-    }
-    w.stop();
-    turn.__wait = null;
+        + "</div>"
+      : `<span>Thought for ${secs}s</span>`;
+    return log;
   }
 
   /** Consume the SSE turn, painting the answer as it arrives.
@@ -1889,6 +1901,7 @@
       if (t.role === "user") { addUserTurn(t.content, t.image, t.drawing, t.ts, t.journal); continue; }
       const turn = addAssistantTurn(false);
       finishTurn(turn, t.content, t.meta || [], t.acts || [], t.cards || []);
+      if (t.thought) turn.prepend(thoughtLog(t.thought.secs, t.thought.parts || []));
       // The questions offered under that reply come back with it. Only the
       // newest turn can be carrying any — clearSuggest drops the rest the
       // moment something else is asked.
@@ -2020,8 +2033,12 @@
       // path, which never emits a card event and so has nothing rendered yet.
       const cards = (turn.__cardRecs && turn.__cardRecs.length)
         ? turn.__cardRecs : (d.cards || []);
+      // The "Thought for" line is filed with the reply, or a reload drops it.
+      const thought = turn.__wait
+        ? { secs: turn.__wait.elapsed(), parts: turn.__wait.thoughts() } : null;
       turns.push({ role: "assistant", content: d.text, meta, acts,
-                   ...(cards.length ? { cards } : {}) });
+                   ...(cards.length ? { cards } : {}),
+                   ...(thought ? { thought } : {}) });
       saveTurns();
       // The row's record now exists. If the follow-ups already landed they are
       // written into it here; if they land later they find it waiting.
