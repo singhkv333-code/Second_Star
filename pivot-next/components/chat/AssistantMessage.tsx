@@ -261,15 +261,15 @@ const MARKDOWN_COMPONENTS: Components = {
                   rel="noopener noreferrer"
                   title={linkText && linkText !== host ? linkText : href}
                   data-testid="source-chip"
-                  className="mx-0.5 inline-flex max-w-[190px] items-center gap-1.5 rounded-full bg-muted py-[3px] pl-[3px] pr-2.5 align-[1px] text-[11.5px] font-medium leading-none text-muted-foreground no-underline transition-colors hover:bg-foreground/10 hover:text-foreground"
+                  className="mx-0.5 inline-flex max-w-[160px] items-center gap-1 rounded-full bg-muted py-[2px] pl-[2px] pr-2 align-middle text-[10.5px] font-medium leading-none text-muted-foreground no-underline transition-colors hover:bg-foreground/10 hover:text-foreground"
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={`https://www.google.com/s2/favicons?domain=${host}&sz=64`}
                     alt=""
-                    width={16}
-                    height={16}
-                    className="h-4 w-4 shrink-0 rounded-full bg-white object-contain ring-1 ring-black/5"
+                    width={12}
+                    height={12}
+                    className="h-3 w-3 shrink-0 rounded-full bg-white object-contain ring-1 ring-black/5"
                     onError={(e) => {
                       (e.currentTarget as HTMLImageElement).style.visibility = "hidden";
                     }}
