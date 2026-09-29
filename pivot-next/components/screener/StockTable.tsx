@@ -201,7 +201,9 @@ export function StockTable({
     {
       id: "symbol",
       header: "Symbol",
-      meta: { align: "left", width: 320, sortKey: "symbol" } satisfies Meta,
+      // Slightly tighter than before so the 1D sparkline sits closer to the
+      // company name rather than across a wide gap.
+      meta: { align: "left", width: 288, sortKey: "symbol" } satisfies Meta,
       cell: ({ row }) => <Identity row={row.original} />,
     },
     {
@@ -310,12 +312,21 @@ export function StockTable({
     {
       id: "actions",
       header: "",
-      meta: { align: "right", width: 132 } satisfies Meta,
+      // Zero-width: the quick-action pill is an ABSOLUTE overlay pinned to the
+      // row's right edge (see the cell below), not a reserved column. A fixed
+      // trailing column left a permanent empty gutter to the right of "From
+      // 52W high" — the excess right-hand whitespace — that showed even though
+      // the pill only appears on hover.
+      meta: { align: "right", width: 0 } satisfies Meta,
       cell: ({ row }) => (
-        // Rendered only on hover, but the column keeps its width always, so
-        // nothing shifts as the pointer moves down the table.
         <span
           style={{
+            // Take no layout width; float over the last data cells on hover so
+            // nothing shifts and no empty column is reserved.
+            position: "absolute",
+            right: 14,
+            top: "50%",
+            transform: "translateY(-50%)",
             display: "inline-flex",
             justifyContent: "flex-end",
             visibility: hoverSym === row.original.symbol ? "visible" : "hidden",
@@ -345,7 +356,17 @@ export function StockTable({
     // vertical viewport. A second overflow container here trapped sticky
     // headers inside a box that never moved vertically.
     <div style={{ width: "100%", overflow: "visible" }}>
+      {/* Phone layout — a readable card per stock instead of a wide table you
+          have to swipe sideways through. Hidden on desktop by CSS; the table
+          below is hidden on phone. Both read the same rows, so sort/scroll
+          behaviour is identical. */}
+      <MobileStockList
+        rows={rows}
+        offset={offset}
+        onOpen={(sym) => router.push(`/stock/${encodeURIComponent(sym)}`)}
+      />
       <table
+        className="screener-table-desktop"
         style={{
           width: "100%",
           minWidth: 1420,
@@ -363,6 +384,7 @@ export function StockTable({
                 const key = meta.sortKey;
                 const active = key && sort.by === key;
                 const stickyIdentity = h.column.id === "symbol";
+                const isActions = h.column.id === "actions";
                 return (
                   <th
                     key={h.id}
@@ -371,7 +393,9 @@ export function StockTable({
                       width: meta.width,
                       minWidth: meta.width,
                       textAlign: meta.align,
-                      padding: "9px 14px",
+                      // The zero-width actions column carries no header padding
+                      // so it adds no gutter to the table's right edge.
+                      padding: isActions ? 0 : "9px 14px",
                       position: "sticky",
                       top: 0,
                       left: stickyIdentity ? 0 : undefined,
@@ -427,17 +451,21 @@ export function StockTable({
               {r.getVisibleCells().map((cell) => {
                 const meta = cell.column.columnDef.meta as Meta;
                 const stickyIdentity = cell.column.id === "symbol";
+                const isActions = cell.column.id === "actions";
                 return (
                   <td
                     key={cell.id}
                     style={{
                       textAlign: meta.align,
-                      padding: "7px 14px",
+                      // The zero-width actions cell carries no padding so it
+                      // adds nothing to the row width; its pill is an absolute
+                      // overlay anchored to this (right-edge) cell.
+                      padding: isActions ? 0 : "7px 14px",
                       borderBottom: "1px solid var(--glass-border)",
                       fontSize: 14,
                       color: "var(--text-primary)",
                       whiteSpace: "nowrap",
-                      position: stickyIdentity ? "sticky" : undefined,
+                      position: stickyIdentity ? "sticky" : isActions ? "relative" : undefined,
                       left: stickyIdentity ? 0 : undefined,
                       zIndex: stickyIdentity ? 1 : undefined,
                       background: stickyIdentity
@@ -455,6 +483,114 @@ export function StockTable({
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// ── mobile card list ─────────────────────────────────────────────────
+// The phone-width alternative to the wide table. A basic horizontal scroll
+// hides everything past "Change" behind a swipe and reads badly one-handed;
+// a card puts the identity, the price/day-move, the day shape and the three
+// numbers people actually screen on (mkt cap · P/E · 1-Y) on one readable
+// tile. Same rows, same tap target (the whole card opens the stock page).
+
+function MetricPair({ label, value, tone }: { label: string; value: string; tone?: string }): React.ReactElement {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 1, minWidth: 0 }}>
+      <span style={{ fontSize: 10, letterSpacing: "0.02em", color: "var(--text-tertiary)", whiteSpace: "nowrap" }}>
+        {label}
+      </span>
+      <span style={{ fontSize: 12.5, fontWeight: 500, color: tone ?? "var(--text-primary)", whiteSpace: "nowrap" }}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function MobileStockList({
+  rows,
+  offset,
+  onOpen,
+}: {
+  rows: ScreenerStock[];
+  offset: number;
+  onOpen: (symbol: string) => void;
+}): React.ReactElement {
+  return (
+    <div
+      className="screener-cards-mobile"
+      style={{
+        display: "none", // flipped to flex under lg by globals.css
+        flexDirection: "column",
+        gap: 8,
+        fontFamily: "var(--font-ui)",
+        fontVariantNumeric: "tabular-nums",
+      }}
+    >
+      {rows.map((row, i) => (
+        <button
+          key={row.symbol}
+          type="button"
+          onClick={() => onOpen(row.symbol)}
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 10,
+            width: "100%",
+            padding: "12px 14px",
+            textAlign: "left",
+            background: "var(--bg-primary)",
+            border: "1px solid var(--glass-border)",
+            borderRadius: "var(--radius-md, 12px)",
+            cursor: "pointer",
+            color: "var(--text-primary)",
+          }}
+        >
+          {/* Identity + price/day-move */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 11, color: "var(--text-tertiary)", minWidth: 18 }}>
+              {offset + i + 1}
+            </span>
+            <CompanyLogo logoUrl={row.logo_url} name={row.name} symbol={row.symbol} size={34} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 1, minWidth: 0, flex: 1 }}>
+              <span style={{ fontSize: 14, fontWeight: 500, letterSpacing: "-0.01em", lineHeight: 1.15, whiteSpace: "nowrap" }}>
+                {row.symbol}
+              </span>
+              <span
+                style={{
+                  fontSize: 11.5,
+                  lineHeight: 1.2,
+                  color: "var(--text-tertiary)",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+                title={row.name}
+              >
+                {row.name}
+              </span>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 1, flexShrink: 0 }}>
+              <span style={{ fontSize: 14, fontWeight: 500 }}>{fmtPrice(row.price)}</span>
+              <span style={{ fontSize: 12, fontWeight: 500, color: toneOf(row.change_pct) }}>
+                {signed(row.change_pct, "%")}
+              </span>
+            </div>
+          </div>
+
+          {/* Day shape + the three columns people screen on */}
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ flexShrink: 0 }}>
+              <Sparkline points={getSparkline(row.symbol)} baseline={row.prev_close} width={72} height={26} />
+            </div>
+            <div style={{ display: "flex", gap: 16, flex: 1, justifyContent: "flex-end" }}>
+              <MetricPair label="Mkt cap" value={fmtCr(row.market_cap_cr)} />
+              <MetricPair label="P/E" value={row.pe == null ? DASH : row.pe.toFixed(1)} />
+              <MetricPair label="1-Y" value={signed(row.one_year_pct, "%")} tone={toneOf(row.one_year_pct)} />
+            </div>
+          </div>
+        </button>
+      ))}
     </div>
   );
 }

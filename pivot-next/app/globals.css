@@ -1763,14 +1763,19 @@ body:has(.app-shell-root) {
   .screener-filter-close {
     display: inline-flex !important;
   }
-  /* Keep the table on its native width but allow swipe-scroll. The
-     right-edge gradient hints there's more to see. */
+  /* On phone the wide table is replaced by a card-per-stock list (see
+     MobileStockList in StockTable.tsx), so there's nothing to swipe sideways
+     through — the results scroll vertically with the rest of the page. */
   .screener-results {
     position: relative;
     -webkit-overflow-scrolling: touch;
+    overflow-x: hidden !important;
   }
-  .screener-table {
-    min-width: 720px;
+  .screener-table-desktop {
+    display: none !important;
+  }
+  .screener-cards-mobile {
+    display: flex !important;
   }
 }
 

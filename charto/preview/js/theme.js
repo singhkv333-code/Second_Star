@@ -35,10 +35,12 @@ const Theme = (() => {
       volDown: "rgba(242,54,69,.42)",
       handleFill: "#ffffff",
       measureText: "#0d0e12",
-      // Annotations never borrow the candle colours. Red and green mean
-      // "this bar closed down / up" everywhere else on the chart; a red
-      // resistance line reads as a price move, not as structure.
-      annRes: "#f5a524", annSup: "#22d3ee", annNeutral: "#c084fc",
+      // Annotation hue follows the pattern's DIRECTION: green for bullish
+      // structure (support, rising/falling-wedge bottoms, up-channels), red
+      // for bearish (resistance, tops, down-channels). Deliberately a step off
+      // the exact candle tones (up #089981 / down #f23645) so a support line
+      // still reads as structure rather than as one green bar.
+      annRes: "#ef4444", annSup: "#22c55e", annNeutral: "#c084fc",
       // indicator series
       s1: "#f2c14e", s2: "#4ea8f2", s3: "#c678dd", s4: "#e06c75",
       s5: "#56b6c2", s6: "#d99552",
@@ -66,7 +68,9 @@ const Theme = (() => {
       volDown: "rgba(242,54,69,.38)",
       handleFill: "#ffffff",
       measureText: "#ffffff",
-      annRes: "#b45309", annSup: "#0e7490", annNeutral: "#7c3aed",
+      // Green bullish / red bearish, darkened for white so they don't glare
+      // (see the dark-theme note above for why the hue tracks direction).
+      annRes: "#dc2626", annSup: "#15a349", annNeutral: "#7c3aed",
       // darker/denser variants — the dark-mode pastels wash out on white
       s1: "#b8860b", s2: "#1a73e8", s3: "#8b3fbe", s4: "#d1495b",
       s5: "#0f8b95", s6: "#c0651b",
