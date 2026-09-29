@@ -362,7 +362,6 @@ export function StockTable({
           behaviour is identical. */}
       <MobileStockList
         rows={rows}
-        offset={offset}
         onOpen={(sym) => router.push(`/stock/${encodeURIComponent(sym)}`)}
       />
       <table
@@ -487,73 +486,73 @@ export function StockTable({
   );
 }
 
-// ── mobile card list ─────────────────────────────────────────────────
-// The phone-width alternative to the wide table. A basic horizontal scroll
-// hides everything past "Change" behind a swipe and reads badly one-handed;
-// a card puts the identity, the price/day-move, the day shape and the three
-// numbers people actually screen on (mkt cap · P/E · 1-Y) on one readable
-// tile. Same rows, same tap target (the whole card opens the stock page).
-
-function MetricPair({ label, value, tone }: { label: string; value: string; tone?: string }): React.ReactElement {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 1, minWidth: 0 }}>
-      <span style={{ fontSize: 10, letterSpacing: "0.02em", color: "var(--text-tertiary)", whiteSpace: "nowrap" }}>
-        {label}
-      </span>
-      <span style={{ fontSize: 12.5, fontWeight: 500, color: tone ?? "var(--text-primary)", whiteSpace: "nowrap" }}>
-        {value}
-      </span>
-    </div>
-  );
-}
+// ── mobile stock list ────────────────────────────────────────────────
+// The phone-width alternative to the wide table, modelled on how Groww and
+// INDmoney show a scan list: a flat, dense list — one tappable ROW per stock,
+// hairline divider between them — not a stack of bordered cards. Each row is
+// [logo · ticker/name] ……… [day sparkline] [price / %change]. The scan list
+// stays minimal on purpose; mkt-cap / P/E / 1-Y live on the stock page, and
+// crowding them into every row is exactly what made the first pass read as
+// noise. Whole row opens the stock page.
 
 function MobileStockList({
   rows,
-  offset,
   onOpen,
 }: {
   rows: ScreenerStock[];
-  offset: number;
   onOpen: (symbol: string) => void;
 }): React.ReactElement {
   return (
     <div
       className="screener-cards-mobile"
       style={{
-        display: "none", // flipped to flex under lg by globals.css
-        flexDirection: "column",
-        gap: 8,
+        display: "none", // flipped to block under lg by globals.css
         fontFamily: "var(--font-ui)",
         fontVariantNumeric: "tabular-nums",
+        background: "var(--bg-primary)",
+        border: "1px solid var(--glass-border)",
+        borderRadius: "var(--radius-md, 12px)",
+        overflow: "hidden",
       }}
     >
-      {rows.map((row, i) => (
-        <button
-          key={row.symbol}
-          type="button"
-          onClick={() => onOpen(row.symbol)}
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 10,
-            width: "100%",
-            padding: "12px 14px",
-            textAlign: "left",
-            background: "var(--bg-primary)",
-            border: "1px solid var(--glass-border)",
-            borderRadius: "var(--radius-md, 12px)",
-            cursor: "pointer",
-            color: "var(--text-primary)",
-          }}
-        >
-          {/* Identity + price/day-move */}
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontSize: 11, color: "var(--text-tertiary)", minWidth: 18 }}>
-              {offset + i + 1}
-            </span>
-            <CompanyLogo logoUrl={row.logo_url} name={row.name} symbol={row.symbol} size={34} />
-            <div style={{ display: "flex", flexDirection: "column", gap: 1, minWidth: 0, flex: 1 }}>
-              <span style={{ fontSize: 14, fontWeight: 500, letterSpacing: "-0.01em", lineHeight: 1.15, whiteSpace: "nowrap" }}>
+      {rows.map((row, i) => {
+        const pctTone = toneOf(row.change_pct);
+        const up = (row.change_pct ?? 0) > 0;
+        const down = (row.change_pct ?? 0) < 0;
+        return (
+          <button
+            key={row.symbol}
+            type="button"
+            onClick={() => onOpen(row.symbol)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              width: "100%",
+              padding: "12px 14px",
+              textAlign: "left",
+              background: "transparent",
+              border: "none",
+              borderTop: i === 0 ? "none" : "1px solid var(--glass-border)",
+              cursor: "pointer",
+              color: "var(--text-primary)",
+              WebkitTapHighlightColor: "transparent",
+            }}
+          >
+            {/* Identity */}
+            <CompanyLogo logoUrl={row.logo_url} name={row.name} symbol={row.symbol} size={36} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0, flex: 1 }}>
+              <span
+                style={{
+                  fontSize: 14,
+                  fontWeight: 600,
+                  letterSpacing: "-0.01em",
+                  lineHeight: 1.15,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
                 {row.symbol}
               </span>
               <span
@@ -570,27 +569,47 @@ function MobileStockList({
                 {row.name}
               </span>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 1, flexShrink: 0 }}>
-              <span style={{ fontSize: 14, fontWeight: 500 }}>{fmtPrice(row.price)}</span>
-              <span style={{ fontSize: 12, fontWeight: 500, color: toneOf(row.change_pct) }}>
-                {signed(row.change_pct, "%")}
+
+            {/* Day shape — small, sits between name and price like Groww's
+                trend graph. Hidden when there's nothing to draw so the row
+                doesn't reserve an empty gap. */}
+            <div style={{ flexShrink: 0, opacity: 0.9 }}>
+              <Sparkline points={getSparkline(row.symbol)} baseline={row.prev_close} width={52} height={26} />
+            </div>
+
+            {/* Price + day move */}
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "flex-end",
+                gap: 2,
+                flexShrink: 0,
+                minWidth: 76,
+              }}
+            >
+              <span style={{ fontSize: 14, fontWeight: 600 }}>{fmtPrice(row.price)}</span>
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 2,
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: pctTone,
+                }}
+              >
+                {row.change_pct != null && (up || down) && (
+                  <span aria-hidden style={{ fontSize: 9, lineHeight: 1 }}>
+                    {up ? "▲" : "▼"}
+                  </span>
+                )}
+                {row.change_pct == null ? DASH : `${Math.abs(row.change_pct).toFixed(2)}%`}
               </span>
             </div>
-          </div>
-
-          {/* Day shape + the three columns people screen on */}
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ flexShrink: 0 }}>
-              <Sparkline points={getSparkline(row.symbol)} baseline={row.prev_close} width={72} height={26} />
-            </div>
-            <div style={{ display: "flex", gap: 16, flex: 1, justifyContent: "flex-end" }}>
-              <MetricPair label="Mkt cap" value={fmtCr(row.market_cap_cr)} />
-              <MetricPair label="P/E" value={row.pe == null ? DASH : row.pe.toFixed(1)} />
-              <MetricPair label="1-Y" value={signed(row.one_year_pct, "%")} tone={toneOf(row.one_year_pct)} />
-            </div>
-          </div>
-        </button>
-      ))}
+          </button>
+        );
+      })}
     </div>
   );
 }

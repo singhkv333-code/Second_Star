@@ -1775,7 +1775,7 @@ body:has(.app-shell-root) {
     display: none !important;
   }
   .screener-cards-mobile {
-    display: flex !important;
+    display: block !important;
   }
 }
 
