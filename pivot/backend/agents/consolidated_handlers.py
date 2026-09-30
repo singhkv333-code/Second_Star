@@ -89,6 +89,10 @@ _SECTOR_WORDS: dict[str, str] = {
     "METALS": "Metals & Mining", "METAL": "Metals & Mining",
     "REALTY": "Real Estate", "INFRA": "Infrastructure",
 }
+_INDEX_NAMES: frozenset = frozenset({
+    "NIFTY", "NIFTY50", "NIFTY 50", "SENSEX", "BANKNIFTY", "BANK NIFTY",
+    "NIFTYBANK", "MIDCAP", "NIFTYMIDCAP", "NIFTY MIDCAP 100",
+})
 _CURRENCY_WORDS: frozenset = frozenset({
     "RUPEES", "RUPEE", "RS", "INR", "LAKH", "LAKHS", "CRORE", "CRORES",
 })
@@ -123,6 +127,11 @@ async def _get_market_data(a: dict, kt: str, db, uid: int) -> dict:
         return _nt
 
     view = (a.get("view") or "").strip().lower()
+    if view == "quote" and _sym0 in _INDEX_NAMES:
+        # The description promises index names; the stock quote path looked
+        # them up as NIFTY.NS and waited out a 5s miss. The index path has
+        # Kite and yfinance tiers of its own.
+        return await tx._get_index_level({"index": _sym0}, kt, db, uid)
     if view == "quote":
         out = await tx._get_live_price(a, kt, db, uid)
         # 51-sweep: a transient feed miss on a VALID ticker was narrated

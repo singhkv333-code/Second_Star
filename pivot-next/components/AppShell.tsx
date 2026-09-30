@@ -35,7 +35,6 @@ import {
   ListFilter,
   LogOut,
   Menu,
-  Maximize2,
   MessagesSquare,
   Pin,
   Plus,
@@ -66,6 +65,9 @@ import { AgentsTab } from "@/components/agent-panel/AgentsTab";
 import { PortfolioTab } from "@/components/agent-panel/PortfolioTab";
 import { ChartFrame } from "@/components/chart/ChartFrame";
 import { QuickAsk } from "@/components/copilot/QuickAsk";
+import { AssistantPanel } from "@/components/copilot/AssistantPanel";
+import { warmAssist, type AssistPage } from "@/lib/assist";
+import { getAccessToken } from "@/lib/authToken";
 import { putPendingScreen } from "@/lib/screensApi";
 import type { PendingScreen } from "@/lib/screensApi";
 import { ScreenerPage } from "@/components/screener/ScreenerPage";
@@ -320,6 +322,8 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   // Presentation state only. The chat component stays mounted while this
   // toggles, so side-panel/full-workspace transitions cannot fork a thread.
   const [copilotPanelOpen, setCopilotPanelOpen] = useState(false);
+  // A question typed into the page's prompt bar, handed to the assistant.
+  const [assistSeed, setAssistSeed] = useState<string | undefined>(undefined);
   // Which brokers are connected, for the Brokers tab's grounding line. Fetched
   // only once the tab has actually been opened: an unvisited tab has nothing to
   // ground, and this should never become a request every session pays for.
@@ -785,7 +789,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
       return;
     }
     setCopilotPanelOpen(true);
-    setSeededChatPrompt(question);
+    setAssistSeed(question);
   }, [active, children]);
   const clearSeededChatPrompt = useCallback(() => setSeededChatPrompt(undefined), []);
 
@@ -1078,6 +1082,20 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
             ? "Ask about my agents…"
             : "Ask Pivot…";
 
+  const assistPage: AssistPage =
+    copilotContext.kind === "security" ? "stock" : copilotContext.page;
+  const assistSymbol = copilotContext.kind === "security" ? copilotContext.symbol : undefined;
+
+  // Fetch the page's data for the assistant once the user has settled on a
+  // page, so a question asked from the bar starts from a warm snapshot.
+  useEffect(() => {
+    if (!children && (active === "chat" || active === "chart")) return;
+    const t = setTimeout(() => {
+      void getAccessToken().then((tok) => warmAssist(assistPage, assistSymbol, tok));
+    }, 800);
+    return () => clearTimeout(t);
+  }, [active, children, assistPage, assistSymbol]);
+
   // Broker state for the grounding line. Refreshed whenever the tab is opened,
   // so a connection made moments ago is reflected in the very next question.
   useEffect(() => {
@@ -1202,11 +1220,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
               Paper dashboard picking up a newly-filled order). */}
           <div
             className={
-              !children && active === "chat"
-                ? "relative flex h-full w-full min-h-0"
-                : (!children ? active !== "chart" : true)
-                  ? `copilot-side-panel ${copilotPanelOpen ? "copilot-side-panel--open" : "copilot-side-panel--closed"}`
-                  : "hidden"
+              !children && active === "chat" ? "relative flex h-full w-full min-h-0" : "hidden"
             }
             style={{
               // Compress the chat surface when a side editor is open so
@@ -1217,33 +1231,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
               paddingRight: !children && active === "chat" ? "var(--side-panel-width, 0px)" : 0,
               transition: "padding-right 300ms cubic-bezier(0.22, 1, 0.36, 1)",
             }}
-            role={copilotPanelOpen && (Boolean(children) || active !== "chat") ? "complementary" : undefined}
-            aria-label={copilotPanelOpen && (Boolean(children) || active !== "chat") ? "Pivot Copilot" : undefined}
           >
-              {(Boolean(children) || (active !== "chat" && active !== "chart")) && (
-                <div className="copilot-panel-header" data-testid="copilot-panel-header" aria-label="Copilot panel controls">
-                  <button
-                    type="button"
-                    className="copilot-panel-action"
-                    onClick={() => goTab("chat")}
-                    aria-label="Expand Copilot to full workspace"
-                    title="Expand to full workspace"
-                  >
-                    <Maximize2 size={16} aria-hidden={true} />
-                  </button>
-                  <button
-                    type="button"
-                    className="copilot-panel-action"
-                    onClick={() => {
-                      setCopilotPanelOpen(false);
-                      requestAnimationFrame(() => window.dispatchEvent(new Event("pivot:focus-quick-ask")));
-                    }}
-                    aria-label="Close Copilot panel"
-                  >
-                    <X size={17} aria-hidden={true} />
-                  </button>
-                </div>
-              )}
               {!children && active === "chat" && (
                 <ChatHistoryPane
                   activeConversationId={resumeConv?.id ?? activeConversationId}
@@ -1301,6 +1289,33 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
                 />
               </div>
             </div>
+          {/* The page assistant: the prompt bar's answers, beside any page
+              but Chat (the full workspace) and Chart (Charto's own chat). */}
+          {(Boolean(children) || (active !== "chat" && active !== "chart")) && (
+            <aside
+              className={`copilot-side-panel ${copilotPanelOpen ? "copilot-side-panel--open" : "copilot-side-panel--closed"}`}
+              role={copilotPanelOpen ? "complementary" : undefined}
+              aria-label={copilotPanelOpen ? "Pivot Assistant" : undefined}
+              aria-hidden={!copilotPanelOpen}
+            >
+              <AssistantPanel
+                page={assistPage}
+                symbol={assistSymbol}
+                contextLabel={quickAskContextLabel}
+                seed={assistSeed}
+                onSeedConsumed={() => setAssistSeed(undefined)}
+                onOpenFullChat={(question) => {
+                  setCopilotPanelOpen(false);
+                  if (question) setSeededChatPrompt(question);
+                  goTab("chat");
+                }}
+                onClose={() => {
+                  setCopilotPanelOpen(false);
+                  requestAnimationFrame(() => window.dispatchEvent(new Event("pivot:focus-quick-ask")));
+                }}
+              />
+            </aside>
+          )}
           {/* Non-chat surfaces — KEEP-ALIVE: each pane mounts on its first
               visit and then stays mounted-but-hidden (display:none), so tab
               switches never re-fetch or re-skeleton. Wrapper classes per tab
@@ -1418,6 +1433,10 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
           placeholder={quickAskPlaceholder}
           contextLabel={quickAskContextLabel}
           onSubmit={askFromQuickComposer}
+          onFocus={() => {
+            if (!children && active === "chart") return;
+            void getAccessToken().then((t) => warmAssist(assistPage, assistSymbol, t));
+          }}
           visible={active === "chart" ? !chartChatOpen : !copilotPanelOpen}
         />
       )}

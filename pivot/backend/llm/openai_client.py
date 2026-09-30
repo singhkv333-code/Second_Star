@@ -514,6 +514,7 @@ async def stream_openai(
     hosted_tools: Optional[list[dict[str, Any]]] = None,
     previous_response_id: Optional[str] = None,
     verbosity: Optional[Literal["low", "medium", "high"]] = None,
+    reasoning_summary: Optional[Literal["auto", "concise", "detailed"]] = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Stream a Responses API call.
 
@@ -565,6 +566,11 @@ async def stream_openai(
         effort_on_wire = client._translate_reasoning_effort(reasoning_effort)
         if effort_on_wire:
             payload["reasoning"] = {"effort": effort_on_wire}
+            # Summaries of the reasoning, streamed as
+            # response.reasoning_summary_text.delta: what a reader may see of
+            # the model's thinking. The raw reasoning is never sent.
+            if reasoning_summary:
+                payload["reasoning"]["summary"] = reasoning_summary
     _wire_tools: list[dict[str, Any]] = (
         _tools_to_responses_format(tools) if tools else []
     )

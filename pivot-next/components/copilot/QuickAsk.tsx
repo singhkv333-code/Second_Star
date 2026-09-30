@@ -7,6 +7,8 @@ type QuickAskProps = {
   placeholder: string;
   contextLabel: string;
   onSubmit: (question: string) => void;
+  /** The bar gained focus: the page's data can be fetched while they type. */
+  onFocus?: () => void;
   visible?: boolean;
 };
 
@@ -19,6 +21,7 @@ export function QuickAsk({
   placeholder,
   contextLabel,
   onSubmit,
+  onFocus,
   visible = true,
 }: QuickAskProps): React.ReactElement {
   const [value, setValue] = useState("");
@@ -56,6 +59,7 @@ export function QuickAsk({
           rows={1}
           value={value}
           onChange={(event) => setValue(event.target.value)}
+          onFocus={onFocus}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault();

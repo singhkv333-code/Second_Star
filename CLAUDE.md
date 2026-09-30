@@ -194,6 +194,13 @@ user message
   pre-LLM determinism and ASK_USER discipline.
 - **Cards and drawings are the commit surface.** For any order verb, *call the
   tool* — prose "Confirm: Buy 10 …" is uncommittable.
+- **The page assistant** (`services/assist_chat.py`, `POST /chat/assist`) is
+  a separate, light engine behind the prompt bar on every page but Chat and
+  Chart. The page's data is fetched up front (cached 60s, warmed while the
+  user types), the brief is ~400 tokens, each page gets a few read-only
+  tools, there are at most two tool rounds, and there is no web search.
+  Depth and actions stay in the full chat. See
+  `docs/handoffs/2026-09-30-page-assistant.md`.
 - **REPLY-CLASS** (injected per turn): `ANALYSIS` (250-450w, sectioned),
   `EXPLAINER` (250-500w), `SHORT-ANALYTICAL`/`CAPABILITY` (≤120w),
   `SMALL-TALK` (1-2 sentences), plus card-driven `DRAFT`/`AUTOMATION`/`BACKTEST`.

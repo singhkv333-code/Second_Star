@@ -1209,3 +1209,112 @@ async def chat_stream(
             "Connection": "keep-alive",
         },
     )
+
+
+# ── The page assistant ────────────────────────────────────────────────────────
+# The quick answer behind the prompt bar on every page. Its own engine
+# (services/assist_chat.py): the page's data fetched up front, a short brief,
+# a few read-only tools. The full chat above stays the place for depth.
+
+
+class AssistRequest(BaseModel):
+    message: str
+    history: list[dict] = []
+    page: str = "home"
+    symbol: Optional[str] = None
+    # Lines the browser alone holds (the screen just run, the watchlist).
+    visible: list[str] = []
+    thread_id: Optional[str] = None
+
+
+class AssistWarmRequest(BaseModel):
+    page: str = "home"
+    symbol: Optional[str] = None
+
+
+def _assist_ctx(db: Session, user_id: int) -> UserContext:
+    return UserContext(user_id=user_id, kite_token=_kite_token_for(db, user_id),
+                       db=db, holdings=[])
+
+
+@router.post("/assist/warm", dependencies=[Depends(rate_limit("assist_warm", 60, 60))])
+async def assist_warm(
+    request: AssistWarmRequest,
+    authorization: str = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Fetch and cache the page's data while the user is still typing, so the
+    question itself starts from a warm snapshot. Costs no credit."""
+    from backend.services import assist_chat
+
+    user_id = _auth(authorization)
+    t0 = asyncio.get_running_loop().time()
+    try:
+        await assist_chat.page_snapshot(request.page, request.symbol,
+                                        _assist_ctx(db, user_id))
+    except Exception:  # noqa: BLE001 — warming is best-effort
+        logger.exception("assist warm failed")
+        return {"ok": False}
+    return {"ok": True, "ms": int((asyncio.get_running_loop().time() - t0) * 1000)}
+
+
+@router.post("/assist", dependencies=[Depends(rate_limit("chat", 40, 60))])
+async def assist_stream(
+    request: AssistRequest,
+    http_request: Request,
+    authorization: str = Header(None),
+    db: Session = Depends(get_db),
+):
+    """The page assistant's answer as SSE: start · thought · tool_start ·
+    tool_done · card · delta · replace · done · error. Every error message is
+    a sentence written for the user; details stay in the log."""
+    from backend.services import assist_chat
+
+    user_id = _auth(authorization)
+    message = (request.message or "").strip()
+    if not message:
+        raise HTTPException(400, "empty message")
+    ctx = _assist_ctx(db, user_id)
+    history = [
+        {"role": m.get("role"), "content": str(m.get("content") or "")}
+        for m in request.history or []
+        if isinstance(m, dict) and m.get("role") in {"user", "assistant"} and m.get("content")
+    ]
+    credit_key = _meter.turn_key(
+        f"assist:{user_id}:{request.thread_id or ''}",
+        [*history, {"role": "user", "content": message}],
+        http_request.headers.get("Idempotency-Key", ""))
+    debit = await asyncio.to_thread(_meter.debit, authorization, credit_key,
+                                    db=db, user_id=user_id)
+    if not debit.ok:
+        return JSONResponse(status_code=debit.status, content=debit.body)
+
+    async def gen():
+        failed = False
+        try:
+            events = assist_chat.stream_turn(
+                message=message, history=history, ctx=ctx,
+                client=_chat_service._client(), page=request.page,
+                symbol=request.symbol, visible=request.visible)
+            async for event in _with_keepalive(events):
+                if event is None:
+                    yield ": keepalive\n\n"
+                    continue
+                if event.get("type") == "error":
+                    failed = True
+                elif event.get("type") == "done" and debit.credits:
+                    event = {**event, "credits": debit.credits}
+                yield f"data: {json.dumps(event, default=str)}\n\n"
+        except Exception:  # noqa: BLE001 — the user gets a sentence, the log the trace
+            logger.exception("assist stream failed")
+            failed = True
+            yield f"data: {json.dumps({'type': 'error', 'message': assist_chat.FAILURE['internal']})}\n\n"
+        if failed:
+            await asyncio.to_thread(_meter.refund, authorization, credit_key,
+                                    db=db, user_id=user_id)
+
+    return StreamingResponse(gen(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache, no-transform",
+        "X-Accel-Buffering": "no",
+        "Connection": "keep-alive",
+    })

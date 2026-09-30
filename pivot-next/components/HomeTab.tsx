@@ -65,6 +65,7 @@ import { isError } from "@/lib/types";
 import type { Workflow } from "@/lib/types";
 import { useTradingMode } from "@/lib/trading-mode";
 import { useWatchlists, setActiveWatchlist, type Watchlist } from "@/lib/watchlists";
+import { publishVisible } from "@/lib/assist";
 import { useCompanyLogos } from "@/hooks/useCompanyLogos";
 import { Panel } from "@/components/ds/surfaces";
 import { CompanyLogo } from "@/components/CompanyLogo";
@@ -1307,6 +1308,18 @@ function WatchlistCard({
     ).then((res) => { if (alive) setRows(res); });
     return () => { alive = false; };
   }, [tickersKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The assistant on Home sees the watchlist as shown (the rest of Home it
+  // fetches itself).
+  useEffect(() => {
+    publishVisible("home", [
+      `Watchlist ${wl.activeId} (${tickers.length} shown)`,
+      ...(rows ?? []).map((r) =>
+        `${r.symbol}${r.name ? ` (${r.name})` : ""}: ` +
+        (r.ltp === null ? "price unavailable" : `₹${r.ltp}`) +
+        (r.changePct === null ? "" : `, ${r.changePct >= 0 ? "+" : ""}${r.changePct.toFixed(2)}% today`)),
+    ]);
+  }, [rows, wl.activeId, tickers.length]);
 
   return (
     <CardShell

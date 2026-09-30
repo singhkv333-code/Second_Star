@@ -39,6 +39,7 @@ import { isError } from "@/lib/types";
 import { ScreensBar } from "@/components/screener/ScreensBar";
 import type { ActiveScreen } from "@/components/screener/ScreensBar";
 import { PENDING_SCREEN_EVENT, takePendingScreen } from "@/lib/screensApi";
+import { publishVisible } from "@/lib/assist";
 import type { SavedScreen, ScreenFilters } from "@/lib/screensApi";
 import {
   getScreenerStocks,
@@ -684,6 +685,22 @@ function StocksScreen({
   // Bumped by the "metrics warming" poll to re-run the fetch effect (and its
   // background revalidation) until live price/change/1-Y columns fill in.
   const [reloadTick, setReloadTick] = useState(0);
+
+  // What the assistant beside this page sees: the screen and its first rows,
+  // exactly as shown, so "which of these…" is about these.
+  useEffect(() => {
+    const n = (v: number | null, suffix = ""): string =>
+      v === null || v === undefined ? "n/a" : `${Math.round(v * 100) / 100}${suffix}`;
+    publishVisible("screener", [
+      `Screen: ${currentScreenCriteria || "no filters (whole universe)"}; ${total} match; ` +
+        `sorted by ${sort.key.replace(/_/g, " ")} ${sort.dir === 1 ? "ascending" : "descending"}; ` +
+        `first ${Math.min(rows.length, 25)} rows below`,
+      ...rows.slice(0, 25).map((r) =>
+        `${r.symbol} (${r.name}), ${r.sector.replace(/_/g, " ")}: price ₹${n(r.price)}, ` +
+        `day ${n(r.change_pct, "%")}, mcap ₹${n(r.market_cap_cr)} Cr, P/E ${n(r.pe)}, ` +
+        `ROE ${n(r.roe, "%")}, ROCE ${n(r.roce, "%")}, D/E ${n(r.de)}, 1Y ${n(r.one_year_pct, "%")}`),
+    ]);
+  }, [rows, total, currentScreenCriteria, sort]);
 
   const [sectors, setSectors] = useState<ScreenerSector[]>(
     () => _sectorsCache ?? [],

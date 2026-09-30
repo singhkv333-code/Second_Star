@@ -568,8 +568,8 @@ tool("get_live_price",
      defaults={"exchange": "NSE"})
 
 tool("get_index_level",
-     "Returns current level of Nifty 50, BankNifty, or Sensex.",
-     {"index": {"type": "string", "enum": ["NIFTY50","BANKNIFTY","SENSEX"], "default": "NIFTY50"}},
+     "Returns current level of Nifty 50, BankNifty, Sensex or Nifty Midcap 100.",
+     {"index": {"type": "string", "enum": ["NIFTY50","BANKNIFTY","SENSEX","NIFTYMIDCAP"], "default": "NIFTY50"}},
      [])
 
 tool("get_ohlc",
