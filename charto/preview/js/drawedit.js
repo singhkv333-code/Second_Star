@@ -91,7 +91,7 @@ const DrawEdit = (() => {
     // accent (rec.color unset). The swatch popover marks the current one from
     // this, so it must be the stored value, not the resolved theme colour.
     style.val = rec.color || null;
-    return { id, style, locked: !!rec.locked, isText: d.isText(id) };
+    return { id, type: rec.type, style, locked: !!rec.locked, isText: d.isText(id) };
   }
 
   /* ── the three sub-popovers ──────────────────────────────────────────────
@@ -182,48 +182,226 @@ const DrawEdit = (() => {
     });
   }
 
-  /* The gear: a per-DRAWING settings panel, the way Groww and TradingView open
-   * one. Not the chart-settings dialog (that styles the candles, not the shape
-   * you have selected) — it collects this shape's own colour, width and line
-   * style in one card, plus "Edit text" for a note. Every control writes
-   * through the same setStyle the inline buttons do, so the two never disagree. */
-  function settingsPop(trigger, info) {
+  /* ── the settings dialog ─────────────────────────────────────────────────
+   *
+   * TradingView's / Groww's drawing-properties modal, rebuilt on Pivot's
+   * tokens: a titled card ("Trend line ✎  ✕") with Style · Text · Coordinates ·
+   * Visibility tabs, and a Template / Cancel / Ok footer. The gear opens THIS,
+   * not the chart-settings dialog.
+   *
+   * What is wired to real behaviour (setStyle): Line colour, Thickness, Line
+   * style, Extend, Price labels. What is shown as UI but not yet backed by the
+   * drawing engine — Middle point, Stats, Stats position, Always show stats,
+   * the Text/Coordinates/Visibility tab bodies, Template — is disabled or
+   * inert, because those need per-tool geometry work (flagged for follow-up).
+   * A `data-soon` marker greys them so the dialog reads as complete without
+   * claiming a control does something it does not.
+   *
+   * The Style controls a given shape shows follow its type: a horizontal line
+   * has no Extend (it is already full width), a text note leads with Text.
+   */
+  const EXTENDS = [
+    { v: "none", label: "Don't extend" },
+    { v: "left", label: "Extend left" },
+    { v: "right", label: "Extend right" },
+    { v: "both", label: "Extend both" },
+  ];
+  // shapes built from a single segment can extend; area/level/channel shapes
+  // either span the plot already or are not a line to extend
+  const CAN_EXTEND = new Set(["trend", "ray", "extended", "infoLine", "trendAngle"]);
+
+  let dlgEl = null;
+  function closeDialog() {
+    if (dlgEl) { dlgEl.remove(); dlgEl = null; }
+    document.removeEventListener("keydown", onDialogKey, true);
+  }
+  function onDialogKey(e) {
+    if (e.key === "Escape") { e.stopPropagation(); closeDialog(); }
+  }
+
+  function openSettingsDialog(info) {
+    closeDialog();
+    const type = info.type || (draw() && draw().styleOf(curId) || {}).type || "trend";
+    const spec = (typeof Tools !== "undefined") && Tools.SPECS[type];
+    const title = spec ? spec.label : "Drawing";
+    const canExtend = CAN_EXTEND.has(type);
+    const isText = info.isText;
+
+    // remember the state at open, so Cancel can restore it
+    const snapshot = { ...info.style };
+
+    const back = document.createElement("div");
+    back.className = "de-dlg-back";
+    back.innerHTML =
+      `<div class="de-dlg" role="dialog" aria-label="${esc(title)} settings">`
+      + `<div class="de-dlg-head">`
+        + `<div class="de-dlg-title">${esc(title)} ${svg("pen", "xs")}</div>`
+        + `<button type="button" class="de-dlg-x" data-x title="Close">${svg("x", "sm")}</button>`
+      + `</div>`
+      + `<div class="de-dlg-tabs">`
+        + `<button type="button" class="de-tab on" data-tab="style">Style</button>`
+        + `<button type="button" class="de-tab" data-tab="text">Text</button>`
+        + `<button type="button" class="de-tab" data-tab="coords">Coordinates</button>`
+        + `<button type="button" class="de-tab" data-tab="vis">Visibility</button>`
+      + `</div>`
+      + `<div class="de-dlg-body">`
+        + stylePane(info, canExtend, isText)
+        + `<div class="de-pane" data-pane="text" hidden>${textPane(info)}</div>`
+        + `<div class="de-pane" data-pane="coords" hidden>${coordsPane()}</div>`
+        + `<div class="de-pane" data-pane="vis" hidden>${visPane()}</div>`
+      + `</div>`
+      + `<div class="de-dlg-foot">`
+        + `<button type="button" class="de-tmpl" data-soon disabled>Template ${svg("chevronDown", "xs")}</button>`
+        + `<div class="de-foot-r">`
+          + `<button type="button" class="btn" data-cancel>Cancel</button>`
+          + `<button type="button" class="btn primary" data-ok>Ok</button>`
+        + `</div>`
+      + `</div></div>`;
+    document.body.appendChild(back);
+    dlgEl = back;
+    paintLinePreview(back);
+    if (Ctx && Ctx.glass) try { Ctx.glass(back.querySelector(".de-dlg")); } catch {}
+    // tab switching
+    back.addEventListener("click", (e) => {
+      const tab = e.target.closest(".de-tab");
+      if (tab) {
+        for (const t of back.querySelectorAll(".de-tab")) t.classList.toggle("on", t === tab);
+        for (const p of back.querySelectorAll(".de-pane")) p.hidden = p.dataset.pane !== tab.dataset.tab;
+        return;
+      }
+      if (e.target.closest("[data-x]") || e.target.closest("[data-cancel]")) {
+        // Cancel restores the style the shape had when the dialog opened
+        draw().setStyle(curId, snapshot);
+        refresh(); closeDialog(); return;
+      }
+      if (e.target.closest("[data-ok]")) { closeDialog(); return; }
+      if (e.target.closest("[data-soon]")) return;   // inert, flagged UI
+
+      // the Line control opens/closes its inline swatch+width+style panel
+      if (e.target.closest("[data-color-open]")) {
+        const pop = back.querySelector(".de-line-pop");
+        if (pop) pop.classList.toggle("open");
+        return;
+      }
+
+      // ── live Style controls ──
+      const sw = e.target.closest("[data-color]");
+      if (sw) {
+        draw().setStyle(curId, { color: SWATCHES[Number(sw.dataset.color)].val });
+        markOn(back, "[data-color]", sw); paintLinePreview(back); refresh(); return;
+      }
+      const w = e.target.closest("[data-width]");
+      if (w) {
+        draw().setStyle(curId, { width: Number(w.dataset.width) });
+        markOn(back, "[data-width]", w); paintLinePreview(back); refresh(); return;
+      }
+      const st = e.target.closest("[data-style]");
+      if (st) {
+        draw().setStyle(curId, { dash: STYLES[Number(st.dataset.style)].dash });
+        markOn(back, "[data-style]", st); paintLinePreview(back); refresh(); return;
+      }
+      const pl = e.target.closest("[data-price-labels]");
+      if (pl) {
+        const on = !pl.classList.contains("on");
+        pl.classList.toggle("on", on);
+        draw().setStyle(curId, { priceLabels: on }); refresh(); return;
+      }
+      const et = e.target.closest("[data-edit-text]");
+      if (et) { closeDialog(); draw().editText(curId); return; }
+    });
+    // Extend dropdown
+    const ext = back.querySelector("[data-extend]");
+    if (ext) ext.addEventListener("change", () => {
+      draw().setStyle(curId, { extend: ext.value }); refresh();
+    });
+    back.addEventListener("mousedown", (e) => { if (e.target === back) {
+      draw().setStyle(curId, snapshot); refresh(); closeDialog();
+    } });
+    document.addEventListener("keydown", onDialogKey, true);
+  }
+
+  /** The Style tab — the one with real controls. */
+  function stylePane(info, canExtend, isText) {
     const curW = info.style.width || 2;
     const curDash = (info.style.dash || []).join(",");
-    const swatches = `<div class="de-set-sec"><div class="de-set-lab">Colour</div>`
-      + `<div class="de-swatches">` + SWATCHES.map((s, i) =>
-        `<button type="button" class="de-swatch" data-color="${i}" title="${s.name}"`
-        + ` style="--sw:${s.css || s.val}"></button>`).join("") + `</div></div>`;
-    const widths = `<div class="de-set-sec"><div class="de-set-lab">Thickness</div>`
-      + `<div class="de-set-row">` + WIDTHS.map((w) =>
-        `<button type="button" class="de-chip${w === curW ? " on" : ""}" data-width="${w}">`
-        + `<span class="de-wline" style="height:${w}px;width:20px"></span></button>`).join("")
-      + `</div></div>`;
-    const styles = `<div class="de-set-sec"><div class="de-set-lab">Line</div>`
-      + `<div class="de-set-row">` + STYLES.map((s, i) => {
-        const on = s.dash.join(",") === curDash;
-        const stroke = s.dash.length ? `stroke-dasharray:${s.dash.join(" ")}` : "";
-        return `<button type="button" class="de-chip${on ? " on" : ""}" data-style="${i}">`
-          + `<svg viewBox="0 0 30 8" class="de-sline" aria-hidden="true">`
-          + `<line x1="1" y1="4" x2="29" y2="4" style="${stroke}"/></svg></button>`;
-      }).join("") + `</div></div>`;
-    const textRow = info.isText
-      ? `<div class="de-set-sec"><button type="button" class="de-mrow" data-edit-text>`
-        + `${svg("pen", "sm")} Edit text</button></div>` : "";
-    const el = openPopover(trigger, swatches + widths + styles + textRow, "de-setpop");
-    if (!el) return;
-    el.addEventListener("click", (e) => {
-      const sw = e.target.closest("[data-color]");
-      if (sw) { draw().setStyle(curId, { color: SWATCHES[Number(sw.dataset.color)].val }); return refresh(); }
-      const w = e.target.closest("[data-width]");
-      if (w) { draw().setStyle(curId, { width: Number(w.dataset.width) });
-               markOn(el, "[data-width]", w); return refresh(); }
-      const st = e.target.closest("[data-style]");
-      if (st) { draw().setStyle(curId, { dash: STYLES[Number(st.dataset.style)].dash });
-                markOn(el, "[data-style]", st); return refresh(); }
-      if (e.target.closest("[data-edit-text]")) { closePop(); draw().editText(curId); }
-    });
+    const curExt = info.style.extend || "none";
+    const line =
+      `<div class="de-frow"><div class="de-flab">Line</div><div class="de-fctl de-line-ctl">`
+      + `<button type="button" class="de-line-color" data-color-open>`
+        + `<span class="de-dot de-dlg-dot"></span>`
+        + `<svg viewBox="0 0 30 8" class="de-line-prev" aria-hidden="true"><line x1="1" y1="4" x2="29" y2="4"/></svg>`
+      + `</button>`
+      // the swatch grid + width + style all live in a small inline panel so the
+      // whole "Line" control is one row, as TradingView draws it
+      + `<div class="de-line-pop">`
+        + `<div class="de-swatches">` + SWATCHES.map((s, i) =>
+            `<button type="button" class="de-swatch" data-color="${i}" title="${s.name}" style="--sw:${s.css || s.val}"></button>`).join("")
+        + `</div>`
+        + `<div class="de-set-lab">Thickness</div><div class="de-set-row">` + WIDTHS.map((w) =>
+            `<button type="button" class="de-chip${w === curW ? " on" : ""}" data-width="${w}">`
+            + `<span class="de-wline" style="height:${w}px;width:20px"></span></button>`).join("") + `</div>`
+        + `<div class="de-set-lab">Style</div><div class="de-set-row">` + STYLES.map((s, i) => {
+            const on = s.dash.join(",") === curDash;
+            const stroke = s.dash.length ? `stroke-dasharray:${s.dash.join(" ")}` : "";
+            return `<button type="button" class="de-chip${on ? " on" : ""}" data-style="${i}">`
+              + `<svg viewBox="0 0 30 8" class="de-sline" aria-hidden="true"><line x1="1" y1="4" x2="29" y2="4" style="${stroke}"/></svg></button>`;
+          }).join("") + `</div>`
+      + `</div></div></div>`;
+    const extend = canExtend
+      ? `<div class="de-frow"><div class="de-flab">Extend</div><div class="de-fctl">`
+        + `<select class="de-select" data-extend>` + EXTENDS.map((o) =>
+            `<option value="${o.v}"${o.v === curExt ? " selected" : ""}>${o.label}</option>`).join("")
+        + `</select></div></div>`
+      : "";
+    const priceLabels =
+      `<div class="de-frow de-check-row"><label class="de-check" data-price-labels${info.style.priceLabels ? " on" : ""}>`
+      + `<span class="de-box">${svg("check", "xs")}</span> Price labels</label></div>`;
+    const middle =
+      `<div class="de-frow de-check-row"><label class="de-check" data-soon><span class="de-box">${svg("check", "xs")}</span> Middle point</label></div>`;
+    const editText = isText
+      ? `<div class="de-frow"><button type="button" class="de-mrow" data-edit-text>${svg("pen", "sm")} Edit text</button></div>`
+      : "";
+    const info2 =
+      `<div class="de-flab de-section">Info</div>`
+      + `<div class="de-frow"><div class="de-flab">Stats</div><div class="de-fctl">`
+        + `<select class="de-select" data-soon disabled><option>Hidden</option></select></div></div>`
+      + `<div class="de-frow"><div class="de-flab">Stats position</div><div class="de-fctl">`
+        + `<select class="de-select" data-soon disabled><option>Right</option></select></div></div>`
+      + `<div class="de-frow de-check-row"><label class="de-check" data-soon><span class="de-box">${svg("check", "xs")}</span> Always show stats</label></div>`;
+    return `<div class="de-pane" data-pane="style">`
+      + line + extend + priceLabels + middle + editText + info2 + `</div>`;
   }
+
+  function textPane(info) {
+    return info.isText
+      ? `<div class="de-frow"><button type="button" class="de-mrow" data-edit-text>${svg("pen", "sm")} Edit text</button></div>`
+      : `<div class="de-empty">This drawing has no text.</div>`;
+  }
+  function coordsPane() {
+    return `<div class="de-empty">Coordinate editing is coming soon — drag the shape's anchors on the chart to move it.</div>`;
+  }
+  function visPane() {
+    return `<div class="de-empty">Per-timeframe visibility is coming soon.</div>`;
+  }
+
+  /** Repaint the Line control's colour dot + dashed preview in the dialog. */
+  function paintLinePreview(root) {
+    const info = shapeInfo(curId);
+    if (!info) return;
+    const dot = root.querySelector(".de-dlg-dot");
+    if (dot) dot.style.background = info.style.color || "var(--primary)";
+    const line = root.querySelector(".de-line-prev line");
+    if (line) {
+      line.style.stroke = info.style.color || "var(--primary)";
+      const dash = info.style.dash || [];
+      line.style.strokeDasharray = dash.length ? dash.join(" ") : "";
+      line.style.strokeWidth = (info.style.width || 2);
+    }
+  }
+
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
   /** Move the `.on` mark to the clicked chip within a group, so the panel
    *  reflects the choice without a full rebuild. */
   function markOn(root, sel, chosen) {
@@ -312,7 +490,7 @@ const DrawEdit = (() => {
       case "text":   closePop(); return d.editText(curId);
       case "clone":  closePop(); return void d.clone(curId);
       case "lock":   closePop(); d.setLocked(curId, !info.locked); return refresh();
-      case "settings": return settingsPop(b, info);
+      case "settings": closePop(); return openSettingsDialog(info);
       case "more":   return morePop(b, info);
       case "del":    closePop(); return void d.remove(curId);
     }
