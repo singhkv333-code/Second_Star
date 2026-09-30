@@ -54,6 +54,9 @@ const Drawings = (() => {
 
     // ── persistence + telemetry ─────────────────────────
     function load() {
+      // A shared setup's drawings arrive through setAll(); the viewer's own
+      // saved shapes for this symbol stay where they are (see store.js).
+      if (Store.viewOnly) return [];
       try {
         const raw = (JSON.parse(localStorage.getItem(STORE_KEY) || "[]") || [])
           .filter((d) => Tools.SPECS[d.type])
@@ -72,7 +75,9 @@ const Drawings = (() => {
       } catch { return []; }
     }
     const save = () => {
-      try { localStorage.setItem(STORE_KEY, JSON.stringify(state.drawings)); } catch {}
+      if (!Store.viewOnly) {
+        try { localStorage.setItem(STORE_KEY, JSON.stringify(state.drawings)); } catch {}
+      }
       // Every path that changes a drawing ends here — placement, the drag
       // release, the Delete key, the card's Remove, clear-all — so this is
       // the one line the undo stack has to hear about. It is a no-op while

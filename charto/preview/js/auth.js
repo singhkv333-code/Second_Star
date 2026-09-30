@@ -130,10 +130,14 @@ const Auth = (() => {
     /* ── saved work ──────────────────────────────────────────────────────
        Thin wrappers, deliberately: Store owns WHAT is kept and this owns
        only whose it is. Signed out these are never called. */
+    // A view session (?view=) must neither read the viewer's own saved desk
+    // into someone else's setup nor write that setup over it. See store.js.
     loadWorkspace(symbol) {
+      if (Store.viewOnly) return Promise.resolve({ symbol, state: {} });
       return call(`/workspace?symbol=${encodeURIComponent(symbol)}`);
     },
     saveWorkspace(symbol, state) {
+      if (Store.viewOnly) return Promise.resolve({ saved: 0 });
       return call("/workspace", { symbol, state });
     },
     listLayouts() { return call("/layouts"); },
@@ -463,7 +467,10 @@ window.Auth = Auth;
     const me = await Auth.resume();
     let skipped = false;
     try { skipped = localStorage.getItem(SKIPPED) === "1"; } catch {}
-    if (!me && !skipped) { setMode("login"); show(); }
+    // A shared setup opens straight onto the chart for anyone holding the
+    // link — asking a reader to sign in before they may LOOK would make the
+    // link useless. Sign-in is asked for only when they choose to copy it.
+    if (!me && !skipped && !Store.viewOnly) { setMode("login"); show(); }
   });
 
   // Opened on demand from elsewhere in the app (the account menu, a save that

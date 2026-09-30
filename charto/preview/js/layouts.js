@@ -137,6 +137,9 @@ const Layouts = (() => {
     if (spec.grid && spec.grid !== c.panes.layout) c.panes.apply(spec.grid);
     const charts = spec.charts || [];
     if (charts[0] && charts[0].interval && charts[0].interval !== c.interval) {
+      // the pill too: loadInterval alone moved the chart to 1D while the
+      // header still said 5m
+      if (c.selectInterval) c.selectInterval(charts[0].interval);
       await Promise.resolve(c.loadInterval(charts[0].interval)).catch(() => {});
     }
     // Secondaries are opened by the same call the chat uses to put a chart on
@@ -180,6 +183,9 @@ const Layouts = (() => {
   /* ── the operations behind the menu ───────────────────────────────────── */
 
   async function save({ name, asNew } = {}) {
+    // Someone else's setup is on screen. Saving it would file it as yours,
+    // silently; "Make it mine" is the deliberate version of that act.
+    if (Store.viewOnly) return toast("This is a shared setup. Make it mine to save your own copy");
     if (!signedIn()) return toast("Sign in to save layouts");
     const spec = snapshot();
     if (!spec) return toast("The chart is still loading");
@@ -231,7 +237,10 @@ const Layouts = (() => {
     if (d.chat_id && window.Chat && window.Chat.openChat) {
       window.Chat.openChat(d.chat_id);
     }
-    toast(`Opened “${d.name}”`);
+    const og = (d.origin || [])[0];
+    cur.origin = d.origin || [];
+    toast(og ? `Opened “${d.name}” · built on “${og.title}” by ${og.by}`
+             : `Opened “${d.name}”`);
     // Layouts saved before thumbnails existed have none, and there is no
     // moment better than this one to make a picture of them: the desk is on
     // screen because the user just asked for it. Backfilled once, quietly,
@@ -303,37 +312,6 @@ const Layouts = (() => {
     } catch (e) { toast(e.message); return false; }
   }
 
-  async function setShared(on) {
-    if (!cur || !cur.id) { toast("Save this layout first"); return false; }
-    try {
-      const d = await call("/layouts", { id: cur.id, share: !!on });
-      cur.shared = d.shared;
-      cur.share_token = d.token || null;
-      if (d.token) {
-        toast("Sharing on — anyone with the link can view this layout");
-      } else {
-        toast("Sharing off — the old link no longer works");
-      }
-      paint();
-      return true;
-    } catch (e) { toast(e.message); return false; }
-  }
-
-  async function copyShareLink() {
-    if (!cur || !cur.id) return toast("Save this layout first");
-    try {
-      const d = cur.share_token ? { token: cur.share_token }
-        : await call("/layouts", { id: cur.id, share: true });
-      if (!d.token) throw new Error("Could not create a share link");
-      cur.shared = true;
-      cur.share_token = d.token;
-      const link = `${location.origin}${location.pathname}?shared=${d.token}`;
-      await navigator.clipboard.writeText(link);
-      toast("Link copied — anyone with it can view this layout");
-      paint(); renderMenu();
-    } catch (e) { toast(e.message || "Could not copy the link"); }
-  }
-
   /** The bars on screen, as CSV. The chart's own series, not a re-fetch:
    *  what you download is what you were looking at, including the interval
    *  and any forming bar. */
@@ -376,6 +354,7 @@ const Layouts = (() => {
    *  saved once AND has autosave armed — silently writing to a layout the
    *  user never named is how work gets overwritten. */
   function touch() {
+    if (Store.viewOnly) return;         // nothing here is the viewer's to save
     dirty = true;
     paint();
     if (!booted || !cur || !cur.id || !cur.autosave) return;
@@ -486,10 +465,12 @@ const Layouts = (() => {
       row("download", "Save layout", 'data-act="save"',
           key ? `<span class="sc">${esc(key)}</span>` : "")
       + toggleRow("autosave", "Autosave", !!(cur && cur.autosave))
-      + toggleRow("share", "Share layout", !!(cur && cur.shared),
-                  "Anyone with the link can view this layout, read-only.")
-      + (cur && cur.shared
-        ? row("link", "Copy link…", 'data-act="copylink"') : "")
+      + `<div class="sep"></div>`
+      // Sharing is a PUBLISHED SNAPSHOT now (js/setups.js), not a live
+      // switch on the layout: what people open holds still, it can carry the
+      // conversation, and they can copy it as a template of their own.
+      + row("link", "Share setup…", 'data-act="publish"')
+      + row("eye", "My shared setups…", 'data-act="myshares"')
       + `<div class="sep"></div>`
       + row("copy", "Make a copy…", 'data-act="copy"')
       + row("pen", "Rename…", 'data-act="rename"')
@@ -680,14 +661,10 @@ const Layouts = (() => {
         if (await setAutosave(on)) renderMenu();
         return;
       }
-      if (act === "share") {
-        const on = !(cur && cur.shared);
-        if (await setShared(on)) renderMenu();
-        return;
-      }
       m.classList.remove("open");
       if (act === "save") save();
-      else if (act === "copylink") copyShareLink();
+      else if (act === "publish" && window.Setups) Setups.publish();
+      else if (act === "myshares" && window.Setups) Setups.manage();
       else if (act === "copy") copy();
       else if (act === "rename") rename();
       else if (act === "csv") downloadData();
@@ -716,6 +693,9 @@ const Layouts = (() => {
   async function boot() {
     bind();
     paint();
+    // A view session belongs to js/setups.js: no layout of the viewer's is
+    // adopted as "current", so nothing can be saved over one by accident.
+    if (Store.viewOnly) return;
     if (!signedIn()) return;
     await refresh();
     const want = new URLSearchParams(location.search).get("layout");
@@ -754,6 +734,9 @@ const Layouts = (() => {
   document.addEventListener("charto:workspace-ready", () => { boot(); }, { once: true });
 
   return { save, open, openPicker, createNew, downloadData, touch,
+           // for js/setups.js: one definition of what a desk IS, what its
+           // picture looks like, and how it goes back on the chart
+           snapshot, thumbnail, restore, symbolsOf, call, signedIn,
            /* This file owns the app's one toast element and its one timer, so
             * it owns the app's one toast. js/alerts.js already re-declared an
             * identical local copy against the same #layoutToast; exporting it

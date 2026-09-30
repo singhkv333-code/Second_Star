@@ -4690,5 +4690,9 @@
                       get workspace() { return workspace; },
                       get symbol() { return SYMBOL; },
                       get interval() { return state.interval; },
-                      loadInterval };
+                      loadInterval,
+                      // the pill and the remembered interval, for a restore
+                      // (layouts.js, setups.js) that changes the interval
+                      // without anyone clicking the menu
+                      selectInterval };
 })();

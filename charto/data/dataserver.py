@@ -14248,7 +14248,8 @@ for _col, _decl in (
         ("autosave", "INTEGER NOT NULL DEFAULT 0"),
         ("chat_id", "TEXT NOT NULL DEFAULT ''"),       # the conversation had here
         ("thumb", "TEXT NOT NULL DEFAULT ''"),         # data: URI, ~30 KB JPEG
-        ("share_token", "TEXT")):                      # NULL = private
+        ("share_token", "TEXT"),                       # NULL = private
+        ("origin", "TEXT NOT NULL DEFAULT ''")):       # JSON credit chain, copied setups
     try:
         _users.execute(f"ALTER TABLE layouts ADD COLUMN {_col} {_decl}")
     except sqlite3.OperationalError:
@@ -14821,6 +14822,15 @@ def _layout_get(uid: int, lid: int) -> tuple[int, dict]:
     # presence, not the bytes: the caller is about to draw this layout, not
     # show a picture of it, and it only needs to know whether to backfill one
     out["has_thumb"] = bool(r[10])
+    # The credit a layout copied from a shared setup carries — "built on X by
+    # Y" — read separately so the positional row above keeps its shape.
+    with _users_lock:
+        og = _users.execute("SELECT origin FROM layouts WHERE user_id=? AND id=?",
+                            (uid, lid)).fetchone()
+    try:
+        out["origin"] = json.loads(og[0]) if og and og[0] else []
+    except ValueError:
+        out["origin"] = []
     try:
         out["spec"] = json.loads(r[9])
     except ValueError:
@@ -14927,7 +14937,7 @@ def _layout_save(uid: int, name: str, spec: dict, lid: int | None = None,
 
 def _layout_copy(uid: int, lid: int) -> tuple[int, dict]:
     with _users_lock:
-        r = _users.execute("SELECT name, spec, symbols, chat_id, thumb "
+        r = _users.execute("SELECT name, spec, symbols, chat_id, thumb, origin "
                            "FROM layouts WHERE user_id=? AND id=?",
                            (uid, lid)).fetchone()
     if not r:
@@ -14940,9 +14950,9 @@ def _layout_copy(uid: int, lid: int) -> tuple[int, dict]:
         name = _layout_free_name(uid, f"{r[0]} copy")
         _users.execute(
             "INSERT INTO layouts (user_id, name, spec, symbols, created, "
-            "updated, opened, autosave, chat_id, thumb) "
-            "VALUES (?,?,?,?,?,?,?,0,?,?)",
-            (uid, name, r[1], r[2], now, now, now, r[3], r[4]))
+            "updated, opened, autosave, chat_id, thumb, origin) "
+            "VALUES (?,?,?,?,?,?,?,0,?,?,?)",
+            (uid, name, r[1], r[2], now, now, now, r[3], r[4], r[5]))
         _users.commit()
         new_id = _users.execute("SELECT id FROM layouts WHERE user_id=? AND name=?",
                                 (uid, name)).fetchone()[0]
@@ -14995,6 +15005,18 @@ def _layout_shared_get(token: str) -> tuple[int, dict]:
     return 200, {"name": r[0], "symbols": [s for s in r[1].split(",") if s],
                  "updated": r[2], "by": r[4] or "a Charto user",
                  "read_only": True, "spec": spec}
+
+
+# Shared setups: a desk published read-only, and copied as a template. Loaded
+# on the terms every optional feature here gets — a failure must not stop
+# charts, chat or auth from starting. Bound to this connection and lock
+# because a copy writes into `layouts`, which they own.
+try:
+    import shares as _shares
+    _shares.bind(_users, _users_lock, _layout_free_name)
+except Exception as _shares_exc:  # noqa: BLE001
+    logging.warning("charto shared setups unavailable: %s", _shares_exc)
+    _shares = None
 
 
 _CONV_KEEP = 200          # conversations retained per user
@@ -16120,6 +16142,12 @@ class Handler(BaseHTTPRequestHandler):
             if not sym:
                 return 400, {"error": "symbol required"}
             return 200, {"saved": _ws_put(me[0], sym, body.get("state") or {})}
+        if path in ("/setups", "/setups/copy"):
+            if _shares is None:
+                return 501, {"error": "sharing is not available on this server"}
+            if path == "/setups/copy":
+                return _shares.copy(me[0], str(body.get("token") or ""))
+            return _shares.publish(me[0], me[2] or "", body)
         if path == "/conversations":
             chats = body.get("chats")
             if not isinstance(chats, list):
@@ -16740,12 +16768,22 @@ class Handler(BaseHTTPRequestHandler):
                 if q.get("only") == "history":
                     return self._send(200, company_history(symbol, rng))
                 return self._send(200, company_page(symbol, rng))
-            if u.path == "/shared":
+            if u.path in ("/shared", "/setup"):
                 # No account: whoever holds the link. The only unauthenticated
-                # read of user-created content in the server, which is why the
-                # helper hands back the workspace and nothing else about the
-                # person who made it.
-                return self._send(*_layout_shared_get(q.get("token", "")))
+                # reads of user-created content in the server, which is why the
+                # helpers hand back the desk and nothing else about the person
+                # who made it. A published SETUP is tried first; an old live
+                # layout link (`/shared`) still answers as it always did.
+                tok = q.get("token", "")
+                if _shares is not None:
+                    viewer = _auth_user(self.headers)
+                    key = hashlib.sha256(self._client_ip().encode()).hexdigest()[:16]
+                    code, payload = _shares.view(
+                        tok, viewer[0] if viewer else None, key,
+                        thumb=q.get("thumb") in ("1", "true"))
+                    if code != 404 or u.path == "/setup":
+                        return self._send(code, payload)
+                return self._send(*_layout_shared_get(tok))
             if u.path in ("/alerts", "/alerts/stream"):
                 # Alerts are per-user by construction — they run on the server
                 # so they can fire while the browser is shut, which means they
@@ -16884,7 +16922,7 @@ class Handler(BaseHTTPRequestHandler):
                 if tail.startswith("trades/") and tail.split("/")[-1].isdigit():
                     return self._send(*_journal.api_get(me[0], int(tail.split("/")[-1])))
                 return self._send(404, {"error": f"no journal route '{tail}'"})
-            if u.path in ("/auth/me", "/workspace", "/layouts"):
+            if u.path in ("/auth/me", "/workspace", "/layouts", "/setups"):
                 me = _auth_user(self.headers)
                 if not me:
                     # /auth/me answers "nobody" rather than failing: the FE asks
@@ -16905,6 +16943,13 @@ class Handler(BaseHTTPRequestHandler):
                     # no credentials to finish.
                     return self._send(200, {"user": _user_public(me),
                                             "google_client_id": GOOGLE_CLIENT_ID})
+                if u.path == "/setups":
+                    if _shares is None:
+                        return self._send(501, {"error": "sharing is not "
+                                                         "available on this server"})
+                    lay = (parse_qs(u.query).get("layout") or [""])[0]
+                    return self._send(200, {"setups": _shares.mine(
+                        me[0], int(lay) if lay.isdigit() else None)})
                 if u.path == "/layouts":
                     q = parse_qs(u.query)
                     lid = (q.get("id") or [""])[0]
@@ -17193,7 +17238,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(*_alerts.api_patch(me[0], int(tail), body))
             return self._send(404, {"error": f"no alerts route '{tail}'"})
         if u.path.startswith("/auth/") or u.path in ("/workspace", "/layouts",
-                                                     "/conversations"):
+                                                     "/conversations", "/setups",
+                                                     "/setups/copy"):
             try:
                 ln = int(self.headers.get("Content-Length", 0))
                 body = json.loads(self.rfile.read(ln) or b"{}")

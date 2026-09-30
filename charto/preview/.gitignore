@@ -16,3 +16,7 @@ config.js
 # DIRECTORY, so a negation inside one never matches.
 vendor/*
 !vendor/liquid-glass.js
+# figlet.js (MIT) and its one patched font — unpatched third-party code that
+# nothing here can produce, so it ships with the repo for the reason
+# liquid-glass.js does. vendor/figlet/README.md says where it came from.
+!vendor/figlet/

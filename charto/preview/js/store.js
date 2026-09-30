@@ -113,6 +113,22 @@ const Store = (() => {
   const k = (key) => (SYM !== "RELIANCE" && SCOPED.has(key))
     ? `${SYM}:${key}` : key;
 
+  /* ── viewing someone else's setup (?view=<token>, js/setups.js) ─────────
+   *
+   * A shared setup is put on THIS chart, and this chart saves everything it
+   * shows — the drawings, the indicator set, the interval, the conversation —
+   * into the viewer's own storage for this symbol. Left alone, opening a link
+   * to Asha's TCS desk would silently replace your own TCS drawings with hers.
+   *
+   * So a view session writes to MEMORY only. The desk's own keys read from
+   * memory alone (the setup fills them), and everything else — theme,
+   * watchlists, panel sizes — reads through to your real preferences but is
+   * never written back. Close the tab and nothing of the visit remains. */
+  const VIEW = (new URLSearchParams(location.search).get("view") || "").trim();
+  const mem = VIEW ? new Map() : null;
+  const DESK = new Set([...SCOPED, "chat", "chats", "chatid", "chatmode",
+                        "indicators", "interval"]);
+
   /* One-time: un-scoping "chats" would ORPHAN every conversation.
    *
    * A browser that has been used holds "charto:TCS:chats" beside
@@ -153,7 +169,13 @@ const Store = (() => {
   })();
 
   return {
+    viewOnly: !!VIEW,
+    viewToken: VIEW,
     get(key, fallback) {
+      if (mem) {
+        if (mem.has(k(key))) return JSON.parse(mem.get(k(key)));
+        if (DESK.has(key)) return fallback;
+      }
       try {
         const raw = localStorage.getItem(PREFIX + k(key));
         return raw === null ? fallback : JSON.parse(raw);
@@ -162,10 +184,12 @@ const Store = (() => {
       }
     },
     set(key, value) {
+      if (mem) { try { mem.set(k(key), JSON.stringify(value)); } catch {} return; }
       try { localStorage.setItem(PREFIX + k(key), JSON.stringify(value)); }
       catch { /* private mode / quota — persistence is a convenience, not a contract */ }
     },
     del(key) {
+      if (mem) { mem.delete(k(key)); return; }
       try { localStorage.removeItem(PREFIX + k(key)); } catch {}
     },
   };

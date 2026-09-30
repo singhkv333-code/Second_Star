@@ -1115,6 +1115,193 @@ select.is-dressed { display: none; }
 }
 .layout-toast.show { opacity: 1; transform: translate(-50%, 0); }
 
+/* ─── shared setups (js/setups.js) ─────────────────────────────────────────
+   One typeset object: the ticker set in box-drawing type (figlet, Calvin S),
+   frames and the sparkline in the same characters, all in the mono face, so
+   the ASCII reads as part of the card rather than decoration pasted on it.
+   Hover is quiet and physical — an edge sharpens, a card lifts a pixel, the
+   viewfinder corners open — never a colour flood. */
+.su-mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.su-share-btn { gap: 6px; }
+.su-share-btn svg { width: 14px; height: 14px; }
+
+.su-dlg { width: min(840px, calc(100vw - 32px)); padding: 20px 22px 18px;
+  max-height: calc(100vh - 48px); overflow-y: auto; }
+.su-dlg h3 { margin: 0 0 4px; font-size: var(--text-lg); }
+.su-head { display: flex; align-items: center; gap: 18px; margin-bottom: 16px; }
+.su-head.slim { justify-content: space-between; margin-bottom: 10px; }
+.su-head-copy p { margin: 0; font-size: var(--text-sm); color: var(--muted-foreground); line-height: 1.5; max-width: 52ch; }
+.su-sub { font-size: var(--text-xs); color: var(--faint); font-family: var(--mono); }
+
+.su-fig {
+  margin: 0; font-family: var(--mono); font-size: 12px; line-height: 1.02;
+  letter-spacing: 0; white-space: pre; color: var(--foreground);
+  background: linear-gradient(100deg, var(--foreground) 0 40%, var(--muted-foreground) 50%, var(--foreground) 60% 100%);
+  background-size: 250% 100%; background-position: 100% 0;
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  transition: background-position .9s var(--ease-quartr);
+  flex: none; user-select: none;
+}
+.su-head:hover .su-fig, .su-card:hover .su-fig { background-position: 0 0; }
+
+.su-grid { display: grid; grid-template-columns: minmax(0, 300px) minmax(0, 1fr); gap: 20px; }
+.su-left, .su-right { min-width: 0; }
+.su-shot { position: relative; aspect-ratio: 16 / 10; margin: 8px;
+  background: var(--chart-bg); border-radius: var(--radius-sm); }
+.su-shot img { width: 100%; height: 100%; object-fit: cover; object-position: top left;
+  display: block; border-radius: var(--radius-sm); }
+.su-corner { position: absolute; font-family: var(--mono); font-size: 14px; line-height: 1;
+  color: var(--faint); transition: transform var(--dur-slow) var(--ease-quartr), color var(--dur-slow) var(--ease-quartr); }
+.su-corner.tl { top: -9px; left: -8px; } .su-corner.tr { top: -9px; right: -8px; }
+.su-corner.bl { bottom: -9px; left: -8px; } .su-corner.br { bottom: -9px; right: -8px; }
+.su-shot:hover .su-corner { color: var(--foreground); }
+.su-shot:hover .su-corner.tl { transform: translate(-3px, -3px); }
+.su-shot:hover .su-corner.tr { transform: translate(3px, -3px); }
+.su-shot:hover .su-corner.bl { transform: translate(-3px, 3px); }
+.su-shot:hover .su-corner.br { transform: translate(3px, 3px); }
+
+.su-spark, .su-manifest, .su-tree, .su-okart, .su-empty, .su-404 {
+  margin: 12px 0 0; font-family: var(--mono); font-size: 11.5px; line-height: 1.38;
+  white-space: pre; overflow-x: auto; color: var(--muted-foreground);
+}
+.su-spark { color: var(--foreground); letter-spacing: -.5px; }
+.su-spark b { font-weight: var(--weight-medium); letter-spacing: 0; }
+.su-spark b.up { color: var(--up); } .su-spark b.down { color: var(--down); }
+.su-manifest, .su-tree { transition: color var(--dur-slow) var(--ease-quartr); }
+.su-manifest:hover, .su-tree:hover { color: var(--foreground); }
+
+.su-gap { margin-top: 14px; display: flex; justify-content: space-between; }
+.su-count { font-family: var(--mono); color: var(--faint); }
+.su-note { resize: vertical; min-height: 104px; line-height: 1.5; }
+.su-switches { display: grid; gap: 8px; margin-top: 14px; }
+.su-switch { display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  padding: 10px 12px; border: 1px solid var(--border-soft); border-radius: var(--radius);
+  cursor: pointer; transition: background var(--dur) var(--ease-quartr), border-color var(--dur) var(--ease-quartr); }
+.su-switch:hover { background: var(--accent); border-color: var(--border); }
+.su-switch-text { display: grid; gap: 2px; min-width: 0; font-size: var(--text-base); }
+.su-switch-text small { font-size: var(--text-xs); color: var(--faint); line-height: 1.4; }
+.su-switch .switch { flex: none; }
+.su-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 14px;
+  padding: 3px; background: var(--muted); border-radius: var(--radius-sm); }
+.su-seg button { height: 28px; border: 0; border-radius: 6px; background: transparent;
+  color: var(--muted-foreground); font: inherit; font-size: var(--text-sm); cursor: pointer;
+  transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr); }
+.su-seg button:hover { color: var(--foreground); }
+.su-seg button.on { background: var(--popover); color: var(--foreground); box-shadow: 0 1px 2px rgba(0,0,0,.18); }
+
+.su-foot { display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border-soft); }
+.su-foot .ly-actions { margin-top: 0; }
+.su-privacy { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-xs); color: var(--faint); }
+.su-dlg .btn.cta { transition: background var(--dur) var(--ease-quartr), transform var(--dur) var(--ease-quartr), box-shadow var(--dur) var(--ease-quartr); }
+.su-dlg .btn.cta:hover:not(:disabled), .su-bar .btn.cta:hover:not(:disabled), .su-readonly .btn.cta:hover {
+  transform: translateY(-1px); box-shadow: 0 4px 14px color-mix(in srgb, var(--foreground) 22%, transparent); }
+
+.su-done { width: min(560px, calc(100vw - 32px)); }
+.su-okart { margin: 0 0 12px; color: var(--foreground); }
+.su-done-copy { margin: 0 0 14px; font-size: var(--text-sm); color: var(--muted-foreground); line-height: 1.5; }
+.su-linkrow { display: flex; gap: 8px; }
+.su-link { font-family: var(--mono); font-size: var(--text-xs); }
+.su-done .ly-actions a.btn { text-decoration: none; }
+
+/* the author's list */
+.su-manage { width: min(640px, calc(100vw - 32px)); }
+.su-list { display: grid; gap: 4px; max-height: min(60vh, 520px); overflow-y: auto; margin: 0 -6px; padding: 0 6px; }
+.su-loading { padding: 18px; color: var(--faint); font-size: var(--text-sm); }
+.su-empty { margin: 8px auto; width: max-content; }
+.su-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 14px;
+  padding: 10px 12px; border: 1px solid transparent; border-radius: var(--radius);
+  transition: background var(--dur) var(--ease-quartr), border-color var(--dur) var(--ease-quartr), transform var(--dur) var(--ease-quartr); }
+.su-row:hover { background: var(--accent); border-color: var(--border); transform: translateY(-1px); }
+.su-row-title { display: flex; align-items: center; gap: 6px; font-size: var(--text-base);
+  font-weight: var(--weight-medium); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.su-row-sub { font-size: var(--text-xs); color: var(--faint); margin-top: 3px; }
+.su-stats { display: flex; gap: 12px; font-size: var(--text-xs); color: var(--muted-foreground); }
+.su-stats span, .su-card-stats span { display: inline-flex; align-items: center; gap: 4px; }
+.su-stats svg, .su-card-stats svg { width: 12px; height: 12px; opacity: .8; }
+.su-row-acts { display: flex; gap: 2px; opacity: 0; transition: opacity var(--dur) var(--ease-quartr); }
+.su-row:hover .su-row-acts, .su-row:focus-within .su-row-acts, .su-row.confirm .su-row-acts { opacity: 1; }
+.su-row-acts .btn.icon { width: 28px; height: 28px; }
+.su-row-acts a.btn { text-decoration: none; }
+.su-danger:hover, .su-row.confirm .su-danger { color: var(--down); background: var(--down-soft); }
+
+/* view mode — the bar over the candles */
+.su-bar { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 30;
+  display: flex; align-items: center; gap: 8px; max-width: calc(100% - 140px);
+  padding: 5px 5px 5px 10px; border: 1px solid var(--border); border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--popover) 86%, transparent);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2); backdrop-filter: blur(12px) saturate(1.2);
+  box-shadow: var(--menu-shadow); font-size: var(--text-base);
+  transition: border-color var(--dur-slow) var(--ease-quartr), box-shadow var(--dur-slow) var(--ease-quartr);
+  animation: pop var(--dur-slow) ease-out; }
+.su-bar:hover { border-color: var(--muted-foreground); }
+.su-badge { display: inline-flex; align-items: center; gap: 6px; flex: none;
+  font-size: 10.5px; letter-spacing: .09em; color: var(--muted-foreground); }
+.su-badge i { width: 6px; height: 6px; border-radius: 50%; background: var(--up);
+  box-shadow: 0 0 0 0 var(--up); animation: su-live 2.4s ease-out infinite; }
+@keyframes su-live { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--up) 55%, transparent); }
+  70%, 100% { box-shadow: 0 0 0 7px transparent; } }
+.su-bar-title { font-weight: var(--weight-semi); min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.su-bar-by { color: var(--muted-foreground); white-space: nowrap; }
+.su-bar-sep { width: 1px; height: 18px; background: var(--border); margin: 0 2px; flex: none; }
+.su-bar .btn { height: 28px; flex: none; }
+/* in the header: the same object, set flush with the header's own controls */
+.su-bar.in-header { position: static; transform: none; z-index: auto; max-width: min(640px, 52vw);
+  min-width: 0; padding: 3px 3px 3px 10px; box-shadow: none; background: var(--card);
+  -webkit-backdrop-filter: none; backdrop-filter: none; }
+.su-bar.in-header .su-bar-title { max-width: 26ch; }
+body.su-gone #chatPanel, body.su-gone #chatToggle { display: none !important; }
+.su-bar.gone { flex-direction: column; align-items: flex-start; gap: 12px; padding: 16px 18px; top: 22%; }
+.su-bar.gone .su-404 { margin: 0; color: var(--foreground); }
+.su-bar.gone a.btn { text-decoration: none; }
+
+/* view mode — the setup card at the head of the thread */
+.su-card { margin: 12px 12px 6px; padding: 16px 16px 14px; border: 1px solid var(--border);
+  border-radius: var(--radius-lg); background: var(--card);
+  transition: border-color var(--dur-slow) var(--ease-quartr), box-shadow var(--dur-slow) var(--ease-quartr), transform var(--dur-slow) var(--ease-quartr); }
+.su-card:hover { border-color: var(--muted-foreground); transform: translateY(-1px);
+  box-shadow: 0 8px 28px color-mix(in srgb, var(--background) 60%, transparent); }
+.su-card .su-fig { font-size: 11px; }
+.su-card-title { margin: 12px 0 8px; font-size: 16px; font-weight: var(--weight-semi); line-height: 1.3; letter-spacing: -.005em; }
+.su-card-by { display: flex; align-items: center; gap: 8px; font-size: var(--text-sm); color: var(--muted-foreground); }
+.su-avatar { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--avatar); color: var(--avatar-foreground); font-size: 10.5px; font-weight: var(--weight-semi); }
+.su-card-stats { display: flex; gap: 14px; margin-top: 10px; font-size: var(--text-xs); color: var(--faint); }
+.su-card-note { margin: 12px 0 0; padding-left: 11px; border-left: 2px solid var(--border);
+  font-size: var(--text-md); line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.su-card-rule { display: flex; align-items: center; gap: 10px; margin: 16px 0 0;
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
+.su-card-rule::before, .su-card-rule::after { content: ""; flex: 1; border-top: 1px dashed var(--border); }
+
+.su-readonly { display: flex; align-items: center; gap: 10px; margin: 6px 12px 12px; padding: 10px 10px 10px 12px;
+  border: 1px dashed var(--border); border-radius: var(--radius-md); background: var(--card);
+  font-size: var(--text-sm); color: var(--muted-foreground); line-height: 1.4;
+  transition: border-color var(--dur) var(--ease-quartr); }
+.su-readonly:hover { border-color: var(--muted-foreground); }
+.su-ro-mark { color: var(--faint); font-size: 16px; }
+.su-ro-text { flex: 1; min-width: 0; }
+.su-readonly .btn { flex: none; }
+
+/* view mode — the editing surfaces stand down; nothing here is the reader's */
+body.view-only .composer-inner, body.view-only #chatNew, body.view-only #chatHistoryBtn,
+body.view-only #chatModeSwitch, body.view-only #shareBtn, body.view-only #lySaveName,
+body.view-only #undoBtn, body.view-only #redoBtn, body.view-only #rail,
+body.view-only #tplTray { display: none !important; }
+
+@media (max-width: 760px) {
+  .su-grid { grid-template-columns: 1fr; }
+  .su-head { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .su-foot { flex-direction: column; align-items: stretch; }
+  .su-bar { max-width: calc(100% - 24px); flex-wrap: wrap; }
+  .su-bar-by, .su-bar-sep { display: none; }
+  .su-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .su-row-acts { opacity: 1; grid-column: 1 / -1; justify-content: flex-end; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .su-fig, .su-corner, .su-row, .su-card, .su-bar { transition: none; }
+  .su-badge i { animation: none; }
+}
+
 /* layout picker — a grid of glyphs grouped by pane count, not a list of
    names. Forty-two layouts described in prose would be four screens of
    text about shapes you can read at a glance; the count leads each row in
@@ -8363,6 +8550,11 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
     <!-- The SAVED layout: its name, and the menu that manages it. Sits
          immediately before the pane-grid picker because the grid is one
          field of what this saves — TradingView's own order. js/layouts.js. -->
+    <!-- Share: publish this desk as a read-only setup others can copy.
+         js/setups.js. Beside the layout name because what it publishes is the
+         desk that name stands for. -->
+    <button class="btn outline su-share-btn" id="shareBtn" type="button"
+            title="Share this setup, read-only, with a link"></button>
     <div class="menu-wrap">
       <button class="ly-btn" id="lySaveName" type="button"
               aria-haspopup="menu" title="Manage layouts">
@@ -8609,7 +8801,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        browsers that cannot filter a backdrop; the tint, rim and sheen stay
        in CSS below. -->
   <script src="./vendor/liquid-glass.js"></script>
-  <script src="./js/store.js?v=16"></script>
+  <script src="./js/store.js?v=17"></script>
   <script src="./js/theme.js?v=10"></script>
   <script src="./js/universe.js?v=8"></script>
   <script src="./js/icons.js?v=31"></script>
@@ -8623,7 +8815,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- after icons.js: the sign-in screen draws the show/hide eye from the
        shared set, and a classic script cannot reach a const declared by one
        that has not run yet -->
-  <script src="./js/auth.js?v=4"></script>
+  <script src="./js/auth.js?v=5"></script>
   <script src="./js/plan.js?v=2"></script>
   <script src="./js/indicators.js?v=35"></script>
   <!-- before both legends: each asks it whether the series runs behind a row
@@ -8643,13 +8835,15 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/chartsettings.js?v=2"></script>
   <script src="./js/geometry.js?v=21"></script>
   <script src="./js/tools.js?v=17"></script>
-  <script src="./js/drawings.js?v=34"></script>
+  <script src="./js/drawings.js?v=35"></script>
   <script src="./js/scene.js?v=49"></script>
   <script src="./js/panes.js?v=21"></script>
-  <script src="./js/main.js?v=147"></script>
+  <script src="./js/main.js?v=148"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
-  <script src="./js/layouts.js?v=10"></script>
+  <script src="./js/layouts.js?v=11"></script>
+  <!-- shared setups: publish, view-only links, "Make it mine" -->
+  <script src="./js/setups.js?v=2"></script>
   <!-- Voice must load before chat.js, which wires it to the composer. -->
   <script src="./js/voice.js?v=2"></script>
   <!-- before chat.js, which asks it to render the panels a tool prints as the
@@ -8657,7 +8851,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        and grouping, and nothing else — a renderer with no state of its own -->
   <script src="./js/cards.js?v=56"></script>
   <script src="./js/layers-panel.js?v=11"></script>
-  <script src="./js/chat.js?v=170"></script>
+  <script src="./js/chat.js?v=171"></script>
   <script src="./js/journal.js?v=6"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it

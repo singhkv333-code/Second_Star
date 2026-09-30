@@ -81,6 +81,31 @@
     activeId = chats.length ? chats[0].id : null;
   }
   chats = chats.filter((c) => c && c.id && Array.isArray(c.turns));
+
+  /* A conversation that arrived with a copied setup (js/setups.js, "Make it
+   * mine"). The copy is a layout in the account, but conversations live here,
+   * so the setup page hands the text over through sessionStorage and it is
+   * filed as one of YOURS under the id the new layout points at — then it
+   * opens, so the thread you were reading is the one you continue. Once. */
+  if (!Store.viewOnly) {
+    try {
+      const raw = sessionStorage.getItem("charto:adopt-chat");
+      if (raw) {
+        sessionStorage.removeItem("charto:adopt-chat");
+        const a = JSON.parse(raw);
+        if (a && a.id && Array.isArray(a.turns) && a.turns.length
+            && !chats.some((c) => c.id === a.id)) {
+          const now = Date.now();
+          chats.unshift({ id: String(a.id), created: now, updated: now,
+                          turns: a.turns.filter((t) => t && t.role && t.content)
+                            .map((t) => ({ role: t.role, content: String(t.content),
+                                           ...(t.symbol ? { symbol: t.symbol } : {}),
+                                           ...(t.ts ? { ts: t.ts } : {}) })) });
+          activeId = String(a.id);
+        }
+      }
+    } catch { /* a missing handoff leaves the archive exactly as it was */ }
+  }
   if (!chats.some((c) => c.id === activeId)) activeId = null;
   if (!activeId) { const c = blankChat(); chats.unshift(c); activeId = c.id; }
 
@@ -126,6 +151,9 @@
    */
   let mirrorTimer = null;
   function mirrorChats() {
+    // Viewing a shared setup: the conversation on screen is someone else's,
+    // held in memory, and must never be filed into this account.
+    if (Store.viewOnly) return;
     if (typeof Auth === "undefined" || !Auth.token) return;
     clearTimeout(mirrorTimer);
     mirrorTimer = setTimeout(async () => {
@@ -2875,6 +2903,29 @@
     activeId: () => activeId,
     newChat: newConversation,
     openChat: openConversation,
+    /* The open conversation, text only — what a published setup may carry.
+     * Screenshots, tool panels and context envelopes stay behind. */
+    transcript: () => turns
+      .filter((t) => (t.role === "user" || t.role === "assistant")
+                     && String(t.content || "").trim())
+      .map((t) => ({ role: t.role, content: String(t.content),
+                     ...(t.symbol ? { symbol: t.symbol } : {}),
+                     ...(t.ts ? { ts: t.ts } : {}) })),
+    /* Paint a shared setup's conversation, read-only (js/setups.js). Only in
+     * a view session, whose store is memory — so it can never be filed. The
+     * same builders as a live turn, so it reads exactly as its author saw it. */
+    showShared(list) {
+      if (!Store.viewOnly) return;
+      turns.length = 0;
+      for (const t of list || []) {
+        if (!t || !t.content || (t.role !== "user" && t.role !== "assistant")) continue;
+        turns.push({ role: t.role, content: String(t.content),
+                     ...(t.symbol ? { symbol: t.symbol } : {}),
+                     ...(t.ts ? { ts: t.ts } : {}) });
+      }
+      renderThread();
+      if (panel.classList.contains("hidden")) chatToggle.click();
+    },
     /* Ask something from elsewhere in the app — the chart's context menu is
      * the first caller.
      *

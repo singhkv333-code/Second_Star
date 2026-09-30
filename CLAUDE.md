@@ -238,6 +238,11 @@ user message
 - **Options / F&O** (`services/option_strategies.py`, `strategy_builder.py`) —
   15+ templates with live greeks/payoff/margin/POP + rule-based critique.
   **APScheduler jobs must be module-level** (closures kill the scheduler).
+- **Shared setups** (`charto/data/shares.py`, `charto/preview/js/setups.js`)
+  — a desk published as a frozen read-only link (drawings, indicators, panes,
+  optionally the chat); readers "Make it mine" into their own layouts with a
+  credit chain. A view session (`?view=`) writes nothing of the reader's. See
+  `docs/handoffs/2026-09-30-shared-setups.md`.
 - **Research** (`pivotted/`) — filings (577,952 grounded facts over 3,892
   companies), Moneycontrol quarterly, shareholding. Model READS, code COMPUTES,
   three grounding gates.
