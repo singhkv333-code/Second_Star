@@ -1232,11 +1232,6 @@ const Drawings = (() => {
         if ("color" in patch) d.color = patch.color;
         if ("width" in patch) d.width = patch.width;
         if ("dash" in patch) d.dash = patch.dash;
-        // extend ("none"|"left"|"right"|"both") and priceLabels are read by the
-        // segment-based line tools' build() in js/tools.js, so a patch here
-        // lands on the next paint the same way colour/width/dash do.
-        if ("extend" in patch) d.extend = patch.extend;
-        if ("priceLabels" in patch) d.priceLabels = !!patch.priceLabels;
         save(); _ru();
         return true;
       },
@@ -1246,9 +1241,7 @@ const Drawings = (() => {
         const d = state.drawings.find((q) => q.id === (id || state.selId));
         if (!d) return null;
         return { color: d.color || Theme.c("accent"),
-                 width: d.width || null, dash: d.dash || [],
-                 extend: d.extend || "none", priceLabels: !!d.priceLabels,
-                 type: d.type };
+                 width: d.width || null, dash: d.dash || [], type: d.type };
       },
       /** Replace the whole set at once — the undo stack's write path.
        *

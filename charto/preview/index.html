@@ -2224,138 +2224,7 @@ header > .btn, header > .badge { flex: none; }
 .de-sline line { stroke: currentColor; stroke-width: 2; }
 .de-morepop { min-width: 150px; }
 .de-morepop .de-mrow { color: var(--foreground); }
-/* the gear's per-drawing settings panel — colour, thickness, line style (and
-   Edit text for a note) stacked in one card */
-.de-setpop { min-width: 196px; padding: 8px; }
-.de-set-sec { padding: 4px 2px; }
-.de-set-sec + .de-set-sec { border-top: 1px solid var(--border-soft); margin-top: 2px; }
-.de-set-lab { font-size: var(--text-2xs); color: var(--muted-foreground); margin: 2px 2px 6px; text-transform: uppercase; letter-spacing: .04em; }
-.de-set-row { display: flex; gap: 6px; flex-wrap: wrap; }
-.de-chip {
-  height: 30px; min-width: 40px; padding: 0 8px; cursor: pointer;
-  display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid var(--border); border-radius: var(--radius-sm);
-  background: transparent; color: var(--muted-foreground);
-  transition: border-color var(--dur-fast), background var(--dur-fast);
-}
-.de-chip:hover { border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); }
-.de-chip.on { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
-.de-chip .de-wline { background: currentColor; border-radius: 2px; }
-.de-chip .de-sline { width: 30px; height: 8px; }
-.de-chip .de-sline line { stroke: currentColor; stroke-width: 2; }
-.de-setpop .de-mrow { color: var(--foreground); border: 1px solid var(--border); }
-.de-setpop .de-mrow svg.icon { width: 15px; height: 15px; }
 
-/* ── the drawing settings dialog (js/drawedit.js) ──────────────────────────
-   TradingView's drawing-properties modal on Pivot's tokens: a titled card with
-   Style · Text · Coordinates · Visibility tabs and a Template / Cancel / Ok
-   footer. The gear on the floating edit toolbar opens this. */
-.de-dlg-back {
-  position: fixed; inset: 0; z-index: 240;
-  display: flex; align-items: center; justify-content: center;
-  background: color-mix(in srgb, var(--foreground) 22%, transparent);
-}
-.de-dlg {
-  width: 340px; max-width: calc(100vw - 32px); max-height: calc(100vh - 48px);
-  display: flex; flex-direction: column;
-  background: var(--card); color: var(--foreground);
-  border: 1px solid var(--border); border-radius: 14px;
-  box-shadow: 0 12px 48px rgb(0 0 0 / .28);
-  overflow: hidden;
-}
-.de-dlg-head {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 16px 18px 10px;
-}
-.de-dlg-title {
-  display: inline-flex; align-items: center; gap: 8px;
-  font-size: var(--text-lg); font-weight: 600;
-}
-.de-dlg-title svg.icon { width: 15px; height: 15px; color: var(--muted-foreground); }
-.de-dlg-x {
-  display: inline-flex; padding: 4px; border: 0; background: transparent;
-  color: var(--muted-foreground); cursor: pointer; border-radius: var(--radius-sm);
-}
-.de-dlg-x:hover { background: var(--accent); color: var(--foreground); }
-.de-dlg-tabs {
-  display: flex; gap: 18px; padding: 0 18px;
-  border-bottom: 1px solid var(--border-soft);
-}
-.de-tab {
-  padding: 8px 0 10px; border: 0; background: transparent; cursor: pointer;
-  font: inherit; font-size: var(--text-sm); color: var(--muted-foreground);
-  border-bottom: 2px solid transparent; margin-bottom: -1px;
-}
-.de-tab:hover { color: var(--foreground); }
-.de-tab.on { color: var(--foreground); border-bottom-color: var(--foreground); font-weight: 600; }
-.de-dlg-body { padding: 14px 18px; overflow-y: auto; }
-.de-pane[hidden] { display: none; }
-/* a labelled control row: "Line", "Extend", "Stats" on the left, its control right */
-.de-frow {
-  display: flex; align-items: center; gap: 12px; min-height: 36px; padding: 4px 0;
-}
-.de-flab { flex: 0 0 96px; font-size: var(--text-sm); color: var(--foreground); }
-.de-flab.de-section {
-  flex: 1 1 auto; margin: 10px 0 2px; font-size: var(--text-2xs);
-  color: var(--muted-foreground); text-transform: uppercase; letter-spacing: .05em;
-}
-.de-fctl { flex: 1 1 auto; display: flex; align-items: center; gap: 8px; }
-.de-select {
-  width: 100%; height: 34px; padding: 0 10px; cursor: pointer;
-  border: 1px solid var(--border); border-radius: var(--radius-sm);
-  background: var(--muted); color: var(--foreground); font: inherit; font-size: var(--text-sm);
-}
-/* the Line control: a colour dot + a dashed preview, opening an inline panel */
-.de-line-ctl { position: relative; }
-.de-line-color {
-  display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
-  height: 34px; padding: 0 10px; border: 1px solid var(--border);
-  border-radius: var(--radius-sm); background: var(--muted);
-}
-.de-dlg-dot { width: 15px; height: 15px; border-radius: 4px; background: var(--primary);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 18%, transparent); }
-.de-line-prev { width: 36px; height: 8px; }
-.de-line-prev line { stroke: var(--primary); stroke-width: 2; }
-.de-line-pop {
-  display: none; position: absolute; top: 40px; left: 0; z-index: 3;
-  padding: 10px; width: 236px;
-  background: var(--card); border: 1px solid var(--border);
-  border-radius: 10px; box-shadow: 0 8px 28px rgb(0 0 0 / .18);
-}
-.de-line-pop.open { display: block; }
-.de-line-pop .de-set-lab { margin: 10px 2px 6px; }
-.de-line-pop .de-set-lab:first-child { margin-top: 0; }
-/* checkbox rows */
-.de-check-row { padding: 6px 0; }
-.de-check {
-  display: inline-flex; align-items: center; gap: 9px; cursor: pointer;
-  font-size: var(--text-sm); color: var(--foreground); user-select: none;
-}
-.de-check .de-box {
-  width: 18px; height: 18px; flex: none; border-radius: 4px;
-  border: 1.5px solid var(--border); display: inline-flex;
-  align-items: center; justify-content: center; color: transparent;
-  transition: background var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast);
-}
-.de-check .de-box svg.icon { width: 12px; height: 12px; }
-.de-check.on .de-box { background: var(--primary); border-color: var(--primary); color: #fff; }
-.de-empty { padding: 18px 2px; color: var(--muted-foreground); font-size: var(--text-sm); line-height: 1.5; }
-/* controls not yet backed by the engine read as present but inactive */
-.de-dlg [data-soon] { opacity: .5; cursor: default; }
-.de-dlg [data-soon]:hover { border-color: var(--border); background: var(--muted); }
-/* footer */
-.de-dlg-foot {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 10px; padding: 12px 18px 16px; border-top: 1px solid var(--border-soft);
-}
-.de-foot-r { display: flex; gap: 8px; }
-.de-tmpl {
-  display: inline-flex; align-items: center; gap: 4px; height: 34px; padding: 0 12px;
-  border: 1px solid var(--border); border-radius: var(--radius-sm);
-  background: var(--muted); color: var(--foreground); font: inherit; font-size: var(--text-sm);
-}
-.de-tmpl svg.icon { width: 12px; height: 12px; }
-.de-dlg-foot .btn { height: 34px; }
 .de-mrow {
   display: inline-flex; align-items: center; gap: 8px; width: 100%;
   padding: 8px 10px; border: 1px solid var(--border); background: transparent;
@@ -8920,15 +8789,15 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        they build them, and read their series colours out of it -->
   <script src="./js/chartsettings.js?v=2"></script>
   <script src="./js/geometry.js?v=21"></script>
-  <script src="./js/tools.js?v=18"></script>
-  <script src="./js/drawings.js?v=38"></script>
+  <script src="./js/tools.js?v=19"></script>
+  <script src="./js/drawings.js?v=39"></script>
   <script src="./js/scene.js?v=48"></script>
   <script src="./js/panes.js?v=23"></script>
   <script src="./js/main.js?v=148"></script>
   <!-- the floating drawing edit toolbar — listens for charto:draw-select and
        drives js/drawings.js's setStyle/clone/lock/remove. After main.js so
        __charto and ChartSettings exist by the first selection. -->
-  <script src="./js/drawedit.js?v=5"></script>
+  <script src="./js/drawedit.js?v=6"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=10"></script>

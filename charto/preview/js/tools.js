@@ -186,18 +186,7 @@ const Tools = (() => {
     // ── lines ────────────────────────────────────────────
     trend: { label: "Trend line", anchors: 2, group: "lines", section: "lines",
       key: "T",
-      // `d.extend` is set by the settings dialog (Don't extend / left / right /
-      // both). Absent, it is a plain segment — the default a trend line is.
-      build: (a, c, d) => {
-        const out = [G.segment(a[0], a[1], (d && d.extend && d.extend !== "none")
-          ? { extend: d.extend } : {})];
-        // Price labels: the two endpoints' prices on the axis, when asked.
-        if (d && d.priceLabels) {
-          out.push(G.label(a[0], c.fmt(a[0].v), { align: "left" }));
-          out.push(G.label(a[1], c.fmt(a[1].v), { align: "left" }));
-        }
-        return out;
-      } },
+      build: (a) => [G.segment(a[0], a[1])] },
 
     ray: { label: "Ray", anchors: 2, group: "lines", section: "lines",
       build: (a) => [G.segment(a[0], a[1], { extend: "right", arrow: true })] },
