@@ -60,6 +60,7 @@ const DrawEdit = (() => {
   let curId = null;       // the drawing it is currently editing
   let curPaneId = null;   // which runtime owns it: null = primary, "sub-n" = a pane
   let openPop = null;     // an open sub-popover (colour / width / style), or null
+  let pinned = false;     // true once the user has dragged it — stops auto-follow
 
   // The runtime that owns the selected drawing. The primary is on __charto;
   // a secondary pane's is resolved from the paneId the select event carried,
@@ -229,7 +230,12 @@ const DrawEdit = (() => {
     for (const n of root.querySelectorAll(sel)) n.classList.toggle("on", n === chosen);
   }
 
-  /* ── the strip ───────────────────────────────────────────────────────── */
+  /* ── the strip ───────────────────────────────────────────────────────────
+   * A floating pill, mounted on <body> and positioned fixed, the way
+   * TradingView and Groww draw theirs — it hovers just above the selected
+   * drawing and can be dragged anywhere by the grip at its head. Mounting on
+   * the body (not inside a pane) is what lets it float over a secondary pane in
+   * a split and be dragged off the chart's own box without being clipped. */
   function build() {
     bar = document.createElement("div");
     bar.className = "draw-edit";
@@ -238,7 +244,8 @@ const DrawEdit = (() => {
     // Buttons are wired by data-act, delegated — one listener, and a row added
     // later cannot forget to bind itself.
     bar.innerHTML =
-      `<button type="button" class="de-btn de-color" data-act="color" title="Colour">`
+      `<span class="de-grip" data-grip title="Drag to move">${svg("grip", "sm")}</span>`
+      + `<button type="button" class="de-btn de-color" data-act="color" title="Colour">`
       + `<span class="de-dot"></span></button>`
       + `<button type="button" class="de-btn de-width" data-act="width" title="Line width">`
       + `<span class="de-wpreview"></span>${svg("chevronDown", "xs")}</button>`
@@ -253,10 +260,42 @@ const DrawEdit = (() => {
       + `<button type="button" class="de-btn" data-act="more" title="More">${svg("more", "sm")}</button>`
       + `<span class="de-sep"></span>`
       + `<button type="button" class="de-btn de-danger" data-act="del" title="Delete">${svg("trash", "sm")}</button>`;
-    stageEl().appendChild(bar);
-    bar.addEventListener("pointerdown", (e) => e.stopPropagation());   // never a chart pan
+    document.body.appendChild(bar);
+    bar.addEventListener("pointerdown", (e) => {
+      // a press anywhere on the strip is the strip's — never a chart pan
+      e.stopPropagation();
+      if (e.target.closest("[data-grip]")) beginDrag(e);
+    });
     bar.addEventListener("click", onClick);
     return bar;
+  }
+
+  /* ── drag to reposition ──────────────────────────────────────────────────
+   * Grab the grip and the pill follows the pointer. Once moved by hand it
+   * stays where it was put (pinned=true) rather than snapping back over the
+   * shape on the next chart move — exactly TradingView's behaviour. */
+  function beginDrag(e) {
+    if (!bar) return;
+    e.preventDefault();
+    closePop();
+    const r = bar.getBoundingClientRect();
+    const offX = e.clientX - r.left, offY = e.clientY - r.top;
+    pinned = true;
+    bar.classList.add("dragging");
+    const move = (ev) => {
+      const x = Math.max(6, Math.min(ev.clientX - offX, innerWidth - bar.offsetWidth - 6));
+      const y = Math.max(6, Math.min(ev.clientY - offY, innerHeight - bar.offsetHeight - 6));
+      bar.style.left = x + "px";
+      bar.style.top = y + "px";
+      bar.style.transform = "none";
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      bar.classList.remove("dragging");
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
   }
 
   function onClick(e) {
@@ -326,38 +365,69 @@ const DrawEdit = (() => {
     if (textBtn) textBtn.hidden = !info.isText;
   }
 
-  /** Mount the strip over the pane that owns the selection — #stage for the
-   *  primary, the .subchart root for a secondary pane — so it always sits at
-   *  the top of the chart being edited, not floating over pane 1. */
+  /** Float the strip just above the selected shape, the way TradingView does —
+   *  centred on the shape's width, a margin above its top, clamped to the
+   *  viewport. Falls back to the top-centre of the chart the shape is on when
+   *  the shape has no on-screen point (scrolled out of range). Does nothing
+   *  once the user has dragged the strip by hand (pinned). */
+  const GAP = 12;          // px above the shape's top edge
   function place() {
-    if (!bar) return;
-    let host = stageEl();
+    if (!bar || bar.hidden || pinned) return;
     const d = draw();
-    if (d && d.hostEl) {
-      // a sub's stage is the .sub-canvas; its positioned parent is the
-      // .subchart root, which is what we want to sit inside
-      host = d.hostEl.closest(".subchart") || d.hostEl.parentElement || host;
+    const box = d && d.screenBox && d.screenBox(curId);
+    const w = bar.offsetWidth || 300, h = bar.offsetHeight || 40;
+    let cx, top;
+    if (box) {
+      cx = box.cx;
+      top = box.top - GAP - h;
+      // no room above the shape → sit just below it instead
+      if (top < 6) top = Math.min(box.bottom + GAP, innerHeight - h - 6);
+    } else {
+      // fall back to the top-centre of the chart the shape lives on
+      const host = (d && d.hostEl) ? (d.hostEl.closest(".subchart") || stageEl()) : stageEl();
+      const r = host ? host.getBoundingClientRect() : { left: 0, width: innerWidth, top: 0 };
+      cx = r.left + r.width / 2;
+      top = r.top + 14;
     }
-    if (host && bar.parentElement !== host) host.appendChild(bar);
-    bar.style.left = "50%";
-    bar.style.transform = "translateX(-50%)";
-    bar.style.top = "12px";
+    let left = cx - w / 2;
+    left = Math.max(6, Math.min(left, innerWidth - w - 6));
+    top = Math.max(6, Math.min(top, innerHeight - h - 6));
+    bar.style.left = Math.round(left) + "px";
+    bar.style.top = Math.round(top) + "px";
+    bar.style.transform = "none";
   }
 
   function show(id, paneId) {
     if (!bar) build();
     curId = id;
     curPaneId = paneId || null;
-    place();
-    refresh();
+    pinned = false;              // a fresh selection re-anchors to its shape
     bar.hidden = false;
+    refresh();
+    place();
+    startFollow();
   }
   function hide() {
     closePop();
+    stopFollow();
     curId = null;
     curPaneId = null;
+    pinned = false;
     if (bar) bar.hidden = true;
   }
+
+  /* The shape moves under the toolbar on every pan, zoom and drag, so the
+   * toolbar has to re-place itself as often. A rAF loop while a shape is
+   * selected is cheap (one getBoundingClientRect + a couple of coordinate
+   * projections) and needs no hook into the chart library's own redraw. */
+  let followRaf = 0;
+  function tick() {
+    if (!curId) return;
+    place();
+    followRaf = requestAnimationFrame(tick);
+  }
+  function startFollow() { if (!followRaf) followRaf = requestAnimationFrame(tick); }
+  function stopFollow() { if (followRaf) { cancelAnimationFrame(followRaf); followRaf = 0; } }
 
   document.addEventListener("charto:draw-select", (e) => {
     const id = e.detail && e.detail.id;

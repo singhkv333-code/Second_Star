@@ -1296,6 +1296,29 @@ const Drawings = (() => {
         const d = state.drawings.find((q) => q.id === (id || state.selId));
         return d ? { id: d.id, type: d.type, pane: d.pane, pts: d.pts } : null;
       },
+      /** The shape's bounding box in CLIENT coordinates — what the floating
+       *  edit toolbar needs to sit itself just above the drawing, the way
+       *  TradingView does. Projects each anchor through this chart's own
+       *  scales; returns null when the shape has no laid-out point on screen
+       *  (off the visible range), so the caller can fall back to a fixed spot. */
+      screenBox(id) {
+        const d = state.drawings.find((q) => q.id === (id || state.selId));
+        if (!d || !d.pts || !d.pts.length) return null;
+        const key = d.pane || "price";
+        const r = el.getBoundingClientRect();
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, n = 0;
+        for (const p of d.pts) {
+          const x = tToX(p.t), y = vToY(p.v, key);
+          if (x == null || y == null) continue;
+          n++;
+          minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+          minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+        }
+        if (!n) return null;
+        return { left: r.left + minX, right: r.left + maxX,
+                 top: r.top + minY, bottom: r.top + maxY,
+                 cx: r.left + (minX + maxX) / 2 };
+      },
       exportJSON() {
         let usage = {};
         try { usage = JSON.parse(localStorage.getItem(USAGE_KEY) || "{}"); } catch {}
