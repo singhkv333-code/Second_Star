@@ -6452,37 +6452,19 @@ svg.icon.op {
   #symbolPill { cursor: pointer; }
   #symbolPill:hover { background: var(--accent); }
   #symbolMenu { width: 360px; }
-  /* The header symbol picker wears the SAME frosted-glass panel and rounded
-     search pill as the floating .sym-picker — one instrument search, one look,
-     whether it is opened from the pill at the top or from a legend. */
-  #symbolMenu.dropdown {
-    padding: 8px; border-radius: 16px;
-    background: color-mix(in srgb, var(--ctx-paper) 82%, transparent);
-    border-color: color-mix(in srgb, white 42%, var(--ctx-rim));
-    box-shadow: inset 0 1px 0 color-mix(in srgb, white 70%, transparent),
-                inset 0 -1px 0 color-mix(in srgb, var(--foreground) 7%, transparent),
-                0 18px 48px color-mix(in srgb, var(--foreground) 16%, transparent),
-                0 3px 10px color-mix(in srgb, var(--foreground) 8%, transparent);
-    -webkit-backdrop-filter: blur(30px) saturate(165%);
-    backdrop-filter: blur(30px) saturate(165%);
-  }
+  /* Look and focus come from the shared search-field rule up in the chat
+     section — this field is the conversation search in a different menu, and
+     the two are a pane apart in the same app. Only what is local to sitting
+     at the top of a dropdown stays here. */
   /* the gap belongs to the FIELD, not the input inside it — an input's own
      bottom margin collapses out through the wrapper, which works today and
      stops working the first time the wrapper gains a border */
   #symbolMenu .searchfield, .sym-picker .searchfield { margin-bottom: 5px; }
-  /* the rounded glass pill, pinned above the long list so it never scrolls
-     out of view */
+  /* Keep the original field treatment, but pin it above the long instrument
+     list so it cannot scroll out of view. */
   #symbolMenu .searchfield {
-    position: sticky; top: 0; z-index: 2; margin: 0 0 7px;
+    position: sticky; top: 0; z-index: 2;
   }
-  #symbolMenu .searchfield input {
-    height: 38px; padding: 0 12px 0 34px; border-radius: 10px;
-    background: color-mix(in srgb, var(--background) 58%, transparent);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 7%, transparent),
-                inset 0 1px 0 color-mix(in srgb, white 60%, transparent);
-    font-size: var(--text-sm);
-  }
-  #symbolMenu .searchfield > svg.icon { left: 11px; width: 16px; height: 16px; color: var(--foreground); }
   #symbolMenu input, .sym-picker .pick-search {
     /* body sets user-select:none so chart drags don't select text; an input
        that inherits it takes three clicks before a caret lands */
@@ -6492,26 +6474,11 @@ svg.icon.op {
      chip instead of the header pill — appended to <body> so a chart pane's
      overflow cannot clip it. */
   .dropdown.floating { position: fixed; top: auto; left: auto; z-index: 60; }
-  .sym-picker {
-    padding: 8px; border-radius: 16px;
-    background: color-mix(in srgb, var(--ctx-paper) 82%, transparent);
-    border-color: color-mix(in srgb, white 42%, var(--ctx-rim));
-    box-shadow: inset 0 1px 0 color-mix(in srgb, white 70%, transparent),
-                inset 0 -1px 0 color-mix(in srgb, var(--foreground) 7%, transparent),
-                0 18px 48px color-mix(in srgb, var(--foreground) 16%, transparent),
-                0 3px 10px color-mix(in srgb, var(--foreground) 8%, transparent);
-    -webkit-backdrop-filter: blur(30px) saturate(165%);
-    backdrop-filter: blur(30px) saturate(165%);
-  }
+  /* The floating picker wears the app's standard dropdown material (the base
+     .dropdown rule) and the plain flat search field the header uses — the same
+     "older" look as the header symbol search, not a frosted-glass variant. */
+  .sym-picker { padding: 8px; }
   .sym-picker .searchfield { margin: 0 0 7px; }
-  .sym-picker .searchfield input {
-    height: 38px; padding-left: 34px; border-radius: 10px;
-    background: color-mix(in srgb, var(--background) 58%, transparent);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 7%, transparent),
-                inset 0 1px 0 color-mix(in srgb, white 60%, transparent);
-    font-size: var(--text-sm);
-  }
-  .sym-picker .searchfield > svg.icon { left: 11px; width: 16px; height: 16px; color: var(--foreground); }
   .sym-picker .pick-list { padding: 1px 0; }
   .sym-picker .item {
     min-height: 46px; padding: 6px 8px; gap: 10px; border-radius: 10px;
