@@ -246,7 +246,12 @@ const Drawings = (() => {
       const base = d.color || Theme.c("accent");
       return {
         color: prim.color || base,
-        width: prim.width || (selected ? 2 : 1.5),
+        // d.width is the user's own choice from the edit toolbar; it sits
+        // below a primitive that pins its OWN width (a fib band, a fork tine)
+        // and above the selected/idle default, so a plain line thickens while
+        // a structured shape's internal hairlines stay as their builder drew
+        // them.
+        width: prim.width || d.width || (selected ? 2 : 1.5),
         dash: isDraft ? [4, 4] : (prim.dash || d.dash || []),
         fillAlpha: prim.fillAlpha,
         /* "Show me the numbers." A shape that has a second, wordier reading
@@ -1185,6 +1190,32 @@ const Drawings = (() => {
         save();
         env.setStatus(`${d.ref} ${d.locked ? "locked" : "unlocked"}`);
         return d.locked;
+      },
+      /** Restyle one shape from the edit toolbar — colour, line width, dash.
+       *
+       *  These are the three properties styleOf() reads off the DRAWING (not
+       *  off a primitive): d.color is already the shape's ink, d.dash its line
+       *  style, and d.width now sits under any primitive that pins its own (see
+       *  styleOf). A patch of {color, width, dash} therefore lands on the next
+       *  paint with no per-tool wiring. Persisted and undoable through save(),
+       *  the same as every structural edit. Unknown keys are ignored so the
+       *  toolbar can send only what changed. */
+      setStyle(id, patch) {
+        const d = state.drawings.find((q) => q.id === (id || state.selId));
+        if (!d || !patch) return false;
+        if ("color" in patch) d.color = patch.color;
+        if ("width" in patch) d.width = patch.width;
+        if ("dash" in patch) d.dash = patch.dash;
+        save(); _ru();
+        return true;
+      },
+      /** The current style of one shape, so the toolbar can open showing what
+       *  the shape actually is rather than a guess. */
+      styleOf(id) {
+        const d = state.drawings.find((q) => q.id === (id || state.selId));
+        if (!d) return null;
+        return { color: d.color || Theme.c("accent"),
+                 width: d.width || null, dash: d.dash || [] };
       },
       /** Replace the whole set at once — the undo stack's write path.
        *

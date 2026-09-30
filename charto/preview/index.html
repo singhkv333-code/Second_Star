@@ -1126,7 +1126,7 @@ select.is-dressed { display: none; }
    Negative margins pull each row out past the menu's own padding. */
 .lay-group {
   display: flex; align-items: flex-start; gap: 10px;
-  margin: 0 calc(var(--menu-pad) * -1); padding: 7px var(--menu-text-x);
+  margin: 0 calc(var(--menu-pad) * -1); padding: 5px var(--menu-text-x);
   border-bottom: 1px solid var(--border-soft);
 }
 .lay-group:last-child {
@@ -1134,13 +1134,13 @@ select.is-dressed { display: none; }
 }
 /* the count sits in its own gutter, aligned with the first row of glyphs */
 .lay-n {
-  flex: none; width: 14px; text-align: center; padding-top: 7px;
+  flex: none; width: 14px; text-align: center; padding-top: 6px;
   font-size: var(--text-sm); color: var(--faint);
   font-variant-numeric: tabular-nums;
 }
 .lay-opts { display: flex; flex-wrap: wrap; gap: 2px; min-width: 0; }
 .lay-opt {
-  width: 30px; height: 30px; flex: none; padding: 0; cursor: pointer;
+  width: 28px; height: 28px; flex: none; padding: 0; cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
   background: transparent; border: 1px solid transparent;
   border-radius: var(--radius-xs); color: var(--muted-foreground);
@@ -1160,6 +1160,32 @@ select.is-dressed { display: none; }
   color: var(--primary); background: var(--primary-soft);
 }
 .lay-opt svg { width: 22px; height: 22px; stroke-width: 1.55; }
+
+/* ── custom grid picker ────────────────────────────────────────────────────
+   The square-boxes escape hatch (openmarket / TradingView): sweep a rectangle
+   over the cells to build an arbitrary R×C, released as a `gRxC` layout. The
+   caption beside the heading reads back what a release would apply. */
+.lay-custom-head { display: flex; align-items: baseline; gap: 6px; }
+.lay-custom-cap {
+  font-size: var(--text-2xs); color: var(--primary);
+  font-variant-numeric: tabular-nums; font-weight: 600;
+}
+.lay-custom {
+  display: grid; gap: 3px; padding: 3px 0 0;
+  width: max-content;
+}
+.lay-cell {
+  width: 19px; height: 19px; cursor: pointer;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs); background: var(--muted);
+  transition: background var(--dur-fast) var(--ease-quartr),
+              border-color var(--dur-fast) var(--ease-quartr);
+}
+.lay-cell:hover { border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); }
+.lay-cell.on {
+  background: var(--primary-soft);
+  border-color: color-mix(in srgb, var(--primary) 60%, var(--border));
+}
 
 /* dialog — TradingView's Inputs / Style / Visibility modal on Pivot's tokens */
 .dlg-wrap {
@@ -2116,6 +2142,77 @@ header > .btn, header > .badge { flex: none; }
 /* nothing to choose between when there is only one pane */
 .charts[data-layout="s1"] .stage.pane-active { box-shadow: none; }
 
+/* ── the drawing edit toolbar (js/drawedit.js) ─────────────────────────────
+   TradingView's floating strip, pinned to the top-centre of the stage while a
+   drawing or text note is selected: colour, line width, line style, then the
+   actions the right-click menu also owns. It is a chart control, so it wears
+   the same card, border and shadow as the reset button and the layout menu. */
+.draw-edit {
+  position: absolute; z-index: 9;
+  display: inline-flex; align-items: center; gap: 2px;
+  padding: 4px; border-radius: var(--radius-md);
+  background: var(--card); border: 1px solid var(--border);
+  box-shadow: 0 2px 6px rgb(0 0 0 / .12), 0 8px 24px rgb(0 0 0 / .10);
+  cursor: default;
+}
+.draw-edit[hidden] { display: none; }
+.de-sep { width: 1px; align-self: stretch; margin: 3px 3px; background: var(--border); }
+.de-btn {
+  height: 30px; min-width: 30px; padding: 0 6px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 3px;
+  border: 0; background: transparent; border-radius: var(--radius-sm);
+  color: var(--muted-foreground); cursor: pointer;
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.de-btn:hover { background: var(--accent); color: var(--foreground); }
+.de-btn svg.icon { width: 16px; height: 16px; }
+.de-btn.de-lock.on { color: var(--primary); background: var(--primary-soft); }
+.de-btn.de-danger:hover { color: var(--destructive, #f23645); background: color-mix(in srgb, #f23645 12%, transparent); }
+/* colour: a filled dot that IS the shape's current ink */
+.de-dot {
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--primary);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 18%, transparent);
+}
+/* width: a bar whose thickness previews the current width */
+.de-wpreview {
+  width: 16px; height: 2px; border-radius: 2px; background: currentColor;
+}
+.de-spreview { width: 22px; height: 8px; }
+.de-spreview line { stroke: currentColor; stroke-width: 2; }
+.de-btn svg.de-spreview { width: 22px; height: 8px; }
+
+/* the three sub-popovers — small floating cards under a strip button */
+.de-pop {
+  min-width: 0; padding: 6px;
+  border-radius: var(--radius-md);
+  background: var(--card); border: 1px solid var(--border);
+  box-shadow: 0 2px 6px rgb(0 0 0 / .12), 0 10px 30px rgb(0 0 0 / .12);
+}
+.de-swatches { display: grid; grid-template-columns: repeat(6, 1fr); gap: 5px; }
+.de-swatch {
+  width: 22px; height: 22px; padding: 0; cursor: pointer;
+  border-radius: 50%; border: 1px solid color-mix(in srgb, var(--foreground) 16%, transparent);
+  background: var(--sw);
+  transition: transform var(--dur-fast);
+}
+.de-swatch:hover { transform: scale(1.12); }
+.de-wrow, .de-srow, .de-mrow {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 7px 10px; border: 0; background: transparent; cursor: pointer;
+  border-radius: var(--radius-sm); color: var(--foreground);
+  font: inherit; font-size: var(--text-sm); text-align: left;
+}
+.de-wrow:hover, .de-srow:hover, .de-mrow:hover { background: var(--accent); }
+.de-wrow.on, .de-srow.on { color: var(--primary); }
+.de-wline { flex: 1; background: currentColor; border-radius: 2px; min-width: 40px; }
+.de-wlabel, .de-slabel { flex: none; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+.de-wrow.on .de-wlabel, .de-srow.on .de-slabel { color: var(--primary); }
+.de-sline { width: 40px; height: 8px; flex: none; }
+.de-sline line { stroke: currentColor; stroke-width: 2; }
+.de-morepop { min-width: 150px; }
+.de-morepop .de-mrow { color: var(--foreground); }
+
 /* Layout glyphs are generated by Icons.layoutSvg() from each layout's own
    grid spec; main.js builds the whole picker from the Panes catalogue. */
 #chart { position: absolute; inset: 0; cursor: crosshair; }
@@ -2141,6 +2238,12 @@ header > .btn, header > .badge { flex: none; }
   -webkit-mask: url("assets/pivot-mark.png") center / contain no-repeat;
           mask: url("assets/pivot-mark.png") center / contain no-repeat;
 }
+/* On a split the mark and the reset button are re-parented onto the grid
+   wrapper (see reparentMarks() in js/main.js) so they sign the WHOLE desk
+   rather than living inside pane 1. The grid has no axis of its own, so they
+   anchor to its plain outer corners instead of the axis-aware pane corners. */
+.chart-mark.on-grid { left: 10px; bottom: 10px; z-index: 8; }
+.view-reset.on-grid { right: 10px; bottom: 10px; z-index: 8; }
 /* TradingView cursors.
 
    The pick hand is the SYSTEM pointer, not artwork of ours. Two hand-drawn
@@ -5955,7 +6058,9 @@ body.two-columns .readout .row { display: none; }
    one place), reaching the descendants because the chart library sets inline
    cursors on them, and `!important` because nothing else outranks one. */
 #chart:has(.alert-plus.show.hot),
-#chart:has(.alert-plus.show.hot) * { cursor: pointer !important; }
+#chart:has(.alert-plus.show.hot) *,
+.sub-canvas:has(.alert-plus.show.hot),
+.sub-canvas:has(.alert-plus.show.hot) * { cursor: pointer !important; }
 /* A touch screen has no hover to reveal it, and a permanent circle floating on
    the chart is clutter — the row of tools and the right-click menu are the
    paths there instead. */
@@ -6364,6 +6469,19 @@ svg.icon.op {
     font-size: var(--text-sm);
   }
   .sym-picker .searchfield > svg.icon { left: 11px; width: 16px; height: 16px; color: var(--foreground); }
+  /* The header symbol picker (the pill at the top) wears the SAME glass search
+     bar as the floating .sym-picker — one instrument search, one look, wherever
+     it is opened from. Grouped with the picker's own rule so the two cannot
+     drift: the header field was the plain flat --muted box, and beside the
+     frosted picker it read as a different, older control. */
+  #symbolMenu .searchfield input {
+    height: 38px; padding: 0 12px 0 34px; border-radius: 10px;
+    background: color-mix(in srgb, var(--background) 58%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 7%, transparent),
+                inset 0 1px 0 color-mix(in srgb, white 60%, transparent);
+    font-size: var(--text-sm);
+  }
+  #symbolMenu .searchfield > svg.icon { left: 11px; width: 16px; height: 16px; color: var(--foreground); }
   .sym-picker .pick-list { padding: 1px 0; }
   .sym-picker .item {
     min-height: 46px; padding: 6px 8px; gap: 10px; border-radius: 10px;
@@ -6950,7 +7068,9 @@ svg.icon.op {
 .sheet-body #symbolMenu .searchfield { margin-bottom: 8px; }
 .sheet-body #symbolMenu .searchfield > svg.icon { left: 12px; width: 17px; height: 17px; }
 .sheet-body #symbolMenu input {
-  font-size: var(--text-xl); padding: 11px 12px 11px 37px;
+  /* height is auto here: the sheet field is sized by its own larger padding,
+     not the 38px the header's glass bar uses */
+  height: auto; font-size: var(--text-xl); padding: 11px 12px 11px 37px;
 }
 .sheet-body #symList .item .co-name { max-width: 40vw; }
 /* the layout picker's glyphs are 30px in a header, which is a mouse target;
@@ -6964,6 +7084,11 @@ svg.icon.op {
 .sheet-body .lay-group { margin: 0; padding: 10px 2px; }
 .sheet-body .lay-opts { gap: 6px; }
 .sheet-body .lay-opt { width: 42px; height: 40px; background: var(--muted); }
+/* The custom sweep is a hover gesture; a touch sheet has no hover and the
+   presets already cover what a thumb can aim at, so it (and its rule) go. */
+.sheet-body .lay-custom,
+.sheet-body .lay-custom-head { display: none; }
+.sheet-body .layout-menu > .sep:last-of-type { display: none; }
 /* the ↗ company link is a hover affordance and there is no hover here */
 .sheet-body #symList .item .open-co { display: none; }
 
@@ -8635,10 +8760,14 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/chartsettings.js?v=2"></script>
   <script src="./js/geometry.js?v=21"></script>
   <script src="./js/tools.js?v=17"></script>
-  <script src="./js/drawings.js?v=34"></script>
+  <script src="./js/drawings.js?v=35"></script>
   <script src="./js/scene.js?v=48"></script>
-  <script src="./js/panes.js?v=20"></script>
-  <script src="./js/main.js?v=146"></script>
+  <script src="./js/panes.js?v=22"></script>
+  <script src="./js/main.js?v=147"></script>
+  <!-- the floating drawing edit toolbar — listens for charto:draw-select and
+       drives js/drawings.js's setStyle/clone/lock/remove. After main.js so
+       __charto and ChartSettings exist by the first selection. -->
+  <script src="./js/drawedit.js?v=1"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=10"></script>

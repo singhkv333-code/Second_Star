@@ -3944,6 +3944,18 @@
    *
    * Both the rows and the glyphs come from the Panes catalogue — this file
    * decides nothing about what layouts exist or what they look like. */
+  /* The custom picker — a grid of cells you sweep a rectangle over, the way
+   * openmarket and TradingView both let you build an arbitrary R×C. It is not a
+   * separate layout system: the cell you release on becomes a `gRxC` layout
+   * that apply() treats like any preset (see Panes.ensureGrid). The cells are
+   * built once here; hover/drag paints them and the caption reads back what a
+   * release would apply. */
+  const CMAX = Panes.CUSTOM_MAX || 5;
+  const customCells = Array.from({ length: CMAX * CMAX }, (_, i) => {
+    const r = Math.floor(i / CMAX) + 1, c = (i % CMAX) + 1;
+    return `<span class="lay-cell" data-r="${r}" data-c="${c}"></span>`;
+  }).join("");
+
   layoutMenu.innerHTML =
     `<div class="head">Layout</div>`
     + Panes.groups().map(([n, list]) =>
@@ -3954,7 +3966,35 @@
             `<button type="button" class="lay-opt" data-layout="${L.id}" `
             + `title="${L.label}" aria-label="${L.label}">`
             + Icons.layoutSvg(L.spec, "sm") + `</button>`).join("")
-        + `</div></div>`).join("");
+        + `</div></div>`).join("")
+    + `<div class="sep"></div>`
+    + `<div class="head lay-custom-head">Custom<span class="lay-custom-cap"></span></div>`
+    + `<div class="lay-custom" style="grid-template-columns:repeat(${CMAX},1fr)">`
+    + customCells + `</div>`;
+
+  /* ── the custom-grid sweep ────────────────────────────────────────────── */
+  const customGrid = layoutMenu.querySelector(".lay-custom");
+  const customCap = layoutMenu.querySelector(".lay-custom-cap");
+  function paintCustom(r, c) {
+    for (const cell of customGrid.querySelectorAll(".lay-cell")) {
+      const on = Number(cell.dataset.r) <= r && Number(cell.dataset.c) <= c;
+      cell.classList.toggle("on", on);
+    }
+    customCap.textContent = r && c ? ` ${r} × ${c}` : "";
+  }
+  const clearCustom = () => paintCustom(0, 0);
+  customGrid.addEventListener("pointerover", (e) => {
+    const cell = e.target.closest(".lay-cell");
+    if (cell) paintCustom(Number(cell.dataset.r), Number(cell.dataset.c));
+  });
+  customGrid.addEventListener("pointerleave", clearCustom);
+  customGrid.addEventListener("click", (e) => {
+    const cell = e.target.closest(".lay-cell");
+    if (!cell) return;
+    layoutMenu.classList.remove("open");
+    clearCustom();
+    Panes.applyGrid(Number(cell.dataset.r), Number(cell.dataset.c));
+  });
 
   function paintLayoutBtn() {
     // The trigger wears the layout you are in, so the header says which one
@@ -4016,13 +4056,36 @@
   // ticking a row the screen was no longer in, and nothing in the store — so
   // a reload silently threw the second chart away. onChange fires for every
   // apply(), whoever called it, which is the whole point of putting it here.
+  /* The Pivot signature and the reset button are children of the PRIMARY
+   * pane, so on a split they end up boxed inside pane 1 instead of signing the
+   * chart. On any multi-pane layout they move to the grid wrapper and sit at
+   * the whole desk's outer corners — the mark bottom-left, the reset button
+   * bottom-right — which is where Groww and openmarket put them too. A `.on-grid`
+   * class flips their CSS anchoring from the axis-aware pane corners to plain
+   * grid corners; single-chart hands them back to the primary. */
+  function reparentMarks() {
+    const grid = Panes.gridEl && Panes.gridEl();
+    const split = Panes.LAYOUTS[Panes.layout].panes > 1;
+    const host = split && grid ? grid : null;
+    if (host) {
+      if (brandMark.parentNode !== host) host.appendChild(brandMark);
+      if (resetBtn.parentNode !== host) host.appendChild(resetBtn);
+    } else {
+      if (brandMark.parentNode !== chartEl) chartEl.appendChild(brandMark);
+      if (resetBtn.parentNode !== stageEl) stageEl.appendChild(resetBtn);
+    }
+    brandMark.classList.toggle("on-grid", !!host);
+    resetBtn.classList.toggle("on-grid", !!host);
+  }
   Panes.onChange(() => {
     paintLayoutBtn();
+    reparentMarks();
     Store.set("layout", Panes.layout);
     document.dispatchEvent(new CustomEvent("charto:panes-changed"));
   });
   Panes.apply(Store.get("layout") || "s1");
   paintLayoutBtn();
+  reparentMarks();
 
   // ── chart settings ────────────────────────────────────
   // One button, one dialog, every chart on screen: js/chartsettings.js holds

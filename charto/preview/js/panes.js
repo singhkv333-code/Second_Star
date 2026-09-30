@@ -114,6 +114,10 @@ const Panes = (() => {
     ["g42", "4 × 2", ["ab", "cd", "ef", "gh"]],
     ["c8", "Eight columns", ["abcdefgh"]],
     ["r8", "Eight rows", ["a", "b", "c", "d", "e", "f", "g", "h"]],
+    // 9
+    ["g33", "3 × 3", ["abc", "def", "ghi"]],
+    // 16
+    ["g44", "4 × 4", ["abcd", "efgh", "ijkl", "mnop"]],
   ];
 
   /** Area letters in the order a reader meets them, scanning row-major.
@@ -159,6 +163,51 @@ const Panes = (() => {
 
   /** Layout ids are persisted, and the first three used to be spelled out. */
   const LEGACY = { single: "s1", cols: "c2", rows: "r2" };
+
+  /* ── custom grids ────────────────────────────────────────────────────────
+   *
+   * The preset catalogue above is deliberately finite — the shapes a person
+   * actually reaches for. The custom picker is the escape hatch: drag a
+   * rectangle over a grid of cells and get exactly that uniform R×C, the way
+   * openmarket and TradingView both offer. It is NOT a second layout model —
+   * it builds the same {spec, template, areas} object every preset is and
+   * drops it into LAYOUTS, so apply(), the splitters, the thumbnail and the
+   * save/restore all treat it as any other layout with no special-casing.
+   *
+   * The id is `gRxC` (g2x3), memoised so the same drag twice is the same
+   * object, and persisted like any preset — a reload rebuilds it from the id
+   * alone. Capped at 5×5: one letter per cell keeps the string-spec model
+   * (areasOf/validate/template all walk characters), and 25 charts is already
+   * past the point of usefulness. */
+  const CUSTOM_MAX = 5;
+  const CELL = "abcdefghijklmnopqrstuvwxyz";
+
+  function customId(rows, cols) { return `g${rows}x${cols}`; }
+
+  /** Build (or fetch the memoised) LAYOUTS entry for a uniform rows×cols grid.
+   *  Returns the id, ready to hand to apply(). */
+  function ensureGrid(rows, cols) {
+    const r = Math.max(1, Math.min(CUSTOM_MAX, rows | 0));
+    const c = Math.max(1, Math.min(CUSTOM_MAX, cols | 0));
+    const id = customId(r, c);
+    if (LAYOUTS[id]) return id;
+    // row-major letters, one per cell — "ab" / "cd" for 2×2
+    const spec = [];
+    let k = 0;
+    for (let y = 0; y < r; y++) {
+      let row = "";
+      for (let x = 0; x < c; x++) row += CELL[k++];
+      spec.push(row);
+    }
+    validate(id, spec);
+    LAYOUTS[id] = {
+      id, label: `${r} × ${c}`, spec, custom: true,
+      panes: areasOf(spec).length, areas: areasOf(spec),
+      cols: c, rows: r,
+      template: spec.map((row) => `"${[...row].join(" ")}"`).join(" "),
+    };
+    return id;
+  }
 
   let gridEl = null;
   let stage = null;       // the PRIMARY pane's element (main.js owns its chart)
@@ -334,6 +383,93 @@ const Panes = (() => {
       paintLegend(d ? { ...d, volume: (sub.bars.find((x) => x.time === p.time) || {}).volume || 0 }
                     : sub.bars[sub.bars.length - 1]);
     });
+
+    /* ── the alert ⊕, on THIS pane ──────────────────────────────────────────
+     *
+     * The primary chart grows one of these (js/main.js makePlus/syncPlus): a
+     * mark that rides the pointer down the price axis and, clicked, opens the
+     * alert card at the level under it. Until now a secondary pane had none, so
+     * hovering pane 2's axis offered nothing — the reason the affordance only
+     * appeared "in the first box".
+     *
+     * This is the same mark and the same CSS, self-contained on the pane. It
+     * does not draw the alert's price LINE — that stays a primary-chart fact
+     * (see alerts.js syncChartLines, bound to __charto.candle) — but it does
+     * the thing the hover is for: it lets you ADD an alert on this pane's own
+     * instrument, at the price you are pointing at, on this pane's interval.
+     * The line then shows up whenever this pane's symbol is the page's symbol,
+     * which is exactly when alerts.js can draw it.
+     */
+    let plus = null, plusPrice = null;
+    const PLUS_PAD = 4;
+    function makePlus() {
+      const b = document.createElement("div");
+      b.className = "alert-plus";
+      b.innerHTML = `<span class="alert-plus-mark">`
+        + `<span class="alert-plus-ring">${Icons.svg("plus", "xs")}</span></span>`
+        + `<span class="alert-plus-value"></span>`;
+      canvas.appendChild(b);
+      return b;
+    }
+    function hidePlus() {
+      if (plus) plus.classList.remove("show", "hot");
+      plusPrice = null;
+    }
+    function onPlus(x, y) {
+      if (!plus || !plus.classList.contains("show")) return false;
+      const mark = plus.querySelector(".alert-plus-mark");
+      if (!mark) return false;
+      const r = mark.getBoundingClientRect();
+      return x >= r.left - PLUS_PAD && x <= r.right + PLUS_PAD
+          && y >= r.top - PLUS_PAD && y <= r.bottom + PLUS_PAD;
+    }
+    function syncPlus(clientX, clientY) {
+      // Only over the PRICE pane, and only on the candle side of the scale —
+      // the axis is what you grab to rescale, and lighting the mark on it turns
+      // an ordinary axis drag into a duplicate marker. Same split the primary
+      // makes: --axis-w is measured here off this pane's own scale.
+      let axisW = 0;
+      try { axisW = chart.priceScale("right").width(); } catch { /* not laid out */ }
+      canvas.style.setProperty("--axis-w", `${axisW || 64}px`);
+      const box = canvas.getBoundingClientRect();
+      const scaleLeft = box.right - (axisW || 64);
+      // The currency/venue badge sits at the top of the price scale; keep the
+      // pill clear of the first ~34px so it never prints across it.
+      const inside = clientX >= box.left && clientX < scaleLeft
+        && clientY >= box.top + 34 && clientY <= box.bottom;
+      if (!inside) return hidePlus();
+      const px = candle.coordinateToPrice(clientY - box.top);
+      if (px == null || !isFinite(px)) return hidePlus();
+      if (!plus || !plus.isConnected) plus = makePlus();
+      const d = Sym.of(sub.symbol);
+      plusPrice = Number(px.toFixed(px >= 100 ? 2 : 4));
+      const value = plus.querySelector(".alert-plus-value");
+      if (value) { try { value.textContent = d.num(plusPrice); }
+                   catch { value.textContent = String(plusPrice); } }
+      plus.style.top = (clientY - box.top) + "px";
+      plus.title = `Alert at ${d.num(plusPrice)} on ${sub.symbol}`;
+      plus.classList.add("show");
+      plus.classList.toggle("hot", onPlus(clientX, clientY));
+    }
+    canvas.addEventListener("mousemove", (e) => syncPlus(e.clientX, e.clientY));
+    canvas.addEventListener("mouseleave", hidePlus);
+    // Capture phase, ahead of the library's own canvas handlers, so a click on
+    // the mark opens the card instead of panning the chart underneath.
+    canvas.addEventListener("click", (e) => {
+      if (!onPlus(e.clientX, e.clientY)) return;
+      const at = plusPrice;
+      e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+      hidePlus();
+      if (at == null || typeof Alerts === "undefined") return;
+      const last = sub.bars.length ? sub.bars[sub.bars.length - 1].close : null;
+      Alerts.open({ symbol: sub.symbol, level: at, last,
+                    interval: WIRE[sub.interval] || sub.interval });
+    }, true);
+    canvas.addEventListener("mousedown", (e) => {
+      if (onPlus(e.clientX, e.clientY)) {
+        e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+      }
+    }, true);
 
     async function load(rawIv) {
       // The toolbar speaks the server's ids (1d/1w/1mo), this pane's ladder and
@@ -577,6 +713,11 @@ const Panes = (() => {
 
   function apply(next) {
     if (!gridEl) return;
+    /* A custom grid id (gRxC) may not be in LAYOUTS yet — a reload restores it
+     * from the persisted id alone, before anyone has opened the picker — so
+     * rebuild it from the id before the lookup below. */
+    const cm = /^g(\d+)x(\d+)$/.exec(String(next || ""));
+    if (cm && !LAYOUTS[next]) ensureGrid(Number(cm[1]), Number(cm[2]));
     /* A persisted id from an older build (or a typo) must not leave the grid
      * with no template at all — that drops every pane into cell 1. */
     const id = LAYOUTS[next] ? next : (LEGACY[next] || "s1");
@@ -633,6 +774,16 @@ const Panes = (() => {
 
   return {
     init, apply, LAYOUTS, setActive,
+    /** The largest custom grid the picker offers, per side. */
+    CUSTOM_MAX,
+    /** Build (memoised) and apply a uniform rows×cols custom grid — the drag
+     *  picker's one entry point. Returns the layout id it applied. */
+    applyGrid(rows, cols) { const id = ensureGrid(rows, cols); apply(id); return id; },
+    /** The grid wrapper Panes builds around #stage. main.js parks the two
+     *  chart-corner marks (the Pivot signature, the reset button) on it when a
+     *  split is active, so they sit at the WHOLE grid's outer corners rather
+     *  than trapped inside the primary pane's box. */
+    gridEl() { return gridEl; },
     /** Where a secondary pane's legend sends a gear click. main.js owns the
      *  settings dialog (and the signal that follows an edit), so it hands
      *  down one opener rather than this file growing a second copy of it.
