@@ -6452,18 +6452,34 @@ svg.icon.op {
   #symbolPill { cursor: pointer; }
   #symbolPill:hover { background: var(--accent); }
   #symbolMenu { width: 360px; }
-  /* Look and focus come from the shared search-field rule up in the chat
-     section — this field is the conversation search in a different menu, and
-     the two are a pane apart in the same app. Only what is local to sitting
-     at the top of a dropdown stays here. */
-  /* the gap belongs to the FIELD, not the input inside it — an input's own
-     bottom margin collapses out through the wrapper, which works today and
-     stops working the first time the wrapper gains a border */
-  #symbolMenu .searchfield, .sym-picker .searchfield { margin-bottom: 5px; }
-  /* Keep the original field treatment, but pin it above the long instrument
-     list so it cannot scroll out of view. */
-  #symbolMenu .searchfield {
-    position: sticky; top: 0; z-index: 2;
+  /* ── ONE instrument-search look, both entry points ───────────────────────
+     The header symbol dropdown and the floating legend/chat picker share the
+     SAME frosted-glass panel and the SAME large rounded search pill. Defined
+     once, on both selectors, so they cannot drift again. */
+  #symbolMenu.dropdown, .sym-picker {
+    padding: 8px; border-radius: 16px;
+    background: color-mix(in srgb, var(--ctx-paper) 82%, transparent);
+    border-color: color-mix(in srgb, white 42%, var(--ctx-rim));
+    box-shadow: inset 0 1px 0 color-mix(in srgb, white 70%, transparent),
+                inset 0 -1px 0 color-mix(in srgb, var(--foreground) 7%, transparent),
+                0 18px 48px color-mix(in srgb, var(--foreground) 16%, transparent),
+                0 3px 10px color-mix(in srgb, var(--foreground) 8%, transparent);
+    -webkit-backdrop-filter: blur(30px) saturate(165%);
+    backdrop-filter: blur(30px) saturate(165%);
+  }
+  /* the search field sits at the top; pinned in the header so it never scrolls
+     out of the long list */
+  #symbolMenu .searchfield, .sym-picker .searchfield { margin: 0 0 7px; }
+  #symbolMenu .searchfield { position: sticky; top: 0; z-index: 2; }
+  #symbolMenu .searchfield input, .sym-picker .searchfield input {
+    height: 44px; padding: 0 14px 0 40px; border-radius: 12px;
+    background: color-mix(in srgb, var(--background) 58%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 7%, transparent),
+                inset 0 1px 0 color-mix(in srgb, white 60%, transparent);
+    font-size: var(--text-base);
+  }
+  #symbolMenu .searchfield > svg.icon, .sym-picker .searchfield > svg.icon {
+    left: 13px; width: 18px; height: 18px; color: var(--foreground);
   }
   #symbolMenu input, .sym-picker .pick-search {
     /* body sets user-select:none so chart drags don't select text; an input
@@ -6474,11 +6490,6 @@ svg.icon.op {
      chip instead of the header pill — appended to <body> so a chart pane's
      overflow cannot clip it. */
   .dropdown.floating { position: fixed; top: auto; left: auto; z-index: 60; }
-  /* The floating picker wears the app's standard dropdown material (the base
-     .dropdown rule) and the plain flat search field the header uses — the same
-     "older" look as the header symbol search, not a frosted-glass variant. */
-  .sym-picker { padding: 8px; }
-  .sym-picker .searchfield { margin: 0 0 7px; }
   .sym-picker .pick-list { padding: 1px 0; }
   .sym-picker .item {
     min-height: 46px; padding: 6px 8px; gap: 10px; border-radius: 10px;
@@ -8727,7 +8738,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/store.js?v=16"></script>
   <script src="./js/theme.js?v=11"></script>
   <script src="./js/universe.js?v=8"></script>
-  <script src="./js/icons.js?v=32"></script>
+  <script src="./js/icons.js?v=33"></script>
   <!-- after icons.js (every row is drawn with one) and before main.js, which
        builds the chart's three right-click menus out of it -->
   <script src="./js/ctxmenu.js?v=8"></script>
@@ -8760,11 +8771,11 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/drawings.js?v=39"></script>
   <script src="./js/scene.js?v=48"></script>
   <script src="./js/panes.js?v=23"></script>
-  <script src="./js/main.js?v=148"></script>
+  <script src="./js/main.js?v=149"></script>
   <!-- the floating drawing edit toolbar — listens for charto:draw-select and
        drives js/drawings.js's setStyle/clone/lock/remove. After main.js so
        __charto and ChartSettings exist by the first selection. -->
-  <script src="./js/drawedit.js?v=6"></script>
+  <script src="./js/drawedit.js?v=7"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=10"></script>
