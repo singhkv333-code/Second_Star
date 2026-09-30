@@ -2375,3 +2375,9 @@ body:has(.app-shell-root) {
 .md-table-head-sticky {
   background-color: var(--table-head-glass-solid);
 }
+
+/* Broker status pill (topbar) — lifts border + text on hover, matching the
+   account avatar's hover treatment. */
+.broker-pill:hover {
+  background: var(--surface-active) !important;
+}

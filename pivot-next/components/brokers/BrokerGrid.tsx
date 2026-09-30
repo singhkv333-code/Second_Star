@@ -60,7 +60,6 @@ export function BrokerGrid({
 } = {}): React.ReactElement {
   const [brokers, setBrokers] = useState<BrokerEntry[] | null>(null);
   const [liveArmed, setLiveArmed] = useState(false);
-  const [encrypted, setEncrypted] = useState(true);
   const [error, setError] = useState<string>("");
   const [open, setOpen] = useState<BrokerEntry | null>(null);
 
@@ -69,7 +68,6 @@ export function BrokerGrid({
       const data = await getBrokers();
       setBrokers(data.brokers);
       setLiveArmed(data.live_armed);
-      setEncrypted(data.encrypted);
       setError("");
       const live = data.brokers.filter((b) => b.live_enabled && b.connected);
       onStatus?.(
@@ -124,15 +122,6 @@ export function BrokerGrid({
         {error ? (
           <p className="text-sm" style={{ color: "var(--negative, #dc2626)" }}>
             {error}
-          </p>
-        ) : null}
-
-        {!encrypted ? (
-          <p
-            className="text-[11px]"
-            style={{ color: "var(--text-secondary)", opacity: 0.75 }}
-          >
-            Tokens stored unencrypted — set BROKER_TOKEN_ENC_KEY.
           </p>
         ) : null}
 

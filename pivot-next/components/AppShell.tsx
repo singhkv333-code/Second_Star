@@ -31,7 +31,6 @@ import {
   History,
   Keyboard,
   LayoutDashboard,
-  Link2,
   ListFilter,
   LogOut,
   Menu,
@@ -62,6 +61,7 @@ import {
   ActiveDraftContext,
 } from "@/components/agent-panel/active-draft-context";
 import { BrokerGrid } from "@/components/brokers/BrokerGrid";
+import { BrokerTopbarPill } from "@/components/brokers/BrokerTopbarPill";
 import { AgentsTab } from "@/components/agent-panel/AgentsTab";
 import { PortfolioTab } from "@/components/agent-panel/PortfolioTab";
 import { ChartFrame } from "@/components/chart/ChartFrame";
@@ -127,10 +127,10 @@ const NAV_ITEMS: {
   { key: "portfolio", label: "Portfolio", Icon: WalletCards },
   { key: "agents", label: "Strategy", Icon: WorkflowIcon },
   { key: "screener", label: "Screener", Icon: ListFilter },
-  // Where a strategy's orders actually go. It sits with Portfolio and
-  // Strategy rather than under settings, because connecting a broker is part
-  // of running a rule, not a preference.
-  { key: "brokers", label: "Brokers", Icon: Link2 },
+  // Brokers left the nav: whether a broker is linked is state you glance at,
+  // not a page you sit on. It now rides the topbar as <BrokerTopbarPill/>,
+  // which opens the same onboarding dialog. The "brokers" tab/pane is kept
+  // (deep-linkable via #brokers) but no longer has a rail entry.
 ];
 
 // Home is the landing surface — a fresh visit to "/" (no hash), and every
@@ -1808,9 +1808,10 @@ function TopHeader({
         />
       </div>}
 
-      {/* Right cluster — metric stack + account menu */}
-      <div className="ml-auto flex shrink-0 items-center gap-6">
+      {/* Right cluster — metric stack + broker pill + account menu */}
+      <div className="ml-auto flex shrink-0 items-center gap-3 lg:gap-4">
         {variant === "default" && <MetricStrip metrics={metrics} />}
+        <BrokerTopbarPill />
         <AccountMenu
           theme={theme}
           onChooseTheme={onChooseTheme}
