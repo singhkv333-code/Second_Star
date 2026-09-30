@@ -2300,6 +2300,10 @@ header > .btn, header > .badge { flex: none; }
    shape keeps the closed hand. */
 .stage.overdraw #chart, .stage.overdraw #chart * { cursor: pointer !important; }
 .stage.panning #chart, .stage.panning #chart * { cursor: grabbing !important; }
+/* the same cursors on a secondary pane, which now draws too: its stage is the
+   .subchart root and its chart element is the .sub-canvas */
+.sub-canvas.drawing, .sub-canvas.drawing * { cursor: crosshair !important; }
+.subchart.overdraw .sub-canvas, .subchart.overdraw .sub-canvas * { cursor: pointer !important; }
 
 .readout {
   /* The OHLC row is not allowed to reach the price scale. It used to be
@@ -8760,14 +8764,14 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/chartsettings.js?v=2"></script>
   <script src="./js/geometry.js?v=21"></script>
   <script src="./js/tools.js?v=17"></script>
-  <script src="./js/drawings.js?v=35"></script>
+  <script src="./js/drawings.js?v=36"></script>
   <script src="./js/scene.js?v=48"></script>
-  <script src="./js/panes.js?v=22"></script>
-  <script src="./js/main.js?v=147"></script>
+  <script src="./js/panes.js?v=23"></script>
+  <script src="./js/main.js?v=148"></script>
   <!-- the floating drawing edit toolbar — listens for charto:draw-select and
        drives js/drawings.js's setStyle/clone/lock/remove. After main.js so
        __charto and ChartSettings exist by the first selection. -->
-  <script src="./js/drawedit.js?v=1"></script>
+  <script src="./js/drawedit.js?v=2"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=10"></script>

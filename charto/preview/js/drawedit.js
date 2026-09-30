@@ -58,11 +58,20 @@ const DrawEdit = (() => {
 
   let bar = null;         // the toolbar element, built once
   let curId = null;       // the drawing it is currently editing
+  let curPaneId = null;   // which runtime owns it: null = primary, "sub-n" = a pane
   let openPop = null;     // an open sub-popover (colour / width / style), or null
 
-  // The drawings API lives on __charto; the toolbar is loaded before boot has
-  // built it, so it is read fresh on every use rather than captured.
-  const draw = () => window.__charto && window.__charto.draw;
+  // The runtime that owns the selected drawing. The primary is on __charto;
+  // a secondary pane's is resolved from the paneId the select event carried,
+  // through Panes' registry — so a toolbar edit lands on the right chart.
+  function draw() {
+    const c = window.__charto;
+    if (!c) return null;
+    if (curPaneId && c.panes && c.panes.drawByPaneId) {
+      return c.panes.drawByPaneId(curPaneId) || c.draw;
+    }
+    return c.draw;
+  }
   const stageEl = () => document.getElementById("stage");
 
   const svg = (n, c) => Icons.svg(n, c);
@@ -269,17 +278,28 @@ const DrawEdit = (() => {
     if (textBtn) textBtn.hidden = !info.isText;
   }
 
+  /** Mount the strip over the pane that owns the selection — #stage for the
+   *  primary, the .subchart root for a secondary pane — so it always sits at
+   *  the top of the chart being edited, not floating over pane 1. */
   function place() {
     if (!bar) return;
-    // top-centre of the stage, a comfortable margin down from the legend
+    let host = stageEl();
+    const d = draw();
+    if (d && d.hostEl) {
+      // a sub's stage is the .sub-canvas; its positioned parent is the
+      // .subchart root, which is what we want to sit inside
+      host = d.hostEl.closest(".subchart") || d.hostEl.parentElement || host;
+    }
+    if (host && bar.parentElement !== host) host.appendChild(bar);
     bar.style.left = "50%";
     bar.style.transform = "translateX(-50%)";
     bar.style.top = "12px";
   }
 
-  function show(id) {
+  function show(id, paneId) {
     if (!bar) build();
     curId = id;
+    curPaneId = paneId || null;
     place();
     refresh();
     bar.hidden = false;
@@ -287,12 +307,13 @@ const DrawEdit = (() => {
   function hide() {
     closePop();
     curId = null;
+    curPaneId = null;
     if (bar) bar.hidden = true;
   }
 
   document.addEventListener("charto:draw-select", (e) => {
     const id = e.detail && e.detail.id;
-    if (id) show(id);
+    if (id) show(id, e.detail.paneId || null);
     else hide();
   });
   // A layout change tears down and rebuilds the stage's charts; a stale strip

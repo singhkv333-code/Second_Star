@@ -19,9 +19,19 @@ const Drawings = (() => {
   const HIT = 7;
   const G = Geo;
 
+  /** paneId → runtime, for secondary panes only (see create's tail). */
+  const REGISTRY = new Map();
+
   function create(chart, candle, env) {
     // env: { getBars, getIntervalSec, container, stage, panes, setStatus,
-    //        onToolDone, onChange }
+    //        onToolDone, onChange, persist, paneId }
+    // A secondary pane in a split draws for the life of that pane only: it is
+    // reference, not the subject of the session, so its shapes are NOT written
+    // to the symbol's store and do NOT enter the primary's undo history. `env.
+    // persist === false` is how panes.js asks for that — everything else about
+    // the runtime (placement, hit-testing, the edit toolbar) is identical.
+    // Read here, before load() runs in the state initialiser below.
+    const persists = env.persist !== false;
     // Short human-readable ref per drawing ("D3"), monotonic and never
     // recycled — it is what the chat tags and what the tools resolve by.
     let refSeq = 0;
@@ -54,6 +64,7 @@ const Drawings = (() => {
 
     // ── persistence + telemetry ─────────────────────────
     function load() {
+      if (!persists) return [];
       try {
         const raw = (JSON.parse(localStorage.getItem(STORE_KEY) || "[]") || [])
           .filter((d) => Tools.SPECS[d.type])
@@ -72,12 +83,16 @@ const Drawings = (() => {
       } catch { return []; }
     }
     const save = () => {
-      try { localStorage.setItem(STORE_KEY, JSON.stringify(state.drawings)); } catch {}
-      // Every path that changes a drawing ends here — placement, the drag
-      // release, the Delete key, the card's Remove, clear-all — so this is
-      // the one line the undo stack has to hear about. It is a no-op while
-      // the stack is itself writing (js/history.js).
-      Undo.touch();
+      if (persists) {
+        try { localStorage.setItem(STORE_KEY, JSON.stringify(state.drawings)); } catch {}
+        // Every path that changes a drawing ends here — placement, the drag
+        // release, the Delete key, the card's Remove, clear-all — so this is
+        // the one line the undo stack has to hear about. It is a no-op while
+        // the stack is itself writing (js/history.js). A secondary pane's
+        // shapes are outside the undo history for the same reason they are
+        // outside the store: they belong to the pane, not the session.
+        Undo.touch();
+      }
       // …and the one line anything COUNTING drawings has to hear about. The
       // scene layer has had this since it was written; the drawing layer only
       // ever announced its selection, so a control that wanted to say "3
@@ -103,8 +118,12 @@ const Drawings = (() => {
     }
     function emitSelect(via) {
       const t = tagOf(state.selId);
+      // `paneId` tells the edit toolbar and the chat WHICH chart this
+      // selection is on — the primary or a numbered secondary pane — so a
+      // toolbar edit lands on the right runtime and mounts over the right pane.
+      // The primary leaves it undefined, exactly as it always did.
       document.dispatchEvent(new CustomEvent("charto:draw-select", {
-        detail: t && { ...t, via: via || "click" },
+        detail: t && { ...t, via: via || "click", paneId: env.paneId || null },
       }));
     }
     function logUse(tool) {
@@ -1071,8 +1090,15 @@ const Drawings = (() => {
       return next;
     }
 
-    return {
+    const api = {
       state,
+      /** Which chart this runtime is: null for the primary, "sub-<n>" for a
+       *  secondary pane. The edit toolbar and the tool router use it to send an
+       *  action to the runtime the selection is actually on. */
+      paneId: env.paneId || null,
+      /** The element the runtime draws on — the edit toolbar mounts over it so
+       *  it sits above the pane the selection is on, primary or secondary. */
+      hostEl: env.stage || env.container,
       SPECS: Tools.SPECS,
       GROUPS: Tools.GROUPS,
       setTool(tool) {
@@ -1277,8 +1303,25 @@ const Drawings = (() => {
                                 tool_usage: usage }, null, 2);
       },
       requestUpdate: () => _ru(),
+      /** Tear a secondary pane's runtime down when its pane dies with a layout
+       *  change: drop the pointer listeners' effect by clearing tool + draft,
+       *  detach every primitive, and unregister. The chart itself is removed by
+       *  panes.js; this just makes sure nothing here outlives it. */
+      destroy() {
+        state.tool = "cursor"; state.draft = null; state.selId = null;
+        for (const [key, rec] of [...attached]) {
+          try { rec.host.detachPrimitive(rec.prim); } catch {}
+          attached.delete(key); rus.delete(key);
+        }
+        if (api.paneId) REGISTRY.delete(api.paneId);
+      },
     };
+    // A secondary pane registers so the edit toolbar and the tool router can
+    // find it from the paneId a select event carries. The primary does not —
+    // callers reach it as window.__charto.draw, the way they always have.
+    if (api.paneId) REGISTRY.set(api.paneId, api);
+    return api;
   }
 
-  return { create };
+  return { create, byPaneId: (id) => (id ? REGISTRY.get(id) || null : null) };
 })();

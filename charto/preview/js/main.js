@@ -1173,8 +1173,26 @@
   // panes appear and vanish with their indicators — re-attach on every change
   document.addEventListener("charto:indicators-changed", () => draw.syncPanes());
 
+  // The tool the rail is showing as armed, so switching the active pane can
+  // carry it to the newly-selected chart (see Panes.onActive below).
+  let railTool = "cursor";
   function selectTool(id) {
-    draw.setTool(id);
+    // One rail, the pane you are working in. A drawing tool arms on WHICHEVER
+    // pane holds the selection — the primary, or a secondary pane in a split —
+    // and every OTHER pane is put back to the cursor so two charts are never
+    // both waiting for the same click. The cursor tool itself arms everywhere,
+    // because "stop drawing" is not a per-pane statement.
+    railTool = id;
+    const activeDraw = Panes.activeDraw && Panes.activeDraw();
+    if (activeDraw && id !== "cursor") {
+      draw.setTool("cursor");
+      if (Panes.eachSubDraw) Panes.eachSubDraw((d) => d.setTool("cursor"));
+      activeDraw.setTool(id);
+    } else {
+      draw.setTool(id);
+      // cursor (or no secondary selected): clear any tool left armed on a sub
+      if (Panes.eachSubDraw) Panes.eachSubDraw((d) => d.setTool("cursor"));
+    }
     el("tool-cursor").classList.toggle("active", id === "cursor");
     const spec = Tools.SPECS[id];
     for (const g of Tools.GROUPS) {
@@ -3935,6 +3953,10 @@
   // a gear on a secondary pane's legend row opens the one settings dialog,
   // pointed at that pane's own indicator manager
   Panes.onSettings((id, mgr) => openIndSettings(id, mgr));
+  // a drawing tool finishing on a secondary pane hands the rail back to the
+  // cursor, exactly as the primary's onToolDone does — one behaviour, both
+  // surfaces, so the tool never stays armed after a shape is placed
+  if (Panes.onSubToolDone) Panes.onSubToolDone(() => selectTool("cursor"));
   const layoutBtn = el("layoutBtn"), layoutMenu = el("layoutMenu");
   /* The picker is a GRID OF GLYPHS grouped by pane count, not a list of
    * names: with forty-two layouts a text menu would be four screens of
@@ -4025,6 +4047,11 @@
   // you just clicked (unless you have pinned one yourself).
   Panes.onActive((i, iv, sym) => {
     markInterval(iv || state.interval);
+    // A tool armed on the pane you just left follows you to the one you
+    // selected — selectTool routes by which pane is now active, so re-arming
+    // the same id moves it. Nothing happens for the cursor, which is armed
+    // everywhere anyway.
+    if (railTool !== "cursor") selectTool(railTool);
     // …but only HALF the toolbar can re-aim, and that was the bug. The
     // interval pill follows the selection; the symbol pill cannot, because
     // picking a company there navigates to ?symbol= and reloads — it is a

@@ -40,6 +40,14 @@ const Panes = (() => {
   const WIRE = { D: "1d", W: "1w", M: "1mo" };
   const DISP = { "1d": "D", "1w": "W", "1mo": "M" };
   const PAGE = { "1m": 3000, "5m": 2500, "15m": 2000, "30m": 2000, "1h": 2000, D: 2000, W: 700, M: 200 };
+  // seconds per bar, keyed by BOTH the display label and the wire id — the
+  // drawing runtime asks for it (clone offset), and a pane speaks D/W/M while
+  // the server speaks 1d/1w/1mo.
+  const IV_SEC = {
+    "1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600,
+    D: 86400, W: 604800, M: 2592000,
+    "1d": 86400, "1w": 604800, "1mo": 2592000,
+  };
 
   /* ── the layout catalogue ────────────────────────────────────────────────
    *
@@ -243,6 +251,10 @@ const Panes = (() => {
   }
   let active = 0;         // 0 = primary, 1..n = subs — the pane the toolbar drives
   const subs = [];        // active secondary charts
+  let subSeq = 0;         // monotonic id for a sub's drawing runtime (never reused)
+  // main.js installs this so a tool finishing on a secondary pane hands the
+  // rail back to the cursor, exactly as the primary's onToolDone does.
+  let onSubToolDone = null;
 
   /* Must stay identical to main.js's copy — a sub-pane's axis sits directly
      under the primary's and any difference reads as a rendering bug. */
@@ -428,6 +440,9 @@ const Panes = (() => {
       // the axis is what you grab to rescale, and lighting the mark on it turns
       // an ordinary axis drag into a duplicate marker. Same split the primary
       // makes: --axis-w is measured here off this pane's own scale.
+      // A tool armed on this pane owns the pointer — the ⊕ must not compete
+      // with a line being placed, the same rule the primary's syncPlus applies.
+      if (sub.draw && sub.draw.state.tool !== "cursor") return hidePlus();
       let axisW = 0;
       try { axisW = chart.priceScale("right").width(); } catch { /* not laid out */ }
       canvas.style.setProperty("--axis-w", `${axisW || 64}px`);
@@ -507,11 +522,56 @@ const Panes = (() => {
             // one simply opens without the strip
             .catch(() => {});
         }
+        // the volume strip (and any study) is a new pane the drawing layer
+        // must attach its overlay to, the same re-attach the primary runs on
+        // charto:indicators-changed
+        if (sub._syncDrawPanes) requestAnimationFrame(sub._syncDrawPanes);
       } catch (e) {
         if (!sub.destroyed) titleEl.textContent = String(e.message || e);
       }
     }
     sub.load = load;
+
+    /* ── the drawing runtime, on THIS pane ──────────────────────────────────
+     *
+     * A secondary pane gets the same drawing engine the primary does — arm a
+     * tool, draw, select, drag, restyle — over its OWN canvas, bars and panes.
+     * It is `persist:false`, so its shapes live for the life of the pane and
+     * stay out of the symbol store and the undo history: a split pane is
+     * reference, and a line drawn on the 1h view is about reading the 1h view,
+     * not about the session the primary owns.
+     *
+     * The tool is armed on WHICHEVER pane holds the selection — see
+     * setActiveDraw()/toolForActive() below — so the one rail drives the one
+     * chart you are working in, exactly as the interval strip already does. */
+    const paneId = `sub-${++subSeq}`;
+    sub.paneId = paneId;
+    function subPanesList() {
+      const out = [{ key: "price", label: "price",
+                     pane: candle.getPane(), series: candle }];
+      for (const [, a] of sub.ind.active) {
+        if (!a.def || a.def.kind !== "pane" || !(a.series || []).length) continue;
+        out.push({ key: a.def.name, period: a.def.period, label: a.def.label,
+                   pane: a.series[0].getPane(), series: a.series[0] });
+      }
+      return out;
+    }
+    sub.draw = Drawings.create(chart, candle, {
+      getBars: () => sub.bars,
+      getIntervalSec: () => IV_SEC[sub.interval] || 86400,
+      container: canvas,
+      stage: root,
+      panes: subPanesList,
+      persist: false,
+      paneId,
+      setStatus: () => {},
+      // a tool that finishes hands the toolbar back to cursor, on every pane
+      onToolDone: () => { if (onSubToolDone) onSubToolDone(); },
+      onChange: () => {},
+    });
+    // panes come and go with this pane's own indicators — re-attach the
+    // drawing primitives the same way the primary does on its own changes
+    sub._syncDrawPanes = () => { try { sub.draw.syncPanes(); } catch {} };
 
     /** Point this pane at another instrument. A cold symbol hydrates server
      *  side (~6 s), so the legend says what it is doing rather than sitting
@@ -546,6 +606,10 @@ const Panes = (() => {
     };
     sub.destroy = () => {
       sub.destroyed = true;
+      // the drawing runtime holds pointer listeners on this canvas and
+      // primitives on its series; drop them before the chart goes, and
+      // unregister so a stale paneId cannot resolve to a dead pane
+      try { sub.draw.destroy(); } catch { /* never created */ }
       // first: a settings edit must never reach a chart that is going away
       ChartSettings.unregister(sub.settings);
       // before the chart goes: the legend holds a sink on the manager and
@@ -825,6 +889,19 @@ const Panes = (() => {
     },
     /** The indicator manager the one toolbar drives. */
     activeInd() { const s = this.activeSub(); return s ? s.ind : null; },
+    /** The drawing runtime the rail should arm a tool on: null when the
+     *  primary is selected (main.js drives its own), else the selected
+     *  secondary pane's own runtime. */
+    activeDraw() { const s = this.activeSub(); return s ? s.draw : null; },
+    /** Run fn against every secondary pane's drawing runtime — used to put
+     *  them all back to the cursor when the tool arms elsewhere. */
+    eachSubDraw(fn) { for (const s of subs) if (s.draw) { try { fn(s.draw); } catch {} } },
+    /** Resolve a paneId (from a charto:draw-select detail) to its runtime, so
+     *  the edit toolbar can act on the pane the selection is actually on. */
+    drawByPaneId(id) { return Drawings.byPaneId(id); },
+    /** main.js hands down what "a tool finished" means, so a secondary pane
+     *  hands the rail back to the cursor exactly as the primary does. */
+    onSubToolDone(fn) { onSubToolDone = fn; },
     /** Route an interval choice to the selected pane. Returns false when the
      *  primary is selected, so main.js keeps ownership of its own chart. */
     setIntervalOnActive(iv) {
