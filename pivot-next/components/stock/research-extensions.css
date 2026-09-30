@@ -104,5 +104,23 @@
   .research-choice button { padding-left:10px; padding-right:10px; }
   .research-choice button:first-child { padding-left:0; }
   .research-return-table caption span { display:block; float:none; margin-top:4px; }
+  /* The two headline figures (e.g. "Operating cash flow ₹1,92,113 Cr" /
+     "Closing cash ₹1,45,977 Cr") are lakh-crore numbers. In the tablet 1fr 1fr
+     aside their min-content width forced the track past the viewport, slicing
+     the last "Cr". On a phone give each figure the full width so it never
+     overflows, and let the track actually shrink. */
+  .research-chart-aside { grid-template-columns:minmax(0,1fr); gap:16px; }
+  .research-figure { min-width:0; }
+  .research-figure strong { font-size:clamp(19px,6vw,24px); }
+  /* The data/return tables carry 6 columns (Period + 1M/6M/1Y/3Y/5Y) — more
+     than a phone fits, so they stay a clean horizontal swipe. Drop the grey
+     scrollbar track (it read as broken) but keep the row scrollable, and let
+     the first column pin so the row label stays visible while you swipe. */
+  .research-data-scroll { scrollbar-width:none; -ms-overflow-style:none; -webkit-overflow-scrolling:touch; }
+  .research-data-scroll::-webkit-scrollbar { display:none; }
+  .research-return-table th, .research-return-table td { padding:9px 12px; font-size:11.5px; }
+  .research-return-table th:first-child, .research-return-table td:first-child {
+    position:sticky; left:0; padding-left:0; padding-right:14px; background:var(--bg-primary); z-index:1;
+  }
 }
 @media(prefers-reduced-motion:reduce) { .research-choice button { transition:none; } }

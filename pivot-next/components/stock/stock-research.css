@@ -38,8 +38,53 @@
 @media(max-width:1279px) { .research-company { grid-column: 1; grid-row: 2; } }
 @media(max-width:639px) { .stock-research { padding: 6px 0 48px; } .research-eyebrow { margin-bottom: 18px; } .research-nav { gap: 22px; } .research-snapshot { grid-template-columns: repeat(2,minmax(0,1fr)); row-gap: 20px; } .research-snapshot > div { padding: 0 12px; } .research-snapshot > div:first-child { padding-left: 12px; } .research-snapshot > div:nth-child(2n) { border: 0; } .research-snapshot strong { font-size: 21px; } .research-profile-stats { grid-template-columns: 1fr !important; } }
 @media(max-width:639px) {
-  .research-snapshot { display: flex; overflow-x: auto; padding: 20px 0; scrollbar-width: thin; }
-  .research-snapshot > div { flex: 0 0 150px; }
+  .research-snapshot { display: flex; overflow-x: auto; padding: 16px 0 6px; scrollbar-width: none; -ms-overflow-style: none; }
+  .research-snapshot::-webkit-scrollbar { display: none; }
+  /* Slightly narrower cards + a right gutter so the last one clears the edge
+     instead of being sliced ("52-week h…", "₹1,61…"). */
+  .research-snapshot > div { flex: 0 0 138px; }
+  .research-snapshot > div:last-child { padding-right: 20px; }
+  /* The section strip swipes on phones; the visible track read as a stray grey
+     bar under the words. Keep the scroll, drop the chrome. */
+  .research-nav { scrollbar-width: none; -ms-overflow-style: none; padding: 0 2px; }
+  .research-nav::-webkit-scrollbar { display: none; }
+  .research-nav a { padding: 13px 0; }
+  /* Any wide data table inside the research page scrolls as a swipe on phones,
+     without the grey scrollbar track that looked broken beneath it. */
+  .stock-research .research-scroll-x,
+  .stock-research .overflow-x-auto { scrollbar-width: none; -ms-overflow-style: none; }
+  .stock-research .research-scroll-x::-webkit-scrollbar,
+  .stock-research .overflow-x-auto::-webkit-scrollbar { display: none; }
+
+  /* Financials tables (Balance Sheet / P&L / Quarterly / Ratios) carry 6
+     columns of lakh-crore figures that cannot fit a phone. On mobile the
+     fixed layout clipped the numbers ("₹9.04 L", "₹668.07" ran off the edge).
+     Let the table size to its content and swipe horizontally instead, with the
+     Metric column pinned so you keep the row label while you scroll. */
+  .fin-table-wrap { overflow-x: auto !important; -webkit-overflow-scrolling: touch; scrollbar-width: none; -ms-overflow-style: none; }
+  .fin-table-wrap::-webkit-scrollbar { display: none; }
+  .fin-table { table-layout: auto !important; min-width: max-content; }
+  .fin-table th, .fin-table td { white-space: nowrap; }
+  .fin-table th:first-child, .fin-table td:first-child {
+    position: sticky; left: 0; z-index: 1; width: auto !important;
+    background: var(--bg-primary);
+  }
+  /* The sticky Metric header must keep its own header fill, not the row's. */
+  .fin-table thead th:first-child { background: var(--bg-base, #f8fafc); }
+}
+
+/* ── news on phones ─────────────────────────────────────────────────────
+   The desktop row is a 144px thumbnail beside a wide text column. On a phone
+   that leaves the headline a sliver, so tall multi-line titles tower. Shrink
+   the thumbnail, tighten the grid, and cap the headline so rows stay even. */
+@media(max-width:639px) {
+  .stock-news { margin-top: 36px; padding-top: 22px; }
+  .stock-news__header h2 { font-size: 19px; }
+  .stock-news__item { grid-template-columns: 96px minmax(0,1fr); gap: 14px; min-height: 0; margin: 0 -10px; padding: 14px 12px; }
+  .stock-news__thumb { width: 96px; height: 72px; }
+  .stock-news__item h3 { font-size: 14px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+  .stock-news__item p { -webkit-line-clamp: 2; font-size: 11.5px; }
+  .stock-news__arrow { display: none; }
 }
 
 /* ── the dropdown ──────────────────────────────────────────────────────
@@ -110,7 +155,10 @@
    redesign that this file otherwise follows had retired it. */
 .stock-news { margin-top: 52px; padding-top: 28px; border-top: 1px solid var(--research-rule); }
 .stock-news__header { margin-bottom: 14px; }
-.stock-news__header h2 { margin: 0; color: var(--text-primary); font-size: clamp(24px,2vw,30px); font-weight: 650; letter-spacing: -.04em; line-height: 1.1; }
+/* News is a section like any other on this page — its heading matches the
+   21px / 600 / -0.022em the research modules and Technical Analysis use, not a
+   30px display size that made it the loudest thing on the page. */
+.stock-news__header h2 { margin: 0; color: var(--text-primary); font-size: 21px; font-weight: 600; letter-spacing: -.022em; line-height: 1.3; }
 .stock-news__list { margin: 0; list-style: none; padding: 0; }
 .stock-news__list > li { margin: 0 0 4px; padding: 0; }
 /* Symmetric horizontal padding so the hover fill is inset from both edges and

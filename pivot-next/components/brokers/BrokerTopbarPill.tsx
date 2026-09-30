@@ -18,14 +18,8 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { BrokerLogo } from "@/components/brokers/BrokerLogo";
-import { BrokerGrid } from "@/components/brokers/BrokerGrid";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { BrokerConnectDialog } from "@/components/brokers/BrokerConnectDialog";
+// note: BrokerConnectDialog is also imported by AppShell's AccountMenu.
 import { getBrokers, type BrokerEntry } from "@/lib/brokersApi";
 
 // Purely decorative hint marks for the empty state (greyed out) — the two most
@@ -88,7 +82,9 @@ export function BrokerTopbarPill(): React.ReactElement {
             : "Connect a broker"
         }
         data-testid="broker-topbar-pill"
-        className="broker-pill inline-flex shrink-0 items-center justify-center"
+        // Hidden on phones — there the connection lives in the account dropdown
+        // (a "Brokers" row) so the narrow header isn't crowded.
+        className="broker-pill hidden shrink-0 items-center justify-center sm:inline-flex"
         style={{
           // Borderless, minimal-width: just the logo cluster, no chrome and no
           // caption. Status is a tiny dot on the cluster, not a word.
@@ -169,20 +165,7 @@ export function BrokerTopbarPill(): React.ReactElement {
 
       {/* The exact connect surface the old Brokers tab used — same grid, same
           per-broker forms. Hosted in a dialog now that it has no tab. */}
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent
-          className="sm:max-w-[680px] sm:max-h-[calc(100dvh_-_2rem)] sm:overflow-y-auto"
-          data-testid="broker-grid-dialog"
-        >
-          <DialogHeader>
-            <DialogTitle>Brokers</DialogTitle>
-            <DialogDescription>
-              Connect a broker to pull live holdings and arm automations.
-            </DialogDescription>
-          </DialogHeader>
-          <BrokerGrid />
-        </DialogContent>
-      </Dialog>
+      <BrokerConnectDialog open={open} onOpenChange={setOpen} />
     </>
   );
 }

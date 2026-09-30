@@ -31,6 +31,7 @@ import {
   History,
   Keyboard,
   LayoutDashboard,
+  Link2,
   ListFilter,
   LogOut,
   Menu,
@@ -62,6 +63,7 @@ import {
 } from "@/components/agent-panel/active-draft-context";
 import { BrokerGrid } from "@/components/brokers/BrokerGrid";
 import { BrokerTopbarPill } from "@/components/brokers/BrokerTopbarPill";
+import { BrokerConnectDialog } from "@/components/brokers/BrokerConnectDialog";
 import { AgentsTab } from "@/components/agent-panel/AgentsTab";
 import { PortfolioTab } from "@/components/agent-panel/PortfolioTab";
 import { ChartFrame } from "@/components/chart/ChartFrame";
@@ -91,8 +93,6 @@ import {
   type PortfolioSummary,
 } from "@/lib/api";
 import type { ResumeConversation } from "@/components/chat/ChatDemo";
-import { basketAttachment } from "@/components/chat/ComposerContext";
-import type { EquityBasket } from "@/lib/agentsApi";
 import type { Workflow } from "@/lib/types";
 import { isError } from "@/lib/types";
 import {
@@ -311,7 +311,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   // → "options"). Nonce-bumped so repeat requests re-fire; consumed by
   // AgentsTab even when it mounts lazily after the request is set.
   const [agentsSurfaceReq, setAgentsSurfaceReq] = useState<
-    { surface: "equity" | "options" | "baskets"; nonce: number } | null
+    { surface: "equity" | "options"; nonce: number } | null
   >(null);
   // Shared active-draft state: the workflow currently open in the editor
   // (unsaved only — id "" or "local-…", status "draft").
@@ -1068,25 +1068,6 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     });
   }, [goTab, openWorkflow]);
 
-  // "Edit with chat" for a saved basket — the same selection-not-sentence
-  // handoff as agents, minus the side editor (baskets have no step graph).
-  // The chip carries the basket id + exact legs, so "drop SUZLON" amends THIS
-  // basket rather than re-resolving it from a free-text name.
-  const editBasketWithChat = useCallback((basket: EquityBasket): void => {
-    setResumeConv(undefined);
-    setActiveConversationId(undefined);
-    try { sessionStorage.removeItem(ACTIVE_COPILOT_KEY); } catch { /* unavailable */ }
-    setChatResetKey((k) => k + 1);
-    goTab("chat");
-    requestAnimationFrame(() => {
-      window.dispatchEvent(
-        new CustomEvent("pivot:seed-composer", {
-          detail: { attach: basketAttachment(basket) },
-        }),
-      );
-    });
-  }, [goTab]);
-
   // True when the panel is open and actively bound to an unsaved draft.
   const panelOpenWithDraft = panelOpen && activeEditorDraft !== null;
 
@@ -1567,8 +1548,6 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
                 onOpenWorkflow={openWorkflow}
                 onEditWithChat={editWorkflowWithChat}
                 surfaceRequest={agentsSurfaceReq}
-                onSendPrompt={sendChatPrompt}
-                onEditBasketWithChat={editBasketWithChat}
               />
             </div>
           )}
@@ -1865,7 +1844,11 @@ function AccountMenu({
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
   const [_helpOpen, setHelpOpen] = useState(false);
-  const [_isNarrow, setIsNarrow] = useState(false);
+  // True on phones (<640px), where the topbar broker pill is hidden — the menu
+  // shows a "Brokers" row instead so the connection is still reachable.
+  const [isNarrow, setIsNarrow] = useState(false);
+  // Broker connect dialog, opened from the mobile "Brokers" menu row.
+  const [brokerDialogOpen, setBrokerDialogOpen] = useState(false);
   // Touch-primary devices (phone/tablet) have no physical keyboard, so the
   // keyboard-shortcuts entry is hidden there. Keyed off pointer capability,
   // not screen width — a narrow/windowed desktop still has a keyboard.
@@ -2005,6 +1988,16 @@ function AccountMenu({
           </div>
           {/* "Paper book" lived here; removed per owner request — the paper
               surface is reached from Portfolio, not the account menu. */}
+          {/* Brokers — phone-only. On desktop the topbar pill owns this; on a
+              phone the pill is hidden, so the connection lives here instead. */}
+          {isNarrow ? (
+            <MenuItem
+              icon={Link2}
+              label="Brokers"
+              testId="menu-brokers"
+              onClick={() => { setOpen(false); setBrokerDialogOpen(true); }}
+            />
+          ) : null}
           <MenuItem icon={Settings} label="Settings" testId="menu-settings-chart-style" onClick={() => { setOpen(false); onOpenSettings(); }} />
           <MenuItem icon={HelpCircle} label="Help" onClick={() => { setOpen(false); onReportBug(); }} />
           <div aria-hidden={true} style={{ height: 1, background: "var(--glass-border)", margin: "5px -5px" }} />
@@ -2027,6 +2020,10 @@ function AccountMenu({
 
         </div>
       )}
+
+      {/* Phone-only broker connect surface — the same grid the desktop pill
+          opens, reached here from the "Brokers" menu row. */}
+      <BrokerConnectDialog open={brokerDialogOpen} onOpenChange={setBrokerDialogOpen} />
     </div>
   );
 }

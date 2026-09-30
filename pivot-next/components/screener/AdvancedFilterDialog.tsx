@@ -71,7 +71,7 @@ export function AdvancedFilterDialog({ value, onChange }: { value: ScreenerFilte
 
   const metrics = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (q) return M.filter((m) => `${m.label} ${m.description} ${m.source}`.toLowerCase().includes(q));
+    if (q) return M.filter((m) => `${m.label} ${m.description}`.toLowerCase().includes(q));
     if (category === "popular") return POPULAR.map(metricFor).filter(Boolean) as Metric[];
     return M.filter((m) => m.category === category);
   }, [category, search]);
@@ -89,7 +89,20 @@ export function AdvancedFilterDialog({ value, onChange }: { value: ScreenerFilte
           {value.length > 0 && <span className="ml-2 rounded-full bg-foreground px-1.5 py-0.5 text-[10px] text-background">{value.length}</span>}
         </Button>
       </DialogTrigger>
-      <DialogContent className="gap-0 overflow-hidden border-border bg-background p-0 font-[var(--font-ui)] shadow-[0_24px_70px_-24px_rgba(0,0,0,0.38)] sm:h-[min(600px,82vh)] sm:max-w-[920px] sm:rounded-xl">
+      <DialogContent
+        className={
+          // Above the mobile filter sheet (z-index 2000) it can be opened from.
+          "!z-[2100] flex flex-col gap-0 overflow-hidden border-border bg-background p-0 font-[var(--font-ui)] " +
+          "shadow-[0_24px_70px_-24px_rgba(0,0,0,0.38)] " +
+          // Desktop: centred card. Mobile: a bottom sheet that fits the screen
+          // and scrolls inside, instead of the desktop grid overflowing the
+          // viewport (which sliced the header off the top).
+          "sm:h-[min(600px,82vh)] sm:max-w-[920px] sm:rounded-xl " +
+          "max-sm:!inset-x-0 max-sm:!bottom-0 max-sm:!top-auto max-sm:!left-0 max-sm:!right-0 " +
+          "max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:h-[92svh] max-sm:!max-w-none " +
+          "max-sm:!rounded-t-2xl max-sm:!rounded-b-none max-sm:!border-x-0 max-sm:!border-b-0"
+        }
+      >
         <div className="border-b border-border px-5 pb-4 pt-4">
           <DialogTitle className="font-[var(--font-display)] text-[19px] font-medium leading-6 tracking-[-0.02em]">Equity filters</DialogTitle>
           <DialogDescription className="mt-0.5 text-[11px] leading-4 text-muted-foreground">Combine market, fundamental and Charto criteria. All conditions must pass.</DialogDescription>
@@ -100,22 +113,21 @@ export function AdvancedFilterDialog({ value, onChange }: { value: ScreenerFilte
           </div>
         </div>
 
-        <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[160px_200px_minmax(330px,1fr)] divide-y divide-border sm:grid-cols-[190px_278px_minmax(0,1fr)] sm:grid-rows-1 sm:divide-x sm:divide-y-0">
-          <nav className="overflow-y-auto p-2">
-            {draft.length > 0 && <button onClick={() => { setSearch(""); setCategory("popular"); setSelected(draft[0]!.field); }} className="mb-1 flex h-9 w-full items-center justify-between rounded-md px-2.5 text-left text-[12px] font-medium transition-colors hover:bg-muted"><span>Active filters</span><span className="min-w-5 rounded-full bg-sky-500/15 px-1.5 py-0.5 text-center text-[10px] text-sky-600 dark:text-sky-300">{draft.length}</span></button>}
-            {CATEGORIES.map((c) => { const Icon = c.icon; const active = !search && category === c.id; return <button key={c.id} onClick={() => { setSearch(""); setCategory(c.id); const first = c.id === "popular" ? POPULAR[0] : M.find((m) => m.category === c.id)?.field; if (first) setSelected(first); }} className={`group mb-0.5 flex min-h-10 w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left transition-colors ${active ? "bg-foreground text-background" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}><Icon className="h-3.5 w-3.5 shrink-0"/><span className="min-w-0 flex-1"><span className="block text-[12px] font-medium leading-4">{c.label}</span><span className={`block truncate text-[9px] leading-3 ${active ? "text-background/55" : "text-muted-foreground"}`}>{c.subhead}</span></span><ChevronRight className="h-3 w-3 opacity-40 transition-transform group-hover:translate-x-0.5"/></button>; })}
+        <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(120px,0.9fr)_minmax(0,1.3fr)] divide-y divide-border sm:grid-cols-[190px_278px_minmax(0,1fr)] sm:grid-rows-1 sm:divide-x sm:divide-y-0">
+          <nav className="flex gap-1 overflow-x-auto p-2 sm:flex-col sm:gap-0 sm:overflow-x-hidden sm:overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {draft.length > 0 && <button onClick={() => { setSearch(""); setCategory("popular"); setSelected(draft[0]!.field); }} className="flex h-9 shrink-0 items-center justify-between gap-2 rounded-full bg-muted/50 px-3 text-left text-[12px] font-medium transition-colors hover:bg-muted sm:mb-1 sm:w-full sm:shrink sm:rounded-md sm:bg-transparent sm:px-2.5"><span className="whitespace-nowrap">Active filters</span><span className="min-w-5 rounded-full bg-sky-500/15 px-1.5 py-0.5 text-center text-[10px] text-sky-600 dark:text-sky-300">{draft.length}</span></button>}
+            {CATEGORIES.map((c) => { const Icon = c.icon; const active = !search && category === c.id; return <button key={c.id} onClick={() => { setSearch(""); setCategory(c.id); const first = c.id === "popular" ? POPULAR[0] : M.find((m) => m.category === c.id)?.field; if (first) setSelected(first); }} className={`group flex shrink-0 items-center gap-2 rounded-full px-3 py-1.5 text-left transition-colors sm:mb-0.5 sm:min-h-10 sm:w-full sm:shrink sm:rounded-md sm:px-2.5 ${active ? "bg-foreground text-background" : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground sm:bg-transparent"}`}><Icon className="h-3.5 w-3.5 shrink-0"/><span className="min-w-0 flex-1"><span className="block whitespace-nowrap text-[12px] font-medium leading-4 sm:whitespace-normal">{c.label}</span><span className={`hidden truncate text-[9px] leading-3 sm:block ${active ? "text-background/55" : "text-muted-foreground"}`}>{c.subhead}</span></span><ChevronRight className="hidden h-3 w-3 opacity-40 transition-transform group-hover:translate-x-0.5 sm:block"/></button>; })}
           </nav>
 
           <section className="overflow-y-auto p-2">
             <div className="px-2.5 pb-1.5 pt-1 text-[9px] font-semibold uppercase tracking-[0.13em] text-muted-foreground">{search ? `${metrics.length} matching filters` : CATEGORIES.find((c) => c.id === category)?.label}</div>
-            {metrics.map((m) => { const active = selected === m.field; const applied = draft.some((f) => f.field === m.field); return <button key={m.field} onClick={() => setSelected(m.field)} className={`group mb-0.5 flex min-h-[46px] w-full items-center gap-2 rounded-md border px-2.5 py-1.5 text-left transition-all ${active ? "border-foreground/20 bg-muted/70" : "border-transparent hover:border-border hover:bg-muted/40"}`}><span className={`flex h-6 w-6 items-center justify-center rounded-full border ${applied ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600" : "border-border text-muted-foreground"}`}>{applied ? <Check className="h-3 w-3"/> : <Activity className="h-3 w-3"/>}</span><span className="min-w-0 flex-1"><span className="block truncate text-[12px] font-medium leading-4 text-foreground">{m.label}</span><span className="block truncate text-[9.5px] leading-3.5 text-muted-foreground">{m.unit} · {m.source}</span></span><ChevronRight className="h-3 w-3 text-muted-foreground transition-transform group-hover:translate-x-0.5"/></button>; })}
+            {metrics.map((m) => { const active = selected === m.field; const applied = draft.some((f) => f.field === m.field); return <button key={m.field} onClick={() => setSelected(m.field)} className={`group mb-0.5 flex min-h-[46px] w-full items-center gap-2 rounded-md border px-2.5 py-1.5 text-left transition-all ${active ? "border-foreground/20 bg-muted/70" : "border-transparent hover:border-border hover:bg-muted/40"}`}><span className={`flex h-6 w-6 items-center justify-center rounded-full border ${applied ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600" : "border-border text-muted-foreground"}`}>{applied ? <Check className="h-3 w-3"/> : <Activity className="h-3 w-3"/>}</span><span className="min-w-0 flex-1"><span className="block truncate text-[12px] font-medium leading-4 text-foreground">{m.label}</span><span className="block truncate text-[9.5px] leading-3.5 text-muted-foreground">{m.unit}</span></span><ChevronRight className="h-3 w-3 text-muted-foreground transition-transform group-hover:translate-x-0.5"/></button>; })}
           </section>
 
           <section className="overflow-y-auto p-5">
             <div className="text-[9px] font-semibold uppercase tracking-[0.13em] text-muted-foreground">{CATEGORIES.find((c) => c.id === metric.category)?.label}</div>
             <h3 className="mt-1.5 font-[var(--font-display)] text-[17px] font-medium leading-5 tracking-[-0.015em]">{metric.label}</h3>
             <p className="mt-1.5 max-w-lg text-[11.5px] leading-[1.55] text-muted-foreground">{metric.description}</p>
-            <div className="mt-2 inline-flex rounded-full border border-border bg-muted/35 px-2 py-0.5 text-[9px] leading-4 text-muted-foreground">Source · {metric.source}</div>
 
             {metric.suggested && <div className="mt-4"><div className="mb-1.5 text-[10px] font-medium text-muted-foreground">Quick ranges</div><div className="flex flex-wrap gap-1.5">{metric.suggested.map((s) => <button key={s.label} onClick={() => upsert({ field: metric.field, op: s.op, value: s.value, value2: s.value2 })} className="h-7 rounded-full border border-border px-2.5 text-[10.5px] transition-all hover:-translate-y-px hover:border-foreground/30 hover:bg-muted">{s.label}</button>)}</div></div>}
 

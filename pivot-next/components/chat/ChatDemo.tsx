@@ -119,6 +119,9 @@ const PLACEHOLDER_TEXT_MOBILE = "Ask Pivot anything";
  * gains a vertical scrollbar; under it the textarea autosizes silently
  * (no scrollbar) — ChatGPT's pattern. */
 const MAX_TEXTAREA_PX = 200;
+/** The composer's single-line box height — matches the textarea's 24px line
+ *  height, so a one-line message centres against the +/send buttons. */
+const LINE_HEIGHT_PX = 24;
 
 const EXAMPLE_PROMPT =
   "Every weekday at 3:15 PM IST, if my buying power is over ₹50,000, buy 10 shares of RELIANCE and notify me by email.";
@@ -1086,7 +1089,12 @@ export function ChatDemo({
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
-    const next = Math.min(el.scrollHeight, MAX_TEXTAREA_PX);
+    // A single-line (empty / no-wrap) textarea reports a scrollHeight a few px
+    // taller than its 24px line box, so the placeholder sat above the vertical
+    // centre of the pill. When the content is one line, pin the height to the
+    // line box exactly so the text centres against the +/send buttons.
+    const oneLine = el.scrollHeight <= LINE_HEIGHT_PX + 8 && !el.value.includes("\n");
+    const next = oneLine ? LINE_HEIGHT_PX : Math.min(el.scrollHeight, MAX_TEXTAREA_PX);
     el.style.height = `${next}px`;
     el.style.overflowY = el.scrollHeight > MAX_TEXTAREA_PX ? "auto" : "hidden";
   }, [intent]);
@@ -1101,7 +1109,8 @@ export function ChatDemo({
       const el = textareaRef.current;
       if (!el) return;
       el.style.height = "auto";
-      const next = Math.min(el.scrollHeight, MAX_TEXTAREA_PX);
+      const oneLine = el.scrollHeight <= LINE_HEIGHT_PX + 8 && !el.value.includes("\n");
+      const next = oneLine ? LINE_HEIGHT_PX : Math.min(el.scrollHeight, MAX_TEXTAREA_PX);
       el.style.height = `${next}px`;
       el.style.overflowY = el.scrollHeight > MAX_TEXTAREA_PX ? "auto" : "hidden";
     };
@@ -1540,7 +1549,7 @@ export function ChatDemo({
           for scrolling grew. --chat-measure is published by AppShell. */}
       <div
         ref={scrollRef}
-        className="quartr-no-scrollbar flex-1 min-h-0 overflow-y-auto px-4 pt-6 pb-6 lg:px-6"
+        className="quartr-no-scrollbar flex-1 min-h-0 overflow-y-auto px-2 pt-6 pb-6 sm:px-4 lg:px-6"
         data-testid="chat-scroll"
       >
       {/* min-h-full + flex-col: the empty-state cluster below sizes itself
@@ -2068,7 +2077,7 @@ export function ChatDemo({
           behind the pill (ChatGPT-style) instead of hard-stopping against
           a flat white band. Tighter bottom padding on phones so the pill
           doesn't dominate the landing surface. */}
-      <div className="composer-dock relative z-10 -mt-6 shrink-0 bg-gradient-to-t from-background via-background to-transparent px-4 pt-6 sm:pt-7 lg:px-6">
+      <div className="composer-dock relative z-10 -mt-6 shrink-0 bg-gradient-to-t from-background via-background to-transparent px-2 pt-6 sm:px-4 sm:pt-7 lg:px-6">
         <div className="mx-auto w-full max-w-[var(--chat-measure,50rem)]">
         <ChatComposer
           textareaRef={textareaRef}
