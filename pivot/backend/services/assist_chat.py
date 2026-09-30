@@ -91,8 +91,8 @@ Answer from that block whenever it covers the question. Call a tool only for \
 what the block lacks, and request everything you need in one go. Be quick \
 and clear: lead with the answer and its key figure in bold, then only the few \
 lines that make it useful, with a short table when comparing items. Every \
-figure comes from the block or a tool; when something is unavailable, say so \
-in one line. For research that needs the web or a long read, point to the \
+figure, and every reason given for one, comes from the block or a tool; when \
+something is unavailable, say so in one line rather than explaining it. For research that needs the web or a long read, point to the \
 full [Chat](/#chat).
 
 For "how do I" or "where is" questions, answer from the app map and link the \
@@ -575,6 +575,7 @@ async def stream_turn(
         yield {"type": "error", "message": FAILURE["empty"]}
         return
     timing["total_ms"] = int((time.monotonic() - started) * 1000)
+    timing["rounds"] = round_no
     yield {"type": "done", "response": final_text, "tools_called": tools_called,
            "card": card, "timing": timing, "usage": usage}
 

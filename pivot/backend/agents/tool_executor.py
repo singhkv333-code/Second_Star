@@ -1096,7 +1096,21 @@ async def _get_portfolio_summary(a, kt, db, uid):
 
 async def _get_holdings(a, kt, db, uid):
     from backend.services.portfolio_cache import get_holdings_cached
-    return {"success": True, "data": {"holdings": get_holdings_cached(uid, kt)}, "logiccard": None}
+    # Each position's market value and return, computed here so a reader
+    # ranks "largest" or "worst" from numbers rather than multiplying in its
+    # head; `sort_by` (documented on the tool) orders them, largest first.
+    rows = []
+    for h in get_holdings_cached(uid, kt):
+        qty, last, avg = h.get("quantity") or 0, h.get("last_price"), h.get("average_price")
+        rows.append({
+            **h,
+            "value": round(last * qty, 2) if last is not None else None,
+            "pnl_pct": round((last - avg) / avg * 100, 2) if last is not None and avg else None,
+        })
+    key = {"value": "value", "pnl": "pnl", "day_change": "day_change"}.get(a.get("sort_by") or "")
+    if key:
+        rows.sort(key=lambda r: (r.get(key) is None, -(r.get(key) or 0)))
+    return {"success": True, "data": {"holdings": rows}, "logiccard": None}
 
 
 async def _get_sector_breakdown(a, kt, db, uid):
@@ -1113,7 +1127,11 @@ async def _get_sector_breakdown(a, kt, db, uid):
     breakdown = [{"sector": s, "value": round(v, 2),
                   "pct": round(v / total * 100, 1) if total else 0}
                  for s, v in sorted(totals.items(), key=lambda x: -x[1])]
-    return {"success": True, "data": {"sectors": breakdown, "total_value": total},
+    # `holdings_value`, not `total_value`: the summary's total_value includes
+    # cash, and one name for two numbers read as a discrepancy to reconcile.
+    return {"success": True, "data": {"sectors": breakdown,
+                                      "holdings_value": round(total, 2),
+                                      "excludes": "cash"},
             "logiccard": None}
 
 

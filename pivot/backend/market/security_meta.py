@@ -172,8 +172,16 @@ def classify(symbol: str, *, session: Any = None) -> dict:
     # US fallback or they'd be mislabeled US.
     if _is_indian_etf(base):
         return {"base": base, "asset_class": "in_etf", "currency": "INR"}
-    # Indian if it resolves in the moneycontrol DB (or carries an NSE suffix).
-    if raw.endswith(".NS") or raw.endswith(".BO") or _is_indian(base, session):
+    # Indian if it carries an NSE/BSE suffix, sits in the curated NSE universe
+    # (network-free), or resolves in the moneycontrol DB.
+    indian = (True if raw.endswith((".NS", ".BO")) or _in_curated_universe(base)
+              else _is_indian(base, session))
+    # A lookup that FAILED is not a "no": with the DB unreachable every Indian
+    # ticker used to fall through to US equity, and the paper book priced TCS
+    # as The Container Store in dollars. India stays the default; a symbol
+    # that is really foreign then misses the NSE quote and keeps its stored
+    # price rather than taking a wrong one.
+    if indian is None or indian:
         return {"base": base, "asset_class": "in_equity", "currency": "INR"}
     # Unknown all-caps ticker with no Indian match → treat as US equity
     # (best-effort; logo may be absent → monogram).
@@ -182,12 +190,21 @@ def classify(symbol: str, *, session: Any = None) -> dict:
     return {"base": base, "asset_class": "in_equity", "currency": "INR"}
 
 
-def _is_indian(base: str, session: Any = None) -> bool:
+def _in_curated_universe(base: str) -> bool:
+    try:
+        from backend.services.sector_universe import symbol_sector_map
+        return base in symbol_sector_map()
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _is_indian(base: str, session: Any = None) -> bool | None:
+    """True/False from the financials DB; None when the lookup itself failed."""
     try:
         from backend.market.financials_db import resolve_symbol
         return resolve_symbol(base, session=session) is not None
     except Exception:  # noqa: BLE001
-        return False
+        return None
 
 
 # Per-symbol metadata is static (name/logo/class don't change intraday), so we

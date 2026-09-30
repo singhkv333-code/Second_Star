@@ -139,3 +139,51 @@ Old path for comparison: the same bar went through the full chat at
 - OpenAI, [Prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching)
   and [Prompt Caching 201](https://developers.openai.com/cookbook/examples/prompt_caching_201):
   static prefix first, dynamic content last, a stable tool list.
+
+## Evaluation run (2026-09-30)
+
+20 data-based prompts across all six pages, live model, SQLite test mode with a seeded paper book
+(6 holdings), yfinance quotes/history/news, and yfinance-built screener rows. Fundamentals and the P/E
+band were unavailable (no Postgres here). Hops = model rounds.
+
+| # | Page | Prompt | First token | Total | Hops | Tools | Input tokens (cached) | Grade | Note |
+|---|---|---|---:|---:|---:|---:|---:|---|---|
+| 1 | home | Give me a quick market pulse for today. | 2.1s | 3.4s | 1 | 0 | 2,523 (0) | A | indices, movers and watchlist in one read |
+| 2 | home | Which NIFTY stock gained the most today, and by how much? | 1.0s | 1.3s | 1 | 0 | 2,529 (2,507) | A |  |
+| 3 | home | Which of my watchlist stocks is furthest below its 52-week high? | 3.3s | 3.6s | 2 | 5 | 5,516 (5,034) | A | 5 parallel 52-week lookups in one round |
+| 4 | home | Where can I backtest a strategy? | 0.9s | 1.4s | 1 | 0 | 2,522 (2,507) | B+ | right page, app-map link |
+| 5 | portfolio | How is my portfolio doing overall and today? | 2.7s | 3.7s | 1 | 0 | 1,666 (0) | A- | matches hand-computed P&L after the mark fix |
+| 6 | portfolio | Which holding is my biggest loser, and by how much? | 1.2s | 1.6s | 1 | 0 | 1,669 (1,650) | A |  |
+| 7 | portfolio | How concentrated am I by sector? | 1.8s | 2.4s | 1 | 0 | 1,670 (0) | A |  |
+| 8 | portfolio | Any recent news on my largest holding? | 5.4s | 5.9s | 2 | 1 | 3,612 (3,312) | B | largest holding right; feed headlines mostly off-topic, said so |
+| 9 | screener | Summarise this screen. | 3.5s | 5.9s | 1 | 0 | 5,573 (0) | A- | accurate; slowest first token (cold 5.5k-token prefix) |
+| 10 | screener | Which of these has the lowest P/E, and how does its ROE compare with the rest? | 1.2s | 1.7s | 1 | 0 | 5,587 (5,560) | A |  |
+| 11 | screener | Rank the top 3 on ROE and tell me which also has positive 1-year returns. | 2.2s | 3.4s | 1 | 0 | 5,587 (5,560) | A |  |
+| 12 | stock:INFY | How has INFY done over the past year, and where is it versus its 200-day average? | 0.9s | 1.2s | 1 | 0 | 2,761 (0) | A |  |
+| 13 | stock:INFY | What's the latest news, and could it explain the fall? | 3.4s | 3.8s | 1 | 0 | 2,764 (0) | A- | honest: feed has no Infosys-specific item |
+| 14 | stock:HDFCBANK | Is it nearer its 52-week high or low, and what does RSI say? | 1.1s | 1.5s | 1 | 0 | 2,702 (0) | A |  |
+| 15 | stock:HDFCBANK | Compare its 1-year return with ICICI Bank and Axis Bank. | 3.2s | 3.7s | 2 | 2 | 6,613 (5,374) | A | 2 parallel lookups, table |
+| 16 | agents | Which of my strategies are running right now? | 1.0s | 1.3s | 1 | 0 | 975 (0) | A |  |
+| 17 | agents | How do I pause a SIP? | 1.0s | 1.2s | 1 | 0 | 973 (0) | B | generic how-to; the app map has no per-page UI detail |
+| 18 | brokers | Are my orders live or simulated? | 1.1s | 1.4s | 1 | 0 | 840 (0) | A |  |
+| 19 | portfolio | Which holding has the worst return in percentage terms? | 1.2s | 1.6s | 1 | 0 | 1,667 (1,650) | A |  |
+| 20 | portfolio | Which of my holdings are in profit, and what share of the book are they? | 1.0s | 1.6s | 1 | 0 | 1,674 (1,650) | A- | share taken of total value incl. cash |
+
+Median 1.6s total and 1.2s to first token; p90 3.8s; max 5.9s. 17 of 20 answered from the page
+block with no tool; 3 took a second hop; 0 errors.
+
+Fixed during the run:
+- **Paper marks priced TCS at ₹257 and INFY at ₹1,021.** `security_meta.classify` read a failed
+  financials-DB lookup as "not Indian" and fell through to US equity, so the mark path priced them as
+  US tickers in dollars. A failed lookup now keeps the India default, and the curated NSE universe is
+  checked first. This matters in production whenever that DB is slow or down.
+- `get_holdings` ignored its documented `sort_by` and carried no per-position value or return; it
+  now adds `value` and `pnl_pct` and sorts. The "largest holding" question dropped from 3 hops to 2.
+- The sector split labelled its holdings-only total `total_value`, the same name as the summary's
+  total including cash; the model reported a false discrepancy. Now `holdings_value`, "excludes cash".
+- One answer explained a ₹0 day P&L with an invented cause; the brief now requires every reason, not
+  only every figure, to come from the data.
+
+Still open: yfinance's `.NS` news feed is mostly off-topic (the model says so, but the feed needs a
+better source); the first question on a page pays an uncached prefix (screener 3.5s to first token);
+how-to answers are only as specific as the app map.
