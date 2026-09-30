@@ -83,9 +83,16 @@ const Ctx = (() => {
       : spec.tick ? `<span class="ctx-tick">${Icons.svg("check", "xs")}</span>`
       : spec.hint ? `<span class="ctx-hint${numeric ? " num" : ""}">`
                     + `${esc(spec.hint)}</span>` : "";
+    // A `swatch` row wears a colour dot where the glyph goes — the colour
+    // picker's rows ARE their colour, so a named-hex label beside a dot would
+    // be saying the same thing twice. `null` is the theme accent, drawn as the
+    // primary so "Accent" reads as a colour and not a blank.
+    const lead = ("swatch" in spec)
+      ? `<span class="ctx-swatch" style="--sw:${esc(spec.swatch || "var(--primary)")}"></span>`
+      : spec.icon ? Icons.svg(spec.icon, "sm") : `<i class="ctx-nopic"></i>`;
     r.innerHTML =
       `<span class="ctx-lead">`
-      + (spec.icon ? Icons.svg(spec.icon, "sm") : `<i class="ctx-nopic"></i>`)
+      + lead
       + `<span class="ctx-label">${esc(spec.label)}</span></span>`
       + trail;
 
@@ -131,7 +138,7 @@ const Ctx = (() => {
     // plain names — the watchlists, the four prices, the questions — it is
     // 31px of empty paper before every word, which is what made a one-row
     // submenu read as a mostly-blank card.
-    const anyIcon = items.some((it) => it && it.icon && !it.sep && !it.head);
+    const anyIcon = items.some((it) => it && (it.icon || ("swatch" in it)) && !it.sep && !it.head);
     m.className = "ctx" + (depth ? " ctx-sub" : "") + (anyIcon ? "" : " ctx-plain");
     m.setAttribute("role", "menu");
     let lastWasSep = true;        // no leading rule, and never two in a row

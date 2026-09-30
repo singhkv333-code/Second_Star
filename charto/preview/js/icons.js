@@ -83,6 +83,13 @@ const Icons = (() => {
     gannSquareFixed: '<rect x="3" y="4" width="18" height="16"/><path d="M9 4v16"/><path d="M15 4v16"/><path d="M3 9.33h18"/><path d="M3 14.67h18"/><path d="M3 20 21 4"/><circle cx="3" cy="20" r="2.1"/>',
     gannFan: '<path d="M3 21 21 3"/><path d="M3 21 21 10"/><path d="M3 21 21 16"/><path d="M3 21 12 3"/><path d="M3 21 17 3"/>',
     brush: '<path d="m9.06 11.9 8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/>',
+    // Style rows in the drawing's right-click sheet — the three the floating
+    // strip used to own: a paint droplet, a stack of thickening rules, a
+    // dashed rule.
+    palette: '<circle cx="13.5" cy="6.5" r="1.3"/><circle cx="17.5" cy="10.5" r="1.3"/><circle cx="8.5" cy="7.5" r="1.3"/><circle cx="6.5" cy="12.5" r="1.3"/><path d="M12 2a10 10 0 1 0 0 20 2.5 2.5 0 0 0 2-4 2.5 2.5 0 0 1 2-4h2a4 4 0 0 0 4-4 10 10 0 0 0-10-8Z"/>',
+    lineWidth: '<path d="M3 5h18"/><path d="M3 10.5h18" stroke-width="2"/><path d="M3 17h18" stroke-width="3.5"/>',
+    lineStyle: '<path d="M3 12h4"/><path d="M11 12h4"/><path d="M19 12h2"/>',
+    pipette: '<path d="m2 22 1-1h3l9-9"/><path d="M3 21v-3l9-9"/><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z"/>',
     text: '<path d="M12 4v16"/><path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2"/><path d="M9 20h6"/>',
     measure: '<path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z"/><path d="m14.5 12.5 2-2"/><path d="m11.5 9.5 2-2"/><path d="m8.5 6.5 2-2"/><path d="m17.5 15.5 2-2"/>',
     magnet: '<path d="m6 15-4-4 6.75-6.77a7.79 7.79 0 0 1 11 11L13 22l-4-4 6.39-6.36a2.14 2.14 0 0 0-3-3L6 15"/><path d="m5 8 4 4"/><path d="m12 15 4 4"/>',

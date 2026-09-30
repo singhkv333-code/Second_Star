@@ -838,6 +838,16 @@ select.is-dressed { display: none; }
 .ctx-nopic { width: 19px; height: 19px; flex: none; }
 .ctx-plain .ctx-nopic { display: none; }
 
+/* The colour picker's dot — a drawing's own swatch, sized to the glyph it
+   sits where. Same ring as the strip's .de-swatch so one colour reads the
+   same on both surfaces. */
+.ctx-swatch {
+  width: 17px; height: 17px; flex: none; border-radius: 50%;
+  background: var(--sw);
+  border: 1px solid color-mix(in srgb, var(--foreground) 22%, transparent);
+  box-shadow: inset 0 0 0 1.5px var(--card);
+}
+
 .ctx-more, .ctx-tick { display: flex; flex: none; color: var(--ctx-ink-3); }
 .ctx-row:hover .ctx-more { color: var(--foreground); }
 .ctx-tick { color: var(--foreground); }
@@ -8722,10 +8732,10 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/store.js?v=16"></script>
   <script src="./js/theme.js?v=11"></script>
   <script src="./js/universe.js?v=8"></script>
-  <script src="./js/icons.js?v=33"></script>
+  <script src="./js/icons.js?v=34"></script>
   <!-- after icons.js (every row is drawn with one) and before main.js, which
        builds the chart's three right-click menus out of it -->
-  <script src="./js/ctxmenu.js?v=8"></script>
+  <script src="./js/ctxmenu.js?v=9"></script>
   <!-- before anything that edits the chart: drawings.js and scene.js call
        Undo.touch() from their save paths, so the module has to exist by the
        time the first one runs -->
@@ -8755,7 +8765,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/drawings.js?v=39"></script>
   <script src="./js/scene.js?v=48"></script>
   <script src="./js/panes.js?v=23"></script>
-  <script src="./js/main.js?v=149"></script>
+  <script src="./js/main.js?v=150"></script>
   <!-- the floating drawing edit toolbar — listens for charto:draw-select and
        drives js/drawings.js's setStyle/clone/lock/remove. After main.js so
        __charto and ChartSettings exist by the first selection. -->

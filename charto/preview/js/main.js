@@ -3528,10 +3528,6 @@
     };
   };
 
-  const settingsRow = () => ({
-    icon: "settings", label: "Settings", on: () => ChartSettings.open(),
-  });
-
   /* ── 1 · empty chart: a price and a moment, and nothing else ──────────── */
   function menuForPoint(px, bar) {
     const level = levelAt(px);
@@ -3583,7 +3579,6 @@
         on: () => Shortcuts.run("reset-view") },
       removeRow(),
       { icon: "bell", label: "Alerts", hint: "⌥ A", on: () => Panels.show("alerts") },
-      settingsRow(),
     ];
   }
 
@@ -3647,8 +3642,6 @@
         { label: "Address", title: addressAt(bar.time, bar.close),
           on: () => copyText(addressAt(bar.time, bar.close), "address copied") },
       ] },
-      { sep: true },
-      settingsRow(),
     ];
   }
 
@@ -3665,6 +3658,89 @@
    * crossed, and none of them has a hit rate — so those two rows are left off
    * their menus entirely rather than offered and then refused. */
   const PRICELESS = new Set(["text", "vline", "dateRange", "measure"]);
+
+  /* ── the shape's own style, folded into the right-click sheet ─────────────
+   * These are the three edits the floating strip used to own on its own —
+   * colour, line width, line style. They live here too so there is ONE menu
+   * to reach for, not a glass sheet plus a second toolbar hovering the shape.
+   * Same palette, same widths, same dashes DrawEdit offered, so a shape reads
+   * the same whichever surface you restyle it from; each opens a submenu that
+   * marks the current value with a tick and writes through draw.setStyle —
+   * the same API the strip called, so "colour" has one meaning on the chart. */
+  const D_SWATCHES = [
+    { name: "Accent", val: null },   // null → the theme default
+    { name: "Red", val: "#f23645" },
+    { name: "Orange", val: "#ff9800" },
+    { name: "Yellow", val: "#ffd60a" },
+    { name: "Green", val: "#22ab94" },
+    { name: "Teal", val: "#089981" },
+    { name: "Blue", val: "#2962ff" },
+    { name: "Purple", val: "#9c27b0" },
+    { name: "Pink", val: "#e040fb" },
+    { name: "White", val: "#ffffff" },
+    { name: "Grey", val: "#787b86" },
+    { name: "Black", val: "#131722" },
+  ];
+  const D_WIDTHS = [1, 2, 3, 4];
+  const D_STYLES = [
+    { name: "Solid", dash: [] },
+    { name: "Dashed", dash: [6, 4] },
+    { name: "Dotted", dash: [2, 3] },
+  ];
+  /** Open the OS colour picker seeded with the shape's current ink and write
+   *  whatever is chosen straight onto it. A native <input type=color> is the
+   *  one picker every platform already has; it is thrown away as soon as it
+   *  has answered, so nothing lingers on the page. */
+  const pickCustomColor = (id, seed) => {
+    const inp = document.createElement("input");
+    inp.type = "color";
+    inp.value = /^#[0-9a-f]{6}$/i.test(seed || "") ? seed : "#2962ff";
+    inp.style.cssText = "position:fixed;left:-9999px;top:-9999px;opacity:0";
+    document.body.appendChild(inp);
+    inp.addEventListener("input", () => draw.setStyle(id, { color: inp.value }));
+    inp.addEventListener("change", () => inp.remove());
+    inp.addEventListener("blur", () => setTimeout(() => inp.remove(), 0));
+    inp.click();
+  };
+
+  /** The colour / width / style rows for a drawing's menu, each a submenu that
+   *  ticks the shape's current value. Returns an array so the caller can splice
+   *  it in with the spread that already threads a falsy row through the sheet. */
+  const styleRows = (id) => {
+    const st = draw.styleOf(id) || {};
+    const curColor = st.color || null;       // the raw hex, or null on the accent
+    const curWidth = st.width || 2;
+    const curDash = (st.dash || []).join(",");
+    // The current ink resolved to a hex, so the OS picker opens on the shape's
+    // real colour even when it is riding the theme accent.
+    const curHex = curColor || (draw.styleOf(id) || {}).color || "#2962ff";
+    // True when the shape is on a colour that is NOT one of the swatches — then
+    // the Custom row is the one that carries the tick.
+    const isPreset = D_SWATCHES.some((s) => (s.val || null) === curColor);
+    return [
+      { icon: "palette", label: "Colour",
+        sub: () => D_SWATCHES.map((s) => ({
+          swatch: s.val || "var(--primary)", label: s.name,
+          tick: (s.val || null) === curColor,
+          on: () => draw.setStyle(id, { color: s.val }),
+        })).concat([
+          { sep: true },
+          { icon: "pipette", label: "Custom…", tick: !isPreset,
+            on: () => pickCustomColor(id, curHex) },
+        ]) },
+      { icon: "lineWidth", label: "Line width",
+        sub: () => D_WIDTHS.map((w) => ({
+          label: `${w}px`, tick: w === curWidth,
+          on: () => draw.setStyle(id, { width: w }),
+        })) },
+      { icon: "lineStyle", label: "Line style",
+        sub: () => D_STYLES.map((s) => ({
+          label: s.name, tick: s.dash.join(",") === curDash,
+          on: () => draw.setStyle(id, { dash: s.dash }),
+        })) },
+    ];
+  };
+
   function menuForDrawing(d) {
     const ref = d.ref || d.id;
     const spec = draw.SPECS[d.type];
@@ -3686,6 +3762,9 @@
       // look when you do not know the gesture yet.
       draw.isText(d.id) && { icon: "pen", label: "Edit text", hint: "Double-click",
         on: () => draw.editText(d.id) },
+      // Colour / width / style — the strip's fast edits, now in the one sheet.
+      ...styleRows(d.id),
+      { sep: true },
       priced && { icon: "barChart", label: "Test drawing",
         title: "Hit rate against a control, not an opinion",
         on: askAbout(`How reliable is ${ref}? Test it against a control.`) },
@@ -3727,10 +3806,8 @@
         // evidence is the tick on a menu you have just dismissed.
         on: () => notify(`${ref} ${draw.setLocked(d.id, !d.locked) ? "locked" : "unlocked"}`) },
       { sep: true },
-      { icon: "trash", label: "Remove", hint: "⌫", danger: true,
+      { icon: "trash", label: "Remove", danger: true,
         on: () => draw.remove(d.id) },
-      { sep: true },
-      settingsRow(),
     ];
   }
 

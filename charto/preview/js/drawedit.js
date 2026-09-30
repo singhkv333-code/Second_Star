@@ -379,8 +379,16 @@ const DrawEdit = (() => {
   function startFollow() { if (!followRaf) followRaf = requestAnimationFrame(tick); }
   function stopFollow() { if (followRaf) { cancelAnimationFrame(followRaf); followRaf = 0; } }
 
+  // The floating strip is RETIRED. Its three fast edits — colour, line width,
+  // line style — and the duplicate / lock / layer / delete it duplicated now
+  // live in the drawing's own right-click sheet (js/main.js, menuForDrawing),
+  // so there is one place to restyle a shape instead of a glass sheet plus a
+  // second bar hovering the shape. The module stays wired (show/hide are still
+  // exported, and the select listener still tears down anything stale) so a
+  // future re-enable is a one-line change, but a selection no longer raises it.
+  const SHOW_STRIP = false;
   document.addEventListener("charto:draw-select", (e) => {
-    const id = e.detail && e.detail.id;
+    const id = SHOW_STRIP && e.detail && e.detail.id;
     if (id) show(id, e.detail.paneId || null);
     else hide();
   });
