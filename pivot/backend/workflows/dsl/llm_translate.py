@@ -71,6 +71,19 @@ Multi-output indicators accept an optional "component" field to pick a specific 
   - donchian:  upper, middle (default), lower
   - keltner:   upper, middle (default), lower
 
+WHAT THE VALUE IS — some indicators are NOT a price line, and comparing the
+close against them is always true or always false:
+  - supertrend is the DIRECTION: +1 in an uptrend, -1 in a downtrend. "Price
+    above Supertrend" / "Supertrend bullish" → supertrend > 0; "below" /
+    "bearish" → supertrend < 0; "turns bullish" → supertrend crosses_above 0;
+    "turns bearish" → crosses_below 0. Never compare price with it, never
+    "== 1". A multiplier goes in settings: {"multiplier": 3}.
+  - macd (default hist) is macd − signal: "MACD crosses above signal" → hist
+    crosses_above 0.
+  - bb (default pctb) is %B, 0 at the lower band and 1 at the upper: "close
+    below the lower band" → pctb < 0 (or price < the "lower" component).
+  - psar IS a price level: compare the close against it.
+
 Supported comparison operators: ">", "<", ">=", "<=", "==", "crosses_above", "crosses_below".
 
 Logic operators: "and", "or" need 2-8 operands; "not" needs exactly 1.
@@ -234,6 +247,50 @@ class TranslationError(ValueError):
     """Raised when the LLM didn't produce parseable JSON for the tree."""
 
 
+# Supertrend's value here is its DIRECTION (+1 up, -1 down), not the line.
+# "Close falls below Supertrend" read literally is price < ±1 — never true on
+# a stock — so a rule built on it held for five years without an exit, while
+# "turns bullish" as "== 1" churned 575 one-day trades. The prompt says so;
+# a literal phrasing still beats the prompt, and a price against a direction
+# has exactly one sensible reading, so it is corrected here.
+_FLIP = {">": "<", "<": ">", ">=": "<=", "<=": ">=",
+         "crosses_above": "crosses_below", "crosses_below": "crosses_above"}
+_DIR_OP = {">": ">", ">=": ">", "<": "<", "<=": "<",
+           "crosses_above": "crosses_above", "crosses_below": "crosses_below"}
+
+
+def _is_dir(n: Any) -> bool:
+    return (isinstance(n, dict) and n.get("type") == "indicator"
+            and str(n.get("indicator", "")).lower() == "supertrend"
+            and not n.get("component"))
+
+
+def _direction_not_level(node: Any) -> Any:
+    """Rewrite price-vs-Supertrend (and Supertrend == ±1) as a test of the
+    direction's sign, recursively; every other node is returned unchanged."""
+    if isinstance(node, list):
+        return [_direction_not_level(x) for x in node]
+    if not isinstance(node, dict):
+        return node
+    out = {k: _direction_not_level(v) for k, v in node.items()}
+    if out.get("type") != "comparison":
+        return out
+    op, left, right = out.get("op"), out.get("left"), out.get("right")
+    is_price = lambda n: isinstance(n, dict) and n.get("type") == "price"  # noqa: E731
+    if _is_dir(right) and is_price(left) and op in _DIR_OP:
+        return {**out, "op": _DIR_OP[op], "left": right,
+                "right": {"type": "constant", "value": 0}}
+    if _is_dir(left) and is_price(right) and op in _FLIP:
+        return {**out, "op": _DIR_OP[_FLIP[op]],
+                "right": {"type": "constant", "value": 0}}
+    if (_is_dir(left) and op == "==" and isinstance(right, dict)
+            and right.get("type") == "constant"
+            and right.get("value") in (1, -1, 1.0, -1.0)):
+        return {**out, "op": ">" if right["value"] > 0 else "<",
+                "right": {"type": "constant", "value": 0}}
+    return out
+
+
 async def translate_condition_to_tree(
     condition: str,
     *,
@@ -320,6 +377,7 @@ async def translate_condition_to_tree(
         raise TranslationError(
             f"expected JSON object, got {type(tree).__name__}"
         )
+    tree = _direction_not_level(tree)
 
     meta = {
         "input_tokens": int(resp.input_tokens or 0),

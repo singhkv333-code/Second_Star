@@ -201,11 +201,40 @@ Weigh the trust verdict and trade count: a winner on four trades is a guess.
 Every candidate is a trial, and the deflated Sharpe already charges for how many
 you tried.
 
-Build the winner with `propose_dsl_workflow`, passing its entry and exit text
-exactly as tested, so the rule on the card is the rule you tested. In the reply,
-name the candidates you tried, say why the winner won, and quote its numbers
-beside buy & hold. If none of them serves the objective, say so and say what the
-evidence does support — never present the least-bad candidate as good.
+### When nothing fits yet
+
+A first round that finds nothing is the start of the search, not its answer.
+Go again, and keep going for up to three rounds in the turn:
+
+1. Fix what is broken. A candidate with `flags` measured a mistranslated rule —
+   reword it (plainer, one condition per clause) and include it again.
+2. Read why the others missed. Too many whipsaw trades → a longer lookback, a
+   confirmation, or a slower exit. Gave up the rebound → an exit that lets the
+   position recover, or re-entry sooner. Did not cut the drawdown → the signal
+   was too slow for the falls that mattered.
+3. Change one thing at a time on the nearest misses, and add mechanisms you
+   have not tried. A rule has parts to vary: the signal that says "stand aside"
+   (trend, momentum over a lookback, a volatility regime, strength against the
+   index, depth of the fall), the lookback, a second filter, and the exit
+   (signal reversal, trailing stop, fixed stop, time stop).
+
+Every candidate is a trial and the deflated Sharpe charges for each one, so a
+wider search is honest only because it raises its own bar — say how many you
+tried.
+
+Then deliver. Build the candidate with the best trade-off for the objective —
+for protection, the one that cut the drawdown most for the return it gave up —
+as a draft, and say plainly what it costs ("cuts the worst fall from 27% to 19%
+and gives up 12 points of return"), with its verdict. Only when no candidate
+did MATERIALLY better than holding on what the user asked for (for protection,
+a drawdown cut of a point or two is noise, not protection) do you build nothing: then
+name the rounds, what each showed, and the nearest thing that would work, with
+its number.
+
+Build with `propose_dsl_workflow`, passing the entry and exit text exactly as
+tested, so the rule on the card is the rule you tested. In the reply, name what
+you tried, say why the winner won, and quote its numbers beside buy & hold.
+Never present a weak result as a strong one.
 
 When the user states an exact rule, build it as stated; do not substitute a
 better one without asking.
@@ -755,7 +784,9 @@ OWN_TOOLS: dict[str, dict] = {
             "each is measured fully invested while in a position — the way "
             "the paper runtime arms it — so returns compare directly with buy "
             "& hold over the same window. Every candidate counts as a trial "
-            "in its deflated Sharpe."
+            "in its deflated Sharpe, across calls. When nothing fits, call it "
+            "again with a new round — broken candidates reworded, near misses "
+            "varied, mechanisms not yet tried."
         ),
         "parameters": {
             "type": "object",
@@ -894,6 +925,24 @@ async def _evaluate_strategies(args: dict) -> dict:
             row["assumptions"] = out["assumptions"]
         rows.append(row)
 
+    # What each result says against holding, and which results are a broken
+    # RULE rather than a bad IDEA. Computed here, read by the model: a
+    # mistranslated candidate reported as evidence ("the Supertrend rule made
+    # no trades") ends a search that should have fixed it and gone on.
+    b_ret = (bench or {}).get("return_pct")
+    b_dd = (bench or {}).get("max_drawdown_pct")
+    for row in rows:
+        if row.get("error"):
+            continue
+        row["flags"] = _broken_rule_flags(row)
+        ret, dd, cagr = row.get("return_pct"), row.get("max_drawdown_pct"), row.get("cagr_pct")
+        if isinstance(dd, (int, float)) and isinstance(b_dd, (int, float)):
+            row["drawdown_cut_pts"] = _pct(b_dd - dd)
+        if isinstance(ret, (int, float)) and isinstance(b_ret, (int, float)):
+            row["return_given_up_pts"] = _pct(b_ret - ret)
+        if isinstance(cagr, (int, float)) and isinstance(dd, (int, float)) and dd > 0:
+            row["return_per_drawdown"] = _pct(cagr / dd)
+
     return {
         "symbol": base.get("primary_symbol"),
         "window": window,
@@ -903,13 +952,33 @@ async def _evaluate_strategies(args: dict) -> dict:
         "candidates": rows,
         "_note": (
             "For your judgement only — none of this was shown to the user. "
-            "Judge against what the user asked for (for downside protection: "
-            "the drawdown cut versus buy & hold for the return given up), "
-            "weigh the verdict and the trade count, then build the winner with "
-            "propose_dsl_workflow passing its entry and exit text unchanged. "
-            "Name the candidates you tried in the reply and quote the winner's "
-            "numbers beside buy & hold. If none serves the objective, say so."),
+            "A candidate with `flags` is a broken rule, not evidence: rewrite "
+            "it and run it again. Judge the rest against what the user asked "
+            "for (downside protection: drawdown_cut_pts for the "
+            "return_given_up_pts). If none serves the objective yet, search "
+            "on — see 'When nothing fits yet' — rather than reporting."),
     }
+
+
+def _broken_rule_flags(row: dict) -> list[str]:
+    """The shapes a mistranslated rule leaves in its own numbers. Each is a
+    reason to rewrite the candidate and run it again, not a finding."""
+    flags = []
+    trades = row.get("trades") or 0
+    hold = row.get("median_hold_days")
+    in_mkt = row.get("time_in_market_pct") or 0
+    if trades == 0:
+        flags.append("never_entered: the entry was never true — reword it "
+                     "or it compares against the wrong kind of value")
+    elif trades <= 1 and in_mkt >= 95:
+        flags.append("never_exited: bought once and held to the end — the "
+                     "exit was never true, so this measured buy & hold")
+    if trades >= 50 and hold is not None and hold <= 1:
+        flags.append("exit_fires_next_bar: exit true almost every bar — it "
+                     "is written the wrong way round or always true")
+    elif 0 < trades < 5:
+        flags.append("too_few_trades: the verdict cannot mean much")
+    return flags
 
 
 async def _backtest_draft(args: dict) -> dict:
