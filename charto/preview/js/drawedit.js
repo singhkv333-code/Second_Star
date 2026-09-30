@@ -181,6 +181,54 @@ const DrawEdit = (() => {
     });
   }
 
+  /* The gear: a per-DRAWING settings panel, the way Groww and TradingView open
+   * one. Not the chart-settings dialog (that styles the candles, not the shape
+   * you have selected) — it collects this shape's own colour, width and line
+   * style in one card, plus "Edit text" for a note. Every control writes
+   * through the same setStyle the inline buttons do, so the two never disagree. */
+  function settingsPop(trigger, info) {
+    const curW = info.style.width || 2;
+    const curDash = (info.style.dash || []).join(",");
+    const swatches = `<div class="de-set-sec"><div class="de-set-lab">Colour</div>`
+      + `<div class="de-swatches">` + SWATCHES.map((s, i) =>
+        `<button type="button" class="de-swatch" data-color="${i}" title="${s.name}"`
+        + ` style="--sw:${s.css || s.val}"></button>`).join("") + `</div></div>`;
+    const widths = `<div class="de-set-sec"><div class="de-set-lab">Thickness</div>`
+      + `<div class="de-set-row">` + WIDTHS.map((w) =>
+        `<button type="button" class="de-chip${w === curW ? " on" : ""}" data-width="${w}">`
+        + `<span class="de-wline" style="height:${w}px;width:20px"></span></button>`).join("")
+      + `</div></div>`;
+    const styles = `<div class="de-set-sec"><div class="de-set-lab">Line</div>`
+      + `<div class="de-set-row">` + STYLES.map((s, i) => {
+        const on = s.dash.join(",") === curDash;
+        const stroke = s.dash.length ? `stroke-dasharray:${s.dash.join(" ")}` : "";
+        return `<button type="button" class="de-chip${on ? " on" : ""}" data-style="${i}">`
+          + `<svg viewBox="0 0 30 8" class="de-sline" aria-hidden="true">`
+          + `<line x1="1" y1="4" x2="29" y2="4" style="${stroke}"/></svg></button>`;
+      }).join("") + `</div></div>`;
+    const textRow = info.isText
+      ? `<div class="de-set-sec"><button type="button" class="de-mrow" data-edit-text>`
+        + `${svg("pen", "sm")} Edit text</button></div>` : "";
+    const el = openPopover(trigger, swatches + widths + styles + textRow, "de-setpop");
+    if (!el) return;
+    el.addEventListener("click", (e) => {
+      const sw = e.target.closest("[data-color]");
+      if (sw) { draw().setStyle(curId, { color: SWATCHES[Number(sw.dataset.color)].val }); return refresh(); }
+      const w = e.target.closest("[data-width]");
+      if (w) { draw().setStyle(curId, { width: Number(w.dataset.width) });
+               markOn(el, "[data-width]", w); return refresh(); }
+      const st = e.target.closest("[data-style]");
+      if (st) { draw().setStyle(curId, { dash: STYLES[Number(st.dataset.style)].dash });
+                markOn(el, "[data-style]", st); return refresh(); }
+      if (e.target.closest("[data-edit-text]")) { closePop(); draw().editText(curId); }
+    });
+  }
+  /** Move the `.on` mark to the clicked chip within a group, so the panel
+   *  reflects the choice without a full rebuild. */
+  function markOn(root, sel, chosen) {
+    for (const n of root.querySelectorAll(sel)) n.classList.toggle("on", n === chosen);
+  }
+
   /* ── the strip ───────────────────────────────────────────────────────── */
   function build() {
     bar = document.createElement("div");
@@ -225,7 +273,7 @@ const DrawEdit = (() => {
       case "text":   closePop(); return d.editText(curId);
       case "clone":  closePop(); return void d.clone(curId);
       case "lock":   closePop(); d.setLocked(curId, !info.locked); return refresh();
-      case "settings": closePop(); return ChartSettings.open();
+      case "settings": return settingsPop(b, info);
       case "more":   return morePop(b, info);
       case "del":    closePop(); return void d.remove(curId);
     }
