@@ -1,13 +1,17 @@
 /* Charto preview — a custom indicator's code, in the sidebar.
  *
- * The chat prints a small file card when it builds an indicator; Open lands
- * here. The sidebar then carries editor-style tabs above the conversation —
- * "Chat" and the file — and either can be switched to without losing the
- * other: the thread stays mounted underneath, scrolled where it was.
+ * The chat prints a file card when it builds an indicator; Open lands here.
+ * The sidebar then carries editor tabs above the conversation — "Chat" and
+ * each open file — and switching never unmounts the thread.
  *
- * Everything shown is the build record the server stored
- * (GET /custom_indicators/<id>): the code exactly as validated, its version,
- * and the validator's checks. Nothing is recomputed here.
+ * The file is shown the way a web IDE shows it: a dark editor surface, a
+ * gutter of line numbers, long lines wrapped under their own number, and
+ * highlight.js colouring. Edit makes the same surface editable in place
+ * (CodeJar over a contenteditable — vendor/codeedit/README.md); Save runs the
+ * server's validator on the new code and only a pass becomes a new version
+ * on the chart. Both libraries load on first open, never with the page.
+ *
+ * Everything shown is the stored build record (GET /custom_indicators/<id>).
  */
 "use strict";
 
@@ -16,28 +20,61 @@ const CodeView = (() => {
     ? "http://127.0.0.1:5174" : "";
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g,
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-  const headers = () => (typeof Auth !== "undefined" ? Auth.headers() : {});
+  const headers = (json) => ({
+    ...(typeof Auth !== "undefined" ? Auth.headers() : {}),
+    ...(json ? { "Content-Type": "application/json" } : {}),
+  });
 
   let panel, bar, view, files = [], current = null, delArmed = false;
 
   const slug = (t) => (String(t || "indicator").toLowerCase()
     .replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "indicator") + ".py";
 
-  // ── a deliberately small Python highlighter: comments, strings, numbers,
-  // keywords and the ta.* calls — enough to read the code, nothing to parse
-  const TOKEN = /(#.*$)|("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|(\b\d+(?:\.\d+)?\b)|(\b(?:def|return|for|in|if|elif|else|while|and|or|not|is|None|True|False|break|continue|lambda|try|except|raise|pass|assert)\b)|(\b(?:ta|math)\.\w+)/g;
-  function highlight(line) {
-    let out = "", last = 0;
-    line.replace(TOKEN, (m, com, str, num, kw, call, at) => {
-      out += esc(line.slice(last, at));
-      const cls = com ? "c" : str ? "s" : num ? "n" : kw ? "k" : "f";
-      out += `<span class="cv-${cls}">${esc(m)}</span>`;
-      last = at + m.length;
-      return m;
-    });
-    return out + esc(line.slice(last));
+  // ── the highlighter, loaded once on first use ─────────────────────────
+  let libs = null;
+  function loadLibs() {
+    if (!libs) {
+      libs = Promise.all([
+        import("../vendor/codeedit/hljs-core.js"),
+        import("../vendor/codeedit/hljs-python.js"),
+        import("../vendor/codeedit/codejar.js"),
+      ]).then(([core, py, jar]) => {
+        const hljs = core.default;
+        hljs.registerLanguage("python", py.default);
+        return { hljs, CodeJar: jar.CodeJar };
+      });
+    }
+    return libs;
+  }
+  const highlight = (hljs, code) => hljs.highlight(code, { language: "python", ignoreIllegals: true }).value;
+
+  /** Highlighted HTML → one HTML string per source line. A token can span
+   *  lines (a docstring), so every open span is closed at a newline and
+   *  reopened on the next line — each row stays well-formed on its own. */
+  function splitLines(html) {
+    const out = [];
+    let line = "", stack = [];
+    const re = /(<span[^>]*>)|(<\/span>)|([^<]+)/g;
+    let m;
+    while ((m = re.exec(html))) {
+      if (m[1]) { stack.push(m[1]); line += m[1]; }
+      else if (m[2]) { stack.pop(); line += m[2]; }
+      else {
+        const parts = m[3].split("\n");
+        parts.forEach((p, i) => {
+          if (i > 0) {
+            out.push(line + "</span>".repeat(stack.length));
+            line = stack.join("");
+          }
+          line += p;
+        });
+      }
+    }
+    out.push(line + "</span>".repeat(stack.length));
+    return out;
   }
 
+  // ── the sidebar's tabs ─────────────────────────────────────────────────
   function mount() {
     if (panel) return;
     panel = document.getElementById("chatPanel");
@@ -57,12 +94,12 @@ const CodeView = (() => {
       if (t) show(t.dataset.cvTab === "chat" ? null : t.dataset.cvTab);
     });
     view.addEventListener("click", onAction);
-    // asking something is a chat act: the answer is in the thread
+    // asking something is a chat act: the answer lands in the thread
     const form = document.getElementById("chatForm");
     if (form) form.addEventListener("submit", () => show(null), true);
     const input = document.getElementById("chatInput");
     if (input) input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && !e.shiftKey) show(null);
+      if (e.key === "Enter" && !e.shiftKey && input.value.trim()) show(null);
     }, true);
   }
 
@@ -73,6 +110,7 @@ const CodeView = (() => {
       + files.map((f) => `<button type="button" class="cv-tab${current === f.id ? " on" : ""}"
         data-cv-tab="${esc(f.id)}" role="tab" aria-selected="${current === f.id}"
         title="${esc(f.title)}">${Icons.svg("code", "xs")}<span>${esc(f.name)}</span>
+        ${f.dirty ? '<b class="cv-dot" title="Unsaved changes"></b>' : ""}
         <i data-cv-close="${esc(f.id)}" title="Close" aria-label="Close">${Icons.svg("x", "xs")}</i></button>`).join("");
   }
 
@@ -81,8 +119,8 @@ const CodeView = (() => {
     mount();
     current = id && files.find((f) => f.id === id) ? id : null;
     delArmed = false;
-    const chatEls = [panel.querySelector(".chat-actions"), panel.querySelector(".thread")];
-    chatEls.forEach((el) => { if (el) el.hidden = !!current; });
+    [panel.querySelector(".chat-actions"), panel.querySelector(".thread")]
+      .forEach((el) => { if (el) el.hidden = !!current; });
     const tb = document.getElementById("toBottom");
     if (tb && current) tb.classList.remove("show");
     view.hidden = !current;
@@ -95,7 +133,7 @@ const CodeView = (() => {
     show(current === id ? (files.length ? files[files.length - 1].id : null) : current);
   }
 
-  async function open(id) {
+  async function open(id, opts = {}) {
     mount();
     if (panel.classList.contains("hidden")) {
       const t = document.getElementById("chatToggle");
@@ -103,12 +141,16 @@ const CodeView = (() => {
     }
     let f = files.find((x) => x.id === id);
     if (!f) {
-      f = { id, name: "loading…", title: "", rec: null, error: "" };
+      f = { id, name: "loading…", title: "", rec: null, error: "", editing: false };
       files.push(f);
     }
+    if (opts.edit) f.editing = true;
     show(id);
     try {
-      const r = await fetch(`${API}/custom_indicators/${encodeURIComponent(id)}`, { headers: headers() });
+      const [r] = await Promise.all([
+        fetch(`${API}/custom_indicators/${encodeURIComponent(id)}`, { headers: headers() }),
+        loadLibs(),
+      ]);
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
       Object.assign(f, { rec: d, title: d.spec.title, name: slug(d.spec.short || d.spec.title), error: "" });
@@ -119,36 +161,74 @@ const CodeView = (() => {
     if (current === id) { renderTabs(); render(); }
   }
 
-  function render() {
+  // ── the file ───────────────────────────────────────────────────────────
+  async function render() {
     const f = files.find((x) => x.id === current);
     if (!f) return;
     if (f.error) { view.innerHTML = `<p class="cv-empty">Could not open this file: ${esc(f.error)}</p>`; return; }
-    if (!f.rec) { view.innerHTML = `<p class="cv-empty">Opening…</p>`; return; }
+    if (!f.rec) { view.innerHTML = `<div class="cv-editor"><p class="cv-empty">Opening…</p></div>`; return; }
+    const { hljs, CodeJar } = await loadLibs();
     const d = f.rec, sp = d.spec || {}, rep = d.report || {};
     const checks = rep.checks || [];
     const passed = checks.filter((c) => c.status === "pass").length;
-    const kind = { standard: "Standard indicator", variant: "Variant", custom: "Custom method" }[sp.classification] || "Custom";
-    const state = d.status === "validated" ? `${passed}/${checks.length} checks` : "Failed validation";
-    const lines = String(d.code || "").replace(/\s+$/, "").split("\n");
+    const kind = { standard: "Indicator", variant: "Variant", custom: "Custom method" }[sp.classification] || "Indicator";
+    const valid = d.status === "validated";
+    const code = String(f.draft != null ? f.draft : (d.code || "")).replace(/\s+$/, "");
     const rows = checks.map((c) => `<li class="is-${esc(c.status)}"><b>${esc(c.label)}</b>`
       + (c.status !== "pass" && c.detail ? `<span>${esc(c.detail)}</span>` : "") + `</li>`).join("");
     const srcs = (sp.sources || []).map((s) => `<li><a href="${esc(s.url)}" target="_blank"
       rel="noopener noreferrer">${esc(s.title || s.url)}</a></li>`).join("");
+    const fails = (f.result && !f.result.ok)
+      ? (f.result.report.checks || []).filter((c) => c.status === "fail")
+        .map((c) => `<li><b>${esc(c.label)}</b>${c.detail ? `<span>${esc(c.detail)}</span>` : ""}</li>`).join("")
+      : "";
+
     view.innerHTML = `
-      <header class="cv-head">
-        <div class="cv-title"><b>${esc(f.name)}</b>
-          <span>${esc(sp.title)} · ${esc(kind)} · v${esc(d.version)} ·
-            <em class="${d.status === "validated" ? "ok" : "bad"}">${esc(state)}</em></span></div>
-        <div class="cv-acts">
-          <button type="button" class="chat-action" data-cv="copy" title="Copy code" aria-label="Copy code">${Icons.svg("copy", "sm")}</button>
-          <button type="button" class="chat-action" data-cv="edit" title="Edit with AI" aria-label="Edit with AI">${Icons.svg("pen", "sm")}</button>
-          <button type="button" class="chat-action cv-danger" data-cv="delete" title="${delArmed ? "Press again to delete" : "Delete"}"
-            aria-label="Delete">${delArmed ? "Delete?" : Icons.svg("trash", "sm")}</button>
-        </div>
-      </header>
-      <pre class="cv-code"><code>${lines.map((l) => `<span class="cv-line">${highlight(l) || " "}</span>`).join("")}</code></pre>
-      <details class="cv-more"><summary>Validation · ${esc(rep.summary || state)}</summary><ul class="cv-checks">${rows}</ul></details>
+      <div class="cv-editor${f.editing ? " is-editing" : ""}">
+        <header class="cv-bar">
+          <span class="cv-crumb">${Icons.svg("code", "xs")}<b>${esc(f.name)}</b></span>
+          <span class="cv-meta"><i>${esc(kind)}</i><i>v${esc(d.version)}</i>
+            <i class="${valid ? "ok" : "bad"}">${valid ? `${passed}/${checks.length} checks` : "failed"}</i></span>
+          <span class="cv-acts">${f.editing ? `
+            <button type="button" class="cv-btn" data-cv="cancel">Cancel</button>
+            <button type="button" class="cv-btn primary" data-cv="save"${f.saving ? " disabled" : ""}>
+              ${f.saving ? "Testing…" : "Save &amp; test"}</button>` : `
+            <button type="button" class="cv-icon" data-cv="copy" title="Copy code" aria-label="Copy code">${Icons.svg("copy", "sm")}</button>
+            <button type="button" class="cv-icon" data-cv="edit" title="Edit code" aria-label="Edit code">${Icons.svg("pen", "sm")}</button>
+            <button type="button" class="cv-icon danger" data-cv="delete" title="${delArmed ? "Press again to delete" : "Delete"}"
+              aria-label="Delete">${delArmed ? "Delete?" : Icons.svg("trash", "sm")}</button>`}</span>
+        </header>
+        ${f.editing
+          ? `<div class="cv-edit"><div class="cv-gutter" aria-hidden="true"></div>
+               <code class="cv-input hljs" spellcheck="false"></code></div>`
+          : `<div class="cv-lines">${splitLines(highlight(hljs, code)).map((h, i) =>
+              `<div class="cv-row"><span class="cv-ln">${i + 1}</span><span class="cv-src">${h || " "}</span></div>`).join("")}</div>`}
+      </div>
+      ${fails ? `<div class="cv-fail"><b>Not saved — ${esc(f.result.report.summary)}</b><ul>${fails}</ul></div>` : ""}
+      ${f.result && f.result.ok ? `<div class="cv-saved">Saved as v${esc(f.result.version)} · ${esc(f.result.report.summary)} · chart updated</div>` : ""}
+      <details class="cv-more"><summary>Validation · ${esc(rep.summary || "")}</summary><ul class="cv-checks">${rows}</ul></details>
       ${srcs ? `<details class="cv-more"><summary>Sources</summary><ul class="cv-srcs">${srcs}</ul></details>` : ""}`;
+
+    if (f.editing) {
+      const input = view.querySelector(".cv-input");
+      const gutter = view.querySelector(".cv-gutter");
+      const paintGutter = (text) => {
+        const n = text.split("\n").length;
+        gutter.innerHTML = Array.from({ length: n }, (_, i) => `<span>${i + 1}</span>`).join("");
+      };
+      const jar = CodeJar(input, (el) => { el.innerHTML = highlight(hljs, el.textContent); },
+        { tab: "    ", addClosing: true });
+      jar.updateCode(code);
+      paintGutter(code);
+      jar.onUpdate((text) => {
+        paintGutter(text);
+        const dirty = text.replace(/\s+$/, "") !== String(d.code || "").replace(/\s+$/, "");
+        if (dirty !== !!f.dirty) { f.dirty = dirty; renderTabs(); }
+        f.draft = text;
+      });
+      f.jar = jar;
+      input.focus();
+    }
   }
 
   async function onAction(e) {
@@ -158,12 +238,46 @@ const CodeView = (() => {
     if (!f || !f.rec) return;
     const what = b.dataset.cv;
     if (what === "copy") {
-      try { await navigator.clipboard.writeText(f.rec.code || ""); b.classList.add("is-done"); setTimeout(() => b.classList.remove("is-done"), 1200); } catch { }
+      try {
+        await navigator.clipboard.writeText(f.rec.code || "");
+        b.classList.add("is-done");
+        setTimeout(() => b.classList.remove("is-done"), 1200);
+      } catch { }
       return;
     }
     if (what === "edit") {
-      show(null);
-      if (window.Chat) Chat.compose(`Edit my custom indicator "${f.title}" (${f.id}): `);
+      f.editing = true; f.result = null; f.draft = null;
+      render();
+      return;
+    }
+    if (what === "cancel") {
+      f.editing = false; f.draft = null; f.dirty = false; f.result = null;
+      renderTabs(); render();
+      return;
+    }
+    if (what === "save") {
+      const code = f.jar ? f.jar.toString() : f.draft;
+      f.saving = true; f.draft = code; render();
+      let res;
+      try {
+        const r = await fetch(`${API}/custom_indicators/${encodeURIComponent(f.id)}/code`, {
+          method: "POST", headers: headers(true),
+          // the chart the user is looking at is what the edit is tested on first
+          body: JSON.stringify({ code, ...(typeof window.__chartoChart === "function" ? window.__chartoChart() : {}) }),
+        });
+        res = await r.json();
+        if (!r.ok) throw new Error(res.error || `HTTP ${r.status}`);
+      } catch (err) {
+        res = { ok: false, report: { summary: err.message, checks: [] } };
+      }
+      f.saving = false; f.result = res;
+      if (res.ok) {
+        f.editing = false; f.dirty = false; f.draft = null;
+        f.rec = { ...f.rec, code, version: res.version, report: res.report };
+        document.dispatchEvent(new CustomEvent("charto:custom-indicator",
+          { detail: { action: "updated", id: f.id, def: res.def } }));
+      }
+      renderTabs(); render();
       return;
     }
     if (what === "delete") {

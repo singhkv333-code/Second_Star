@@ -17602,6 +17602,41 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(*_plans.api_delete(me[0], int(pid)))
             return self._send(404, {"error": f"no plan route '{tail}'"})
 
+        if u.path.startswith("/custom_indicators/") and u.path.endswith("/code"):
+            # A hand edit from the sidebar's code view: the same validator as
+            # a build, on the same kinds of bars, and only a pass becomes a
+            # new version — a failed edit leaves the chart on the old one.
+            me = _auth_user(self.headers)
+            if _ci is None:
+                return self._send(501, {"error": "custom indicators are unavailable"})
+            if not me:
+                return self._send(401, {"error": "sign in to edit custom indicators"})
+            try:
+                ln = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(ln) or b"{}")
+            except (ValueError, TypeError):
+                return self._send(400, {"error": "bad JSON body"})
+            cid = u.path[len("/custom_indicators/"):-len("/code")].strip("/")
+            rec = _ci.get(cid, me[0])
+            code = str(body.get("code") or "")
+            if not rec:
+                return self._send(404, {"error": f"no custom indicator '{cid}'"})
+            if not code.strip():
+                return self._send(400, {"error": "empty code"})
+            sym = str(body.get("symbol") or "RELIANCE").upper()
+            if _ensure_symbol(sym):
+                sym = "RELIANCE"
+            _req.symbol = sym
+            iv = str(body.get("interval") or "1d")
+            report = _ci.validate(rec["spec"], code, _cx_bars_provider(sym, iv))
+            report["attempts"] = 0
+            saved = _ci.save(me[0], spec=rec["spec"], code=code, report=report,
+                             prompt="edited by hand", cid=cid)
+            out = {"ok": bool(report["passed"]), "report": report,
+                   "version": saved["version"]}
+            if report["passed"]:
+                out["def"] = _ci.catalog_entry(saved)
+            return self._send(200, out)
         if u.path.startswith("/custom_indicators/") and u.path.endswith("/delete"):
             me = _auth_user(self.headers)
             if _ci is None:

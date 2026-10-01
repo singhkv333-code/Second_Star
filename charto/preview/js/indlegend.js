@@ -254,7 +254,7 @@ const IndLegend = (() => {
         (((mgr.CATALOG.find((c) => c.id === id) || {}).custom)
           ? `<div class="sep"></div>` +
             `<div class="item" data-do="cxedit"><span class="lead">` +
-              `${Icons.svg("pen", "sm")}Edit with AI…</span></div>` +
+              `${Icons.svg("pen", "sm")}Edit code</span></div>` +
             `<div class="item" data-do="cxsource"><span class="lead">` +
               `${Icons.svg("code", "sm")}View code</span></div>`
           : "") +

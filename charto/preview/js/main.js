@@ -702,8 +702,18 @@
    *  the settings dialog's Source tab and the indicator menu. Building and
    *  editing happen in the chat — they are a model turn — so those actions
    *  compose a message there for the user to finish and send. */
-  function customIndicatorAction(action, cid) {
-    const def = cid && ind.CATALOG.find((c) => c.id === cid);
+  function customIndicatorAction(action, cid, detail) {
+    // a hand edit passed validation: learn the new version and redraw it
+    if (action === "updated" && detail && detail.def) {
+      Indicators.learn(detail.def);
+      renderIndMenu();
+      if (ind.isActive(cid)) {
+        ind.reload(cid).then(() => document.dispatchEvent(
+          new CustomEvent("charto:indicators-changed"))).catch((err) => status(err.message));
+      }
+      return;
+    }
+    let def = cid && ind.CATALOG.find((c) => c.id === cid);
     if (action === "new") {
       if (window.Chat) Chat.compose("Build a custom indicator that ");
       return;
@@ -712,8 +722,19 @@
       if (typeof CodeView !== "undefined") CodeView.open(cid);
       return;
     }
-    if (action === "edit" && window.Chat) {
-      Chat.compose(`Edit my custom indicator ${def ? `"${def.title}" ` : ""}(${cid}): `);
+    if (action === "edit") {
+      // edited in place, in the sidebar's code view — not by drafting a
+      // chat message (a change in words can still simply be asked in chat)
+      if (typeof CodeView !== "undefined") CodeView.open(cid, { edit: true });
+      return;
+    }
+    if (action === "add" && !def && cid) {
+      fetch(`${API}/custom_indicators/${encodeURIComponent(cid)}`,
+        { headers: typeof Auth !== "undefined" ? Auth.headers() : {} })
+        .then((r) => r.json()).then((d) => {
+          if (d && d.def) { Indicators.learn(d.def); customIndicatorAction("add", cid); }
+          else status(d.error || "this indicator cannot be drawn");
+        }).catch((err) => status(err.message));
       return;
     }
     if (action === "add" && def && !ind.isActive(cid)) {
@@ -738,7 +759,10 @@
     }
   }
   document.addEventListener("charto:custom-indicator",
-    (e) => customIndicatorAction(e.detail.action, e.detail.id));
+    (e) => customIndicatorAction(e.detail.action, e.detail.id, e.detail));
+  // the chat's file cards ask this to paint their on-chart toggle
+  window.__chartoCustomActive = (cid) => ind.isActive(cid);
+  window.__chartoChart = () => ({ symbol: ind.symbol, interval: ind.interval });
 
   el("indBtn").addEventListener("click", (e) => {
     e.stopPropagation();

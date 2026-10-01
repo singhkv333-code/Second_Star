@@ -2499,28 +2499,64 @@ const Cards = (() => {
 
   // ── a custom indicator, as a file ───────────────────────────────────
   //
-  // One row: what was built, whether it passed, and Open — which shows its
-  // code in the sidebar (codeview.js). The checks, sources and version
-  // history live there, one click away, instead of filling the thread.
+  // One object: what was built, whether it passed, a chart toggle and Open,
+  // which shows its code in the sidebar (codeview.js). The checks, sources
+  // and history live there instead of filling the thread.
+  const CX_SPARK = '<svg class="cx-spark" viewBox="0 0 40 24" aria-hidden="true">'
+    + '<path class="cx-spark-grid" d="M0 12H40"/>'
+    + '<path class="cx-spark-line" pathLength="100" d="M1 17 L7 15 L12 18 L17 9 L22 12 L27 5 L32 10 L39 4"/>'
+    + '<circle class="cx-spark-dot" cx="39" cy="4" r="2"/></svg>';
   function customIndicator(c) {
     const checks = c.checks || [];
     const passed = checks.filter((x) => x.status === "pass").length;
     const kind = { standard: "Indicator", variant: "Variant", custom: "Custom method" }[c.classification] || "Indicator";
-    const state = c.ok
-      ? `${passed}/${checks.length} checks · on chart`
-      : (c.kept_previous ? "Edit failed · previous version kept" : "Failed validation · not on chart");
-    return `<button type="button" class="cx-file" data-cx-act="open"${c.id ? "" : " disabled"}>`
-      + `<span class="cx-file-icon">${Icons.svg("code", "sm")}</span>`
-      + `<span class="cx-file-main"><b>${esc(c.title || "Custom indicator")}</b>`
-      + `<span class="${c.ok ? "" : "bad"}">${esc(kind)}${c.version ? ` · v${esc(c.version)}` : ""} · ${esc(state)}</span></span>`
-      + `<span class="cx-file-open">Open</span></button>`;
+    const chips = [
+      `<i>${esc(kind)}</i>`,
+      c.version ? `<i>v${esc(c.version)}</i>` : "",
+      c.ok ? `<i class="ok">${passed}/${checks.length} checks</i>`
+           : `<i class="bad">${c.kept_previous ? "Edit failed · previous kept" : "Failed validation"}</i>`,
+    ].join("");
+    const toggle = c.ok && c.id
+      ? `<button type="button" class="cx-chart" data-cx-act="toggle" aria-pressed="false"
+           title="Add to chart" aria-label="Add to chart">`
+        + `<span class="cx-off">${Icons.svg("plus", "sm")}</span>`
+        + `<span class="cx-on">${Icons.svg("check", "sm")}</span>`
+        + `<span class="cx-rm">${Icons.svg("x", "sm")}</span></button>` : "";
+    return `<div class="cx-file${c.ok ? "" : " is-bad"}">`
+      + `<span class="cx-file-icon">${CX_SPARK}</span>`
+      + `<button type="button" class="cx-file-main" data-cx-act="open"${c.id ? "" : " disabled"}>`
+      + `<b>${esc(c.title || "Custom indicator")}</b><span class="cx-chips">${chips}</span></button>`
+      + `<span class="cx-file-acts">${toggle}`
+      + `<button type="button" class="cx-file-open" data-cx-act="open"${c.id ? "" : " disabled"}>`
+      + `${Icons.svg("code", "xs")}Open</button></span></div>`;
+  }
+
+  /* The chart toggle reflects the chart, not the moment the card was printed:
+   * main.js answers `__chartoCustomActive(id)`, and every change to the active
+   * set (menu, legend ×, chat) repaints every card. */
+  function syncToggle(box, id) {
+    const b = box.querySelector(".cx-chart");
+    if (!b) return;
+    const on = typeof window.__chartoCustomActive === "function" && window.__chartoCustomActive(id);
+    b.setAttribute("aria-pressed", on ? "true" : "false");
+    b.title = on ? "Remove from chart" : "Add to chart";
+    b.setAttribute("aria-label", b.title);
   }
 
   function wireCustom(box, card) {
-    box.querySelectorAll("[data-cx-act]").forEach((b) => b.addEventListener("click", () => {
+    box.querySelectorAll("[data-cx-act]").forEach((b) => b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      let action = b.dataset.cxAct;
+      if (action === "toggle") {
+        action = b.getAttribute("aria-pressed") === "true" ? "remove" : "add";
+      }
       document.dispatchEvent(new CustomEvent("charto:custom-indicator",
-        { detail: { action: b.dataset.cxAct, id: card.id } }));
+        { detail: { action, id: card.id } }));
     }));
+    syncToggle(box, card.id);
+    document.addEventListener("charto:indicators-changed", () => {
+      if (box.isConnected) syncToggle(box, card.id);
+    });
   }
 
   const RENDER = { patterns, trend, indicators, confirmation, timeframes,
