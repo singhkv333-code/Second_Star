@@ -170,9 +170,6 @@ const CodeView = (() => {
     const { hljs, CodeJar } = await loadLibs();
     const d = f.rec, sp = d.spec || {}, rep = d.report || {};
     const checks = rep.checks || [];
-    const passed = checks.filter((c) => c.status === "pass").length;
-    const kind = { standard: "Indicator", variant: "Variant", custom: "Custom method" }[sp.classification] || "Indicator";
-    const valid = d.status === "validated";
     const code = String(f.draft != null ? f.draft : (d.code || "")).replace(/\s+$/, "");
     const rows = checks.map((c) => `<li class="is-${esc(c.status)}"><b>${esc(c.label)}</b>`
       + (c.status !== "pass" && c.detail ? `<span>${esc(c.detail)}</span>` : "") + `</li>`).join("");
@@ -186,9 +183,7 @@ const CodeView = (() => {
     view.innerHTML = `
       <div class="cv-editor${f.editing ? " is-editing" : ""}">
         <header class="cv-bar">
-          <span class="cv-crumb">${Icons.svg("code", "xs")}<b>${esc(f.name)}</b></span>
-          <span class="cv-meta"><i>${esc(kind)}</i><i>v${esc(d.version)}</i>
-            <i class="${valid ? "ok" : "bad"}">${valid ? `${passed}/${checks.length} checks` : "failed"}</i></span>
+          <span class="cv-crumb">${Icons.svg("code", "xs")}<b title="${esc(f.name)}">${esc(f.name)}</b></span>
           <span class="cv-acts">${f.editing ? `
             <button type="button" class="cv-btn" data-cv="cancel">Cancel</button>
             <button type="button" class="cv-btn primary" data-cv="save"${f.saving ? " disabled" : ""}>

@@ -17,6 +17,7 @@ config.js
 vendor/*
 !vendor/liquid-glass.js
 !vendor/codeedit/
+!vendor/icons/
 # figlet.js (MIT) and its one patched font — unpatched third-party code that
 # nothing here can produce, so it ships with the repo for the reason
 # liquid-glass.js does. vendor/figlet/README.md says where it came from.

@@ -2499,36 +2499,87 @@ const Cards = (() => {
 
   // ── a custom indicator, as a file ───────────────────────────────────
   //
-  // One object: what was built, whether it passed, a chart toggle and Open,
-  // which shows its code in the sidebar (codeview.js). The checks, sources
-  // and history live there instead of filling the thread.
-  const CX_SPARK = '<svg class="cx-spark" viewBox="0 0 40 24" aria-hidden="true">'
-    + '<path class="cx-spark-grid" d="M0 12H40"/>'
-    + '<path class="cx-spark-line" pathLength="100" d="M1 17 L7 15 L12 18 L17 9 L22 12 L27 5 L32 10 L39 4"/>'
-    + '<circle class="cx-spark-dot" cx="39" cy="4" r="2"/></svg>';
+  // The name, an animated document icon, and two icon buttons: put it on or
+  // take it off the chart, and open its code in the sidebar (codeview.js).
+  // Everything else about the build lives behind Open.
+  //
+  // The icon is Lordicon's wired-outline document (vendor/icons/README.md —
+  // free licence, attribution required), played by lottie-web: it unfolds
+  // once when the card lands and again on hover, recoloured to the theme's
+  // ink and the brand teal through the icon's own colour classes.
+  let LOTTIE = null;
+  function lottieKit() {
+    if (!LOTTIE) {
+      LOTTIE = new Promise((ok, bad) => {
+        const s = document.createElement("script");
+        s.src = "./vendor/icons/lottie_light.min.js";
+        s.onload = () => fetch("./vendor/icons/document.json").then((r) => r.json())
+          .then((data) => ok({ lottie: window.lottie, data })).catch(bad);
+        s.onerror = bad;
+        document.head.appendChild(s);
+      });
+    }
+    return LOTTIE;
+  }
+  const hexRgb = (h) => {
+    const m = /^#?([0-9a-f]{6})$/i.exec(String(h).trim());
+    if (!m) return null;
+    const n = parseInt(m[1], 16);
+    return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255, 1];
+  };
+  /** A deep copy with every primary/secondary stroke and fill set to `pal`. */
+  function recolour(data, pal) {
+    const walk = (o) => {
+      if (Array.isArray(o)) { o.forEach(walk); return; }
+      if (!o || typeof o !== "object") return;
+      if ((o.ty === "st" || o.ty === "fl") && pal[o.cl]) {
+        o.c = { a: 0, k: pal[o.cl] };
+      }
+      for (const k in o) if (o[k] && typeof o[k] === "object") walk(o[k]);
+    };
+    const copy = JSON.parse(JSON.stringify(data));
+    walk(copy);
+    return copy;
+  }
+  function mountIcon(host, failed) {
+    lottieKit().then(({ lottie, data }) => {
+      const css = getComputedStyle(host);
+      const ink = hexRgb(css.getPropertyValue("--cx-ink")) || [0.05, 0.05, 0.06, 1];
+      const tint = hexRgb(css.getPropertyValue("--cx-tint")) || [0.03, 0.6, 0.5, 1];
+      host.innerHTML = "";
+      const anim = lottie.loadAnimation({
+        container: host, renderer: "svg", loop: false, autoplay: false,
+        animationData: recolour(data, { primary: ink, secondary: tint }),
+        rendererSettings: { preserveAspectRatio: "xMidYMid meet" },
+      });
+      const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+      anim.addEventListener("DOMLoaded", () => {
+        if (still || failed) anim.goToAndStop(269, true);     // the rest pose
+        else anim.playSegments([70, 160], true);              // in-unfold
+      });
+      if (!still) {
+        const card = host.closest(".cx-file");
+        card.addEventListener("mouseenter", () => anim.playSegments([269, 359], true));
+      }
+    }).catch(() => { host.innerHTML = Icons.svg("fileText", "sm"); });
+  }
+
   function customIndicator(c) {
-    const checks = c.checks || [];
-    const passed = checks.filter((x) => x.status === "pass").length;
-    const kind = { standard: "Indicator", variant: "Variant", custom: "Custom method" }[c.classification] || "Indicator";
-    const chips = [
-      `<i>${esc(kind)}</i>`,
-      c.version ? `<i>v${esc(c.version)}</i>` : "",
-      c.ok ? `<i class="ok">${passed}/${checks.length} checks</i>`
-           : `<i class="bad">${c.kept_previous ? "Edit failed · previous kept" : "Failed validation"}</i>`,
-    ].join("");
     const toggle = c.ok && c.id
-      ? `<button type="button" class="cx-chart" data-cx-act="toggle" aria-pressed="false"
+      ? `<button type="button" class="cx-btn cx-chart" data-cx-act="toggle" aria-pressed="false"
            title="Add to chart" aria-label="Add to chart">`
         + `<span class="cx-off">${Icons.svg("plus", "sm")}</span>`
         + `<span class="cx-on">${Icons.svg("check", "sm")}</span>`
         + `<span class="cx-rm">${Icons.svg("x", "sm")}</span></button>` : "";
-    return `<div class="cx-file${c.ok ? "" : " is-bad"}">`
-      + `<span class="cx-file-icon">${CX_SPARK}</span>`
-      + `<button type="button" class="cx-file-main" data-cx-act="open"${c.id ? "" : " disabled"}>`
-      + `<b>${esc(c.title || "Custom indicator")}</b><span class="cx-chips">${chips}</span></button>`
+    const why = c.ok ? "" : (c.kept_previous ? "Edit failed validation — the previous version is kept"
+                                             : "Failed validation — not on the chart");
+    return `<div class="cx-file${c.ok ? "" : " is-bad"}"${why ? ` title="${esc(why)}"` : ""}>`
+      + `<span class="cx-file-icon" data-cx-icon title="Animated icon by Lordicon.com"></span>`
+      + `<button type="button" class="cx-file-name" data-cx-act="open"${c.id ? "" : " disabled"}>`
+      + `${esc(c.title || "Custom indicator")}</button>`
       + `<span class="cx-file-acts">${toggle}`
-      + `<button type="button" class="cx-file-open" data-cx-act="open"${c.id ? "" : " disabled"}>`
-      + `${Icons.svg("code", "xs")}Open</button></span></div>`;
+      + `<button type="button" class="cx-btn" data-cx-act="open" title="Open code" aria-label="Open code"`
+      + `${c.id ? "" : " disabled"}>${Icons.svg("panelRight", "sm")}</button></span></div>`;
   }
 
   /* The chart toggle reflects the chart, not the moment the card was printed:
@@ -2553,6 +2604,8 @@ const Cards = (() => {
       document.dispatchEvent(new CustomEvent("charto:custom-indicator",
         { detail: { action, id: card.id } }));
     }));
+    const icon = box.querySelector("[data-cx-icon]");
+    if (icon) mountIcon(icon, !card.ok);
     syncToggle(box, card.id);
     document.addEventListener("charto:indicators-changed", () => {
       if (box.isConnected) syncToggle(box, card.id);
