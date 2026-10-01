@@ -14,20 +14,21 @@ each day is read straight off it:
           "last expiry of the month" is NOT a monthly test — October 2026's
           weekly (30th) expires after its monthly (28th).
 
-Two file formats: CD_BhavcopyDDMMYY.zip before NSE's July-2024 UDiFF switch,
-BhavCopy_NSE_CD_0_0_0_YYYYMMDD_F_0000.csv.zip after. A 404 is a holiday.
-Volume is contracts in the bhavcopy; it is scaled by the ratio measured
-against Kite's own continuous volume on days both carry, so the series
-does not change unit at the seam.
+Three file formats: CD_BhavcopyDDMMYY.zip holds a dBase file before 2016 and
+a CSV after, until NSE's July-2024 UDiFF switch to
+BhavCopy_NSE_CD_0_0_0_YYYYMMDD_F_0000.csv.zip. A 404 is a holiday.
+Volume is contracts in the bhavcopy, the same unit as Kite's (measured within
+0.03% on overlapping days), so the scale defaults to 1; --calibrate measures
+it against Kite volumes if that ever changes.
 
-Writes CSV rows (symbol, ts, o, h, l, c, v) for CONT:<pair> on stdout's
-target file, for universe_fix's fut_cds kite_1d.
+Writes CSV rows (symbol, ts, o, h, l, c, v, expiry) for CONT:<pair>; the first
+seven columns replace fut_cds's kite_1d continuous rows (2011 onward).
 
   python3 fill_cds_continuous.py --from 2023-06-07 --to 2026-09-22 --out fill.csv
 """
 from __future__ import annotations
 
-import argparse, csv, io, json, sys, time, urllib.error, urllib.request, zipfile
+import argparse, csv, io, json, struct, sys, time, urllib.error, urllib.request, zipfile
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 
@@ -35,6 +36,25 @@ IST = timezone(timedelta(hours=5, minutes=30))
 PAIRS = ("USDINR", "EURINR", "GBPINR", "JPYINR")
 BASE = "https://nsearchives.nseindia.com/archives/cd/bhav/"
 UA = {"User-Agent": "Mozilla/5.0"}
+
+
+def _dbf_rows(raw: bytes):
+    """Rows of a dBase III file — NSE's pre-2016 bhavcopy format, same
+    columns as the later CSV."""
+    n, hl, rl = struct.unpack("<IHH", raw[4:12])
+    fields, p = [], 32
+    while raw[p] != 0x0D:
+        fields.append((raw[p:p + 11].split(b"\0")[0].decode(), raw[p + 16]))
+        p += 32
+    for i in range(n):
+        rec = raw[hl + i * rl: hl + (i + 1) * rl]
+        if not rec or rec[:1] == b"*":
+            continue
+        q, row = 1, {}
+        for name, ln in fields:
+            row[name] = rec[q:q + ln].decode("latin-1").strip()
+            q += ln
+        yield row
 
 
 def fetch(day: date) -> list[dict] | None:
@@ -60,7 +80,8 @@ def fetch(day: date) -> list[dict] | None:
         for member in z.namelist():
             if "_OP" in member:
                 continue
-            rows = csv.DictReader(io.TextIOWrapper(z.open(member), encoding="utf-8", errors="replace"))
+            rows = (_dbf_rows(z.read(member)) if member.lower().endswith(".dbf") else
+                    csv.DictReader(io.TextIOWrapper(z.open(member), encoding="utf-8", errors="replace")))
             for r in rows:
                 if "TckrSymb" in r:                                      # UDiFF
                     if r.get("FinInstrmTp", "").upper() not in ("STF", "IDF", "FUTCUR") and r.get("OptnTp"):

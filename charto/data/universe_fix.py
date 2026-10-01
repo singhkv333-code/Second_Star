@@ -377,6 +377,7 @@ def ca_spans(fold: dict, ref: dict):
     fold by one common ratio. Consecutive such days with a stable ratio form
     a span; a matching day ends it."""
     spans, cur, checked, mismatch = [], None, 0, 0
+    matched: list[int] = []
     for d in sorted(fold):
         r = ref.get(d)
         if not r:
@@ -388,6 +389,7 @@ def ca_spans(fold: dict, ref: dict):
         checked += 1
         rh, rl = kh / fh, kl / fl
         if abs(rh - 1) <= 0.003 and abs(rl - 1) <= 0.003:
+            matched.append(d)
             if cur:
                 spans.append(cur); cur = None
             continue
@@ -408,7 +410,37 @@ def ca_spans(fold: dict, ref: dict):
             spans.append(cur); cur = None
     if cur:
         spans.append(cur)
-    return spans, checked, mismatch
+    return finalize_spans(spans, matched), checked, mismatch
+
+
+def _split_like(f: float) -> bool:
+    """A split, bonus or consolidation ratio: a/b with small integers."""
+    return any(abs(f / (a / b) - 1) < 0.003 for a in range(1, 11) for b in range(1, 21) if a < b)
+
+
+def finalize_spans(spans, matched):
+    """Only what a corporate action can be.
+    - A factor >= 0.995 is not one: an action scales history DOWN. Reported.
+    - Same-factor spans with no day between them that matched at factor 1
+      are one adjustment: the days between disagreed on one side only and
+      must not be left unscaled inside the corrected period.
+    - A factor that is not a split ratio needs >= 3 days to be believed (a
+      lone 0.98 day is a data disagreement, not a dividend adjustment)."""
+    import bisect
+    spans = [s for s in spans if s["f_med"] < 0.995]
+    merged = []
+    for s in spans:
+        if merged and abs(s["f_med"] / merged[-1]["f_med"] - 1) < 0.004:
+            lo, hi = merged[-1]["days"][-1], s["days"][0]
+            i = bisect.bisect_right(matched, lo)
+            if i >= len(matched) or matched[i] >= hi:      # nothing matched in between
+                m = merged[-1]
+                m["fill_to"] = s["days"][-1]
+                m["days"] += s["days"]; m["fs"] += s["fs"]; m["vr"] += s["vr"]
+                m["f_med"] = sorted(m["fs"])[len(m["fs"]) // 2]
+                continue
+        merged.append(dict(s))
+    return [s for s in merged if _split_like(s["f_med"]) or len(s["days"]) >= 3]
 
 
 def derive_symbol(args):
@@ -435,7 +467,7 @@ def derive_symbol(args):
                     vr = vrs[len(vrs) // 2] if vrs else None
                     f = s["f_med"]
                     vol = bool(vr) and abs(vr * f - 1) < 0.15
-                    for d in s["days"]:
+                    for d in range(s["days"][0], s["days"][-1] + 1):
                         byday[d] = (f, vol)
                     report["spans"].append({"from": s["days"][0], "to": s["days"][-1], "n": len(s["days"]),
                                             "factor": round(f, 6), "volume": vol})
@@ -468,6 +500,7 @@ def derive_symbol(args):
                for ts, o, h, l, cl, v in c.execute(
             "SELECT ts,o,h,l,c,v FROM kite_1d WHERE symbol=? ORDER BY ts", (sym,))
             if first_fold is None or (ts + IST_OFF) // 86400 < first_fold]
+        pre = list({r[0]: r for r in pre}.values())     # one bar per day
         daily = pre + d1
         m15 = fold_15m(rows, open_, wrap)
         c.execute("BEGIN IMMEDIATE")
