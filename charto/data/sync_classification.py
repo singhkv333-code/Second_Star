@@ -230,6 +230,21 @@ def main() -> None:
             "SELECT nse_symbol, company_name, industry_slug FROM mc.companies "
             "WHERE nse_symbol = ANY(%s) AND is_active IS NOT FALSE", (syms,))
         rows = {r[0]: (r[1], r[2]) for r in cur.fetchall()}
+        # BSE-only listings ("BSE:<symbol>" ids, see land_universe.py) carry no
+        # nse_symbol; Moneycontrol files them under their BSE scrip code.
+        # bse_symbols.json maps id -> scrip code; absent, nothing changes.
+        bse_path = HERE / "bse_symbols.json"
+        bse = json.loads(bse_path.read_text()) if bse_path.exists() else {}
+        if bse:
+            cur.execute(
+                "SELECT bse_code, company_name, industry_slug FROM mc.companies "
+                "WHERE bse_code = ANY(%s) AND is_active IS NOT FALSE",
+                ([str(c) for c in bse.values()],))
+            by_code = {r[0]: (r[1], r[2]) for r in cur.fetchall()}
+            for sid, code in bse.items():
+                if str(code) in by_code:
+                    rows[sid] = by_code[str(code)]
+                    syms.append(sid)
         pg.close()
         for s, v in _FIXUPS.items():
             rows.setdefault(s, v)

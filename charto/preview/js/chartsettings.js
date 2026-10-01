@@ -197,6 +197,7 @@ const ChartSettings = (() => {
     };
   }
 
+  let symDec = 2;
   function candleOptions() {
     const E = eff(), c = cfg.candles, s = cfg.scales;
     const p = c.precision;
@@ -213,8 +214,11 @@ const ChartSettings = (() => {
       priceLineVisible: !!s.priceLine,
       priceLineStyle: s.priceLineStyle,
       lastValueVisible: !!s.lastValue,
+      // "default" is the instrument's own tick: 4 places for an INR pair,
+      // none for gold quoted in whole rupees (setSymbolDecimals, from the
+      // instrument master). 2 when the master has no answer.
       priceFormat: p === "default"
-        ? { type: "price", precision: 2, minMove: 0.01 }
+        ? { type: "price", precision: symDec, minMove: Math.pow(10, -symDec) }
         : { type: "price", precision: p, minMove: 1 / Math.pow(10, p) },
     };
   }
@@ -637,6 +641,13 @@ const ChartSettings = (() => {
 
   return {
     register, unregister, apply,
+    /** The chart's instrument quotes to `n` decimals; re-applies the candles
+     *  only when that changes what "default" precision means. */
+    setSymbolDecimals(n) {
+      if (!Number.isFinite(n) || n === symDec) return;
+      symDec = Math.max(0, Math.min(6, n));
+      apply();
+    },
     /** Re-assert every setting on ONE chart — for an owner that has just
      *  written the theme's palette over the user's on its own chart. */
     applyTo: (t) => applyOne(t, true),

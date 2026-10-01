@@ -4547,7 +4547,7 @@ def api_route(path: str, q: dict) -> tuple[int, dict]:
     parts = [p for p in path.split("/") if p]        # ["api", "markets", …]
     tail = parts[1:]
     def sym_of(i):
-        return unquote(tail[i]).upper().strip() if len(tail) > i else ""
+        return canon_symbol(unquote(tail[i])) if len(tail) > i else ""
 
     if tail[:2] == ["markets", "quote"]:
         s = sym_of(2)
@@ -4897,7 +4897,7 @@ def tool_volume_profile(frm: str = "", to: str = "", lookback_sessions: int = 1,
 
     poc_price, val, vah = prof["poc"], prof["val"], prof["vah"]
     ccy = quote_ccy(_sym())
-    unit = "₹" if ccy == "INR" else "$"
+    unit = {"INR": "₹", "USD": "$"}.get(ccy, "")
 
     if draw:
         if str(draw_mode or "replace").lower() == "replace":
@@ -4993,7 +4993,7 @@ def tool_volume_profile(frm: str = "", to: str = "", lookback_sessions: int = 1,
 
 def tool_get_peers(symbol: str = "") -> dict:
     """The company's industry classification and its peer group."""
-    sym = (symbol or _sym()).upper().strip()
+    sym = canon_symbol(symbol or _sym())
     row = _classification_full(sym)
     if not row:
         return {"symbol": sym,
@@ -5187,7 +5187,7 @@ def tool_compare_symbols(symbols: list | None = None, interval: str = "1d",
     """
     syms = []
     for s in (symbols or []):
-        s = str(s).upper().strip()
+        s = canon_symbol(s)
         if s and s not in syms:
             syms.append(s)
     if not (2 <= len(syms) <= 8):
@@ -10266,7 +10266,7 @@ def tool_read_symbol(symbol: str = "", interval: str = "1d", bars: int = 60,
     """
     import indicators as _ind
 
-    want = str(symbol or "").upper().strip()
+    want = canon_symbol(symbol)
     subject = _sym()
     if not want:
         return {"error": "read_symbol needs a symbol",
@@ -12520,7 +12520,7 @@ def run_tool(name: str, args: dict) -> dict:
     # call. Doing it here means a tool never has to know that more than one
     # chart exists — and a tool added tomorrow inherits this for free.
     args = dict(args or {})
-    want = str(args.pop("symbol", "") or "").upper().strip() \
+    want = canon_symbol(args.pop("symbol", "") or "") \
         if name in _CHART_SCOPED and "symbol" not in _fn_params(fn) else ""
     prev = getattr(_req, "symbol", "RELIANCE")
     if want and want != prev:
@@ -14243,8 +14243,63 @@ _MCX_SYMBOLS = {"GOLD", "GOLDM", "SILVER", "SILVERM", "CRUDEOIL",
                 "LEAD", "NICKEL", "COTTON", "MENTHAOIL"}
 
 
+# ── instrument master ─────────────────────────────────────────────
+# One row per servable instrument, written by land_universe.py from the Kite
+# instrument dump and the corrected backfill stores: its exchange, kind, price
+# decimals, and the session MEASURED off its own minutes. Ids are the store's
+# `symbol` keys: NSE equities and every index bare (no index name repeats
+# across exchanges), everything else exchange-qualified (BSE:X, NFO:NIFTY26OCTFUT,
+# NFO:NIFTY1!). The 17 MCX/CDS names this store served before the master
+# existed (GOLD, USDINR, ...) stay the ids of their front-month series, so a
+# saved layout, alert or strategy never has to be rewritten; the qualified
+# spelling (MCX:GOLD1!) is an alias. A store without the table behaves exactly
+# as before: the alias map is empty and session_for falls through.
+_MASTER_TTL = 300.0
+_master_cache: tuple[float, dict, dict] | None = None
+
+
+def _master() -> tuple[dict, dict]:
+    global _master_cache
+    now = time.monotonic()
+    if _master_cache and now - _master_cache[0] < _MASTER_TTL:
+        return _master_cache[1], _master_cache[2]
+    rows: dict[str, dict] = {}
+    alias: dict[str, str] = {}
+    try:
+        for (sid, ex, kind, name, dec, s_open, s_close, wrap, aliases) in _con.execute(
+                "SELECT id, exchange, kind, name, decimals, session_open, session_close, "
+                "wrap, aliases FROM instrument_master"):
+            rows[sid] = {"exchange": ex, "kind": kind, "name": name, "decimals": dec,
+                         "open": s_open, "close": s_close, "wrap": bool(wrap)}
+            for a in json.loads(aliases or "[]"):
+                alias[str(a).upper()] = sid
+    except sqlite3.Error:
+        pass
+    _master_cache = (now, rows, alias)
+    return rows, alias
+
+
+def canon_symbol(symbol: str) -> str:
+    """The store id a spelling refers to: an alias resolves, anything else is
+    returned as written (upper-cased), so unknown names still reach the
+    did-you-mean path rather than being swallowed here."""
+    s = str(symbol or "").upper().strip()
+    return _master()[1].get(s, s)
+
+
 def session_for(symbol: str) -> tuple[int, int]:
-    """Bucket anchor for a symbol. Unknown symbols stay on the NSE clock."""
+    """Bucket anchor for a symbol. Unknown symbols stay on the NSE clock.
+
+    A master instrument uses its measured open. One whose session crosses
+    midnight IST (GIFT NIFTY 06:30 -> 02:45, the US indices 19:00 -> 02:30)
+    is put on a clock shifted so that its open IS midnight — (0, IST - open):
+    every day/bucket formula below then cuts its trading day at the open with
+    no special case, the way crypto already runs on (0, 0)."""
+    m = _master()[0].get(symbol)
+    if m is not None and m["open"] is not None:
+        if m["wrap"]:
+            return (0, IST_OFF - m["open"] * 60)
+        return (m["open"], IST_OFF)
     if symbol.endswith("USDT") or symbol.endswith("-USD"):
         return UTC_SESSION
     if symbol in _MCX_SYMBOLS:
@@ -14277,6 +14332,10 @@ def session_close_for(symbol: str) -> int:
     09:00-17:00, so a 15:29 bar would mark the day complete and every top-up
     would silently skip 15:30-16:59 forever.
     """
+    m = _master()[0].get(symbol)
+    if m is not None and m["close"] is not None and m["open"] is not None:
+        # on the instrument's own clock: shifted by the open when it wraps
+        return (m["close"] - m["open"]) % 1440 if m["wrap"] else m["close"]
     if symbol in _FX_SYMBOLS:
         return _FX_CLOSE_MIN
     return _SESSION_CLOSE_MIN.get(session_for(symbol), 15 * 60 + 29)
@@ -14326,11 +14385,48 @@ def quote_ccy(symbol: str) -> str:
     turnover figure that inherits its unit from a timezone is one listing away
     from being wrong.
     """
+    m = _master()[0].get(symbol)
+    if m is not None and m["exchange"] in ("GLOBAL", "NSEIX"):
+        # Kite's GLOBAL segment quotes foreign indices in their own markets'
+        # terms; GIFT NIFTY is NIFTY points on a dollar contract and a yield is
+        # a percentage. None of them is a rupee price.
+        return _FOREIGN_CCY.get(symbol, "PTS")
     return "USD" if (symbol.endswith("USDT")
                      or symbol.endswith("-USD")) else "INR"
 
 
+_FOREIGN_CCY = {"US500": "USD", "US100": "USD", "US30": "USD", "USCOMPOSITE": "USD",
+                "UK100": "GBP", "GERMANY40": "EUR", "FRANCE40": "EUR",
+                "JAPAN225": "JPY", "HANGSENG": "HKD", "SHANGHAICHINA": "CNY",
+                "AUS200": "AUD", "US10YRYIELD": "PCT"}
+
+
 _scope_cache: dict[str, str] = {}
+
+
+# The F&O underlyings that are indices, so their futures pool with indices.
+_INDEX_ROOTS = {"NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "NIFTYNXT50",
+                "SENSEX", "BANKEX", "SENSEX50"}
+
+
+def _scope_from_master(m: dict, symbol: str) -> str:
+    """A master instrument the classification table does not cover: its
+    exchange and kind say which market its evidence belongs to. Foreign
+    indices get their own pool — a US session is not an Indian one."""
+    ex, kind = m["exchange"], m["kind"]
+    if ex in ("GLOBAL", "NSEIX"):
+        return "index_global"
+    if ex in ("MCX", "NCO"):
+        return "commodity_in"
+    if ex == "CDS":
+        return "fx_in"
+    if kind == "index":
+        return "index_in"
+    if kind in ("future", "continuous"):
+        root = symbol.split(":")[-1]
+        root = re.sub(r"(\d{2}[A-Z]{3}FUT|\d!)$", "", root)
+        return "index_in" if root in _INDEX_ROOTS else "equity_in"
+    return "equity_in"
 
 
 def scope_for(symbol: str) -> str:
@@ -14351,6 +14447,8 @@ def scope_for(symbol: str) -> str:
         sc = "crypto"
     elif symbol in _MCX_SYMBOLS:
         sc = "commodity_in"
+    elif symbol in _master()[0]:
+        sc = _scope_from_master(_master()[0][symbol], symbol)
     else:
         sc = "equity_in"
     _scope_cache[symbol] = sc
@@ -16090,6 +16188,69 @@ def _live_status() -> dict:
         return out
 
 
+# ── the 15-minute rollup ─────────────────────────────────────────
+# A 1h page of 3,000 bars is 180,400 minute rows read and folded under the GIL
+# (196 ms + 73 ms measured cold); the same page off `bars_15m` is ~12,000 rows.
+# The rollup is written by the landing/reconcile jobs on THIS file's bucket
+# arithmetic (_bucket_stamp with session_for), and it is trusted only up to
+# `rollup_meta.through_ts`: everything newer — the live session, a gap fill, a
+# top-up — is read from minutes, so a writer that knows nothing about the
+# rollup can never make it serve a stale candle. A 15m row and a run of minute
+# rows fold into a 30m or 1h bucket identically, so the seam is invisible.
+_ROLLUP_TTL = 300.0
+_rollup_cache: tuple[float, int | None] | None = None
+
+
+def _rollup_through() -> int | None:
+    global _rollup_cache
+    now = time.monotonic()
+    if _rollup_cache and now - _rollup_cache[0] < _ROLLUP_TTL:
+        return _rollup_cache[1]
+    thr = None
+    try:
+        r = _con.execute("SELECT through_ts FROM rollup_meta").fetchone()
+        thr = int(r[0]) if r and r[0] else None
+    except sqlite3.Error:
+        pass
+    _rollup_cache = (now, thr)
+    return thr
+
+
+def _intraday_rows(symbol: str, upper: int | None, raw_needed: int,
+                   mins: int) -> list[tuple]:
+    """Ascending rows for _resample_intraday: minutes, with stored 15m bars
+    standing in for minutes older than the rollup watermark when the interval
+    is a multiple of 15."""
+    thr = _rollup_through() if mins % 15 == 0 else None
+    if thr is None:
+        if upper:
+            rows = _con.execute(
+                "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? AND ts<? "
+                "ORDER BY ts DESC LIMIT ?", (symbol, upper, raw_needed)).fetchall()
+        else:
+            rows = _con.execute(
+                "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? "
+                "ORDER BY ts DESC LIMIT ?", (symbol, raw_needed)).fetchall()
+        rows.reverse()
+        return rows
+    minute_rows: list[tuple] = []
+    if upper is None or upper > thr:
+        minute_rows = _con.execute(
+            "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? AND ts>=? AND ts<? "
+            "ORDER BY ts DESC LIMIT ?",
+            (symbol, thr, upper or 2 ** 62, raw_needed)).fetchall()
+    minute_rows.reverse()
+    left = raw_needed - len(minute_rows)
+    if left <= 0:
+        return minute_rows
+    below = thr if upper is None else min(upper, thr)
+    rolled = _con.execute(
+        "SELECT ts,o,h,l,c,v FROM bars_15m WHERE symbol=? AND ts<? "
+        "ORDER BY ts DESC LIMIT ?", (symbol, below, left // 15 + 32)).fetchall()
+    rolled.reverse()
+    return rolled + minute_rows
+
+
 def get_bars(symbol: str, interval: str, to: int | None, limit: int) -> dict:
     live = _live_view(symbol)
     form, horizon = live if live else (None, None)
@@ -16106,17 +16267,7 @@ def get_bars(symbol: str, interval: str, to: int | None, limit: int) -> dict:
         if hit is not None:
             bars, has_more = hit
         else:
-            if upper:
-                rows = _con.execute(
-                    "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? AND ts<? "
-                    "ORDER BY ts DESC LIMIT ?", (symbol, upper, raw_needed)
-                ).fetchall()
-            else:
-                rows = _con.execute(
-                    "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? "
-                    "ORDER BY ts DESC LIMIT ?", (symbol, raw_needed)
-                ).fetchall()
-            rows.reverse()
+            rows = _intraday_rows(symbol, upper, raw_needed, mins)
             if live_bar:
                 _merge_form_intraday(rows, form)
             bars = _resample_intraday(rows, mins, session_for(symbol))[-limit:]
@@ -16313,8 +16464,12 @@ def _health_report(*, deep: bool = False) -> tuple[int, dict]:
     return (200 if ready else 503), payload
 
 
-def _q(v: float) -> float:
-    """Round for display without flattening a sub-rupee instrument to 0.0."""
+def _q(v: float, dp: int | None = None) -> float:
+    """Round for display without flattening a sub-rupee instrument to 0.0.
+    `dp` is the instrument's own price decimals when the master knows them
+    (an INR pair quotes to 4; rounding it to 2 drops the tick it moves by)."""
+    if dp is not None and dp > 2:
+        return round(v, dp)
     return round(v, 2) if abs(v) >= 1 else round(v, 6)
 
 
@@ -16353,10 +16508,11 @@ def quote_for(sym: str) -> dict:
     # A single stored session has no previous close, so the day's move is
     # UNKNOWN rather than zero — the row shows a price and no change.
     prev = daily[-2][4] if len(daily) > 1 else None
+    dp = (_master()[0].get(sym) or {}).get("decimals")
     out = {
-        "symbol": sym, "last": _q(last[4]), "open": _q(last[1]),
-        "high": _q(last[2]), "low": _q(last[3]),
-        "prev_close": _q(prev) if prev else None,
+        "symbol": sym, "last": _q(last[4], dp), "open": _q(last[1], dp),
+        "high": _q(last[2], dp), "low": _q(last[3], dp),
+        "prev_close": _q(prev, dp) if prev else None,
         "change": None, "change_pct": None,
         "as_of": last[0], "currency": quote_ccy(sym),
         # the asset class the store itself assigns (classification-backed), so
@@ -16364,7 +16520,7 @@ def quote_for(sym: str) -> dict:
         "scope": scope_for(sym),
     }
     if prev:
-        out["change"] = _q(last[4] - prev)
+        out["change"] = _q(last[4] - prev, dp)
         out["change_pct"] = round((last[4] - prev) / prev * 100, 2)
     return out
 
@@ -16765,7 +16921,7 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         u = _strip_api_auth(u)
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
-        symbol = q.get("symbol", "RELIANCE").upper()
+        symbol = canon_symbol(q.get("symbol", "RELIANCE"))
         _req.symbol = symbol
         data_slot = False
         if _is_heavy_http_path(u.path):
@@ -16892,7 +17048,22 @@ class Handler(BaseHTTPRequestHandler):
                 # used to choose a logo.
                 alias = {sym: n.split(" / ")[0].strip()
                          for sym, n in names.items() if " / " in n}
+                # The master's instruments: a name for what classification
+                # does not cover (indices, futures, BSE names), and for anything
+                # that is not an NSE equity its exchange, kind and price
+                # decimals, so the picker can say WHERE an instrument trades and
+                # the chart can print a currency pair to its 4th decimal.
+                # Compact rows: ~3,600 of them, an NSE equity costs nothing.
+                master, _al = _master()
+                meta = {}
+                for sid, m in master.items():
+                    if sid not in names and m["name"]:
+                        names[sid] = m["name"]
+                    if not (m["exchange"] == "NSE" and m["kind"] == "equity"):
+                        meta[sid] = [m["exchange"], m["kind"], m["decimals"]]
+                have = have | set(master)
                 return self._send(200, {"symbols": sorted(set(_known_symbols()) | have),
+                                        "meta": meta,
                                         "hydrated": sorted(have),
                                         "names": names, "long": longs,
                                         "alias": alias, "logos": logos})
@@ -17623,7 +17794,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(404, {"error": f"no custom indicator '{cid}'"})
             if not code.strip():
                 return self._send(400, {"error": "empty code"})
-            sym = str(body.get("symbol") or "RELIANCE").upper()
+            sym = canon_symbol(body.get("symbol") or "RELIANCE")
             if _ensure_symbol(sym):
                 sym = "RELIANCE"
             _req.symbol = sym
@@ -17797,7 +17968,7 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(messages, list) or not messages:
                 return self._send(400, {"error": "messages[] required"})
             ctx = body.get("context") or {}
-            sym = str(ctx.get("symbol") or "RELIANCE").upper()
+            sym = canon_symbol(ctx.get("symbol") or "RELIANCE")
             _req.symbol = sym
             # HOW MANY BARS THE USER CAN ACTUALLY SEE.
             #

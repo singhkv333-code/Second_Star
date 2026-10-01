@@ -497,7 +497,12 @@
     });
   });
   // the mark lands after the universe does; repaint once it is known
-  Universe.load().then(() => { if (state.bars.length) paintTitle(); });
+  Universe.load().then(() => {
+    // the instrument's own price decimals (an INR pair quotes to 4)
+    const dec = Universe.decimals(SYMBOL);
+    if (dec !== null) ChartSettings.setSymbolDecimals(dec);
+    if (state.bars.length) paintTitle();
+  });
 
   /** Index of the bar at this chart time. Binary search because the readout
    *  runs on every crosshair move and a linear scan of 4,000 bars per

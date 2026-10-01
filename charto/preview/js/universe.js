@@ -38,12 +38,15 @@ const Universe = (() => {
         alias: d.alias || {},
         long: d.long || {},
         logos: d.logos || {},
+        // [exchange, kind, price decimals] for everything that is not an
+        // NSE equity — the instrument master's answer, not a guess
+        meta: d.meta || {},
       };
       return data;
     }).catch((e) => {
       console.warn("[charto] universe fetch failed", e);
       data = { symbols: [], hydrated: new Set(), names: {}, short: {},
-               alias: {}, long: {}, logos: {} };
+               alias: {}, long: {}, logos: {}, meta: {} };
       return data;
     });
     return inflight;
@@ -88,18 +91,32 @@ const Universe = (() => {
     "COTTON", "MENTHAOIL"]);
   function venue(sym) {
     const s = String(sym || "").toUpperCase();
+    const m = data && data.meta[s];
+    if (m) return m[0];
     if (s.endsWith("USDT")) return "BYBIT";
     if (s.endsWith("-USD")) return "COINBASE";
     return MCX.has(s) ? "MCX" : "NSE";
   }
 
+  /** Price decimals the instrument is quoted in (its tick size): 4 for an
+   *  INR pair, 0 for gold quoted in whole rupees. null = not in the master. */
+  function decimals(sym) {
+    const m = data && data.meta[String(sym || "").toUpperCase()];
+    return m && Number.isFinite(m[2]) ? m[2] : null;
+  }
+  /** What the picker prints: the ticker without its exchange prefix, because
+   *  the exchange already sits beside it as its own tag. */
+  const shown = (sym) => String(sym).includes(":") ? String(sym).split(":").slice(1).join(":") : String(sym);
+
   const CCY = { INR: "\u20b9", USD: "$" };
-  function money(v, ccy) {
+  function money(v, ccy, sym) {
     if (v === null || v === undefined || !isFinite(v)) return "";
     // Two places is what a price is quoted in, here and on the exchange.
     // Sub-rupee instruments are the only ones that need more, and they need
     // it badly — a 0.0231 coin at two places is 0.02 for every one of them.
-    const dp = Math.abs(v) >= 1 ? 2 : 4;
+    // A master instrument says its own: an INR pair quotes to 4.
+    const known = decimals(sym);
+    const dp = known !== null ? known : Math.abs(v) >= 1 ? 2 : 4;
     return (CCY[ccy] || "") + v.toLocaleString(undefined,
       { minimumFractionDigits: dp, maximumFractionDigits: dp });
   }
@@ -114,7 +131,7 @@ const Universe = (() => {
     }
     const pct = q.change_pct;
     const dir = pct === null || pct === undefined ? "" : pct > 0 ? " up" : pct < 0 ? " dn" : "";
-    return `<span class="ir-last">${money(q.last, q.currency)}</span>` +
+    return `<span class="ir-last">${money(q.last, q.currency, q.symbol)}</span>` +
       (pct === null || pct === undefined ? ""
         // A real minus sign, not a hyphen: at this size a hyphen sits high
         // and short beside tabular figures and reads as a dash between two
@@ -161,7 +178,7 @@ const Universe = (() => {
                  onerror="this.classList.add('ir-dead')"/>`)
              : `<span class="ir-logo ir-blank">${sym.slice(0, 1)}</span>`) +
         `<span class="ir-copy">` +
-          `<span class="ir-tick">${sym}<span class="ir-ex">${venue(sym)}</span></span>` +
+          `<span class="ir-tick">${shown(sym)}<span class="ir-ex">${venue(sym)}</span></span>` +
           (nm && nm !== sym ? `<span class="ir-name">${nm}</span>` : "") +
         `</span>` +
       `</span>` +
@@ -343,5 +360,5 @@ const Universe = (() => {
   }
 
   return { load, peek, logo, label, logoHTML, open, close,
-           rowHTML, quoteWatch, venue };
+           rowHTML, quoteWatch, venue, decimals, shown };
 })();
