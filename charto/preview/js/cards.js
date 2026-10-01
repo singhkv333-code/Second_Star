@@ -2497,57 +2497,23 @@ const Cards = (() => {
     });
   }
 
-  // ── a custom indicator, as built ────────────────────────────────────
+  // ── a custom indicator, as a file ───────────────────────────────────
   //
-  // The build's own record: what kind of indicator it honestly is, the
-  // formula as stored, every validation check with its result, the series it
-  // was tested on and the sources its research cited. A failed build prints
-  // the same panel with the failing checks first and says plainly that
-  // nothing was drawn — the panel never reads as success when there was none.
-  const CX_KIND = {
-    standard: ["Standard", "ok"], variant: ["Variant", ""], custom: ["Custom method", ""],
-  };
+  // One row: what was built, whether it passed, and Open — which shows its
+  // code in the sidebar (codeview.js). The checks, sources and version
+  // history live there, one click away, instead of filling the thread.
   function customIndicator(c) {
-    const [kind, kcls] = CX_KIND[c.classification] || ["Custom", ""];
     const checks = c.checks || [];
     const passed = checks.filter((x) => x.status === "pass").length;
-    const order = { fail: 0, warn: 1, pass: 2, skip: 3 };
-    const rows = checks.slice().sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9))
-      .map((x) => `<div class="scan-read${x.status === "fail" ? " tone-down" : ""}">`
-        + `<b class="nm">${esc(x.label)}</b>`
-        + `<span class="nt">${esc(x.detail || "")}</span>`
-        + `<b class="num">${x.status === "pass" ? "Pass" : x.status === "fail" ? "Fail"
-                          : x.status === "warn" ? "Note" : "Skipped"}</b></div>`).join("");
-    const stats = [
-      stat("Type", kind, kcls === "ok" ? "" : "", c.standard_name && c.classification !== "custom"
-        ? c.standard_name : ""),
-      stat("Checks", `${passed}/${checks.length}`, c.ok ? "up" : "down",
-           c.attempts > 1 ? `${c.attempts} attempts` : ""),
-      stat("Plots", `${(c.lines || []).length}`, "", c.pane === "overlay" ? "on price" : "own pane"),
-      c.elapsed_s != null ? stat("Built in", `${Math.round(c.elapsed_s)}s`) : "",
-    ].filter(Boolean).join("");
-    const sets = (c.datasets || []).map((d) => `<i>${esc(d.label)}</i>`).join("");
-    const srcs = (c.sources || []).map((x) => `<div class="scan-read"><b class="nm">`
-      + `<a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.title || x.url)}</a>`
-      + `</b></div>`).join("");
-    const head = c.ok
-      ? ""
-      : callout(c.kept_previous
-          ? "This edit failed validation, so the chart keeps the previous version."
-          : "Failed validation — nothing was added to the chart.");
-    const acts = c.id ? `<div class="wf-cta wf-cta-solo"><div class="wf-ghosts">`
-      + (c.ok ? `<button class="wf-ghost" data-cx-act="source">${Icons.svg("fileText", "xs")}Source and tests</button>` : "")
-      + `<button class="wf-ghost" data-cx-act="edit">${Icons.svg("pen", "xs")}${c.ok ? "Edit" : "Try a change"}</button>`
-      + (c.ok ? `<button class="wf-ghost" data-cx-act="remove">${Icons.svg("x", "xs")}Remove from chart</button>` : "")
-      + `</div></div>` : "";
-    return head + `<div class="scan-stats">${stats}</div>`
-      + section(c.title || "Custom indicator", c.short || "",
-                `<p class="scan-prose">${esc(c.formula || c.description || "")}</p>`)
-      + section("Validation", c.summary || "", rows && `<div class="scan-reads">${rows}</div>`)
-      + section("Tested on", "", sets && `<div class="scan-read"><span class="nt">${sets}</span></div>`)
-      + section("Sources", "research citations", srcs && `<div class="scan-reads">${srcs}</div>`)
-      + acts
-      + foot(`${c.symbol || ""} · ${c.interval || ""}${c.version ? ` · v${c.version}` : ""}`);
+    const kind = { standard: "Indicator", variant: "Variant", custom: "Custom method" }[c.classification] || "Indicator";
+    const state = c.ok
+      ? `${passed}/${checks.length} checks · on chart`
+      : (c.kept_previous ? "Edit failed · previous version kept" : "Failed validation · not on chart");
+    return `<button type="button" class="cx-file" data-cx-act="open"${c.id ? "" : " disabled"}>`
+      + `<span class="cx-file-icon">${Icons.svg("code", "sm")}</span>`
+      + `<span class="cx-file-main"><b>${esc(c.title || "Custom indicator")}</b>`
+      + `<span class="${c.ok ? "" : "bad"}">${esc(kind)}${c.version ? ` · v${esc(c.version)}` : ""} · ${esc(state)}</span></span>`
+      + `<span class="cx-file-open">Open</span></button>`;
   }
 
   function wireCustom(box, card) {
@@ -2588,7 +2554,8 @@ const Cards = (() => {
       }
       if (!html) return null;
       const box = document.createElement("div");
-      box.className = "scan";
+      // the file card is its own object, not a measurement panel
+      box.className = card.kind === "custom_indicator" ? "cx-file-card" : "scan";
       box.dataset.card = card.kind;
       box.innerHTML = html;
       /* Every fold in the panel, not the first one. This used to reach for a

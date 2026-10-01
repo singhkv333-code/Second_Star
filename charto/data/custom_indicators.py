@@ -612,6 +612,25 @@ def validate(spec: dict, code: str, real: list[tuple[str, list[tuple], str, int]
             "fail" if off else "pass",
             "; ".join(off) + (" — use pane 'own' for an oscillator" if off else ""))
 
+    # one pane is one scale: a price line beside a volume line is drawn as a
+    # flat line on an axis it does not belong to
+    if spec["pane"] == "own" and real_keys and len(declared) > 1:
+        k = real_keys[0][0]
+        mags = {}
+        for ln, v in (full.get(k) or {}).items():
+            vals = sorted(abs(x) for x in v if _ok_val(x) and x != 0)
+            if vals and ln not in sparse:
+                mags[ln] = vals[len(vals) // 2]
+        if len(mags) > 1 and max(mags.values()) / max(min(mags.values()), 1e-12) > 50:
+            big = max(mags, key=mags.get)
+            small = min(mags, key=mags.get)
+            add("one_scale", "Lines in one pane share a scale", "fail",
+                f"'{big}' is typically {mags[big]:.4g} while '{small}' is {mags[small]:.4g} — "
+                f"in one pane the smaller line is drawn flat. Drop the line that repeats "
+                f"what the chart already shows (price is the candles), or normalise it")
+        else:
+            add("one_scale", "Lines in one pane share a scale", "pass")
+
     # reference implementation
     ref = spec.get("reference")
     if ref and real_keys:

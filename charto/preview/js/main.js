@@ -708,14 +708,12 @@
       if (window.Chat) Chat.compose("Build a custom indicator that ");
       return;
     }
-    if (action === "edit" && window.Chat) {
-      Chat.compose(`Edit my custom indicator ${def ? `"${def.title}" ` : ""}(${cid}): `);
+    if (action === "open") {
+      if (typeof CodeView !== "undefined") CodeView.open(cid);
       return;
     }
-    if (action === "source" && def) {
-      if (!ind.isActive(cid)) { status(`add ${def.short || def.title} to the chart to open its settings`); return; }
-      IndSettings.open(ind, cid, { subtitle: `${ind.symbol} · ${ind.interval}`, tab: "source",
-        onChange: () => { renderIndMenu(); document.dispatchEvent(new CustomEvent("charto:indicators-changed")); } });
+    if (action === "edit" && window.Chat) {
+      Chat.compose(`Edit my custom indicator ${def ? `"${def.title}" ` : ""}(${cid}): `);
       return;
     }
     if (action === "add" && def && !ind.isActive(cid)) {

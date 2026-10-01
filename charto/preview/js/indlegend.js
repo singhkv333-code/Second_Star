@@ -256,7 +256,7 @@ const IndLegend = (() => {
             `<div class="item" data-do="cxedit"><span class="lead">` +
               `${Icons.svg("pen", "sm")}Edit with AI…</span></div>` +
             `<div class="item" data-do="cxsource"><span class="lead">` +
-              `${Icons.svg("fileText", "sm")}Source and tests…</span></div>`
+              `${Icons.svg("code", "sm")}View code</span></div>`
           : "") +
         `<div class="sep"></div>` +
         `<div class="item danger" data-do="rm"><span class="lead">` +
@@ -306,7 +306,7 @@ const IndLegend = (() => {
       if (what === "rm") { mgr.remove(id); notify(); return; }
       if (what === "cxedit" || what === "cxsource") {
         document.dispatchEvent(new CustomEvent("charto:custom-indicator",
-          { detail: { action: what === "cxedit" ? "edit" : "source", id } }));
+          { detail: { action: what === "cxedit" ? "edit" : "open", id } }));
         return;
       }
       if (what === "reset") {

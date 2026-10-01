@@ -10795,34 +10795,18 @@ def _cx_scene(rec: dict, interval: str = "") -> None:
 
 
 def _cx_card(result: dict, chart: dict) -> dict:
-    """The panel printed beside the reply. Everything on it is the build's own
-    record — the validator's checks, the cited sources, the formula as
-    stored — so the card and the chart cannot describe different studies."""
+    """The file row printed beside the reply. Its Open shows the stored record
+    (code, checks, sources) in the sidebar, so the thread carries only what
+    was built and whether it passed."""
     rec = result.get("record") or {}
     spec = rec.get("spec") or result.get("spec") or {}
     report = result.get("report") or rec.get("report") or {}
-    return {"kind": "custom_indicator",
-            "ok": bool(result.get("ok")),
-            "id": result.get("id") or rec.get("id"),
-            "version": rec.get("version"),
+    return {"kind": "custom_indicator", "ok": bool(result.get("ok")),
+            "id": result.get("id") or rec.get("id"), "version": rec.get("version"),
             "title": spec.get("title") or result.get("title") or "Custom indicator",
-            "short": spec.get("short"),
             "classification": spec.get("classification"),
-            "standard_name": spec.get("standard_name"),
-            "description": spec.get("description"),
-            "formula": spec.get("formula"),
-            "assumptions": spec.get("assumptions") or [],
-            "pane": spec.get("pane"),
-            "lines": [ln.get("label") or ln.get("key") for ln in spec.get("lines") or []],
-            "inputs": [{"label": f.get("label"), "default": f.get("default")}
-                       for f in spec.get("inputs") or []],
-            "sources": spec.get("sources") or [],
-            "checks": report.get("checks") or [],
-            "datasets": [d for d in report.get("datasets") or [] if d.get("used")],
-            "summary": report.get("summary"),
-            "attempts": result.get("attempts") or report.get("attempts"),
+            "checks": [{"status": c.get("status")} for c in report.get("checks") or []],
             "kept_previous": bool(result.get("kept_previous")),
-            "elapsed_s": result.get("elapsed_s"),
             "symbol": chart.get("symbol"), "interval": chart.get("interval")}
 
 
@@ -10890,9 +10874,9 @@ def _cx_build_events(request: str = "", id: str = ""):  # noqa: A002 — the mod
             "_note": ("Validation FAILED after every repair attempt, so NOTHING was added to "
                       "the chart" + (" — the previously validated version stays on it"
                                      if result.get("kept_previous") else "")
-                      + ". The card beside your reply lists the failing checks. Say which "
-                      "check failed in plain words and offer to adjust the request; never "
-                      "describe the indicator as working or drawn.")}}
+                      + ". Say in one or two sentences which check failed, in plain words, "
+                      "and offer to adjust the request; never describe the indicator as "
+                      "working or drawn. A file card beside your reply opens its code.")}}
         return
     rec = result["record"]
     _cx_scene(rec, chart["interval"])
@@ -10919,9 +10903,9 @@ def _cx_build_events(request: str = "", id: str = ""):  # noqa: A002 — the mod
         }[spec["classification"]],
         "reference_check": next((f"{c['status']}: {c['label']}" for c in rep["checks"]
                                  if c["id"] == "reference"), "none available"),
-        "_note": ("Built, validated and added to the chart; a card with the checks and "
-                  "sources is printed beside your reply, so do not repeat them as a list. "
-                  "In 2-4 sentences: say what it plots, describe it in the words of "
+        "_note": ("Built, validated and added to the chart; a file card beside your reply "
+                  "opens its code, checks and sources, so do not list them. "
+                  "In 2-3 short sentences: say what it plots, describe it in the words of "
                   "`describe_as` (do not upgrade or downgrade that), say whether it was "
                   "confirmed against an independent implementation per `reference_check` "
                   "(a 'warn' there means it was NOT confirmed — say so plainly), name any "
@@ -11883,7 +11867,9 @@ TOOLS = [
          "several symbols and timeframes, and against a reference implementation where one "
          "exists), repairs it until it passes, then adds it to the chart. It takes 20-60 s and "
          "shows its own progress. Nothing that fails validation is drawn. Use build for 'make/"
-         "create/code me an indicator', a named indicator NOT in get_indicator's list (Squeeze "
+         "create/code me an indicator' — however loosely worded, including blends across "
+         "several lookbacks or timeframes of this chart's bars; the builder scopes it, so "
+         "never say an indicator cannot be made without calling build first — a named indicator NOT in get_indicator's list (Squeeze "
          "Momentum, WaveTrend, Schaff, QQE, Coppock, Elder Ray…), or a variant of a native one "
          "('RSI of volume', 'Bollinger on hl2 with a 1.5 sd inner band'). A plain native study "
          "with different settings is get_indicator, not this. "

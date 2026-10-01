@@ -4515,40 +4515,69 @@ body.two-columns .readout .row { display: none; }
 .scan .scan-read .nm a { color: inherit; text-decoration: underline;
                          text-decoration-color: var(--border); }
 
-/* The settings dialog's Source tab (custom indicators only): the build
-   record printed whole — type, formula, checks, sources, code. */
-.cx-src { grid-column: 1 / -1; max-width: 420px; font-size: var(--text-sm);
-          color: var(--muted-foreground); }
-.cx-field { margin: 0 0 10px; line-height: 1.55; color: var(--foreground); font-size: var(--text-sm); }
-.cx-field span { display: block; font-size: var(--text-3xs); color: var(--faint);
-                 text-transform: uppercase; letter-spacing: .02em; margin-bottom: 2px; }
-.cx-src h5 { margin: 14px 0 6px; font-size: var(--text-3xs); font-weight: 500;
-             color: var(--faint); text-transform: uppercase; letter-spacing: .02em; }
-.cx-src h5 em { font-style: normal; text-transform: none; margin-left: 6px; }
-.cx-desc, .cx-prompt { margin: 10px 0 0; line-height: 1.55; }
-.cx-prompt { font-size: var(--text-xs); color: var(--faint); }
-.cx-list { margin: 0; padding-left: 16px; line-height: 1.55; font-size: var(--text-xs); }
-.cx-list a { color: var(--foreground); }
-.cx-checks { display: flex; flex-direction: column; gap: 4px; }
-.cx-check { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px;
-            font-size: var(--text-xs); line-height: 1.45; }
-.cx-check b { font-weight: 500; color: var(--foreground); }
-.cx-check i { font-style: normal; font-variant: small-caps; color: var(--faint); }
-.cx-check.is-pass i { color: var(--up); }
-.cx-check.is-fail i, .cx-check.is-fail b { color: var(--down); }
-.cx-check span { grid-column: 1 / -1; color: var(--faint); overflow-wrap: anywhere; }
-.cx-chips { display: flex; flex-wrap: wrap; gap: 4px; }
-.cx-chip { padding: 2px 7px; border: 1px solid var(--border-soft);
-           border-radius: var(--radius-sm); font-size: var(--text-2xs);
-           font-variant-numeric: tabular-nums; }
-.cx-code-wrap { margin-top: 12px; }
-.cx-code-wrap > summary { cursor: pointer; font-size: var(--text-xs); color: var(--foreground); }
-.cx-code { margin: 6px 0 0; padding: 10px; max-height: 260px; overflow: auto;
-           background: var(--card); border: 1px solid var(--border-soft);
-           border-radius: var(--radius-sm); font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
-           color: var(--foreground); white-space: pre; }
-.cx-actions { display: flex; gap: 8px; margin-top: 14px; }
-.cx-actions .cx-danger { color: var(--down); }
+/* A custom indicator in the thread: one file row (cards.js customIndicator). */
+.cx-file-card { margin: 10px 0; }
+.cx-file {
+  width: 100%; display: flex; align-items: center; gap: 12px; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--card);
+  color: var(--foreground); font: inherit; text-align: left; cursor: pointer;
+  transition: border-color var(--dur) var(--ease-quartr);
+}
+.cx-file:hover:not(:disabled) { border-color: var(--muted-foreground); }
+.cx-file:disabled { cursor: default; }
+.cx-file-icon { flex: none; width: 38px; height: 38px; border-radius: var(--radius-sm);
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--rail); color: var(--foreground); }
+.cx-file-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.cx-file-main b { font-weight: var(--weight-semi); font-size: var(--text-sm);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cx-file-main span { font-size: var(--text-xs); color: var(--muted-foreground);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cx-file-main span.bad { color: var(--down); }
+.cx-file-open { flex: none; padding: 5px 12px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); font-size: var(--text-xs); font-weight: var(--weight-medium); }
+
+/* The sidebar's tabs once a file is open (codeview.js): Chat, then files. */
+.cv-tabs { flex: none; display: flex; gap: 2px; padding: 6px 12px 0; overflow-x: auto;
+  border-bottom: 1px solid var(--border-soft); background: var(--background); }
+.cv-tabs[hidden] { display: none; }
+.cv-tab { display: inline-flex; align-items: center; gap: 6px; max-width: 220px;
+  padding: 6px 10px; border: 0; border-bottom: 2px solid transparent; background: none;
+  color: var(--muted-foreground); font: inherit; font-size: var(--text-xs); cursor: pointer;
+  white-space: nowrap; }
+.cv-tab span { overflow: hidden; text-overflow: ellipsis; }
+.cv-tab.on { color: var(--foreground); border-bottom-color: var(--foreground); }
+.cv-tab i { display: inline-flex; opacity: .5; border-radius: 3px; }
+.cv-tab i:hover { opacity: 1; background: var(--rail); }
+.cv-view { flex: 1; min-height: 0; overflow: auto; padding: 10px 12px 12px;
+  display: flex; flex-direction: column; gap: 10px; }
+.cv-view[hidden], .chatpanel .chat-actions[hidden], .chatpanel .thread[hidden] { display: none; }
+.cv-head { display: flex; align-items: center; gap: 8px; }
+.cv-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.cv-title b { font-size: var(--text-sm); font-weight: var(--weight-semi); }
+.cv-title span { font-size: var(--text-2xs); color: var(--muted-foreground); }
+.cv-title em { font-style: normal; color: var(--up); }
+.cv-title em.bad { color: var(--down); }
+.cv-acts { display: flex; gap: 2px; }
+.cv-acts .cv-danger { width: auto; min-width: 30px; font-size: var(--text-2xs); color: var(--down); }
+.cv-acts .is-done { color: var(--up); }
+.cv-code { margin: 0; padding: 10px 0; overflow: auto; counter-reset: ln;
+  background: var(--card); border: 1px solid var(--border-soft); border-radius: var(--radius-sm);
+  font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--foreground); }
+.cv-line { display: block; padding: 0 12px 0 0; white-space: pre; }
+.cv-line::before { counter-increment: ln; content: counter(ln); display: inline-block;
+  width: 34px; margin-right: 12px; text-align: right; color: var(--faint); user-select: none; }
+.cv-c { color: var(--faint); font-style: italic; }
+.cv-s { color: var(--up); }
+.cv-n { color: var(--s3, #e39b3b); }
+.cv-k { color: var(--s2, #2962ff); font-weight: 600; }
+.cv-f { color: var(--s6, #9c27b0); }
+.cv-more > summary { cursor: pointer; font-size: var(--text-xs); color: var(--muted-foreground); }
+.cv-checks, .cv-srcs { margin: 6px 0 0; padding-left: 16px; font-size: var(--text-xs); line-height: 1.55; }
+.cv-checks li.is-fail b { color: var(--down); }
+.cv-checks li span { display: block; color: var(--faint); overflow-wrap: anywhere; }
+.cv-srcs a { color: var(--foreground); }
+.cv-empty { color: var(--muted-foreground); font-size: var(--text-sm); }
 
 /* What was scanned, on the card's own bottom margin. Every panel in this app
    says where its numbers came from; this one has a whole window to name. */
@@ -8880,7 +8909,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/store.js?v=17"></script>
   <script src="./js/theme.js?v=10"></script>
   <script src="./js/universe.js?v=8"></script>
-  <script src="./js/icons.js?v=31"></script>
+  <script src="./js/icons.js?v=32"></script>
   <!-- after icons.js (every row is drawn with one) and before main.js, which
        builds the chart's three right-click menus out of it -->
   <script src="./js/ctxmenu.js?v=8"></script>
@@ -8897,11 +8926,11 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- before both legends: each asks it whether the series runs behind a row
        or a chip, which is what puts the plate there -->
   <script src="./js/occlusion.js?v=1"></script>
-  <script src="./js/indlegend.js?v=3"></script>
+  <script src="./js/indlegend.js?v=4"></script>
   <!-- before either dialog: both are built out of its colour picker, its
        dressed selects and its card positioning -->
   <script src="./js/dlgkit.js?v=2"></script>
-  <script src="./js/indsettings.js?v=19"></script>
+  <script src="./js/indsettings.js?v=20"></script>
   <!-- after dlgkit.js (its sheet is a .dlg card, positioned and dragged by
        the kit) and before main.js, which registers what every row of its
        catalogue MEANS the moment it boots -->
@@ -8914,7 +8943,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/drawings.js?v=35"></script>
   <script src="./js/scene.js?v=49"></script>
   <script src="./js/panes.js?v=21"></script>
-  <script src="./js/main.js?v=149"></script>
+  <script src="./js/main.js?v=151"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=11"></script>
@@ -8925,9 +8954,10 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- before chat.js, which asks it to render the panels a tool prints as the
        reply streams in. It reads Sym (store.js) for the instrument's currency
        and grouping, and nothing else — a renderer with no state of its own -->
-  <script src="./js/cards.js?v=57"></script>
+  <script src="./js/cards.js?v=58"></script>
   <script src="./js/layers-panel.js?v=11"></script>
   <script src="./js/chat.js?v=175"></script>
+  <script src="./js/codeview.js?v=1"></script>
   <script src="./js/journal.js?v=6"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it
