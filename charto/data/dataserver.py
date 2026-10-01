@@ -10730,6 +10730,371 @@ def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
     return out
 
 
+# ── custom indicators: AI-built, sandboxed, validated ─────────────
+# The machinery lives in three modules — indicator_builder (the agent),
+# custom_indicators (spec, validator, store) and indicator_sandbox (the only
+# place generated code ever runs). What is here is the seam: who is asking,
+# which bars to test on, and handing a passed study to the chart through the
+# same scene item a native indicator uses. The chart draws it with the native
+# legend, settings dialog, panes and colours — there is no second renderer.
+
+# Instruments that make the validator's real-data runs DIFFERENT from the
+# chart's own: a no-volume index, a 24/7 UTC-clocked crypto pair, a liquid
+# equity. The first two that exist here and are not the chart itself are used.
+_CX_CONTRAST = ("NIFTY 50", "BTCUSDT", "HDFCBANK", "TCS", "INFY")
+
+
+def _cx_bars_provider(symbol: str, interval: str):
+    """[(label, rows, interval, tz_offset)] — the real series a draft is
+    tested on: the chart itself, its daily, and two contrasting instruments."""
+    def tz(sym):
+        return session_for(sym)[1]
+
+    def load(sym, iv, n):
+        try:
+            if sym != _sym() and not _symbol_ready(sym):
+                return []
+            return _rows_for(sym, iv, n)
+        except Exception:  # noqa: BLE001 — missing coverage is reported, not fatal
+            return []
+    iv = interval if interval in INTRADAY_MIN or interval in ("1d", "1w", "1mo") else "1d"
+    out = [(f"{symbol} {iv}", load(symbol, iv, 1500), iv, tz(symbol))]
+    if iv != "1d":
+        out.append((f"{symbol} 1d", load(symbol, "1d", 1000), "1d", tz(symbol)))
+    picked = 0
+    for s in _CX_CONTRAST:
+        if s == symbol or picked >= 2:
+            continue
+        rows = load(s, "1h" if s == "BTCUSDT" else "1d", 1000)
+        if len(rows) >= 30:
+            out.append((f"{s} {'1h' if s == 'BTCUSDT' else '1d'}", rows,
+                        "1h" if s == "BTCUSDT" else "1d", tz(s)))
+            picked += 1
+    return out
+
+
+def _cx_llm(payload: dict) -> dict:
+    """One Responses call for the builder — the same endpoint, model and retry
+    policy as the chat itself, with a longer timeout: a code draft is a few
+    thousand tokens of reasoning."""
+    payload = {**payload, "service_tier": LLM_SERVICE_TIER}
+    req = urllib.request.Request(
+        f"{AZURE_ENDPOINT}/responses", data=json.dumps(payload).encode(),
+        headers={"api-key": AZURE_KEY, "Content-Type": "application/json"},
+        method="POST")
+    with _urlopen_with_retry(req, timeout=240, context=_ssl_ctx()) as r:
+        return json.loads(r.read())
+
+
+def _cx_scene(rec: dict, interval: str = "") -> None:
+    """Put a validated study on the chart: the catalogue entry rides along, so
+    a chart that has never seen this id can draw it without a refetch."""
+    _scene_add({"kind": "indicator", "name": rec["id"], "period": 0,
+                "def": _ci.catalog_entry(rec),
+                "source": {"tool": "custom_indicator", "interval": interval}})
+
+
+def _cx_card(result: dict, chart: dict) -> dict:
+    """The panel printed beside the reply. Everything on it is the build's own
+    record — the validator's checks, the cited sources, the formula as
+    stored — so the card and the chart cannot describe different studies."""
+    rec = result.get("record") or {}
+    spec = rec.get("spec") or result.get("spec") or {}
+    report = result.get("report") or rec.get("report") or {}
+    return {"kind": "custom_indicator",
+            "ok": bool(result.get("ok")),
+            "id": result.get("id") or rec.get("id"),
+            "version": rec.get("version"),
+            "title": spec.get("title") or result.get("title") or "Custom indicator",
+            "short": spec.get("short"),
+            "classification": spec.get("classification"),
+            "standard_name": spec.get("standard_name"),
+            "description": spec.get("description"),
+            "formula": spec.get("formula"),
+            "assumptions": spec.get("assumptions") or [],
+            "pane": spec.get("pane"),
+            "lines": [ln.get("label") or ln.get("key") for ln in spec.get("lines") or []],
+            "inputs": [{"label": f.get("label"), "default": f.get("default")}
+                       for f in spec.get("inputs") or []],
+            "sources": spec.get("sources") or [],
+            "checks": report.get("checks") or [],
+            "datasets": [d for d in report.get("datasets") or [] if d.get("used")],
+            "summary": report.get("summary"),
+            "attempts": result.get("attempts") or report.get("attempts"),
+            "kept_previous": bool(result.get("kept_previous")),
+            "elapsed_s": result.get("elapsed_s"),
+            "symbol": chart.get("symbol"), "interval": chart.get("interval")}
+
+
+def _cx_build_events(request: str = "", id: str = ""):  # noqa: A002 — the model's own word
+    """build/edit as a generator of progress events, ending in the tool result.
+    The chat stream forwards the progress; the plain path just drains it."""
+    who = getattr(_req, "user", None)
+    if _ci is None or _ib is None:
+        yield {"type": "final", "result": {"error": "custom indicators are not loaded on this server"}}
+        return
+    if not who:
+        yield {"type": "final", "result": {
+            "error": "sign in to build custom indicators",
+            "_note": "Building stores the indicator on the user's account, so it needs a "
+                     "signed-in user. Say so in one line; nothing was built."}}
+        return
+    if not AZURE_ENDPOINT or not AZURE_KEY:
+        yield {"type": "final", "result": {"error": _creds_error()}}
+        return
+    edit = None
+    if id:
+        edit = _ci.get(id, who[0])
+        if not edit:
+            yield {"type": "final", "result": {
+                "error": f"no custom indicator '{id}' on this account",
+                "_note": "Call custom_indicator(action='list') for the ids that exist."}}
+            return
+    chart = {"symbol": _sym(),
+             "interval": getattr(_req, "ctx_interval", "") or "1d"}
+    result = None
+    for ev in _ib.build(request, llm=_cx_llm, model=_model(),
+                        bars_provider=lambda: _cx_bars_provider(chart["symbol"], chart["interval"]),
+                        chart=chart, uid=who[0], edit=edit):
+        if ev["type"] == "final":
+            result = ev["result"]
+            break
+        yield ev
+    result = result or {"ok": False, "error": "the build stopped without a result"}
+    if result.get("native"):
+        yield {"type": "final", "result": {
+            "native_equivalent": result["native"], "built": False,
+            "_note": (f"{result['reason']} Call get_indicator(name='{result['native']}', "
+                      f"draw=true) — nothing custom was generated.")}}
+        return
+    if result.get("declined"):
+        yield {"type": "final", "result": {
+            "built": False, "declined": result["reason"],
+            "_note": "Say in one line why this is not something a chart indicator can "
+                     "compute from price and volume, and name the nearest thing that is."}}
+        return
+    if result.get("error"):
+        yield {"type": "final", "result": {
+            "built": False, "error": result["error"],
+            "_note": "The build failed before validation. Say so plainly; do not describe "
+                     "an indicator as added."}}
+        return
+    _card_add(_cx_card(result, chart))
+    if not result.get("ok"):
+        fails = [f"{c['label']}: {c['detail']}" for c in result["report"]["checks"]
+                 if c["status"] == "fail" and c["blocking"]]
+        yield {"type": "final", "result": {
+            "built": False, "id": result.get("id"), "title": result.get("title"),
+            "failed_checks": fails, "attempts": result.get("attempts"),
+            "kept_previous_version": result.get("kept_previous", False),
+            "_note": ("Validation FAILED after every repair attempt, so NOTHING was added to "
+                      "the chart" + (" — the previously validated version stays on it"
+                                     if result.get("kept_previous") else "")
+                      + ". The card beside your reply lists the failing checks. Say which "
+                      "check failed in plain words and offer to adjust the request; never "
+                      "describe the indicator as working or drawn.")}}
+        return
+    rec = result["record"]
+    _cx_scene(rec, chart["interval"])
+    spec = rec["spec"]
+    rep = result["report"]
+    yield {"type": "final", "result": {
+        "built": True, "id": rec["id"], "version": rec["version"],
+        "title": spec["title"], "classification": spec["classification"],
+        "standard_name": spec.get("standard_name"), "formula": spec["formula"],
+        "assumptions": spec.get("assumptions"), "pane": spec["pane"],
+        "lines": [ln["key"] for ln in spec["lines"]],
+        "inputs": {f["key"]: f["default"] for f in spec.get("inputs") or []},
+        "validation": rep["summary"],
+        "reference": next((c["label"] + " — " + c["detail"] for c in rep["checks"]
+                           if c["id"] == "reference"), None),
+        "sources": [s["url"] for s in spec.get("sources") or []][:6],
+        "attempts": result.get("attempts"), "elapsed_s": result.get("elapsed_s"),
+        "drawn": True,
+        "describe_as": {
+            "standard": f"an implementation of the published {spec.get('standard_name') or spec['title']}",
+            "variant": f"a variant of {spec.get('standard_name') or 'a standard indicator'} — "
+                       "not the indicator as published",
+            "custom": "a custom method built to your description — not an established indicator",
+        }[spec["classification"]],
+        "reference_check": next((f"{c['status']}: {c['label']}" for c in rep["checks"]
+                                 if c["id"] == "reference"), "none available"),
+        "_note": ("Built, validated and added to the chart; a card with the checks and "
+                  "sources is printed beside your reply, so do not repeat them as a list. "
+                  "In 2-4 sentences: say what it plots, describe it in the words of "
+                  "`describe_as` (do not upgrade or downgrade that), say whether it was "
+                  "confirmed against an independent implementation per `reference_check` "
+                  "(a 'warn' there means it was NOT confirmed — say so plainly), name any "
+                  "assumption the user should know, and mention that its inputs are in the "
+                  "indicator's settings like any other study. Do not quote values; call "
+                  "custom_indicator(action='read') if the user asks for a reading.")}}
+
+
+def tool_custom_indicator(action: str, request: str = "", id: str = "",  # noqa: A002
+                          interval: str = "", series_points: int = 0) -> dict:
+    """The plain (non-streaming) path, and every action that is not a build."""
+    action = (action or "").lower()
+    if action in ("build", "edit"):
+        if action == "edit" and not id:
+            return {"error": "edit needs the id of the custom indicator (cx_…)"}
+        if not request.strip():
+            return {"error": "describe the indicator (or the change) in `request`"}
+        out = None
+        for ev in _cx_build_events(request, id if action == "edit" else ""):
+            if ev["type"] == "final":
+                out = ev["result"]
+        return out or {"error": "the build produced no result"}
+    who = getattr(_req, "user", None)
+    if _ci is None:
+        return {"error": "custom indicators are not loaded on this server"}
+    if not who:
+        return {"error": "sign in to use custom indicators"}
+    if action == "list":
+        recs = _ci.list_for(who[0], include_failed=True)
+        return {"custom_indicators": [
+            {"id": r["id"], "title": r["spec"].get("title"), "version": r["version"],
+             "status": r["status"], "classification": r["spec"].get("classification"),
+             "pane": r["spec"].get("pane"), "validation": r["report"].get("summary")}
+            for r in recs],
+            "_note": "Only status 'validated' ones can be drawn."}
+    rec = _ci.get(id, who[0]) if id else None
+    if not rec:
+        return {"error": f"no custom indicator '{id}' on this account",
+                "_note": "Call custom_indicator(action='list') for the ids that exist."}
+    if action == "remove":
+        _scene_add({"kind": "indicator_remove", "name": rec["id"], "period": 0})
+        return {"removed": rec["id"], "title": rec["spec"]["title"],
+                "_note": "Taken off the chart; it stays saved on the account."}
+    if action == "delete":
+        _scene_add({"kind": "indicator_remove", "name": rec["id"], "period": 0})
+        _ci.delete(who[0], rec["id"])
+        return {"deleted": rec["id"], "title": rec["spec"]["title"]}
+    if rec["status"] != "validated":
+        return {"error": f"{rec['spec'].get('title')} has not passed validation",
+                "failed": rec["report"].get("summary"),
+                "_note": "It cannot be drawn or read. Offer to edit it instead."}
+    iv = interval or getattr(_req, "ctx_interval", "") or "1d"
+    if action == "add":
+        _cx_scene(rec, iv)
+        return {"drawn": True, "id": rec["id"], "title": rec["spec"]["title"]}
+    if action == "read":
+        rows = _rows(iv, 1500)
+        if not rows:
+            return {"error": f"no bars for interval {iv}"}
+        try:
+            res = _ci.compute_for(rec, rows, {}, interval=iv,
+                                  tz_offset=session_for(_sym())[1])
+        except ValueError as exc:
+            return {"error": str(exc)}
+        wt = iv not in ("1d", "1w", "1mo")
+        out = {"indicator": rec["id"], "title": rec["spec"]["title"],
+               "classification": rec["spec"]["classification"],
+               "value": res["last"], "as_of": _ist(rows[-1][0], wt),
+               "formula": rec["spec"]["formula"], "spec": res["spec"]}
+        k = max(0, min(int(series_points or 0), 240))
+        if k:
+            idx = range(max(0, len(rows) - k), len(rows))
+            out["series"] = {"t": [_ist(rows[i][0], wt) for i in idx],
+                             **{ln: [None if v[i] is None else round(v[i], 4) for i in idx]
+                                for ln, v in res["lines"].items()}}
+        if res.get("nonfinite"):
+            out["_nonfinite_note"] = (f"{res['nonfinite']} values were not finite on these bars "
+                                      "and are shown as gaps — say so if it matters.")
+        return out
+    return {"error": f"unknown action '{action}'",
+            "available": ["build", "edit", "list", "read", "add", "remove", "delete"]}
+
+
+def _cx_catalog(headers) -> list[dict]:
+    """The signed-in user's validated studies, in the /indicators shape."""
+    if _ci is None or not headers.get("Authorization"):
+        return []
+    me = _auth_user(headers)
+    return [_ci.catalog_entry(r) for r in _ci.list_for(me[0])] if me else []
+
+
+def _cx_series(q: dict, headers) -> tuple[int, dict]:
+    """/indicator for a cx_ id: the same reply shape as a native study, from
+    the sandbox. Owner-only — the code is the user's, and so is the study."""
+    me = _auth_user(headers) if headers.get("Authorization") else None
+    if not me:
+        return 401, {"error": "sign in to draw your custom indicators"}
+    rec = _ci.get(q.get("name", ""), me[0])
+    if not rec:
+        return 404, {"error": f"no custom indicator {q.get('name')}"}
+    interval = q.get("interval", "1d")
+    try:
+        limit = min(int(q.get("limit", 3000)), 20000)
+    except ValueError:
+        return 400, {"error": "bad limit"}
+    if interval in INTRADAY_MIN:
+        depth = _ent.value(me[0], "chart.history_bars")
+        if depth is not None:
+            limit = min(limit, depth)
+    rows = _rows(interval, limit)
+    if not rows:
+        return 400, {"error": "no bars"}
+    raw = {f["key"]: q[f["key"]] for f in rec["spec"].get("inputs") or []
+           if q.get(f["key"]) not in (None, "")}
+    try:
+        res = _ci.compute_for(rec, rows, raw, interval=interval,
+                              tz_offset=int(q.get("tz_offset") or 0))
+    except ValueError as exc:
+        return 400, {"error": str(exc)}
+
+    def pts(series):
+        # leading nulls dropped, interior nulls kept as whitespace points —
+        # the same gap rule the native path follows
+        first = next((i for i, v in enumerate(series) if v is not None), None)
+        if first is None:
+            return []
+        return [{"time": rows[i][0]} if v is None else {"time": rows[i][0], "value": round(v, 6)}
+                for i, v in enumerate(series[first:], start=first)]
+    out = {"name": rec["id"], "spec": res["spec"],
+           "lines": {ln: pts(v) for ln, v in res["lines"].items()}}
+    if res.get("nonfinite"):
+        out["warning"] = f"{res['nonfinite']} values were not finite and are drawn as gaps"
+    return 200, out
+
+
+def _cx_get_route(path: str, headers) -> tuple[int, dict]:
+    """GET /custom_indicators — the account's studies, failed ones included;
+    GET /custom_indicators/<id> — one study whole: spec, code, the validation
+    report and the version history, for the Source & tests dialog."""
+    if _ci is None:
+        return 501, {"error": "custom indicators are unavailable"}
+    me = _auth_user(headers) if headers.get("Authorization") else None
+    if not me:
+        return 401, {"error": "sign in to see your custom indicators"}
+    tail = path[len("/custom_indicators"):].strip("/")
+    if not tail:
+        return 200, {"custom_indicators": [
+            {"id": r["id"], "title": r["spec"].get("title"), "short": r["spec"].get("short"),
+             "classification": r["spec"].get("classification"), "status": r["status"],
+             "version": r["version"], "summary": r["report"].get("summary"),
+             "updated": r["updated"],
+             **({"def": _ci.catalog_entry(r)} if r["status"] == "validated" else {})}
+            for r in _ci.list_for(me[0], include_failed=True)]}
+    rec = _ci.get(tail, me[0])
+    if not rec:
+        return 404, {"error": f"no custom indicator '{tail}'"}
+    return 200, {**{k: rec[k] for k in ("id", "version", "status", "prompt", "spec", "code",
+                                        "report", "created", "updated")},
+                 "history": [{k: h.get(k) for k in ("version", "status", "prompt", "summary", "at")}
+                             for h in rec["history"]],
+                 **({"def": _ci.catalog_entry(rec)} if rec["status"] == "validated" else {})}
+
+
+# Tools whose work is long enough that the stream shows its stages: the
+# name → a generator of {"type": "progress"|"final"} events.
+_STREAMING_TOOLS = {
+    "custom_indicator": lambda action="", request="", id="", **_: (  # noqa: A002
+        _cx_build_events(request, id if action == "edit" else "")
+        if action in ("build", "edit") and request.strip()
+        and (action == "build" or id) else None),
+}
+
+
 def _execution_system() -> str:
     """The execution-mode system contract, from Pivot's own prompt modules.
 
@@ -11508,6 +11873,34 @@ TOOLS = [
          "remove": {"type": "boolean", "description": "remove this indicator AND its pane from the chart — period targets one variant, omitted removes every variant of the name"},
          "clear_marks": {"type": "boolean", "description": "remove only the marks previously added ON this indicator (reference lines, dots, connections) while keeping the indicator itself — use this, not remove, when the user wants the lines gone but the indicator kept"}},
          "required": ["name", "interval"]}},
+    {"type": "function", "name": "custom_indicator",
+     "description": (
+         "Build, edit, read and manage the user's OWN indicators — ones the native catalogue "
+         "(get_indicator) does not have. action='build' with `request` = the user's description "
+         "in their words (plus any detail from the conversation): an agent researches the "
+         "definition on the web when it is a published indicator, writes it, tests it in a "
+         "sandbox (no look-ahead, no NaN, every input across its range, flat/short/gapped data, "
+         "several symbols and timeframes, and against a reference implementation where one "
+         "exists), repairs it until it passes, then adds it to the chart. It takes 20-60 s and "
+         "shows its own progress. Nothing that fails validation is drawn. Use build for 'make/"
+         "create/code me an indicator', a named indicator NOT in get_indicator's list (Squeeze "
+         "Momentum, WaveTrend, Schaff, QQE, Coppock, Elder Ray…), or a variant of a native one "
+         "('RSI of volume', 'Bollinger on hl2 with a 1.5 sd inner band'). A plain native study "
+         "with different settings is get_indicator, not this. "
+         "action='edit' + id + request changes an existing one (new version, same id). "
+         "'read' returns its latest values (series_points for a tail) — never estimate them. "
+         "'list' shows the user's saved ones; 'add'/'remove' put one on or take it off the "
+         "chart; 'delete' erases it — only when the user explicitly asks. Custom indicator ids "
+         "look like cx_abcdefgh and appear in the chart context when one is on the chart."),
+     "parameters": {"type": "object", "properties": {
+         "action": {"type": "string",
+                    "enum": ["build", "edit", "list", "read", "add", "remove", "delete"]},
+         "request": {"type": "string", "description": "build/edit: the user's request in their own words, plus anything they specified earlier in the conversation. Do not add formulas, defaults or conventions of your own — the builder researches and verifies those."},
+         "id": {"type": "string", "description": "edit/read/add/remove/delete: the cx_… id"},
+         "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w", "1mo"],
+                      "description": "read/add: defaults to the chart's interval"},
+         "series_points": {"type": "integer", "description": "read: also return the last N values (max 240)"}},
+         "required": ["action"]}},
     {"type": "function", "name": "volume_profile",
      "description": "How much volume traded at each PRICE over a window, built from 1-minute bars: the point of control (most-traded price), the value area (where 70% of volume changed hands, with its high and low), high- and low-volume nodes, and the total. Use for 'volume profile', 'point of control', 'value area', 'where has most volume traded', 'which levels has price accepted or rejected', and for finding acceptance/imbalance zones. The row height is chosen FROM THE DATA — each bar's volume is spread uniformly across its high-low, so rows can never be finer than that smear; ask for fewer rows if you want it coarser, and a finer request will be reduced and reported. This is volume at price, the same construction TradingView uses. It is NOT order flow: delta, cumulative delta, footprint and bid/ask imbalance need the aggressor side of each trade and no Indian retail feed carries it — never present it as buying versus selling. Indices and India VIX print no volume and the tool will say so. THIS TOOL IS ONE SYMBOL AT A TIME. For a question about MANY instruments — 'all cryptos', 'which stocks', 'compare across the sector', 'who is above value' — do NOT say it cannot be done and do NOT loop this tool over a list you guessed: call screen_universe with the vp20_* features (optionally industry='cryptocurrency' or any other industry), which reads the same 20-session profiles for every scored instrument in one call and returns each one's POC and value area. Loop THIS tool only for a handful of symbols the user actually named.",
      "parameters": {"type": "object", "properties": {
@@ -11812,7 +12205,8 @@ _DISPATCH = {"get_levels": tool_get_levels, "get_bars": tool_get_bars,
              "get_flows": tool_get_flows,
              "get_deals": tool_get_deals,
              "recall_conversations": tool_recall_conversations,
-             "open_chart": tool_open_chart}
+             "open_chart": tool_open_chart,
+             "custom_indicator": tool_custom_indicator}
 
 # The watcher's three, added only when alerts.py is loaded. `user_id` is NOT a
 # tool parameter and never appears in the schema: it is read off the request's
@@ -13785,7 +14179,28 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
                 args = {}
             yield {"type": "tool_start", "name": call.get("name"),
                    "hint": _tool_hint(call.get("name", ""), args)}
-            result = run_tool(call.get("name", ""), args)
+            # A long tool streams its own stages. It runs on THIS thread — the
+            # request state is thread-local — and hands each stage up as it
+            # happens; the tool's ordinary result arrives as its last event.
+            streamer = _STREAMING_TOOLS.get(call.get("name", ""))
+            stages = streamer(**args) if streamer and isinstance(args, dict) else None
+            if stages is not None:
+                result = None
+                try:
+                    for sev in stages:
+                        if sev.get("type") == "final":
+                            result = sev["result"]
+                        else:
+                            yield {"type": "progress", "name": call.get("name"),
+                                   "stage": sev.get("stage"), "label": sev.get("label"),
+                                   "detail": sev.get("detail", ""),
+                                   **({"data": sev["data"]} if sev.get("data") else {})}
+                except Exception as exc:  # noqa: BLE001 — a failed tool must not kill the turn
+                    logging.exception("charto: streaming tool %s failed", call.get("name"))
+                    result = {"error": f"{call.get('name')} failed: {exc}"}
+                result = result or {"error": f"{call.get('name')} returned nothing"}
+            else:
+                result = run_tool(call.get("name", ""), args)
             scene_patch.extend(_scene_take())
             view_ops.extend(_view_take())
             fresh = _card_take()
@@ -13818,6 +14233,8 @@ def _tool_hint(name: str, args: dict) -> str:
     if name == "evaluate_strategies":
         n = len(args.get("candidates") or [])
         return f"{n} candidates" + (f" on {sym}" if sym else "")
+    if name == "custom_indicator":
+        return str(args.get("action") or "")
     return sym
 
 
@@ -14469,6 +14886,15 @@ try:
 except Exception as _journal_exc:  # noqa: BLE001
     logging.warning("charto journal unavailable: %s", _journal_exc)
     _journal = None
+
+# Custom indicators: their own table in this account database, their own
+# sandbox for the code they carry. Optional on the same terms as the journal.
+try:
+    import custom_indicators as _ci
+    import indicator_builder as _ib
+except Exception as _cx_exc:  # noqa: BLE001
+    logging.warning("charto custom indicators unavailable: %s", _cx_exc)
+    _ci = _ib = None
 
 # The paper book and the strategy runtime, loaded on the same terms and for the
 # same reason: they add foreign-keyed records to this account database, and a
@@ -16576,7 +17002,11 @@ class Handler(BaseHTTPRequestHandler):
                      # the knobs on screen are exactly the knobs the math has
                      "inputs": indicators.inputs(k),
                      **({"bounds": list(v["bounds"])} if "bounds" in v else {})}
-                    for k, v in sorted(indicators.SPECS.items())]})
+                    for k, v in sorted(indicators.SPECS.items())] + _cx_catalog(self.headers)})
+            if u.path == "/indicator" and _ci is not None and _ci.is_custom(q.get("name", "")):
+                return self._send(*_cx_series(q, self.headers))
+            if u.path == "/custom_indicators" or u.path.startswith("/custom_indicators/"):
+                return self._send(*_cx_get_route(u.path, self.headers))
             if u.path == "/indicator":
                 name = q.get("name", "")
                 if name not in indicators.SPECS:
@@ -17186,6 +17616,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(*_plans.api_delete(me[0], int(pid)))
             return self._send(404, {"error": f"no plan route '{tail}'"})
 
+        if u.path.startswith("/custom_indicators/") and u.path.endswith("/delete"):
+            me = _auth_user(self.headers)
+            if _ci is None:
+                return self._send(501, {"error": "custom indicators are unavailable"})
+            if not me:
+                return self._send(401, {"error": "sign in to manage custom indicators"})
+            cid = u.path[len("/custom_indicators/"):-len("/delete")].strip("/")
+            return self._send(*((200, {"deleted": cid}) if _ci.delete(me[0], cid)
+                                else (404, {"error": f"no custom indicator '{cid}'"})))
         if u.path == "/journal" or u.path.startswith("/journal/"):
             if _journal is None:
                 return self._send(501, {"error": "journal is unavailable"})

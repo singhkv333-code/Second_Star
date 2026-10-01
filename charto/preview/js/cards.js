@@ -2497,12 +2497,73 @@ const Cards = (() => {
     });
   }
 
+  // ── a custom indicator, as built ────────────────────────────────────
+  //
+  // The build's own record: what kind of indicator it honestly is, the
+  // formula as stored, every validation check with its result, the series it
+  // was tested on and the sources its research cited. A failed build prints
+  // the same panel with the failing checks first and says plainly that
+  // nothing was drawn — the panel never reads as success when there was none.
+  const CX_KIND = {
+    standard: ["Standard", "ok"], variant: ["Variant", ""], custom: ["Custom method", ""],
+  };
+  function customIndicator(c) {
+    const [kind, kcls] = CX_KIND[c.classification] || ["Custom", ""];
+    const checks = c.checks || [];
+    const passed = checks.filter((x) => x.status === "pass").length;
+    const order = { fail: 0, warn: 1, pass: 2, skip: 3 };
+    const rows = checks.slice().sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9))
+      .map((x) => `<div class="scan-read${x.status === "fail" ? " tone-down" : ""}">`
+        + `<b class="nm">${esc(x.label)}</b>`
+        + `<span class="nt">${esc(x.detail || "")}</span>`
+        + `<b class="num">${x.status === "pass" ? "Pass" : x.status === "fail" ? "Fail"
+                          : x.status === "warn" ? "Note" : "Skipped"}</b></div>`).join("");
+    const stats = [
+      stat("Type", kind, kcls === "ok" ? "" : "", c.standard_name && c.classification !== "custom"
+        ? c.standard_name : ""),
+      stat("Checks", `${passed}/${checks.length}`, c.ok ? "up" : "down",
+           c.attempts > 1 ? `${c.attempts} attempts` : ""),
+      stat("Plots", `${(c.lines || []).length}`, "", c.pane === "overlay" ? "on price" : "own pane"),
+      c.elapsed_s != null ? stat("Built in", `${Math.round(c.elapsed_s)}s`) : "",
+    ].filter(Boolean).join("");
+    const sets = (c.datasets || []).map((d) => `<i>${esc(d.label)}</i>`).join("");
+    const srcs = (c.sources || []).map((x) => `<div class="scan-read"><b class="nm">`
+      + `<a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">${esc(x.title || x.url)}</a>`
+      + `</b></div>`).join("");
+    const head = c.ok
+      ? ""
+      : callout(c.kept_previous
+          ? "This edit failed validation, so the chart keeps the previous version."
+          : "Failed validation — nothing was added to the chart.");
+    const acts = c.id ? `<div class="wf-cta wf-cta-solo"><div class="wf-ghosts">`
+      + (c.ok ? `<button class="wf-ghost" data-cx-act="source">${Icons.svg("fileText", "xs")}Source and tests</button>` : "")
+      + `<button class="wf-ghost" data-cx-act="edit">${Icons.svg("pen", "xs")}${c.ok ? "Edit" : "Try a change"}</button>`
+      + (c.ok ? `<button class="wf-ghost" data-cx-act="remove">${Icons.svg("x", "xs")}Remove from chart</button>` : "")
+      + `</div></div>` : "";
+    return head + `<div class="scan-stats">${stats}</div>`
+      + section(c.title || "Custom indicator", c.short || "",
+                `<p class="scan-prose">${esc(c.formula || c.description || "")}</p>`)
+      + section("Validation", c.summary || "", rows && `<div class="scan-reads">${rows}</div>`)
+      + section("Tested on", "", sets && `<div class="scan-read"><span class="nt">${sets}</span></div>`)
+      + section("Sources", "research citations", srcs && `<div class="scan-reads">${srcs}</div>`)
+      + acts
+      + foot(`${c.symbol || ""} · ${c.interval || ""}${c.version ? ` · v${c.version}` : ""}`);
+  }
+
+  function wireCustom(box, card) {
+    box.querySelectorAll("[data-cx-act]").forEach((b) => b.addEventListener("click", () => {
+      document.dispatchEvent(new CustomEvent("charto:custom-indicator",
+        { detail: { action: b.dataset.cxAct, id: card.id } }));
+    }));
+  }
+
   const RENDER = { patterns, trend, indicators, confirmation, timeframes,
                    compare, move, screen, workflow_draft: workflowDraft,
                    strategy_backtest: strategyBacktest,
                    option_strategy: optionStrategy,
                    option_chain: optionChain,
-                   quant_result: quantResult, plan };
+                   quant_result: quantResult, plan,
+                   custom_indicator: customIndicator };
 
   return {
     /** A card object → an element for the thread, or null when this build has
@@ -2554,6 +2615,7 @@ const Cards = (() => {
       if (box.querySelector("[data-screen-open]")) wireScreen(box, card);
       if (box.querySelector("[data-wf]")) wireDraft(box, card);
       if (box.querySelector("[data-plan]")) wirePlan(box, card);
+      if (box.querySelector("[data-cx-act]")) wireCustom(box, card);
       // The on-chart control belongs to whichever payload owns the TRADES. A
       // standalone backtest card is its own payload; a draft repainted with a
       // stored result has that read-out nested in its slot, and the payload

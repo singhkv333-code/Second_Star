@@ -666,6 +666,10 @@
     if (/volume_profile/.test(n)) return { word: "Building", detail: "the volume profile" };
     if (/evaluate/.test(n)) return { word: "Testing", detail: "the idea" };
     if (/plan_position/.test(n)) return { word: "Planning", detail: "the trade" };
+    if (/custom_indicator/.test(n)) {
+      const verb = { build: "Building", edit: "Editing", read: "Reading", list: "Listing" }[hint];
+      return { word: verb || "Updating", detail: "the custom indicator" };
+    }
     if (/indicator/.test(n)) return { word: "Computing", detail: "indicators" };
     if (/bars/.test(n)) return { word: "Reading", detail: "price history" };
     if (/news|explain_move/.test(n)) return { word: "Searching", detail: "news" };
@@ -791,6 +795,33 @@
         }
         if (host.hidden) { host.hidden = false; run(); }
         push(toolStep(name, hint));
+      },
+      /** A long tool's own stage — the indicator builder's understanding →
+       *  researching → coding → testing → rendering. The phrase is the stage;
+       *  the line under it is that stage's RESULT when it has one (the
+       *  sources a search found, the checks a test run passed), so the wait
+       *  shows what was found, not a narration of the model's thinking. */
+      progress(label, detail, data) {
+        real = true;
+        if (host.hidden) { host.hidden = false; run(); }
+        push({ word: label || "Working", detail: detail || "" });
+        const d = data || {};
+        const out = [];
+        if (d.summary) out.push(d.summary);
+        if (Array.isArray(d.sources) && d.sources.length) {
+          out.push("Sources: " + d.sources.map((x) => x.title || x.url).join(" · "));
+        }
+        if (Array.isArray(d.checks) && d.checks.length) {
+          const bad = d.checks.filter((c) => c.status === "fail").map((c) => c.id);
+          const ok = d.checks.filter((c) => c.status === "pass").length;
+          out.push(`${ok} of ${d.checks.length} checks passed`
+            + (bad.length ? ` · failing: ${bad.join(", ")}` : ""));
+        }
+        if (out.length) {
+          note.textContent = out.join("\n");
+          note.hidden = false;
+        }
+        if (atBottom()) toBottom();
       },
       /** The model's reasoning summary, streamed. A new part opens a new
        *  titled step; its text grows under that step until the next one. */
@@ -1046,6 +1077,8 @@
           if (turn.__wait) turn.__wait.tool(ev.name, ev.hint);
         } else if (ev.type === "thought") {
           if (turn.__wait) turn.__wait.thought(ev.part, ev.delta);
+        } else if (ev.type === "progress") {
+          if (turn.__wait) turn.__wait.progress(ev.label, ev.detail, ev.data);
         } else if (ev.type === "tool") {
           tools.push(ev.name);
           // a landed tool is the only progress signal a multi-round turn has —
@@ -1218,6 +1251,10 @@
       }
       if (a.kind === "indicator_remove") {
         out.push(`Removed ${String(a.name || "an indicator").toUpperCase()}`);
+        continue;
+      }
+      if (a.kind === "indicator" && a.def && a.def.custom) {
+        out.push(a.def.short || a.def.title || "Custom indicator");
         continue;
       }
       if (a.kind === "indicator") {

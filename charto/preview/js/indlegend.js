@@ -249,6 +249,15 @@ const IndLegend = (() => {
             `${Icons.svg("pin", "sm")}Remove default</span></div>`
           : `<div class="item" data-do="savedef"><span class="lead">` +
             `${Icons.svg("pin", "sm")}Save as default</span></div>`) +
+        // a custom study's two extra verbs: edit is a chat turn, the source
+        // and its validation report live in the settings dialog
+        (((mgr.CATALOG.find((c) => c.id === id) || {}).custom)
+          ? `<div class="sep"></div>` +
+            `<div class="item" data-do="cxedit"><span class="lead">` +
+              `${Icons.svg("pen", "sm")}Edit with AI…</span></div>` +
+            `<div class="item" data-do="cxsource"><span class="lead">` +
+              `${Icons.svg("fileText", "sm")}Source and tests…</span></div>`
+          : "") +
         `<div class="sep"></div>` +
         `<div class="item danger" data-do="rm"><span class="lead">` +
           `${Icons.svg("trash", "sm")}Remove</span></div>`;
@@ -295,6 +304,11 @@ const IndLegend = (() => {
       if (what === "savedef") { mgr.saveAsDefault(id); render(); return; }
       if (what === "cleardef") { mgr.clearDefault(id); render(); return; }
       if (what === "rm") { mgr.remove(id); notify(); return; }
+      if (what === "cxedit" || what === "cxsource") {
+        document.dispatchEvent(new CustomEvent("charto:custom-indicator",
+          { detail: { action: what === "cxedit" ? "edit" : "source", id } }));
+        return;
+      }
       if (what === "reset") {
         resetOne(id).then(notify).catch((e) => {
           if (o.status) o.status(`could not reset: ${e.message}`);

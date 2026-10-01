@@ -145,8 +145,45 @@ const Indicators = (() => {
       formula: (k || {}).formula || "",
       inputs: (k || {}).inputs || [],
     };
+    if ((k || {}).custom) {
+      // An AI-built study (data/custom_indicators.py). Everything above is
+      // the same shape as a native one; these extras are what the native
+      // studies keep in this file's tables — line names, default plot types,
+      // reference levels — and a custom study has to carry with it.
+      Object.assign(def, {
+        custom: true, title: k.title || def.base, version: k.version || 1,
+        classification: k.classification || "custom",
+        plots: k.plots || {}, levels: k.levels || [],
+      });
+      for (const [n, lab] of Object.entries(k.line_labels || {})) {
+        if (!LINE_LABEL[n]) LINE_LABEL[n] = lab;
+      }
+    }
     def.label = formatLabel(def, null);
     return def;
+  }
+
+  /** A custom study's definition arrived (from the catalogue, or riding on
+   *  the scene item that just built it). Joins the catalogue, or replaces the
+   *  entry IN PLACE when it is a new version — the object is shared by every
+   *  manager, so an active instance sees the new lines on its next fetch.
+   *  Returns the id, which for a custom study is its name. */
+  function learn(entry) {
+    if (!entry || !entry.name) return null;
+    KNOWN[entry.name] = entry;
+    const fresh = decorate(
+      { id: entry.name, name: entry.name, period: 0, base: entry.short || entry.title || entry.name },
+      entry);
+    const had = CATALOG.find((c) => c.id === entry.name);
+    if (had) {
+      for (const k of Object.keys(had)) delete had[k];
+      Object.assign(had, fresh);
+      relabel(had);
+    } else {
+      CATALOG.push(fresh);
+      relabel(fresh);
+    }
+    return entry.name;
   }
 
   async function loadCatalogue(base, symbol) {
@@ -154,7 +191,10 @@ const Indicators = (() => {
     SYM = symbol || "";
     let known = {};
     try {
-      const r = await fetch(`${base}/indicators`);
+      // signed in, the catalogue also carries the account's own validated
+      // custom studies — so a reload restores them like any other id
+      const r = await fetch(`${base}/indicators`,
+        typeof Auth !== "undefined" ? { headers: Auth.headers() } : undefined);
       for (const x of (await r.json()).indicators) known[x.name] = x;
     } catch { /* offline: fall back to presets alone */ }
     KNOWN = known;
@@ -162,6 +202,7 @@ const Indicators = (() => {
       .filter((p) => !Object.keys(known).length || known[p.name])
       .map((p) => decorate(p, known[p.name]));
     for (const d of CATALOG) relabel(d);
+    for (const x of Object.values(known)) if (x.custom) learn(x);
     return CATALOG;
   }
 
@@ -431,7 +472,8 @@ const Indicators = (() => {
       // while a volume bar is read by which way its CANDLE went. Two colours,
       // and the direction comes from the candle — see toSpecs().
       const volBars = def.name === "volume" && n === "volume";
-      const hist = volBars || n === "histogram" || PLOT_DEFAULT[n] === "columns";
+      const own = (def.plots || {})[n];      // a custom study's declared plot type
+      const hist = volBars || n === "histogram" || (own || PLOT_DEFAULT[n]) === "columns";
       out[n] = {
         visible: true,
         color: volBars ? Theme.c("volUp")
@@ -444,7 +486,7 @@ const Indicators = (() => {
         width: def.kind === "overlay" ? 1
           : (n === "middle" || (def.lines || []).length === 1 ? 2 : 1),
         lineStyle: 0,
-        plotType: hist ? "columns" : (PLOT_DEFAULT[n]
+        plotType: hist ? "columns" : (own || PLOT_DEFAULT[n]
           || (STEP_STUDIES.has(def.name) ? "stepline" : "line")),
       };
     });
@@ -976,7 +1018,7 @@ const Indicators = (() => {
       const r = orig();
       const extras = [
         ...(scaleExtras ? scaleExtras(def.name, def.period) : []),
-        ...(LEVELS[def.name] || []),
+        ...((def.levels && def.levels.length ? def.levels : LEVELS[def.name]) || []),
       ];
       if (!r || !r.priceRange || !extras.length) return r;
       return { ...r, priceRange: {
@@ -1005,7 +1047,8 @@ const Indicators = (() => {
         }
       }
       a.levels = [];
-      const lv = LEVELS[(a.def || {}).name];
+      const lv = ((a.def || {}).levels && a.def.levels.length)
+        ? a.def.levels : LEVELS[(a.def || {}).name];
       if (!api || !lv || st.hidden || !intervalOk(st)) return;
       a.levels = lv.map((price) => api.createPriceLine({
         price,
@@ -1430,6 +1473,27 @@ const Indicators = (() => {
         return active.has(id) ? (remove(id), Promise.resolve()) : add(id);
       },
       remove, recomputeAll, retheme, restyle, updateEdge,
+      /** A custom study changed version: its lines may have changed too, so
+       *  the series are rebuilt rather than refetched into the old shape. */
+      async reload(id) {
+        if (!active.has(id)) return;
+        remove(id);
+        const st = LIVE.get(id);
+        const def = CATALOG.find((c) => c.id === id);
+        if (st && def) {
+          // keep the user's style for lines that survived; new lines start fresh
+          const fresh = factorySettings(def, st.style.slot);
+          for (const n of Object.keys(fresh.style.plots)) {
+            if (st.style.plots[n]) fresh.style.plots[n] = st.style.plots[n];
+          }
+          st.style.plots = fresh.style.plots;
+          const keep = {};
+          for (const f of def.inputs || []) keep[f.key] = f.key in st.params ? st.params[f.key] : f.default;
+          st.params = keep;
+          persist(id);
+        }
+        await add(id);
+      },
       isActive: (id) => active.has(id),
       /** Current value + value at `fromTime`, for the chat context envelope.
        *
@@ -1472,7 +1536,7 @@ const Indicators = (() => {
   }
 
   return {
-    createManager, loadCatalogue,
+    createManager, loadCatalogue, learn,
     get CATALOG() { return CATALOG; },
     // the dialog's vocabulary — one definition, read by indsettings.js
     PLOT_TYPES, LINE_STYLES, WIDTHS, BUCKETS, BUCKET_OF,

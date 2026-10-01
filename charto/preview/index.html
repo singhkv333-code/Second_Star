@@ -4508,6 +4508,48 @@ body.two-columns .readout .row { display: none; }
   font-variant-numeric: tabular-nums;
 }
 
+/* A custom indicator's formula, as stored — prose the tool printed, in the
+   card's own muted type. */
+.scan-prose { margin: 0; font-size: var(--text-xs); line-height: 1.55;
+              color: var(--muted-foreground); }
+.scan .scan-read .nm a { color: inherit; text-decoration: underline;
+                         text-decoration-color: var(--border); }
+
+/* The settings dialog's Source tab (custom indicators only): the build
+   record printed whole — type, formula, checks, sources, code. */
+.cx-src { grid-column: 1 / -1; max-width: 420px; font-size: var(--text-sm);
+          color: var(--muted-foreground); }
+.cx-field { margin: 0 0 10px; line-height: 1.55; color: var(--foreground); font-size: var(--text-sm); }
+.cx-field span { display: block; font-size: var(--text-3xs); color: var(--faint);
+                 text-transform: uppercase; letter-spacing: .02em; margin-bottom: 2px; }
+.cx-src h5 { margin: 14px 0 6px; font-size: var(--text-3xs); font-weight: 500;
+             color: var(--faint); text-transform: uppercase; letter-spacing: .02em; }
+.cx-src h5 em { font-style: normal; text-transform: none; margin-left: 6px; }
+.cx-desc, .cx-prompt { margin: 10px 0 0; line-height: 1.55; }
+.cx-prompt { font-size: var(--text-xs); color: var(--faint); }
+.cx-list { margin: 0; padding-left: 16px; line-height: 1.55; font-size: var(--text-xs); }
+.cx-list a { color: var(--foreground); }
+.cx-checks { display: flex; flex-direction: column; gap: 4px; }
+.cx-check { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px;
+            font-size: var(--text-xs); line-height: 1.45; }
+.cx-check b { font-weight: 500; color: var(--foreground); }
+.cx-check i { font-style: normal; font-variant: small-caps; color: var(--faint); }
+.cx-check.is-pass i { color: var(--up); }
+.cx-check.is-fail i, .cx-check.is-fail b { color: var(--down); }
+.cx-check span { grid-column: 1 / -1; color: var(--faint); overflow-wrap: anywhere; }
+.cx-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.cx-chip { padding: 2px 7px; border: 1px solid var(--border-soft);
+           border-radius: var(--radius-sm); font-size: var(--text-2xs);
+           font-variant-numeric: tabular-nums; }
+.cx-code-wrap { margin-top: 12px; }
+.cx-code-wrap > summary { cursor: pointer; font-size: var(--text-xs); color: var(--foreground); }
+.cx-code { margin: 6px 0 0; padding: 10px; max-height: 260px; overflow: auto;
+           background: var(--card); border: 1px solid var(--border-soft);
+           border-radius: var(--radius-sm); font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+           color: var(--foreground); white-space: pre; }
+.cx-actions { display: flex; gap: 8px; margin-top: 14px; }
+.cx-actions .cx-danger { color: var(--down); }
+
 /* What was scanned, on the card's own bottom margin. Every panel in this app
    says where its numbers came from; this one has a whole window to name. */
 .scan-foot {
@@ -8851,15 +8893,15 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        that has not run yet -->
   <script src="./js/auth.js?v=5"></script>
   <script src="./js/plan.js?v=2"></script>
-  <script src="./js/indicators.js?v=35"></script>
+  <script src="./js/indicators.js?v=36"></script>
   <!-- before both legends: each asks it whether the series runs behind a row
        or a chip, which is what puts the plate there -->
   <script src="./js/occlusion.js?v=1"></script>
-  <script src="./js/indlegend.js?v=2"></script>
+  <script src="./js/indlegend.js?v=3"></script>
   <!-- before either dialog: both are built out of its colour picker, its
        dressed selects and its card positioning -->
   <script src="./js/dlgkit.js?v=2"></script>
-  <script src="./js/indsettings.js?v=17"></script>
+  <script src="./js/indsettings.js?v=19"></script>
   <!-- after dlgkit.js (its sheet is a .dlg card, positioned and dragged by
        the kit) and before main.js, which registers what every row of its
        catalogue MEANS the moment it boots -->
@@ -8872,7 +8914,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/drawings.js?v=35"></script>
   <script src="./js/scene.js?v=49"></script>
   <script src="./js/panes.js?v=21"></script>
-  <script src="./js/main.js?v=148"></script>
+  <script src="./js/main.js?v=149"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=11"></script>
@@ -8883,9 +8925,9 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- before chat.js, which asks it to render the panels a tool prints as the
        reply streams in. It reads Sym (store.js) for the instrument's currency
        and grouping, and nothing else — a renderer with no state of its own -->
-  <script src="./js/cards.js?v=56"></script>
+  <script src="./js/cards.js?v=57"></script>
   <script src="./js/layers-panel.js?v=11"></script>
-  <script src="./js/chat.js?v=174"></script>
+  <script src="./js/chat.js?v=175"></script>
   <script src="./js/journal.js?v=6"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it

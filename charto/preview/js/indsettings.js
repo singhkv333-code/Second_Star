@@ -146,7 +146,7 @@ const IndSettings = (() => {
   function formulaHTML() {
     const d = def();
     return d.formula
-      ? `<p class="dlg-formula"><span>Formula</span>${esc(d.formula)}</p>` : "";
+      ? `<p class="cx-field"><span>Formula</span>${esc(d.formula)}</p>` : "";
   }
 
   function numberHTML(f, value, key) {
@@ -250,7 +250,94 @@ const IndSettings = (() => {
     return clean;
   }
 
+  // ── Source: a custom study's provenance ─────────────────
+  // Only an AI-built study has this tab. It is the record the validator and
+  // the builder left (GET /custom_indicators/<id>), printed rather than
+  // summarised: what kind of indicator it honestly is, the formula, every
+  // assumption, every check with its own detail, the bars it was tested on,
+  // the sources the research cited, and the code itself.
+  const API = ["localhost", "127.0.0.1"].includes(location.hostname)
+    ? "http://127.0.0.1:5174" : "";
+  const srcCache = new Map();          // `${id}@${version}` -> record | {error}
+  let delArmed = false;
+  const KIND = {
+    standard: "Standard indicator",
+    variant: "Variant of a standard indicator",
+    custom: "Custom methodology — not an established indicator",
+  };
+
+  function loadSource(d) {
+    const key = `${d.id}@${d.version}`;
+    if (srcCache.has(key)) return;
+    srcCache.set(key, null);
+    fetch(`${API}/custom_indicators/${encodeURIComponent(d.id)}`,
+      typeof Auth !== "undefined" ? { headers: Auth.headers() } : undefined)
+      .then(async (r) => srcCache.set(key, r.ok ? await r.json()
+        : { error: (await r.json().catch(() => ({}))).error || `HTTP ${r.status}` }))
+      .catch((e) => srcCache.set(key, { error: e.message }))
+      .then(() => { if (wrap && tab === "source" && def() && def().id === d.id) render(); });
+  }
+
+  function sourceHTML() {
+    const d = def();
+    const rec = srcCache.get(`${d.id}@${d.version}`);
+    if (!rec) { loadSource(d); return `<p class="dlg-empty">Reading the build record…</p>`; }
+    if (rec.error) return `<p class="dlg-empty">Could not read the build record: ${esc(rec.error)}</p>`;
+    const sp = rec.spec || {}, rep = rec.report || {};
+    const kind = KIND[sp.classification] || "Custom";
+    const named = sp.standard_name && sp.classification !== "custom" ? ` · ${esc(sp.standard_name)}` : "";
+    const checks = (rep.checks || []).map((c) => `<div class="cx-check is-${esc(c.status)}">`
+      + `<b>${esc(c.label)}</b><i>${esc(c.status)}</i>`
+      + (c.detail ? `<span>${esc(c.detail)}</span>` : "") + `</div>`).join("");
+    const sets = (rep.datasets || []).filter((x) => x.used)
+      .map((x) => `<span class="cx-chip">${esc(x.label)} · ${Number(x.bars).toLocaleString()}</span>`).join("");
+    const srcs = (sp.sources || []).map((x) => `<li><a href="${esc(x.url)}" target="_blank" `
+      + `rel="noopener noreferrer">${esc(x.title || x.url)}</a></li>`).join("");
+    const assume = (sp.assumptions || []).map((a) => `<li>${esc(a)}</li>`).join("");
+    const hist = (rec.history || []).slice().reverse().map((h) => `<li>v${esc(h.version)} · `
+      + `${esc(h.status)} · ${esc(h.summary || "")}${h.prompt ? ` — “${esc(h.prompt)}”` : ""}</li>`).join("");
+    return `<div class="cx-src">
+      <p class="cx-field"><span>Type</span>${esc(kind)}${named}</p>
+      ${sp.description ? `<p class="cx-desc">${esc(sp.description)}</p>` : ""}
+      <p class="cx-field"><span>Formula</span>${esc(sp.formula || "")}</p>
+      ${assume ? `<h5>Assumptions</h5><ul class="cx-list">${assume}</ul>` : ""}
+      <h5>Validation <em>${esc(rep.summary || "")}</em></h5>
+      <div class="cx-checks">${checks}</div>
+      ${sets ? `<h5>Tested on</h5><div class="cx-chips">${sets}</div>` : ""}
+      ${srcs ? `<h5>Sources</h5><ul class="cx-list">${srcs}</ul>` : ""}
+      <details class="cx-code-wrap"><summary>Code · version ${esc(rec.version)}</summary>
+        <pre class="cx-code">${esc(rec.code || "")}</pre></details>
+      ${hist ? `<details class="cx-code-wrap"><summary>Earlier versions</summary><ul class="cx-list">${hist}</ul></details>` : ""}
+      ${rec.prompt ? `<p class="cx-prompt">Built from: “${esc(rec.prompt)}”</p>` : ""}
+      <div class="cx-actions">
+        <button class="btn outline" data-cx="edit">Edit with AI…</button>
+        <button class="btn outline cx-danger" data-cx="delete">${delArmed ? "Confirm delete" : "Delete"}</button>
+      </div></div>`;
+  }
+
+  async function sourceAction(what) {
+    const d = def();
+    if (!d) return;
+    if (what === "edit") {
+      close();
+      document.dispatchEvent(new CustomEvent("charto:custom-indicator", { detail: { action: "edit", id: d.id } }));
+      return;
+    }
+    if (what === "delete") {
+      // two presses, no browser confirm(): a modal alert would block the page
+      if (!delArmed) { delArmed = true; render(); return; }
+      delArmed = false;
+      const r = await fetch(`${API}/custom_indicators/${encodeURIComponent(d.id)}/delete`,
+        { method: "POST", headers: typeof Auth !== "undefined" ? Auth.headers() : {} });
+      if (!r.ok) { render(); return; }
+      const cid = d.id;
+      close();
+      document.dispatchEvent(new CustomEvent("charto:custom-indicator", { detail: { action: "deleted", id: cid } }));
+    }
+  }
+
   function bodyHTML() {
+    if (tab === "source") return sourceHTML();
     if (tab === "style") return styleHTML();
     if (tab === "visibility") return visibilityHTML();
     return inputsHTML();
@@ -261,13 +348,16 @@ const IndSettings = (() => {
    *  only when it would otherwise be ambiguous which one you are editing. */
   function titleText() {
     const d = def();
-    const name = TITLES[d.name] || d.base;
+    const name = TITLES[d.name] || d.title || d.base;
     const twins = ind.CATALOG.filter((c) =>
       c.name === d.name && ind.isActive(c.id)).length > 1;
     return twins ? `${name} · ${d.label}` : name;
   }
 
   function render() {
+    const custom = !!(def() && def().custom);
+    dlg.querySelector('[data-tab="source"]').hidden = !custom;
+    if (tab === "source" && !custom) tab = "inputs";
     dlg.dataset.tab = tab;
     dlg.querySelector(".dlg-title").textContent = titleText();
     dlg.querySelectorAll(".dlg-tab").forEach((b) =>
@@ -489,7 +579,9 @@ const IndSettings = (() => {
     if (d) { applyDefaultsAction(d.dataset.def); return; }
 
     const tb = e.target.closest(".dlg-tab");
-    if (tb) { tab = tb.dataset.tab; render(); return; }
+    if (tb) { tab = tb.dataset.tab; delArmed = false; render(); return; }
+    const cx = e.target.closest("[data-cx]");
+    if (cx) { sourceAction(cx.dataset.cx); return; }
 
     const act = e.target.closest("[data-act]");
     if (!act) return;
@@ -555,6 +647,7 @@ const IndSettings = (() => {
           <button class="dlg-tab active" data-tab="inputs">Inputs</button>
           <button class="dlg-tab" data-tab="style">Style</button>
           <button class="dlg-tab" data-tab="visibility">Visibility</button>
+          <button class="dlg-tab" data-tab="source" hidden>Source</button>
         </nav>
         <div class="dlg-body"></div>
         <footer class="dlg-foot">
@@ -611,7 +704,8 @@ const IndSettings = (() => {
     subtitle = opts.subtitle || "";
     notify = opts.onChange || (() => {});
     snapshot = clone(ind.settings(id));
-    tab = "inputs";
+    tab = opts.tab || "inputs";
+    delArmed = false;
     // Centre it ONCE, arithmetically, then pin. The card is anchored from
     // this point on, so every later size change grows rightward and down.
     card.centre();

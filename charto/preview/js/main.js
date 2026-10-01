@@ -613,10 +613,18 @@
 
   function renderIndMenu() {
     const m = IND();
+    // Custom studies get their own section, under the native ones and in
+    // the same row grammar; the last row starts a new one in the chat, which
+    // is where they are built and edited.
+    const mine = m.CATALOG.filter((c) => c.custom);
     menu.innerHTML = '<div class="head">Overlays</div>' +
-      m.CATALOG.filter((c) => c.kind === "overlay").map(itemHTML).join("") +
+      m.CATALOG.filter((c) => c.kind === "overlay" && !c.custom).map(itemHTML).join("") +
       '<div class="sep"></div><div class="head">Panes</div>' +
-      m.CATALOG.filter((c) => c.kind === "pane").map(itemHTML).join("") +
+      m.CATALOG.filter((c) => c.kind === "pane" && !c.custom).map(itemHTML).join("") +
+      '<div class="sep"></div><div class="head">Custom</div>' +
+      mine.map(itemHTML).join("") +
+      `<div class="item" data-cx-new><span>${mine.length ? "New custom indicator…"
+        : "Build a custom indicator…"}</span></div>` +
       '<div class="sep"></div><div class="head">Volume profile</div>' +
       VP_WINDOWS.map((v) => {
         const on = state.vp === v.n;
@@ -689,6 +697,51 @@
       },
     });
   }
+  /** Everything a custom study offers beyond the native controls, from
+   *  wherever it is asked for: the chat card's buttons, the legend's ⋯ menu,
+   *  the settings dialog's Source tab and the indicator menu. Building and
+   *  editing happen in the chat — they are a model turn — so those actions
+   *  compose a message there for the user to finish and send. */
+  function customIndicatorAction(action, cid) {
+    const def = cid && ind.CATALOG.find((c) => c.id === cid);
+    if (action === "new") {
+      if (window.Chat) Chat.compose("Build a custom indicator that ");
+      return;
+    }
+    if (action === "edit" && window.Chat) {
+      Chat.compose(`Edit my custom indicator ${def ? `"${def.title}" ` : ""}(${cid}): `);
+      return;
+    }
+    if (action === "source" && def) {
+      if (!ind.isActive(cid)) { status(`add ${def.short || def.title} to the chart to open its settings`); return; }
+      IndSettings.open(ind, cid, { subtitle: `${ind.symbol} · ${ind.interval}`, tab: "source",
+        onChange: () => { renderIndMenu(); document.dispatchEvent(new CustomEvent("charto:indicators-changed")); } });
+      return;
+    }
+    if (action === "add" && def && !ind.isActive(cid)) {
+      ind.toggle(cid, state.bars).then(() => {
+        renderIndMenu();
+        document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
+      }).catch((err) => status(err.message));
+      return;
+    }
+    if (action === "remove" && ind.isActive(cid)) {
+      ind.remove(cid);
+      renderIndMenu();
+      document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
+      return;
+    }
+    if (action === "deleted") {
+      if (ind.isActive(cid)) ind.remove(cid);
+      const i = ind.CATALOG.findIndex((c) => c.id === cid);
+      if (i >= 0) ind.CATALOG.splice(i, 1);
+      renderIndMenu();
+      document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
+    }
+  }
+  document.addEventListener("charto:custom-indicator",
+    (e) => customIndicatorAction(e.detail.action, e.detail.id));
+
   el("indBtn").addEventListener("click", (e) => {
     e.stopPropagation();
     renderIndMenu();
@@ -740,6 +793,11 @@
       const n = Number(vp.dataset.vp);
       setVolumeProfile(state.vp === n ? null : n)
         .catch((err) => status(`volume profile failed: ${err.message}`));
+      return;
+    }
+    if (e.target.closest("[data-cx-new]")) {
+      menu.classList.remove("open");
+      customIndicatorAction("new");
       return;
     }
     const it = e.target.closest("[data-ind]");
@@ -2058,6 +2116,23 @@
       const period = a.period || Number(raw.split("@")[1]) || 0;
       const changed = () =>
         document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
+      // A custom study carries its own definition: a chart that has never
+      // seen this id learns it here, and one that has gets the new version
+      // in place — then an instance already on screen is rebuilt, since a
+      // new version can have different lines.
+      if (a.def && a.def.custom) {
+        const before = ind.CATALOG.find((c) => c.id === a.def.name);
+        const wasVersion = before && before.version;
+        Indicators.learn(a.def);
+        renderIndMenu();
+        if (ind.isActive(a.def.name)) {
+          if (wasVersion !== a.def.version) {
+            try { await ind.reload(a.def.name); changed(); }
+            catch (err) { status(`could not redraw ${a.def.short}: ${err.message}`); }
+          }
+          return;
+        }
+      }
       // if this indicator is already on the chart, chat RE-PERIODS it in
       // place — a second variant of the same indicator appears only when
       // the user adds one deliberately from the menu
