@@ -73,11 +73,31 @@ const Sym = (() => {
       unit: crypto ? base
         : (venue === "MCX" || venue === "NSE CDS") ? "contracts" : "shares",
       locale: crypto ? "en-US" : "en-IN",
+      decimals: 2,
       num(n, opts) {
-        return Number(n).toLocaleString(this.locale,
-                                        opts || { maximumFractionDigits: 2 });
+        const d = this.decimals;
+        return Number(n).toLocaleString(this.locale, opts || (d > 2
+          ? { minimumFractionDigits: d, maximumFractionDigits: d }
+          : { maximumFractionDigits: d }));
       },
       price(n, opts) { return this.cur + this.num(n, opts); },
+      /** Take the instrument master's word over the shape of the name, once
+       *  /symbols has loaded: where it trades, what it is quoted in, what its
+       *  volume counts and how many decimals its tick needs. `m` is the
+       *  [exchange, kind, decimals, currency] row Universe holds. */
+      adopt(m) {
+        if (!m) return this;
+        const [ex, kind, dec, ccy] = m;
+        this.venue = { CDS: "NSE CDS", NSEIX: "NSE IX" }[ex] || ex;
+        if (ccy) {
+          this.code = ccy;
+          this.cur = { INR: "\u20b9", USD: "$" }[ccy] || "";
+        }
+        this.unit = kind === "index" ? "" : (kind === "future" || kind === "continuous")
+          ? "contracts" : this.unit;
+        if (Number.isFinite(dec)) this.decimals = dec;
+        return this;
+      },
     };
   }
 

@@ -477,7 +477,7 @@
     // reader reaches to change it.
     el("roTitle").innerHTML =
       `<span class="sym-btn" data-sym-btn title="Change instrument">`
-      + `${Universe.logoHTML(SYMBOL, "co-logo lg")}${SYMBOL}</span>`
+      + `${Universe.logoHTML(SYMBOL, "co-logo lg")}${Universe.shown(SYMBOL)}</span>`
       + `<span class="sep">·</span>${state.interval === "1d" ? "1D" : state.interval}`
       + `<span class="sep">·</span><span class="ex">${Sym.venue}</span>`;
   }
@@ -501,7 +501,11 @@
     // the instrument's own price decimals (an INR pair quotes to 4)
     const dec = Universe.decimals(SYMBOL);
     if (dec !== null) ChartSettings.setSymbolDecimals(dec);
-    if (state.bars.length) paintTitle();
+    Sym.adopt((Universe.peek().meta || {})[String(SYMBOL).toUpperCase()]);
+    // the two labels painted before the master was known
+    if (el("curNote")) el("curNote").textContent = Sym.code;
+    if (el("symbolVenue")) el("symbolVenue").textContent = Sym.venue;
+    if (state.bars.length) { paintTitle(); paintReadout(state.bars[state.bars.length - 1]); }
   });
 
   /** Index of the bar at this chart time. Binary search because the readout
@@ -545,7 +549,9 @@
       `<span class="ro-h"><i>H</i> <b class="${cls}">${f(b.high)}</b></span>` +
       `<span class="ro-l"><i>L</i> <b class="${cls}">${f(b.low)}</b></span>` +
       `<span class="ro-c"><i>C</i> <b class="${cls}">${f(b.close)}</b></span>` +
-      `<span class="ro-v"><i>V</i> <b class="${cls}">${f(b.volume)}</b></span>` + chg;
+      // volume is a count, never on the price's decimals; an index has none
+      (Sym.unit === "" ? "" :
+        `<span class="ro-v"><i>V</i> <b class="${cls}">${Sym.num(b.volume, { maximumFractionDigits: 2 })}</b></span>`) + chg;
   }
   /* "Over a candle" is not "over the chart". The pick cursor is a promise that
    * there is something under the pointer to pick, so it has to be answered
@@ -4557,7 +4563,7 @@
   // against that symbol's own persisted state). First open of a company
   // hydrates it server-side from the blob universe (~8 s once).
   (() => {
-    el("symbolName").textContent = SYMBOL;
+    el("symbolName").textContent = Universe.shown(SYMBOL);
     el("symbolVenue").textContent = Sym.venue;
     setText("srcLine", `local store · ${Sym.feed}`);
     paintTitle();
@@ -4565,7 +4571,7 @@
     // company page have all said for a while. "Charto" is the repository's
     // name for this surface, not the product's, and the tab was the last
     // place it was still leaking out to a reader.
-    document.title = `${SYMBOL} — Pivot`;
+    document.title = `${Universe.shown(SYMBOL)} — Pivot`;
     const pill = el("symbolPill"), menu = el("symbolMenu");
     const input = el("symSearch"), list = el("symList");
     let all = null, hyd = new Set(), names = {}, shortNames = {};

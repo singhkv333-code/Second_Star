@@ -181,6 +181,14 @@ def build_master(src: Path, dump: dict, sessions: dict) -> list[dict]:
         if r["kind"] == "continuous":
             r["decimals"] = dec.get((r["exchange"], r["root"]), 2)
     from collections import Counter
+    # A legacy bare id (MCX SILVER) can collide with an NSE listing of the same
+    # ticker (the SILVER ETF). Saved layouts, alerts and strategies mean the
+    # legacy instrument, so it keeps the id and the equity is exchange-qualified.
+    legacy = {r["id"] for r in out if r["kind"] == "continuous" and ":" not in r["id"]}
+    for r in out:
+        if r["kind"] == "equity" and r["exchange"] == "NSE" and r["id"] in legacy:
+            r["aliases"] = [a for a in r["aliases"] if a != f"NSE:{r['id']}"]
+            r["id"] = f"NSE:{r['id']}"
     ids = Counter(r["id"] for r in out)
     dup = [i for i, n in ids.items() if n > 1]
     assert not dup, f"duplicate ids: {sorted(dup)[:10]}"

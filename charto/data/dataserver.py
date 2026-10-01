@@ -17060,7 +17060,8 @@ class Handler(BaseHTTPRequestHandler):
                     if sid not in names and m["name"]:
                         names[sid] = m["name"]
                     if not (m["exchange"] == "NSE" and m["kind"] == "equity"):
-                        meta[sid] = [m["exchange"], m["kind"], m["decimals"]]
+                        meta[sid] = [m["exchange"], m["kind"], m["decimals"],
+                                     quote_ccy(sid)]
                 have = have | set(master)
                 return self._send(200, {"symbols": sorted(set(_known_symbols()) | have),
                                         "meta": meta,

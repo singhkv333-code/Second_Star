@@ -556,6 +556,18 @@ def s4_derive(sessions) -> dict:
 
 # ── S5 rolls ──────────────────────────────────────────────────────────────
 def s5_rolls(sessions) -> dict:
+    """Which contract WAS the front month on each day, read off Kite's own
+    continuous daily series rather than inferred: Kite does not list expired
+    contracts, so an expiry rule over the contracts we hold calls a far month
+    "front" for most of its life (USDINR26OCTFUT from Oct 2025). A day whose
+    continuous high/low matches a held contract's daily high/low within 0.1%
+    names that contract; a day matching none was an expired contract's and
+    gets no segment, so the stitched series starts where the truth does.
+    Rank 2 is the next held monthly contract by expiry on those days.
+
+    BFO has no continuous series on Kite: there the front is the nearest held
+    monthly contract, only within 35 days of its expiry (one monthly cycle).
+    Live days after the backfill roll at expiry (the feed's rule)."""
     out = {}
     for name in ("fut_nfo", "fut_bfo", "fut_cds", "fut_mcx", "fut_nco"):
         c = con(STORES[name])
@@ -567,47 +579,63 @@ def s5_rolls(sessions) -> dict:
                                       "WHERE kind='contract' AND bars>0"):
             if MONTHLY.search(sym) and exp:
                 by_root[nm].append((exp, sym))
-        method = "volume" if name in ("fut_mcx", "fut_nco") else "expiry"
-        n = 0
+        n, unmatched = 0, 0
         for root, cs in by_root.items():
             cs.sort()
-            vols = {s: {(ts + IST_OFF) // 86400: v for ts, v in
-                        c.execute("SELECT ts, v FROM bars_1d WHERE symbol=?", (s,))} for _, s in cs}
-            days = sorted({d for s in vols for d in vols[s]})
+            order = [s for _, s in cs]
             exp_day = {s: (int(datetime.strptime(e, "%Y-%m-%d").replace(tzinfo=bf.IST).timestamp())
                            + IST_OFF) // 86400 for e, s in cs}
-            order = [s for _, s in cs]
-            segs = {1: [], 2: []}
-            cur = None
-            for i, d in enumerate(days):
-                live = [s for s in order if exp_day[s] >= d]   # the expiry day still trades
-                if not live:
-                    continue
-                if cur not in live:
-                    cur = live[0]
-                elif method == "volume" and i:
-                    j = live.index(cur)
-                    nxt = live[j + 1] if j + 1 < len(live) else None
-                    prev = days[i - 1]
-                    if nxt and vols[nxt].get(prev, 0) > vols[cur].get(prev, 0):
-                        cur = nxt                              # never rolls back
+            daily = {s: {(ts + IST_OFF) // 86400: (h, l) for ts, h, l in
+                         c.execute("SELECT ts, h, l FROM bars_1d WHERE symbol=?", (s,))} for s in order}
+            cont = {(ts + IST_OFF) // 86400: (h, l) for ts, h, l in
+                    c.execute("SELECT ts, h, l FROM kite_1d WHERE symbol=?", (f"CONT:{root}",))}
+            days = sorted({d for s in order for d in daily[s]})
+            front, how = {}, {}
+            cont_last = max(cont) if cont else None
+            for d in days:
+                if cont and d <= cont_last:
+                    how[d] = "kite_continuous"
+                    ch = cont.get(d)
+                    if not ch:
+                        continue
+                    best = None
+                    for s in order:
+                        hl = daily[s].get(d)
+                        if hl and abs(hl[0] / ch[0] - 1) < 0.001 and abs(hl[1] / ch[1] - 1) < 0.001:
+                            best = s
+                            break
+                    if best:
+                        front[d] = best
+                    else:
+                        unmatched += 1
                 else:
-                    cur = live[0] if method == "expiry" else cur
-                j = live.index(cur)
-                picks = {1: cur, 2: live[j + 1] if j + 1 < len(live) else None}
+                    # no continuous series on Kite for this day (BFO never;
+                    # CDS stops in June 2023): nearest held monthly within one cycle
+                    how[d] = "expiry_35d"
+                    live = [s for s in order if exp_day[s] >= d and d in daily[s]]
+                    if live and exp_day[live[0]] - d <= 35:
+                        front[d] = live[0]
+            segs = {1: [], 2: []}
+            prev = None
+            for d in sorted(front):
+                f1 = front[d]
+                later = [s for s in order if exp_day[s] > exp_day[f1] and d in daily[s]]
+                picks = {1: f1, 2: later[0] if later else None}
                 for rank, s_ in picks.items():
                     if s_ is None:
                         continue
-                    if segs[rank] and segs[rank][-1][0] == s_ and segs[rank][-1][2] == days[i - 1]:
+                    if segs[rank] and segs[rank][-1][0] == s_ and segs[rank][-1][2] == prev:
                         segs[rank][-1][2] = d
                     else:
                         segs[rank].append([s_, d, d])
+                prev = d
             for rank, ss in segs.items():
                 for s_, d0, d1 in ss:
                     c.execute("INSERT OR REPLACE INTO rolls VALUES (?,?,?,?,?,?)",
-                              (root, rank, s_, d0 * 86400 - IST_OFF, (d1 + 1) * 86400 - IST_OFF, method))
+                              (root, rank, s_, d0 * 86400 - IST_OFF, (d1 + 1) * 86400 - IST_OFF,
+                               how[d0]))
                     n += 1
-        out[name] = {"roots": len(by_root), "segments": n}
+        out[name] = {"roots": len(by_root), "segments": n, "days_no_held_front": unmatched}
         c.close()
     return out
 

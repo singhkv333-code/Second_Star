@@ -2351,7 +2351,7 @@
     const full = [
       `${size} · ${when}`,
       `O ${num(p.open)}   H ${num(p.high)}   L ${num(p.low)}   C ${num(p.close)}`,
-      p.volume ? `V ${Sym.num(p.volume)}` : "",
+      p.volume ? `V ${Sym.num(p.volume, { maximumFractionDigits: 0 })}` : "",
       "Click to find it on the chart · × to unpin",
     ].filter(Boolean).join("\n");
 
