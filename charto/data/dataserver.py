@@ -58,6 +58,7 @@ sys.modules.setdefault("dataserver", sys.modules[__name__])
 
 import company_scores   # sibling module: Altman / Ohlson / Graham / DuPont
 import depth as _depth   # sibling module: order-book snapshots for the depth widget
+import webfeeds as _webfeeds   # sibling module: news feeds + frame checks for widgets
 import drawtools   # sibling module: the Fibonacci / Gann catalogue, backend half
 import execution_bridge   # sibling module: Pivot's automation engine, borrowed
 import indicators   # sibling module: the indicator registry
@@ -17095,6 +17096,25 @@ class Handler(BaseHTTPRequestHandler):
                 except ValueError:
                     lv = 20
                 return self._send(200, _depth.book(sym, lv, scope_for(sym)))
+            if u.path == "/feeds":
+                # The News widget: headlines from a fixed list of public
+                # market feeds, chosen by id — never by URL (webfeeds.py).
+                srcs = [x for x in (q.get("sources") or "").split(",") if x]
+                try:
+                    lim = int(q.get("limit") or 60)
+                except ValueError:
+                    lim = 60
+                return self._send(200, _webfeeds.news(srcs or None, q.get("q") or "", lim))
+            if u.path == "/frame-check":
+                # The Browser widget asks whether a page may be framed before
+                # it frames it; private and non-web addresses are refused.
+                url = (q.get("url") or "").strip()
+                if not url or len(url) > 2000:
+                    return self._send(400, {"error": "url is required"})
+                return self._send(200, _webfeeds.frame_check(url))
+            if u.path == "/live-video":
+                # The TV widget: a channel's current live broadcast, by id.
+                return self._send(200, _webfeeds.live_video((q.get("channel") or "").strip()))
             if u.path == "/quotes":
                 want = (q.get("symbols") or "").split(",")
                 if len([s for s in want if s.strip()]) > _QUOTES_MAX:

@@ -856,6 +856,7 @@ const Panels = (() => {
   // A star, not a list: see the `star` note in js/icons.js.
   widget("watch", {
     panel: "watchPanel", icon: "star", title: "Watchlist", shortcut: "watchlist",
+    hue: "amber", group: "Market", anim: "spin", minW: 290,
     key: "Alt W", desc: "Your lists, priced live",
     render: renderWatch,
     onShow: () => polling(true),
@@ -868,6 +869,7 @@ const Panels = (() => {
   });
   widget("alerts", {
     panel: "alertsPanel", icon: "bell", title: "Alerts", shortcut: "alerts",
+    hue: "coral", group: "Market", anim: "ring",
     key: "Alt A", desc: "Rules and what fired",
     render: renderAlerts,
     // Opening the panel asks the server for the current truth — a tab that
@@ -879,7 +881,7 @@ const Panels = (() => {
    * top-right corner (js/layers-panel.js): the rail is for places you GO,
    * and the layers list is about this chart, this second. */
   widget("journal", {
-    panel: "journalPanel", icon: "fileText", title: "Journal",
+    panel: "journalPanel", icon: "fileText", title: "Journal", hue: "sand", group: "Tools",
     desc: "Your trades and their outcomes",
     render: (host) => Journal.renderSidebar(host),
   });

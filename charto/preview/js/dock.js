@@ -1,34 +1,38 @@
-/* Charto preview — the workspace dock.
+/* Charto preview — the workspace.
  *
- * Widgets live AROUND the chart, never instead of it. There are three docks
- * — a column on the left, a column on the right, a strip along the bottom —
- * and windows that float over the chart. Each dock holds groups; a group is a
- * stack of tabs, one widget per tab. Everything is dragged by its tab: onto
- * another group's tab strip to join it, onto half of a group to split it,
- * onto an edge of the chart to open a new dock there, or over the chart to
- * float. A dock with nothing in it takes no space at all, so the chart only
- * ever gives up the room something is actually using.
+ * Everything between the tool rail and the conversation is one CANVAS, laid
+ * out as a tree of splits: a row or a column of tiles, each of which is
+ * either a group of tabbed widgets or another row or column. The chart is a
+ * widget like any other — it has the same header and the same six-dot
+ * handle, and it can be dragged anywhere. Drag a widget by its tab (or a
+ * whole group by its handle):
  *
- * Why its own engine and not a docking library. The chart is not a panel: it
- * is the fixed centre the workspace is arranged around, and the conversation
- * keeps its own column on the far edge. A general docking manager would make
- * both of them tiles that can be dragged away or closed, and its tab chrome
- * would be a second design language beside this one. The rules here are
- * narrower than a library's on purpose — that is what keeps the chart the
- * subject of the screen and the chat one glance away from it.
+ *   · onto another group's tab strip, or the middle of it → join it as a tab
+ *   · onto the top, bottom, left or right of any tile     → split it there
+ *   · against an outer edge of the canvas                 → a new full-height
+ *                                                           or full-width tile
+ *   · onto open space, or the middle of the chart         → a floating window
+ *
+ * The drop is SHOWN before it happens: a plate slides to where the tile will
+ * land. The seams between tiles drag to resize. Only the conversation stays
+ * where it is — it is the product's other half, not a tile.
+ *
+ * The chart can be LOCKED in place from its menu or the widget hub; locked,
+ * it loses its header and cannot be moved, though widgets can still be split
+ * against it.
  *
  * State is one object, persisted unscoped (a workspace follows the user, not
- * the symbol), and the DOM is DERIVED from it on every change: groups and
- * widget hosts are persistent elements that are only re-parented, never
- * re-rendered, so moving a widget keeps its scroll, its inputs and its
- * timers exactly where they were.
+ * the symbol); the DOM is derived from it. Groups and widget hosts are
+ * persistent elements that are only MOVED (with Element.moveBefore where the
+ * browser has it, so a framed page or a playing video survives the move),
+ * never re-rendered.
  *
  * A widget is a spec handed to Dock.register():
- *   { type, title, icon, desc, single, zone, linkable, settings[],
+ *   { type, title, icon, hue, group, desc, single, zone, linkable, settings[],
  *     host?() — an existing element to adopt (single-instance widgets),
- *     mount(host, ctx) → { show?, hide?, config?, symbol?, ask? } }
- * `ctx` is the widget's handle on the dock: its config, its symbol, the
- * chat, and the chart.
+ *     mount(host, ctx) → { show?, hide?, config?, ask?, receive?, duplicate? } }
+ * `hue` names the palette of the widget's picture in the hub; the interface
+ * itself is monochrome.
  */
 "use strict";
 
@@ -39,30 +43,35 @@ const Dock = (() => {
   if (!main || !charts) return { register() {}, start() {} };
 
   const KEY = "dock";
-  const ZONES = ["left", "right", "bottom"];
-  const MIN = { left: 230, right: 250, bottom: 150 };
-  const DEF = { left: 300, right: 320, bottom: 250 };
-  const CENTER_MIN = 380;        // the chart never gets narrower than this
-  const FLOAT_DEF = { w: 340, h: 380 };
+  const CHART = "main";              // the chart's instance id
+  const FLOAT_DEF = { w: 380, h: 420 };
+  const MIN_TILE = 150;
+  const EDGE_SHARE = .27;            // a new edge tile takes this much of the canvas
   const reduced = matchMedia("(prefers-reduced-motion: reduce)");
   const compactMq = matchMedia("(max-width: 820px) and (orientation: portrait), " +
                                "(orientation: landscape) and (max-height: 520px)");
+  const portraitMq = matchMedia("(orientation: portrait)");
 
   const esc = (s) => String(s).replace(/[&<>"]/g,
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const icon = (n, cls = "") => Icons.svg(n, cls);
   const uid = (p) => p + Math.random().toString(36).slice(2, 8);
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const sum = (a) => a.reduce((x, y) => x + y, 0);
+  const move = (parent, node, before) => {
+    if (node.parentNode === parent && (before ? node.nextSibling === before : !node.nextSibling)) return;
+    try {
+      if (parent.moveBefore && node.isConnected && parent.isConnected) return parent.moveBefore(node, before || null);
+    } catch { /* fall through */ }
+    parent.insertBefore(node, before || null);
+  };
 
   /* ══ the page symbol, and opening another one ═══════════════════════════
-   * The primary chart IS the page: its symbol is ?symbol=, and every surface
-   * on the page — drawings, scene, chat context — is keyed off it. So opening
-   * an instrument on the primary chart is a navigation, made to feel instant
-   * by three things: the bars are already cached (`warm`, on hover), the
-   * new page paints them before it fetches (js/main.js), and the swap is a
-   * cross-document view transition rather than a white flash. A SECONDARY
-   * pane is a real object with its own symbol, so when one is selected the
-   * instrument lands there in place, with no navigation at all. */
+   * The primary chart IS the page: its symbol is ?symbol=. Opening an
+   * instrument there is a navigation, made to feel instant by three things:
+   * the bars are already cached (warm, on hover), the new page paints them
+   * before it fetches (js/main.js), and the swap is a cross-document view
+   * transition. A selected SECONDARY pane takes the instrument in place. */
   const pageSymbol = () =>
     (new URLSearchParams(location.search).get("symbol") || "RELIANCE").toUpperCase();
 
@@ -82,43 +91,50 @@ const Dock = (() => {
     location.search = q.toString();
   }
 
-  const warmed = new Map();          // symbol → when its bars were asked for
+  const warmed = new Map();
   function warm(sym) {
     const s = String(sym || "").toUpperCase();
     if (!s || s === pageSymbol() || typeof window.__chartoWarm !== "function") return;
-    const at = warmed.get(s) || 0;
-    if (Date.now() - at < 60_000) return;
+    if (Date.now() - (warmed.get(s) || 0) < 60_000) return;
     warmed.set(s, Date.now());
     window.__chartoWarm(s);
   }
 
-  /* ══ state ═══════════════════════════════════════════════════════════════ */
+  /* ══ state: instances, groups, and the tree ═════════════════════════════
+   * tree node: { k: "row" | "col", c: [node…], s: [weight…], id }  or
+   *            { k: "g", g: groupId, id } */
 
   const TYPES = new Map();
-  const blank = () => ({
-    v: 1, inst: {}, groups: {}, floats: [], closed: [], focus: false,
-    zones: { left: { size: DEF.left, groups: [] }, right: { size: DEF.right, groups: [] },
-             bottom: { size: DEF.bottom, groups: [] } },
-  });
+  const nid = () => uid("n");
+  const leaf = (g) => ({ k: "g", g, id: nid() });
+  const box = (k, c, s) => ({ k, c, s: s || c.map(() => 1), id: nid() });
+  const blank = () => ({ v: 2, inst: {}, groups: {}, tree: null, floats: [], closed: [],
+                         focus: false, lock: false });
   let S = blank();
 
   function load() {
     const raw = Store.get(KEY, null);
-    if (!raw || raw.v !== 1 || typeof raw !== "object") return blank();
+    if (!raw || typeof raw !== "object") return blank();
     const s = blank();
-    s.focus = !!raw.focus;
+    s.focus = !!raw.focus; s.lock = !!raw.lock;
     for (const [id, i] of Object.entries(raw.inst || {})) {
       if (i && typeof i.type === "string") s.inst[id] = { type: i.type, cfg: i.cfg || {} };
     }
     for (const [gid, g] of Object.entries(raw.groups || {})) {
       if (!g || !Array.isArray(g.tabs)) continue;
-      s.groups[gid] = { tabs: g.tabs.filter((t) => typeof t === "string"),
-                        active: g.active, size: Number(g.size) || 1 };
+      s.groups[gid] = { tabs: g.tabs.filter((t) => typeof t === "string"), active: g.active };
     }
-    for (const z of ZONES) {
-      const rz = (raw.zones || {})[z] || {};
-      s.zones[z].size = Number(rz.size) || DEF[z];
-      s.zones[z].groups = (rz.groups || []).filter((g) => s.groups[g]);
+    if (raw.v === 2) s.tree = validTree(raw.tree);
+    else if (raw.v === 1 && raw.zones) {
+      // the first workspace kept docks: left · (centre over bottom) · right
+      const col = (gs) => gs && gs.length ? box("col", gs.map(leaf)) : null;
+      const z = raw.zones;
+      const mid = [z.main && z.main.groups.length ? box("row", z.main.groups.map(leaf)) : null,
+                   z.bottom && z.bottom.groups.length ? box("row", z.bottom.groups.map(leaf)) : null];
+      const parts = [[col(z.left && z.left.groups), .27],
+                     [mid.some(Boolean) ? box("col", mid.filter(Boolean), mid[0] && mid[1] ? [1, .4] : [1]) : null, 1],
+                     [col(z.right && z.right.groups), .29]].filter((p) => p[0]);
+      s.tree = parts.length ? box("row", parts.map((p) => p[0]), parts.map((p) => p[1])) : null;
     }
     s.floats = (raw.floats || []).filter((f) => f && s.groups[f.gid])
       .map((f) => ({ gid: f.gid, x: +f.x || 40, y: +f.y || 40,
@@ -127,11 +143,60 @@ const Dock = (() => {
     return s;
   }
 
-  /** Drop whatever the stored layout names that this build cannot draw — a
-   *  widget type that no longer exists, a tab pointing at no instance — so a
-   *  stale blob degrades to fewer widgets, never to a broken workspace. */
+  function validTree(n) {
+    if (!n || typeof n !== "object") return null;
+    if (n.k === "g") return typeof n.g === "string" ? { k: "g", g: n.g, id: n.id || nid() } : null;
+    if ((n.k === "row" || n.k === "col") && Array.isArray(n.c)) {
+      const c = n.c.map(validTree);
+      const s = c.map((_, i) => Number((n.s || [])[i]) || 1);
+      return { k: n.k, c, s, id: n.id || nid() };
+    }
+    return null;
+  }
+
+  function walk(n, fn, p = null, i = -1) {
+    if (!n) return;
+    fn(n, p, i);
+    if (n.k !== "g") n.c.forEach((ch, j) => walk(ch, fn, n, j));
+  }
+  function locate(gid) {
+    let out = null;
+    walk(S.tree, (n, p, i) => { if (n.k === "g" && n.g === gid) out = { n, p, i }; });
+    return out;
+  }
+  const treeGroups = (t = S.tree) => { const o = []; walk(t, (n) => { if (n.k === "g") o.push(n.g); }); return o; };
+
+  /** Drop dead leaves, flatten a row inside a row, unwrap a box of one. */
+  function normalize(n) {
+    if (!n) return null;
+    if (n.k === "g") return S.groups[n.g] ? n : null;
+    const kids = [], sizes = [];
+    n.c.forEach((ch, j) => {
+      const m = normalize(ch);
+      if (!m) return;
+      const w = n.s[j] || 1;
+      if (m.k === n.k) {
+        const tot = sum(m.s) || 1;
+        m.c.forEach((cc, q) => { kids.push(cc); sizes.push(w * m.s[q] / tot); });
+      } else { kids.push(m); sizes.push(w); }
+    });
+    if (!kids.length) return null;
+    if (kids.length === 1) return kids[0];
+    n.c = kids; n.s = sizes;
+    return n;
+  }
+
+  function replaceNode(loc, node) {
+    if (!loc.p) S.tree = node;
+    else loc.p.c[loc.i] = node;
+  }
+
+  /** Make the stored layout drawable whatever it says: dead tabs and groups
+   *  drop out, every tiled group is in the tree exactly once, and the chart
+   *  is always somewhere. */
   function sanitize() {
     for (const [id, i] of Object.entries(S.inst)) if (!TYPES.has(i.type)) delete S.inst[id];
+    S.inst[CHART] = S.inst[CHART] || { type: CHART, cfg: {} };
     const placed = new Set();
     for (const [gid, g] of Object.entries(S.groups)) {
       g.tabs = g.tabs.filter((t) => S.inst[t] && !placed.has(t));
@@ -139,13 +204,21 @@ const Dock = (() => {
       if (!g.tabs.includes(g.active)) g.active = g.tabs[0];
       if (!g.tabs.length) delete S.groups[gid];
     }
-    for (const z of ZONES) S.zones[z].groups = S.zones[z].groups.filter((g) => S.groups[g]);
     S.floats = S.floats.filter((f) => S.groups[f.gid]);
-    const inZone = new Set([...ZONES.flatMap((z) => S.zones[z].groups),
-                            ...S.floats.map((f) => f.gid)]);
-    for (const gid of Object.keys(S.groups)) if (!inZone.has(gid)) delete S.groups[gid];
+    // a group in the tree twice, or in the tree AND floating, keeps one place
+    const seen = new Set(S.floats.map((f) => f.gid));
+    walk(S.tree, (n) => { if (n.k === "g") { if (seen.has(n.g)) n.g = "\u0000dead"; else seen.add(n.g); } });
+    S.tree = normalize(S.tree);
+    for (const gid of Object.keys(S.groups)) {
+      if (!seen.has(gid)) { S.groups[gid].tabs.forEach((t) => placed.delete(t)); delete S.groups[gid]; }
+    }
+    if (!placed.has(CHART)) {
+      const gid = newGroup([CHART]);
+      S.tree = S.tree ? box("row", [leaf(gid), S.tree], [1, .4]) : leaf(gid);
+      S.tree = normalize(S.tree);
+      placed.add(CHART);
+    }
     S.closed = S.closed.filter((c) => S.inst[c.id] && !placed.has(c.id));
-    // an instance that is neither placed nor remembered as closed is garbage
     const kept = new Set([...placed, ...S.closed.map((c) => c.id)]);
     for (const id of Object.keys(S.inst)) if (!kept.has(id)) delete S.inst[id];
   }
@@ -157,16 +230,13 @@ const Dock = (() => {
 
   /* ── where things are ──────────────────────────────────────────────────── */
 
-  function whereGroup(gid) {
-    for (const z of ZONES) if (S.zones[z].groups.includes(gid)) return { zone: z };
-    const f = S.floats.find((x) => x.gid === gid);
-    return f ? { zone: "float", float: f } : null;
-  }
   const groupOf = (id) => Object.keys(S.groups).find((g) => S.groups[g].tabs.includes(id));
   const instancesOf = (type) => Object.keys(S.inst).filter((id) => S.inst[id].type === type);
   const placedOf = (type) => instancesOf(type).filter((id) => groupOf(id));
+  const floatOf = (gid) => S.floats.find((f) => f.gid === gid);
+  const isBare = (g) => g && g.tabs.length === 1 && g.tabs[0] === CHART && S.lock;
+  const hasChart = (gid) => S.groups[gid] && S.groups[gid].tabs.includes(CHART);
 
-  /** Remove an instance from wherever it sits; empty groups and docks fold. */
   function detach(id) {
     const gid = groupOf(id);
     if (!gid) return null;
@@ -174,16 +244,20 @@ const Dock = (() => {
     const at = g.tabs.indexOf(id);
     g.tabs.splice(at, 1);
     if (g.active === id) g.active = g.tabs[Math.max(0, at - 1)];
-    const where = whereGroup(gid);
-    const place = { zone: where && where.zone, gid,
-                    rect: where && where.float ? { ...where.float } : null };
+    const f = floatOf(gid);
+    const out = { gid, rect: f ? { ...f } : null, float: !!f };
     if (!g.tabs.length) dropGroup(gid);
-    return place;
+    return out;
   }
 
   function dropGroup(gid) {
-    for (const z of ZONES) S.zones[z].groups = S.zones[z].groups.filter((g) => g !== gid);
     S.floats = S.floats.filter((f) => f.gid !== gid);
+    const loc = locate(gid);
+    if (loc) {
+      if (!loc.p) S.tree = null;
+      else { loc.p.c.splice(loc.i, 1); loc.p.s.splice(loc.i, 1); }
+      S.tree = normalize(S.tree);
+    }
     delete S.groups[gid];
     const node = groupEls.get(gid);
     if (node) { node.remove(); groupEls.delete(gid); }
@@ -191,8 +265,60 @@ const Dock = (() => {
 
   function newGroup(tabs) {
     const gid = uid("g");
-    S.groups[gid] = { tabs: [...tabs], active: tabs[0], size: 1 };
+    S.groups[gid] = { tabs: [...tabs], active: tabs[0] };
     return gid;
+  }
+
+  const AXIS = { left: "row", right: "row", top: "col", bottom: "col" };
+  const BEFORE = { left: true, top: true, right: false, bottom: false };
+
+  /** Split tile `target` and put group `gid` on its `side`, taking `share`. */
+  function splitAt(target, side, gid, share = .5) {
+    const loc = locate(target);
+    if (!loc) return addEdge(side, gid);
+    const k = AXIS[side], before = BEFORE[side];
+    if (loc.p && loc.p.k === k) {
+      const w = loc.p.s[loc.i];
+      loc.p.s[loc.i] = w * (1 - share);
+      loc.p.c.splice(loc.i + (before ? 0 : 1), 0, leaf(gid));
+      loc.p.s.splice(loc.i + (before ? 0 : 1), 0, w * share);
+    } else {
+      const pair = before ? [leaf(gid), loc.n] : [loc.n, leaf(gid)];
+      replaceNode(loc, box(k, pair, before ? [share, 1 - share] : [1 - share, share]));
+    }
+  }
+
+  /** A full-height (left/right) or full-width (top/bottom) tile at an edge. */
+  function addEdge(side, gid, share = EDGE_SHARE) {
+    const k = AXIS[side], before = BEFORE[side];
+    if (!S.tree) { S.tree = leaf(gid); return; }
+    if (S.tree.k === k) {
+      const add = sum(S.tree.s) * share / (1 - share);
+      if (before) { S.tree.c.unshift(leaf(gid)); S.tree.s.unshift(add); }
+      else { S.tree.c.push(leaf(gid)); S.tree.s.push(add); }
+    } else {
+      S.tree = box(k, before ? [leaf(gid), S.tree] : [S.tree, leaf(gid)],
+                   before ? [share, 1 - share] : [1 - share, share]);
+    }
+  }
+
+  /** The group already sitting against a canvas edge, if one is (not the
+   *  chart's): a widget opened "on the right" joins it rather than adding a
+   *  fourth sliver beside three. */
+  function edgeGroup(side) {
+    const cv = canvas.getBoundingClientRect();
+    let best = null;
+    for (const gid of treeGroups()) {
+      if (hasChart(gid)) continue;
+      const n = groupEls.get(gid);
+      if (!n || !n.isConnected) continue;
+      const r = n.getBoundingClientRect();
+      const touches = side === "left" ? r.left - cv.left < 3 : side === "right" ? cv.right - r.right < 3
+        : side === "top" ? r.top - cv.top < 3 : cv.bottom - r.bottom < 3;
+      const full = side === "left" || side === "right" ? r.height > cv.height * .45 : r.width > cv.width * .45;
+      if (touches && full && (!best || r.height * r.width > best.a)) best = { gid, a: r.height * r.width };
+    }
+    return best && best.gid;
   }
 
   /** Put instance `id` where a drop (or a menu) said — the one mutation every
@@ -206,62 +332,35 @@ const Dock = (() => {
       g.active = id;
       return;
     }
+    const gid = newGroup([id]);
     if (t.kind === "split") {
-      const w = whereGroup(t.gid);
-      if (!w || w.zone === "float") return place(id, { kind: "tab", gid: t.gid });
-      const list = S.zones[w.zone].groups;
-      const gid = newGroup([id]);
-      list.splice(list.indexOf(t.gid) + (t.after ? 1 : 0), 0, gid);
-      return;
+      if (floatOf(t.gid)) { dropGroup(gid); return place(id, { kind: "tab", gid: t.gid }); }
+      return splitAt(t.gid, t.side, gid, t.share || (hasChart(t.gid) ? .34 : .5));
     }
+    // the chart moved to an edge takes most of the canvas, not a sidebar's share
+    if (t.kind === "edge") return addEdge(t.side, gid, t.share || (id === CHART ? .62 : EDGE_SHARE));
     if (t.kind === "float") {
-      const gid = newGroup([id]);
       S.floats.push({ gid, x: t.x, y: t.y, w: t.w || FLOAT_DEF.w, h: t.h || FLOAT_DEF.h });
       return;
     }
-    // a dock: join its last group as a tab when it has one (a workspace of
-    // tabs reads as one quiet column, not a wall of boxes), else open it
-    const z = S.zones[t.zone] ? t.zone : "right";
-    const list = S.zones[z].groups;
-    if (t.newGroup || !list.length) {
-      const gid = newGroup([id]);
-      if (t.first) list.unshift(gid); else list.push(gid);
-    } else {
-      place(id, { kind: "tab", gid: list[list.length - 1] });
-    }
+    // "zone": a side of the canvas — join what is there, else open a tile
+    const side = t.zone === "left" || t.zone === "bottom" || t.zone === "top" ? t.zone : "right";
+    const there = !t.newGroup && edgeGroup(side);
+    if (there) { dropGroup(gid); return place(id, { kind: "tab", gid: there }); }
+    addEdge(side, gid);
   }
 
-  /* ══ DOM: docks, groups, hosts ══════════════════════════════════════════ */
+  /* ══ DOM ═════════════════════════════════════════════════════════════════ */
 
-  const zoneEl = {}, handleEl = {};
-  const center = document.createElement("div");
-  center.className = "dk-center";
-  charts.parentNode.insertBefore(center, charts);
-  center.appendChild(charts);
-
-  for (const z of ZONES) {
-    const n = document.createElement("section");
-    n.className = `dk-zone dk-${z}`;
-    n.dataset.zone = z;
-    n.setAttribute("aria-label", `${z[0].toUpperCase() + z.slice(1)} widgets`);
-    zoneEl[z] = n;
-    const h = document.createElement("div");
-    h.className = `dk-handle ${z === "bottom" ? "h" : "v"}`;
-    h.dataset.zone = z;
-    h.setAttribute("role", "separator");
-    h.tabIndex = 0;
-    h.title = "Drag to resize · double-click to reset";
-    handleEl[z] = h;
-  }
-  center.after(handleEl.right, zoneEl.right);
-  center.before(zoneEl.left, handleEl.left);
-  center.append(handleEl.bottom, zoneEl.bottom);
-
+  const canvas = document.createElement("div");
+  canvas.className = "dk-canvas";
+  charts.parentNode.insertBefore(canvas, charts);
   const floatLayer = document.createElement("div");
   floatLayer.className = "dk-floats";
-  center.appendChild(floatLayer);
+  canvas.appendChild(floatLayer);
 
   const groupEls = new Map();        // gid → <section>
+  const boxEls = new Map();          // tree node id → row/col <div>
   const hosts = new Map();           // inst id → host element
   const live = new Map();            // inst id → what mount() returned
   const shown = new Set();           // inst ids currently on screen
@@ -295,7 +394,7 @@ const Dock = (() => {
     g.innerHTML =
       `<div class="dk-head">` +
         `<button type="button" class="dk-grip" data-act="grip" title="Drag to move" ` +
-          `aria-label="Move group">${icon("grip")}</button>` +
+          `aria-label="Move">${icon("grip")}</button>` +
         `<div class="dk-tabs" role="tablist"></div>` +
         `<div class="dk-acts"></div>` +
       `</div><div class="dk-body"></div>` +
@@ -304,48 +403,50 @@ const Dock = (() => {
     return g;
   }
 
-  const label = (id) => {
+  const titles = new Map();
+  /** "Notes 2" when there are two of them. */
+  function label(id) {
     const spec = TYPES.get(S.inst[id].type);
-    const sub = titles.get(id);
-    return { title: spec.title, sub: sub || "" };
-  };
-  const titles = new Map();          // inst id → short suffix (a symbol, a preset)
+    let title = spec.title;
+    if (!spec.single) {
+      const n = instancesOf(spec.type).indexOf(id);
+      if (placedOf(spec.type).length > 1 && n > 0) title += ` ${n + 1}`;
+    }
+    return { title, sub: titles.get(id) || "" };
+  }
 
   function paintHead(gid) {
     const g = S.groups[gid], node = groupEl(gid);
-    const tabs = node.querySelector(".dk-tabs");
     const act = S.inst[g.active];
     const spec = act && TYPES.get(act.type);
-    tabs.innerHTML = g.tabs.map((id) => {
+    node.querySelector(".dk-tabs").innerHTML = g.tabs.map((id) => {
       const s = TYPES.get(S.inst[id].type), l = label(id), on = id === g.active;
       return `<button type="button" class="dk-tab${on ? " on" : ""}" role="tab" ` +
         `aria-selected="${on}" data-inst="${id}" title="${esc(l.title + (l.sub ? " · " + l.sub : ""))}">` +
         `${icon(s.icon)}<span class="t">${esc(l.title)}</span>` +
         (l.sub ? `<span class="s">${esc(l.sub)}</span>` : "") +
-        (g.tabs.length > 1 ? `<span class="x" data-act="close-tab" role="button" ` +
+        (g.tabs.length > 1 && id !== CHART ? `<span class="x" data-act="close-tab" role="button" ` +
           `aria-label="Close ${esc(l.title)}">${icon("x")}</span>` : "") +
         `</button>`;
     }).join("") + `<span class="dk-ink" aria-hidden="true"></span>`;
-    const where = whereGroup(gid);
     const btn = (a, ic, t, extra = "") =>
       `<button type="button" class="dk-act" data-act="${a}" title="${t}" aria-label="${t}" ${extra}>${icon(ic)}</button>`;
-    const linked = spec && spec.linkable;
     const cfg = act ? act.cfg : {};
+    const fl = !!floatOf(gid);
     node.querySelector(".dk-acts").innerHTML =
-      (linked ? btn("link", "link", cfg.pin ? `Pinned to ${esc(cfg.pin)} — click to change`
+      (spec && spec.linkable ? btn("link", "link", cfg.pin ? `Pinned to ${esc(cfg.pin)} — click to change`
                                             : "Following the chart — click to change",
                     cfg.pin ? 'data-pinned="1"' : "") : "") +
       (spec && spec.settings && spec.settings.length ? btn("settings", "settings", "Widget settings") : "") +
       btn("more", "more", "More") +
-      (where && where.zone !== "float" ? btn("max", maxed === gid ? "shrink" : "expand",
-                                             maxed === gid ? "Restore" : "Maximize") : "") +
-      btn("close", "x", "Close");
-    node.classList.toggle("is-float", where && where.zone === "float");
+      (!fl ? btn("max", maxed === gid ? "shrink" : "expand", maxed === gid ? "Restore" : "Maximize") : "") +
+      (g.active !== CHART ? btn("close", "x", "Close") : "");
+    node.classList.toggle("is-float", fl);
+    node.classList.toggle("has-chart", g.tabs.includes(CHART));
     requestAnimationFrame(() => paintInk(node));
   }
 
-  /** The active tab's underline is ONE element that slides between tabs, so
-   *  switching reads as motion from where you were, not a flash elsewhere. */
+  /** The active tab's underline is ONE element that slides between tabs. */
   function paintInk(node) {
     const on = node.querySelector(".dk-tab.on"), ink = node.querySelector(".dk-ink");
     if (!on || !ink) return;
@@ -356,97 +457,135 @@ const Dock = (() => {
   /* ══ layout ══════════════════════════════════════════════════════════════ */
 
   let compact = compactMq.matches;
-  let maxed = null;                  // gid of the maximised group, if any
-
-  function viewModel() {
-    // On a phone there is room for the chart and ONE widget, so every open
-    // widget becomes a tab of a single sheet. The stored layout is untouched:
-    // turning the phone back, or the next desktop visit, gets it all back.
-    if (!compact) return { zones: S.zones, floats: S.floats, groups: S.groups };
-    const all = [...ZONES.flatMap((z) => S.zones[z].groups), ...S.floats.map((f) => f.gid)]
-      .flatMap((gid) => S.groups[gid].tabs);
-    // ...and the sheet is out only when it was asked for this visit: a phone
-    // opens on the chart and the conversation, never on yesterday's widgets
-    if (!all.length || !compactSheet.shown) return { zones: { left: { groups: [] }, right: { groups: [] }, bottom: { groups: [] } },
-                              floats: [], groups: {} };
-    const act = Object.values(S.groups).map((g) => g.active).find((a) => all.includes(a)) || all[0];
-    const sheet = compactSheet.active && all.includes(compactSheet.active) ? compactSheet.active : act;
-    compactSheet.active = sheet;
-    return { zones: { left: { groups: [] }, bottom: { groups: [] },
-                      right: { size: S.zones.right.size, groups: ["sheet"] } },
-             floats: [], groups: { sheet: { tabs: all, active: sheet, size: 1 } } };
-  }
+  let maxed = null;
   const compactSheet = { active: null, shown: false };
+
+  /** What is drawn: the stored layout, except in FOCUS (the chart alone) and
+   *  on a PHONE (the chart, and under it one sheet holding every open widget
+   *  as a tab — out only when asked for this visit). Neither touches the
+   *  stored layout. */
+  function viewModel() {
+    if (!compact && !S.focus) return { tree: S.tree, floats: S.floats, groups: S.groups };
+    const groups = { stage: { tabs: [CHART], active: CHART } };
+    const stage = { k: "g", g: "stage", id: "vstage" };
+    if (S.focus || !compact) return { tree: stage, floats: [], groups };
+    const all = [...treeGroups(), ...S.floats.map((f) => f.gid)]
+      .flatMap((gid) => S.groups[gid].tabs).filter((t) => t !== CHART);
+    if (!all.length || !compactSheet.shown) return { tree: stage, floats: [], groups };
+    const act = Object.values(S.groups).map((g) => g.active).find((a) => all.includes(a)) || all[0];
+    compactSheet.active = compactSheet.active && all.includes(compactSheet.active) ? compactSheet.active : act;
+    groups.sheet = { tabs: all, active: compactSheet.active };
+    const portrait = portraitMq.matches;
+    return { tree: { k: portrait ? "col" : "row", id: "vcompact", s: portrait ? [1.15, 1] : [1.5, 1],
+                     c: [stage, { k: "g", g: "sheet", id: "vsheet" }] },
+             floats: [], groups };
+  }
+
+  function renderNode(n) {
+    if (n.k === "g") return groupEl(n.g);
+    let b = boxEls.get(n.id);
+    if (!b) {
+      b = document.createElement("div");
+      boxEls.set(n.id, b);
+    }
+    b.className = `dk-box dk-${n.k}`;
+    const want = [];
+    n.c.forEach((ch, j) => {
+      if (j) {
+        const gut = b.querySelector(`:scope > .dk-gut[data-j="${j}"]`) || document.createElement("div");
+        gut.className = `dk-gut ${n.k === "row" ? "v" : "h"}`;
+        gut.dataset.node = n.id; gut.dataset.j = j;
+        gut.setAttribute("role", "separator");
+        want.push(gut);
+      }
+      const e = renderNode(ch);
+      e.style.flex = `${n.s[j]} 1 0`;
+      want.push(e);
+    });
+    if (n.k === "row") rowMins(n, want.filter((e) => !e.classList.contains("dk-gut")));
+    want.forEach((w, i) => { if (b.children[i] !== w) move(b, w, b.children[i] || null); });
+    while (b.children.length > want.length) b.lastElementChild.remove();
+    return b;
+  }
+
+  /* How narrow each child of a row may get. A widget asks for the width it
+   * can be read at (spec.minW); the chart asks for more. But every ask is
+   * capped at a fair share of the row — the chart's side may claim half, the
+   * rest split what is left — so the asks can never add up to more than the
+   * row and push the chart off the screen on a small display. */
+  const CHART_MIN = 420, TILE_MIN = 220;
+  function minOf(n) {
+    if (n.k === "g") {
+      const g = S.groups[n.g];
+      if (!g) return TILE_MIN;
+      if (g.tabs.includes(CHART)) return CHART_MIN;
+      return Math.max(TILE_MIN, ...g.tabs.map((t) => (TYPES.get(S.inst[t] ? S.inst[t].type : "") || {}).minW || 0));
+    }
+    const m = n.c.map(minOf);
+    return n.k === "row" ? m.reduce((a, b) => a + b, 0) : Math.max(...m);
+  }
+  function rowMins(n, els) {
+    const withChart = n.c.map((ch) => { let f = false; walk(ch, (x) => { if (x.k === "g" && S.groups[x.g] && S.groups[x.g].tabs.includes(CHART)) f = true; }); return f; });
+    const others = withChart.filter((f) => !f).length;
+    const hasChart = withChart.some(Boolean);
+    const chartAsk = `min(${CHART_MIN}px, ${others ? 50 : 100}%)`;
+    const rest = `calc((100% - ${hasChart ? chartAsk : "0px"}) / ${Math.max(1, others)})`;
+    n.c.forEach((ch, j) => {
+      els[j].style.minWidth = compact ? "" : withChart[j] ? chartAsk : `min(${minOf(ch)}px, ${rest})`;
+    });
+  }
 
   function layout(animate) {
     sanitize();
     const before = animate ? snapshot() : null;
     const vm = viewModel();
-    const groupsBefore = S.groups;
-    if (compact) S.groups = { ...S.groups, ...vm.groups };   // paintHead reads S.groups
+    const stored = S.groups;
+    if (vm.groups !== S.groups) S.groups = { ...S.groups, ...vm.groups };
     const visibleNow = new Set();
 
-    for (const z of ZONES) {
-      const zone = zoneEl[z], list = (vm.zones[z] || {}).groups || [];
-      const kids = [];
-      list.forEach((gid, i) => {
-        if (i) kids.push(splitEl(z, list[i - 1], gid));
-        const node = groupEl(gid);
-        node.style.flex = `${S.groups[gid].size || 1} 1 0`;
-        node.style.left = node.style.top = node.style.width = node.style.height = "";
-        kids.push(node);
-      });
-      // re-parent without churn: only move what is not already in order
-      kids.forEach((k, i) => { if (zone.children[i] !== k) zone.insertBefore(k, zone.children[i] || null); });
-      while (zone.children.length > kids.length) zone.lastElementChild.remove();
-      const on = list.length > 0 && !S.focus;
-      zone.classList.toggle("on", on);
-      handleEl[z].classList.toggle("on", on && !compact);
+    const root = vm.tree ? renderNode(vm.tree) : null;
+    if (root) {
+      root.style.flex = "1 1 0";
+      if (canvas.firstElementChild !== root) move(canvas, root, canvas.firstElementChild);
     }
+    for (const c of [...canvas.children]) if (c !== root && c !== floatLayer && !c.classList.contains("dk-hub")) c.remove();
+    // forget boxes no longer in the tree
+    const live_ = new Set(); walk(vm.tree, (n) => live_.add(n.id));
+    for (const id of [...boxEls.keys()]) if (!live_.has(id)) boxEls.delete(id);
 
-    // floats, in z-order (the array order is the stacking order)
     const fl = vm.floats;
-    fl.forEach((f) => {
-      const node = groupEl(f.gid);
-      if (node.parentNode !== floatLayer) floatLayer.appendChild(node);
-      node.style.flex = "";
-    });
-    fl.forEach((f) => floatLayer.appendChild(groupEl(f.gid)));
+    fl.forEach((f) => { const n = groupEl(f.gid); n.style.flex = ""; if (n.parentNode !== floatLayer) move(floatLayer, n, null); });
     [...floatLayer.children].forEach((n) => { if (!fl.some((f) => f.gid === n.dataset.gid)) n.remove(); });
-    floatLayer.classList.toggle("on", fl.length > 0 && !S.focus);
-    placeFloats();
+    floatLayer.classList.toggle("on", fl.length > 0);
 
-    // bodies: the active tab's host is in its group; the others are parked
     for (const gid of Object.keys(vm.groups)) {
       const g = S.groups[gid], node = groupEl(gid), body = node.querySelector(".dk-body");
       for (const id of g.tabs) {
         const h = hostFor(id);
-        if (h.parentNode !== body) body.appendChild(h);
+        if (h.parentNode !== body) move(body, h, null);
         const on = id === g.active;
         h.hidden = !on;
-        if (on && !S.focus) visibleNow.add(id);
+        if (on) visibleNow.add(id);
       }
+      node.classList.toggle("dk-bare", isBare(g) || gid === "stage" && (S.lock || compact || S.focus));
       paintHead(gid);
     }
-    // a host whose instance was closed leaves the page (kept, not destroyed)
     for (const [id, h] of hosts) {
-      if (!Object.keys(vm.groups).some((gid) => S.groups[gid].tabs.includes(id))) {
-        if (h.parentNode) h.parentNode.removeChild(h);
-      }
+      if (!Object.keys(vm.groups).some((gid) => S.groups[gid].tabs.includes(id)) && h.parentNode) h.remove();
     }
-    if (compact) S.groups = groupsBefore;
+    if (vm.groups !== stored) S.groups = stored;
 
     document.body.classList.toggle("dk-focus", !!S.focus);
     document.body.classList.toggle("dk-compact", compact);
+    document.body.classList.toggle("dk-chart-locked", !!S.lock);
     syncVisibility(visibleNow);
-    applySizes();
+    placeFloats();
+    syncDense();
     syncRail();
     if (before) play(before);
     persist();
   }
 
-  /** Mount on first sight, then tell each widget whether it is on screen —
-   *  a widget that is not showing must not poll or animate. */
   function syncVisibility(now) {
     const hidden = document.visibilityState !== "visible";
     for (const id of now) {
@@ -469,49 +608,20 @@ const Dock = (() => {
   let lastVisible = new Set();
   document.addEventListener("visibilitychange", () => syncVisibility(lastVisible));
 
-  function splitEl(zone, a, b) {
-    const n = document.createElement("div");
-    n.className = `dk-split ${zone === "bottom" ? "v" : "h"}`;
-    n.dataset.a = a; n.dataset.b = b;
-    n.setAttribute("role", "separator");
-    return n;
-  }
-
-  /** Widths are stored as the user set them; what is APPLIED is clamped so
-   *  the chart keeps CENTER_MIN — a narrower window shrinks the docks for now
-   *  without forgetting the size they had. */
-  function applySizes() {
-    const W = main.clientWidth - (el("rail") ? el("rail").offsetWidth : 0)
-      - (el("chatPanel") && !el("chatPanel").classList.contains("hidden") ? el("chatPanel").offsetWidth : 0);
-    const L = zoneEl.left.classList.contains("on") ? S.zones.left.size : 0;
-    const R = zoneEl.right.classList.contains("on") ? S.zones.right.size : 0;
-    const room = Math.max(0, W - CENTER_MIN);
-    const k = L + R > room && L + R > 0 ? room / (L + R) : 1;
-    if (!compact) {
-      zoneEl.left.style.width = L ? Math.max(MIN.left * Math.min(1, k), Math.round(L * k)) + "px" : "";
-      zoneEl.right.style.width = R ? Math.max(MIN.right * Math.min(1, k), Math.round(R * k)) + "px" : "";
-      const H = center.clientHeight;
-      zoneEl.bottom.style.height = zoneEl.bottom.classList.contains("on")
-        ? clamp(S.zones.bottom.size, MIN.bottom, Math.max(MIN.bottom, H * .62)) + "px" : "";
-    } else {
-      zoneEl.left.style.width = zoneEl.right.style.width = zoneEl.bottom.style.height = "";
-    }
-    // The OHLC figures stand down when the chart is too narrow to hold them
-    // on one line (see .two-columns in the stylesheet).
+  /** The OHLC figures stand down when the chart is too narrow for one line. */
+  function syncDense() {
     requestAnimationFrame(() => document.body.classList.toggle("two-columns",
       !compact && charts.clientWidth > 0 && charts.clientWidth < 640));
   }
-  addEventListener("resize", () => { unmax(); applySizes(); placeFloats(); });
-  // the chat column opening or closing changes the room the docks have
-  if (window.ResizeObserver && el("chatPanel")) {
-    new ResizeObserver(() => applySizes()).observe(el("chatPanel"));
-  }
+  addEventListener("resize", () => { unmax(); placeFloats(); syncDense(); });
+  if (window.ResizeObserver) new ResizeObserver(() => { placeFloats(); syncDense(); }).observe(canvas);
 
   function placeFloats() {
-    const W = center.clientWidth, H = center.clientHeight;
+    const W = floatLayer.clientWidth, H = floatLayer.clientHeight;
+    if (!W || !H) return;
     for (const f of S.floats) {
       const node = groupEls.get(f.gid);
-      if (!node) continue;
+      if (!node || maxed === f.gid) continue;
       f.w = clamp(f.w, 240, Math.max(240, W - 16));
       f.h = clamp(f.h, 160, Math.max(160, H - 16));
       f.x = clamp(f.x, 8, Math.max(8, W - f.w - 8));
@@ -521,7 +631,7 @@ const Dock = (() => {
     }
   }
 
-  /* ── FLIP: things that moved glide from where they were ────────────────── */
+  /* ── FLIP: tiles that moved glide from where they were ─────────────────── */
   function snapshot() {
     const m = new Map();
     for (const [gid, n] of groupEls) if (n.isConnected) m.set(gid, n.getBoundingClientRect());
@@ -534,30 +644,31 @@ const Dock = (() => {
       const a = before.get(gid), b = n.getBoundingClientRect();
       if (!b.width) continue;
       if (!a) {
-        n.animate([{ opacity: 0, transform: "scale(.975)" }, { opacity: 1, transform: "none" }],
-                  { duration: 180, easing: "cubic-bezier(.22,1,.36,1)" });
+        n.animate([{ opacity: 0, transform: "scale(.98)" }, { opacity: 1, transform: "none" }],
+                  { duration: 200, easing: "cubic-bezier(.22,1,.36,1)" });
         continue;
       }
       const dx = a.left - b.left, dy = a.top - b.top;
-      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
-      n.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }],
-                { duration: 220, easing: "cubic-bezier(.22,1,.36,1)" });
+      const sx = a.width / b.width, sy = a.height / b.height;
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1 && Math.abs(sx - 1) < .01 && Math.abs(sy - 1) < .01) continue;
+      n.animate([{ transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`, transformOrigin: "0 0" },
+                 { transform: "none", transformOrigin: "0 0" }],
+                { duration: 240, easing: "cubic-bezier(.22,1,.36,1)" });
     }
   }
 
   /* ══ opening and closing ═════════════════════════════════════════════════ */
 
   /** Open a widget type. A single-instance widget comes back where it was; a
-   *  multi-instance one reopens its most recently closed copy (so a note you
-   *  closed is still that note) unless `fresh` asks for a new one. */
+   *  multi-instance one reopens its most recently closed copy unless `fresh`
+   *  asks for a new one, which lands beside the copy already open. */
   function open(type, where, opts = {}) {
     const spec = TYPES.get(type);
-    if (!spec) return null;
+    if (!spec || type === CHART) return null;
     if (S.focus) S.focus = false;
     let id = !opts.fresh ? placedOf(type)[0] : null;
     if (id && !where) {
-      const gid = groupOf(id);
-      S.groups[gid].active = id;
+      S.groups[groupOf(id)].active = id;
       compactSheet.active = id;
       if (compact && !compactSheet.shown) { compactSheet.shown = true; phoneMakeRoom(); }
       layout(true);
@@ -574,7 +685,7 @@ const Dock = (() => {
         id = ci;
       } else {
         id = spec.single ? type : uid(type + ":");
-        if (spec.single && S.inst[id]) { /* reuse */ } else {
+        if (!(spec.single && S.inst[id])) {
           S.inst[id] = { type, cfg: { ...(spec.defaults || {}), ...(opts.cfg || {}) } };
         }
       }
@@ -582,11 +693,14 @@ const Dock = (() => {
       detach(id);
     }
     let target = where;
+    if (!target && opts.fresh) {
+      const sib = placedOf(type).find((x) => x !== id);
+      const sg = sib && groupOf(sib);
+      if (sg && !floatOf(sg)) target = { kind: "split", gid: sg, side: "bottom" };
+    }
     if (!target && remembered) {
-      target = remembered.zone === "float" && remembered.rect
-        ? { kind: "float", ...remembered.rect }
-        : S.groups[remembered.gid] ? { kind: "tab", gid: remembered.gid }
-        : { kind: "zone", zone: remembered.zone || spec.zone || "right" };
+      target = remembered.float && remembered.rect ? { kind: "float", ...remembered.rect }
+        : S.groups[remembered.gid] ? { kind: "tab", gid: remembered.gid } : null;
     }
     place(id, target || { kind: "zone", zone: spec.zone || "right" });
     compactSheet.active = id;
@@ -598,17 +712,15 @@ const Dock = (() => {
   }
 
   function close(id) {
-    if (!S.inst[id]) return;
-    const placeAt = detach(id);
-    if (placeAt) S.closed.push({ id, zone: placeAt.zone, gid: placeAt.gid, rect: placeAt.rect });
+    if (!S.inst[id] || id === CHART) return;
+    const at = detach(id);
+    if (at) S.closed.push({ id, ...at });
     S.closed = S.closed.slice(-24);
     if (maxed && !S.groups[maxed]) unmax();
     layout(true);
     if (compact) phoneRestore();
   }
 
-  /** On a phone, putting the sheet away is not closing anything: the widgets
-   *  stay where the desktop layout has them. */
   function hideSheet() {
     compactSheet.shown = false;
     layout(false);
@@ -626,8 +738,6 @@ const Dock = (() => {
     return open(type);
   }
 
-  /** The widget you just summoned says where it is: one soft pulse on its
-   *  group, so a tab that landed in an existing stack is found, not hunted. */
   function flash(id) {
     const gid = compact ? "sheet" : groupOf(id);
     const n = gid && groupEls.get(gid);
@@ -644,54 +754,74 @@ const Dock = (() => {
     S.inst[copy] = { type: i.type, cfg: JSON.parse(JSON.stringify(i.cfg || {})) };
     const api = live.get(id);
     if (api && api.duplicate) try { api.duplicate(copy); } catch { }
-    place(copy, { kind: "tab", gid: groupOf(id), index: S.groups[groupOf(id)].tabs.indexOf(id) + 1 });
+    const gid = groupOf(id);
+    place(copy, floatOf(gid) ? { kind: "tab", gid } : { kind: "split", gid, side: "bottom" });
     layout(true);
   }
 
-  function moveTo(id, zone) {
-    const from = groupOf(id);
-    const rectHint = from && groupEls.get(from) ? groupEls.get(from).getBoundingClientRect() : null;
-    detach(id);
-    if (zone === "float") {
-      const c = center.getBoundingClientRect();
-      const x = rectHint ? rectHint.left - c.left : c.width / 2 - FLOAT_DEF.w / 2;
-      place(id, { kind: "float", x: clamp(x, 16, c.width - FLOAT_DEF.w - 16), y: 24 });
+  /** Menu moves: a whole tile to an edge of the canvas, or into a window. */
+  function moveTo(id, where) {
+    const gid = groupOf(id);
+    const rect = gid && groupEls.get(gid) ? groupEls.get(gid).getBoundingClientRect() : null;
+    const g = gid && S.groups[gid];
+    // the chart travels with its whole tile; a widget travels alone
+    const tabs = id === CHART && g ? [...g.tabs] : [id];
+    const active = g ? g.active : id;
+    tabs.forEach((t) => detach(t));
+    if (where === "float") {
+      const c = floatLayer.getBoundingClientRect();
+      const x = rect ? rect.left - c.left : c.width / 2 - FLOAT_DEF.w / 2;
+      place(tabs[0], { kind: "float", x: clamp(x, 16, c.width - FLOAT_DEF.w - 16), y: 24 });
     } else {
-      place(id, { kind: "zone", zone, newGroup: true });
+      place(tabs[0], { kind: "edge", side: where });
+    }
+    const ng = groupOf(tabs[0]);
+    tabs.slice(1).forEach((t) => S.groups[ng].tabs.push(t));
+    S.groups[ng].active = active;
+    layout(true);
+  }
+
+  function setLock(on) {
+    S.lock = on == null ? !S.lock : !!on;
+    if (S.lock) {
+      // locked, the chart is a tile of its own
+      const gid = groupOf(CHART);
+      if (!gid || S.groups[gid].tabs.length > 1 || floatOf(gid)) {
+        detach(CHART);
+        const g = newGroup([CHART]);
+        S.tree = S.tree ? box("row", [leaf(g), S.tree], [1, .5]) : leaf(g);
+      }
     }
     layout(true);
+    toast(S.lock ? "The chart is locked in place." : "The chart can be moved by its handle, like any widget.");
   }
 
   /* ── the phone: a widget takes the conversation's slot ─────────────────── */
   let restoreChat = false;
   const chatOpen = () => el("chatPanel") && !el("chatPanel").classList.contains("hidden");
   function phoneMakeRoom() {
-    if (!compactMq.matches || !window.matchMedia("(orientation: portrait)").matches) return;
+    if (!compactMq.matches || !portraitMq.matches) return;
     if (chatOpen() && el("chatToggle")) { restoreChat = true; el("chatToggle").click(); }
   }
   function phoneRestore() {
-    const any = compactSheet.shown && Object.values(S.groups).some((g) => g.tabs.length);
-    if (!any && restoreChat && !chatOpen() && el("chatToggle")) {
-      restoreChat = false; el("chatToggle").click();
-    }
+    if (compactSheet.shown && lastVisible.size > 1) return;
+    if (restoreChat && !chatOpen() && el("chatToggle")) { restoreChat = false; el("chatToggle").click(); }
   }
   if (el("chatToggle")) {
     el("chatToggle").addEventListener("click", () => {
-      // opening the chat on a phone puts the widget sheet away
       setTimeout(() => {
-        if (compact && compactMq.matches && matchMedia("(orientation: portrait)").matches
-            && chatOpen() && lastVisible.size) {
+        if (compact && compactMq.matches && portraitMq.matches && chatOpen() && compactSheet.shown) {
           restoreChat = false;
           compactSheet.shown = false;
           layout(false);
         }
-        applySizes();
+        placeFloats(); syncDense();
       }, 0);
     });
   }
   compactMq.addEventListener("change", () => { compact = compactMq.matches; unmax(); layout(false); });
 
-  /* ══ focus mode and fullscreen ══════════════════════════════════════════ */
+  /* ══ focus, fullscreen, maximise ════════════════════════════════════════ */
 
   function setFocus(on) {
     S.focus = on == null ? !S.focus : !!on;
@@ -708,9 +838,7 @@ const Dock = (() => {
       if (p && p.catch) p.catch(() => toast("Fullscreen is not available in this window."));
     } catch { toast("Fullscreen is not available in this window."); }
   }
-  document.addEventListener("fullscreenchange", syncHeader);
-
-  /* ══ maximise one group over the workspace ══════════════════════════════ */
+  document.addEventListener("fullscreenchange", () => { syncHeader(); setTimeout(placeFloats, 60); });
 
   function max(gid) {
     if (maxed === gid) return unmax();
@@ -719,34 +847,27 @@ const Dock = (() => {
     if (!node) return;
     const from = node.getBoundingClientRect();
     maxed = gid;
-    // over the whole workspace — both docks and the chart — but never over
-    // the rail or the conversation, which stay where the hand expects them
-    const a = (zoneEl.left.classList.contains("on") ? zoneEl.left : center).getBoundingClientRect();
-    const b = (zoneEl.right.classList.contains("on") ? zoneEl.right : center).getBoundingClientRect();
-    const c = center.getBoundingClientRect();
-    Object.assign(node.style, { left: a.left + "px", top: c.top + "px",
-                                width: b.right - a.left + "px", height: c.height + "px" });
+    const ws = canvas.getBoundingClientRect();
+    Object.assign(node.style, { left: ws.left + "px", top: ws.top + "px",
+                                width: ws.width + "px", height: ws.height + "px" });
     node.classList.add("dk-maxed");
-    main.classList.add("dk-has-max");
     paintHead(gid);
     if (!reduced.matches) {
       const to = node.getBoundingClientRect();
       node.animate([{ transform: `translate(${from.left - to.left}px, ${from.top - to.top}px) ` +
-                                 `scale(${from.width / to.width}, ${from.height / to.height})`,
-                      transformOrigin: "0 0" },
+                                 `scale(${from.width / to.width}, ${from.height / to.height})`, transformOrigin: "0 0" },
                     { transform: "none", transformOrigin: "0 0" }],
-                   { duration: 220, easing: "cubic-bezier(.22,1,.36,1)" });
+                   { duration: 240, easing: "cubic-bezier(.22,1,.36,1)" });
     }
   }
   function unmax() {
     if (!maxed) return;
     const n = groupEls.get(maxed);
     maxed = null;
-    main.classList.remove("dk-has-max");
     if (n) {
       n.classList.remove("dk-maxed");
-      if (!n.classList.contains("is-float")) n.style.left = n.style.top = n.style.width = n.style.height = "";
-      else placeFloats();
+      n.style.left = n.style.top = n.style.width = n.style.height = "";
+      if (n.classList.contains("is-float")) placeFloats();
     }
     for (const gid of Object.keys(S.groups)) if (groupEls.has(gid)) paintHead(gid);
   }
@@ -760,9 +881,6 @@ const Dock = (() => {
     document.removeEventListener("pointerdown", popOff, true);
     popOff = null;
   }
-  /** One floating sheet at a time, hung off an anchor or a point. Items are
-   *  { id, label, icon, on, off, sep, head, hint } or raw HTML for bespoke
-   *  sheets (the settings form, the catalogue). */
   function menu(anchor, items, onPick, cls = "") {
     const again = pop && pop.__anchor === anchor;
     closePop();
@@ -800,25 +918,31 @@ const Dock = (() => {
 
   function moreMenu(anchor, id) {
     const spec = TYPES.get(S.inst[id].type);
-    const z = whereGroup(groupOf(id));
     const api = live.get(id) || {};
+    const chart = id === CHART;
+    const fl = !!floatOf(groupOf(id));
     menu(anchor, [
-      { head: spec.title },
+      { head: label(id).title },
       ...(api.ask ? [{ id: "ask", label: "Ask in chat", icon: "chat" }] : []),
-      ...(!spec.single ? [{ id: "dup", label: "Duplicate", icon: "copy" }] : []),
+      ...(!spec.single && !chart ? [{ id: "new", label: `New ${spec.title.toLowerCase()}`, icon: "plus" },
+                                   { id: "dup", label: "Duplicate", icon: "copy" }] : []),
       ...(spec.settings && spec.settings.length ? [{ id: "settings", label: "Settings", icon: "settings" }] : []),
-      ...(compact ? [] : [{ sep: true }, { head: "Move to" },
-        { id: "mv:left", label: "Left dock", icon: "panelLeft", on: z && z.zone === "left" },
-        { id: "mv:right", label: "Right dock", icon: "panelRight", on: z && z.zone === "right" },
-        { id: "mv:bottom", label: "Bottom dock", icon: "panelBottom", on: z && z.zone === "bottom" },
-        { id: "mv:float", label: "Floating window", icon: "float", on: z && z.zone === "float" }]),
-      { sep: true },
-      { id: "close", label: "Close", icon: "x", hint: "" },
+      ...(compact || (chart && S.lock) ? [] : [{ sep: true }, { head: "Move to" },
+        { id: "mv:left", label: "Left edge", icon: "panelLeft" },
+        { id: "mv:right", label: "Right edge", icon: "panelRight" },
+        { id: "mv:top", label: "Top edge", icon: "panelBottom" },
+        { id: "mv:bottom", label: "Bottom edge", icon: "panelBottom" },
+        { id: "mv:float", label: "Floating window", icon: "float", on: fl }]),
+      ...(chart ? [{ sep: true }, { id: "lock", label: S.lock ? "Unlock the chart" : "Lock the chart in place",
+                                    icon: S.lock ? "unlock" : "lock" }]
+                : [{ sep: true }, { id: "close", label: "Close", icon: "x" }]),
     ], (pick) => {
       if (pick === "ask") return askFrom(id);
+      if (pick === "new") return open(spec.type, null, { fresh: true });
       if (pick === "dup") return duplicate(id);
       if (pick === "settings") return setTimeout(() => settingsSheet(anchor, id), 0);
       if (pick === "close") return close(id);
+      if (pick === "lock") return setLock();
       if (pick.startsWith("mv:")) return moveTo(id, pick.slice(3));
     });
   }
@@ -827,11 +951,9 @@ const Dock = (() => {
     const api = live.get(id) || {};
     const text = api.ask && api.ask();
     if (text && window.Chat && window.Chat.compose) window.Chat.compose(text);
+    else if (!text) toast("There is nothing in this widget to ask about yet.");
   }
 
-  /** The settings a widget declared, drawn as a short form. Every change is
-   *  live — there is no Apply, because every one of these is reversible by
-   *  the same control that made it. */
   function settingsSheet(anchor, id) {
     const spec = TYPES.get(S.inst[id].type), cfg = S.inst[id].cfg;
     const row = (s) => {
@@ -857,8 +979,7 @@ const Dock = (() => {
       const seg = b.parentNode;
       seg.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
       const s = spec.settings.find((x) => x.key === seg.dataset.key);
-      const raw = b.dataset.v;
-      setCfg(id, { [seg.dataset.key]: typeof s.def === "number" ? Number(raw) : raw });
+      setCfg(id, { [seg.dataset.key]: typeof s.def === "number" ? Number(b.dataset.v) : b.dataset.v });
     });
   }
 
@@ -899,7 +1020,7 @@ const Dock = (() => {
     if (!text) { toastEl.classList.remove("on"); return; }
     toastEl.textContent = text;
     toastEl.classList.add("on");
-    toastT = setTimeout(() => toastEl.classList.remove("on"), 2600);
+    toastT = setTimeout(() => toastEl.classList.remove("on"), 2800);
   }
 
   /* ══ the widget's handle on the dock ════════════════════════════════════ */
@@ -909,28 +1030,35 @@ const Dock = (() => {
       id,
       get cfg() { return S.inst[id] ? S.inst[id].cfg : {}; },
       setCfg: (patch) => setCfg(id, patch),
-      /** The instrument this widget is about: the chart's, unless pinned. */
       symbol: () => (S.inst[id] && S.inst[id].cfg.pin) || pageSymbol(),
       pageSymbol,
       setTitle: (sub) => {
         if (titles.get(id) === sub) return;
         titles.set(id, sub);
         const gid = compact ? "sheet" : groupOf(id);
-        if (gid && groupEls.has(gid)) {
-          if (compact) { layout(false); } else paintHead(gid);
-        }
+        if (gid && groupEls.has(gid) && S.groups[gid]) paintHead(gid);
+        else if (compact) layout(false);
       },
       visible: () => shown.has(id),
       compose: (text) => window.Chat && window.Chat.compose && window.Chat.compose(text),
+      /** Hand something to another widget, opening one if none is open. */
+      send: (type, payload) => sendTo(type, payload),
+      close: () => close(id),
       openSymbol, warm, menu, toast,
     };
   }
 
-  /* ══ dragging ════════════════════════════════════════════════════════════
-   * One gesture, four outcomes, decided by where the pointer is when it
-   * lets go — and SHOWN before it lets go: a single preview plate glides
-   * between candidate spots, so the drop is never a surprise. Escape, or
-   * letting go anywhere that is not a target, puts everything back. */
+  function sendTo(type, payload) {
+    let id = placedOf(type).find((x) => lastVisible.has(x)) || placedOf(type)[0];
+    id = id ? (open(type), id) : open(type);
+    const api = id && ensureMounted(id);
+    if (api && api.receive) {
+      try { api.receive(payload); } catch (e) { console.error("[dock] receive", e); }
+    }
+    return id;
+  }
+
+  /* ══ dragging ════════════════════════════════════════════════════════════ */
 
   const ghost = document.createElement("div");
   ghost.className = "dk-ghost";
@@ -944,7 +1072,7 @@ const Dock = (() => {
     // source: { kind: "inst", id } | { kind: "group", gid } | { kind: "new", type }
     const x0 = e.clientX, y0 = e.clientY;
     const pid = e.pointerId;
-    const move = (ev) => {
+    const mv = (ev) => {
       if (ev.pointerId !== pid) return;
       if (!drag) {
         if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 5) return;
@@ -955,12 +1083,12 @@ const Dock = (() => {
     };
     const up = (ev) => {
       if (ev.pointerId !== pid) return;
-      removeEventListener("pointermove", move);
+      removeEventListener("pointermove", mv);
       removeEventListener("pointerup", up);
       removeEventListener("pointercancel", up);
       if (drag) finishDrag(ev.type === "pointerup");
     };
-    addEventListener("pointermove", move);
+    addEventListener("pointermove", mv);
     addEventListener("pointerup", up);
     addEventListener("pointercancel", up);
   }
@@ -968,17 +1096,17 @@ const Dock = (() => {
   function startDrag(source, ev) {
     closePop();
     unmax();
-    let title, ic;
+    let title, spec;
     if (source.kind === "new") {
-      const s = TYPES.get(source.type); title = s.title; ic = s.icon;
+      spec = TYPES.get(source.type); title = spec.title;
     } else {
       const id = source.kind === "inst" ? source.id : S.groups[source.gid].active;
-      const s = TYPES.get(S.inst[id].type); title = label(id).title; ic = s.icon;
+      spec = TYPES.get(S.inst[id].type); title = label(id).title;
       if (source.kind === "group" && S.groups[source.gid].tabs.length > 1) {
         title += ` +${S.groups[source.gid].tabs.length - 1}`;
       }
     }
-    ghost.innerHTML = `${icon(ic)}<span>${esc(title)}</span>`;
+    ghost.innerHTML = `${icon(spec.icon)}<span>${esc(title)}</span>`;
     drag = { source, x: ev.clientX, y: ev.clientY, target: null, raf: 0 };
     document.body.classList.add("dk-dragging");
     ghost.classList.add("on");
@@ -1006,93 +1134,86 @@ const Dock = (() => {
     drag.target = t;
     if (!t) { preview.classList.remove("on"); return; }
     const r = t.rect;
-    preview.classList.toggle("caret", t.kind === "tab");
+    preview.classList.toggle("caret", t.kind === "tab" && !t.merge);
     Object.assign(preview.style, { left: r.left + "px", top: r.top + "px",
                                    width: r.width + "px", height: r.height + "px" });
     preview.classList.add("on");
   }
 
-  const R = (a) => ({ left: a.left, top: a.top, width: a.width, height: a.height,
-                      right: a.right, bottom: a.bottom });
+  const inside = (x, y, r) => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
 
   /** What dropping at (x, y) would do, and the rectangle that shows it. */
   function hit(x, y) {
     const src = drag.source;
     const srcGid = src.kind === "group" ? src.gid : src.kind === "inst" ? groupOf(src.id) : null;
     const lonely = srcGid && (src.kind === "group" || S.groups[srcGid].tabs.length === 1);
-    // 1 · a tab strip: join that group, at the slot under the pointer
-    for (const [gid, n] of groupEls) {
-      if (!n.isConnected || gid === "sheet") continue;
-      const head = n.querySelector(".dk-head").getBoundingClientRect();
-      if (x < head.left || x > head.right || y < head.top || y > head.bottom) continue;
-      if (lonely && gid === srcGid) return null;
-      const tabs = [...n.querySelectorAll(".dk-tab")];
-      let index = tabs.length, cx = tabs.length
-        ? tabs[tabs.length - 1].getBoundingClientRect().right : head.left + 34;
-      for (let i = 0; i < tabs.length; i++) {
-        const tr = tabs[i].getBoundingClientRect();
-        if (x < tr.left + tr.width / 2) { index = i; cx = tr.left; break; }
-      }
-      return { kind: "tab", gid, index, rect: { left: cx - 1.5, top: head.top + 6, width: 3, height: head.height - 12 } };
-    }
-    // 2 · a group's body: its own half (split), or its middle (join)
-    for (const [gid, n] of groupEls) {
-      if (!n.isConnected || gid === "sheet") continue;
-      const b = n.getBoundingClientRect();
-      if (x < b.left || x > b.right || y < b.top || y > b.bottom) continue;
-      if (lonely && gid === srcGid) return null;
-      const w = whereGroup(gid);
-      if (w && w.zone !== "float") {
-        const horiz = w.zone === "bottom";
-        const f = horiz ? (x - b.left) / b.width : (y - b.top) / b.height;
-        if (f < .33 || f > .67) {
-          const after = f > .5;
-          const rect = horiz
-            ? { left: after ? b.left + b.width / 2 : b.left, top: b.top, width: b.width / 2, height: b.height }
-            : { left: b.left, top: after ? b.top + b.height / 2 : b.top, width: b.width, height: b.height / 2 };
-          return { kind: "split", gid, after, rect };
-        }
-      }
-      return { kind: "tab", gid, index: null, rect: R(b), merge: true };
-    }
-    // 3 · the chart: an edge opens a dock there, the middle floats it
-    const c = center.getBoundingClientRect();
-    const bz = zoneEl.bottom.classList.contains("on") ? zoneEl.bottom.getBoundingClientRect() : null;
-    const top = c.top, bottom = bz ? bz.top : c.bottom;
-    if (x < c.left || x > c.right || y < top || y > bottom) {
-      // over an open dock's empty space (below its last group)
-      for (const z of ["left", "right"]) {
-        const zr = zoneEl[z].getBoundingClientRect();
-        if (zoneEl[z].classList.contains("on") && x >= zr.left && x <= zr.right && y >= zr.top && y <= zr.bottom) {
-          return { kind: "zone", zone: z, newGroup: true, rect: { left: zr.left, top: zr.bottom - zr.height / 3, width: zr.width, height: zr.height / 3 } };
-        }
-      }
-      return null;
-    }
-    const band = Math.min(120, c.width * .18);
-    const vband = Math.min(140, (bottom - top) * .26);
-    const zoneRect = (z) => {
-      const on = zoneEl[z].classList.contains("on");
-      if (z === "left") {
-        if (on) { const r = zoneEl.left.getBoundingClientRect(); return { left: r.left, top: r.bottom - r.height / 3, width: r.width, height: r.height / 3 }; }
-        return { left: c.left, top, width: Math.min(S.zones.left.size, c.width * .42), height: bottom - top };
-      }
-      if (z === "right") {
-        if (on) { const r = zoneEl.right.getBoundingClientRect(); return { left: r.left, top: r.bottom - r.height / 3, width: r.width, height: r.height / 3 }; }
-        const w = Math.min(S.zones.right.size, c.width * .42);
-        return { left: c.right - w, top, width: w, height: bottom - top };
-      }
-      if (on) { const r = bz; return { left: r.right - r.width / 3, top: r.top, width: r.width / 3, height: r.height }; }
-      const h = Math.min(S.zones.bottom.size, (bottom - top) * .5);
-      return { left: c.left, top: bottom - h, width: c.width, height: h };
+    const movingChart = (src.kind === "inst" && src.id === CHART)
+      || (src.kind === "group" && hasChart(src.gid));
+    const ws = canvas.getBoundingClientRect();
+    if (!inside(x, y, ws) || (hubOpen && hubEl && inside(x, y, hubEl.getBoundingClientRect()) && !hubEl.classList.contains("away"))) return null;
+
+    // 0 · the canvas edges: a new full-height or full-width tile
+    const EDGE = 18;
+    const sideRect = (side) => {
+      const w = ws.width * EDGE_SHARE, h = ws.height * EDGE_SHARE;
+      return side === "left" ? { left: ws.left, top: ws.top, width: w, height: ws.height }
+        : side === "right" ? { left: ws.right - w, top: ws.top, width: w, height: ws.height }
+        : side === "top" ? { left: ws.left, top: ws.top, width: ws.width, height: h }
+        : { left: ws.left, top: ws.bottom - h, width: ws.width, height: h };
     };
-    if (x - c.left < band) return { kind: "zone", zone: "left", newGroup: true, rect: zoneRect("left") };
-    if (c.right - x < band) return { kind: "zone", zone: "right", newGroup: true, rect: zoneRect("right") };
-    if (bottom - y < vband) return { kind: "zone", zone: "bottom", newGroup: true, rect: zoneRect("bottom") };
-    const fw = FLOAT_DEF.w, fh = FLOAT_DEF.h;
-    const fx = clamp(x - fw / 2, c.left + 8, c.right - fw - 8);
-    const fy = clamp(y - 18, top + 8, bottom - fh - 8);
-    return { kind: "float", x: fx - c.left, y: fy - c.top, rect: { left: fx, top: fy, width: fw, height: fh } };
+    for (const [side, d] of [["left", x - ws.left], ["right", ws.right - x], ["top", y - ws.top], ["bottom", ws.bottom - y]]) {
+      if (d < EDGE) return { kind: "edge", side, rect: sideRect(side) };
+    }
+
+    // windows first (they are on top), then the tiles
+    const order = [...[...floatLayer.children].reverse(),
+                   ...[...groupEls.values()].filter((n) => n.parentNode !== floatLayer)]
+      .filter((n) => n.isConnected && S.groups[n.dataset.gid] && n.dataset.gid !== "stage" && n.dataset.gid !== "sheet");
+    for (const n of order) {
+      const gid = n.dataset.gid;
+      const b = n.getBoundingClientRect();
+      if (!inside(x, y, b)) continue;
+      if (lonely && gid === srcGid) return null;
+      const g = S.groups[gid];
+      const fl = !!floatOf(gid);
+      // 1 · a tab strip: join, at the slot under the pointer
+      if (!isBare(g) && !movingChart) {
+        const head = n.querySelector(".dk-head").getBoundingClientRect();
+        if (inside(x, y, head)) {
+          const tabs = [...n.querySelectorAll(".dk-tab")];
+          let index = tabs.length, cx = tabs.length ? tabs[tabs.length - 1].getBoundingClientRect().right : head.left + 34;
+          for (let i = 0; i < tabs.length; i++) {
+            const tr = tabs[i].getBoundingClientRect();
+            if (x < tr.left + tr.width / 2) { index = i; cx = tr.left; break; }
+          }
+          return { kind: "tab", gid, index, rect: { left: cx - 1.5, top: head.top + 6, width: 3, height: head.height - 12 } };
+        }
+      }
+      // 2 · a side of the tile: split it there
+      if (!fl) {
+        const fx = (x - b.left) / b.width, fy = (y - b.top) / b.height;
+        const d = [["left", fx], ["right", 1 - fx], ["top", fy], ["bottom", 1 - fy]].sort((a, c) => a[1] - c[1])[0];
+        if (d[1] < .3) {
+          const share = hasChart(gid) && !movingChart ? .34 : .5;
+          const side = d[0];
+          const rect = side === "left" ? { left: b.left, top: b.top, width: b.width * share, height: b.height }
+            : side === "right" ? { left: b.right - b.width * share, top: b.top, width: b.width * share, height: b.height }
+            : side === "top" ? { left: b.left, top: b.top, width: b.width, height: b.height * share }
+            : { left: b.left, top: b.bottom - b.height * share, width: b.width, height: b.height * share };
+          return { kind: "split", gid, side, share, rect };
+        }
+      }
+      // 3 · the middle: join as a tab — but the chart is never covered by a
+      // tab, and is never put into another widget's stack; there it floats
+      if (hasChart(gid) || movingChart) break;
+      return { kind: "tab", gid, index: null, merge: true,
+               rect: { left: b.left, top: b.top, width: b.width, height: b.height } };
+    }
+    const fw = Math.min(FLOAT_DEF.w, ws.width - 16), fh = Math.min(FLOAT_DEF.h, ws.height - 16);
+    const fx = clamp(x - fw / 2, ws.left + 8, ws.right - fw - 8);
+    const fy = clamp(y - 18, ws.top + 8, ws.bottom - fh - 8);
+    return { kind: "float", x: fx - ws.left, y: fy - ws.top, w: fw, h: fh,
+             rect: { left: fx, top: fy, width: fw, height: fh } };
   }
 
   function finishDrag(commit) {
@@ -1103,19 +1224,21 @@ const Dock = (() => {
     document.body.classList.remove("dk-dragging");
     document.querySelectorAll(".dk-src").forEach((n) => n.classList.remove("dk-src"));
     preview.classList.remove("on", "caret");
+    if (hubEl) hubEl.classList.remove("away");
     const t = commit ? d.target : null;
     if (!t) { ghost.classList.remove("on"); return; }
     const src = d.source;
     const before = snapshot();
     if (src.kind === "new") {
-      open(src.type, t);
+      open(src.type, t, { fresh: !TYPES.get(src.type).single && !!placedOf(src.type).length });
     } else if (src.kind === "inst") {
       if (t.kind === "tab" && groupOf(src.id) === t.gid) {
-        // reorder inside the same strip
         const g = S.groups[t.gid], from = g.tabs.indexOf(src.id);
         let to = t.index == null ? g.tabs.length : t.index;
         if (to > from) to -= 1;
         g.tabs.splice(from, 1); g.tabs.splice(to, 0, src.id); g.active = src.id;
+      } else if (t.kind === "split" && t.gid === groupOf(src.id) && S.groups[t.gid].tabs.length === 1) {
+        // splitting a tile with itself is not a move
       } else {
         detach(src.id);
         place(src.id, t);
@@ -1123,56 +1246,52 @@ const Dock = (() => {
       layout(false); play(before);
     } else if (src.kind === "group") {
       const g = S.groups[src.gid];
-      if (!g) { ghost.classList.remove("on"); return; }
+      if (!g || (t.gid === src.gid)) { ghost.classList.remove("on"); return; }
       const tabs = [...g.tabs], active = g.active;
-      if (t.kind === "float" && whereGroup(src.gid).zone === "float") {
-        // dragging a float by its grip is handled live; nothing to do
-      } else {
-        tabs.forEach((id) => detach(id));
-        place(tabs[0], t);
-        const gid = groupOf(tabs[0]);
-        tabs.slice(1).forEach((id, i) => S.groups[gid].tabs.splice(S.groups[gid].tabs.indexOf(tabs[0]) + 1 + i, 0, id));
-        S.groups[gid].active = active;
-      }
+      tabs.forEach((id) => detach(id));
+      place(tabs[0], t);
+      const gid = groupOf(tabs[0]);
+      const at = S.groups[gid].tabs.indexOf(tabs[0]);
+      S.groups[gid].tabs.splice(at + 1, 0, ...tabs.slice(1));
+      S.groups[gid].active = active;
       layout(false); play(before);
     }
     landGhost(t);
   }
 
-  /** The ghost flies into the spot it was dropped on and dissolves there. */
   function landGhost(t) {
     if (reduced.matches) { ghost.classList.remove("on"); return; }
     const r = t.rect;
     const a = ghost.animate([{ opacity: 1 }, { transform: `translate3d(${r.left + 10}px, ${r.top + 8}px, 0) scale(.9)`, opacity: 0 }],
-                            { duration: 170, easing: "cubic-bezier(.22,1,.36,1)", fill: "forwards" });
+                            { duration: 180, easing: "cubic-bezier(.22,1,.36,1)", fill: "forwards" });
     a.onfinish = () => { a.cancel(); ghost.classList.remove("on"); };
   }
 
-  /* ── pointer wiring for groups (delegated on the docks and the floats) ── */
+  /* ── pointer wiring for groups ────────────────────────────────────────── */
 
   function onGroupPointerDown(e) {
     if (e.button !== 0) return;
     const node = e.target.closest(".dk-group");
     if (!node) return;
     const gid = node.dataset.gid;
-    const float = S.floats.find((f) => f.gid === gid);
+    const float = floatOf(gid);
     if (float) {
-      // bring to front
       S.floats = [...S.floats.filter((f) => f !== float), float];
-      if (floatLayer.lastElementChild !== node) floatLayer.appendChild(node);
+      if (floatLayer.lastElementChild !== node) move(floatLayer, node, null);
     }
-    if (compact) return;
+    if (compact || !S.groups[gid]) return;
     if (e.target.closest("[data-act='resize']") && float) return resizeFloat(e, float, node);
     const tab = e.target.closest(".dk-tab");
     if (tab && !e.target.closest("[data-act='close-tab']")) {
+      if (tab.dataset.inst === CHART && S.lock) return;
       return beginDrag(e, { kind: "inst", id: tab.dataset.inst });
     }
     if (e.target.closest("[data-act='grip']")) {
+      if (S.lock && hasChart(gid)) return;
       e.preventDefault();
       if (float) return moveFloat(e, float, node);
       return beginDrag(e, { kind: "group", gid });
     }
-    // the empty part of a float's head moves the window
     if (float && e.target.closest(".dk-head") && !e.target.closest("button")) {
       return moveFloat(e, float, node);
     }
@@ -1186,19 +1305,21 @@ const Dock = (() => {
       const dx = ev.clientX - x0, dy = ev.clientY - y0;
       if (!dragged && Math.hypot(dx, dy) < 3) return;
       dragged = true;
-      const W = center.clientWidth, H = center.clientHeight;
+      const W = floatLayer.clientWidth, H = floatLayer.clientHeight;
       let nx = fx + dx, ny = fy + dy;
-      // snap to the chart's edges within 10px — windows line up without effort
-      if (Math.abs(nx - 8) < 10) nx = 8;
-      if (Math.abs(W - (nx + f.w) - 8) < 10) nx = W - f.w - 8;
-      if (Math.abs(ny - 8) < 10) ny = 8;
-      if (Math.abs(H - (ny + f.h) - 8) < 10) ny = H - f.h - 8;
+      const snapX = [8, W - f.w - 8], snapY = [8, H - f.h - 8];
+      for (const o of S.floats) {
+        if (o === f) continue;
+        snapX.push(o.x, o.x + o.w + 8, o.x - f.w - 8);
+        snapY.push(o.y, o.y + o.h + 8, o.y - f.h - 8);
+      }
+      for (const s of snapX) if (Math.abs(nx - s) < 10) { nx = s; break; }
+      for (const s of snapY) if (Math.abs(ny - s) < 10) { ny = s; break; }
       f.x = clamp(nx, 8, W - f.w - 8); f.y = clamp(ny, 8, H - f.h - 8);
       node.style.left = f.x + "px"; node.style.top = f.y + "px";
-      // pulled against a side of the CHART, the window offers to dock there
-      const c = center.getBoundingClientRect();
+      const c = floatLayer.getBoundingClientRect();
       redock = ev.clientX < c.left + 6 ? "left" : ev.clientX > c.right - 6 ? "right"
-        : ev.clientY > c.bottom - 6 ? "bottom" : false;
+        : ev.clientY > c.bottom - 6 ? "bottom" : ev.clientY < c.top + 6 ? "top" : false;
       node.classList.toggle("dk-redock", !!redock);
     };
     const up = () => {
@@ -1207,7 +1328,7 @@ const Dock = (() => {
       if (redock) {
         const tabs = [...S.groups[f.gid].tabs], active = S.groups[f.gid].active;
         tabs.forEach((id) => detach(id));
-        place(tabs[0], { kind: "zone", zone: redock, newGroup: true });
+        place(tabs[0], { kind: "edge", side: redock });
         const gid = groupOf(tabs[0]);
         S.groups[gid].tabs = tabs; S.groups[gid].active = active;
         layout(true);
@@ -1221,8 +1342,8 @@ const Dock = (() => {
     const x0 = e.clientX, y0 = e.clientY, w0 = f.w, h0 = f.h;
     document.body.classList.add("dk-resizing");
     const mv = (ev) => {
-      f.w = clamp(w0 + ev.clientX - x0, 240, center.clientWidth - f.x - 8);
-      f.h = clamp(h0 + ev.clientY - y0, 160, center.clientHeight - f.y - 8);
+      f.w = clamp(w0 + ev.clientX - x0, 240, floatLayer.clientWidth - f.x - 8);
+      f.h = clamp(h0 + ev.clientY - y0, 160, floatLayer.clientHeight - f.y - 8);
       node.style.width = f.w + "px"; node.style.height = f.h + "px";
     };
     const up = () => {
@@ -1237,105 +1358,86 @@ const Dock = (() => {
     const node = e.target.closest(".dk-group");
     if (!node) return;
     const gid = node.dataset.gid;
-    const g = compact ? { tabs: [...lastVisible], active: compactSheet.active } : S.groups[gid];
+    const sheet = gid === "sheet";
+    const g = sheet ? { active: compactSheet.active } : S.groups[gid] || { active: CHART };
     const closeTab = e.target.closest("[data-act='close-tab']");
     if (closeTab) { e.stopPropagation(); return close(closeTab.closest(".dk-tab").dataset.inst); }
     const tab = e.target.closest(".dk-tab");
     if (tab) {
       const id = tab.dataset.inst;
-      if (compact) { compactSheet.active = id; return layout(false); }
+      if (sheet) { compactSheet.active = id; return layout(false); }
       if (g.active !== id) { g.active = id; layout(false); }
       return;
     }
     const b = e.target.closest("[data-act]");
-    if (!b || !g) return;
-    const active = compact ? compactSheet.active : g.active;
+    if (!b) return;
     const a = b.dataset.act;
-    if (a === "close") { e.stopPropagation(); return compact ? hideSheet() : close(active); }
+    if (a === "close") { e.stopPropagation(); return sheet ? hideSheet() : close(g.active); }
     if (a === "max") return max(gid);
-    if (a === "more") { e.stopPropagation(); return moreMenu(b, active); }
-    if (a === "settings") { e.stopPropagation(); return settingsSheet(b, active); }
-    if (a === "link") { e.stopPropagation(); return linkMenu(b, active); }
+    if (a === "more") { e.stopPropagation(); return moreMenu(b, g.active); }
+    if (a === "settings") { e.stopPropagation(); return settingsSheet(b, g.active); }
+    if (a === "link") { e.stopPropagation(); return linkMenu(b, g.active); }
   }
 
-  for (const host of [zoneEl.left, zoneEl.right, zoneEl.bottom, floatLayer]) {
-    host.addEventListener("pointerdown", onGroupPointerDown);
-    host.addEventListener("click", onGroupClick);
-    host.addEventListener("dblclick", (e) => {
-      const tab = e.target.closest(".dk-tab");
-      if (tab && !compact) max(tab.closest(".dk-group").dataset.gid);
-    });
-    host.addEventListener("keydown", (e) => {
-      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-      const tab = e.target.closest(".dk-tab");
-      if (!tab) return;
-      const sib = e.key === "ArrowLeft" ? tab.previousElementSibling : tab.nextElementSibling;
-      if (sib && sib.classList.contains("dk-tab")) { sib.click(); sib.focus(); }
-    });
-  }
-  // a click anywhere outside a maximised group's head leaves it maximised;
-  // Escape is the way back (and the button in its head)
-  addEventListener("keydown", (e) => { if (e.key === "Escape" && maxed && !drag) unmax(); });
-
-  /* ── resizing the docks and the splits inside them ─────────────────────── */
-
-  function onHandleDown(e) {
-    const h = e.target.closest(".dk-handle, .dk-split");
-    if (!h || e.button !== 0) return;
-    e.preventDefault();
-    const x0 = e.clientX, y0 = e.clientY;
-    document.body.classList.add("dk-resizing", h.classList.contains("v") ? "dk-col-resize" : "dk-row-resize");
-    h.classList.add("dragging");
-    let mv;
-    if (h.classList.contains("dk-handle")) {
-      const z = h.dataset.zone;
-      const start = z === "bottom" ? zoneEl.bottom.offsetHeight : zoneEl[z].offsetWidth;
-      mv = (ev) => {
-        const d = z === "left" ? ev.clientX - x0 : z === "right" ? x0 - ev.clientX : y0 - ev.clientY;
-        S.zones[z].size = Math.round(clamp(start + d, MIN[z], z === "bottom"
-          ? center.clientHeight * .62 : (main.clientWidth - CENTER_MIN) * .7));
-        applySizes();
-      };
-    } else {
-      const a = S.groups[h.dataset.a], b = S.groups[h.dataset.b];
-      const na = groupEls.get(h.dataset.a), nb = groupEls.get(h.dataset.b);
-      const horiz = h.classList.contains("v");
-      const sa = horiz ? na.offsetWidth : na.offsetHeight, sb = horiz ? nb.offsetWidth : nb.offsetHeight;
-      const wsum = (a.size || 1) + (b.size || 1);
-      mv = (ev) => {
-        const d = horiz ? ev.clientX - x0 : ev.clientY - y0;
-        const pa = clamp(sa + d, 90, sa + sb - 90);
-        a.size = wsum * pa / (sa + sb); b.size = wsum - a.size;
-        na.style.flex = `${a.size} 1 0`; nb.style.flex = `${b.size} 1 0`;
-      };
+  canvas.addEventListener("pointerdown", (e) => {
+    if (e.target.closest(".dk-gut")) return onGutterDown(e);
+    if (!e.target.closest(".dk-hub")) onGroupPointerDown(e);
+  });
+  canvas.addEventListener("click", (e) => { if (!e.target.closest(".dk-hub")) onGroupClick(e); });
+  canvas.addEventListener("dblclick", (e) => {
+    const tab = e.target.closest(".dk-tab");
+    if (tab && !compact) return max(tab.closest(".dk-group").dataset.gid);
+    const gut = e.target.closest(".dk-gut");
+    if (gut) {
+      // a double-click on a seam evens out the two tiles beside it
+      let node = null; walk(S.tree, (n) => { if (n.id === gut.dataset.node) node = n; });
+      if (node) { const j = +gut.dataset.j; node.s[j] = node.s[j - 1] = (node.s[j] + node.s[j - 1]) / 2; layout(false); }
     }
+  });
+  canvas.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    const tab = e.target.closest(".dk-tab");
+    if (!tab) return;
+    const sib = e.key === "ArrowLeft" ? tab.previousElementSibling : tab.nextElementSibling;
+    if (sib && sib.classList.contains("dk-tab")) { sib.click(); sib.focus(); }
+  });
+  addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || drag) return;
+    if (hubOpen) return hub(false);
+    if (maxed) unmax();
+  });
+
+  /* ── resizing: the seams between tiles ──────────────────────────────────── */
+
+  function onGutterDown(e) {
+    const gut = e.target.closest(".dk-gut");
+    if (!gut || e.button !== 0) return;
+    let node = null; walk(S.tree, (n) => { if (n.id === gut.dataset.node) node = n; });
+    if (!node) return;
+    e.preventDefault();
+    const j = +gut.dataset.j;
+    const horiz = node.k === "row";
+    const a = gut.previousElementSibling, b = gut.nextElementSibling;
+    const sa = horiz ? a.offsetWidth : a.offsetHeight, sb = horiz ? b.offsetWidth : b.offsetHeight;
+    const wsum = node.s[j - 1] + node.s[j];
+    const x0 = e.clientX, y0 = e.clientY;
+    document.body.classList.add("dk-resizing", horiz ? "dk-col-resize" : "dk-row-resize");
+    gut.classList.add("dragging");
+    const mv = (ev) => {
+      const d = horiz ? ev.clientX - x0 : ev.clientY - y0;
+      const pa = clamp(sa + d, MIN_TILE, sa + sb - MIN_TILE);
+      node.s[j - 1] = wsum * pa / (sa + sb); node.s[j] = wsum - node.s[j - 1];
+      a.style.flex = `${node.s[j - 1]} 1 0`; b.style.flex = `${node.s[j]} 1 0`;
+    };
     const up = () => {
       removeEventListener("pointermove", mv); removeEventListener("pointerup", up);
       document.body.classList.remove("dk-resizing", "dk-col-resize", "dk-row-resize");
-      h.classList.remove("dragging");
+      gut.classList.remove("dragging");
       for (const n of groupEls.values()) if (n.isConnected) paintInk(n);
+      syncDense();
       persist();
     };
     addEventListener("pointermove", mv); addEventListener("pointerup", up);
-  }
-  main.addEventListener("pointerdown", (e) => {
-    if (e.target.closest(".dk-handle, .dk-split")) onHandleDown(e);
-  });
-  main.addEventListener("dblclick", (e) => {
-    const h = e.target.closest(".dk-handle");
-    if (h) { S.zones[h.dataset.zone].size = DEF[h.dataset.zone]; applySizes(); persist(); }
-    const sp = e.target.closest(".dk-split");
-    if (sp) { S.groups[sp.dataset.a].size = S.groups[sp.dataset.b].size = 1; layout(false); }
-  });
-  for (const z of ZONES) {
-    handleEl[z].addEventListener("keydown", (e) => {
-      const k = { ArrowLeft: z === "left" ? -16 : 16, ArrowRight: z === "left" ? 16 : -16,
-                  ArrowUp: 16, ArrowDown: -16 }[e.key];
-      if (!k || (z === "bottom") !== (e.key === "ArrowUp" || e.key === "ArrowDown")) return;
-      e.preventDefault();
-      S.zones[z].size = Math.max(MIN[z], S.zones[z].size + k);
-      applySizes(); persist();
-    });
   }
 
   /* ══ the rail and the header ═════════════════════════════════════════════ */
@@ -1345,49 +1447,46 @@ const Dock = (() => {
   function buildRail() {
     const spacer = document.querySelector("#rail .rail-spacer");
     if (!spacer) return;
-    const specs = [...TYPES.values()].filter((s) => s.rail !== false);
+    const specs = [...TYPES.values()].filter((s) => s.rail !== false && s.type !== CHART);
     spacer.insertAdjacentHTML("afterend",
       `<div class="rail-sep rail-widget-sep"></div>` +
       specs.map((s) => `<button type="button" class="tool dk-rail" id="wb-${s.type}" ` +
-        `data-widget="${s.type}" aria-expanded="false">${icon(s.icon)}` +
+        `data-widget="${s.type}" data-anim="${s.anim || ""}" aria-expanded="false">${icon(s.icon)}` +
         `<span class="tip">${esc(s.title)}${s.key ? ` <kbd>${esc(s.key)}</kbd>` : ""}</span></button>`).join("") +
+      `<button type="button" class="tool dk-rail dk-rail-more" id="wb-more" aria-label="All widgets">` +
+        `${icon("widgets")}<span class="tip">All widgets</span></button>` +
       `<div class="rail-sep rail-export-sep"></div>`);
     for (const s of specs) railBtns.set(s.type, el(`wb-${s.type}`));
     const rail = el("rail");
     rail.addEventListener("pointerdown", (e) => {
-      const b = e.target.closest(".dk-rail");
+      const b = e.target.closest(".dk-rail[data-widget]");
       if (!b || e.button !== 0 || compact) return;
-      const spec = TYPES.get(b.dataset.widget);
-      if (spec.onRail) return;            // bespoke widgets do not drag out
       beginDrag(e, { kind: "new", type: b.dataset.widget });
     });
     rail.addEventListener("click", (e) => {
-      const b = e.target.closest(".dk-rail");
-      if (!b) return;
-      if (dragJustEnded) return;
-      const spec = TYPES.get(b.dataset.widget);
-      if (spec.onRail && spec.onRail({ compact })) return;
+      if (e.target.closest("#wb-more")) { e.stopPropagation(); return hub(); }
+      const b = e.target.closest(".dk-rail[data-widget]");
+      if (!b || dragJustEnded) return;
       toggle(b.dataset.widget);
     });
     rail.addEventListener("contextmenu", (e) => {
-      const b = e.target.closest(".dk-rail");
+      const b = e.target.closest(".dk-rail[data-widget]");
       if (!b || compact) return;
       e.preventDefault();
       const spec = TYPES.get(b.dataset.widget);
-      if (spec.onRail) return;
+      const fresh = !spec.single && !!placedOf(spec.type).length;
       menu(b, [
         { head: `Open ${spec.title}` },
-        { id: "left", label: "In the left dock", icon: "panelLeft" },
-        { id: "right", label: "In the right dock", icon: "panelRight" },
-        { id: "bottom", label: "In the bottom dock", icon: "panelBottom" },
+        { id: "left", label: "On the left", icon: "panelLeft" },
+        { id: "right", label: "On the right", icon: "panelRight" },
+        { id: "bottom", label: "Along the bottom", icon: "panelBottom" },
         { id: "float", label: "As a floating window", icon: "float" },
         ...(spec.single ? [] : [{ sep: true }, { id: "new", label: `New ${spec.title.toLowerCase()}`, icon: "plus" }]),
       ], (pick) => {
         if (pick === "new") return open(spec.type, null, { fresh: true });
-        const c = center.getBoundingClientRect();
-        open(spec.type, pick === "float"
-          ? { kind: "float", x: c.width / 2 - FLOAT_DEF.w / 2, y: 40 }
-          : { kind: "zone", zone: pick, newGroup: true });
+        const c = floatLayer.getBoundingClientRect();
+        open(spec.type, pick === "float" ? { kind: "float", x: c.width / 2 - FLOAT_DEF.w / 2, y: 40 }
+                                         : { kind: "edge", side: pick }, { fresh });
       });
     });
   }
@@ -1405,20 +1504,20 @@ const Dock = (() => {
       b.setAttribute("aria-expanded", String(on));
     }
     syncHeader();
+    if (hubOpen) paintHubState();
   }
 
-  /* The header gains two controls: the workspace sheet and fullscreen. */
   let wsBtn = null, fsBtn = null;
   function buildHeader() {
     const anchor = el("chatToggle");
     if (!anchor) return;
     anchor.insertAdjacentHTML("beforebegin",
-      `<button class="btn icon dk-hbtn" id="dockBtn" type="button" title="Widgets" ` +
-      `aria-label="Widgets" aria-haspopup="menu">${icon("widgets")}</button>` +
+      `<button class="btn dk-hbtn dk-addw" id="dockBtn" type="button" title="Add widgets" ` +
+      `aria-label="Add widgets">${icon("plus")}<span>Widgets</span></button>` +
       `<button class="btn icon dk-hbtn" id="fullBtn" type="button" title="Fullscreen (Alt Shift F)" ` +
       `aria-label="Fullscreen">${icon("fullscreen")}</button>`);
     wsBtn = el("dockBtn"); fsBtn = el("fullBtn");
-    wsBtn.addEventListener("click", (e) => { e.stopPropagation(); catalogue(wsBtn); });
+    wsBtn.addEventListener("click", (e) => { e.stopPropagation(); hub(); });
     fsBtn.addEventListener("click", fullscreen);
   }
 
@@ -1429,75 +1528,167 @@ const Dock = (() => {
       fsBtn.title = on ? "Exit fullscreen (Alt Shift F)" : "Fullscreen (Alt Shift F)";
       fsBtn.classList.toggle("on", on);
     }
-    if (wsBtn) wsBtn.classList.toggle("on", !!S.focus);
+    if (wsBtn) wsBtn.classList.toggle("on", hubOpen);
   }
 
-  /** The workspace sheet: every widget as a card you click to open or drag
-   *  into place, and the two whole-workspace switches under them. */
-  function catalogue(anchor) {
-    const specs = [...TYPES.values()].filter((s) => s.catalog !== false);
-    const p = menu(anchor,
-      `<div class="head">Widgets</div><div class="dk-cards">` +
-      specs.map((s) => {
-        const on = placedOf(s.type).some((id) => lastVisible.has(id));
-        return `<button type="button" class="dk-card${on ? " on" : ""}" data-pick="w:${s.type}">` +
-          `<span class="dk-tile">${icon(s.icon)}</span><span class="txt"><b>${esc(s.title)}</b>` +
-          `<span>${esc(s.desc || "")}</span></span></button>`;
-      }).join("") + `</div><div class="sep"></div>` +
-      `<div class="item${S.focus ? " on" : ""}" data-pick="focus"><span class="lead">${icon("focus", "xs")}` +
-        `Focus on the chart</span><span class="sc">Alt Z</span></div>` +
-      `<div class="item" data-pick="full"><span class="lead">${icon("fullscreen", "xs")}` +
-        `${document.fullscreenElement ? "Exit fullscreen" : "Fullscreen"}</span><span class="sc">Alt Shift F</span></div>` +
-      `<div class="item" data-pick="reset"><span class="lead">${icon("rotateCw", "xs")}` +
-        `Reset the workspace</span></div>`,
-      (pick) => {
-        if (pick.startsWith("w:")) return toggle(pick.slice(2));
-        if (pick === "focus") return setFocus();
-        if (pick === "full") return fullscreen();
-        if (pick === "reset") {
-          for (const id of Object.keys(S.inst)) { const p2 = detach(id); if (p2) S.closed.push({ id, ...p2 }); }
-          S.zones.left.size = DEF.left; S.zones.right.size = DEF.right; S.zones.bottom.size = DEF.bottom;
-          S.focus = false; unmax(); layout(true);
-        }
-      }, "dk-catalog");
-    if (!p) return;
-    // a card can be dragged straight into the workspace
-    p.addEventListener("pointerdown", (e) => {
-      const card = e.target.closest(".dk-card");
-      if (!card || compact) return;
-      const type = card.dataset.pick.slice(2);
-      const x0 = e.clientX, y0 = e.clientY;
+  /* ══ the widget hub ══════════════════════════════════════════════════════
+   * A drawer over the right of the canvas: every widget as a card with a
+   * picture of itself. Click a card (or its +) to open it, or drag the card
+   * onto the canvas — the drawer steps aside while you do. The switches for
+   * the whole workspace sit at its top. Escape closes it. */
+  const SECTIONS = ["Market", "Research", "Tools", "Media"];
+  let hubEl = null, hubOpen = false;
+
+  function hub(on) {
+    on = on == null ? !hubOpen : on;
+    if (on === hubOpen) return;
+    hubOpen = on;
+    closePop();
+    if (!hubEl) buildHub();
+    if (on) {
+      if (hubEl.parentNode !== canvas) canvas.appendChild(hubEl);
+      paintHubState();
+      hubEl.hidden = false;
+      requestAnimationFrame(() => hubEl.classList.add("open"));
+    } else {
+      hubEl.classList.remove("open");
+      setTimeout(() => { if (!hubOpen) hubEl.hidden = true; }, 220);
+    }
+    syncHeader();
+  }
+
+  function buildHub() {
+    hubEl = document.createElement("aside");
+    hubEl.className = "dk-hub";
+    hubEl.hidden = true;
+    hubEl.setAttribute("aria-label", "Widgets");
+    const specs = [...TYPES.values()].filter((s) => s.catalog !== false && s.type !== CHART);
+    const card = (s) =>
+      `<div class="hub-card" data-type="${s.type}" role="button" tabindex="0" aria-label="Add ${esc(s.title)}">` +
+        `<div class="hub-pic">${typeof HubArt !== "undefined" ? HubArt.svg(s.type) : ""}</div>` +
+        `<div class="hub-meta"><b>${icon(s.icon, "xs")}${esc(s.title)}<i class="hub-n" hidden></i></b>` +
+          `<span>${esc(s.desc || "")}</span></div>` +
+        `<button type="button" class="hub-add" data-add="${s.type}" title="Add ${esc(s.title.toLowerCase())}" ` +
+          `aria-label="Add ${esc(s.title.toLowerCase())}">${icon("plus")}</button>` +
+      `</div>`;
+    hubEl.innerHTML =
+      `<div class="hub-head">` +
+        `<div><b>Widgets</b><span>Click to add, or drag a card onto the canvas.</span></div>` +
+        `<button type="button" class="hub-close" data-hub="close" aria-label="Close">${icon("x")}<kbd>Esc</kbd></button>` +
+      `</div>` +
+      `<div class="hub-bar">` +
+        `<label class="hub-switch"><input type="checkbox" class="dk-switch" data-hub="lock">` +
+          `<span>Movable chart</span></label>` +
+        `<button type="button" class="dk-pill" data-hub="focus">${icon("focus", "xs")}Focus<kbd>Alt Z</kbd></button>` +
+        `<button type="button" class="dk-pill" data-hub="full">${icon("fullscreen", "xs")}Fullscreen</button>` +
+        `<button type="button" class="dk-pill" data-hub="reset">${icon("rotateCw", "xs")}Reset</button>` +
+      `</div>` +
+      `<div class="hub-scroll">` +
+        SECTIONS.map((sec) => {
+          const list = specs.filter((s) => (s.group || "Tools") === sec);
+          return list.length ? `<div class="hub-sec">${sec}</div><div class="hub-grid">${list.map(card).join("")}</div>` : "";
+        }).join("") +
+      `</div>`;
+    hubEl.addEventListener("click", (e) => {
+      const h = e.target.closest("[data-hub]");
+      if (h) {
+        const a = h.dataset.hub;
+        if (a === "close") return hub(false);
+        if (a === "lock") return setLock(!h.checked);
+        if (a === "focus") { hub(false); return setFocus(); }
+        if (a === "full") return fullscreen();
+        if (a === "reset") return resetWorkspace();
+      }
+      const add = e.target.closest("[data-add]");
+      const c = e.target.closest(".hub-card");
+      if (!add && !c) return;
+      if (hubDragged) return;
+      const type = (add || c).dataset.add || c.dataset.type;
+      const spec = TYPES.get(type);
+      const fresh = !spec.single && placedOf(type).length > 0 && !!add;
+      open(type, null, { fresh });
+    });
+    hubEl.addEventListener("keydown", (e) => {
+      if ((e.key === "Enter" || e.key === " ") && e.target.classList.contains("hub-card")) {
+        e.preventDefault(); open(e.target.dataset.type);
+      }
+    });
+    let hubDragged = false;
+    hubEl.addEventListener("pointerdown", (e) => {
+      const c = e.target.closest(".hub-card");
+      if (!c || e.button !== 0 || compact || e.target.closest("[data-add]")) return;
+      hubDragged = false;
+      const type = c.dataset.type, x0 = e.clientX, y0 = e.clientY;
       const mv = (ev) => {
         if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 6) return;
         removeEventListener("pointermove", mv);
-        closePop();
+        hubDragged = true;
+        hubEl.classList.add("away");      // step aside so the canvas is a target
         beginDrag(e, { kind: "new", type });
         startDrag({ kind: "new", type }, ev);
       };
       addEventListener("pointermove", mv);
-      addEventListener("pointerup", () => removeEventListener("pointermove", mv), { once: true });
+      addEventListener("pointerup", () => {
+        removeEventListener("pointermove", mv);
+        setTimeout(() => { hubDragged = false; }, 0);
+      }, { once: true });
     });
   }
+
+  function paintHubState() {
+    if (!hubEl) return;
+    const lock = hubEl.querySelector('[data-hub="lock"]');
+    if (lock) lock.checked = !S.lock;
+    const f = hubEl.querySelector('[data-hub="focus"]');
+    if (f) f.classList.toggle("on", !!S.focus);
+    for (const c of hubEl.querySelectorAll(".hub-card")) {
+      const n = placedOf(c.dataset.type).length;
+      c.classList.toggle("on", n > 0);
+      const i = c.querySelector(".hub-n");
+      i.hidden = n < 1; i.textContent = n > 1 ? `${n} open` : "Open";
+    }
+  }
+
+  function resetWorkspace() {
+    for (const id of Object.keys(S.inst)) {
+      if (id === CHART) continue;
+      const at = detach(id); if (at) S.closed.push({ id, ...at });
+    }
+    S.focus = false; S.lock = false;
+    unmax(); layout(true);
+  }
+
+  /* ══ the chart itself, as a widget ══════════════════════════════════════ */
+
+  TYPES.set(CHART, {
+    type: CHART, title: "Chart", icon: "candles", single: true, rail: false, catalog: false,
+    host() {
+      const h = document.createElement("div");
+      h.appendChild(charts);
+      return h;
+    },
+    mount(host, ctx) {
+      return { show() { ctx.setTitle(pageSymbol()); } };
+    },
+  });
 
   /* ══ registration and start ══════════════════════════════════════════════ */
 
   let started = false;
   function register(spec) {
     TYPES.set(spec.type, spec);
-    if (started) { buildRailOne(spec); layout(false); }
+    if (started) layout(false);
   }
-  function buildRailOne() { /* late registration: the rail is built once */ }
 
   function start() {
     if (started) return;
     started = true;
     S = load();
-    // Back-compat: ?panel=watch (the old way a reload kept a panel open)
     const legacy = new URLSearchParams(location.search).get("panel");
     if (legacy && TYPES.has(legacy) && !placedOf(legacy).length) {
-      const id = legacy;
-      if (!S.inst[id]) S.inst[id] = { type: legacy, cfg: { ...(TYPES.get(legacy).defaults || {}) } };
-      place(id, { kind: "zone", zone: TYPES.get(legacy).zone || "right" });
+      if (!S.inst[legacy]) S.inst[legacy] = { type: legacy, cfg: { ...(TYPES.get(legacy).defaults || {}) } };
+      sanitize();
+      place(legacy, { kind: "zone", zone: TYPES.get(legacy).zone || "right" });
     }
     buildRail();
     buildHeader();
@@ -1512,10 +1703,10 @@ const Dock = (() => {
   else queueMicrotask(start);
 
   return {
-    register, start, open, close, toggle, openSymbol, warm, setFocus, fullscreen,
-    /** Is any instance of this type on screen right now? */
+    register, start, open, close, toggle, openSymbol, warm, setFocus, fullscreen, setLock, hub,
     visible: (type) => placedOf(type).some((id) => lastVisible.has(id)),
     instances: (type) => placedOf(type),
+    send: sendTo,
     setCfg, toast, menu, closeMenu: closePop,
   };
 })();

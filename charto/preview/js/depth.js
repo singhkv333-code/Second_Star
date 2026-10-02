@@ -190,7 +190,7 @@
 
   Dock.register({
     type: "depth", title: "Market depth", icon: "depth", shortcut: "depth",
-    key: "Alt D", desc: "The live order book", zone: "right", mount,
+    key: "Alt D", desc: "The live order book", zone: "right", minW: 250, hue: "emerald", group: "Market", anim: "pulse", mount,
     settings: [
       { key: "levels", label: "Levels", def: 20, options: [{ v: 10, label: "10" }, { v: 20, label: "20" }, { v: 50, label: "50" }] },
       { key: "bars", label: "Bars show", def: "total", options: [{ v: "total", label: "Cumulative" }, { v: "size", label: "Size" }] },

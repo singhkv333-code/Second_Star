@@ -347,7 +347,7 @@
   Dock.register({
     type: "screener", title: "Screener", icon: "funnel", shortcut: "screener",
     key: "Alt Shift S", desc: "Filter 500 stocks on price and volume",
-    zone: "left", mount,
+    zone: "left", minW: 290, hue: "teal", group: "Market", anim: "pulse", mount,
     settings: [
       { key: "rows", label: "Rows", def: 50, options: [{ v: 25, label: "25" }, { v: 50, label: "50" }] },
       { key: "names", label: "Company names", kind: "toggle", def: true },

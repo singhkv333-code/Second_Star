@@ -47,7 +47,9 @@
     return out.innerHTML;
   }
 
-  const KEY = (id) => `note:${id}`;
+  // The first notes widget keeps the plain keys; every further copy is its
+  // own page, so two notes side by side never write over each other.
+  const KEY = (scope, ctx) => ctx.id === "notes" ? `note:${scope}` : `note:${scope}:${ctx.id.split(":")[1]}`;
   const scopeKey = (ctx) => ctx.cfg.scope === "general" ? "general" : ctx.pageSymbol();
 
   function mount(host, ctx) {
@@ -79,7 +81,7 @@
     const ed = $(".nt-ed");
 
     function load() {
-      current = KEY(scopeKey(ctx));
+      current = KEY(scopeKey(ctx), ctx);
       const v = Store.get(current, null);
       ed.innerHTML = v && v.html ? clean(v.html) : "";
       ed.dataset.ph = ctx.cfg.scope === "general"
@@ -208,6 +210,6 @@
   Dock.register({
     type: "notes", title: "Notes", icon: "note", shortcut: "notes",
     key: "Alt N", desc: "Write beside the chart, stamped with its price",
-    zone: "right", single: true, mount,
+    zone: "right", minW: 260, hue: "gold", group: "Tools", mount,
   });
 })();
