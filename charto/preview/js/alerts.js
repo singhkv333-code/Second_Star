@@ -108,6 +108,14 @@ const Alerts = (() => {
     listeners.forEach((f) => { try { f(state); } catch {} });
   };
   Theme.onChange(syncChartLines);
+  // The chart-type switcher rebuilds the price series, taking its price lines
+  // (and __charto.candle) with it. Our map still names the old, destroyed
+  // lines, whose state keys match — so without this the alert lines would not
+  // be redrawn on the new series. Forget them, then re-sync onto it.
+  document.addEventListener("charto:series-swapped", () => {
+    chartLines.clear();
+    syncChartLines();
+  });
 
   /** Price lines are canvas objects, so Lightweight Charts does not emit a
    *  DOM click for them. Hit-test their y coordinate against the price pane,

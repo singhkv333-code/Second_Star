@@ -98,6 +98,26 @@ const Icons = (() => {
 
     // ── chrome ─────────────────────────────────────────────
     candles: '<path d="M9 5v4"/><path d="M9 15v4"/><rect x="6.5" y="9" width="5" height="6" rx="1"/><path d="M17 3v6"/><path d="M17 15v6"/><rect x="14.5" y="9" width="5" height="6" rx="1"/>',
+    /* ── chart-type switcher ────────────────────────────────────────────────
+     * A dedicated set for the candles/bars/line/area control, kept apart from
+     * the shared `candles` glyph above (that one labels cards, the journal and
+     * the settings nav, and reads as sliders at this size). Drawn to the same
+     * 24-grid, round-cap grammar so the four read as one family — each is the
+     * SHAPE the series makes, and each is unmistakable against the other three:
+     *  · ctCandles — two candlesticks, a filled body on a wick, like TradingView
+     *  · ctBars    — two OHLC bars: a vertical range, open tick left, close right
+     *  · ctLine    — a single close-price polyline
+     *  · ctArea    — that line closed to a baseline and lightly filled */
+    ctCandles: '<rect x="5" y="7" width="4.5" height="9" rx="1.2"/>'
+      + '<path d="M7.25 3v4"/><path d="M7.25 16v5"/>'
+      + '<rect x="14.5" y="9" width="4.5" height="7" rx="1.2"/>'
+      + '<path d="M16.75 5v4"/><path d="M16.75 16v3"/>',
+    ctBars: '<path d="M7 4v16"/><path d="M3.5 8H7"/><path d="M7 14h3.5"/>'
+      + '<path d="M17 5v14"/><path d="M13.5 10H17"/><path d="M17 17h3.5"/>',
+    ctLine: '<path d="M3 16l5-5.5 4 3 5-7.5"/>',
+    ctArea: '<path d="M3 16l5-5.5 4 3 5-7.5V20H3z" fill="currentColor" fill-opacity="0.2" stroke="none"/>'
+      + '<path d="M3 16l5-5.5 4 3 5-7.5"/>'
+      + '<path d="M3 20h18"/>',
     indicators: '<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="m19 9-5 5-4-4-3 3"/>',
     chevronDown: '<path d="m6 9 6 6 6-6"/>',
     chevronUp: '<path d="m18 15-6-6-6 6"/>',

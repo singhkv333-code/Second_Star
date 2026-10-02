@@ -227,10 +227,14 @@
     stageEl.style.setProperty("--plate", Theme.c("crosshairLabel"));
   publishPlate();
 
-  const candle = chart.addSeries(LWC.CandlestickSeries, {
-    upColor: Theme.c("up"), downColor: Theme.c("down"), borderVisible: false,
-    wickUpColor: Theme.c("up"), wickDownColor: Theme.c("down"),
-  });
+  // The price series. `let`, not `const`, because the chart-type switcher
+  // (candles / bars / line / area) rebuilds it — a series' type is fixed at
+  // creation, so changing it means a new series. ChartSettings owns how each
+  // shape is built, so even the FIRST one comes from there: a restored "line"
+  // preference is honoured from the first paint. Everything that reads the
+  // price series live does so through panesList() below, so the swap re-points
+  // only this binding and the scene's marker layer (see scene.rebindSeries).
+  let candle = ChartSettings.makeSeries(chart);
   /* No volume series here. Volume was the one study welded into the chart —
    * always on, unstyleable, impossible to remove — and it is an ordinary
    * indicator now: Indicators ▸ Volume, with its own colours, its own MA and
@@ -248,6 +252,24 @@
     // was built with, twelve lines up
     defaults: { fontSize: 12, rightOffset: 5 },
     label: () => SYMBOL,
+    // The chart-type switcher rebuilt the price series — re-point every binding
+    // that held the old one. panesList() reads `candle` live so drawings, pins
+    // and the crosshair follow for free; the two that captured it directly are
+    // the scene's marker layer and the debug handle.
+    rebind(next) {
+      candle = next;
+      // The user's own drawings and the chat's annotations are series
+      // primitives attached to the OLD series — re-attach them to the new one,
+      // or they stay on the removed series and render nothing until a refresh.
+      if (draw && draw.syncPanes) draw.syncPanes();
+      if (scene && scene.rebindSeries) scene.rebindSeries(next);
+      if (window.__charto) window.__charto.candle = next;
+      // Anything that bound price lines to the OLD series — alerts is the one
+      // today — must drop and redraw them on the new one; its lines went with
+      // the series that was just removed.
+      document.dispatchEvent(new CustomEvent("charto:series-swapped",
+        { detail: { type: ChartSettings.getType() } }));
+    },
     repaint() {
       // LOAD-BEARING GUARD, not just an optimisation. register() calls this
       // synchronously, and `ind` is a const declared further down this
@@ -255,7 +277,9 @@
       // ReferenceError. Bars arrive only from loadInterval(), which runs
       // after the manager exists, so "there are bars" IS "ind is built".
       if (!state.bars.length) return;
-      candle.setData(ChartSettings.candlePoints(state.bars));
+      // pricePoints, not candlePoints: it hands the active shape the data it
+      // wants — OHLC for candles/bars, close for line/area.
+      candle.setData(ChartSettings.pricePoints(state.bars));
       // The volume strip's colours belong to the indicator now, but the
       // DIRECTION rule is still this dialog's — so a change to "colour bars
       // based on previous close" has to reach the study too.
@@ -283,7 +307,7 @@
     // colours are a setting (and, with "colour bars based on previous
     // close", a per-POINT one), and a second place deciding what green means
     // is a second place to get it wrong.
-    candle.setData(ChartSettings.candlePoints(state.bars));
+    candle.setData(ChartSettings.pricePoints(state.bars));
     // A new interval can move an indicator in or out of the timeframes its
     // Visibility tab allows, and the legend row is where that is legible —
     // without this the plot vanishes on 1h while its row still reads as live.
@@ -413,7 +437,7 @@
       // the bar BEFORE the forming one — the previous-close colouring rule
       // needs it, and on a replaced last bar that is two back
       const prev = state.bars[state.bars.length - 2] || null;
-      candle.update(ChartSettings.candlePoint(bar, prev));
+      candle.update(ChartSettings.pricePoint(bar, prev));
       // volume is a study now, so the strip is patched through the manager —
       // see Indicators updateEdge(). A no-op when the user has it switched off.
       ind.updateEdge(state.bars);
@@ -560,14 +584,18 @@
     return y >= top - slack && y <= bot + slack;
   }
   chart.subscribeCrosshairMove((p) => {
-    const b = p && p.seriesData ? p.seriesData.get(candle) : null;
+    const sd = p && p.seriesData ? p.seriesData.get(candle) : null;
+    // A line/area series reports {value}, not OHLC — so the readout (and the
+    // on-bar hit test) resolve the FULL bar from state.bars by time, falling
+    // back to the series datum. The lookup is what the V figure already needed.
+    const at = sd ? state.bars.find((x) => x.time === p.time) : null;
+    const b = at || sd;
     chartEl.classList.toggle("on-bar", yOnBar(p && p.point ? p.point.y : null, b, 2));
     if (b) {
       // The V figure comes from the BARS, not from a volume series: the
       // study can be switched off now, and the status line's volume is the
       // instrument's, not the indicator's.
       const src = state.bars[state.bars.length - 1];
-      const at = state.bars.find((x) => x.time === p.time);
       paintReadout({ ...b, volume: at ? at.volume : (src ? src.volume : 0) });
     } else paintReadout(lastBar);
   });
@@ -768,7 +796,8 @@
    * other menu button in here is an icon whose menu IS the feedback. Read off
    * the menus rather than tracked, so the document-wide close below cannot
    * leave a trigger looking open over a menu that isn't. */
-  const MENU_TRIGGERS = [["intervalBtn", "intervalMenu"], ["acctBtn", "acctMenu"]];
+  const MENU_TRIGGERS = [["intervalBtn", "intervalMenu"],
+                         ["chartTypeBtn", "chartTypeMenu"], ["acctBtn", "acctMenu"]];
   function syncMenuTriggers() {
     for (const [b, m] of MENU_TRIGGERS) {
       const btn = el(b), menu = el(m);
@@ -855,6 +884,49 @@
       detail: { pane: 0, symbol: SYMBOL, interval: b.dataset.iv },
     }));
   });
+
+  // ── chart type ────────────────────────────────────────
+  /* Candles / bars / line / area, TradingView's switcher beside the interval.
+   * The series itself is rebuilt by ChartSettings.setType — which swaps it on
+   * EVERY chart on screen and persists the choice — so this is only the pill
+   * and its list. The list is built from the one catalogue the dialog's Type
+   * select reads too, so the two can never fall out of step. */
+  const ctBtn = el("chartTypeBtn"), ctMenu = el("chartTypeMenu");
+  const CHART_TYPES = ChartSettings.chartTypes();
+  ctMenu.innerHTML = CHART_TYPES.map((t) =>
+    `<button type="button" class="item ct-item" role="menuitemradio" `
+    + `data-ct="${t.id}"><span class="lead">${Icons.svg(t.icon, "xs")}`
+    + `<span>${t.label}</span></span>${Icons.svg("check", "tick")}</button>`).join("");
+
+  /** Paint the pill's glyph + title and tick the current row. Driven both by a
+   *  click here and by the settings dialog's Type select, through the
+   *  ChartSettings.onChange subscription below — one source of truth. */
+  function markChartType(id) {
+    const t = CHART_TYPES.find((x) => x.id === id) || CHART_TYPES[0];
+    // Icon only in the pill — the word lives in the menu. The title carries the
+    // name for the pointer and for a screen reader.
+    ctBtn.innerHTML = Icons.svg(t.icon);
+    ctBtn.title = `Chart type — ${t.label}`;
+    for (const b of ctMenu.querySelectorAll("[data-ct]"))
+      b.classList.toggle("on", b.dataset.ct === id);
+  }
+  ctBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    closeMenus(ctMenu);
+    ctMenu.classList.toggle("open");
+    syncMenuTriggers();
+  });
+  ctMenu.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-ct]");
+    if (!b) return;
+    ctMenu.classList.remove("open");
+    syncMenuTriggers();
+    ChartSettings.setType(b.dataset.ct);   // swaps the series; markChartType via onChange
+  });
+  // The dialog's Type select and this pill show the same state — let the pill
+  // follow any change ChartSettings makes, wherever it originated.
+  ChartSettings.onChange(() => markChartType(ChartSettings.getType()));
+  markChartType(ChartSettings.getType());
 
   /** Paint the pill and its list without claiming either as the primary's
    *  state — a selected secondary pane drives this too. */
@@ -3851,17 +3923,20 @@
     // subscription, so ask it whether the click was already spoken for.
     if (scene.hitAt(yInPane(downAt[1], "price"), "price",
                     downAt[0] - chartEl.getBoundingClientRect().left)) return;
-    const b = param.seriesData.get(candle);
+    if (!param.seriesData.get(candle)) return;
+    // The FULL bar, from state.bars — the series datum is {value} on a line or
+    // area chart, which carries no high/low to hit-test or pin. yOnBar and the
+    // pin both need OHLC, so resolve it by time; the volume rode here anyway.
+    const b = state.bars.find((x) => x.time === param.time);
     if (!b) return;
     // A pin means THE CANDLE, not "wherever I happened to click": the click
     // must land on the bar's high-low span (grab tolerance), so a stray click
     // in empty chart space attaches nothing to the chat. Same test the cursor
     // and the right-click use — see yOnBar.
     if (!yOnBar(yInPane(downAt[1], "price"), b, 8)) return;
-    const v = state.bars.find((x) => x.time === param.time);
     // The interval travels with the bar: a pin outlives an interval switch
     // (it is a bar, not a view), so "09:35" has to keep saying which 09:35.
-    pins.toggle({ ...b, volume: v ? v.volume : 0, interval: state.interval });
+    pins.toggle({ ...b, interval: state.interval });
   });
   document.addEventListener("charto:unpin", (e) => pins.remove(e.detail));
   // Clicking a pin chip goes back to the bar it names — a chip you can't

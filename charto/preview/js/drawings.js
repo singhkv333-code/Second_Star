@@ -369,7 +369,12 @@ const Drawings = (() => {
         // pane and creates a fresh one under the same name, and a primitive
         // left on the dead pane renders nothing, silently
         const lp = live.find((p) => p.key === key);
-        if (lp && lp.pane === rec.pane) continue;
+        // same PANE is not same SERIES: the chart-type switcher rebuilds the
+        // price series in place, and a primitive left on the removed series
+        // renders nothing (this is why the user's shapes vanished on a type
+        // switch until a refresh re-ran syncPanes). Re-attach when the host
+        // series has moved.
+        if (lp && lp.pane === rec.pane && (lp.series || lp.pane) === rec.host) continue;
         try { rec.host.detachPrimitive(rec.prim); } catch {}
         attached.delete(key); rus.delete(key);
       }

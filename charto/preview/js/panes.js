@@ -320,10 +320,11 @@ const Panes = (() => {
     const legendEl = root.querySelector(".sub-legend .ind-legend");
 
     const chart = LWC.createChart(canvas, chartOpts());
-    const candle = chart.addSeries(LWC.CandlestickSeries, {
-      upColor: Theme.c("up"), downColor: Theme.c("down"), borderVisible: false,
-      wickUpColor: Theme.c("up"), wickDownColor: Theme.c("down"),
-    });
+    // Built through ChartSettings so this pane wears the same chart type the
+    // primary does — a split showing one instrument twice must show it the same
+    // way. `let`, because the type switcher rebuilds the series (see rebind in
+    // sub.settings below). See js/chartsettings.js makeSeries / setType.
+    let candle = ChartSettings.makeSeries(chart);
     // No volume series here either — it is an indicator now, added below
     // through this pane's OWN manager so it wears the same eye, gear and ×
     // as every other study on the pane. See js/indicators.js seriesFor().
@@ -339,9 +340,13 @@ const Panes = (() => {
       // "Default" in the dialog has to mean THESE, not the primary's
       defaults: { fontSize: 11, rightOffset: 4 },
       label: () => sub.symbol,
+      // The type switcher rebuilt this pane's price series — re-point the local
+      // and the sub's own handle. A secondary pane has no scene/markers, so
+      // there is nothing else bound to the old series.
+      rebind(next) { candle = next; sub.candle = next; },
       repaint() {
         if (!sub.bars.length) return;
-        candle.setData(ChartSettings.candlePoints(sub.bars));
+        candle.setData(ChartSettings.pricePoints(sub.bars));
         // the strip's colours are the study's, but the direction rule is the
         // dialog's — same coupling the primary chart documents
         if (sub.ind) sub.ind.retheme(sub.bars);
@@ -497,9 +502,10 @@ const Panes = (() => {
         const bars = await fetchBars(sub.symbol, iv, PAGE[iv] || 2000);
         if (sub.destroyed) return;
         sub.bars = bars;
-        // the settings module builds both series — see the note beside
-        // main.js's paint(): one place decides what a green bar is
-        candle.setData(ChartSettings.candlePoints(bars));
+        // the settings module builds the series — see the note beside
+        // main.js's paint(): one place decides what a green bar is, and
+        // pricePoints hands the active shape (candles/bars/line/area) its data
+        candle.setData(ChartSettings.pricePoints(bars));
         chart.applyOptions({
           timeScale: { timeVisible: !["D", "W", "M"].includes(iv) },
         });

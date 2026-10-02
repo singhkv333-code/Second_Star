@@ -1800,6 +1800,33 @@ body > header {
    label IS the break, and a hairline every four rows in a 172px column is
    more furniture than a nine-item list can carry. Space instead. */
 .iv-item + .iv-sec { padding-top: 13px; }
+
+/* ── chart type — candles / bars / line / area ───────────────────────────────
+   Built to match the interval control beside it: one pill stating the current
+   shape (glyph + word), opening a flat list. The pill is a .btn with a leading
+   icon and a label; the list's rows are the app's standard menu row — a leading
+   glyph and label, the current one marked by .item.on with a tick at the end.
+   The tick shows only on the on-row, so an unselected list is not a column of
+   empty checks. */
+/* Icon-only, like the gear and layout controls — but drawn in the foreground
+   ink, not the muted grey .btn.icon defaults to: this states the chart's
+   current shape and should read as firmly as the interval word beside it. */
+.ct-btn { color: var(--foreground); }
+.ct-btn svg.icon { width: 20px; height: 20px; color: var(--foreground); }
+.ct-btn.open { background: var(--accent); }
+
+.ct-menu { min-width: 176px; }
+/* a <button>, so strip the UA chrome the flat .item row never had to think
+   about — without this each row reads as a bordered pill, not a menu line */
+.ct-menu .ct-item {
+  width: 100%; text-align: left;
+  background: transparent; border: 0; font: inherit;
+  font-size: var(--text-base); color: var(--foreground);
+}
+.ct-menu .ct-item .lead { gap: 10px; }
+.ct-menu .ct-item .lead svg { width: 17px; height: 17px; color: var(--foreground); }
+.ct-menu .ct-item .tick { width: 15px; height: 15px; opacity: 0; }
+.ct-menu .ct-item.on .tick { opacity: 1; }
 /* a <button> so the phone's sheet can click the real control, which means
    undoing the UA's button chrome the .item rule never had to think about.
    `space-between`, not `flex-start`: the tick goes in the slot at the row's
@@ -8452,6 +8479,19 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
     </div>
 
     <div class="vsep"></div>
+
+    <!-- Chart type — candles / bars / line / area. Beside the interval and
+         built the same way: one pill stating the current shape over a grouped
+         list. The glyph + label are painted by main.js from the one catalogue
+         ChartSettings.chartTypes() exposes, so the menu can never offer a shape
+         the swapper cannot build. -->
+    <div class="menu-wrap">
+      <button class="btn icon ct-btn" id="chartTypeBtn" type="button" title="Chart type"
+              aria-haspopup="menu" aria-expanded="false"></button>
+      <div class="dropdown ct-menu" id="chartTypeMenu" role="menu"></div>
+    </div>
+
+    <div class="vsep"></div>
     <div class="menu-wrap">
       <button class="btn" id="indBtn"></button>
       <div class="dropdown" id="indMenu"></div>
@@ -8732,7 +8772,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/store.js?v=16"></script>
   <script src="./js/theme.js?v=11"></script>
   <script src="./js/universe.js?v=8"></script>
-  <script src="./js/icons.js?v=34"></script>
+  <script src="./js/icons.js?v=39"></script>
   <!-- after icons.js (every row is drawn with one) and before main.js, which
        builds the chart's three right-click menus out of it -->
   <script src="./js/ctxmenu.js?v=9"></script>
@@ -8759,13 +8799,13 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/shortcuts.js?v=3"></script>
   <!-- before panes.js and main.js: both register their charts with it as
        they build them, and read their series colours out of it -->
-  <script src="./js/chartsettings.js?v=2"></script>
+  <script src="./js/chartsettings.js?v=4"></script>
   <script src="./js/geometry.js?v=21"></script>
   <script src="./js/tools.js?v=19"></script>
-  <script src="./js/drawings.js?v=39"></script>
-  <script src="./js/scene.js?v=48"></script>
-  <script src="./js/panes.js?v=23"></script>
-  <script src="./js/main.js?v=150"></script>
+  <script src="./js/drawings.js?v=40"></script>
+  <script src="./js/scene.js?v=50"></script>
+  <script src="./js/panes.js?v=24"></script>
+  <script src="./js/main.js?v=153"></script>
   <!-- the floating drawing edit toolbar — listens for charto:draw-select and
        drives js/drawings.js's setStyle/clone/lock/remove. After main.js so
        __charto and ChartSettings exist by the first selection. -->
@@ -8786,7 +8826,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it
        uses. Everything it needs from main.js (SYMBOL) and panels.js
        (openWidget) is read inside handlers, so those may come later. -->
-  <script src="./js/alerts.js?v=16"></script>
+  <script src="./js/alerts.js?v=17"></script>
   <!-- after chat.js: the widget panels share the phone's one panel slot with
        the conversation, and close it by clicking its real toggle -->
   <script src="./js/panels.js?v=13"></script>

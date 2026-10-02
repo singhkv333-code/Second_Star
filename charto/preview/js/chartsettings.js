@@ -48,10 +48,18 @@ const ChartSettings = (() => {
    * sizes, and an untouched control must not flatten that difference. */
   const FACTORY = {
     candles: {
+      // The SHAPE the price series makes — TradingView's chart-type switcher.
+      // "candles" is the default and the one the drawing/scene/pin machinery is
+      // anchored to; "bars" is the OHLC bar; "line" and "area" plot the close
+      // only. It lives in the candles group because it is the one chart knob
+      // the switcher and this dialog both edit, and so a session saved before
+      // it existed reads the factory value through load()'s one-level merge.
+      type: "candles",
       body: true, borders: false, wick: true,
       up: null, down: null,
       borderUp: null, borderDown: null,
       wickUp: null, wickDown: null,
+      line: null,                // close-line / area stroke (follows "up" theme)
       prevClose: false,          // colour bars against the previous CLOSE
       precision: "default",
     },
@@ -71,6 +79,19 @@ const ChartSettings = (() => {
       separator: null, watermark: false, watermarkColor: null,
     },
   };
+
+  /* The four shapes the price series can take. Order is TradingView's — the
+   * two OHLC forms first, then the two close-only forms — and `ctor` names the
+   * vendored v5 series constructor each maps to. The switcher in main.js reads
+   * this same list, so the menu and the dialog can never offer a type the
+   * swapper cannot build. */
+  const CHART_TYPES = [
+    { id: "candles", label: "Candles", icon: "ctCandles", ctor: "CandlestickSeries" },
+    { id: "bars",    label: "Bars",    icon: "ctBars",    ctor: "BarSeries" },
+    { id: "line",    label: "Line",    icon: "ctLine",    ctor: "LineSeries" },
+    { id: "area",    label: "Area",    icon: "ctArea",    ctor: "AreaSeries" },
+  ];
+  const TYPE = (id) => CHART_TYPES.find((t) => t.id === id) || CHART_TYPES[0];
 
   /* lightweight-charts' own line-style ids, named. Same three the indicator
    * dialog offers, plus the wide dash the crosshair is drawn with by
@@ -124,10 +145,14 @@ const ChartSettings = (() => {
   // stale the moment the user toggles the mode.
   const upC = () => cfg.candles.up || Theme.c("up");
   const downC = () => cfg.candles.down || Theme.c("down");
+  // The close-line's colour, for the line and area types. It has no "down" —
+  // a single polyline is one colour — so it defaults to the up/accent, the
+  // same green the rest of the chart treats as neutral-positive.
+  const lineC = () => cfg.candles.line || upC();
   const clear = "rgba(0,0,0,0)";
 
   const eff = () => ({
-    up: upC(), down: downC(),
+    up: upC(), down: downC(), line: lineC(),
     borderUp: cfg.candles.borderUp || upC(),
     borderDown: cfg.candles.borderDown || downC(),
     wickUp: cfg.candles.wickUp || upC(),
@@ -147,7 +172,7 @@ const ChartSettings = (() => {
   function swatchValue(path) {
     const E = eff();
     const MAP = {
-      "candles.up": E.up, "candles.down": E.down,
+      "candles.up": E.up, "candles.down": E.down, "candles.line": E.line,
       "candles.borderUp": E.borderUp, "candles.borderDown": E.borderDown,
       "candles.wickUp": E.wickUp, "candles.wickDown": E.wickDown,
       "scales.gridColor": E.grid, "scales.crosshairColor": E.cross,
@@ -197,10 +222,26 @@ const ChartSettings = (() => {
     };
   }
 
-  function candleOptions() {
-    const E = eff(), c = cfg.candles, s = cfg.scales;
-    const p = c.precision;
+  /* The three options every price series shares, whatever its shape: the last
+   * value label, the dashed price line to it, and the precision the axis reads
+   * prices at. Split out so the four option builders below cannot drift on the
+   * things that are NOT about the shape. */
+  function commonSeriesOptions() {
+    const s = cfg.scales, p = cfg.candles.precision;
     return {
+      priceLineVisible: !!s.priceLine,
+      priceLineStyle: s.priceLineStyle,
+      lastValueVisible: !!s.lastValue,
+      priceFormat: p === "default"
+        ? { type: "price", precision: 2, minMove: 0.01 }
+        : { type: "price", precision: p, minMove: 1 / Math.pow(10, p) },
+    };
+  }
+
+  function candleOptions() {
+    const E = eff(), c = cfg.candles;
+    return {
+      ...commonSeriesOptions(),
       // Body OFF is TradingView's hollow candle: the fill goes, the border
       // and the wick stay. It is a transparent colour rather than a flag
       // because lightweight-charts has no hollow mode.
@@ -210,13 +251,58 @@ const ChartSettings = (() => {
       borderUpColor: E.borderUp, borderDownColor: E.borderDown,
       wickVisible: !!c.wick,
       wickUpColor: E.wickUp, wickDownColor: E.wickDown,
-      priceLineVisible: !!s.priceLine,
-      priceLineStyle: s.priceLineStyle,
-      lastValueVisible: !!s.lastValue,
-      priceFormat: p === "default"
-        ? { type: "price", precision: 2, minMove: 0.01 }
-        : { type: "price", precision: p, minMove: 1 / Math.pow(10, p) },
     };
+  }
+
+  /* The OHLC bar. It carries no body, so the only colours it has are the two
+   * directional ones — the same up/down the candle uses, so a flip between the
+   * two OHLC shapes never changes what green means. */
+  function barOptions() {
+    const E = eff();
+    return {
+      ...commonSeriesOptions(),
+      upColor: E.up, downColor: E.down,
+      // openVisible OFF would make it a close-only bar (a "HLC" bar); TradingView
+      // shows the open tick, so we do too.
+      openVisible: true, thinBars: false,
+    };
+  }
+
+  function lineOptions() {
+    const E = eff();
+    return {
+      ...commonSeriesOptions(),
+      color: E.line, lineWidth: 2,
+    };
+  }
+
+  /* Area is the line plus a fade to the background. The fill is the line colour
+   * at two alphas so it reads as the same series dressed, not a second colour —
+   * DlgKit.withAlpha is the one the rest of this module tints through. */
+  function areaOptions() {
+    const E = eff();
+    return {
+      ...commonSeriesOptions(),
+      lineColor: E.line, lineWidth: 2,
+      topColor: DlgKit.withAlpha(E.line, 0.30),
+      bottomColor: DlgKit.withAlpha(E.line, 0.02),
+    };
+  }
+
+  /** The options for whichever shape is current. The swapper and applyOne both
+   *  read through here so there is one answer to "how is this series dressed". */
+  function seriesOptions(type = cfg.candles.type) {
+    if (type === "bars") return barOptions();
+    if (type === "line") return lineOptions();
+    if (type === "area") return areaOptions();
+    return candleOptions();
+  }
+
+  /** The vendored v5 constructor + initial options for a shape — what an owner
+   *  (main.js, panes.js) builds its price series from, and what the swapper
+   *  rebuilds it from. Centralised so the four shapes are declared once. */
+  function seriesSpec(type = cfg.candles.type) {
+    return { ctor: LWC[TYPE(type).ctor], options: seriesOptions(type) };
   }
 
   /* ── per-bar colour ──────────────────────────────────────────────────────
@@ -258,6 +344,26 @@ const ChartSettings = (() => {
     return pt;
   }
 
+  /* ── what the ACTIVE series is fed ────────────────────────────────────────
+   * The two chart owners set/update their price series through these, not
+   * through candlePoints directly, so the data shape always matches the chosen
+   * series: OHLC for candles and bars, {time,value:close} for line and area.
+   * A line series handed a candle point renders nothing — this is the one
+   * join that makes a type switch a one-line change in the owner. */
+  function pricePoints(bars, type = cfg.candles.type) {
+    if (type === "line" || type === "area") {
+      return bars.map((b) => ({ time: b.time, value: b.close }));
+    }
+    return candlePoints(bars);           // candles + bars are both OHLC
+  }
+
+  function pricePoint(bar, prev, type = cfg.candles.type) {
+    if (type === "line" || type === "area") {
+      return { time: bar.time, value: bar.close };
+    }
+    return candlePoint(bar, prev);
+  }
+
 
   // ── the status line ─────────────────────────────────────
   /* The legend written ON the chart is HTML, not canvas, so what it shows is
@@ -296,7 +402,10 @@ const ChartSettings = (() => {
   function applyOne(t, repaint) {
     try {
       t.chart.applyOptions(chartOptions(t));
-      t.candle.applyOptions(candleOptions());
+      // The ACTIVE shape's options, not the candle's — applyOptions on a line
+      // series with candle keys is a no-op at best and a console warning at
+      // worst, and this same call runs for every type.
+      t.candle.applyOptions(seriesOptions());
       if (repaint && t.repaint) t.repaint();
     } catch (e) {
       // A pane is unregistered when it is destroyed (js/panes.js), so
@@ -305,6 +414,41 @@ const ChartSettings = (() => {
       console.error("chart settings:", e);
     }
     applyWatermark(t);
+  }
+
+  /* ── switching the shape ───────────────────────────────────────────────────
+   * The series TYPE is fixed when a series is created, so changing it means
+   * tearing the old series down and building a new one — on every chart on
+   * screen, so a split stays one chart shown twice. Drawings, the scene and the
+   * pins read the price series LIVE through the owner's panesList(), so the only
+   * refs that must be re-pointed are the owner's own `candle` and anything it
+   * bound directly to the series (scene's marker layer). Each owner states how
+   * through `rebind(newSeries)`; an owner that never swaps (none today) simply
+   * would not provide one.
+   *
+   * The watermark is a PANE primitive, not a series one, so it survives the
+   * swap untouched — applyWatermark is not called here. */
+  function swapSeriesOn(t, type) {
+    const spec = seriesSpec(type);
+    const next = t.chart.addSeries(spec.ctor, spec.options);
+    try { t.chart.removeSeries(t.candle); } catch (e) { console.error("chart type · remove:", e); }
+    t.candle = next;
+    if (t.rebind) t.rebind(next);
+    if (t.repaint) t.repaint();          // fill the fresh series with its data
+  }
+
+  /** Change the chart type for every chart on screen and persist it. A no-op
+   *  when the type is already current, so the switcher can call it freely. */
+  function setType(type) {
+    if (!TYPE(type) || type === cfg.candles.type) return;
+    cfg.candles.type = type;
+    save();
+    for (const t of [...targets]) {
+      try { swapSeriesOn(t, type); } catch (e) { console.error("chart type:", e); }
+    }
+    // A colour-only sub won't have moved, but the type select in the dialog and
+    // the header pill both read getType(), so let subscribers re-dress.
+    for (const fn of subs) { try { fn(cfg); } catch (e) { console.error(e); } }
   }
 
   /* The instrument's own name behind its candles — TradingView's watermark.
@@ -396,18 +540,39 @@ const ChartSettings = (() => {
 
   const styleOpts = LINE_STYLES.map((o) => ({ value: o.id, label: o.label }));
 
+  const typeOpts = CHART_TYPES.map((t) => ({ value: t.id, label: t.label }));
+
   function symbolHTML() {
-    return group("Candles") +
-      checkRow("candles.body", "Body",
-               swatch("candles.up", "Up") + swatch("candles.down", "Down")) +
-      checkRow("candles.borders", "Borders",
-               swatch("candles.borderUp", "Up") + swatch("candles.borderDown", "Down")) +
-      checkRow("candles.wick", "Wick",
-               swatch("candles.wickUp", "Up") + swatch("candles.wickDown", "Down")) +
-      checkRow("candles.prevClose", "Colour bars based on previous close") +
-      `<p class="dlg-note">A bar is green when it closed above the PREVIOUS
-        bar's close rather than above its own open — the same rule the change
-        figure in the legend already uses.</p>` +
+    const type = cfg.candles.type;
+    const ohlc = type === "candles" || type === "bars";
+    // The OHLC shapes (candles, bars) expose up/down bodies and wicks; the
+    // close-only shapes (line, area) expose a single stroke colour. Showing the
+    // irrelevant set would be the "control that does nothing" this dialog's own
+    // header forbids, so the body switches with the type — same rule as the
+    // gradient's second swatch below.
+    const shapeRows = ohlc
+      ? group(type === "bars" ? "Bars" : "Candles") +
+        checkRow("candles.body", "Body",
+                 swatch("candles.up", "Up") + swatch("candles.down", "Down")) +
+        (type === "candles"
+          ? checkRow("candles.borders", "Borders",
+                     swatch("candles.borderUp", "Up") + swatch("candles.borderDown", "Down")) +
+            checkRow("candles.wick", "Wick",
+                     swatch("candles.wickUp", "Up") + swatch("candles.wickDown", "Down"))
+          : "") +
+        checkRow("candles.prevClose", "Colour bars based on previous close") +
+        `<p class="dlg-note">A bar is green when it closed above the PREVIOUS
+          bar's close rather than above its own open — the same rule the change
+          figure in the legend already uses.</p>`
+      : group(type === "area" ? "Area" : "Line") +
+        row("Colour", swatch("candles.line", "Line")) +
+        `<p class="dlg-note">Line and area plot the CLOSE of each bar. The
+          open/high/low a candle shows are not drawn, so the per-bar colouring
+          rule above does not apply here.</p>`;
+
+    return group("Type") +
+      row("Chart type", select("candles.type", typeOpts)) +
+      shapeRows +
       /* No "Volume" group here any more. Volume became an ordinary indicator
        * (Indicators ▸ Volume), so its colours, its MA and its on/off live in
        * that indicator's own settings dialog — which is where TradingView
@@ -539,6 +704,10 @@ const ChartSettings = (() => {
       if (path === "canvas.gradient") render();
       return;
     }
+    // The chart type is the series OBJECT, not an option — route it through the
+    // swapper, not set(), then re-render because the shape's own controls
+    // (candle bodies vs. a single line colour) change with it.
+    if (path === "candles.type") { setType(t.value); render(); return; }
     const fn = COERCE[path];
     set(path, fn ? fn(t.value) : t.value);
   }
@@ -567,18 +736,31 @@ const ChartSettings = (() => {
     const act = e.target.closest("[data-act]");
     if (!act) return;
     if (act.dataset.act === "reset") {
-      cfg = clone(FACTORY);
-      save();
-      apply();
+      restoreCfg(clone(FACTORY));
       render();
     } else if (act.dataset.act === "cancel") cancel();
     else close();                      // ok / ×: the edits are already live
   }
 
-  function cancel() {
-    cfg = clone(snapshot);
+  /* Swap `cfg` wholesale and bring every chart back in line with it. The chart
+   * TYPE is not an option — it is the series object — so a restore that changes
+   * it has to rebuild the series, which apply() does not do. Rebuild first (off
+   * the new type), then apply the rest of the options onto the fresh series. */
+  function restoreCfg(next) {
+    const wantType = next.candles.type;
+    const typeChanged = wantType !== cfg.candles.type;
+    cfg = next;
     save();
+    if (typeChanged) {
+      for (const t of [...targets]) {
+        try { swapSeriesOn(t, wantType); } catch (e) { console.error("chart type:", e); }
+      }
+    }
     apply();
+  }
+
+  function cancel() {
+    restoreCfg(clone(snapshot));
     close();
   }
 
@@ -641,6 +823,22 @@ const ChartSettings = (() => {
      *  written the theme's palette over the user's on its own chart. */
     applyTo: (t) => applyOne(t, true),
     candlePoints, candlePoint,
+    /** Build a price series of the CURRENT type on a chart. Owners call this
+     *  instead of chart.addSeries(CandlestickSeries,…) so a restored "line"
+     *  preference is honoured from the first paint, and so there is one place
+     *  that knows how the four shapes are constructed. */
+    makeSeries: (chart) => {
+      const spec = seriesSpec();
+      return chart.addSeries(spec.ctor, spec.options);
+    },
+    /** The data for the active series' shape — OHLC for candles/bars, close for
+     *  line/area. Owners set/update through these, never candlePoints directly,
+     *  so a type switch needs no change at the call site. */
+    pricePoints, pricePoint,
+    /** The chart-type catalogue + current value, for the header switcher. */
+    chartTypes: () => CHART_TYPES.slice(),
+    getType: () => cfg.candles.type,
+    setType,
     /** "Which way did this bar go" — the one rule, so the candles and the
      *  volume indicator's bars can never disagree. Honours "colour bars based
      *  on previous close"; the volume study reads it through here rather than
