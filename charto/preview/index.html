@@ -6170,10 +6170,17 @@ body.two-columns .readout .row { display: none; }
   max-width: 60%; overflow: hidden;
 }
 .al-badge-text { overflow: hidden; text-overflow: ellipsis; }
-/* Selected reads a touch heavier — a thicker black ring — rather than a new hue,
-   so the white-and-black tag stays as asked. */
+/* Selected takes the alert line's own purple — the border and ring switch from
+   black to the same hue the line turns (annNeutral in js/theme.js: #7c3aed on
+   light, #c084fc on dark), so the tag and the stroke it names read as one
+   selected object. The pill stays white with black ink; only the edge changes. */
 .al-badge.selected {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, .35), 0 0 0 1px #000000;
+  border-color: #7c3aed;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .35), 0 0 0 1px #7c3aed;
+}
+:root[data-theme="dark"] .al-badge.selected {
+  border-color: #c084fc;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .35), 0 0 0 1px #c084fc;
 }
 .al-badge-x {
   flex: none; display: inline-flex; align-items: center; justify-content: center;
@@ -8882,7 +8889,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it
        uses. Everything it needs from main.js (SYMBOL) and panels.js
        (openWidget) is read inside handlers, so those may come later. -->
-  <script src="./js/alerts.js?v=18"></script>
+  <script src="./js/alerts.js?v=19"></script>
   <!-- after chat.js: the widget panels share the phone's one panel slot with
        the conversation, and close it by clicking its real toggle -->
   <script src="./js/panels.js?v=13"></script>

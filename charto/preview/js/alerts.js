@@ -840,10 +840,15 @@ const Alerts = (() => {
     addEventListener("resize", closeCombo);
   }
 
+  /* The menu shows the HUMAN name only — "Average volume, 20 bars", not
+   * "avg(volume,20)". The raw address is the engine's language, not the user's;
+   * it still rides `data-addr`, so picking a row fills the field with the real
+   * address the server needs, and the field stays free text for anyone who wants
+   * to type a grammar term directly. The menu just stops leading with jargon. */
   const comboHTML = (groups) => groups.map(([name, rows]) =>
     `<div class="grp">${esc(name)}</div>` + rows.map(([addr, desc]) =>
       `<div class="row" data-addr="${esc(addr)}" role="button" tabindex="-1">` +
-        `<b>${esc(addr)}</b><span>${esc(desc)}</span></div>`).join("")).join("");
+        `<b>${esc(desc)}</b></div>`).join("")).join("");
 
   /** Does this condition want the × field?
    *
