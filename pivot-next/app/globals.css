@@ -1247,6 +1247,7 @@ input[type="range"].payoff-slider::-moz-range-thumb {
   background: transparent !important;
 }
 .top-header--chart .brand-slot,
+.top-header--chart [data-testid="mobile-nav-trigger"],
 .top-header--chart > .ml-auto {
   pointer-events: auto;
 }
@@ -1601,7 +1602,14 @@ body:has(.app-shell-root) {
     left: 50%;
     top: 50%;
     transform: translate(calc(-50% - 22px), -50%);
-    pointer-events: none;
+    /* The brand slot IS the home button — it must stay tappable. It was
+       `pointer-events: none` to let taps "fall through", but there is
+       nothing beneath it to receive them, so that only disabled the link.
+       Centering stays; the width is capped so the absolutely-positioned
+       slot never sits over the hamburger (left) or avatar (right) and
+       swallows their taps. */
+    max-width: 50vw;
+    pointer-events: auto;
   }
 }
 
@@ -2443,4 +2451,214 @@ body:has(.app-shell-root) {
    account avatar's hover treatment. */
 .broker-pill:hover {
   background: var(--surface-active) !important;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PRICING — the /pricing page (components/PricingPage.tsx)
+
+   A real route that renders inside AppShell's main pane — NOT an overlay. The
+   topbar and sidebar stay; this is just the page body, centred to a readable
+   measure and scrolling with the pane. Built only from the tokens above — the
+   CTA is the app's own ink button, seams are --glass-border, radii are the
+   --radius-* scale — so it reads as a room in this product.
+   ══════════════════════════════════════════════════════════════════════════ */
+.pricing-page {
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  /* AppShell's children wrapper already supplies the side gutter and top/bottom
+     padding; this only adds the extra breathing room the hero wants. */
+  padding: 44px 0 56px;
+}
+
+/* hero */
+.pricing-eyebrow {
+  display: inline-block;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 14px;
+}
+.pricing-title {
+  margin: 0 0 12px;
+  font-size: clamp(24px, 3.4vw, 34px); line-height: 1.12;
+  font-weight: 700; letter-spacing: -0.01em; color: var(--text-primary);
+}
+.pricing-sub {
+  margin: 0 auto; max-width: 480px;
+  font-size: 14px; line-height: 1.6; color: var(--text-secondary);
+}
+
+/* billing toggle */
+.pricing-toggle {
+  display: inline-flex; gap: 2px; margin-top: 28px; padding: 3px;
+  background: var(--bg-elevated); border: 1px solid var(--glass-border);
+  border-radius: var(--radius-pill);
+}
+.pricing-seg {
+  display: inline-flex; align-items: center; gap: 8px;
+  border: 0; cursor: pointer; background: transparent;
+  height: 32px; padding: 0 18px; border-radius: var(--radius-pill);
+  font-size: 13px; font-weight: 500; color: var(--text-secondary);
+  white-space: nowrap;
+  transition: color 0.12s var(--ease-quartr), background 0.12s var(--ease-quartr);
+}
+.pricing-seg:hover { color: var(--text-primary); }
+.pricing-seg--active {
+  color: var(--text-primary); background: var(--bg-base);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+.pricing-seg:focus-visible { outline: 2px solid var(--glass-border-focus); outline-offset: 2px; }
+.pricing-seg-badge {
+  font-size: 10.5px; font-weight: 600; letter-spacing: 0.01em;
+  padding: 2px 7px; border-radius: var(--radius-pill);
+  background: var(--accent-wash); color: var(--accent);
+}
+
+/* cards */
+.pricing-cards {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 18px; align-items: stretch; max-width: 960px; margin: 0 auto;
+}
+.pricing-card {
+  position: relative; display: flex; flex-direction: column;
+  padding: 26px 24px; border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg); background: hsl(var(--card));
+  transition: border-color 0.12s var(--ease-quartr),
+              box-shadow 0.16s var(--ease-quartr),
+              transform 0.16s var(--ease-quartr);
+}
+.pricing-card:hover {
+  border-color: var(--glass-border-hover);
+  box-shadow: 0 16px 40px -20px rgba(0, 0, 0, 0.5);
+  transform: translateY(-2px);
+}
+.pricing-card--featured {
+  border-color: var(--text-primary);
+  box-shadow: 0 16px 40px -20px rgba(0, 0, 0, 0.5);
+}
+.pricing-card--featured:hover { border-color: var(--text-primary); }
+.pricing-flag {
+  position: absolute; top: -11px; left: 50%; transform: translateX(-50%);
+  font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
+  padding: 4px 12px; border-radius: var(--radius-pill);
+  background: var(--text-primary); color: var(--bg-base); white-space: nowrap;
+}
+.pricing-mark {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: var(--radius-sm);
+  background: var(--bg-elevated); color: var(--text-primary); flex: none;
+}
+
+/* CTA — the app's ink button on the featured card, outline elsewhere */
+.pricing-cta {
+  width: 100%; height: 38px; margin-bottom: 22px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  border-radius: var(--radius-sm); cursor: pointer;
+  font-size: 13.5px; font-weight: 600; font-family: inherit;
+  border: 1px solid transparent;
+  transition: background 0.12s var(--ease-quartr),
+              border-color 0.12s var(--ease-quartr),
+              color 0.12s var(--ease-quartr);
+}
+.pricing-cta--primary {
+  background: hsl(var(--primary)); color: hsl(var(--primary-foreground));
+}
+.pricing-cta--primary:hover { background: color-mix(in srgb, hsl(var(--primary)) 88%, hsl(var(--background))); }
+.pricing-cta--outline {
+  background: transparent; border-color: var(--glass-border); color: var(--text-primary);
+}
+.pricing-cta--outline:hover { background: var(--bg-elevated); border-color: var(--glass-border-hover); }
+.pricing-cta:focus-visible { outline: 2px solid var(--glass-border-focus); outline-offset: 2px; }
+
+.pricing-highlights {
+  list-style: none; margin: 0; padding: 18px 0 0;
+  border-top: 1px solid var(--glass-border);
+  display: flex; flex-direction: column; gap: 11px;
+}
+.pricing-highlights li { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+
+/* price cross-fade on toggle */
+.pricing-fade { animation: pricing-fade-in 0.16s var(--ease-quartr); }
+@keyframes pricing-fade-in { from { opacity: 0; transform: translateY(3px); } }
+
+/* comparison */
+.pricing-compare { max-width: 960px; margin: 64px auto 0; }
+.pricing-compare-title {
+  margin: 0 0 20px; text-align: center; font-size: 17px; font-weight: 600;
+  color: var(--text-primary);
+}
+.pricing-matrix { width: 100%; border-collapse: collapse; }
+.pricing-matrix th, .pricing-matrix td {
+  text-align: center; padding: 13px 14px; font-weight: 400;
+}
+.pricing-matrix thead th {
+  background: var(--bg-base);
+  font-size: 13px; font-weight: 600; color: var(--text-primary);
+  border-bottom: 1px solid var(--glass-border); padding-bottom: 14px;
+}
+.pricing-matrix thead th.pricing-feat { text-align: left; }
+.pricing-feat {
+  text-align: left !important; width: 42%; font-size: 13px; color: var(--text-primary);
+}
+.pricing-matrix tbody th.pricing-feat { font-weight: 400; color: var(--text-secondary); }
+.pricing-matrix tbody tr { border-bottom: 1px solid var(--glass-border); }
+.pricing-matrix tbody tr:last-child { border-bottom: 0; }
+.pricing-matrix td.is-featured { background: var(--bg-elevated); }
+.pricing-matrix td, .pricing-matrix th { vertical-align: middle; }
+.pricing-matrix td > * { display: inline-flex; align-items: center; justify-content: center; }
+.pricing-grouprow th {
+  text-align: left !important; padding: 20px 14px 8px !important;
+  font-size: 11px !important; font-weight: 600 !important;
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-tertiary) !important;
+}
+
+.pricing-foot {
+  max-width: 620px; margin: 48px auto 0; text-align: center;
+  font-size: 12px; line-height: 1.65; color: var(--text-tertiary);
+}
+
+/* the stack is hidden on wide screens */
+.pricing-stack { display: none; }
+
+/* ── responsive ── */
+@media (max-width: 1040px) {
+  .pricing-cards { gap: 14px; }
+  .pricing-card { padding: 24px 20px; }
+}
+@media (max-width: 860px) {
+  .pricing-page { padding: 32px 0 48px; }
+  .pricing-cards { grid-template-columns: minmax(0, 420px); justify-content: center; }
+  .pricing-card--featured { order: -1; }
+  .pricing-matrix { display: none; }
+  .pricing-stack { display: flex; flex-direction: column; gap: 20px; }
+  .pricing-stack-plan {
+    border: 1px solid var(--glass-border); border-radius: var(--radius-lg);
+    overflow: hidden; background: hsl(var(--card));
+  }
+  .pricing-stack-plan.is-featured { border-color: var(--text-primary); }
+  .pricing-stack-name {
+    display: flex; align-items: center; gap: 8px; margin: 0;
+    padding: 15px 18px; font-size: 15px; font-weight: 600; color: var(--text-primary);
+    border-bottom: 1px solid var(--glass-border); background: var(--bg-elevated);
+  }
+  .pricing-stack-name svg { color: var(--text-secondary); }
+  .pricing-stack-group {
+    padding: 14px 18px 6px; font-size: 11px; font-weight: 600;
+    letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-tertiary);
+  }
+  .pricing-stack-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding: 9px 18px; font-size: 13px;
+  }
+  .pricing-stack-row + .pricing-stack-row { border-top: 1px solid var(--glass-border); }
+  .pricing-stack-row > span:last-child { display: inline-flex; align-items: center; }
+}
+@media (max-width: 480px) {
+  .pricing-page { padding: 24px 0 44px; }
+  .pricing-compare { margin-top: 48px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pricing-fade { animation: none; }
+  .pricing-card { transition: border-color 0.12s var(--ease-quartr); }
+  .pricing-card:hover { transform: none; }
 }
