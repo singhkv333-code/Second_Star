@@ -1390,10 +1390,18 @@ select.is-dressed { display: none; }
 .dlg.indicator-settings {
   width: 476px; min-width: 0; height: 666px;
   max-width: calc(100vw - 24px); max-height: calc(100dvh - 24px);
-  background: #fff; border: 1px solid #e7e7e7; border-radius: 9px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, .15);
+  /* GLASS, the same sheet the dropdowns and right-click menus wear (--ctx-*):
+     this dialog floats over candles like every other panel, so it refracts
+     them rather than hiding behind opaque white paper. The backdrop-filter is
+     the floor browsers without liquid-glass.js get; the lens is attached by
+     js/ctxmenu.js's observer when the wrapper opens. */
+  background: var(--ctx-paper); border: 1px solid var(--ctx-rim);
+  border-radius: 9px;
+  box-shadow: inset 0 1px 0 var(--ctx-sheen), inset 0 -1px 0 var(--ctx-sheen-low),
+              var(--ctx-shadow);
+  -webkit-backdrop-filter: blur(22px) saturate(145%);
+  backdrop-filter: blur(22px) saturate(145%);
 }
-:root[data-theme="dark"] .dlg.indicator-settings { background: var(--card); }
 .indicator-settings .dlg-head { padding: 24px 26px 19px; }
 .indicator-settings .dlg-title {
   font-size: 26px; line-height: 32px; font-weight: 600;
@@ -8313,10 +8321,15 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
    blur. Every modal family uses it so opening Layouts, Alerts, or Settings
    never changes the backdrop language. */
 .dlg-wrap,
-.dlg-wrap:has(.indicator-settings),
 .dlg-wrap:has(.al-dlg),
 .ly-back {
   background: rgba(0, 0, 0, .60);
+  backdrop-filter: none;
+}
+/* The indicator settings dialog is glass over live candles, so its backdrop
+   stays clear — no veil — to keep the chart it is reading from fully visible. */
+.dlg-wrap:has(.indicator-settings) {
+  background: transparent;
   backdrop-filter: none;
 }
 
@@ -8775,7 +8788,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/icons.js?v=39"></script>
   <!-- after icons.js (every row is drawn with one) and before main.js, which
        builds the chart's three right-click menus out of it -->
-  <script src="./js/ctxmenu.js?v=9"></script>
+  <script src="./js/ctxmenu.js?v=10"></script>
   <!-- before anything that edits the chart: drawings.js and scene.js call
        Undo.touch() from their save paths, so the module has to exist by the
        time the first one runs -->

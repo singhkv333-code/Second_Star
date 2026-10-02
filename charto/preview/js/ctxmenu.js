@@ -368,18 +368,28 @@ const Ctx = (() => {
    * own ResizeObserver re-generates the map when the list's size changes — so
    * there is nothing to tear down and no work on the second open.
    *
-   * `.select-menu` is skipped: it opens inside an opaque settings dialog, where
-   * glass has nothing behind it to refract (see the note beside its rule). */
+   * The indicator settings dialog (`.dlg.indicator-settings`) is glazed too — it
+   * is a glass panel over candles like everything else. `.open` lands on its
+   * `.dlg-wrap`, not the `.dlg` itself, so the lens is attached to the child
+   * when the wrapper opens. `.select-menu` — a dropdown that opens INSIDE such a
+   * dialog — is still skipped: it carries its own opaque paper. */
   function glazeMenus(root) {
     const wanted = (n) => n && n.classList && n.classList.contains("dropdown")
       && !n.classList.contains("select-menu");
+    const glazeDlg = (wrap) => {
+      const dlg = wrap.querySelector && wrap.querySelector(".dlg.indicator-settings");
+      if (dlg) glaze(dlg);
+    };
     for (const n of root.querySelectorAll(".dropdown.open")) {
       if (wanted(n)) glaze(n);
     }
+    for (const w of root.querySelectorAll(".dlg-wrap.open")) glazeDlg(w);
     new MutationObserver((recs) => {
       for (const r of recs) {
         const n = r.target;
-        if (wanted(n) && n.classList.contains("open")) glaze(n);
+        if (!n.classList || !n.classList.contains("open")) continue;
+        if (wanted(n)) glaze(n);
+        else if (n.classList.contains("dlg-wrap")) glazeDlg(n);
       }
     }).observe(root, { subtree: true, attributes: true, attributeFilter: ["class"] });
   }
