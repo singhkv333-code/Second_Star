@@ -57,6 +57,7 @@ from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 sys.modules.setdefault("dataserver", sys.modules[__name__])
 
 import company_scores   # sibling module: Altman / Ohlson / Graham / DuPont
+import depth as _depth   # sibling module: order-book snapshots for the depth widget
 import drawtools   # sibling module: the Fibonacci / Gann catalogue, backend half
 import execution_bridge   # sibling module: Pivot's automation engine, borrowed
 import indicators   # sibling module: the indicator registry
@@ -17083,6 +17084,17 @@ class Handler(BaseHTTPRequestHandler):
                     "Authorization") else None
                 return self._send(200, _bars_for_plan(
                     me[0] if me else None, symbol, interval, to, limit))
+            if u.path == "/depth":
+                # The Market Depth widget's book: read off the venue or
+                # refused with a reason, never synthesised (depth.py).
+                sym = (q.get("symbol") or "").strip().upper()
+                if not sym:
+                    return self._send(400, {"error": "symbol is required"})
+                try:
+                    lv = int(q.get("levels") or 20)
+                except ValueError:
+                    lv = 20
+                return self._send(200, _depth.book(sym, lv, scope_for(sym)))
             if u.path == "/quotes":
                 want = (q.get("symbols") or "").split(",")
                 if len([s for s in want if s.strip()]) > _QUOTES_MAX:

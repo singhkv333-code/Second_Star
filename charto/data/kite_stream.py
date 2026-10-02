@@ -318,6 +318,13 @@ def on_tick(symbol: str, raw_tick: dict[str, Any]) -> None:
     `_live_on_tick`, and re-implementing any of it here is how a second,
     divergent write path into `bars` gets born.
     """
+    try:
+        # FULL ticks carry a five-level book; the depth widget serves the
+        # freshest one from memory rather than asking Kite again.
+        import depth
+        depth.record_kite(symbol, raw_tick.get("depth"))
+    except Exception:                   # noqa: BLE001 — candles come first
+        pass
     cur = cursor(symbol)
     out = translate(symbol, raw_tick, cur)
     if out is None:

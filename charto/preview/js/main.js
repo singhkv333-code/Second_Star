@@ -294,14 +294,67 @@
       .then(() => renderIndMenu());
   }
 
+  /* ── instant switching ────────────────────────────────────────────────
+   * Opening another instrument is a page load (the page IS the symbol), so
+   * what makes it feel like a switch is having the candles before the fetch.
+   * The last bars of each chart are kept in sessionStorage, compactly; the
+   * workspace warms them when the pointer rests on a watchlist or screener
+   * row, and boot paints them at once while the real page loads behind. The
+   * fetch then replaces them, so a snapshot is never what you trade on — at
+   * worst it is a quarter-hour old for the second it is on screen. */
+  const SNAP_BARS = 1500, SNAP_TTL = 15 * 60_000, SNAP_KEEP = 12;
+  const snapKey = (sym, iv) => `charto:snap:${sym}:${iv}`;
+  function snapPut(sym, iv, raw) {
+    try {
+      const b = raw.slice(-SNAP_BARS);
+      sessionStorage.setItem(snapKey(sym, iv), JSON.stringify({ at: Date.now(),
+        t: b.map((x) => x.t), o: b.map((x) => x.o), h: b.map((x) => x.h),
+        l: b.map((x) => x.l), c: b.map((x) => x.c), v: b.map((x) => x.v) }));
+      // most recent last; the oldest beyond SNAP_KEEP are let go
+      const idx = JSON.parse(sessionStorage.getItem("charto:snaps") || "[]")
+        .filter((k) => k !== snapKey(sym, iv));
+      idx.push(snapKey(sym, iv));
+      while (idx.length > SNAP_KEEP) sessionStorage.removeItem(idx.shift());
+      sessionStorage.setItem("charto:snaps", JSON.stringify(idx));
+    } catch { /* full or blocked storage: the chart just loads normally */ }
+  }
+  function snapGet(sym, iv) {
+    try {
+      const s = JSON.parse(sessionStorage.getItem(snapKey(sym, iv)) || "null");
+      if (!s || Date.now() - s.at > SNAP_TTL || !s.t.length) return null;
+      return s.t.map((t, i) => ({ time: t + IST, open: s.o[i], high: s.h[i], low: s.l[i],
+                                  close: s.c[i], volume: s.v[i] }));
+    } catch { return null; }
+  }
+  window.__chartoWarm = async (sym) => {
+    const iv = state.interval || Store.get("interval", "5m");
+    try {
+      if (snapGet(sym, iv)) return;
+      const qs = new URLSearchParams({ symbol: sym, interval: iv, limit: String(SNAP_BARS) });
+      const res = await Net.get(`${API}/bars?${qs}`,
+        typeof Auth !== "undefined" ? { headers: Auth.headers() } : undefined);
+      if (!res.ok) return;
+      const d = await res.json();
+      if (d.bars && d.bars.length) snapPut(sym, iv, d.bars);
+    } catch { /* a warm-up that fails costs nothing; the click just loads */ }
+  };
+  /** What the notes widget stamps: the instrument, interval and last price. */
+  window.__chartoLast = () => ({ symbol: SYMBOL, interval: state.interval,
+                                 close: lastBar ? lastBar.close : null });
+  let snapShown = null;      // the interval a boot snapshot was painted for
+
   async function loadInterval(interval) {
     state.interval = interval;
-    setOverlay(true, "Loading…");
+    // a boot snapshot is already on screen: load behind it, no curtain
+    if (snapShown !== interval) setOverlay(true, "Loading…");
+    snapShown = null;
     const t0 = performance.now();
     state.switching = true;   // latch: stream events must not touch the old series mid-switch
     try {
       const { bars, hasMore } = await fetchBars(interval, null, PAGE[interval]);
       state.bars = bars; state.hasMore = hasMore;
+      snapPut(SYMBOL, interval, bars.map((b) => ({ t: b.time - IST, o: b.open, h: b.high,
+                                                   l: b.low, c: b.close, v: b.volume })));
       // Anything that needs to know a chart is READABLE — not merely present.
       // A restored thread repaints before this resolves, so a panel deciding
       // at render time whether it can draw its trades was answering "no bars
@@ -4384,6 +4437,22 @@
   // the view back at the live edge) and put back everything the user built.
   // Drawings restore themselves — drawings.js reads its own store at create().
   (async function boot() {
+    // Candles first, from the snapshot the previous page left, before any
+    // await — so the chart is drawn in the same frame as the page.
+    {
+      const iv0 = IV_SEC[Store.get("interval", "5m")] ? Store.get("interval", "5m") : "5m";
+      const snap = snapGet(SYMBOL, iv0);
+      if (snap) {
+        try {
+          candle.setData(ChartSettings.candlePoints(snap));
+          chart.applyOptions({ timeScale: { timeVisible: !["1d", "1w", "1mo"].includes(iv0) } });
+          resetView(chart, snap.length);
+          paintReadout(snap[snap.length - 1]);
+          setOverlay(false);
+          snapShown = iv0;
+        } catch (e) { console.warn("[charto] snapshot paint", e); }
+      }
+    }
     await Indicators.loadCatalogue(API, SYMBOL);
     ind.setContext({ interval: Store.get("interval", "5m") });
     renderIndMenu();
@@ -4701,8 +4770,8 @@
     Shortcuts.on("fold", () => toggleDrawFold());
     Shortcuts.on("snapshot", () => { closeMenus(null); captureChart(null); });
     Shortcuts.on("chat", () => el("chatToggle").click());
-    Shortcuts.on("watchlist", () => Panels.toggle("watch"));
-    Shortcuts.on("alerts", () => Panels.toggle("alerts"));
+    Shortcuts.on("watchlist", () => Dock.toggle("watch"));
+    Shortcuts.on("alerts", () => Dock.toggle("alerts"));
 
     // The picker opens and takes the typing from there — the letter that
     // summoned it is deliberately not seeded into the field (see the note

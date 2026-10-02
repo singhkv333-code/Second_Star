@@ -13,19 +13,12 @@
  * the browser shut. It does not — the log and the bell are waiting when you
  * return, and the panel says as much rather than implying a push.
  *
- * THE SHAPE, and why it is this one. TradingView keeps a permanent strip of
- * widget icons on the outer edge and opens ONE widget panel beside it, and
- * that is what this is. Watchlist and Alerts are separate widgets — separate
- * panels, separate heads, separate contents — because they are separate
- * subjects: one is what you are watching, the other is what you asked to be
- * told about. Alerts keeps its own two tabs (Alerts / Log) INSIDE its panel,
- * because those two are one subject seen twice: the standing rules, and the
- * moments they fired.
- *
- * A widget is one entry in WIDGETS below: an icon, a label, and a render()
- * that fills its own panel. The bar, the exclusivity rule, the phone's
- * one-panel rule and the mobile sheet all read that list, so a third widget
- * is one entry here and an <aside> in index.html.
+ * THE SHAPE. Watchlist, Alerts and Journal are widgets of the workspace
+ * (js/dock.js): each can sit in a dock beside the chart, under it, or float
+ * over it, alone or as a tab of a group. Watchlist and Alerts are separate
+ * widgets because they are separate subjects; Alerts keeps its own two tabs
+ * (Alerts / Log) INSIDE itself, because those two are one subject seen twice.
+ * This file owns what is IN each panel; the dock owns where it is.
  */
 "use strict";
 
@@ -381,7 +374,7 @@ const Panels = (() => {
   }
 
   function repaint(force) {
-    if (openId !== "watch") return;
+    if (!on("watch")) return;
     const panel = el("watchPanel");
     if (force || keyOf(plan()) !== planKey) renderWatch(panel);
     else paintQuotes(panel);
@@ -436,7 +429,7 @@ const Panels = (() => {
   // A background tab is not watching anything; come back to fresh numbers
   // rather than to whatever was on screen when it was hidden.
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && openId === "watch") fetchQuotes();
+    if (document.visibilityState === "visible" && on("watch")) fetchQuotes();
   });
 
   /* The page's own symbol streams (js/main.js). Its row is the one the user
@@ -453,7 +446,7 @@ const Panels = (() => {
       q.change = last - q.prev_close;
       q.change_pct = (last - q.prev_close) / q.prev_close * 100;
     }
-    if (openId === "watch") paintQuotes(el("watchPanel"));
+    if (on("watch")) paintQuotes(el("watchPanel"));
   });
 
   /* ── editing the list ──────────────────────────────────────────────────── */
@@ -620,21 +613,11 @@ const Panels = (() => {
       });
   }
 
-  /** Opening a symbol is a full reload of the page onto it — the same thing
-   *  the header pill and the legend do, and for the same reason: chart, chat,
-   *  drawings and scene all re-init against their own persisted state for
-   *  that instrument rather than being swapped under a live conversation. */
-  function openSymbol(sym) {
-    if (!sym || sym === currentSymbol()) return;
-    // The reload swaps every symbol-scoped chart surface, but the watchlist
-    // is the navigator the user is still working in. Carry that shell state
-    // through the URL so selecting TCS does not make the list disappear and
-    // force an extra click before selecting the next instrument.
-    const q = new URLSearchParams(location.search);
-    q.set("symbol", sym);
-    q.set("panel", "watch");
-    location.search = q.toString();
-  }
+  /** Opening a symbol goes through the workspace: in place on a selected
+   *  secondary pane, else a navigation the dock keeps instant — the bars are
+   *  warmed on hover (below) and the new page paints them before it fetches.
+   *  The watchlist itself survives the trip because the dock's layout does. */
+  const openSymbol = (sym) => Dock.openSymbol(sym);
 
   /* Another tab of the same app edits the same lists. `storage` fires only in
    * the OTHER tabs, so this is the cheap way to keep them from disagreeing. */
@@ -843,175 +826,94 @@ const Panels = (() => {
     if (s && alertSearchOpen) s.focus();
   }
 
-  /* ══ the widget list ═══════════════════════════════════════════════════ */
+  /* ══ the widgets, handed to the workspace ══════════════════════════════
+   * The three panels used to be one-at-a-time columns this file opened and
+   * shut itself. They are dock widgets now (js/dock.js): the dock decides
+   * where each one sits and whether it is on screen, and tells this file
+   * through show/hide — which is all the panels ever needed to know, since
+   * the only thing that keeps costing while a panel is away is the watchlist's
+   * quote poll. The existing <aside>s are adopted as the widgets' hosts, so
+   * every delegated handler below keeps working on the same element. */
+  const showing = new Set();
+  const on = (id) => showing.has(id);
 
-  const WIDGETS = [
-    // A star, not a list: see the `star` note in js/icons.js.
-    { id: "watch",  panel: "watchPanel",  icon: "star", label: "Watchlist",
-      render: renderWatch },
-    { id: "alerts", panel: "alertsPanel", icon: "bell", label: "Alerts",
-      render: renderAlerts },
-    /* Patterns used to stand here, as a fourth rail icon opening a 344px
-     * column. It moved to the chart's own top-right corner (js/layers-panel.js,
-     * opened from the chip column by js/scene.js) and grew to hold every
-     * annotation rather than only detector formations.
-     *
-     * The rail is for places you GO — a watchlist, an alert log, a journal,
-     * each about something other than the chart on screen. The layers list is
-     * about this chart, this second, so it belongs on it. Leaving a duplicate
-     * opener here would also have meant two controls that can disagree about
-     * whether the panel is open. */
-    { id: "journal", panel: "journalPanel", icon: "fileText", label: "Journal",
-      render: (host) => Journal.renderSidebar(host) },
-  ];
-  const byId = (id) => WIDGETS.find((w) => w.id === id);
+  const widget = (id, extra) => Dock.register({
+    type: id, single: true, zone: "right", host: () => el(extra.panel),
+    mount: () => ({
+      show() {
+        showing.add(id);
+        // rendered on show rather than up front, so a panel is never
+        // showing a state older than the moment you asked for it
+        extra.render(el(extra.panel));
+        if (extra.onShow) extra.onShow();
+      },
+      hide() { showing.delete(id); if (extra.onHide) extra.onHide(); },
+      ask: extra.ask,
+    }),
+    ...extra,
+  });
 
-  /* ══ the bar, and the header's named buttons ═══════════════════════════
-   * Two renderings of the ONE list: the vertical strip on the right edge,
-   * and — at laptop width, where there is room to spell the panel's name —
-   * a pair of labelled buttons in the header. The stylesheet shows exactly
-   * one of them (see .wtabs), and everything below writes state to BOTH, so
-   * neither can be the stale one. `tabs` is optional: a build without the
-   * header container still gets the bar.
-   */
-  const tabs = el("wtabs");
-
-  const widgetButtons = WIDGETS.map((w) =>
-    `<button type="button" class="tool" id="wb-${w.id}" data-widget="${w.id}" ` +
-    `aria-expanded="false" aria-controls="${w.panel}">${Icons.svg(w.icon)}` +
-    `<span class="tip">${w.label}</span></button>`).join("");
-  // Watchlist, Alerts and Journal belong to the existing LEFT tool rail.
-  // Put them below the flexible spacer so they remain a distinct bottom
-  // group, rather than creating a second navigation rail on the right.
-  const railSpacer = document.querySelector("#rail .rail-spacer");
-  if (railSpacer) railSpacer.insertAdjacentHTML("afterend",
-    `<div class="rail-sep rail-widget-sep"></div>${widgetButtons}`
-    + `<div class="rail-sep rail-export-sep"></div>`);
+  // A star, not a list: see the `star` note in js/icons.js.
+  widget("watch", {
+    panel: "watchPanel", icon: "star", title: "Watchlist", shortcut: "watchlist",
+    key: "Alt W", desc: "Your lists, priced live",
+    render: renderWatch,
+    onShow: () => polling(true),
+    onHide: () => { polling(false); closePopup(); },
+    ask: () => {
+      const l = activeList();
+      return l.syms.length
+        ? `Compare the instruments on my "${l.name}" watchlist: ${l.syms.join(", ")}.` : "";
+    },
+  });
+  widget("alerts", {
+    panel: "alertsPanel", icon: "bell", title: "Alerts", shortcut: "alerts",
+    key: "Alt A", desc: "Rules and what fired",
+    render: renderAlerts,
+    // Opening the panel asks the server for the current truth — a tab that
+    // was in the background through a fire has a stale list.
+    onShow: () => { if (Auth.user) Alerts.load(); },
+    onHide: closePopup,
+  });
+  /* Patterns used to be a rail widget too. It moved to the chart's own
+   * top-right corner (js/layers-panel.js): the rail is for places you GO,
+   * and the layers list is about this chart, this second. */
+  widget("journal", {
+    panel: "journalPanel", icon: "fileText", title: "Journal",
+    desc: "Your trades and their outcomes",
+    render: (host) => Journal.renderSidebar(host),
+  });
   bar.innerHTML = "";
-
-  if (tabs) {
-    tabs.innerHTML = WIDGETS.map((w) =>
-      `<button type="button" class="btn wtab" id="wt-${w.id}" data-widget="${w.id}" ` +
-      `aria-expanded="false" aria-controls="${w.panel}">${Icons.svg(w.icon)}` +
-      `<span>${w.label}</span></button>`).join("");
-  }
-
-  /** Every control that opens this widget — the bar's icon and, at laptop
-   *  width, the header's named button. */
-  const ctrls = (id) => [el(`wb-${id}`), el(`wt-${id}`)].filter(Boolean);
 
   /** The bell's dot is the UNSEEN COUNT, not "there is a log" — the fixture
    *  version marked it whenever today had a row, which meant it lit again on
    *  every reload of something already read. */
   function syncBell() {
-    const on = Alerts.state.unseen > 0;
-    for (const b of ctrls("alerts")) b.classList.toggle("has-new", on);
+    const b = el("wb-alerts");
+    if (b) b.classList.toggle("has-new", Alerts.state.unseen > 0);
   }
-
-
-  let openId = null;
-  // A phone panel temporarily replaces an open conversation. Remember that
-  // fact so closing the panel restores the conversation the user was reading.
-  let restoreChatAfterPanel = false;
 
   /* One subscription, three jobs: keep the bell honest, keep an open panel
    * current, and keep a watchlist row's bell in step with being signed in.
-   * Registered AFTER openId exists, and it only re-renders the panel that is
-   * actually on screen — repainting a hidden 302px column on every fire would
-   * be work nobody can see. */
+   * Only the panel actually on screen re-renders. */
   Alerts.onChange(() => {
     syncBell();
-    if (openId === "alerts") renderAlerts(el("alertsPanel"));
+    if (on("alerts")) renderAlerts(el("alertsPanel"));
   });
   Auth.onChange(() => {
     syncBell();
-    if (openId === "alerts") renderAlerts(el("alertsPanel"));
-    if (openId === "watch") repaint(true);        // the bells' enabled state
+    if (on("alerts")) renderAlerts(el("alertsPanel"));
+    if (on("watch")) repaint(true);        // the bells' enabled state
   });
+  setTimeout(syncBell, 0);                  // the rail is built on Dock.start
 
-  // the breakpoint the stylesheet stacks at — below it the shell is a column
-  const stackMq = window.matchMedia("(max-width: 820px) and (orientation: portrait)");
-  const stacked = () => stackMq.matches;
-  const chatOpen = () => !el("chatPanel").classList.contains("hidden");
-
-  /* ══ two sidebars, and what the chart gives up for them ════════════════
-   * A widget panel and the conversation are TWO columns taken off the
-   * chart. On a 1512px laptop that leaves the price pane around 430px —
-   * narrow enough that the five OHLC figures no longer fit beside the
-   * ticker, wrap to a second line, and run at the price axis they are
-   * already bounded off (see .readout's `right: 76px`). Two rows of small
-   * grey numbers over the candles, to say what the axis and the crosshair
-   * are both saying anyway.
-   *
-   * So the figures stand down while both columns are open. They are the
-   * right thing to drop and the only one: the ticker line says WHICH chart
-   * this is and costs a line either way, the indicator legend is the only
-   * place a study can be reached, and the exact price is still on the axis
-   * under the crosshair and pinned there for the last close. Nothing is
-   * lost that the chart itself was not already showing.
-   *
-   * The class goes on <body>, not on .stage: panes are built and rebuilt
-   * per layout, and this is a fact about the SHELL's columns. */
-  const syncDense = () =>
-    document.body.classList.toggle("two-columns", !!openId && chatOpen());
-
-  /** show(id) — open that widget, or null to close whatever is open. One at
-   *  a time: two 304px columns plus the conversation leaves no chart. */
-  function show(id) {
-    const closing = !id;
-    openId = id;
-    for (const w of WIDGETS) {
-      const on = w.id === id;
-      el(w.panel).classList.toggle("hidden", !on);
-      for (const b of ctrls(w.id)) {
-        b.classList.toggle("active", on);
-        b.setAttribute("aria-expanded", String(on));
-      }
-      // rendered on open rather than up front, so a panel is never showing a
-      // state older than the moment you asked for it
-      if (on) w.render(el(w.panel));
+  const show = (id) => {
+    if (id) return Dock.open(id);
+    for (const w of ["watch", "alerts", "journal"]) {
+      for (const i of Dock.instances(w)) Dock.close(i);
     }
-    // A closed panel is not priced: the quote poll is the one thing here that
-    // keeps costing after you look away, so it stops with the panel.
-    polling(id === "watch");
-    if (id !== "watch") closePopup();
-    // Opening the panel asks the server for the current truth — a tab that was
-    // in the background through a fire has a stale list, and the stream only
-    // carries what happened WHILE it was connected.
-    if (id === "alerts" && Auth.user) Alerts.load();
-    // Stacked, there is room for the chart and ONE panel. The conversation
-    // goes away through its own toggle rather than by being hidden here, so
-    // the chat button's state stays true.
-    if (id && stacked() && chatOpen()) {
-      restoreChatAfterPanel = true;
-      el("chatToggle").click();
-    } else if (closing && stacked() && restoreChatAfterPanel) {
-      restoreChatAfterPanel = false;
-      if (!chatOpen()) el("chatToggle").click();
-    }
-    // last, so it reads the state the line above may just have changed
-    syncDense();
-    // the charts are autoSize — they re-measure themselves off the layout
-  }
-
-  const toggle = (id) => {
-    if (id === "journal" && !stacked()) {
-      show(null);
-      Journal.toggleQuick();
-      return;
-    }
-    Journal.toggleQuick(false);
-    show(openId === id ? null : id);
   };
-
-  // one handler shape, both renderings — the bar and the header's buttons
-  // carry the same data-widget, so neither needs its own branch
-  const onPick = (e) => {
-    const b = e.target.closest("[data-widget]");
-    if (b) toggle(b.dataset.widget);
-  };
-  el("rail").addEventListener("click", onPick);
-  if (tabs) tabs.addEventListener("click", onPick);
+  const toggle = (id) => Dock.toggle(id);
 
   /* ══ inside the panels ═════════════════════════════════════════════════
    * One delegated handler per panel, because a panel's body is rebuilt on
@@ -1056,6 +958,14 @@ const Panels = (() => {
     const row = e.target.closest(".wl-row[data-sym]");
     if (row && !e.target.closest(".wl-acts")) openSymbol(row.dataset.sym);
   });
+
+  // a row the pointer rests on is a row about to be clicked: fetch its bars
+  for (const p of ["watchPanel", "alertsPanel"]) {
+    el(p).addEventListener("pointerover", (e) => {
+      const row = e.target.closest("[data-sym]");
+      if (row) Dock.warm(row.dataset.sym);
+    });
+  }
 
   // the rows are the panel's one keyboard target: Enter/Space opens, which is
   // what `role="button"` on them already promises
@@ -1177,26 +1087,6 @@ const Panels = (() => {
       });
   }
 
-  /* ══ the phone's one-panel rule ════════════════════════════════════════ */
-
-  // chat.js registered its handler first, so by the time this runs the chat
-  // has already flipped — if it is now showing, the panel is what gives way.
-  el("chatToggle").addEventListener("click", () => {
-    if (stacked() && chatOpen()) show(null);
-    // the conversation is half of "two columns", so its toggle owns this
-    // just as much as a panel's does — and show(null) above already ran
-    // syncDense on the stacked path, which is why this is safe to repeat
-    syncDense();
-  });
-  // Rotating a phone, or dragging a window across the breakpoint, can arrive
-  // at the stacked layout with both already open — a state the column has no
-  // room for and which nothing else would resolve. The conversation is the
-  // product surface, so this is the one that gives way.
-  stackMq.addEventListener("change", () => {
-    if (stacked() && chatOpen() && openId) show(null);
-    syncDense();
-  });
-
   // No Escape-to-close: these are columns of the shell, like the chat panel,
   // not overlays over the chart — and Escape already means "cancel the
   // drawing I am halfway through" (js/drawings.js).
@@ -1213,17 +1103,11 @@ const Panels = (() => {
     Universe.load().then(() => repaint(true));
   }
 
-  // A panel named by navigation is shell continuity, not saved workspace
-  // state. Only recognised widget ids are accepted; an old or hand-edited
-  // query parameter leaves the default closed layout untouched.
-  const initialPanel = new URLSearchParams(location.search).get("panel");
-  if (byId(initialPanel)) show(initialPanel);
-
   return {
-    show, toggle, widgets: () => WIDGETS.map((w) => w.id),
+    show, toggle, widgets: () => ["watch", "alerts", "journal"],
     // which panel is on screen — js/alerts.js asks so it can skip the OS
     // notification for a fire you are already looking at
-    openWidget: () => openId,
+    openWidget: () => ["watch", "alerts", "journal"].find(on) || null,
     // the chat and the chart can put an instrument on the list without
     // knowing how one is stored
     watch: addSymbol,

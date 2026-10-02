@@ -271,6 +271,8 @@
       // lives behind More instead of consuming a permanent toolbar slot.
       '<div class="sheet-sec">Panels</div><div class="sheet-grid">' +
         tile('data-more="journal"', Icons.svg("fileText"), "Journal") +
+        tile('data-more="depth"', Icons.svg("depth"), "Market depth") +
+        tile('data-more="notes"', Icons.svg("note"), "Notes") +
       "</div>" +
       '<div class="sheet-sec">Conversation</div><div class="sheet-grid">' +
         tile('data-more="chat"', Icons.svg("chat"), chatOn ? "Hide chat" : "Show chat",
@@ -352,6 +354,8 @@
       case "shotFull": return act(el("shotMenu").querySelector('[data-shot="full"]'));
       case "shotRegion": return act(el("shotMenu").querySelector('[data-shot="region"]'));
       case "journal": return act(el("wb-journal"));
+      case "depth": return act(el("wb-depth"));
+      case "notes": return act(el("wb-notes"));
       case "chat": return act(el("chatToggle"));
       case "scene": return act(el("sceneClear"));
     }
@@ -366,7 +370,8 @@
    * state of its own. Read off #wbar, so a widget added there arrives here
    * with no edit to this file. */
   const widgetBtns = [...document.querySelectorAll("#rail [data-widget]")]
-    .filter((b) => b.dataset.widget !== "journal");
+    // the three a phone reaches for most; the rest live behind More
+    .filter((b) => ["watch", "screener", "alerts"].includes(b.dataset.widget));
   bar.innerHTML =
     '<button type="button" class="mbtn" data-slot="symbol" id="mbSymbol"></button>' +
     '<span class="msep"></span>' +

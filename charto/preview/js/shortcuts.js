@@ -82,10 +82,15 @@ const Shortcuts = (() => {
         keys: ["Esc"], owner: "drawings" },
     ] },
 
-    { heading: "Panels", rows: [
+    { heading: "Workspace", rows: [
       { act: "watchlist", label: "Watchlist", keys: ["Alt + W"] },
       { act: "alerts", label: "Alerts", keys: ["Alt + A"] },
+      { act: "screener", label: "Screener", keys: ["Alt + Shift + S"] },
+      { act: "depth", label: "Market depth", keys: ["Alt + D"] },
+      { act: "notes", label: "Notes", keys: ["Alt + N"] },
       { act: "chat", label: "Chat", keys: ["Ctrl + Alt + C"] },
+      { act: "focus-chart", label: "Focus on the chart — hide every widget", keys: ["Alt + Z"] },
+      { act: "fullscreen", label: "Fullscreen", keys: ["Alt + Shift + F"] },
     ] },
 
     { heading: "General", rows: [
