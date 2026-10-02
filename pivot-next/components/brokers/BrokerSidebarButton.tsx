@@ -71,9 +71,12 @@ export function BrokerSidebarButton(): React.ReactElement {
   const shown = connected ? linked.slice(0, MAX_SHOWN) : HINT_BROKERS;
   const overflow = connected ? Math.max(0, linked.length - MAX_SHOWN) : 0;
 
+  // `linked[0]` is element access, which the strict build types as possibly
+  // undefined even though length === 1 guarantees it — optional-chain it so the
+  // type checker is satisfied, falling back to the count label.
   const label = connected
     ? linked.length === 1
-      ? linked[0].name
+      ? linked[0]?.name ?? `${linked.length} brokers`
       : `${linked.length} brokers`
     : "Connect broker";
 
