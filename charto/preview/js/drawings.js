@@ -249,11 +249,16 @@ const Drawings = (() => {
      *  point. Padding here rather than in fifteen builders means a tool
      *  added tomorrow gets its preview for nothing, and no builder has to
      *  grow a branch for a state that is not a drawing yet. */
+    // "free" (drag a freehand stroke) and "path" (click a poly-line, finish
+    // on a double-click) are the two VARIABLE-length tools — they have no
+    // fixed anchor count to pad up to, so the preview-padding below skips them.
+    const isVariable = (spec) => spec.anchors === "free" || spec.anchors === "path";
+
     function primsOf(d) {
       const spec = Tools.SPECS[d.type];
       if (!spec || !d.pts || !d.pts.length) return [];
       let pts = d.pts;
-      if (spec.anchors !== "free" && pts.length < spec.anchors) {
+      if (!isVariable(spec) && pts.length < spec.anchors) {
         const last = pts[pts.length - 1];
         pts = pts.concat(Array(spec.anchors - pts.length).fill(last));
       }
@@ -626,8 +631,14 @@ const Drawings = (() => {
         if (spec.anchors === 1) return commit();
         state.draft.pts.push({ ...pt });          // the moving anchor
       } else if (a.key === state.draft.pane) {
+        // A PATH grows one click at a time and is finished by the user, not by
+        // a count: drop the floating anchor onto this click and start a new
+        // one. The double-click handler below is what ends it. Everything else
+        // commits the moment it has the anchors its spec declares.
         state.draft.pts[state.draft.pts.length - 1] = pt;
-        if (state.draft.pts.length >= spec.anchors) return commit();
+        if (spec.anchors !== "path" && state.draft.pts.length >= spec.anchors) {
+          return commit();
+        }
         state.draft.pts.push({ ...pt });
       }
       _ru();
@@ -758,7 +769,9 @@ const Drawings = (() => {
       // threshold has to clear its own tremor or every tap reads as a drag
       const slop = coarsePointer() ? 14 : 6;
       if (Math.hypot(x1 - x0, y1 - y0) <= slop) return;   // a tap: stay in click-click
-      if (pts.length >= spec.anchors) return commit();
+      // A path never commits on a filled count — it has none — so a
+      // drag-release only adds another segment; the double-click ends it.
+      if (spec.anchors !== "path" && pts.length >= spec.anchors) return commit();
       pts.push({ ...to });        // the next anchor, floating from here
       _ru();
     });
@@ -1058,6 +1071,24 @@ const Drawings = (() => {
      * underneath, so an edit that let the event through would retype the note
      * and throw the view away in the same motion. */
     el.addEventListener("dblclick", (e2) => {
+      /* A double-click FINISHES an open path. The two mousedowns that precede
+       * it have already dropped the last real anchor and left a floating one
+       * trailing the cursor; this drops that floater and commits what remains.
+       * Taken in capture, like the text edit below, so the library's own
+       * dbl-click-to-rescale never fires under a tool mid-placement. */
+      if (state.draft && Tools.SPECS[state.draft.type]
+          && Tools.SPECS[state.draft.type].anchors === "path") {
+        e2.preventDefault(); e2.stopPropagation();
+        // the trailing floating anchor, and the duplicate the second mousedown
+        // of this double-click just pushed, are both noise — a path is the
+        // points the user actually clicked
+        const pts = state.draft.pts;
+        const same = (p, q) => p && q && p.t === q.t && p.v === q.v;
+        while (pts.length > 2 && same(pts[pts.length - 1], pts[pts.length - 2])) pts.pop();
+        if (pts.length >= 2) pts.pop();          // drop the floating anchor
+        if (pts.length >= 2) return commit();
+        return cancel();
+      }
       if (state.tool !== "cursor" || state.draft) return;
       if (!inPlot(e2)) return;
       const a = anchorAt(e2);

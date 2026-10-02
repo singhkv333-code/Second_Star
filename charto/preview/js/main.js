@@ -977,6 +977,14 @@
     gannBox: "gannBox", gannSquare: "gannSquare",
     gannSquareFixed: "gannSquareFixed", gannFan: "gannFan",
     rect: "rect", triangle: "triangle", brush: "brush",
+    ellipse: "ellipse", arc: "arc", curve: "curve",
+    rotatedRect: "rotatedRect", path: "path",
+    xabcd: "xabcd", cypher: "cypher", abcd: "abcd", trianglePat: "trianglePat",
+    headShoulders: "headShoulders", threeDrives: "threeDrives",
+    elliottImpulse: "elliottImpulse", elliottCorrection: "elliottCorrection",
+    elliottTriangle: "elliottTriangle", elliottDoubleCombo: "elliottDoubleCombo",
+    elliottTripleCombo: "elliottTripleCombo",
+    cyclicLines: "cyclicLines", timeCycles: "timeCycles", sineLine: "sineLine",
     priceRange: "hline", dateRange: "vline", measure: "measure",
     long: "position", short: "position", text: "text" };
   const lastOfGroup = {};
@@ -4391,6 +4399,12 @@
         // dev-only link would hide the connect flow from everybody in prod.
         + `<div class="item" data-acct="brokers"><span class="lead">`
         + Icons.svg("link", "xs") + `Brokers</span></div>`
+        // Upgrade — the one row that opens a different KIND of surface (the
+        // pricing page, js/pricing.js), so it carries the arrow its own CTA
+        // does and sits just above the ordinary settings rows.
+        + `<div class="item acct-upgrade" data-acct="upgrade"><span class="lead">`
+        + Icons.svg("sparkles", "xs") + `Upgrade</span>`
+        + Icons.svg("arrowUpRight", "xs") + `</div>`
         + `<div class="item" data-acct="settings"><span class="lead">`
         + Icons.svg("settings", "xs") + `Settings</span></div>`
         + `<div class="item" data-acct="help"><span class="lead">`
@@ -4406,6 +4420,9 @@
         + `<div class="item" data-acct="login"><span class="lead">Sign in</span></div>`
         + `<div class="item" data-acct="signup"><span class="lead">Create an account</span></div>`
         + `<div class="sep"></div>`
+        + `<div class="item acct-upgrade" data-acct="upgrade"><span class="lead">`
+        + Icons.svg("sparkles", "xs") + `See plans</span>`
+        + Icons.svg("arrowUpRight", "xs") + `</div>`
         + `<div class="item" data-acct="settings"><span class="lead">`
         + Icons.svg("settings", "xs") + `Settings</span></div>`
         + `<div class="item" data-acct="help"><span class="lead">`
@@ -4473,6 +4490,7 @@
     if (!it) return;
     closeMenus(null);
     if (it.dataset.acct === "theme") { Theme.toggle(); paintAccount(Auth.user); return; }
+    if (it.dataset.acct === "upgrade") { if (window.Pricing) window.Pricing.open(); return; }
     if (it.dataset.acct === "settings") { el("settingsBtn").click(); return; }
     if (it.dataset.acct === "help") return Shortcuts.open();
     if (it.dataset.acct === "shortcuts") return Shortcuts.open();

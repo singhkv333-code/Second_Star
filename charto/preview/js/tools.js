@@ -636,6 +636,61 @@ const Tools = (() => {
     brush: { label: "Brush", anchors: "free", group: "shapes",
       build: (a) => [G.poly(a)] },
 
+    /* Ellipse — two anchors give a bounding box, and the ellipse is inscribed
+     * in it. A circle on this chart is an ellipse in pixels (see the curve
+     * note in js/geometry.js): the two axes carry different quantities, so a
+     * shape that stayed round under a rescale would be claiming rupees and
+     * minutes are the same size. Sampled through `curve`, like every arc. */
+    ellipse: { label: "Ellipse", anchors: 2, group: "shapes",
+      build: (a, c) => {
+        const cen = mid(a[0], a[1]);
+        const rt = (a[1].t - a[0].t) / 2, rv = (a[1].v - a[0].v) / 2;
+        return [G.poly(c.curve([cen, { t: cen.t + rt, v: cen.v + rv }],
+                  (i) => G.ellipsePts(i[0], i[1].t - i[0].t, i[1].v - i[0].v)),
+                { closed: true, fill: true })];
+      } },
+
+    /* Arc — three anchors: the chord's two ends and a point the arc bows
+     * through. Drawn as a bezier whose control is lifted to twice the pulled
+     * height, so the curve actually passes through the third anchor rather
+     * than merely leaning toward it. */
+    arc: { label: "Arc", anchors: 3, group: "shapes",
+      build: (a, c) => {
+        // control point that makes a quadratic pass through the mid anchor:
+        // B(0.5) = (p0 + 2·ctrl + p2)/4 = a[2]  ⇒  ctrl = 2·a[2] − (p0+p2)/2
+        const ctrl = { t: 2 * a[2].t - (a[0].t + a[1].t) / 2,
+                       v: 2 * a[2].v - (a[0].v + a[1].v) / 2 };
+        return [G.poly(c.curve([a[0], ctrl, a[1]],
+                  (i) => G.quadPts(i[0], i[1], i[2])))];
+      } },
+
+    /* Curve — the same quadratic, but the third anchor IS the control point
+     * rather than a point on the curve. It is the freer of the two: arc bows
+     * through a point, curve bends toward one. */
+    curve: { label: "Curve", anchors: 3, group: "shapes",
+      build: (a, c) => [G.poly(c.curve([a[0], a[2], a[1]],
+                  (i) => G.quadPts(i[0], i[1], i[2])))] },
+
+    /* Rotated rectangle — three anchors: one edge (1→2) and the width (3).
+     * Unlike `rect`, whose sides are pinned to the axes, this box carries the
+     * angle of the edge you drew, so it can frame a sloped range. The fourth
+     * corner is the third anchor translated by the first edge's vector. */
+    rotatedRect: { label: "Rotated rectangle", anchors: 3, group: "shapes",
+      build: (a) => {
+        // offset from the edge to anchor 3, applied to both edge ends
+        const off = { t: a[2].t - a[1].t, v: a[2].v - a[1].v };
+        const c0 = { t: a[0].t + off.t, v: a[0].v + off.v };
+        const c1 = { t: a[1].t + off.t, v: a[1].v + off.v };
+        return [G.poly([a[0], a[1], c1, c0], { closed: true, fill: true })];
+      } },
+
+    /* Path — a poly-line of straight segments, placed click by click and
+     * finished with a double-click or Escape. `anchors: "path"` is the
+     * variable-length placement mode in js/drawings.js; every other tool here
+     * knows exactly how many points it takes, this one does not. */
+    path: { label: "Path", anchors: "path", group: "shapes",
+      build: (a) => [G.poly(a)] },
+
     // ── measure ──────────────────────────────────────────
     // One family, three readouts. Each states exactly what it measured, so
     // "how far" is never ambiguous between price, time, or both.
@@ -675,6 +730,158 @@ const Tools = (() => {
     // ── annotate ─────────────────────────────────────────
     text: { label: "Text", anchors: 1, group: "annotate", text: true,
       build: (a, c, d) => [G.label(a[0], d.text || "…", { align: "right" })] },
+
+    // ── patterns · elliott waves · cycles ────────────────
+    // Declared below the catalogue, not here: every tool in the patterns group
+    // is the SAME construction — a polyline through N pivots with a vertex
+    // label at each — so they are generated as DATA from the PATTERNS table by
+    // labeledPath, the way the fib ladders and pitchforks share one builder. A
+    // new harmonic or wave pattern is a new row there, never a new builder.
+  };
+
+  /* One builder for the whole patterns group. `labels[i]` tags pivot `i`; a
+   * label of "" draws no chip (the connector-only mid-points of a cycle). The
+   * close flag joins the last pivot back to the first, which is what makes a
+   * triangle or an XABCD read as a closed figure rather than an open path. */
+  function labeledPath(a, labels, o = {}) {
+    const out = [G.poly(a, { closed: !!o.closed })];
+    for (let i = 0; i < a.length; i++) {
+      const txt = labels[i];
+      if (!txt) continue;
+      // above a peak, below a trough — judged against whichever neighbours the
+      // pivot has, so the chip never overlaps the stroke it names
+      const prev = a[i - 1], next = a[i + 1];
+      const hiPrev = prev ? a[i].v >= prev.v : true;
+      const hiNext = next ? a[i].v >= next.v : true;
+      const peak = hiPrev && hiNext;
+      out.push(G.label(a[i], txt, { align: "right", place: peak ? "above" : "below" }));
+    }
+    return out;
+  }
+
+  /* The patterns, as DATA. `anchors` is implied by the label count, but it is
+   * declared so the runtime's placement machine can read it without building
+   * the shape first. `closed` joins the figure. */
+  const PATTERNS = {
+    xabcd:        { label: "XABCD pattern",  labels: ["X", "A", "B", "C", "D"], closed: true },
+    cypher:       { label: "Cypher pattern", labels: ["X", "A", "B", "C", "D"], closed: true },
+    headShoulders:{ label: "Head and shoulders",
+                    labels: ["", "LS", "", "H", "", "RS", ""] },
+    abcd:         { label: "ABCD pattern",   labels: ["A", "B", "C", "D"] },
+    trianglePat:  { label: "Triangle pattern", labels: ["A", "B", "C", "D"], closed: true },
+    threeDrives:  { label: "Three drives",
+                    labels: ["", "1", "", "2", "", "3", ""] },
+    // ── elliott waves ───────────────────────────────────
+    elliottImpulse: { label: "Elliott impulse (12345)", section: "elliott",
+                      labels: ["", "1", "2", "3", "4", "5"] },
+    elliottCorrection: { label: "Elliott correction (ABC)", section: "elliott",
+                         labels: ["", "A", "B", "C"] },
+    elliottTriangle: { label: "Elliott triangle (ABCDE)", section: "elliott",
+                       labels: ["", "A", "B", "C", "D", "E"] },
+    elliottDoubleCombo: { label: "Elliott double combo (WXY)", section: "elliott",
+                          labels: ["", "W", "X", "Y"] },
+    elliottTripleCombo: { label: "Elliott triple combo (WXYXZ)", section: "elliott",
+                          labels: ["", "W", "X", "Y", "X", "Z"] },
+  };
+  for (const [id, p] of Object.entries(PATTERNS)) {
+    SPECS[id] = {
+      label: p.label, anchors: p.labels.length,
+      group: "patterns", section: p.section || "patterns",
+      build: (a) => labeledPath(a, p.labels, { closed: p.closed }),
+    };
+  }
+
+  /* Cyclic lines — the one tool in this group that is not a polyline. Two
+   * anchors set ONE cycle's width, and equally-spaced verticals march across
+   * the whole range at that period, forward AND back, the way a cycle has no
+   * beginning. Counted in BARS, like every other fraction of time on this
+   * chart (see fibTimeZone), so the verticals do not drift into the overnight
+   * gaps. */
+  SPECS.cyclicLines = {
+    label: "Cyclic lines", anchors: 2, group: "patterns", section: "cycles",
+    build: (a, c) => {
+      const u = c.barsFrom(a[0].t, a[1].t);
+      if (!u) return [G.vline(a[0].t)];
+      const out = [];
+      // 60 cycles each way is past either edge at every zoom this chart
+      // allows; the projector clips whatever lands off-screen
+      for (let n = -60; n <= 60; n++) {
+        out.push(G.vline(c.tShift(a[0].t, u * n), { width: n ? 1 : 1.6 }));
+      }
+      return out;
+    },
+  };
+
+  /* Time cycles — the same period as cyclic lines, drawn as a run of touching
+   * HALF-CIRCLES along the time axis instead of as bare verticals. Each arc's
+   * diameter is one cycle, so where the arcs meet the axis is where the cycle
+   * repeats; the bow is what tells a reader these are cycles and not just
+   * gridlines. The two anchors set one period (a[0]→a[1]), and the arcs march
+   * both ways from a[0]. Sampled in BARS through `curve`, like every arc on
+   * this chart, so the semicircles do not squash into the overnight gaps.
+   *
+   * The arcs are pinned to the FIRST anchor's price and bow by a quarter of
+   * the period in bar-space — a cycle is a claim about time, so its height is
+   * a readable constant, not a price the user has to have chosen. */
+  SPECS.timeCycles = {
+    label: "Time cycles", anchors: 2, group: "patterns", section: "cycles",
+    build: (a, c) => {
+      const u = c.barsFrom(a[0].t, a[1].t);
+      if (!u) return [G.vline(a[0].t)];
+      const out = [];
+      // radius in PRICE: a quarter of the swing the two anchors spanned, or a
+      // small fraction of the anchor price when they were placed flat — the
+      // arc only needs to be visibly a bow, it makes no price claim
+      const dv = Math.abs(a[1].v - a[0].v);
+      const rv = dv > 0 ? dv : Math.abs(a[0].v) * 0.04 || 1;
+      for (let n = -30; n < 30; n++) {
+        const lt = c.tShift(a[0].t, u * n);          // this arc's left foot
+        const mid = c.tShift(a[0].t, u * (n + 0.5)); // its apex, half a period on
+        // a half-ellipse from one foot up to the apex and down to the next
+        out.push(G.poly(c.curve(
+          [{ t: mid, v: a[0].v }, { t: lt, v: a[0].v }],
+          (i) => G.arcPts(i[0], i[1].t - i[0].t, rv, 0, Math.PI, 24)),
+          { width: 1 }));
+      }
+      // the baseline the arcs sit on, so the figure reads as a cycle track
+      out.push(G.segment({ t: c.tShift(a[0].t, -u * 30), v: a[0].v },
+                         { t: c.tShift(a[0].t, u * 30), v: a[0].v },
+                         { width: 1, dash: [2, 3] }));
+      return out;
+    },
+  };
+
+  /* Sine line — one wave whose wavelength is the dragged span and whose
+   * amplitude is the price distance between the two anchors. It is the
+   * smoothest statement of a cycle: where cyclic lines mark the turns with
+   * verticals and time cycles with arcs, this draws the wave itself. Centred
+   * on the midpoint price so it swings symmetrically about the level the two
+   * anchors straddle, and run several wavelengths each way, clipped at the
+   * edges. Sampled in BAR-INDEX space through `curve` so the wave keeps its
+   * shape across session gaps — a sine drawn in wall-clock seconds would
+   * stretch over every weekend it crossed. */
+  SPECS.sineLine = {
+    label: "Sine line", anchors: 2, group: "patterns", section: "cycles",
+    build: (a, c) => {
+      const u = c.barsFrom(a[0].t, a[1].t);     // one wavelength, in bars
+      if (!u) return [G.segment(a[0], a[1])];
+      const amp = (a[1].v - a[0].v) / 2;
+      const midV = (a[0].v + a[1].v) / 2;
+      const SPAN = 12;                  // wavelengths drawn each way from a[0]
+      const steps = 24;                 // samples per wavelength
+      const total = SPAN * 2 * steps;
+      // curve() hands `gen` the anchors in INDEX space; i0 is anchor 0's index,
+      // and we lay the wave out as index offsets of `u` bars per 2π
+      return [G.poly(c.curve([a[0]], (ix) => {
+        const i0 = ix[0].t, pts = [];
+        for (let k = 0; k <= total; k++) {
+          const bars = -u * SPAN + (2 * u * SPAN) * (k / total);
+          const phase = (bars / u) * 2 * Math.PI;
+          pts.push({ t: i0 + bars, v: midV + amp * Math.sin(phase) });
+        }
+        return pts;
+      }))];
+    },
   };
 
   function positionTool(a, c, side) {
@@ -723,6 +930,14 @@ const Tools = (() => {
      * ladder glyphs in a 34px strip. */
     { id: "fib", label: "Fibonacci", icon: "fib",
       sections: [["fib", "Fibonacci"], ["gann", "Gann"]] },
+    /* Harmonic patterns, Elliott waves and cycles under one rail button, with
+     * three bands in the flyout — the same shape the other multi-section
+     * groups take. They belong together because they are one idea (a labelled
+     * polyline through a sequence of pivots) read three ways, and a reader
+     * hunting for an Elliott impulse looks where the XABCD was. */
+    { id: "patterns", label: "Patterns", icon: "pattern",
+      sections: [["patterns", "Patterns"], ["elliott", "Elliott waves"],
+                 ["cycles", "Cycles"]] },
     { id: "shapes", label: "Shapes", icon: "rect" },
     { id: "measure", label: "Measure", icon: "measure" },
     { id: "position", label: "Position", icon: "position" },

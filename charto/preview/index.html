@@ -1888,6 +1888,14 @@ header > .btn, header > .badge { flex: none; }
 :root[data-nav="kbd"] .acct-btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 
 .acct-menu { min-width: 244px; }
+/* Upgrade is the one row that leads somewhere else entirely — the pricing
+   page. Its sparkle takes the accent so the row reads as the way UP, and its
+   trailing arrow stays faint until the row is hovered, the way an external
+   link advertises itself without shouting. */
+.acct-menu .acct-upgrade .lead svg { color: var(--primary); }
+.acct-menu .acct-upgrade .lead { font-weight: var(--weight-medium); }
+.acct-menu .acct-upgrade > svg.icon.xs { color: var(--faint); transition: color var(--dur) var(--ease-quartr); }
+.acct-menu .acct-upgrade:hover > svg.icon.xs { color: var(--foreground); }
 /* The identity block is a HEAD, not a row: it is not clickable, so it must
    not wear a row's hover or a row's padding. */
 .acct-id {
@@ -7662,7 +7670,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
    whole job is to state a figure plainly. The figure is the ornament. */
 .j-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 22px; }
 .j-metric {
-  border: 1px solid var(--border); border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   padding: 14px 15px 13px; background: var(--card);
 }
 .j-metric label {
@@ -7678,7 +7686,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
 
 /* ── cards ────────────────────────────────────────────────────────────── */
 .j-grid { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(260px, .8fr); gap: 10px; }
-.j-card { border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--card); overflow: hidden; }
+.j-card { border-radius: var(--radius-sm); background: var(--card); overflow: hidden; }
 .j-card-head {
   height: 44px; padding: 0 15px; display: flex; align-items: center;
   justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--border-soft);
@@ -7726,7 +7734,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
 .j-day.down b { color: var(--down); }
 
 /* ── the trade table ──────────────────────────────────────────────────── */
-.j-table-card { border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--card); overflow: hidden; }
+.j-table-card { border-radius: var(--radius-sm); background: var(--card); overflow: hidden; }
 .j-table { width: 100%; border-collapse: collapse; font-size: var(--text-md); }
 .j-table th {
   height: 34px; padding: 0 14px; text-align: left; border-bottom: 1px solid var(--border);
@@ -8393,6 +8401,246 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
 /* A saved layout is a quiet thumbnail, not an outlined hover target. */
 .ly-card { border-radius: 6px; }
 .ly-card:hover { border-color: var(--border); background: var(--accent); }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PRICING — the upgrade surface (js/pricing.js)
+
+   A full-screen overlay, not a settings dialog: three plans have to be
+   comparable side by side, and a marketing page needs room the 476px .dlg
+   never has. It still speaks only the tokens above — the CTA is the same ink
+   button, seams are the same hairline, radii are the same scale — so it reads
+   as a room in this product, not a bolt-on template.
+   ══════════════════════════════════════════════════════════════════════════ */
+.pr-wrap {
+  position: fixed; inset: 0; z-index: 210; display: none;
+  background: rgba(0, 0, 0, .60);
+  overflow: hidden;
+}
+.pr-wrap.open { display: flex; align-items: flex-start; justify-content: center; }
+.pr-sheet {
+  position: relative;
+  width: 100%; max-width: 1120px; height: 100%;
+  background: var(--background);
+  display: flex; flex-direction: column;
+  animation: pr-rise var(--dur-slow) var(--ease-quartr);
+}
+@keyframes pr-rise { from { opacity: 0; transform: translateY(8px); } }
+@media (prefers-reduced-motion: reduce) {
+  .pr-sheet { animation: none; }
+  .pr-price.swap { animation: none !important; }
+}
+.pr-close {
+  position: absolute; top: 14px; right: 14px; z-index: 2;
+  width: 34px; height: 34px;
+}
+.pr-scroll {
+  flex: 1; overflow-y: auto; overscroll-behavior: contain;
+  padding: 56px clamp(20px, 5vw, 56px) 72px;
+  scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent;
+}
+.pr-scroll::-webkit-scrollbar { width: 8px; }
+.pr-scroll::-webkit-scrollbar-track { background: transparent; }
+.pr-scroll::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: var(--radius-pill); }
+
+/* ── hero ─────────────────────────────────────────────────── */
+.pr-hero { text-align: center; max-width: 620px; margin: 0 auto 44px; }
+.pr-eyebrow {
+  display: inline-block; font-size: var(--text-2xs); font-weight: var(--weight-semi);
+  letter-spacing: .08em; text-transform: uppercase; color: var(--faint);
+  margin-bottom: 14px;
+}
+.pr-title {
+  margin: 0 0 12px; font-size: clamp(24px, 3.4vw, 34px);
+  line-height: 1.12; font-weight: var(--weight-bold); letter-spacing: -.01em;
+  color: var(--foreground);
+}
+.pr-sub {
+  margin: 0 auto; max-width: 480px; font-size: var(--text-xl);
+  line-height: 1.6; color: var(--muted-foreground);
+}
+
+/* ── billing toggle ───────────────────────────────────────── */
+.pr-toggle {
+  display: inline-flex; gap: 2px; margin-top: 28px; padding: 3px;
+  background: var(--muted); border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+}
+.pr-seg {
+  display: inline-flex; align-items: center; gap: 8px;
+  border: 0; cursor: pointer; background: transparent;
+  height: 32px; padding: 0 18px; border-radius: var(--radius-pill);
+  font-size: var(--text-md); font-weight: var(--weight-medium);
+  color: var(--muted-foreground); font-family: inherit;
+  transition: color var(--dur) var(--ease-quartr),
+              background var(--dur) var(--ease-quartr);
+}
+.pr-seg:hover { color: var(--foreground); }
+.pr-seg.active {
+  color: var(--foreground); background: var(--background);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .18);
+}
+:root[data-theme="dark"] .pr-seg.active { background: var(--card); }
+:root[data-nav="kbd"] .pr-seg:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.pr-seg-badge {
+  font-size: var(--text-3xs); font-weight: var(--weight-semi);
+  padding: 2px 7px; border-radius: var(--radius-pill);
+  background: var(--primary-soft); color: var(--primary);
+  letter-spacing: .01em;
+}
+
+/* ── cards ────────────────────────────────────────────────── */
+.pr-cards {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 18px; align-items: stretch; max-width: 960px; margin: 0 auto;
+}
+.pr-card {
+  position: relative; display: flex; flex-direction: column;
+  padding: 26px 24px; border: 1px solid var(--border);
+  border-radius: var(--radius-lg); background: var(--card);
+  transition: border-color var(--dur) var(--ease-quartr),
+              box-shadow var(--dur-slow) var(--ease-quartr),
+              transform var(--dur-slow) var(--ease-quartr);
+}
+.pr-card:hover {
+  border-color: var(--faint);
+  box-shadow: var(--shadow); transform: translateY(-2px);
+}
+.pr-card.featured {
+  border-color: var(--foreground); box-shadow: var(--shadow);
+}
+.pr-card.featured:hover { border-color: var(--foreground); }
+.pr-flag {
+  position: absolute; top: -11px; left: 50%; transform: translateX(-50%);
+  font-size: var(--text-2xs); font-weight: var(--weight-semi);
+  letter-spacing: .02em; padding: 4px 12px; border-radius: var(--radius-pill);
+  background: var(--foreground); color: var(--background); white-space: nowrap;
+}
+.pr-card-head { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; }
+.pr-mark {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: var(--radius-sm);
+  background: var(--accent); color: var(--foreground); flex: none;
+}
+.pr-card.featured .pr-mark { background: var(--primary-soft); color: var(--primary); }
+.pr-name { font-size: var(--text-h2); font-weight: var(--weight-semi); color: var(--foreground); }
+.pr-save {
+  margin-left: auto; font-size: var(--text-3xs); font-weight: var(--weight-semi);
+  padding: 2px 8px; border-radius: var(--radius-pill);
+  background: var(--up-soft); color: var(--up);
+}
+.pr-tag {
+  margin: 0 0 20px; font-size: var(--text-md); line-height: 1.55;
+  color: var(--muted-foreground); min-height: 40px;
+}
+.pr-price { margin-bottom: 20px; min-height: 62px; }
+.pr-price.swap { animation: pr-fade var(--dur-slow) var(--ease-quartr); }
+@keyframes pr-fade { from { opacity: 0; transform: translateY(3px); } }
+.pr-amount { display: flex; align-items: baseline; gap: 2px; color: var(--foreground); }
+.pr-cur { font-size: var(--text-h2); font-weight: var(--weight-semi); align-self: flex-start; margin-top: 4px; }
+.pr-num {
+  font-size: 38px; line-height: 1; font-weight: var(--weight-bold);
+  letter-spacing: -.02em; font-variant-numeric: tabular-nums;
+}
+.pr-per { font-size: var(--text-md); font-weight: var(--weight-medium); color: var(--muted-foreground); margin-left: 4px; }
+.pr-period { margin-top: 7px; font-size: var(--text-sm); color: var(--faint); font-variant-numeric: tabular-nums; }
+.pr-cta {
+  width: 100%; justify-content: center; height: 38px;
+  font-size: var(--text-lg); font-weight: var(--weight-semi); margin-bottom: 22px;
+}
+.pr-cta.outline { border-color: var(--border); }
+
+.pr-highlights { list-style: none; margin: 0; padding: 18px 0 0; border-top: 1px solid var(--border-soft); display: flex; flex-direction: column; gap: 11px; }
+.pr-highlights li { display: flex; align-items: center; gap: 10px; font-size: var(--text-md); color: var(--foreground); }
+.hi-tick { display: inline-flex; color: var(--up); flex: none; }
+.hi-tick svg.icon { width: 15px; height: 15px; stroke-width: 2.4; }
+.hi-txt { flex: 1; min-width: 0; color: var(--muted-foreground); }
+.hi-val { font-weight: var(--weight-semi); color: var(--foreground); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* ── comparison ───────────────────────────────────────────── */
+.pr-compare { max-width: 960px; margin: 64px auto 0; }
+.pr-compare-title {
+  margin: 0 0 20px; text-align: center; font-size: var(--text-h2);
+  font-weight: var(--weight-semi); color: var(--foreground);
+}
+.pr-matrix { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.pr-matrix th, .pr-matrix td { text-align: center; padding: 13px 14px; font-weight: 400; }
+.pr-matrix thead th {
+  position: sticky; top: -1px; z-index: 1; background: var(--background);
+  font-size: var(--text-md); font-weight: var(--weight-semi); color: var(--foreground);
+  border-bottom: 1px solid var(--border); padding-bottom: 14px;
+}
+.pr-matrix thead th.featured { color: var(--foreground); }
+.pr-matrix thead th.mx-feat { text-align: left; }
+.mx-feat { text-align: left !important; width: 42%; font-size: var(--text-md); color: var(--foreground); }
+.pr-matrix tbody th.mx-feat { font-weight: 400; color: var(--muted-foreground); }
+.pr-matrix tbody tr { border-bottom: 1px solid var(--border-soft); }
+.pr-matrix tbody tr:last-child { border-bottom: 0; }
+.pr-matrix tbody td.featured { background: var(--accent); }
+.mx-group th {
+  text-align: left !important; padding: 20px 14px 8px !important;
+  font-size: var(--text-2xs) !important; font-weight: var(--weight-semi) !important;
+  letter-spacing: .06em; text-transform: uppercase; color: var(--faint) !important;
+}
+.mx-yes { display: inline-flex; color: var(--up); }
+.mx-yes svg.icon { width: 17px; height: 17px; stroke-width: 2.4; }
+.mx-no { color: var(--faint); font-size: var(--text-md); }
+.mx-val { font-size: var(--text-md); font-weight: var(--weight-medium); color: var(--foreground); }
+
+/* the mobile stack is hidden on desktop */
+.pr-stack { display: none; }
+.pr-foot {
+  max-width: 620px; margin: 48px auto 0; text-align: center;
+  font-size: var(--text-sm); line-height: 1.65; color: var(--faint);
+}
+
+/* ── responsive ───────────────────────────────────────────── */
+/* laptop / small desktop: cards stay 3-up but tighten */
+@media (max-width: 1040px) {
+  .pr-cards { gap: 14px; }
+  .pr-card { padding: 24px 20px; }
+}
+/* tablet: cards wrap to a single centred column, table → stack */
+@media (max-width: 860px) {
+  .pr-scroll { padding: 52px clamp(18px, 5vw, 36px) 64px; }
+  .pr-cards { grid-template-columns: minmax(0, 420px); justify-content: center; }
+  .pr-card.featured { order: -1; }
+  .pr-tag { min-height: 0; }
+  .pr-matrix { display: none; }
+  .pr-stack { display: flex; flex-direction: column; gap: 20px; }
+  .pr-stack-plan {
+    border: 1px solid var(--border); border-radius: var(--radius-lg);
+    overflow: hidden; background: var(--card);
+  }
+  .pr-stack-plan.featured { border-color: var(--foreground); }
+  .pr-stack-name {
+    display: flex; align-items: center; gap: 8px; margin: 0;
+    padding: 15px 18px; font-size: var(--text-h3); font-weight: var(--weight-semi);
+    color: var(--foreground); border-bottom: 1px solid var(--border-soft);
+    background: var(--accent);
+  }
+  .pr-stack-name svg.icon { width: 17px; height: 17px; color: var(--muted-foreground); }
+  .pr-stack-group {
+    padding: 14px 18px 6px; font-size: var(--text-2xs); font-weight: var(--weight-semi);
+    letter-spacing: .06em; text-transform: uppercase; color: var(--faint);
+  }
+  .pr-stack-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding: 9px 18px; font-size: var(--text-md);
+  }
+  .pr-stack-row + .pr-stack-row { border-top: 1px solid var(--border-soft); }
+  .pr-stack-label { color: var(--muted-foreground); }
+  .pr-stack-val { font-weight: var(--weight-medium); color: var(--foreground); font-variant-numeric: tabular-nums; }
+}
+/* phone */
+@media (max-width: 480px) {
+  .pr-scroll { padding: 48px 16px 56px; }
+  .pr-hero { margin-bottom: 34px; }
+  .pr-num { font-size: 34px; }
+  /* segments size to their own content so "Annual · Save 10%" keeps one line */
+  .pr-seg { justify-content: center; padding: 0 14px; white-space: nowrap; }
+  .pr-seg-badge { padding: 2px 6px; }
+  .pr-compare { margin-top: 48px; }
+}
 </style>
 </head>
 <body>
@@ -8835,7 +9083,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/store.js?v=16"></script>
   <script src="./js/theme.js?v=11"></script>
   <script src="./js/universe.js?v=8"></script>
-  <script src="./js/icons.js?v=39"></script>
+  <script src="./js/icons.js?v=42"></script>
   <!-- after icons.js (every row is drawn with one) and before main.js, which
        builds the chart's three right-click menus out of it -->
   <script src="./js/ctxmenu.js?v=10"></script>
@@ -8863,12 +9111,15 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- before panes.js and main.js: both register their charts with it as
        they build them, and read their series colours out of it -->
   <script src="./js/chartsettings.js?v=4"></script>
-  <script src="./js/geometry.js?v=21"></script>
-  <script src="./js/tools.js?v=19"></script>
-  <script src="./js/drawings.js?v=40"></script>
+  <script src="./js/geometry.js?v=24"></script>
+  <script src="./js/tools.js?v=22"></script>
+  <script src="./js/drawings.js?v=41"></script>
   <script src="./js/scene.js?v=50"></script>
   <script src="./js/panes.js?v=24"></script>
-  <script src="./js/main.js?v=153"></script>
+  <!-- The pricing / upgrade overlay. Before main.js so window.Pricing exists
+       when the account menu's Upgrade row is wired. -->
+  <script src="./js/pricing.js?v=1"></script>
+  <script src="./js/main.js?v=156"></script>
   <!-- the floating drawing edit toolbar — listens for charto:draw-select and
        drives js/drawings.js's setStyle/clone/lock/remove. After main.js so
        __charto and ChartSettings exist by the first selection. -->
