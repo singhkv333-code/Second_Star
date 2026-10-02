@@ -484,7 +484,7 @@ function ColumnPicker({
       </div>
 
       {open && offerable.length ? (
-        <ul role="menu" className="pv-select-menu" style={{ minWidth: 200 }}>
+        <ul role="menu" className="pv-select-menu is-left" style={{ minWidth: 200 }}>
           {[...byGroup.entries()].map(([group, list]) => (
             <React.Fragment key={group}>
               <li className="head" role="presentation">{group}</li>

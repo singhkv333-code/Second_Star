@@ -1338,6 +1338,53 @@ input[type="range"].payoff-slider::-moz-range-thumb {
   display: none;
 }
 
+/* Broker row — docked at the sidebar foot. It mirrors .sidebar-nav-item so it
+   reads as a peer of the nav icons. In the collapsed 48px rail it is a single
+   centred 34px glyph: the button shrinks to the icon, the label is hidden (it
+   carries .sidebar-nav-label), and only the first broker mark is shown so a
+   lone coin sits centred without overflowing the rail. */
+.broker-sidebar-row {
+  /* Always pinned to the bottom of the sidebar column. The conversation-history
+     list that normally provides the flex-1 spacer is display:none in the
+     collapsed rail (and on the chart tab), so margin-top:auto is what keeps the
+     broker row in the bottom corner rather than floating up under the nav. */
+  margin-top: auto;
+  display: flex;
+  justify-content: center;
+  padding: 6px 0 2px;
+}
+.broker-sidebar-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  transition: color 160ms var(--ease-quartr), background 160ms var(--ease-quartr);
+}
+.broker-sidebar-button:hover {
+  color: var(--text-primary);
+  background: var(--surface-active);
+}
+.broker-mark-cluster {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+/* Collapsed rail: only the first mark; the overlap stack and the "+N" chip are
+   for the expanded drawer where there is room for them. */
+.broker-mark-cluster .broker-mark:not(:first-child) {
+  display: none;
+}
+
 /* Chat owns its conversation tools, mirroring the chart's self-contained
    chat panel. The history button collapses this to a slim two-icon strip. */
 .chat-history-pane {
@@ -1415,6 +1462,22 @@ input[type="range"].payoff-slider::-moz-range-thumb {
   }
   .sidebar-nav-label {
     display: inline;
+  }
+  /* Expanded drawer — the broker row becomes a full-width row with its label
+     and the full overlapping mark cluster, matching the nav items beside it. */
+  .broker-sidebar-row {
+    justify-content: stretch;
+    padding: 6px 0 2px;
+  }
+  .broker-sidebar-button {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 12px;
+    padding: 0 14px;
+    font: 500 14px var(--font-ui);
+  }
+  .broker-mark-cluster .broker-mark:not(:first-child) {
+    display: inline-flex;
   }
   .chat-history-pane {
     position: absolute;

@@ -1,25 +1,26 @@
 "use client";
 
 /**
- * BrokerTopbarPill — the broker connection, folded into the topbar.
+ * BrokerSidebarButton — the broker connection, docked at the bottom-left of
+ * the sidebar.
  *
- * Brokers stopped being their own nav item: whether a broker is linked is a
- * piece of state you want to *see*, not a page you sit on. So this is a small
- * pill that rides the header and tells the truth at a glance —
- *   - nothing connected → two greyed marks + the word "Connect"
- *   - one or more connected → their marks in full colour with a live dot
+ * It replaces the broker pill that used to ride the top header. Whether a
+ * broker is linked is a piece of state you glance at, so it now lives pinned to
+ * the foot of the sidebar nav rail, reading as a peer to the nav icons above it:
+ *   - nothing connected → two greyed marks + the word "Connect broker"
+ *   - one or more connected → their marks in full colour + a live dot + count
  *
- * Clicking it opens a dialog that hosts the SAME <BrokerGrid/> the old Brokers
- * tab used — so every broker keeps its exact per-broker connect form (Client ID
- * / PIN / TOTP secret, "Get my keys", OAuth-only one-tap, etc.). The pill owns
- * no connect logic of its own; the grid is the whole connect surface.
+ * In the collapsed 48px rail it is a single centred glyph; in the expanded
+ * drawer it becomes a full label row (layout in globals.css).
+ *
+ * Clicking it opens the SAME <BrokerConnectDialog/> the pill opened — the grid
+ * inside is the whole connect surface; this row owns no connect logic of its own.
  */
 
 import { useCallback, useEffect, useState } from "react";
 
 import { BrokerLogo } from "@/components/brokers/BrokerLogo";
 import { BrokerConnectDialog } from "@/components/brokers/BrokerConnectDialog";
-// note: BrokerConnectDialog is also imported by AppShell's AccountMenu.
 import { getBrokers, type BrokerEntry } from "@/lib/brokersApi";
 
 // Purely decorative hint marks for the empty state (greyed out) — the two most
@@ -31,20 +32,20 @@ const HINT_BROKERS: { id: string; name: string; accent: string }[] = [
 
 const MAX_SHOWN = 3;
 
-export function BrokerTopbarPill(): React.ReactElement {
+export function BrokerSidebarButton(): React.ReactElement {
   const [brokers, setBrokers] = useState<BrokerEntry[] | null>(null);
   const [open, setOpen] = useState(false);
 
   const load = useCallback((): void => {
     getBrokers()
       .then((data) => setBrokers(data.brokers))
-      // Degrade to the "connect" hint on any failure — the pill must never
-      // block the shell or throw a broken state into the header.
+      // Degrade to the "connect" hint on any failure — this row must never
+      // block the shell or throw a broken state into the sidebar.
       .catch(() => setBrokers([]));
   }, []);
 
   // Load once, then refresh on focus and after the grid reports a change, so the
-  // pill never lies about state.
+  // row never lies about state.
   useEffect(() => {
     load();
     window.addEventListener("pivot:brokers-changed", load);
@@ -56,7 +57,7 @@ export function BrokerTopbarPill(): React.ReactElement {
   }, [load]);
 
   // Re-read whenever the dialog closes — a connect/disconnect inside it should
-  // be reflected in the pill immediately.
+  // be reflected immediately.
   useEffect(() => {
     if (!open) load();
   }, [open, load]);
@@ -70,8 +71,18 @@ export function BrokerTopbarPill(): React.ReactElement {
   const shown = connected ? linked.slice(0, MAX_SHOWN) : HINT_BROKERS;
   const overflow = connected ? Math.max(0, linked.length - MAX_SHOWN) : 0;
 
+  const label = connected
+    ? linked.length === 1
+      ? linked[0].name
+      : `${linked.length} brokers`
+    : "Connect broker";
+
   return (
     <>
+      {/* Layout is CSS-driven (globals.css .broker-sidebar-button) so the row
+          matches the sidebar nav items: a single centred 34px glyph in the
+          collapsed 48px rail, and a full label row in the expanded drawer. No
+          hardcoded width/padding here — those overflowed the narrow rail. */}
       <button
         type="button"
         onClick={() => setOpen(true)}
@@ -81,34 +92,20 @@ export function BrokerTopbarPill(): React.ReactElement {
             ? `${linked.map((b) => b.name).join(", ")} connected`
             : "Connect a broker"
         }
-        data-testid="broker-topbar-pill"
-        // Hidden on phones — there the connection lives in the account dropdown
-        // (a "Brokers" row) so the narrow header isn't crowded.
-        className="broker-pill hidden shrink-0 items-center justify-center sm:inline-flex"
-        style={{
-          // Borderless, minimal-width: just the logo cluster, no chrome and no
-          // caption. Status is a tiny dot on the cluster, not a word.
-          position: "relative",
-          padding: "4px 6px",
-          height: 32,
-          borderRadius: "var(--radius-sm)",
-          border: "none",
-          background: "transparent",
-          color: "var(--text-secondary)",
-          lineHeight: 1,
-          cursor: "pointer",
-          transition: "background-color 0.2s",
-        }}
+        data-testid="broker-sidebar-button"
+        className="broker-sidebar-button"
       >
         {/* Stacked marks — an overlapping cluster; connected in colour, the hint
-            set desaturated. */}
-        <span className="inline-flex items-center" aria-hidden="true">
+            set desaturated. In the collapsed rail only the first mark shows (CSS
+            hides the rest) so a single coin sits centred without overflow. */}
+        <span className="broker-mark-cluster" aria-hidden="true">
           {shown.map((b, i) => (
             <span
               key={b.id}
+              className="broker-mark"
               style={{
                 marginLeft: i === 0 ? 0 : -7,
-                // Ring each mark with the header surface so an overlap still
+                // Ring each mark with the sidebar surface so an overlap still
                 // reads as separate coins cut from the bar.
                 boxShadow: "0 0 0 1.5px var(--bg-base)",
                 borderRadius: 5,
@@ -122,6 +119,7 @@ export function BrokerTopbarPill(): React.ReactElement {
           ))}
           {overflow > 0 ? (
             <span
+              className="broker-mark broker-mark--overflow"
               style={{
                 marginLeft: -7,
                 width: 18,
@@ -140,31 +138,30 @@ export function BrokerTopbarPill(): React.ReactElement {
               +{overflow}
             </span>
           ) : null}
+          {/* Status dot — pinned to the cluster's top-right. Green when
+              connected, amber when a session went stale. Absent when nothing
+              is connected and on first load. */}
+          {brokers !== null && connected ? (
+            <span
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                top: -2,
+                right: -3,
+                width: 7,
+                height: 7,
+                borderRadius: 999,
+                background: anyStale ? "#f0b429" : "var(--color-profit, #16a34a)",
+                boxShadow: "0 0 0 1.5px var(--bg-base)",
+              }}
+            />
+          ) : null}
         </span>
 
-        {/* Status dot — a small badge pinned to the cluster's top-right. Green
-            when connected, amber when a session went stale. Absent entirely
-            when nothing is connected (the greyed logos already say "not yet")
-            and on first load. */}
-        {brokers !== null && connected ? (
-          <span
-            aria-hidden="true"
-            style={{
-              position: "absolute",
-              top: 3,
-              right: 3,
-              width: 7,
-              height: 7,
-              borderRadius: 999,
-              background: anyStale ? "#f0b429" : "var(--color-profit, #16a34a)",
-              boxShadow: "0 0 0 1.5px var(--bg-base)",
-            }}
-          />
-        ) : null}
+        <span className="sidebar-nav-label truncate">{label}</span>
       </button>
 
-      {/* The exact connect surface the old Brokers tab used — same grid, same
-          per-broker forms. Hosted in a dialog now that it has no tab. */}
+      {/* The exact connect surface — same grid, same per-broker forms. */}
       <BrokerConnectDialog open={open} onOpenChange={setOpen} />
     </>
   );

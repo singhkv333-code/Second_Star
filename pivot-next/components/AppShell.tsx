@@ -62,7 +62,7 @@ import {
   ActiveDraftContext,
 } from "@/components/agent-panel/active-draft-context";
 import { BrokerGrid } from "@/components/brokers/BrokerGrid";
-import { BrokerTopbarPill } from "@/components/brokers/BrokerTopbarPill";
+import { BrokerSidebarButton } from "@/components/brokers/BrokerSidebarButton";
 import { BrokerConnectDialog } from "@/components/brokers/BrokerConnectDialog";
 import { AgentsTab } from "@/components/agent-panel/AgentsTab";
 import { PortfolioTab } from "@/components/agent-panel/PortfolioTab";
@@ -128,9 +128,9 @@ const NAV_ITEMS: {
   { key: "agents", label: "Strategy", Icon: WorkflowIcon },
   { key: "screener", label: "Screener", Icon: ListFilter },
   // Brokers left the nav: whether a broker is linked is state you glance at,
-  // not a page you sit on. It now rides the topbar as <BrokerTopbarPill/>,
-  // which opens the same onboarding dialog. The "brokers" tab/pane is kept
-  // (deep-linkable via #brokers) but no longer has a rail entry.
+  // not a page you sit on. It now sits at the sidebar foot as
+  // <BrokerSidebarButton/>, which opens the same onboarding dialog. The
+  // "brokers" tab/pane is kept (deep-linkable via #brokers) but has no rail entry.
 ];
 
 // Home is the landing surface — a fresh visit to "/" (no hash), and every
@@ -1787,10 +1787,10 @@ function TopHeader({
         />
       </div>}
 
-      {/* Right cluster — metric stack + broker pill + account menu */}
+      {/* Right cluster — metric stack + account menu. The broker connection
+          moved to the sidebar foot (<BrokerSidebarButton/>). */}
       <div className="ml-auto flex shrink-0 items-center gap-3 lg:gap-4">
         {variant === "default" && <MetricStrip metrics={metrics} />}
-        <BrokerTopbarPill />
         <AccountMenu
           theme={theme}
           onChooseTheme={onChooseTheme}
@@ -2527,6 +2527,16 @@ function Sidebar({
             ))}
           </div>
         )}
+      </div>
+
+      {/* Broker connection — docked at the sidebar foot (moved here from the
+          top header). It sits below the flex-1 history list so it stays pinned
+          to the bottom-left corner regardless of how long the history grows.
+          In the collapsed 48px rail it is a single centred broker glyph; in the
+          expanded drawer it becomes a full row with a label (see globals.css
+          .broker-sidebar-row). */}
+      <div className="broker-sidebar-row shrink-0">
+        <BrokerSidebarButton />
       </div>
     </nav>
   );

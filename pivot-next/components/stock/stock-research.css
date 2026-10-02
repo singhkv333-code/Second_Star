@@ -130,6 +130,27 @@
 @keyframes pv-select-pop { from { opacity: 0; transform: translateY(-3px); } }
 @media (prefers-reduced-motion: reduce) { .pv-select-menu { animation: none; } }
 
+/* Phones — the shared dropdown menu is absolutely positioned and anchored to
+   one edge of its trigger. A sheet sized for its rows (some set min-width:200
+   inline) can be wider than the trigger, so on a narrow screen it ran off the
+   viewport — the right-anchored default spills off the LEFT when the trigger
+   sits near the left (the Peer Comparison "Add ratio" menu in the screenshot).
+   Below the phone breakpoint, cap the sheet to the viewport minus a 16px
+   gutter and drop the CSS min-width floor so it can shrink to fit. (An inline
+   min-width, like the Peer menu's 200px, still applies but sits under the cap,
+   so the sheet stays on-screen.) Each variant keeps its own anchor edge —
+   a right-edge control (Benchmark / Deal type / reporting basis) still opens
+   leftward, a left-anchored one (.is-left, e.g. "Add ratio") opens rightward —
+   so both open INTO the screen. Rows wrap instead of forcing the sheet wider
+   than the phone. */
+@media (max-width: 639px) {
+  .pv-select-menu {
+    min-width: 0;
+    max-width: calc(100vw - 16px);
+  }
+  .pv-select-menu .item { white-space: normal; }
+}
+
 .pv-select-menu .item {
   display: flex; justify-content: space-between; align-items: center; gap: 10px;
   padding: 7px 9px; border-radius: var(--radius-xs); cursor: pointer;
