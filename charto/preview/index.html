@@ -6146,6 +6146,49 @@ body.two-columns .readout .row { display: none; }
   .alert-plus { display: none !important; }
 }
 
+/* The alert line's name chip. The price line itself is now a bare stroke; this
+   is what says WHICH alert it is, the way the panel row does — symbol +
+   condition — and it carries the same delete. Built as a DOM pill pinned to the
+   line's y (js/alerts.js), left of the plot, so it is a small tag at the end of
+   the line rather than the full-width title bar that used to stretch across the
+   chart. Shown only for the line under the pointer or the selected one. */
+.al-badge {
+  position: absolute; left: 6px; z-index: 6;
+  transform: translateY(-50%);           /* centre the pill on the line's y */
+  display: inline-flex; align-items: center; gap: 2px;
+  height: 20px; padding: 0 2px 0 8px;
+  border-radius: 10px;
+  /* Fixed white pill with black ink, both themes — the chart behind it is dark
+     or light but the tag reads the same either way, which is what was asked for.
+     Not the theme tokens, on purpose: those would flip it to dark ink on a dark
+     card in dark mode. */
+  background: #ffffff; border: 1px solid #000000;
+  color: #000000;
+  font-size: 11px; font-weight: 600; line-height: 1; white-space: nowrap;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .3);
+  cursor: pointer; user-select: none;
+  max-width: 60%; overflow: hidden;
+}
+.al-badge-text { overflow: hidden; text-overflow: ellipsis; }
+/* Selected reads a touch heavier — a thicker black ring — rather than a new hue,
+   so the white-and-black tag stays as asked. */
+.al-badge.selected {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .35), 0 0 0 1px #000000;
+}
+.al-badge-x {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; padding: 0; margin-left: 2px;
+  border: 0; border-radius: 50%; background: transparent;
+  color: #000000; cursor: pointer;
+}
+.al-badge-x:hover { background: rgba(0, 0, 0, .1); color: #000000; }
+.al-badge-x svg.icon { width: 10px; height: 10px; }
+/* Touch has no hover to reveal the chip and no fine target for the ✕; the panel
+   and the right-click menu are the paths there. A selected line still shows it. */
+@media (hover: none) {
+  .al-badge:not(.selected) { display: none; }
+}
+
 /* A reason a rule is paused, printed under it. The engine pauses a rule whose
    address stopped resolving rather than leaving it armed and silently never
    firing, and a paused row with no stated reason reads as one the user
@@ -8839,7 +8882,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it
        uses. Everything it needs from main.js (SYMBOL) and panels.js
        (openWidget) is read inside handlers, so those may come later. -->
-  <script src="./js/alerts.js?v=17"></script>
+  <script src="./js/alerts.js?v=18"></script>
   <!-- after chat.js: the widget panels share the phone's one panel slot with
        the conversation, and close it by clicking its real toggle -->
   <script src="./js/panels.js?v=13"></script>
