@@ -95,6 +95,12 @@ def s1_repair() -> dict:
         c = con(path)
         c.execute("CREATE TABLE IF NOT EXISTS repairs (symbol TEXT, ts INTEGER, kind TEXT, "
                   "action TEXT, PRIMARY KEY (symbol, ts, kind)) WITHOUT ROWID")
+        if c.execute("SELECT 1 FROM repairs LIMIT 1").fetchone():
+            # repaired on an earlier run: a second pass would find its own
+            # floored rows in the slot and relabel them "slot_taken"
+            c.close()
+            out[name] = "already repaired"
+            continue
         n = defaultdict(int)
         c.execute("BEGIN")
         for sym, ts, kind, raw in c.execute(
