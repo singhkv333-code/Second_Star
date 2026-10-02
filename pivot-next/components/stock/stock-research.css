@@ -102,7 +102,7 @@
 
    Menu: 6px box, 5px padding, rows 7px/9px on --radius-xs, and the live row
    marked by INK AND A TICK with the fill left to mean "under the pointer". */
-.pv-select { position: relative; display: inline-flex; }
+.pv-select { position: relative; display: inline-flex; flex: none; }
 .pv-select-btn {
   display: inline-flex; align-items: center; justify-content: space-between; gap: 7px;
   height: 30px; padding: 0 11px; border-radius: 6px; cursor: pointer;
@@ -111,7 +111,7 @@
   white-space: nowrap; font-variant-numeric: tabular-nums;
   transition: background-color .15s var(--ease-quartr, ease), color .15s var(--ease-quartr, ease);
 }
-.pv-select-btn .val { overflow: hidden; text-overflow: ellipsis; }
+.pv-select-btn .val { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pv-select-btn > svg { flex: none; color: var(--text-tertiary); }
 .pv-select-btn:hover { background: var(--surface-hover); }
 .pv-select-btn[aria-expanded="true"] { background: var(--surface-active); }
