@@ -7098,6 +7098,12 @@ svg.icon.op {
 .dk-tools .btn.icon { width: 28px; padding: 0; }
 .dk-tools .btn.icon svg.icon { width: 17px; height: 17px; }
 .dk-tools .vsep { height: 16px; margin: 0 4px; }
+/* the bar's buttons answer the pointer: a clear fill on hover, a press on click */
+.dk-tools .btn { transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr), transform var(--dur-fast); }
+.dk-tools .btn:hover:not(:disabled), .dk-tools .btn.open, .dk-tools .menu-wrap:has(.dropdown.open) > .btn {
+  background: color-mix(in srgb, var(--foreground) 10%, transparent); color: var(--foreground); }
+.dk-tools .btn:active:not(:disabled) { transform: scale(.96); }
+.dk-tools .btn:disabled { cursor: default; }
 .dk-tools .dropdown { z-index: 120; }
 .ct-docked #chartToolsSep { display: none; }
 body:not(.ct-docked) .chart-tools .ct-gap { display: none; }
@@ -7838,18 +7844,40 @@ i.mg { height: 3px !important; border-radius: 2px !important; background: var(--
   font-size: var(--text-sm); color: var(--muted-foreground); border-bottom: 1px solid var(--border-soft); }
 .br-livebar span { display: inline-flex; align-items: center; gap: 6px; }
 .br-livebar svg.icon { width: 13px; height: 13px; }
-/* home */
-.br-home { margin: auto 0; padding: 28px 20px 40px; display: flex; flex-direction: column; align-items: center; gap: 14px; }
-.br-big { width: min(520px, 100%); display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 16px; border-radius: 23px;
+/* home: the search, then the sites a trader reads, as logo tiles */
+.br-home { padding: 26px 18px 30px; display: flex; flex-direction: column; align-items: center; gap: 18px; }
+.br-big { width: min(560px, 100%); display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 8px 0 16px; border-radius: 23px;
   background: var(--surface-plain); box-shadow: inset 0 0 0 1px var(--border), 0 6px 20px -14px rgba(0,0,0,.3); }
 .br-big:focus-within { box-shadow: inset 0 0 0 1.5px var(--foreground), 0 6px 20px -14px rgba(0,0,0,.3); }
-.br-big svg.icon { width: 17px; height: 17px; opacity: .55; flex: none; }
+.br-big > svg.icon { width: 17px; height: 17px; opacity: .55; flex: none; }
 .br-big input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; color: var(--foreground); font: inherit; font-size: 15px; user-select: text; }
-.br-sugs { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; max-width: 560px; }
-.br-sug { height: 28px; padding: 0 12px; border-radius: 14px; border: 1px solid var(--border); background: transparent; color: var(--foreground);
-  font: inherit; font-size: var(--text-sm); cursor: pointer; }
-.br-sug:hover { background: var(--hover-fill); }
-.br-note { margin: 4px 0 0; font-size: 12px; color: var(--muted-foreground); text-align: center; max-width: 420px; }
+.br-scope { flex: none; display: inline-flex; align-items: center; gap: 2px; height: 26px; padding: 0 2px 0 10px; border-radius: 13px;
+  background: color-mix(in srgb, var(--foreground) 9%, transparent); font-size: var(--text-sm); font-weight: var(--weight-medium); white-space: nowrap; }
+.br-scope[hidden] { display: none; }
+.br-scope button { width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--foreground); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; opacity: .6; }
+.br-scope button:hover { opacity: 1; background: var(--hover-fill); }
+.br-scope svg.icon { width: 12px; height: 12px; }
+.br-sec { width: min(560px, 100%); }
+.br-sec h6 { margin: 0 0 8px 2px; font-size: 11px; font-weight: var(--weight-semi); letter-spacing: .06em; text-transform: uppercase; color: var(--muted-foreground); }
+.br-sites { display: grid; grid-template-columns: repeat(auto-fill, minmax(82px, 1fr)); gap: 6px; }
+.br-site-t { position: relative; display: flex; flex-direction: column; align-items: center; gap: 7px; padding: 12px 4px 10px; border-radius: 12px;
+  cursor: pointer; outline: none; transition: background var(--dur) var(--ease-quartr), transform var(--dur) var(--ease-quartr); }
+.br-site-t:hover, .br-site-t:focus-visible { background: var(--hover-fill); transform: translateY(-1px); }
+.br-site-t:active { transform: scale(.97); }
+.br-site-t.on { background: color-mix(in srgb, var(--foreground) 9%, transparent); box-shadow: inset 0 0 0 1.5px var(--foreground); }
+.br-site-t b { font-size: 12px; font-weight: var(--weight-medium); text-align: center; line-height: 1.25; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.br-ico { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; overflow: hidden;
+  background: #fff; box-shadow: 0 0 0 1px color-mix(in srgb, var(--foreground) 10%, transparent), 0 4px 12px -8px rgba(0,0,0,.35); }
+.br-ico img { width: 30px; height: 30px; object-fit: contain; }
+.br-ico i { font-style: normal; font-size: 17px; font-weight: var(--weight-semi); color: #6b6f76; }
+.br-ext { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center;
+  color: var(--foreground); opacity: 0; transition: opacity var(--dur); }
+.br-ext svg.icon { width: 12px; height: 12px; }
+.br-site-t:hover .br-ext { opacity: .55; }
+.br-ext:hover { opacity: 1 !important; background: var(--hover-fill); }
+.br-note { margin: 2px 0 0; font-size: 12px; color: var(--muted-foreground); text-align: center; max-width: 420px; }
 /* results */
 .br-res { padding: 10px 14px 24px; display: flex; flex-direction: column; gap: 4px; font-size: var(--br-size, 14.5px); }
 .br-busy { display: flex; align-items: center; gap: 8px; padding: 4px 2px 10px; font-size: var(--text-sm); color: var(--muted-foreground); }
@@ -10457,7 +10485,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/w-chart.js?v=2"></script>
   <script src="./js/w-fin.js?v=4"></script>
   <script src="./js/w-news.js?v=2"></script>
-  <script src="./js/w-browser.js?v=3"></script>
+  <script src="./js/w-browser.js?v=4"></script>
   <script src="./js/w-code.js?v=5"></script>
   <script src="./js/w-docs.js?v=4"></script>
   <script src="./js/w-media.js?v=9"></script>

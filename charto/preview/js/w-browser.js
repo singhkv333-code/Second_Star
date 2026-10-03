@@ -18,7 +18,20 @@
 (() => {
   if (typeof Dock === "undefined") return;
   const { esc, ic, json } = WKit;
-  const SUGGEST = ["SEBI circulars this week", "RBI monetary policy", "NIFTY 50", "India CPI inflation", "Upcoming IPOs India"];
+  // the start page: the sources a trader in India reads, by kind; a tile
+  // scopes the search to that site ("site:" on the web search)
+  const SITES = [
+    ["Markets & regulators", [["NSE", "www.nseindia.com"], ["BSE", "www.bseindia.com"], ["SEBI", "www.sebi.gov.in"],
+      ["RBI", "www.rbi.org.in"], ["MOSPI", "www.mospi.gov.in"], ["PIB", "pib.gov.in"]]],
+    ["News", [["Economic Times", "economictimes.indiatimes.com"], ["Mint", "www.livemint.com"], ["Business Standard", "www.business-standard.com"],
+      ["BusinessLine", "www.thehindubusinessline.com"], ["Reuters", "www.reuters.com"], ["Bloomberg", "www.bloomberg.com"]]],
+    ["Reference", [["Wikipedia", "en.wikipedia.org"], ["Investopedia", "www.investopedia.com"]]],
+  ];
+  const ICON_HOST = { "en.wikipedia.org": "www.wikipedia.org" };
+  const domainOf = (h) => h.replace(/^www\./, "");
+  let icons = null;                 // host → data URL, fetched once per page
+  const loadIcons = () => icons || (icons = json(`/site-icons?hosts=${SITES.flatMap(([, l]) => l.map(([, h]) => ICON_HOST[h] || h)).join(",")}`)
+    .then((d) => d.icons || {}).catch(() => ({})));
   const looksLikeUrl = (s) => /^(https?:\/\/)?[\w-]+(\.[\w-]+)+(:\d+)?(\/\S*)?$/i.test(String(s).trim());
   const WIKI = /^https?:\/\/(en|hi)\.(?:m\.)?wikipedia\.org\/wiki\/([^?#]+)/i;
   const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return u; } };
@@ -53,38 +66,59 @@
       ctx.setCfg({ last: entry.kind === "home" ? null : entry });
       paintNav();
       if (entry.kind === "home") return home();
-      if (entry.kind === "search") return search(entry.q);
+      if (entry.kind === "search") return search(entry.q, entry.site);
       return page(entry.url, entry.live);
     }
     function go(raw) {
       const s = String(raw || "").trim();
       if (!s) return nav({ kind: "home" });
       if (looksLikeUrl(s)) return nav({ kind: "page", url: /^https?:\/\//i.test(s) ? s : "https://" + s });
-      nav({ kind: "search", q: s });
+      const m = s.match(/^site:(\S+)\s+(.+)$/i);
+      if (m) return nav({ kind: "search", q: m[2], site: m[1] });
+      nav({ kind: "search", q: s, ...(scope && cur == null ? { site: scope[1] } : {}) });
     }
 
+    let scope = null;                 // [name, host] while the search is narrowed to one site
+    function paintScope(f) {
+      const chip = f.querySelector(".br-scope");
+      chip.hidden = !scope;
+      if (scope) chip.innerHTML = `<span>${esc(scope[0])}</span><button type="button" data-br="unscope" aria-label="Search the whole web">${ic("x")}</button>`;
+      f.q.placeholder = scope ? `Search ${domainOf(scope[1])}` : "Search the web";
+    }
     function home() {
       cur = null; input.value = ""; ctx.setTitle("Browser");
       view.innerHTML = `<div class="br-home">` +
-        `<form class="br-big">${ic("search")}<input name="q" placeholder="Search the web" autocomplete="off" spellcheck="false"></form>` +
-        `<div class="br-sugs">${SUGGEST.map((q) => `<button type="button" class="br-sug" data-q="${esc(q)}">${esc(q)}</button>`).join("")}</div>` +
-        `<p class="br-note">Pages open as clean text, beside the chart. ${cfg().source === "wiki" ? "Searching Wikipedia only." : "Results come from a web search located in India."}</p></div>`;
+        `<form class="br-big">${ic("search")}<span class="br-scope" hidden></span><input name="q" autocomplete="off" spellcheck="false"></form>` +
+        SITES.map(([sec, list]) => `<section class="br-sec"><h6>${esc(sec)}</h6><div class="br-sites">` +
+          list.map(([name, h]) => `<div class="br-site-t${scope && scope[1] === h ? " on" : ""}" data-scope="${esc(h)}" data-name="${esc(name)}" role="button" tabindex="0" title="Search ${esc(domainOf(h))}">` +
+            `<span class="br-ico" data-host="${esc(ICON_HOST[h] || h)}"><i>${esc(name[0])}</i></span><b>${esc(name)}</b>` +
+            `<a class="br-ext" href="https://${esc(h)}" target="_blank" rel="noopener noreferrer" title="Open ${esc(domainOf(h))} in a new tab">${ic("externalLink")}</a></div>`).join("") +
+          `</div></section>`).join("") +
+        `<p class="br-note">Pages open as clean text beside the chart. Pick a site to search only it.</p></div>`;
       const f = view.querySelector(".br-big");
-      f.q.addEventListener("keydown", (e) => e.stopPropagation());
+      paintScope(f);
+      f.q.addEventListener("keydown", (e) => { e.stopPropagation(); if (e.key === "Backspace" && !f.q.value && scope) { scope = null; paintScope(f); paintTiles(); } });
       f.addEventListener("submit", (e) => { e.preventDefault(); go(f.q.value); });
+      loadIcons().then((m) => {
+        for (const el of view.querySelectorAll(".br-ico[data-host]")) {
+          const src = m[el.dataset.host];
+          if (src) el.innerHTML = `<img src="${esc(src)}" alt="">`;
+        }
+      });
       requestAnimationFrame(() => { if (ctx.visible()) f.q.focus({ preventScroll: true }); });
     }
+    const paintTiles = () => { for (const t of view.querySelectorAll("[data-scope]")) t.classList.toggle("on", !!scope && scope[1] === t.dataset.scope); };
 
-    async function search(q) {
+    async function search(q, site) {
       const my = ++seq;
-      cur = { kind: "search", q };
-      input.value = q; ctx.setTitle(q);
-      const wikiOnly = cfg().source === "wiki";
+      cur = { kind: "search", q, site };
+      input.value = site ? `site:${domainOf(site)} ${q}` : q; ctx.setTitle(q);
+      const wikiOnly = cfg().source === "wiki" || /wikipedia\.org$/.test(site || "");
       view.innerHTML = `<div class="br-res"><div class="br-busy">${ic("search")}<span>${wikiOnly ? "Searching Wikipedia…" : "Searching the web…"}</span></div>${WKit.skel(8)}</div>`;
       const lang = cfg().lang || "en";
       const [wk, web] = await Promise.all([
         json(`/wiki/search?q=${encodeURIComponent(q)}&lang=${lang}`).catch(() => null),
-        wikiOnly ? Promise.resolve(null) : json(`/web-search?q=${encodeURIComponent(q)}`).catch((e) => ({ results: [], error: e.message })),
+        wikiOnly ? Promise.resolve(null) : json(`/web-search?q=${encodeURIComponent(site ? `site:${domainOf(site)} ${q}` : q)}`).catch((e) => ({ results: [], error: e.message })),
       ]);
       if (my !== seq) return;
       const wr = (wk && wk.results) || [];
@@ -95,17 +129,19 @@
         // Wikipedia's best match rides on top only when it is about the query
         const STOP = new Set(["the", "and", "for", "new", "what", "how", "why", "with", "from", "india", "indian", "rules", "latest", "today", "news"]);
         const words = q.toLowerCase().split(/[^\p{L}\p{N}&]+/u).filter((w) => w.length > 2 && !STOP.has(w));
-        const top = wr.find((r) => { const t = (r.title || "").toLowerCase(); return words.length && words.filter((w) => t.includes(w)).length >= Math.min(2, words.length); });
+        const top = site ? null : wr.find((r) => { const t = (r.title || "").toLowerCase(); return words.length && words.filter((w) => t.includes(w)).length >= Math.min(2, words.length); });
         if (top) html += `<div class="br-wiki" data-open="https://${lang}.wikipedia.org/wiki/${esc(encodeURIComponent(top.key || top.title))}">` +
           (top.thumb ? `<img src="${esc(top.thumb)}" alt="" referrerpolicy="no-referrer">` : "") +
           `<div><em>Wikipedia</em><b>${esc(top.title)}</b><span>${esc(top.description || "")}</span></div></div>`;
-        const rs = (web && web.results) || [];
+        let rs = (web && web.results) || [];
+        // a search narrowed to one site shows that site's pages only
+        if (site) rs = rs.filter((r) => (r.site || hostOf(r.url)).replace(/^www\./, "").endsWith(domainOf(site)));
         html += rs.map((r) => `<div class="br-hit" data-open="${esc(r.url)}">` +
             `<div class="br-site"><img src="${esc(favicon(r.url))}" alt="" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'"><span>${esc(r.site || hostOf(r.url))}</span></div>` +
             `<b>${esc(r.title)}</b>` +
             (r.snippet ? `<p${r.described ? "" : ` title="A summary written by the search; open the page to read it"`}>${esc(r.snippet)}</p>` : "") +
           `</div>`).join("");
-        if (!rs.length) html += `<div class="br-none">${esc((web && web.error) || "No pages came back for that.")}</div>`;
+        if (!rs.length) html += `<div class="br-none">${esc((web && web.error) || (site ? `No pages on ${domainOf(site)} came back for that.` : "No pages came back for that."))}</div>`;
       }
       view.innerHTML = `<div class="br-res">${html}</div>`;
     }
@@ -187,6 +223,20 @@
     input.addEventListener("keydown", (e) => e.stopPropagation());
     input.addEventListener("focus", () => input.select());
     host.addEventListener("click", (e) => {
+      if (e.target.closest(".br-ext")) return;
+      const sc = e.target.closest("[data-scope]");
+      if (sc) {
+        scope = scope && scope[1] === sc.dataset.scope ? null : [sc.dataset.name, sc.dataset.scope];
+        const f = view.querySelector(".br-big");
+        if (f) { paintScope(f); paintTiles(); f.q.focus(); }
+        return;
+      }
+      if (e.target.closest('[data-br="unscope"]')) {
+        e.stopPropagation(); scope = null;
+        const f = view.querySelector(".br-big");
+        if (f) { paintScope(f); paintTiles(); f.q.focus(); }
+        return;
+      }
       const q = e.target.closest("[data-q]");
       if (q) return go(q.dataset.q);
       const w = e.target.closest("[data-wiki]");
@@ -231,7 +281,7 @@
         const l = cfg().last || (cfg().url ? { kind: "page", url: cfg().url } : null);
         nav(l || { kind: "home" });
       },
-      config(c, patch) { prefs(); if ("source" in patch && cur && cur.kind === "search") search(cur.q); },
+      config(c, patch) { prefs(); if ("source" in patch && cur && cur.kind === "search") search(cur.q, cur.site); },
       receive(p) { if (p && p.url) nav({ kind: "page", url: p.url, live: !p.reader && cfg().openAs === "live" }); else if (p && p.q) go(p.q); },
       ask: () => cur && cur.kind === "page" ? `I'm reading ${cur.title || cur.url} (${cur.url}). Summarise what matters on it for a trader in India.` : "",
     };

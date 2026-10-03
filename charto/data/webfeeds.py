@@ -631,6 +631,100 @@ def reader(url: str) -> dict:
     return out
 
 
+# ── site icons for the Browser's start page ─────────────────────────────────
+# Each site's own touch icon (or favicon), fetched here and handed back as a
+# data URL, so the page asks no third-party icon service about what you browse.
+
+_icon_cache: dict[str, tuple[float, str | None]] = {}
+_BROWSER_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+               "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
+
+
+def _guarded_get(url: str, limit: int, accept: str) -> tuple[bytes, str, str] | None:
+    """(body, content-type, final url) for a public address, following at
+    most four redirects and checking each hop; None on any failure."""
+    opener = urllib.request.build_opener(_NoRedirect, urllib.request.HTTPSHandler(context=_ssl_ctx()))
+    cur = url
+    for _ in range(5):
+        if _check_url(cur):
+            return None
+        req = urllib.request.Request(cur, headers={"User-Agent": _BROWSER_UA, "Accept": accept, "Accept-Language": "en-IN,en"})
+        try:
+            resp = opener.open(req, timeout=6)
+        except urllib.error.HTTPError as e:
+            if e.code in (301, 302, 303, 307, 308) and e.headers.get("Location"):
+                cur = urllib.parse.urljoin(cur, e.headers["Location"])
+                continue
+            return None
+        except Exception:                      # noqa: BLE001
+            return None
+        if resp.status in (301, 302, 303, 307, 308) and resp.headers.get("Location"):
+            cur = urllib.parse.urljoin(cur, resp.headers["Location"])
+            resp.close()
+            continue
+        body = resp.read(limit + 1)
+        ctype = (resp.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        resp.close()
+        return (body, ctype, cur) if len(body) <= limit else None
+    return None
+
+
+def site_icon(host: str) -> str | None:
+    host = (host or "").strip().lower()
+    if not re.fullmatch(r"[a-z0-9.-]+\.[a-z]{2,}", host):
+        return None
+    hit = _icon_cache.get(host)
+    if hit and time.time() - hit[0] < 86400:
+        return hit[1]
+    cands: list[tuple[int, str]] = []
+    page = _guarded_get(f"https://{host}/", 900_000, "text/html")
+    base = page[2] if page else f"https://{host}/"
+    if page:
+        doc = page[0].decode("utf-8", "replace")
+        for tag in re.findall(r"<link\b[^>]*>", doc, re.I):
+            rel = (re.search(r'rel=["\']([^"\']+)', tag, re.I) or [None, ""])[1].lower()
+            href = (re.search(r'href=["\']([^"\']+)', tag, re.I) or [None, ""])[1]
+            if not href or "icon" not in rel or "mask" in rel:
+                continue
+            sz = re.search(r'sizes=["\'](\d+)x', tag, re.I)
+            score = (int(sz.group(1)) if sz else (180 if "apple" in rel else 32)) + (60 if "apple" in rel else 0)
+            if href.lower().endswith(".svg"):
+                score += 40
+            cands.append((score, urllib.parse.urljoin(base, html.unescape(href))))
+    cands.sort(reverse=True)
+    out = None
+    for _, u in cands[:4] + [(0, urllib.parse.urljoin(base, "/favicon.ico"))]:
+        got = _guarded_get(u, 250_000, "image/*")
+        if not got or not got[0]:
+            continue
+        body, ctype, _ = got
+        # the bytes say what the file is; a header often does not
+        head = body.lstrip()[:5]
+        sniff = ("image/png" if body[:4] == b"\x89PNG" else "image/jpeg" if body[:3] == b"\xff\xd8\xff"
+                 else "image/gif" if body[:4] == b"GIF8" else "image/bmp" if body[:2] == b"BM"
+                 else "image/x-icon" if body[:4] == b"\x00\x00\x01\x00" else "image/webp" if body[8:12] == b"WEBP"
+                 else "image/svg+xml" if head in (b"<svg ", b"<?xml") else "")
+        if not sniff:
+            continue
+        ctype = sniff
+        import base64
+        out = f"data:{ctype};base64,{base64.b64encode(body).decode()}"
+        break
+    _icon_cache[host] = (time.time(), out)
+    return out
+
+
+def site_icons(hosts: list[str]) -> dict:
+    hosts = [h for h in dict.fromkeys(hosts) if h][:24]
+    got: dict[str, str | None] = {}
+    ths = [threading.Thread(target=lambda h=h: got.__setitem__(h, site_icon(h)), daemon=True) for h in hosts]
+    for t in ths:
+        t.start()
+    for t in ths:
+        t.join(12)
+    return {"icons": {h: got.get(h) for h in hosts}}
+
+
 if __name__ == "__main__":
     import json
     import sys

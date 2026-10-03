@@ -17236,6 +17236,8 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/live-video":
                 # The TV widget: a channel's current live broadcast, by id.
                 return self._send(200, _webfeeds.live_video((q.get("channel") or "").strip()))
+            if u.path == "/site-icons":
+                return self._send(200, _webfeeds.site_icons((q.get("hosts") or "").split(",")), max_age=86400)
             if u.path == "/web-search":
                 return self._send(200, _web_search(q.get("q") or ""))
             if u.path == "/wiki/search":
