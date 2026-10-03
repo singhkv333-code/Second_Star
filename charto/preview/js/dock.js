@@ -413,6 +413,7 @@ const Dock = (() => {
         `<button type="button" class="dk-grip" data-act="grip" title="Drag to move" ` +
           `aria-label="Move">${icon("grip")}</button>` +
         `<div class="dk-tabs" role="tablist"></div>` +
+        `<div class="dk-tools"></div>` +
         `<div class="dk-acts"></div>` +
       `</div><div class="dk-body"></div>` +
       `<div class="dk-rz" data-act="resize" aria-hidden="true"></div>`;
@@ -462,6 +463,31 @@ const Dock = (() => {
     node.classList.toggle("is-float", fl);
     node.classList.toggle("has-chart", g.tabs.includes(CHART));
     requestAnimationFrame(() => paintInk(node));
+  }
+
+  /** The chart's controls — interval, indicators, undo/redo, panes, settings —
+   *  ride in the chart tile's tab bar, in the room beside its tab. When that
+   *  bar is gone (the chart locked, focus, a phone) or another tab is in
+   *  front, the same nodes go back to the page header: one set, moved, so
+   *  every listener on them keeps working. */
+  // held, not looked up: a layout can detach the tile they ride in, and a
+  // detached node is no longer found by id
+  let chartTools = null;
+  function syncChartTools(vm) {
+    const tools = chartTools || (chartTools = document.getElementById("chartTools"));
+    const home = document.getElementById("chartToolsHome");
+    if (!tools || !home) return;
+    // the group the chart is drawn in THIS layout — in focus that is the
+    // stage, not the group the chart is stored in
+    const groups = (vm && vm.groups) || S.groups;
+    const gid = Object.keys(groups).find((k) => groups[k].tabs.includes(CHART));
+    const node = gid && groupEls.get(gid);
+    const slot = node && canvas.contains(node) && !compact && !node.classList.contains("dk-bare")
+      && groups[gid].active === CHART ? node.querySelector(".dk-tools") : null;
+    if (slot) { if (tools.parentNode !== slot) slot.appendChild(tools); }
+    else if (home.nextElementSibling !== tools) home.after(tools);
+    for (const n of groupEls.values()) n.classList.toggle("has-tools", !!slot && n === node);
+    document.body.classList.toggle("ct-docked", !!slot);
   }
 
   /** The active tab's underline is ONE element that slides between tabs. */
@@ -600,6 +626,7 @@ const Dock = (() => {
     document.body.classList.toggle("dk-compact", compact);
     document.body.classList.toggle("dk-chart-locked", !!S.lock);
     syncVisibility(visibleNow);
+    syncChartTools(vm);
     placeFloats();
     requestAnimationFrame(syncPulls);
     syncDense();
@@ -1678,10 +1705,11 @@ const Dock = (() => {
   }
 
   canvas.addEventListener("pointerdown", (e) => {
+    if (e.target.closest(".chart-tools")) return;   // the chart's own controls, not the tile's
     if (e.target.closest(".dk-gut")) return onGutterDown(e);
     if (!e.target.closest(".dk-hub")) onGroupPointerDown(e);
   });
-  canvas.addEventListener("click", (e) => { if (!e.target.closest(".dk-hub")) onGroupClick(e); });
+  canvas.addEventListener("click", (e) => { if (!e.target.closest(".dk-hub, .chart-tools")) onGroupClick(e); });
   canvas.addEventListener("dblclick", (e) => {
     const tab = e.target.closest(".dk-tab");
     if (tab && !compact) return max(tab.closest(".dk-group").dataset.gid);

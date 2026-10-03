@@ -662,7 +662,7 @@
   const IND = () => Panes.activeInd() || ind;
 
   el("indBtn").innerHTML =
-    Icons.svg("indicators", "sm") + "Indicators" + Icons.svg("chevronDown", "chev");
+    Icons.svg("indicators", "sm") + `<span class="ind-l">Indicators</span>` + Icons.svg("chevronDown", "chev");
 
   /* Volume profile is a STUDY, not a line series: it has no per-bar value to
    * plot, so it never enters the indicator CATALOG and gets its own section.

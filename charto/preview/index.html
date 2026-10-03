@@ -7084,6 +7084,25 @@ svg.icon.op {
   transition: transform var(--dur-slow) var(--ease-quartr), width var(--dur-slow) var(--ease-quartr);
 }
 .dk-acts { flex: none; display: flex; align-items: center; gap: 1px; }
+/* the chart's controls, carried in its tile's tab bar (dock.js syncChartTools) */
+.chart-tools { display: contents; }
+.dk-tools { display: none; }
+.has-tools .dk-tools { flex: 1; min-width: 0; display: flex; align-items: center; height: 100%; }
+.has-tools .dk-tabs { flex: 0 1 auto; }
+.dk-tools .chart-tools { flex: 1; min-width: 0; display: flex; align-items: center; gap: 2px; padding-left: 6px; }
+.chart-tools > .menu-wrap, .chart-tools > .btn, .chart-tools > .vsep { flex: none; }
+.dk-group.has-tools { overflow: visible; z-index: 3; }
+.dk-group.has-tools > .dk-body { overflow: hidden; }
+.dk-tools .ct-gap { flex: 1; min-width: 4px; }
+.dk-tools .btn { height: 28px; padding: 0 9px; font-size: var(--text-sm); }
+.dk-tools .btn.icon { width: 28px; padding: 0; }
+.dk-tools .btn.icon svg.icon { width: 17px; height: 17px; }
+.dk-tools .vsep { height: 16px; margin: 0 4px; }
+.dk-tools .dropdown { z-index: 120; }
+.ct-docked #chartToolsSep { display: none; }
+body:not(.ct-docked) .chart-tools .ct-gap { display: none; }
+@container (max-width: 640px) { .dk-tools .ind-l { display: none; } .dk-tools #indBtn { padding: 0 7px; } }
+@container (max-width: 520px) { .dk-tools #layoutBtn, .dk-tools #undoBtn, .dk-tools #redoBtn, .dk-tools .vsep { display: none; } }
 .dk-act {
   width: 26px; height: 26px; padding: 0; border: 0; border-radius: 7px;
   background: transparent; color: var(--foreground); cursor: pointer; opacity: 0;
@@ -7500,14 +7519,16 @@ body.dk-dragging .dk-pull { pointer-events: none; }
 .hub-card {
   position: relative; flex: none; display: flex; flex-direction: column; gap: 6px; padding: 8px 8px 10px;
   scroll-snap-align: start; cursor: pointer; outline: none; border: 0; border-radius: 16px;
-  background: color-mix(in srgb, var(--surface-plain) 72%, transparent);
-  -webkit-backdrop-filter: blur(16px) saturate(1.4); backdrop-filter: blur(16px) saturate(1.4);
+  /* grey, and nearly opaque, so the picture reads over a busy chart */
+  background: color-mix(in srgb, color-mix(in srgb, var(--foreground) 7%, var(--surface-plain)) 90%, transparent);
+  -webkit-backdrop-filter: blur(22px) saturate(1.2); backdrop-filter: blur(22px) saturate(1.2);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 7%, transparent), 0 8px 24px -18px rgba(0,0,0,.45);
   transition: transform .3s var(--ease-quartr), box-shadow .3s var(--ease-quartr);
 }
 .hub-card[hidden] { display: none; }
 .hub-card:hover, .hub-card:focus-visible {
   transform: translateX(-4px);
+  background: color-mix(in srgb, color-mix(in srgb, var(--foreground) 10%, var(--surface-plain)) 94%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 16%, transparent), 0 14px 30px -18px rgba(0,0,0,.5);
 }
 .hub-card:active { transform: scale(.98); }
@@ -9899,8 +9920,13 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
         <div id="symList"></div>
       </div>
     </div>
-    <div class="vsep"></div>
+    <div class="vsep" id="chartToolsSep"></div>
 
+    <!-- The chart's own controls. They live in the chart tile's tab bar,
+         beside its tab; js/dock.js moves this one wrapper there, and back
+         here when the chart is locked and has no tab bar. -->
+    <span id="chartToolsHome" hidden></span>
+    <div class="chart-tools" id="chartTools">
     <!-- Interval — Groww's single pill over a grouped list, filled by main.js
          from the one catalogue that also decides what the chart can page. -->
     <div class="menu-wrap">
@@ -9928,6 +9954,15 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
             title="Undo (Ctrl+Z)" aria-label="Undo" disabled></button>
     <button class="btn icon" id="redoBtn" type="button"
             title="Redo (Ctrl+Shift+Z)" aria-label="Redo" disabled></button>
+    <div class="ct-gap"></div>
+    <div class="menu-wrap">
+      <button class="btn icon" id="layoutBtn" title="Chart layout"></button>
+      <!-- filled by main.js from the Panes catalogue -->
+      <div class="dropdown right layout-menu" id="layoutMenu"></div>
+    </div>
+    <button class="btn icon" id="settingsBtn" type="button"
+            title="Chart settings" aria-label="Chart settings"></button>
+    </div>
 
     <div class="spacer"></div>
     <button class="btn" id="journalBack" type="button"></button>
@@ -9936,8 +9971,6 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
     <!-- The gear, where TradingView keeps it: with the controls that change
          how the chart is DRAWN (layout, screenshot), not with the ones that
          change what is on it. js/chartsettings.js owns the dialog. -->
-    <button class="btn icon" id="settingsBtn" type="button"
-            title="Chart settings" aria-label="Chart settings"></button>
     <!-- The SAVED layout: its name, and the menu that manages it. Sits
          immediately before the pane-grid picker because the grid is one
          field of what this saves — TradingView's own order. js/layouts.js. -->
@@ -9956,11 +9989,6 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
              aria-hidden="true"><path d="M18 15l-6-6-6 6"/></svg>
       </button>
       <div class="dropdown right ly-menu" id="lyMenu" role="menu"></div>
-    </div>
-    <div class="menu-wrap">
-      <button class="btn icon" id="layoutBtn" title="Chart layout"></button>
-      <!-- filled by main.js from the Panes catalogue -->
-      <div class="dropdown right layout-menu" id="layoutMenu"></div>
     </div>
     <div class="menu-wrap">
       <button class="btn icon" id="shotBtn" title="Screenshot the chart for the chat"></button>
@@ -10224,10 +10252,10 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/drawings.js?v=35"></script>
   <script src="./js/scene.js?v=49"></script>
   <script src="./js/panes.js?v=21"></script>
-  <script src="./js/main.js?v=159"></script>
+  <script src="./js/main.js?v=160"></script>
   <script src="./js/wkit.js?v=1"></script>
   <script src="./js/hub-art.js?v=3"></script>
-  <script src="./js/dock.js?v=11"></script>
+  <script src="./js/dock.js?v=13"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=11"></script>
