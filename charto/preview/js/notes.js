@@ -50,7 +50,8 @@
   // The first notes widget keeps the plain keys; every further copy is its
   // own page, so two notes side by side never write over each other.
   const KEY = (scope, ctx) => ctx.id === "notes" ? `note:${scope}` : `note:${scope}:${ctx.id.split(":")[1]}`;
-  const scopeKey = (ctx) => ctx.cfg.scope === "general" ? "general" : ctx.pageSymbol();
+  // a note is about the widget's symbol: the chart's, its link group's, or a pin
+  const scopeKey = (ctx) => ctx.cfg.scope === "general" ? "general" : ctx.symbol();
 
   function mount(host, ctx) {
     if (!ctx.cfg.scope) ctx.setCfg({ scope: "chart" });
@@ -80,19 +81,28 @@
     const $ = (s) => host.querySelector(s);
     const ed = $(".nt-ed");
 
+    function prefs() {
+      const c = ctx.cfg;
+      host.style.setProperty("--nt-size", { s: "13px", m: "14.5px", l: "16.5px" }[c.textSize || "m"]);
+      host.classList.toggle("nt-nobar", c.toolbar === false);
+      host.classList.toggle("nt-nocount", c.count === false);
+      ed.spellcheck = c.spell !== false;
+    }
+
     function load() {
+      prefs();
       current = KEY(scopeKey(ctx), ctx);
       const v = Store.get(current, null);
       ed.innerHTML = v && v.html ? clean(v.html) : "";
       ed.dataset.ph = ctx.cfg.scope === "general"
         ? "A general note. Ideas, a plan for the week, anything."
-        : `Your notes on ${ctx.pageSymbol()}. They come back whenever this chart does.`;
+        : `Your notes on ${ctx.symbol()}. They come back whenever this chart does.`;
       paintFoot(v && v.at ? `Saved ${when(v.at)}` : "");
       for (const b of host.querySelectorAll("[data-scope]")) {
         b.classList.toggle("on", b.dataset.scope === (ctx.cfg.scope || "chart"));
       }
-      host.querySelector('[data-scope="chart"]').textContent = ctx.pageSymbol();
-      ctx.setTitle(ctx.cfg.scope === "general" ? "General" : ctx.pageSymbol());
+      host.querySelector('[data-scope="chart"]').textContent = ctx.symbol();
+      ctx.setTitle(ctx.cfg.scope === "general" ? "General" : ctx.symbol());
     }
 
     const when = (t) => {
@@ -143,9 +153,9 @@
     });
 
     function stamp() {
-      const c = window.__chartoLast ? window.__chartoLast() : { symbol: ctx.pageSymbol() };
-      const t = new Date().toLocaleString("en-IN", { day: "2-digit", month: "short",
-        hour: "2-digit", minute: "2-digit", hour12: false });
+      const c = window.__chartoLast ? window.__chartoLast() : { symbol: ctx.symbol() };
+      const t = ctx.cfg.stampTime === false ? new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short" })
+        : new Date().toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
       const px = c.close != null ? Sym.of(c.symbol).num(c.close) : "no price loaded";
       ed.focus();
       document.execCommand("insertHTML", false,
@@ -187,7 +197,7 @@
       }
       if (e.target.closest('[data-n="ask"]')) {
         const text = ed.innerText.trim();
-        if (text) ctx.compose(`Here are my notes on ${ctx.cfg.scope === "general" ? "the market" : ctx.pageSymbol()}:\n\n${text}\n\nWhat would you check on the chart to test them?`);
+        if (text) ctx.compose(`Here are my notes on ${ctx.cfg.scope === "general" ? "the market" : ctx.symbol()}:\n\n${text}\n\nWhat would you check on the chart to test them?`);
       }
     });
 
@@ -199,7 +209,10 @@
     return {
       show() { load(); },
       hide() { if (saveT) save(); },
-      config() { },
+      config(cfg, patch) {
+        if ("symbol" in patch || "link" in patch || "pin" in patch) { if (saveT) save(); return load(); }
+        prefs();
+      },
       ask: () => {
         const text = ed.innerText.trim();
         return text ? `Here are my notes:\n\n${text}\n\nWhat would you check on the chart to test them?` : "";
@@ -210,6 +223,16 @@
   Dock.register({
     type: "notes", title: "Notes", icon: "note", shortcut: "notes",
     key: "Alt N", desc: "Write beside the chart, stamped with its price",
-    zone: "right", minW: 260, hue: "gold", group: "Tools", mount,
+    zone: "right", minW: 260, hue: "gold", group: "Tools", mount, linkable: true,
+    settings: [
+      { section: "Writing" },
+      { key: "textSize", label: "Text size", def: "m", options: [{ v: "s", label: "Small" }, { v: "m", label: "Medium" }, { v: "l", label: "Large" }] },
+      { key: "spell", label: "Check spelling", kind: "toggle", def: true },
+      { key: "stampTime", label: "Stamps carry the time", kind: "toggle", def: true, hint: "Off: the date only" },
+      { section: "Display" },
+      { key: "toolbar", label: "Formatting bar", kind: "toggle", def: true },
+      { key: "count", label: "Word count", kind: "toggle", def: true },
+      { kind: "note", label: "Notes on a symbol come back whenever that symbol is open. They are kept in this browser." },
+    ],
   });
 })();

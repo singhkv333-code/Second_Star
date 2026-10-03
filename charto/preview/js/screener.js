@@ -78,6 +78,9 @@
     : (v < 0 ? "−" : "") + Math.abs(v).toLocaleString("en-IN", { minimumFractionDigits: d, maximumFractionDigits: d });
   const fmtPct = (v) => v == null ? "—" : (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(2) + "%";
   const dir = (v) => v > 0 ? "up" : v < 0 ? "down" : "";
+  // short column heads for the extra columns a narrow tile can show
+  const SHORT = { ret_1w: "1W", ret_1m: "1M", ret_3m: "3M", ret_1y: "1Y", rsi14: "RSI", adx14: "ADX",
+                  vol_ratio20: "Vol×", atr_pct: "ATR%", dist_52w_high: "52WH", turnover_20d_cr: "₹ cr" };
   const isPct = (k) => /(_pct|^ret_|_rel$|dist_52w)/.test(k) && k !== "bb_pct_b";
 
   function mount(host, ctx) {
@@ -161,8 +164,8 @@
       const list = [...((state.res || {}).rows || [])];
       const cs = state.colSort;
       if (cs) {
-        const val = (r) => cs.k === "symbol" ? r.symbol : cs.k === "ret_1d"
-          ? (state.feats[r.symbol] || {}).ret_1d : r[cs.k];
+        const val = (r) => cs.k === "symbol" ? r.symbol
+          : r[cs.k] != null ? r[cs.k] : (state.feats[r.symbol] || {})[cs.k];
         list.sort((a, b) => {
           const x = val(a), y = val(b);
           if (x == null) return 1;
@@ -198,14 +201,20 @@
           (on ? ic(state.colSort.d > 0 ? "chevronUp" : "chevronDown") : "") + `</button>`;
       };
       const showMetric = k !== "close" && k !== "ret_1d";
+      // the extra columns the settings switch on, minus the one already
+      // shown as the ranking metric, and minus whatever does not fit
+      let extra = (cfg().cols || []).filter((c) => c !== k && c !== "close" && c !== "ret_1d");
+      const room = (host.clientWidth || 320) - 120 - 72 - 62 - (showMetric ? 70 : 0);
+      extra = extra.slice(0, Math.max(0, Math.floor(room / 62)));
       body.classList.toggle("loading", state.loading);
-      body.style.setProperty("--scr-cols", `minmax(0,1fr) 72px 62px${showMetric ? " 70px" : ""}`);
+      body.classList.toggle("scr-flat", cfg().logos === false);
+      body.style.setProperty("--scr-cols", `minmax(0,1fr) 72px 62px${showMetric ? " 70px" : ""}${extra.map(() => " 62px").join("")}`);
       body.innerHTML = list.length
         ? `<div class="scr-th">${th("symbol", "Symbol", "l")}${th("close", "Last")}${th("ret_1d", "1D")}` +
-          (showMetric ? th(k, F[k] || k) : "") + `</div>` +
+          (showMetric ? th(k, F[k] || k) : "") + extra.map((c) => th(c, SHORT[c] || F[c] || c)).join("") + `</div>` +
           list.map((r) => {
             const f = state.feats[r.symbol] || {};
-            const mark = Universe.logoHTML(r.symbol) || `<span class="co-blank">${esc(r.symbol[0])}</span>`;
+            const mark = cfg().logos === false ? "" : Universe.logoHTML(r.symbol) || `<span class="co-blank">${esc(r.symbol[0])}</span>`;
             const m = r[k];
             return `<div class="scr-row${r.symbol === cur ? " on" : ""}" data-sym="${esc(r.symbol)}" role="button" tabindex="0" ` +
               `aria-label="Open ${esc(r.symbol)} on the chart">` +
@@ -214,6 +223,7 @@
               `<span class="r num">${fmt(r.close)}</span>` +
               `<span class="r num ${dir(f.ret_1d)}">${fmtPct(f.ret_1d)}</span>` +
               (showMetric ? `<span class="r num">${isPct(k) ? fmt(m) : fmt(m, Math.abs(m) >= 100 ? 0 : 1)}</span>` : "") +
+              extra.map((c) => { const v = f[c]; return `<span class="r num ${isPct(c) ? dir(v) : ""}">${v == null ? "—" : isPct(c) ? fmtPct(v) : fmt(v, Math.abs(v) >= 100 ? 0 : 1)}</span>`; }).join("") +
               `<span class="scr-acts">` +
                 `<button type="button" data-s="watch" title="Add to watchlist" aria-label="Add ${esc(r.symbol)} to watchlist">${ic("star")}</button>` +
                 `<button type="button" data-s="beside" title="Open in a new pane" aria-label="Open ${esc(r.symbol)} in a new pane">${ic("split")}</button>` +
@@ -319,19 +329,25 @@
         }
         if (a === "beside" && row) return ctx.openSymbol(row.dataset.sym, "beside");
       }
-      if (row) ctx.openSymbol(row.dataset.sym);
+      if (row) openRow(row.dataset.sym);
     });
     host.addEventListener("keydown", (e) => {
       if (e.key !== "Enter" && e.key !== " ") return;
       const row = e.target.closest(".scr-row");
       if (!row || e.target !== row) return;
       e.preventDefault();
-      ctx.openSymbol(row.dataset.sym);
+      openRow(row.dataset.sym);
     });
     host.addEventListener("pointerover", (e) => {
       const row = e.target.closest(".scr-row");
       if (row) ctx.warm(row.dataset.sym);
     });
+
+    /** A row chosen: its link group's symbol, a new pane, or the chart. */
+    function openRow(sym) {
+      if (cfg().click === "pane" && !/^[1-4]$/.test(ctx.link())) return ctx.openSymbol(sym, "beside");
+      ctx.pick(sym);
+    }
 
     function askText() {
       const d = state.res;
@@ -341,10 +357,18 @@
         `as of ${d.as_of}. The top names are ${top}. Which of these look strongest on the chart, and why?`;
     }
 
+    // a resize that changes how many extra columns fit redraws the table
+    let fitW = 0;
+    new ResizeObserver(() => {
+      const w = Math.floor((host.clientWidth || 0) / 62);
+      if (w !== fitW) { fitW = w; if (state.res && (cfg().cols || []).length) paint(); }
+    }).observe(host);
+
     let ran = false;
     return {
       show() { if (!ran) { ran = true; run(); } else paint(); },
       config(c, patch) { if ("rows" in patch) run(); else paint(); },
+
       ask: askText,
     };
   }
@@ -353,9 +377,20 @@
     type: "screener", title: "Screener", icon: "funnel", shortcut: "screener",
     key: "Alt Shift S", desc: "Filter 500 stocks on price and volume",
     zone: "left", minW: 290, hue: "teal", group: "Market", anim: "pulse", mount,
+    linkable: true,
     settings: [
-      { key: "rows", label: "Rows", def: 50, options: [{ v: 25, label: "25" }, { v: 50, label: "50" }] },
+      { section: "Results" },
+      { key: "rows", label: "Rows", def: 50, options: [{ v: 25, label: "25" }, { v: 50, label: "50" }], hint: "The engine returns at most 50" },
+      { key: "cols", label: "Extra columns", kind: "chips", def: [], hint: "A narrow tile shows the first that fit",
+        options: [["ret_1w", "1W"], ["ret_1m", "1M"], ["ret_3m", "3M"], ["ret_1y", "1Y"], ["rsi14", "RSI 14"], ["adx14", "ADX 14"],
+                  ["vol_ratio20", "Volume ratio"], ["atr_pct", "ATR %"], ["dist_52w_high", "From 52W high"], ["turnover_20d_cr", "Turnover ₹ cr"]]
+          .map(([v, label]) => ({ v, label })) },
+      { section: "Rows" },
       { key: "names", label: "Company names", kind: "toggle", def: true },
+      { key: "logos", label: "Logos", kind: "toggle", def: true },
+      { key: "click", label: "Clicking a row opens it", def: "chart", hint: "In a link group, the group's widgets follow instead",
+        options: [{ v: "chart", label: "On the chart" }, { v: "pane", label: "In a new pane" }] },
+      { kind: "note", label: "Screens run on end-of-day values, so there is nothing to refresh during the day." },
     ],
   });
 })();

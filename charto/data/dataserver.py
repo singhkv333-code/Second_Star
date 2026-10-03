@@ -58,6 +58,7 @@ sys.modules.setdefault("dataserver", sys.modules[__name__])
 
 import company_scores   # sibling module: Altman / Ohlson / Graham / DuPont
 import depth as _depth   # sibling module: order-book snapshots for the depth widget
+import calfeed as _calfeed     # sibling module: the Calendar widget's NSE + macro feeds
 import webfeeds as _webfeeds   # sibling module: news feeds + frame checks for widgets
 import drawtools   # sibling module: the Fibonacci / Gann catalogue, backend half
 import execution_bridge   # sibling module: Pivot's automation engine, borrowed
@@ -17115,6 +17116,16 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/live-video":
                 # The TV widget: a channel's current live broadcast, by id.
                 return self._send(200, _webfeeds.live_video((q.get("channel") or "").strip()))
+            if u.path == "/calendar":
+                # The Calendar widget: NSE board meetings and ex-dates plus
+                # the macro schedule, each feed named with its status.
+                try:
+                    days = int(q.get("days") or 14)
+                except ValueError:
+                    days = 14
+                kinds = [x for x in (q.get("kinds") or "").split(",") if x]
+                syms = [x for x in (q.get("symbols") or "").split(",") if x][:200]
+                return self._send(200, _calfeed.calendar(days, kinds or None, syms or None))
             if u.path == "/quotes":
                 want = (q.get("symbols") or "").split(",")
                 if len([s for s in want if s.strip()]) > _QUOTES_MAX:

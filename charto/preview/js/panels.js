@@ -188,7 +188,8 @@ const Panels = (() => {
       active: lists.some((l) => l.id === (raw || {}).active)
         ? raw.active : lists[0].id,
       cols: { last: cols.last !== false, chg: cols.chg !== false,
-              pct: cols.pct !== false },
+              pct: cols.pct !== false, open: !!cols.open, high: !!cols.high,
+              low: !!cols.low, prev: !!cols.prev, range: !!cols.range },
       sort: SORTS[(raw || {}).sort] ? raw.sort : "manual",
       folded: Array.isArray((raw || {}).folded) ? raw.folded.map(String) : [],
     };
@@ -198,6 +199,32 @@ const Panels = (() => {
   }
 
   function saveWL() { Store.set(WL_KEY, wl); }
+
+  /* The numeric columns, in the order they are drawn, with their widths and
+   * the order they give way when the tile is too narrow for all of them:
+   * the ticker always keeps ~110px, so a narrow watchlist drops Day range,
+   * then Prev, Open, High, Low, Chg — Chg% and Last go last. */
+  const COLS = [
+    { k: "last", label: "Last", w: 76, drop: 7 },
+    { k: "open", label: "Open", w: 70, drop: 3 },
+    { k: "high", label: "High", w: 70, drop: 4 },
+    { k: "low", label: "Low", w: 70, drop: 5 },
+    { k: "prev", label: "Prev", w: 70, drop: 2 },
+    { k: "chg", label: "Chg", w: 64, drop: 6 },
+    { k: "pct", label: "Chg%", w: 58, drop: 8 },
+    { k: "range", label: "Day", w: 58, drop: 1 },
+  ];
+  const wcfg = () => (typeof Dock !== "undefined" && Dock.cfgOf ? Dock.cfgOf("watch") : {}) || {};
+  /** The columns that fit in `width`, from the ones switched on. */
+  function fitCols(width) {
+    let on = COLS.filter((c) => wl.cols[c.k]);
+    const room = () => width - 116 - on.reduce((a, c) => a + c.w, 0);
+    for (const c of [...on].sort((a, b) => a.drop - b.drop)) {
+      if (room() >= 0 || on.length <= 1) break;
+      on = on.filter((x) => x !== c);
+    }
+    return on;
+  }
   const activeList = () => wl.lists.find((l) => l.id === wl.active) || wl.lists[0];
   const currentSymbol = () =>
     (el("symbolName").textContent || "").trim().toUpperCase();
@@ -221,6 +248,12 @@ const Panels = (() => {
   /** The list, grouped and ordered exactly as it will be drawn. */
   function plan() {
     const syms = activeList().syms;
+    if (wcfg().groups === false) {
+      const one = [...syms];
+      if (wl.sort === "az") one.sort((a, b) => a.localeCompare(b));
+      if (wl.sort === "pct") one.sort((a, b) => ((quotes.get(b) || {}).change_pct ?? -1e9) - ((quotes.get(a) || {}).change_pct ?? -1e9));
+      return [{ name: "All", syms: one }];
+    }
     const by = new Map();
     for (const s of syms) {
       const name = sectionOf(s);
@@ -276,20 +309,19 @@ const Panels = (() => {
     // column. It carries its own initial rather than sitting blank, which is
     // what TradingView does for the same reason: a row of empty grey squares
     // reads as images that failed to load.
-    const mark = Universe.logoHTML(sym)
+    const cfg = wcfg();
+    const mark = cfg.logos === false ? "" : Universe.logoHTML(sym)
       || `<span class="co-blank">${esc(sym[0])}</span>`;
     const name = Universe.label(sym);
-    const c = wl.cols;
+    const cols = shownCols;
     return `<div class="wl-row${sym === current ? " on" : ""}" ` +
       `data-sym="${esc(sym)}" role="button" tabindex="0" ` +
       `aria-label="Open ${esc(sym)} on the chart">` +
       // the ticker column is what pays for three numeric columns at this
       // width, so a truncated name still says what it is on hover
       `<span class="wl-name" title="${esc(name === sym ? sym : sym + " · " + name)}">` +
-      `${mark}<span class="t">${esc(sym)}</span></span>` +
-      (c.last ? `<span class="wl-last"></span>` : "") +
-      (c.chg ? `<span class="wl-chg"></span>` : "") +
-      (c.pct ? `<span class="wl-pct"></span>` : "") +
+      `${mark}<span class="t">${esc(sym)}${cfg.names && name && name !== sym ? `<em>${esc(name)}</em>` : ""}</span></span>` +
+      cols.map((c) => c.k === "range" ? `<span class="wl-range"><i></i></span>` : `<span class="wl-${c.k}"></span>`).join("") +
       `<span class="wl-acts">` +
         // Awake now. It opens the create dialog with this instrument already
         // filled in, which is the whole reason the button lives in the row
@@ -323,25 +355,50 @@ const Panels = (() => {
         n.classList.toggle("down", dir === "down");
       };
       const d = dirOf(q.change);
+      const lastEl = row.querySelector(".wl-last");
+      const was = lastEl ? lastEl.textContent : null;
       put("wl-last", fmtLast(sym, q.last));
       put("wl-chg", fmtChg(sym, q.change), d);
       put("wl-pct", fmtPct(q.change_pct), d);
+      put("wl-open", fmtLast(sym, q.open));
+      put("wl-high", fmtLast(sym, q.high));
+      put("wl-low", fmtLast(sym, q.low));
+      put("wl-prev", fmtLast(sym, q.prev_close));
+      // where the price sits in today's range: a mark on a short bar
+      const rg = row.querySelector(".wl-range i");
+      if (rg) {
+        const ok = q.high != null && q.low != null && q.last != null && q.high > q.low;
+        rg.style.left = ok ? ((q.last - q.low) / (q.high - q.low) * 100).toFixed(1) + "%" : "50%";
+        rg.parentNode.style.opacity = ok ? "" : ".3";
+        rg.parentNode.title = ok ? `Low ${fmtLast(sym, q.low)} · High ${fmtLast(sym, q.high)}` : "No range yet";
+      }
+      // a price that moved tints its row for a moment, up or down
+      if (lastEl && was && was !== lastEl.textContent && was !== DASH && wcfg().flash !== false) {
+        const up = parseFloat(lastEl.textContent.replace(/[^\d.-]/g, "")) > parseFloat(was.replace(/[^\d.-]/g, ""));
+        row.classList.remove("tick-up", "tick-down");
+        void row.offsetWidth;
+        row.classList.add(up ? "tick-up" : "tick-down");
+      }
     }
   }
 
+  let shownCols = [];
   function renderWatch(panel) {
     const list = activeList();
-    const current = currentSymbol();
+    const current = typeof Dock !== "undefined" && Dock.symbolOf ? Dock.symbolOf("watch") : currentSymbol();
     const secs = plan();
-    const c = wl.cols;
+    const cfg = wcfg();
     planKey = keyOf(secs);
+    shownCols = fitCols(panel.clientWidth || 320);
+    panel.dataset.colw = String(panel.clientWidth || 0);
+    panel.classList.toggle("wl-compact", cfg.density === "compact");
+    panel.classList.toggle("wl-two", !!cfg.names);
     // the numeric columns are fixed-width so a hundred rows form straight
     // edges; hiding one has to change the track list, not just the cells
-    panel.style.setProperty("--wl-cols", "minmax(0, 1fr)"
-      + (c.last ? " 76px" : "") + (c.chg ? " 64px" : "") + (c.pct ? " 58px" : ""));
+    panel.style.setProperty("--wl-cols", "minmax(0, 1fr)" + shownCols.map((c) => ` ${c.w}px`).join(""));
     // A section heading is only information when there is more than one
     // section — a lone "STOCKS" over a list of stocks is furniture.
-    const heads = secs.length > 1;
+    const heads = secs.length > 1 && cfg.groups !== false;
     const body = secs.map((s) => {
       const shut = heads && wl.folded.includes(s.name);
       return (heads
@@ -362,9 +419,7 @@ const Panels = (() => {
       `<div class="side-body">` +
         (list.syms.length
           ? `<div class="wl-head"><span>Symbol</span>` +
-            (c.last ? `<span class="r">Last</span>` : "") +
-            (c.chg ? `<span class="r">Chg</span>` : "") +
-            (c.pct ? `<span class="r">Chg%</span>` : "") +
+            shownCols.map((c) => `<span class="r">${c.label}</span>`).join("") +
             `</div>` + body
           : empty("list",
                   "Nothing on this list yet. Add an instrument to follow it here.",
@@ -423,7 +478,7 @@ const Panels = (() => {
     fetchQuotes();
     quoteTimer = setInterval(() => {
       if (document.visibilityState === "visible") fetchQuotes();
-    }, QUOTE_MS);
+    }, Number(wcfg().refresh) || QUOTE_MS);
   }
 
   // A background tab is not watching anything; come back to fresh numbers
@@ -558,14 +613,14 @@ const Panels = (() => {
 
   function colsMenu(anchor) {
     const c = wl.cols;
-    const only = ["last", "chg", "pct"].filter((k) => c[k]).length === 1;
+    const only = COLS.filter((x) => c[x.k]).length === 1;
     const item = (k, label) =>
       `<div class="item ${c[k] ? "on" : ""} ${c[k] && only ? "off" : ""}" ` +
       `data-pick="col:${k}"><span class="lead">${label}</span>` +
       `${c[k] ? CHECK : ""}</div>`;
     popup(anchor,
       `<div class="head">Columns</div>` +
-      item("last", "Last") + item("chg", "Chg") + item("pct", "Chg%"),
+      COLS.map((x) => item(x.k, x.k === "range" ? "Day range" : x.k === "prev" ? "Prev close" : x.label)).join(""),
       (pick) => {
         const k = pick.slice(4);
         wl.cols[k] = !wl.cols[k];
@@ -617,7 +672,7 @@ const Panels = (() => {
    *  secondary pane, else a navigation the dock keeps instant — the bars are
    *  warmed on hover (below) and the new page paints them before it fetches.
    *  The watchlist itself survives the trip because the dock's layout does. */
-  const openSymbol = (sym) => Dock.openSymbol(sym);
+  const openSymbol = (sym) => Dock.pick ? Dock.pick("watch", sym) : Dock.openSymbol(sym);
 
   /* Another tab of the same app edits the same lists. `storage` fires only in
    * the OTHER tabs, so this is the cheap way to keep them from disagreeing. */
@@ -730,7 +785,8 @@ const Panels = (() => {
 
   function visibleAlerts() {
     const q = alertQuery.trim().toLowerCase();
-    let rows = Alerts.state.alerts.filter((a) => !q
+    const show = (Dock.cfgOf ? Dock.cfgOf("alerts") : {}).show || "all";
+    let rows = Alerts.state.alerts.filter((a) => (show === "all" || a.state === show) && !q
       || (a.symbol + " " + a.cond + " " + a.level + " " + (a.note || ""))
          .toLowerCase().includes(q));
     rows = [...rows];
@@ -848,33 +904,85 @@ const Panels = (() => {
         if (extra.onShow) extra.onShow();
       },
       hide() { showing.delete(id); if (extra.onHide) extra.onHide(); },
+      // a setting changed (or the link group's symbol): the panel redraws
+      config(cfg, patch) { if (extra.onConfig) extra.onConfig(cfg, patch); else if (on(id)) extra.render(el(extra.panel)); },
       ask: extra.ask,
     }),
     ...extra,
   });
 
   // A star, not a list: see the `star` note in js/icons.js.
+  // a resize that changes which columns fit redraws the list
+  if (typeof ResizeObserver !== "undefined") {
+    new ResizeObserver(() => {
+      const p = el("watchPanel");
+      if (!on("watch") || !p.clientWidth) return;
+      if (fitCols(p.clientWidth).length !== shownCols.length) repaint(true);
+    }).observe(el("watchPanel"));
+  }
+  const colGet = () => COLS.filter((c) => wl.cols[c.k]).map((c) => c.k);
+  const colSet = (v) => { for (const c of COLS) wl.cols[c.k] = v.includes(c.k); saveWL(); repaint(true); };
+
   widget("watch", {
     panel: "watchPanel", icon: "star", title: "Watchlist", shortcut: "watchlist",
-    hue: "amber", group: "Market", anim: "spin", minW: 290,
+    hue: "amber", group: "Market", anim: "spin", minW: 290, linkable: true,
+    settings: [
+      { section: "Columns" },
+      { key: "cols", label: "Shown", kind: "chips", min: 1, def: ["last", "chg", "pct"], get: colGet, set: colSet,
+        hint: "A narrow tile drops the extra ones first",
+        options: COLS.map((c) => ({ v: c.k, label: c.k === "range" ? "Day range" : c.k === "prev" ? "Prev close" : c.label })) },
+      { key: "sort", label: "Order", def: "manual", get: () => wl.sort, set: (v) => { wl.sort = v; saveWL(); repaint(true); },
+        options: [{ v: "manual", label: "As added" }, { v: "az", label: "A → Z" }, { v: "pct", label: "Change %" }] },
+      { section: "Rows" },
+      { key: "groups", label: "Group by kind", kind: "toggle", def: true, hint: "Indices, stocks, commodities, crypto" },
+      { key: "names", label: "Company name under the ticker", kind: "toggle", def: false },
+      { key: "logos", label: "Logos", kind: "toggle", def: true },
+      { key: "density", label: "Row height", def: "comfortable", options: [{ v: "comfortable", label: "Comfortable" }, { v: "compact", label: "Compact" }] },
+      { key: "flash", label: "Flash when a price moves", kind: "toggle", def: true },
+      { section: "Prices" },
+      { key: "refresh", label: "Update every", def: 5000, options: [{ v: 2000, label: "2s" }, { v: 5000, label: "5s" }, { v: 15000, label: "15s" }] },
+    ],
     key: "Alt W", desc: "Your lists, priced live",
     render: renderWatch,
     onShow: () => polling(true),
     onHide: () => { polling(false); closePopup(); },
+    onConfig: (cfg, patch) => { if ("refresh" in patch && on("watch")) polling(true); repaint(true); },
     ask: () => {
       const l = activeList();
       return l.syms.length
         ? `Compare the instruments on my "${l.name}" watchlist: ${l.syms.join(", ")}.` : "";
     },
   });
+  const perm = () => ("Notification" in window ? Notification.permission : "unsupported");
   widget("alerts", {
     panel: "alertsPanel", icon: "bell", title: "Alerts", shortcut: "alerts",
     hue: "coral", group: "Market", anim: "ring",
+    settings: [
+      { section: "List" },
+      { key: "sort", label: "Order", def: "state", get: (cfg) => cfg.sort || alertSort,
+        set: (v, cfg) => { cfg.sort = v; alertSort = v; paintAlertBody(); },
+        options: [{ v: "state", label: "State" }, { v: "symbol", label: "Symbol" }, { v: "created", label: "Newest" }] },
+      { key: "show", label: "Show", def: "all",
+        options: [{ v: "all", label: "All" }, { v: "armed", label: "Armed" }, { v: "fired", label: "Fired" }, { v: "paused", label: "Paused" }] },
+      { key: "seenOnOpen", label: "Mark the log read when I open it", kind: "toggle", def: false },
+      { section: "When one fires" },
+      { key: "notify", label: "Desktop notification", kind: "toggle", def: true, hint: "Only when this tab is not showing the alert" },
+      { kind: "action", label: "This browser has not been asked yet", button: "Allow", when: () => perm() === "default",
+        run: () => Alerts.allowNotifications() },
+      { kind: "note", label: "Notifications are blocked for this site in the browser's settings.", when: () => perm() === "denied" },
+      { key: "sound", label: "Play a sound", kind: "toggle", def: false },
+      { kind: "action", label: "Hear it", button: "Play", when: (cfg) => !!cfg.sound, run: () => Alerts.chime() },
+    ],
+    onConfig: () => { if (on("alerts")) paintAlertBody(); },
     key: "Alt A", desc: "Rules and what fired",
     render: renderAlerts,
     // Opening the panel asks the server for the current truth — a tab that
     // was in the background through a fire has a stale list.
-    onShow: () => { if (Auth.user) Alerts.load(); },
+    onShow: () => {
+      const c = Dock.cfgOf ? Dock.cfgOf("alerts") : {};
+      if (c.sort) alertSort = c.sort;
+      if (Auth.user) Alerts.load().then(() => { if (c.seenOnOpen && Alerts.state.unseen) Alerts.markSeen(); });
+    },
     onHide: closePopup,
   });
   /* Patterns used to be a rail widget too. It moved to the chart's own
@@ -1032,7 +1140,7 @@ const Panels = (() => {
     // the same thing a watchlist row does, and the reason the log carries a
     // symbol at all.
     const r = e.target.closest(".al-row[data-sym], .lg-row[data-sym]");
-    if (r && !e.target.closest(".al-acts")) openSymbol(r.dataset.sym);
+    if (r && !e.target.closest(".al-acts")) Dock.openSymbol(r.dataset.sym);
   });
 
   el("alertsPanel").addEventListener("input", (e) => {

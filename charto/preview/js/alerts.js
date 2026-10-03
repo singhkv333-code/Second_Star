@@ -337,7 +337,29 @@ const Alerts = (() => {
     const l = ev.log || {};
     const line = `${l.symbol} ${l.verb} ${l.level}`;
     toast(l.late ? `${line} (found on reconnect)` : line);
-    notify(line, l);
+    if (prefs().sound && !l.late) chime();
+    if (prefs().notify !== false) notify(line, l);
+  }
+
+  /** The Alerts widget's settings (sound, desktop notifications). */
+  const prefs = () => (typeof Dock !== "undefined" && Dock.cfgOf ? Dock.cfgOf("alerts") : {}) || {};
+
+  /** Two soft notes, made here — no sound file to fetch or license. */
+  let audio = null;
+  function chime() {
+    try {
+      audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+      const t = audio.currentTime;
+      [[880, 0], [1320, .12]].forEach(([f, d]) => {
+        const o = audio.createOscillator(), g = audio.createGain();
+        o.type = "sine"; o.frequency.value = f;
+        g.gain.setValueAtTime(0, t + d);
+        g.gain.linearRampToValueAtTime(.12, t + d + .02);
+        g.gain.exponentialRampToValueAtTime(.0001, t + d + .45);
+        o.connect(g).connect(audio.destination);
+        o.start(t + d); o.stop(t + d + .5);
+      });
+    } catch { /* no audio here: the toast and the row still say it */ }
   }
 
   /* ── delivery on this machine ────────────────────────────────────────── */
@@ -1150,7 +1172,10 @@ const Alerts = (() => {
   return {
     state,
     onChange(fn) { listeners.push(fn); },
-    load, open, quick, patch, remove, toggle, markSeen, toast,
+    load, open, quick, patch, remove, toggle, markSeen, toast, chime,
+    /** Ask the browser for notifications — from a click, never on load. */
+    allowNotifications: () => ("Notification" in window && Notification.permission === "default"
+      ? Notification.requestPermission() : Promise.resolve()),
     get unseen() { return state.unseen; },
   };
 })();

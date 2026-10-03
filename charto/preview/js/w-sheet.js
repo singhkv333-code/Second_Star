@@ -214,6 +214,8 @@
           const v = data[y][x];
           if (typeof v === "string" && v[0] === "=" && MARKET_RE.test(v)) {
             try { w.setValueFromCoords(x, y, v, true); } catch { /* a bad formula shows its own error */ }
+            // a cell that reads the market says so, faintly
+            try { const td = w.getCellFromCoords(x, y); if (td) td.classList.toggle("sh-live", ctx.cfg.liveTint !== false); } catch { }
           }
         }
       }
@@ -421,13 +423,31 @@
       return text;
     }
 
+    function prefs() {
+      const c = ctx.cfg;
+      host.classList.toggle("sh-nofx", c.fxBar === false);
+      host.classList.toggle("sh-nogrid", c.grid === false);
+      host.classList.toggle("sh-zebra", !!c.zebra);
+      host.style.setProperty("--sh-size", { s: "12px", m: "13px", l: "14.5px" }[c.textSize || "m"]);
+    }
+    function poll() {
+      clearInterval(refreshT);
+      const ms = Number(ctx.cfg.refresh ?? REFRESH_MS);
+      if (ms > 0) refreshT = setInterval(() => { if (document.visibilityState === "visible") refresh(); }, ms);
+    }
+    prefs();
+
     return {
       show() {
         sheets.add(ctl);
         if (!wb) build().catch((e) => { grid.innerHTML = empty("sheet", `The spreadsheet could not load: ${esc(e.message || e)}`); });
         else recalc();
-        clearInterval(refreshT);
-        refreshT = setInterval(() => { if (document.visibilityState === "visible") refresh(); }, REFRESH_MS);
+        poll();
+      },
+      config(cfg, patch) {
+        prefs();
+        if ("refresh" in patch) poll();
+        if ("liveTint" in patch) recalc();
       },
       hide() { sheets.delete(ctl); clearInterval(refreshT); },
       receive, ask: () => ask(false),
@@ -439,5 +459,17 @@
     type: "sheet", title: "Sheet", icon: "sheet", hue: "green", group: "Tools",
     desc: "A spreadsheet with live market functions and Excel files",
     zone: "bottom", mount,
+    settings: [
+      { section: "Live cells" },
+      { key: "refresh", label: "Market functions update", def: 30000, hint: "PRICE, CHG, FEATURE and the rest",
+        options: [{ v: 15000, label: "15s" }, { v: 30000, label: "30s" }, { v: 60000, label: "1m" }, { v: 0, label: "Off" }] },
+      { key: "liveTint", label: "Tint cells that read the market", kind: "toggle", def: true },
+      { section: "Look" },
+      { key: "textSize", label: "Text size", def: "m", options: [{ v: "s", label: "Small" }, { v: "m", label: "Medium" }, { v: "l", label: "Large" }] },
+      { key: "grid", label: "Gridlines", kind: "toggle", def: true },
+      { key: "zebra", label: "Banded rows", kind: "toggle", def: false },
+      { key: "fxBar", label: "Formula bar", kind: "toggle", def: true },
+      { kind: "note", label: "Sheets are saved in this browser. Export from File to keep a copy." },
+    ],
   });
 })();

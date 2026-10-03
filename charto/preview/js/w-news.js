@@ -13,6 +13,10 @@
   if (typeof Dock === "undefined") return;
   const { esc, ic, json, ago, empty, skel } = WKit;
   const POLL_MS = 5 * 60_000;
+  // the server's fixed list (data/webfeeds.py) — the page never names a URL
+  const SOURCES = [["et-markets", "Economic Times"], ["et-stocks", "ET Stocks"], ["mint-markets", "Mint"],
+                   ["bl-markets", "BusinessLine"], ["cnbc-market", "CNBC-TV18"]];
+  const DEFAULT_SOURCES = ["et-markets", "mint-markets", "bl-markets", "cnbc-market"];
 
   function mount(host, ctx) {
     let timer = 0, data = null, seq = 0;
@@ -32,7 +36,7 @@
 
     /** The words a headline would use for this company — its name, not its ticker. */
     function nameWords() {
-      const s = ctx.pageSymbol();
+      const s = ctx.symbol();
       const label = typeof Universe !== "undefined" && Universe.label ? Universe.label(s) : s;
       const w = String(label || s).replace(/\b(ltd|limited|india|industries|corporation|company|co)\b\.?/gi, "").trim().split(/\s+/)[0];
       return w && w.length > 2 ? w : s;
@@ -56,16 +60,19 @@
 
     function paint() {
       for (const b of host.querySelectorAll("[data-sc]")) b.classList.toggle("on", b.dataset.sc === (ctx.cfg.scope || "all"));
-      host.querySelector('[data-sc="sym"]').textContent = ctx.pageSymbol();
+      host.querySelector('[data-sc="sym"]').textContent = ctx.symbol();
       if (!data) return;
-      const items = data.items || [];
+      // muted words: a headline naming any of them is left out
+      const mute = String(ctx.cfg.mute || "").split(",").map((w) => w.trim().toLowerCase()).filter(Boolean);
+      const items = (data.items || []).filter((it) => !mute.some((w) => (it.title + " " + (it.summary || "")).toLowerCase().includes(w)));
+      host.classList.toggle("nw-compact", ctx.cfg.density === "compact");
       body.innerHTML = items.length ? items.map((it, i) =>
         `<a class="nw-item" href="${esc(it.link)}" target="_blank" rel="noopener noreferrer" data-i="${i}">` +
           (it.image && ctx.cfg.images !== false ? `<span class="nw-img"><img src="${esc(it.image)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentNode.remove()"></span>` : "") +
           `<span class="nw-txt"><b>${esc(it.title)}</b>` +
           (ctx.cfg.summaries !== false && it.summary ? `<span class="nw-sum">${esc(it.summary)}</span>` : "") +
           `<span class="nw-meta">${esc(it.source)} · ${esc(ago(it.ts))}</span></span>` +
-          `<button type="button" class="nw-ask" data-ask="${i}" title="Ask in chat about this">${ic("chat")}</button>` +
+          `<button type="button" class="nw-ask" data-ask="${data.items.indexOf(it)}" title="Ask in chat about this">${ic("chat")}</button>` +
         `</a>`).join("")
         : empty("news", (ctx.cfg.scope === "sym" ? `No recent headline names ${esc(nameWords())}.` : "No headlines match."));
       const ok = (data.sources || []).filter((s) => s.ok).map((s) => s.name);
@@ -75,6 +82,12 @@
     }
 
     host.addEventListener("click", (e) => {
+      // a headline can open in the Browser widget's reading view instead
+      const link = e.target.closest("a.nw-item");
+      if (link && !e.target.closest("[data-ask]") && ctx.cfg.openIn === "reader" && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        return ctx.send("browser", { url: link.href, reader: true });
+      }
       const askB = e.target.closest("[data-ask]");
       if (askB) {
         e.preventDefault(); e.stopPropagation();
@@ -105,10 +118,14 @@
       show() {
         load(!data);
         clearInterval(timer);
-        timer = setInterval(() => { if (document.visibilityState === "visible") load(false); }, POLL_MS);
+        timer = setInterval(() => { if (document.visibilityState === "visible") load(false); }, Number(ctx.cfg.refresh) || POLL_MS);
       },
       hide() { clearInterval(timer); },
-      config(cfg, patch) { if ("images" in patch || "summaries" in patch) paint(); },
+      config(cfg, patch) {
+        if ("sources" in patch || "symbol" in patch || "link" in patch || "pin" in patch) return load(true);
+        if ("refresh" in patch && timer) { clearInterval(timer); timer = setInterval(() => { if (document.visibilityState === "visible") load(false); }, Number(ctx.cfg.refresh) || POLL_MS); }
+        paint();
+      },
       ask: () => data && data.items.length
         ? `Here are the latest market headlines:\n${data.items.slice(0, 10).map((it) => `- ${it.title} (${it.source})`).join("\n")}\n\nWhich of these matter for Indian markets today, and why?` : "",
     };
@@ -117,9 +134,20 @@
   Dock.register({
     type: "news", title: "News", icon: "news", hue: "orange", group: "Research",
     desc: "Live headlines from Indian market desks", zone: "right", minW: 280, mount,
+    linkable: true,
     settings: [
+      { section: "Sources" },
+      { key: "sources", label: "Desks", kind: "chips", min: 1, def: DEFAULT_SOURCES, options: SOURCES.map(([v, label]) => ({ v, label })),
+        hint: "Business Standard and Moneycontrol refuse readers that are not browsers" },
+      { key: "mute", label: "Hide headlines that mention", kind: "text", def: "", placeholder: "Words, separated by commas" },
+      { key: "refresh", label: "Check for new headlines", def: 300000,
+        options: [{ v: 120000, label: "2 min" }, { v: 300000, label: "5 min" }, { v: 900000, label: "15 min" }] },
+      { section: "Display" },
       { key: "images", label: "Pictures", kind: "toggle", def: true },
       { key: "summaries", label: "Summaries", kind: "toggle", def: true },
+      { key: "density", label: "Rows", def: "comfortable", options: [{ v: "comfortable", label: "Comfortable" }, { v: "compact", label: "Compact" }] },
+      { key: "openIn", label: "Open a headline in", def: "tab", hint: "The reading view needs no other tab",
+        options: [{ v: "tab", label: "New tab" }, { v: "reader", label: "Browser widget" }] },
     ],
   });
 })();

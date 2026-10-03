@@ -77,7 +77,7 @@
         body.innerHTML = `<div class="cd-ed"><div class="cd-gutter" aria-hidden="true"></div><code class="cd-in hljs" spellcheck="false"></code></div>`;
         const input = body.querySelector(".cd-in"), gutter = body.querySelector(".cd-gutter");
         jar = CodeJar(input, (el) => { el.innerHTML = hljs.highlight(el.textContent, { language: "python", ignoreIllegals: true }).value; },
-                      { tab: "    ", indentOn: /:$/ });
+                      { tab: " ".repeat(Number(ctx.cfg.tab) || 4), indentOn: /:$/ });
         jar.updateCode(r.code || "");
         const lines = () => { gutter.innerHTML = Array.from({ length: (jar.toString().match(/\n/g) || []).length + 1 }, (_, i) => `<span>${i + 1}</span>`).join(""); };
         lines();
@@ -150,11 +150,20 @@
       }
     });
     report.addEventListener("click", () => { report.hidden = true; });
+    function prefs() {
+      const c = ctx.cfg;
+      host.style.setProperty("--cd-size", (c.fontSize || 12.5) + "px");
+      host.classList.toggle("cd-wrap", !!c.wrap);
+      host.classList.toggle("cd-nonum", c.numbers === false || !!c.wrap);
+      host.dataset.theme = c.theme || "auto";
+    }
+    prefs();
     if (typeof Auth !== "undefined" && Auth.onChange) Auth.onChange(() => { if (ctx.visible()) loadList(); });
 
     let booted = false;
     return {
       show() { if (!booted) { booted = true; loadList(); } else paintState(); },
+      config(cfg, patch) { prefs(); if ("tab" in patch && cur && !dirty) openStudy(cur.id); },
       ask: () => cur ? `Explain what my custom indicator "${cur.spec && cur.spec.title}" computes, line by line, and how to read it on the chart:\n\n\`\`\`python\n${(jar ? jar.toString() : cur.code).slice(0, 4000)}\n\`\`\`` : "",
     };
   }
@@ -162,5 +171,14 @@
   Dock.register({
     type: "code", title: "Code", icon: "code", hue: "lime", group: "Tools",
     desc: "Edit your custom indicators as code", zone: "right", minW: 340, mount,
+    settings: [
+      { section: "Editor" },
+      { key: "fontSize", label: "Font size", def: 12.5, options: [{ v: 11, label: "11" }, { v: 12.5, label: "12.5" }, { v: 14, label: "14" }, { v: 16, label: "16" }] },
+      { key: "tab", label: "Tab inserts", def: 4, options: [{ v: 2, label: "2 spaces" }, { v: 4, label: "4 spaces" }] },
+      { key: "numbers", label: "Line numbers", kind: "toggle", def: true },
+      { key: "wrap", label: "Wrap long lines", kind: "toggle", def: false, hint: "Line numbers hide while wrapping" },
+      { key: "theme", label: "Theme", def: "auto", options: [{ v: "auto", label: "Match the app" }, { v: "dark", label: "Dark" }, { v: "light", label: "Light" }] },
+      { kind: "note", label: "Saving runs the code in the server's sandbox on the chart's bars; only a pass becomes a new version." },
+    ],
   });
 })();
