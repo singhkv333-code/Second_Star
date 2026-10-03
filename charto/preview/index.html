@@ -7391,26 +7391,13 @@ body.dk-dragging .dk-pull { pointer-events: none; }
 /* the picture: a still from a film — soft-focus background, the subject
    sharp, grain and vignette baked into the SVG; on hover, a slow push-in and
    one pass of light across the frame */
-.hub-pic {
-  position: relative; aspect-ratio: 16 / 10; overflow: hidden; border-radius: 14px;
-  background: color-mix(in srgb, var(--foreground) 4%, var(--surface-plain));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 8%, transparent), 0 10px 28px -20px rgba(0,0,0,.5);
-  transition: box-shadow .3s var(--ease-quartr);
-}
-.hub-card:hover .hub-pic, .hub-card:focus-visible .hub-pic {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 22%, transparent), 0 18px 34px -20px rgba(0,0,0,.55);
-}
+/* no plate: the drawing sits straight on the sheet's glass */
+.hub-pic { position: relative; aspect-ratio: 16 / 10; background: transparent; }
+.hub-card:focus-visible .hub-pic { outline: 2px solid var(--foreground); outline-offset: 2px; border-radius: 12px; }
 .hub-pic .hub-art { position: absolute; inset: 0; width: 100%; height: 100%; transition: transform 1.6s cubic-bezier(.2,.7,.2,1); }
 .hub-pic .hub-back { transition: transform 1.6s cubic-bezier(.2,.7,.2,1); }
 .hub-card:hover .hub-art { transform: scale(1.06); }
 .hub-card:hover .hub-back { transform: translate(-6px, 2px); }
-.hub-pic::after {
-  content: ""; position: absolute; inset: -20% -60%; pointer-events: none;
-  background: linear-gradient(105deg, transparent 40%, rgba(255,255,255,.38) 50%, transparent 60%);
-  transform: translateX(-60%); opacity: 0;
-}
-.hub-card:hover .hub-pic::after { animation: hub-sweep 1.2s var(--ease-quartr) forwards; }
-@keyframes hub-sweep { 0% { transform: translateX(-60%); opacity: 0; } 25% { opacity: 1; } 100% { transform: translateX(60%); opacity: 0; } }
 .hub-t {
   display: flex; align-items: center; gap: 7px; padding: 0 4px; font-size: var(--text-base); font-weight: var(--weight-semi);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -10026,8 +10013,8 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/panes.js?v=21"></script>
   <script src="./js/main.js?v=158"></script>
   <script src="./js/wkit.js?v=1"></script>
-  <script src="./js/hub-art.js?v=1"></script>
-  <script src="./js/dock.js?v=8"></script>
+  <script src="./js/hub-art.js?v=3"></script>
+  <script src="./js/dock.js?v=9"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=11"></script>

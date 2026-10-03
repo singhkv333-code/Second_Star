@@ -9,9 +9,9 @@
  *
  * The finish is photographic rather than flat, and it is all SVG (no image
  * files, nothing to license): a soft-focus layer BEHIND the subject (depth of
- * field), the subject sharp in front, a vignette that darkens the corners,
- * and a film grain over everything. On hover the card's CSS adds a slow push-
- * in and one pass of light.
+ * field) and the subject sharp in front, both dissolving at the edges into
+ * the sheet's glass — no plate, no box. On hover the card's CSS adds a slow
+ * push-in.
  */
 "use strict";
 
@@ -48,23 +48,24 @@ const HubArt = (() => {
   const stroke = (o, w = 1.2) => `stroke="var(--foreground)" stroke-opacity="${o}" stroke-width="${w}" fill="none"`;
   const bar = (x, y, w, h, o, rx = 3) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" ${ink(o)}/>`;
 
-  /** The frame every picture sits in: grain, vignette, depth. */
+  /** The frame every picture sits in. No plate, no box: the drawing floats
+   *  on the glass of the sheet. Depth comes from a soft-focus layer behind
+   *  the subject, and an edge mask dissolves both into the glass so no
+   *  rectangle is ever drawn. */
   function frame(id, back, front) {
-    return `<svg class="hub-art" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid slice" aria-hidden="true">` +
+    return `<svg class="hub-art" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">` +
       `<defs>` +
-        `<filter id="g${id}" x="0" y="0" width="100%" height="100%">` +
-          `<feTurbulence type="fractalNoise" baseFrequency=".95" numOctaves="2" stitchTiles="stitch"/>` +
-          `<feColorMatrix values="0 0 0 0 .5  0 0 0 0 .5  0 0 0 0 .5  0 0 0 .09 0"/></filter>` +
         `<filter id="b${id}"><feGaussianBlur stdDeviation="2.4"/></filter>` +
-        `<radialGradient id="v${id}" cx="50%" cy="46%" r="75%">` +
-          `<stop offset="55%" stop-color="#000" stop-opacity="0"/><stop offset="100%" stop-color="#000" stop-opacity=".16"/></radialGradient>` +
+        `<radialGradient id="m${id}" cx="50%" cy="50%" r="62%">` +
+          `<stop offset="58%" stop-color="#fff" stop-opacity="1"/><stop offset="100%" stop-color="#fff" stop-opacity="0"/></radialGradient>` +
+        `<mask id="k${id}"><rect width="${W}" height="${H}" fill="url(#m${id})"/></mask>` +
         `<linearGradient id="f${id}" x1="0" y1="0" x2="0" y2="1">` +
           `<stop offset="0" stop-color="var(--foreground)" stop-opacity=".10"/><stop offset="1" stop-color="var(--foreground)" stop-opacity="0"/></linearGradient>` +
       `</defs>` +
-      `<g class="hub-back" filter="url(#b${id})" opacity=".42">${back || ""}</g>` +
-      `<g class="hub-front">${front}</g>` +
-      `<rect width="${W}" height="${H}" fill="url(#v${id})"/>` +
-      `<rect width="${W}" height="${H}" filter="url(#g${id})"/>` +
+      `<g mask="url(#k${id})">` +
+        `<g class="hub-back" filter="url(#b${id})" opacity=".32">${back || ""}</g>` +
+        `<g class="hub-front">${front}</g>` +
+      `</g>` +
       `</svg>`;
   }
 
@@ -183,7 +184,7 @@ const HubArt = (() => {
       return frame(id, item(4, .8) + item(150, .8), item(30, 1) + item(74, 1) + item(118, .9));
     },
     tv(id) {
-      return frame(id, bar(0, 0, 320, 180, .06, 0),
+      return frame(id, "",
         `<rect x="56" y="26" width="208" height="122" rx="10" fill="var(--foreground)" fill-opacity=".9"/>` +
         `<path d="M70 120 L110 92 L140 104 L180 70 L220 84 L250 60" stroke="var(--up)" stroke-width="2" fill="none" opacity=".9"/>` +
         `<path d="M150 74 l22 13 -22 13z" fill="var(--background)" fill-opacity=".9"/>` +
