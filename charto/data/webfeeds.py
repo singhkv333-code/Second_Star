@@ -31,6 +31,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+import webcache
+
 _UA = "Mozilla/5.0 (compatible; PivotCharto/1.0; +https://pivot)"
 
 FEEDS = {
@@ -185,25 +187,30 @@ def news(sources: list[str] | None = None, q: str = "", limit: int = 60) -> dict
 # ── can this page be framed? ─────────────────────────────────────────────
 
 _FRAME_TTL = 3600.0
-_frame_cache: dict[str, tuple[float, dict]] = {}
 
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *a, **k):  # noqa: D401 — we follow hops ourselves
+def _ip_ok(s: str) -> bool:
+    ip = ipaddress.ip_address(s.split("%")[0])
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+        ip = ip.ipv4_mapped
+    return ip.is_global and not ip.is_multicast
+
+
+def _resolve(host: str, port: int) -> str | None:
+    """One public address for host, or None. Any private answer refuses the
+    whole name: a host that resolves both ways is not one we fetch."""
+    try:
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except (socket.gaierror, UnicodeError):
         return None
+    ips = [i[4][0] for i in infos]
+    if not ips or not all(_ip_ok(a) for a in ips):
+        return None
+    return ips[0]
 
 
 def _public(host: str) -> bool:
-    try:
-        infos = socket.getaddrinfo(host, None)
-    except socket.gaierror:
-        return False
-    for info in infos:
-        ip = ipaddress.ip_address(info[4][0].split("%")[0])
-        if (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
-                or ip.is_multicast or ip.is_unspecified):
-            return False
-    return True
+    return _resolve(host, 443) is not None
 
 
 def _check_url(url: str) -> str | None:
@@ -217,34 +224,57 @@ def _check_url(url: str) -> str | None:
     return None
 
 
+def _open(url: str, headers: dict, limit: int, timeout: float = 10, hops: int = 4):
+    """GET a public address: (status, headers, body, final url) or an error
+    string. Every hop is resolved ONCE and the socket connects to exactly the
+    address that was checked, so a name that answers "public" to the check
+    and "internal" to the connect (DNS rebinding) never reaches inside."""
+    import http.client
+    cur = url
+    for _ in range(hops + 1):
+        u = urllib.parse.urlsplit(cur)
+        if u.scheme not in ("http", "https") or not u.hostname:
+            return "Only web addresses (http or https) can be opened."
+        if u.port not in (None, 80, 443):
+            return "Only standard web ports can be opened."
+        port = u.port or (443 if u.scheme == "https" else 80)
+        ip = _resolve(u.hostname, port)
+        if not ip:
+            return "That address is not a public website."
+        conn = (http.client.HTTPSConnection(u.hostname, port, timeout=timeout, context=_ssl_ctx())
+                if u.scheme == "https" else http.client.HTTPConnection(u.hostname, port, timeout=timeout))
+        conn._create_connection = (lambda addr, timeout=None, source_address=None, _ip=ip:
+                                   socket.create_connection((_ip, addr[1]), timeout, source_address))
+        path = (u.path or "/") + ("?" + u.query if u.query else "")
+        try:
+            conn.request("GET", path, headers=headers)
+            resp = conn.getresponse()
+            if resp.status in (301, 302, 303, 307, 308) and resp.getheader("Location"):
+                cur = urllib.parse.urljoin(cur, resp.getheader("Location"))
+                conn.close()
+                continue
+            body = resp.read(limit + 1) if limit else b""
+            return resp.status, resp.headers, body, cur
+        except Exception as e:                 # noqa: BLE001
+            return f"The site did not answer ({type(e).__name__})."
+        finally:
+            conn.close()
+    return "Too many redirects."
+
+
 def frame_check(url: str) -> dict:
     url = url.strip()
     if not re.match(r"^[a-z]+://", url, re.I):
         url = "https://" + url
-    hit = _frame_cache.get(url)
-    if hit and time.time() - hit[0] < _FRAME_TTL:
-        return hit[1]
-    opener = urllib.request.build_opener(_NoRedirect, urllib.request.HTTPSHandler(context=_ssl_ctx()))
-    cur, out = url, None
-    for _ in range(5):
-        bad = _check_url(cur)
-        if bad:
-            out = {"url": url, "final": cur, "embeddable": False, "reason": bad, "blocked": True}
-            break
-        req = urllib.request.Request(cur, headers={"User-Agent": _UA, "Accept": "text/html"})
-        try:
-            resp = opener.open(req, timeout=8)
-            code, headers = resp.status, resp.headers
-            resp.close()
-        except urllib.error.HTTPError as e:
-            code, headers = e.code, e.headers
-        except Exception as e:                     # noqa: BLE001
-            out = {"url": url, "final": cur, "embeddable": False,
-                   "reason": "The site did not answer.", "detail": str(e)[:120]}
-            break
-        if code in (301, 302, 303, 307, 308) and headers.get("Location"):
-            cur = urllib.parse.urljoin(cur, headers["Location"])
-            continue
+    hit = webcache.get_json("frame", url)
+    if hit:
+        return hit
+    got = _open(url, {"User-Agent": _UA, "Accept": "text/html"}, 0, timeout=8)
+    if isinstance(got, str):
+        out = {"url": url, "embeddable": False, "reason": got,
+               "blocked": "public" in got or "standard" in got or "http" in got}
+    else:
+        code, headers, _, cur = got
         xfo = (headers.get("X-Frame-Options") or "").strip().lower()
         csp = headers.get("Content-Security-Policy") or ""
         fa = re.search(r"frame-ancestors([^;]*)", csp, re.I)
@@ -255,10 +285,7 @@ def frame_check(url: str) -> dict:
             reason = "This site does not allow itself to be shown inside other apps."
         out = {"url": url, "final": cur, "status": code, "embeddable": reason is None,
                **({"reason": reason} if reason else {})}
-        break
-    else:
-        out = {"url": url, "final": cur, "embeddable": False, "reason": "Too many redirects."}
-    _frame_cache[url] = (time.time(), out)
+    webcache.put_json("frame", url, out, _FRAME_TTL)
     return out
 
 
@@ -355,8 +382,6 @@ def live_video(channel: str) -> dict:
 # every other page comes back as plain strings the widget escapes.
 
 _WIKI_LANGS = {"en", "hi"}
-_wiki_cache: dict[str, tuple[float, dict]] = {}
-_reader_cache: dict[str, tuple[float, dict]] = {}
 _WIKI_UA = "PivotCharto/1.0 (research browser; https://pivot)"
 
 
@@ -376,9 +401,9 @@ def wiki_search(q: str, lang: str = "en") -> dict:
     if not q:
         return {"q": q, "results": []}
     key = f"s:{lang}:{q.lower()}"
-    hit = _wiki_cache.get(key)
-    if hit and time.time() - hit[0] < 600:
-        return hit[1]
+    hit = webcache.get_json("wiki", key)
+    if hit:
+        return hit
     try:
         d = _get_json(f"https://{lang}.wikipedia.org/w/rest.php/v1/search/page?"
                       + urllib.parse.urlencode({"q": q, "limit": 12}))
@@ -397,7 +422,7 @@ def wiki_search(q: str, lang: str = "en") -> dict:
             "thumb": ("https:" + th) if th and th.startswith("//") else th,
         })
     out = {"q": q, "lang": lang, "results": res}
-    _wiki_cache[key] = (time.time(), out)
+    webcache.put_json("wiki", key, out, 600)
     return out
 
 
@@ -514,9 +539,9 @@ def wiki_page(title: str, lang: str = "en") -> dict:
     if not title:
         return {"error": "No article named."}
     key = f"p:{lang}:{title}"
-    hit = _wiki_cache.get(key)
-    if hit and time.time() - hit[0] < 3600:
-        return hit[1]
+    hit = webcache.get_json("wiki", key)
+    if hit:
+        return hit
     try:
         d = _get_json(f"https://{lang}.wikipedia.org/w/api.php?" + urllib.parse.urlencode({
             "action": "parse", "page": title, "prop": "text|displaytitle|description", "redirects": 1,
@@ -537,7 +562,7 @@ def wiki_page(title: str, lang: str = "en") -> dict:
            "description": p.get("description") or "", "html": body, "toc": c.toc[:40], "lang": lang,
            "url": f"https://{lang}.wikipedia.org/wiki/{urllib.parse.quote((p.get('title') or title).replace(' ', '_'))}",
            "license": "Text from Wikipedia, CC BY-SA 4.0"}
-    _wiki_cache[key] = (time.time(), out)
+    webcache.put_json("wiki", key, out, 3600)
     return out
 
 
@@ -603,39 +628,21 @@ def reader(url: str) -> dict:
     url = (url or "").strip()
     if not re.match(r"^[a-z]+://", url, re.I):
         url = "https://" + url
-    hit = _reader_cache.get(url)
-    if hit and time.time() - hit[0] < 900:
-        return hit[1]
-    opener = urllib.request.build_opener(_NoRedirect, urllib.request.HTTPSHandler(context=_ssl_ctx()))
-    cur = url
-    for _ in range(5):
-        bad = _check_url(cur)
-        if bad:
-            return {"url": url, "error": bad}
-        req = urllib.request.Request(cur, headers={"User-Agent": _UA, "Accept": "text/html", "Accept-Language": "en-IN,en"})
-        try:
-            resp = opener.open(req, timeout=10)
-        except urllib.error.HTTPError as e:
-            if e.code in (301, 302, 303, 307, 308) and e.headers.get("Location"):
-                cur = urllib.parse.urljoin(cur, e.headers["Location"])
-                continue
-            return {"url": url, "error": f"The site answered {e.code}."}
-        except Exception as e:                 # noqa: BLE001
-            return {"url": url, "error": f"The site did not answer ({type(e).__name__})."}
-        if resp.status in (301, 302, 303, 307, 308) and resp.headers.get("Location"):
-            cur = urllib.parse.urljoin(cur, resp.headers["Location"])
-            resp.close()
-            continue
-        ctype = resp.headers.get("Content-Type") or ""
-        if "html" not in ctype:
-            resp.close()
-            return {"url": url, "final": cur, "error": "That address is not a web page."}
-        raw = resp.read(3_000_000)
-        resp.close()
-        cs = resp.headers.get_content_charset() or "utf-8"
-        break
-    else:
-        return {"url": url, "error": "Too many redirects."}
+    hit = webcache.get_json("reader", url)
+    if hit:
+        return hit
+    got = _open(url, {"User-Agent": _UA, "Accept": "text/html", "Accept-Language": "en-IN,en"}, 3_000_000)
+    if isinstance(got, str):
+        return {"url": url, "error": got}
+    code, headers, raw, cur = got
+    if code >= 400:
+        return {"url": url, "error": f"The site answered {code}."}
+    ctype = headers.get("Content-Type") or ""
+    if "pdf" in ctype or raw[:5] == b"%PDF-":
+        return {"url": url, "final": cur, "pdf": True, "error": "That address is a PDF."}
+    if "html" not in ctype:
+        return {"url": url, "final": cur, "error": "That address is not a web page."}
+    cs = headers.get_content_charset() or "utf-8"
     doc = raw.decode(cs, "replace")
 
     def read(strict: bool) -> tuple[_Reader, list]:
@@ -669,7 +676,7 @@ def reader(url: str) -> dict:
         out["thin"] = True
     if not blocks and not out["description"]:
         out["error"] = "No readable text on that page; it may need a full browser."
-    _reader_cache[url] = (time.time(), out)
+    webcache.put_json("reader", url, out, 900)
     return out
 
 
@@ -677,7 +684,6 @@ def reader(url: str) -> dict:
 # Each site's own touch icon (or favicon), fetched here and handed back as a
 # data URL, so the page asks no third-party icon service about what you browse.
 
-_icon_cache: dict[str, tuple[float, str | None]] = {}
 _BROWSER_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
                "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
 
@@ -685,39 +691,21 @@ _BROWSER_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.
 def _guarded_get(url: str, limit: int, accept: str) -> tuple[bytes, str, str] | None:
     """(body, content-type, final url) for a public address, following at
     most four redirects and checking each hop; None on any failure."""
-    opener = urllib.request.build_opener(_NoRedirect, urllib.request.HTTPSHandler(context=_ssl_ctx()))
-    cur = url
-    for _ in range(5):
-        if _check_url(cur):
-            return None
-        req = urllib.request.Request(cur, headers={"User-Agent": _BROWSER_UA, "Accept": accept, "Accept-Language": "en-IN,en"})
-        try:
-            resp = opener.open(req, timeout=6)
-        except urllib.error.HTTPError as e:
-            if e.code in (301, 302, 303, 307, 308) and e.headers.get("Location"):
-                cur = urllib.parse.urljoin(cur, e.headers["Location"])
-                continue
-            return None
-        except Exception:                      # noqa: BLE001
-            return None
-        if resp.status in (301, 302, 303, 307, 308) and resp.headers.get("Location"):
-            cur = urllib.parse.urljoin(cur, resp.headers["Location"])
-            resp.close()
-            continue
-        body = resp.read(limit + 1)
-        ctype = (resp.headers.get("Content-Type") or "").split(";")[0].strip().lower()
-        resp.close()
-        return (body, ctype, cur) if len(body) <= limit else None
-    return None
+    got = _open(url, {"User-Agent": _BROWSER_UA, "Accept": accept, "Accept-Language": "en-IN,en"},
+                limit, timeout=6)
+    if isinstance(got, str) or got[0] >= 400 or len(got[2]) > limit:
+        return None
+    ctype = (got[1].get("Content-Type") or "").split(";")[0].strip().lower()
+    return got[2], ctype, got[3]
 
 
 def site_icon(host: str) -> str | None:
     host = (host or "").strip().lower()
     if not re.fullmatch(r"[a-z0-9.-]+\.[a-z]{2,}", host):
         return None
-    hit = _icon_cache.get(host)
-    if hit and time.time() - hit[0] < 86400:
-        return hit[1]
+    hit = webcache.get("icon", host)
+    if hit is not None:
+        return hit.decode() or None
     cands: list[tuple[int, str]] = []
     page = _guarded_get(f"https://{host}/", 900_000, "text/html")
     base = page[2] if page else f"https://{host}/"
@@ -752,8 +740,52 @@ def site_icon(host: str) -> str | None:
         import base64
         out = f"data:{ctype};base64,{base64.b64encode(body).decode()}"
         break
-    _icon_cache[host] = (time.time(), out)
+    webcache.put("icon", host, (out or "").encode(), 86400 * 7 if out else 86400)
     return out
+
+
+# ── a PDF for the Documents widget ──────────────────────────────────────────
+# Exchanges and regulators publish in PDF, and their servers do not let another
+# site's page fetch the file, so the Browser hands the address here and the
+# Documents widget renders what comes back. PDFs only: the bytes must start
+# %PDF-, whatever the header says.
+
+_FILE_MAX = 40_000_000
+
+
+def fetch_file(url: str) -> dict:
+    url = (url or "").strip()
+    if not re.match(r"^[a-z]+://", url, re.I):
+        url = "https://" + url
+    hit = webcache.get("file", url)
+    if hit is not None:
+        name = (webcache.get("filename", url) or b"document.pdf").decode()
+        return {"body": hit, "name": name, "final": url}
+    got = _open(url, {"User-Agent": _BROWSER_UA, "Accept": "application/pdf,*/*;q=0.5",
+                      "Accept-Language": "en-IN,en"}, _FILE_MAX, timeout=25)
+    if isinstance(got, str):
+        return {"error": got}
+    code, headers, body, cur = got
+    if code >= 400:
+        return {"error": f"The site answered {code}."}
+    if len(body) > _FILE_MAX:
+        return {"error": "That file is larger than 40 MB."}
+    if not body.startswith(b"%PDF-"):
+        return {"error": "That address is not a PDF."}
+    name = ""
+    cd = headers.get("Content-Disposition") or ""
+    m = re.search(r"filename\*?=(?:UTF-8'')?\"?([^\";]+)", cd, re.I)
+    if m:
+        name = urllib.parse.unquote(m.group(1)).strip()
+    if not name:
+        name = urllib.parse.unquote(urllib.parse.urlsplit(cur).path.rsplit("/", 1)[-1]) or "document"
+    name = re.sub(r"[^\w .()&,+-]", "_", name)[:120]
+    if not name.lower().endswith(".pdf"):
+        name += ".pdf"
+    if len(body) <= 15_000_000:
+        webcache.put("file", url, body, 6 * 3600)
+        webcache.put("filename", url, name.encode(), 6 * 3600)
+    return {"body": body, "name": name, "final": cur}
 
 
 def site_icons(hosts: list[str]) -> dict:

@@ -219,13 +219,13 @@
         `${ic("upload")}Choose a file`, 'data-dc="add"')}</div>`;
     }
 
-    async function add(list) {
+    async function add(list, src) {
       let n = 0;
       for (const f of list) {
         if (f.size > MAX) { ctx.toast(`${f.name} is over 40 MB.`); continue; }
         const id = Math.random().toString(36).slice(2, 10);
         await idb.set(`doc:${id}`, f);
-        files.unshift({ id, name: f.name, type: f.type, size: f.size, at: Date.now() });
+        files.unshift({ id, name: f.name, type: f.type, size: f.size, at: Date.now(), ...(src ? { src } : {}) });
         n++;
       }
       if (!n) return;
@@ -273,6 +273,26 @@
       }
     }
 
+    // a PDF from the Browser: fetched by the server (the publishing site will
+    // not hand it to this page directly), then kept here like an upload
+    async function fromUrl(src, name) {
+      await ready;
+      const had = files.find((f) => f.src === src);
+      if (had) return show(had.id);
+      view.innerHTML = `<div class="dc-fetch">${WKit.skel(10)}</div>`;
+      let r;
+      try { r = await fetch(`${WKit.API}/fetch-file?url=${encodeURIComponent(src)}`); } catch { r = null; }
+      if (!r || !r.ok) {
+        let why = "The PDF could not be fetched.";
+        try { why = (await r.json()).error || why; } catch {}
+        ctx.toast(why);
+        return cur ? show(cur.id) : blank();
+      }
+      const nm = decodeURIComponent(r.headers.get("X-File-Name") || "") || name || "document.pdf";
+      const blob = await r.blob();
+      await add([new File([blob], nm, { type: "application/pdf" })], src);
+    }
+
     async function remove() {
       if (!cur) return;
       await idb.del(`doc:${cur.id}`);
@@ -311,9 +331,11 @@
       }
     });
 
-    let booted = false;
+    let booted = false, ready = null;
+    const boot = () => { if (!booted) { booted = true; ready = init(); } return ready; };
     return {
-      show() { if (!booted) { booted = true; init(); } },
+      show() { boot(); },
+      receive(p) { if (p && p.url) { boot(); fromUrl(p.url, p.name); } },
       config(cfg, patch) { if (("textSize" in patch || "pdfZoom" in patch) && cur && !("pdfZoom" in patch && viewer)) show(cur.id); },
       ask: () => {
         const t = view.querySelector(".dc-doc, .dc-text");

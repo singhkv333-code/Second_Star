@@ -62,6 +62,7 @@ import company_scores   # sibling module: Altman / Ohlson / Graham / DuPont
 import depth as _depth   # sibling module: order-book snapshots for the depth widget
 import calfeed as _calfeed     # sibling module: the Calendar widget's NSE + macro feeds
 import webfeeds as _webfeeds   # sibling module: news feeds + frame checks for widgets
+import websearch as _websearch  # sibling module: the Browser's search engine APIs
 import drawtools   # sibling module: the Fibonacci / Gann catalogue, backend half
 import execution_bridge   # sibling module: Pivot's automation engine, borrowed
 import indicators   # sibling module: the indicator registry
@@ -195,10 +196,12 @@ def _load_azure_creds() -> tuple[str, str]:
 AZURE_ENDPOINT, AZURE_KEY = _load_azure_creds()
 # Live TV: YouTube hides live links from cloud servers, so on the VM the data
 # API is the source (webfeeds.live_video reads it from the environment).
-if not environ.get("YOUTUBE_API_KEY"):
-    _yt_key = _env_values("YOUTUBE_API_KEY")["YOUTUBE_API_KEY"]
-    if _yt_key:
-        environ["YOUTUBE_API_KEY"] = _yt_key
+# The Browser widget's search engine and remote browser read theirs the same
+# way (websearch.py, _browser_ticket). Env wins over .env.
+for _k, _v in _env_values("YOUTUBE_API_KEY", "BRAVE_SEARCH_API_KEY", "SEARXNG_URL",
+                          "CHARTO_BROWSER_SECRET", "CHARTO_BROWSER_WS").items():
+    if _v and not environ.get(_k):
+        environ[_k] = _v
 LLM_DEPLOYMENT = _env_values("CHARTO_LLM_MODEL")["CHARTO_LLM_MODEL"] or LLM_DEPLOYMENT_DEFAULT
 # Overridable the same way, so an A/B between efforts is a restart rather than
 # an edit — a benchmark needing a code change between its arms is one nobody
@@ -10081,11 +10084,58 @@ _WEB_CACHE: dict[str, tuple[float, dict]] = {}
 _WEB_HITS: list[float] = []
 
 
-def _web_search(q: str) -> dict:
-    """The Browser widget's search: the hosted web search (India-located),
-    asked for the best pages on a query. Only pages the search itself cited
-    are kept, so a listed address is one the search really returned; each
-    result's summary is the page's own description where it has one."""
+_WEB_IP_HITS: dict[str, list[float]] = {}
+
+
+def _web_search(q: str, page: int = 1, kind: str = "web", fresh: str = "",
+                ip: str = "") -> dict:
+    """The Browser widget's search. A search engine API answers it
+    (websearch.py: Brave, or our own SearXNG); the model-run search below is
+    only the stand-in for a server with neither configured."""
+    now = time.time()
+    if ip:
+        hits = [t for t in _WEB_IP_HITS.get(ip, []) if now - t < 60]
+        if len(hits) >= 40:
+            return {"q": q, "results": [], "error": "Too many searches this minute; try again shortly."}
+        _WEB_IP_HITS[ip] = hits + [now]
+        if len(_WEB_IP_HITS) > 5000:
+            _WEB_IP_HITS.clear()
+    got = _websearch.search(q, page, kind, fresh)
+    if got is not None:
+        return got
+    if page > 1 or kind == "news" or fresh:
+        return {"q": q, "results": [], "error": "This server has no search engine configured for that."}
+    return _web_search_model(q)
+
+
+def _browser_ticket(me, ip: str) -> tuple[int, dict]:
+    """A one-minute, single-use pass to the remote browser (charto/browser).
+
+    A WebSocket cannot carry the Authorization header, and a bearer token in a
+    query string lands in nginx's access log, so the page trades its session
+    here for a short HMAC ticket that the browser service checks with the same
+    secret. Signed in only: each live page is a real Chromium on our side."""
+    secret = environ.get("CHARTO_BROWSER_SECRET", "")
+    if not secret:
+        return 200, {"ok": False, "reason": "unavailable"}
+    local = ip in ("127.0.0.1", "::1") and environ.get("CHARTO_BROWSER_ANON") == "1"
+    if not me and not local:
+        return 200, {"ok": False, "reason": "signin"}
+    import base64
+    body = json.dumps({"u": str(me[0]) if me else "local", "exp": int(time.time()) + 60,
+                       "n": secrets.token_urlsafe(9)}, separators=(",", ":")).encode()
+    raw = base64.urlsafe_b64encode(body).decode().rstrip("=")
+    sig = base64.urlsafe_b64encode(hmac.new(secret.encode(), raw.encode(), hashlib.sha256)
+                                   .digest()).decode().rstrip("=")
+    return 200, {"ok": True, "ticket": f"{raw}.{sig}",
+                 "ws": environ.get("CHARTO_BROWSER_WS") or "/rb/ws"}
+
+
+def _web_search_model(q: str) -> dict:
+    """The hosted web search (India-located), asked for the best pages on a
+    query. Only pages the search itself cited are kept, so a listed address is
+    one the search really returned; each result's summary is the page's own
+    description where it has one."""
     q = (q or "").strip()[:300]
     if not q:
         return {"q": q, "results": []}
@@ -10188,7 +10238,7 @@ def _web_search(q: str) -> dict:
         own = r_.pop("_own", None)
         if own and (same[(r_["site"], own)] < 2 or not r_["snippet"]):
             r_["snippet"], r_["described"] = own, True
-    res = {"q": q, "results": out, "source": "web"}
+    res = {"q": q, "results": out, "source": "model"}
     if not out:
         res["error"] = "The search returned no pages for that."
     else:
@@ -17248,7 +17298,32 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/site-icons":
                 return self._send(200, _webfeeds.site_icons((q.get("hosts") or "").split(",")), max_age=86400)
             if u.path == "/web-search":
-                return self._send(200, _web_search(q.get("q") or ""))
+                try:
+                    pg = int(q.get("page") or 1)
+                except ValueError:
+                    pg = 1
+                return self._send(200, _web_search(q.get("q") or "", pg, q.get("kind") or "web",
+                                                   q.get("fresh") or "", self._client_ip()))
+            if u.path == "/fetch-file":
+                # The Browser hands a PDF's address here and the Documents
+                # widget renders the bytes: public addresses only, PDFs only.
+                url = (q.get("url") or "").strip()
+                if not url or len(url) > 2000:
+                    return self._send(400, {"error": "url is required"})
+                got = _webfeeds.fetch_file(url)
+                if "error" in got:
+                    return self._send(422, got)
+                body = got["body"]
+                self.send_response(200)
+                self.send_header("Content-Type", "application/pdf")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Access-Control-Expose-Headers", "X-File-Name")
+                self.send_header("X-File-Name", urllib.parse.quote(got["name"]))
+                self.send_header("Cache-Control", "private, max-age=3600")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
             if u.path == "/wiki/search":
                 return self._send(200, _webfeeds.wiki_search(q.get("q") or "", q.get("lang") or "en"))
             if u.path == "/wiki/page":
@@ -17837,6 +17912,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(400 if "error" in out else 200, out)
             finally:
                 _data_slot_release()
+        if u.path == "/browser/ticket":
+            return self._send(*_browser_ticket(_auth_user(self.headers), self._client_ip()))
         # Cancelling a resting order, and arming/pausing/retiring a strategy.
         # POST for all of it because this server speaks GET and POST — the
         # journal router made the same call for the same reason.
