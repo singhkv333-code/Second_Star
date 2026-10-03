@@ -146,7 +146,11 @@ export function StatementsPage({
       </div>
 
       {/* ── basis + span ────────────────────────────────────────────────── */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, flexWrap: "wrap" }}>
+      <div style={{
+        display: "flex", alignItems: "flex-end", justifyContent: "space-between",
+        gap: 14, flexWrap: "wrap",
+        borderBottom: "1px solid var(--glass-border)",
+      }}>
         <Choice
           value={basis}
           options={[
@@ -156,6 +160,7 @@ export function StatementsPage({
           onChange={(v) => setBasis(v as Basis)}
         />
         <Choice
+          align="right"
           value={String(years)}
           options={[
             { value: "5", label: "5 years" },
@@ -183,18 +188,25 @@ export function StatementsPage({
   );
 }
 
-/** Type carries the state; no track, no pill — the page's own control. */
+/** The page's one toggle: an underline tab strip, the same control the
+ *  statement tabs above and the Financial Performance panel use. Bare weighted
+ *  text was a third way of saying "this one is live" on a page that already
+ *  had two, and at two words it read as a sentence rather than a control. */
 function Choice({
-  value, options, onChange,
+  value, options, onChange, align = "left",
 }: {
   value: string;
   options: { value: string; label: string }[];
   onChange: (v: string) => void;
+  /** A strip at the row's right edge pads its LAST tab flush instead of its
+   *  first, so the labels line up with the panel edge either way. */
+  align?: "left" | "right";
 }): React.ReactElement {
   return (
-    <div role="tablist" style={{ display: "inline-flex", alignItems: "center", gap: 16 }}>
-      {options.map((o) => {
+    <div role="tablist" style={{ display: "inline-flex", alignItems: "flex-end" }}>
+      {options.map((o, i) => {
         const on = o.value === value;
+        const flush = align === "left" ? i === 0 : i === options.length - 1;
         return (
           <button
             key={o.value}
@@ -203,11 +215,16 @@ function Choice({
             aria-selected={on}
             onClick={() => onChange(o.value)}
             style={{
-              border: "none", background: "transparent", padding: 0, cursor: "pointer",
+              border: "none", background: "transparent", cursor: "pointer",
+              padding: "6px 14px",
+              paddingLeft: flush && align === "left" ? 0 : 14,
+              paddingRight: flush && align === "right" ? 0 : 14,
+              marginBottom: -1,
+              borderBottom: `2px solid ${on ? "var(--text-primary)" : "transparent"}`,
               fontFamily: "var(--font-ui)", fontSize: "var(--sd-f125)",
               fontWeight: on ? 600 : 400,
               color: on ? "var(--text-primary)" : "var(--text-secondary)",
-              transition: "color 150ms",
+              transition: "color 150ms, border-color 150ms",
             }}
           >
             {o.label}
@@ -247,24 +264,29 @@ function StatementGrid({ data }: { data: StatementResponse }): React.ReactElemen
         style={{
           border: "1px solid var(--glass-border)",
           borderRadius: "var(--radius-md)",
-          overflowX: "auto",
-          WebkitOverflowScrolling: "touch",
+          background: "var(--bg-primary)",
+          overflow: "hidden",
         }}
       >
+        <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
         <table style={{
-          borderCollapse: "collapse", width: "max-content", minWidth: "100%",
-          fontFamily: "var(--font-ui)",
+          // `separate` so the sticky header and sticky label column keep their
+          // own borders — a collapsed table drops the shared edge as soon as a
+          // cell is lifted out of flow, and the header rule disappears on
+          // scroll. This is FinTable's model, applied to a hand-rolled grid.
+          borderCollapse: "separate", borderSpacing: 0,
+          width: "max-content", minWidth: "100%",
+          fontFamily: "var(--font-ui)", fontSize: 13,
         }}>
           <thead>
             <tr>
               <th style={{
-                position: "sticky", left: 0, zIndex: 2,
-                background: "var(--bg-primary)",
+                position: "sticky", left: 0, top: 0, zIndex: 3,
+                background: "var(--bg-elevated)",
                 minWidth: nameW, maxWidth: nameW, width: nameW,
-                padding: "11px 14px", textAlign: "left",
-                fontSize: "var(--sd-f105)", fontWeight: 650,
-                letterSpacing: "0.06em", textTransform: "uppercase",
-                color: "var(--text-tertiary)",
+                padding: "8px 14px", textAlign: "left",
+                fontSize: 11, fontWeight: 600, letterSpacing: "0.02em",
+                color: "var(--text-tertiary)", whiteSpace: "nowrap",
                 borderBottom: "1px solid var(--glass-border)",
                 borderRight: "1px solid var(--glass-border)",
               }}>
@@ -272,9 +294,10 @@ function StatementGrid({ data }: { data: StatementResponse }): React.ReactElemen
               </th>
               {periods.map((p, i) => (
                 <th key={p} style={{
-                  padding: "11px 14px", textAlign: "right", whiteSpace: "nowrap",
-                  fontSize: "var(--sd-f105)", fontWeight: 650,
-                  letterSpacing: "0.06em", textTransform: "uppercase",
+                  position: "sticky", top: 0, zIndex: 2,
+                  background: "var(--bg-elevated)",
+                  padding: "8px 14px", textAlign: "right", whiteSpace: "nowrap",
+                  fontSize: 11, fontWeight: 600, letterSpacing: "0.02em",
                   // The most recent period is the one being read; the rest are
                   // the context it is read against.
                   color: i === 0 ? "var(--text-primary)" : "var(--text-tertiary)",
@@ -301,6 +324,7 @@ function StatementGrid({ data }: { data: StatementResponse }): React.ReactElemen
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );
@@ -326,29 +350,29 @@ function Row({
           <td
             colSpan={periods.length + 1}
             style={{
-              padding: "14px 14px 6px",
-              fontSize: "var(--sd-f105)", fontWeight: 650,
-              letterSpacing: "0.06em", textTransform: "uppercase",
+              padding: "8px 14px",
+              fontSize: 11, fontWeight: 600, letterSpacing: "0.02em",
               color: "var(--text-tertiary)",
-              background: "var(--bg-secondary)",
-              borderTop: "1px solid var(--glass-border)",
+              background: "var(--bg-elevated)",
+              borderBottom: "1px solid var(--glass-border)",
             }}
           >
             {row.section}
           </td>
         </tr>
       ) : null}
-      <tr style={{ borderTop: "1px solid var(--glass-border)" }}>
+      <tr>
         <th
           scope="row"
           style={{
             position: "sticky", left: 0, zIndex: 1,
             background: "var(--bg-primary)",
             minWidth: nameW, maxWidth: nameW, width: nameW,
-            padding: "9px 14px", textAlign: "left",
-            fontSize: "var(--sd-f12)",
+            padding: "8px 14px", textAlign: "left",
+            fontSize: 13,
             fontWeight: isTotal ? 600 : 400,
             color: "var(--text-primary)",
+            borderBottom: "1px solid var(--glass-border)",
             borderRight: "1px solid var(--glass-border)",
             // Long MC line items wrap inside the fixed column rather than
             // widening it and pushing every year off the screen.
@@ -367,10 +391,11 @@ function Row({
           const shown = text ?? (val === null || val === undefined ? null : String(val));
           return (
             <td key={p} style={{
-              padding: "9px 14px", textAlign: "right", whiteSpace: "nowrap",
-              fontFamily: "var(--font-mono)", fontSize: "var(--sd-f115)",
+              padding: "8px 14px", textAlign: "right", whiteSpace: "nowrap",
+              fontFamily: "var(--font-mono)", fontSize: 13,
               fontVariantNumeric: "tabular-nums",
               fontWeight: isTotal || i === 0 ? 600 : 400,
+              borderBottom: "1px solid var(--glass-border)",
               color: shown === null
                 ? "var(--text-tertiary)"
                 : i === 0 ? "var(--text-primary)" : "var(--text-secondary)",

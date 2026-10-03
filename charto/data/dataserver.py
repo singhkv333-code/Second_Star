@@ -30,10 +30,11 @@ import logging
 import queue
 import re
 import secrets
+import shutil
 import socket
 import sqlite3
 import sys
-from os import environ, statvfs
+from os import environ
 import threading
 import time
 import urllib.error
@@ -16543,9 +16544,11 @@ def _health_report(*, deep: bool = False) -> tuple[int, dict]:
                      "effort": LLM_EFFORT,
                      "service_tier": LLM_SERVICE_TIER}
     try:
-        disk = statvfs(str(DB_PATH.resolve().parent))
-        total = disk.f_blocks * disk.f_frsize
-        free = disk.f_bavail * disk.f_frsize
+        # shutil.disk_usage is cross-platform (Windows/macOS/Linux); the old
+        # os.statvfs is Unix-only and crashed the import on Windows dev boxes.
+        disk = shutil.disk_usage(str(DB_PATH.resolve().parent))
+        total = disk.total
+        free = disk.free
         free_pct = (free / total * 100) if total else 0.0
         checks["disk"] = {"ok": free_pct >= _DISK_MIN_FREE_PCT,
                           "free_pct": round(free_pct, 1),

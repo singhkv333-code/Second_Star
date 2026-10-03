@@ -2,15 +2,13 @@
 
 /** Company research surface: price, business, financials, then ownership. */
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { format, parseISO } from "date-fns";
 import {
   AlertCircle,
-  ChevronDown,
   ChevronRight,
   Maximize2,
-  Minimize2,
   Search,
   X,
 } from "lucide-react";
@@ -48,6 +46,7 @@ import { ResearchExtensions } from "@/components/stock/ResearchExtensions";
 import { DeepSections } from "@/components/stock/DeepSections";
 import { SECTION_GAP } from "@/components/stock/chrome";
 import { RowTrend } from "@/components/stock/RowTrend";
+import { Select } from "./stock/Select";
 import "./stock/stock-research.css";
 import { TechnicalPanel } from "@/components/stock/TechnicalPanel";
 import { StockNewsSection } from "@/components/stock/StockNewsSection";
@@ -559,13 +558,10 @@ function PhoneLayout({
   onAddPeer: (s: string) => void;
   onRemovePeer: (s: string) => void;
 }): React.ReactElement {
-  const [tab, setTab] = useState<"overview" | "financials">("overview");
-  useEffect(() => { const open = (): void => setTab("financials"); window.addEventListener("stock-open-financials", open); return () => window.removeEventListener("stock-open-financials", open); }, []);
-
   return (
     <div className="flex flex-col">
       {/* Chart first — shorter on phone so it doesn't dominate the fold. */}
-      <div id="stock-price" className="flex min-h-0 flex-col" style={{ marginTop: 16 }}>
+      <div id="stock-price" className="flex min-h-0 flex-col" style={{ marginTop: 4 }}>
         <ChartCard
           tickers={tickers}
           peerQuotes={peerQuotes}
@@ -584,59 +580,25 @@ function PhoneLayout({
 
       {!quote.is_index && <section id="stock-technicals"><TechnicalPanel quote={quote} /></section>}
 
-      {/* Overview / Financials switch — underline tab strip matching the
-          option-strategy Payoff/P&L/Greeks tabs. Both panels describe a
-          COMPANY, so an index stops here: chart + performance only. */}
+      {/* Flat, stacked sections (phone): Company Overview, then each statement
+          — Balance Sheet, Profit and Loss, Quarterly Results, Ratios — as its
+          own section. No Overview/Financials toggle and no "Financials"
+          umbrella heading; every block reads as a section like Technicals or
+          Shareholding do. */}
       {!quote.is_index && (
-      <div
-        className="flex shrink-0 gap-6 border-b border-border/40"
-        role="tablist"
-        id="stock-financials"
-        aria-label="Stock detail view"
-        style={{ marginTop: 24, padding: "0 20px" }}
-      >
-        {([
-          { v: "overview" as const, label: "Company Overview" },
-          { v: "financials" as const, label: "Financials" },
-        ]).map(({ v, label }) => {
-          const active = tab === v;
-          return (
-            <button
-              key={v}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              onClick={() => setTab(v)}
-              className={`relative px-1 py-2.5 text-[13px] font-medium transition-colors ${
-                active ? "text-foreground" : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {label}
-              {active && (
-                <span className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-primary" />
-              )}
-            </button>
-          );
-        })}
-      </div>
-      )}
-
-      {!quote.is_index && (
-        tab === "overview" ? (
-          <div style={{ marginTop: 18 }}>
+        <>
+          <section id="stock-overview-company" style={{ marginTop: 24, scrollMarginTop: 90 }}>
             <MergedOverviewCard quote={quote} financials={financials} />
-          </div>
-        ) : (
-          <>
-            {financials && financials.available && (
-              <KeyMetricsStrip financials={financials} />
-            )}
-            <FinancialsPanel
-              quote={quote}
-              financials={financials}
-            />
-          </>
-        )
+          </section>
+          {financials && financials.available && (
+            <KeyMetricsStrip financials={financials} />
+          )}
+          <FinancialsPanel
+            quote={quote}
+            financials={financials}
+            flatSections
+          />
+        </>
       )}
 
       {!quote.is_index && <ResearchExtensions key={quote.symbol} symbol={quote.symbol} exchange={quote.exchange === "BSE" ? "BSE" : "NSE"} />}
@@ -1314,19 +1276,6 @@ function ChartCard({
   // needing that filtering logic ripped out.
   const minDate = "";
   const maxDate = "";
-  // Fullscreen overlay: the Maximize2 button lifts the entire card to a
-  // fixed surface that covers most of the viewport; the chart's height
-  // grows to fill the freed space. Esc dismisses.
-  const [expanded, setExpanded] = useState(false);
-  useEffect(() => {
-    if (!expanded) return;
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") setExpanded(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [expanded]);
-
   // ── Metric series (PE Ratio / EV/EBITDA) ─────────────────────────────
   // Fetched per-ticker when a fundamental metric is selected. In Price
   // mode this state is empty and unused — the parent-supplied `series`
@@ -1664,51 +1613,12 @@ function ChartCard({
   );
 
   return (
-    <>
-      {expanded && (
-        <div
-          aria-hidden="true"
-          onClick={() => setExpanded(false)}
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.55)",
-            zIndex: 60,
-          }}
-        />
-      )}
     <Card
       transparent
       padding="0"
       className="flex h-full min-h-0 flex-col"
-      style={
-        expanded
-          ? {
-              position: "fixed",
-              top: 24,
-              left: 24,
-              right: 24,
-              bottom: 24,
-              // Override Tailwind's `h-full` (height: 100%) which, combined
-              // with `top/bottom`, leaves the box over-constrained — CSS
-              // honors the height and pushes the bottom edge below the
-              // viewport, clipping the footer summary. Using `auto` lets
-              // the implicit height (= 100vh - 48px) drive the layout.
-              height: "auto",
-              zIndex: 61,
-              background: "var(--bg-primary)",
-              border: "1px solid var(--glass-border)",
-              borderRadius: "var(--radius-md)",
-              boxShadow: "0 30px 80px rgba(0,0,0,0.45)",
-              // Vertical scroll catches the case where the chart aspect
-              // forces total content past the available height (e.g. with
-              // many comparison tickers in the footer summary).
-              overflow: "hidden auto",
-            }
-          : undefined
-      }
     >
-      {/* ── Row 1: full-width search pill + maximize ──────────────────── */}
+      {/* ── Row 1: full-width search pill + open-in-chart ─────────────── */}
       <div
         className="flex items-center"
         style={{
@@ -1756,12 +1666,20 @@ function ChartCard({
         </div>
         <button
           type="button"
-          onClick={() => setExpanded((v) => !v)}
-          aria-label={expanded ? "Collapse chart" : "Expand chart"}
-          aria-pressed={expanded}
+          // The chart page is the real expansion of this panel: it carries the
+          // indicators, drawings and intraday resolutions a research preview
+          // cannot. Opening it beats a fullscreen copy of the same preview.
+          onClick={() =>
+            primarySym &&
+            window.dispatchEvent(
+              new CustomEvent("pivot:open-chart", { detail: { symbol: primarySym } }),
+            )
+          }
+          aria-label={primarySym ? `Open ${primarySym} chart` : "Open chart"}
+          title={primarySym ? `Open ${primarySym} chart` : "Open chart"}
           data-testid="chart-expand-btn"
-          // Hidden on phones — the fullscreen chart overlay is a
-          // desktop/tablet affordance; there's no room for it on mobile.
+          // Hidden on phones — the full chart workspace is a desktop/tablet
+          // affordance; there's no room for it on mobile.
           className="inline-flex shrink-0 items-center justify-center max-sm:hidden"
           style={{
             width: 36,
@@ -1782,11 +1700,7 @@ function ChartCard({
             e.currentTarget.style.borderColor = "var(--glass-border)";
           }}
         >
-          {expanded ? (
-            <Minimize2 size={14} strokeWidth={2} aria-hidden="true" />
-          ) : (
-            <Maximize2 size={14} strokeWidth={2} aria-hidden="true" />
-          )}
+          <Maximize2 size={14} strokeWidth={2} aria-hidden="true" />
         </button>
       </div>
 
@@ -1816,14 +1730,9 @@ function ChartCard({
         style={{
           position: "relative",
           width: "100%",
-          // Expanded: grow to fill the remaining flex space inside the
-          // fixed overlay card so the chart consumes the freed area.
-          // Collapsed: pinned to a comfortable inline height.
-          height: expanded ? "auto" : chartHeight,
-          flex: expanded ? 1 : undefined,
-          minHeight: expanded ? 0 : undefined,
-          // Lets the box shrink back below the canvas's stale expanded width
-          // instead of the canvas dictating the column width on collapse.
+          height: chartHeight,
+          // Lets the box shrink rather than letting the canvas dictate the
+          // column width.
           minWidth: 0,
           padding: "0 18px",
         }}
@@ -1859,8 +1768,7 @@ function ChartCard({
               volume={volumePoints}
               height="100%"
               intraday={range === "1D" || range === "1W"}
-              refitKey={expanded ? "expanded" : "collapsed"}
-              showPivotWatermark
+              refitKey="inline"
             />
           )
         ) : metricSeriesDefs.length === 0 ? (
@@ -2045,7 +1953,6 @@ function ChartCard({
         </div>
       )}
     </Card>
-    </>
   );
 }
 
@@ -2110,114 +2017,14 @@ function MetricSelector({
   value: Metric;
   onChange: (m: Metric) => void;
 }): React.ReactElement {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement | null>(null);
-
-  // Click-outside to dismiss
-  useEffect(() => {
-    if (!open) return;
-    const onDocClick = (e: MouseEvent): void => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, [open]);
-
+  // The product's one dropdown — see components/stock/Select.tsx.
   return (
-    <div ref={ref} style={{ position: "relative" }}>
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        className="inline-flex w-full items-center sm:w-auto"
-        style={{
-          gap: 8,
-          height: 38,
-          padding: "0 14px",
-          background: "var(--bg-base)",
-          border: "1px solid var(--glass-border)",
-          borderRadius: "var(--radius-sm)",
-          color: "var(--text-primary)",
-          fontFamily: "var(--font-ui)",
-          fontSize: 12,
-          cursor: "pointer",
-          minWidth: 124,
-          justifyContent: "space-between",
-        }}
-      >
-        {value}
-        <ChevronDown
-          size={14}
-          strokeWidth={2}
-          style={{
-            color: "var(--text-tertiary)",
-            transform: open ? "rotate(180deg)" : "rotate(0deg)",
-            transition: "transform 0.18s var(--ease-quartr)",
-          }}
-          aria-hidden="true"
-        />
-      </button>
-
-      {open && (
-        <ul
-          role="listbox"
-          style={{
-            position: "absolute",
-            top: "calc(100% + 6px)",
-            right: 0,
-            margin: 0,
-            padding: 6,
-            listStyle: "none",
-            background: "var(--bg-primary)",
-            border: "1px solid var(--glass-border)",
-            borderRadius: "var(--radius-sm)",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
-            minWidth: 180,
-            zIndex: 10,
-          }}
-        >
-          {METRIC_OPTIONS.map((m) => {
-            const active = m === value;
-            return (
-              <li key={m} role="option" aria-selected={active}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onChange(m);
-                    setOpen(false);
-                  }}
-                  className="flex items-center w-full"
-                  style={{
-                    width: "100%",
-                    padding: "8px 12px",
-                    background: active ? "var(--surface-active)" : "transparent",
-                    border: "none",
-                    borderRadius: "var(--radius-xs)",
-                    color: "var(--text-primary)",
-                    fontFamily: "var(--font-ui)",
-                    fontSize: 12.5,
-                    cursor: "pointer",
-                    textAlign: "left",
-                    transition: "background-color 0.15s var(--ease-quartr)",
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!active) e.currentTarget.style.background = "var(--surface-hover)";
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!active) e.currentTarget.style.background = "transparent";
-                  }}
-                >
-                  {m}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </div>
+    <Select
+      ariaLabel="Chart metric"
+      value={value}
+      onChange={(v) => onChange(v as Metric)}
+      options={METRIC_OPTIONS.map((m) => ({ value: m, label: m }))}
+    />
   );
 }
 
@@ -2939,9 +2746,14 @@ function FinBarChart({
 function FinancialsPanel({
   quote,
   financials,
+  flatSections = false,
 }: {
   quote: StockQuote;
   financials: FinancialsResponse | null;
+  /** Phone: render each statement (Balance Sheet, Profit and Loss, Quarterly
+   *  Results, Ratios) as its own stacked section with its own heading, instead
+   *  of one "Financial Performance" panel with a tab strip. */
+  flatSections?: boolean;
 }): React.ReactElement {
   const [tab, setTab] = useState<FinPanelTab>("financials");
   // One row's series open at a time. Keyed by label rather than index so
@@ -3065,28 +2877,190 @@ function FinancialsPanel({
   // A company MC files no ratio sheet for does not get an empty fourth tab.
   const hasRatios = !!ratios && rRows.some((r) => r.values.some((v) => v !== "—"));
 
-  const periods = tab === "quarters" ? qPeriods : FY_YEARS;
-  const rows = tab === "financials" ? bsRows
-    : tab === "pl" ? plRows
-    : tab === "ratios" ? rRows
-    : qRows;
-  const _source = financials?.available ? "Moneycontrol" : "Estimated";
+  // Per-tab data derivation, so a single statement can render either inside the
+  // tab strip (desktop) or as its own stacked section (phone flat mode).
+  const dataFor = (t: FinPanelTab) => {
+    const periods = t === "quarters" ? qPeriods : FY_YEARS;
+    const rows = t === "financials" ? bsRows
+      : t === "pl" ? plRows
+      : t === "ratios" ? rRows
+      : qRows;
+    const getMetric = (label: string): (number | null)[] =>
+      rows.find((r) => r.label === label)?.values.map(parseFinVal) ?? periods.map(() => null);
+    const cfg = t === "financials"
+      ? { a: "Total Equity", b: "Total Debt",  colorA: "#64748b", colorB: "#f59e0b", unit: "cr" as const }
+      : t === "ratios"
+        ? filesBankRatios(ratios)
+          ? { a: "Return on Equity", b: "Net Interest Margin", colorA: "#64748b", colorB: "#4F8A5B", unit: "pct" as const }
+          : { a: "Return on Equity", b: "Return on Capital", colorA: "#64748b", colorB: "#4F8A5B", unit: "pct" as const }
+        : { a: "Revenue",      b: "Net Profit",  colorA: "#64748b", colorB: "#1b7cc7", unit: "cr" as const };
+    return { periods, rows, getMetric, cfg };
+  };
 
-  const getMetric = (label: string): (number | null)[] =>
-    rows.find((r) => r.label === label)?.values.map(parseFinVal) ?? periods.map(() => null);
+  const TAB_LABEL: Record<FinPanelTab, string> = {
+    financials: "Balance Sheet",
+    pl: "Profit and Loss",
+    quarters: "Quarterly Results",
+    ratios: "Ratios",
+  };
+  const statementHref = (t: FinPanelTab): string =>
+    `/stock/${encodeURIComponent(quote.symbol)}/financials?tab=${
+      t === "financials" ? "balance_sheet" : t === "ratios" ? "ratios" : "profit_loss"
+    }`;
 
-  const cfg = tab === "financials"
-    ? { a: "Total Equity", b: "Total Debt",  colorA: "#64748b", colorB: "#f59e0b", unit: "cr" as const }
-    : tab === "ratios"
-      // The two that say most about quality, and the pair a reader compares:
-      // ROCE above ROE means the equity is not carrying the return alone. A
-      // bank has no ROCE row, so it charts the spread against the return
-      // instead — which is the same question asked of a balance sheet made of
-      // deposits.
-      ? filesBankRatios(ratios)
-        ? { a: "Return on Equity", b: "Net Interest Margin", colorA: "#64748b", colorB: "#4F8A5B", unit: "pct" as const }
-        : { a: "Return on Equity", b: "Return on Capital", colorA: "#64748b", colorB: "#4F8A5B", unit: "pct" as const }
-      : { a: "Revenue",      b: "Net Profit",  colorA: "#64748b", colorB: "#1b7cc7", unit: "cr" as const };
+  // The chart + table body for one statement. Shared by both layouts.
+  const renderBody = (t: FinPanelTab): React.ReactElement => {
+    const { periods, rows, getMetric, cfg } = dataFor(t);
+    return (
+      <div className="grid grid-cols-1 lg:grid-cols-[4.3fr_6.7fr]">
+        {/* Left — bar chart */}
+        <div className="fin-chart-cell" style={{ padding: "24px 24px 20px", borderRight: "1px solid var(--glass-border)" }}>
+          {t === "quarters" && !periods.length ? (
+            <div style={{ height: 260, display: "grid", placeItems: "center", fontSize: 12, color: "var(--text-tertiary)" }}>
+              {quarters === null ? "Loading quarterly results…" : "No quarterly results reported."}
+            </div>
+          ) : (
+            <FinBarChart
+              periods={periods}
+              unit={cfg.unit}
+              metricA={{ label: cfg.a, values: getMetric(cfg.a), color: cfg.colorA }}
+              metricB={{ label: cfg.b, values: getMetric(cfg.b), color: cfg.colorB }}
+            />
+          )}
+        </div>
+        {/* Right — data table */}
+        <div className="fin-table-wrap" style={{ overflow: "hidden" }}>
+          <table className="fin-table" style={{ width: "100%", tableLayout: "fixed", borderCollapse: "collapse", fontFamily: "var(--font-ui)" }}>
+            <thead>
+              <tr style={{ background: "var(--bg-base, #f8fafc)", borderBottom: "1px solid var(--glass-border)" }}>
+                <th style={{ width: "25%", padding: "12px 10px", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-tertiary)", textAlign: "left", whiteSpace: "nowrap" }}>
+                  Metric
+                </th>
+                {periods.map((y, i) => (
+                  <th key={y} style={{
+                    padding: "12px 6px", fontSize: 11, fontWeight: 600,
+                    textTransform: "uppercase", letterSpacing: "0.06em",
+                    textAlign: "right", whiteSpace: "nowrap",
+                    color: i === periods.length - 1 ? "var(--text-primary)" : "var(--text-tertiary)",
+                  }}>
+                    {y}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, idx) => {
+                const rowKey = `${t}:${r.label}`;
+                const open = openRow === rowKey;
+                return (
+                <Fragment key={r.label || idx}>
+                <tr
+                  onClick={() => setOpenRow(open ? null : rowKey)}
+                  aria-expanded={open}
+                  style={{
+                    borderBottom: idx < rows.length - 1 || open ? "1px solid var(--glass-border)" : "none",
+                    transition: "background 120ms",
+                    cursor: "pointer",
+                    background: open ? "var(--bg-base, #f8fafc)" : "transparent",
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-base, #f8fafc)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = open ? "var(--bg-base, #f8fafc)" : "transparent"; }}
+                >
+                  <td style={{ padding: "12px 10px" }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+                      <span style={{
+                        width: 7, height: 7, borderRadius: "50%", flexShrink: 0,
+                        background: r.label === cfg.a ? cfg.colorA : r.label === cfg.b ? cfg.colorB : "transparent",
+                      }} />
+                      <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>
+                        {r.label}
+                      </span>
+                    </span>
+                  </td>
+                  {r.values.map((v, i) => (
+                    <td key={i} className="tabular-nums" style={{
+                      padding: "12px 6px", textAlign: "right", whiteSpace: "nowrap",
+                      fontSize: 13, fontFamily: "var(--font-mono)",
+                      fontWeight: i === periods.length - 1 ? 600 : 400,
+                      color: i === periods.length - 1 ? "var(--text-primary)" : "var(--text-secondary)",
+                    }}>
+                      {v ?? "—"}
+                    </td>
+                  ))}
+                </tr>
+                {open ? (
+                  <tr style={{ borderBottom: idx < rows.length - 1 ? "1px solid var(--glass-border)" : "none" }}>
+                    <td colSpan={periods.length + 1} style={{ padding: 0, background: "var(--bg-base, #f8fafc)" }}>
+                      <RowTrend label={r.label} periods={periods} values={r.values} />
+                    </td>
+                  </tr>
+                ) : null}
+                </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  // ── Phone: each statement is its own stacked section ─────────────────────
+  // No "Financial Performance" umbrella and no tab strip; every available
+  // statement gets its own heading and reads as a section like Shareholding or
+  // Technicals do. The basis switch for quarters and the "See detail" link ride
+  // beside each heading, scoped to that one section.
+  if (flatSections) {
+    const availableTabs: FinPanelTab[] = [
+      "financials",
+      "pl",
+      ...(hasQuarters ? (["quarters"] as FinPanelTab[]) : []),
+      ...(hasRatios ? (["ratios"] as FinPanelTab[]) : []),
+    ];
+    return (
+      <>
+        {availableTabs.map((t) => (
+          <section
+            key={t}
+            id={t === "financials" ? "stock-financials" : `stock-fin-${t}`}
+            style={{ marginTop: SECTION_GAP, minWidth: 0, maxWidth: "100%", scrollMarginTop: 90 }}
+          >
+            <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, padding: "0 20px 12px", borderBottom: "1px solid var(--glass-border)" }}>
+              <h2 style={{ margin: 0, fontFamily: "var(--font-ui)", fontSize: 19, fontWeight: 600, letterSpacing: "-0.022em", color: "var(--text-primary)" }}>
+                {TAB_LABEL[t]}
+              </h2>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 16 }}>
+                {t === "quarters" && (quarters?.bases_available.length ?? 0) > 1 ? (
+                  <div style={{ display: "inline-flex", gap: 12 }}>
+                    {quarters!.bases_available.map((b) => (
+                      <button
+                        key={b}
+                        type="button"
+                        onClick={() => setQBasis(b as "consolidated" | "standalone")}
+                        style={{
+                          border: "none", background: "transparent", cursor: "pointer",
+                          padding: 0, fontFamily: "var(--font-ui)", fontSize: 12,
+                          fontWeight: qBasis === b ? 600 : 400,
+                          color: qBasis === b ? "var(--text-primary)" : "var(--text-secondary)",
+                        }}
+                      >
+                        {b === "consolidated" ? "Consolidated" : "Standalone"}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                <Link href={statementHref(t)} style={{ display: "inline-flex", alignItems: "center", gap: 3, fontFamily: "var(--font-ui)", fontSize: 12, fontWeight: 500, color: "var(--text-secondary)", textDecoration: "none", whiteSpace: "nowrap" }}>
+                  See detail
+                  <ChevronRight size={13} aria-hidden="true" />
+                </Link>
+              </div>
+            </div>
+            {renderBody(t)}
+          </section>
+        ))}
+      </>
+    );
+  }
 
   return (
     <div style={{ marginTop: SECTION_GAP, minWidth: 0, maxWidth: "100%" }}>
@@ -3120,8 +3094,11 @@ function FinancialsPanel({
                     padding: "6px 14px", border: "none", background: "transparent",
                     fontSize: 12.5, fontFamily: "var(--font-ui)",
                     fontWeight: active ? 600 : 400,
-                    color: active ? "var(--pivot-blue, #1b7cc7)" : "var(--text-secondary)",
-                    borderBottom: active ? "2px solid var(--pivot-blue, #1b7cc7)" : "2px solid transparent",
+                    // Ink, not accent — the same language the section nav at
+                    // the top of the page uses, so the two tab strips a reader
+                    // meets on one page mark themselves the same way.
+                    color: active ? "var(--text-primary)" : "var(--text-secondary)",
+                    borderBottom: active ? "2px solid var(--text-primary)" : "2px solid transparent",
                     cursor: "pointer", marginBottom: -1, transition: "color 0.15s, border-color 0.15s",
                   }}>
                     {t === "financials" ? "Balance Sheet"
@@ -3187,105 +3164,8 @@ function FinancialsPanel({
           </div>
         </div>
 
-        {/* Body: chart left | table right (table gets a bit more room) */}
-        <div className="grid grid-cols-1 lg:grid-cols-[4.3fr_6.7fr]">
-
-          {/* Left — bar chart */}
-          <div style={{ padding: "24px 24px 20px", borderRight: "1px solid var(--glass-border)" }}>
-            {tab === "quarters" && !periods.length ? (
-              <div style={{ height: 260, display: "grid", placeItems: "center", fontSize: 12, color: "var(--text-tertiary)" }}>
-                {quarters === null ? "Loading quarterly results…" : "No quarterly results reported."}
-              </div>
-            ) : (
-              <FinBarChart
-                periods={periods}
-                unit={cfg.unit}
-                metricA={{ label: cfg.a, values: getMetric(cfg.a), color: cfg.colorA }}
-                metricB={{ label: cfg.b, values: getMetric(cfg.b), color: cfg.colorB }}
-              />
-            )}
-          </div>
-
-          {/* Right — data table */}
-          <div style={{ overflow: "hidden" }}>
-            <table style={{ width: "100%", tableLayout: "fixed", borderCollapse: "collapse", fontFamily: "var(--font-ui)" }}>
-              <thead>
-                <tr style={{ background: "var(--bg-base, #f8fafc)", borderBottom: "1px solid var(--glass-border)" }}>
-                  <th style={{ width: "25%", padding: "12px 10px", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-tertiary)", textAlign: "left", whiteSpace: "nowrap" }}>
-                    Metric
-                  </th>
-                  {periods.map((y, i) => (
-                    <th key={y} style={{
-                      padding: "12px 6px", fontSize: 11, fontWeight: 600,
-                      textTransform: "uppercase", letterSpacing: "0.06em",
-                      textAlign: "right", whiteSpace: "nowrap",
-                      color: i === periods.length - 1 ? "var(--pivot-blue, #1b7cc7)" : "var(--text-tertiary)",
-                    }}>
-                      {y}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r, idx) => {
-                  const open = openRow === r.label;
-                  return (
-                  <Fragment key={r.label || idx}>
-                  <tr
-                    onClick={() => setOpenRow(open ? null : r.label)}
-                    aria-expanded={open}
-                    style={{
-                      borderBottom: idx < rows.length - 1 || open ? "1px solid var(--glass-border)" : "none",
-                      transition: "background 120ms",
-                      cursor: "pointer",
-                      background: open ? "var(--bg-base, #f8fafc)" : "transparent",
-                    }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-base, #f8fafc)"; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = open ? "var(--bg-base, #f8fafc)" : "transparent"; }}
-                  >
-                    <td style={{ padding: "12px 10px" }}>
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
-                        <span style={{
-                          width: 7, height: 7, borderRadius: "50%", flexShrink: 0,
-                          background: r.label === cfg.a ? cfg.colorA : r.label === cfg.b ? cfg.colorB : "transparent",
-                        }} />
-                        <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>
-                          {r.label}
-                        </span>
-                      </span>
-                    </td>
-                    {r.values.map((v, i) => (
-                      <td key={i} className="tabular-nums" style={{
-                        padding: "12px 6px", textAlign: "right", whiteSpace: "nowrap",
-                        // The numbers are the row. At 11.5 they were set
-                        // SMALLER than the label beside them and barely above
-                        // the column header, which reads as a table of names
-                        // with footnotes rather than a table of figures.
-                        fontSize: 13, fontFamily: "var(--font-mono)",
-                        fontWeight: i === periods.length - 1 ? 600 : 400,
-                        color: i === periods.length - 1 ? "var(--text-primary)" : "var(--text-secondary)",
-                      }}>
-                        {v ?? "—"}
-                      </td>
-                    ))}
-                  </tr>
-                  {/* The row's own series, at full table width. Opened rather
-                      than always-on: a sparkline per row costs a column on
-                      every table and is too small to read a turn off. */}
-                  {open ? (
-                    <tr style={{ borderBottom: idx < rows.length - 1 ? "1px solid var(--glass-border)" : "none" }}>
-                      <td colSpan={periods.length + 1} style={{ padding: 0, background: "var(--bg-base, #f8fafc)" }}>
-                        <RowTrend label={r.label} periods={periods} values={r.values} />
-                      </td>
-                    </tr>
-                  ) : null}
-                  </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        {/* Body: chart left | table right — the shared statement renderer. */}
+        {renderBody(tab)}
 
       </div>
     </div>
@@ -3350,7 +3230,7 @@ function FinancialsLikeTable({ title, subtitle, rows, minRows }: {
               {FY_YEARS.map((y, i) => {
                 const isLatest = i === latestIdx;
                 return (
-                  <th key={y} style={{ padding: "9px 14px", fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", textAlign: "right", whiteSpace: "nowrap", color: isLatest ? "var(--pivot-blue, #1b7cc7)" : "var(--text-tertiary)" }}>
+                  <th key={y} style={{ padding: "9px 14px", fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", textAlign: "right", whiteSpace: "nowrap", color: isLatest ? "var(--text-primary)" : "var(--text-tertiary)" }}>
                     {y}
                   </th>
                 );

@@ -24,7 +24,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Briefcase,
-  Bot,
   Check,
   ChevronLeft,
   Globe,
@@ -220,7 +219,7 @@ function chipIcon(a: ChatAttachment): React.ReactNode {
       />
     );
   }
-  const Icon = a.kind === "agent" ? Bot : a.kind === "basket" ? PieChart : Briefcase;
+  const Icon = a.kind === "agent" ? WorkflowIcon : a.kind === "basket" ? PieChart : Briefcase;
   return (
     <span
       aria-hidden={true}
@@ -292,8 +291,8 @@ export function AttachmentChips({
               maxWidth: 260,
               padding: "5px 6px 5px 6px",
               borderRadius: 10,
-              background: "var(--bg-elevated)",
-              border: "1px solid var(--glass-border)",
+              background: "var(--bg-secondary)",
+              border: "none",
             }}
           >
             {chipIcon(a)}

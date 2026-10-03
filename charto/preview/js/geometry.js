@@ -177,6 +177,26 @@ const Geo = (() => {
     return out;
   }
 
+  /** A full ellipse about `c`, semi-axes (rt, rv) in DATA units. Open-and-
+   *  repeated: the last point equals the first so `poly` closes the stroke
+   *  without its interior becoming a grab target (see the curve note above). */
+  function ellipsePts(c, rt, rv, n = 64) {
+    return arcPts(c, rt, rv, 0, 2 * Math.PI, n);
+  }
+
+  /** A quadratic bezier from p0 to p2 with control p1 — the smooth curve tool.
+   *  Sampled in DATA space and handed to `poly`, like every other curve here,
+   *  so it drags, hits and persists with no new primitive. */
+  function quadPts(p0, p1, p2, n = 40) {
+    const out = [];
+    for (let i = 0; i <= n; i++) {
+      const u = i / n, k = 1 - u;
+      out.push({ t: k * k * p0.t + 2 * k * u * p1.t + u * u * p2.t,
+                 v: k * k * p0.v + 2 * k * u * p1.v + u * u * p2.v });
+    }
+    return out;
+  }
+
   /** The arc a speed-resistance tool actually wants: centred on `c`, and
    *  CROSSING the vector (rt, rv) at exactly `r` of its length.
    *
@@ -378,7 +398,7 @@ const Geo = (() => {
        * grabbable too — handleAt covers it — this adds what you can see. */
       case "label": {
         const b = chipBox(px.p, prim.text, prim.align || "right",
-                          (env && env.w) || Infinity);
+                          (env && env.w) || Infinity, prim.place);
         return mx > b.x - tol && mx < b.x + b.w + tol
             && my > b.top - tol && my < b.bot + tol;
       }
@@ -468,12 +488,18 @@ const Geo = (() => {
   }
   /** The chip's box for a label anchored at `p`, in pane pixels — the one
    *  definition of where those 15 pixels land, read by `hit` and by `paint`.
-   *  Mirrors the clamp in the label painter: a chip never leaves the pane. */
-  function chipBox(p, text, align, envW) {
+   *  Mirrors the clamp in the label painter: a chip never leaves the pane.
+   *
+   *  `place` lifts the whole chip off the anchor so it never sits on the line
+   *  it names — "above" a peak, "below" a trough. The default keeps the chip
+   *  straddling the anchor, which is what every tool but the patterns group
+   *  wants (a fib level's price reads best ON its line). */
+  function chipBox(p, text, align, envW, place) {
     const w = chipWidth(text);
     const x = (align === "left") ? p[0] - w - 4 : p[0] + 4;
+    const dy = place === "above" ? -15 : place === "below" ? 15 : 0;
     return { x: Math.max(0, Math.min(x, envW - w)), w,
-             top: p[1] - 9, bot: p[1] + 6 };
+             top: p[1] - 9 + dy, bot: p[1] + 6 + dy };
   }
 
   function chip(ctx, text, x, y, col, bg) {
@@ -559,7 +585,7 @@ const Geo = (() => {
       case "label": {
         // chipBox owns the placement; hit() reads the same box, so what is
         // painted and what is grabbable are the same rectangle by construction
-        const b = chipBox(px.p, prim.text, prim.align || "right", env.w);
+        const b = chipBox(px.p, prim.text, prim.align || "right", env.w, prim.place);
         chip(ctx, prim.text, b.x, b.bot, col);
         break;
       }
@@ -866,6 +892,6 @@ const Geo = (() => {
     project, hit, paint, chip, rgba, FONT,
     distToSegment, distToLine, pointInPoly, clipToRect,
     linearFit, valueAt, ladder, riskReward, positionTone,
-    arcPts, crossArcPts, spiralPts, blendArcPts,
+    arcPts, ellipsePts, quadPts, crossArcPts, spiralPts, blendArcPts,
   };
 })();

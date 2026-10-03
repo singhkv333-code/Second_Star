@@ -24,7 +24,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 
 import { CompanyLogo } from "@/components/CompanyLogo";
 import { useCompanyLogos } from "@/hooks/useCompanyLogos";
@@ -268,8 +268,8 @@ export function PeerComparisonPanel({ symbol }: { symbol: string }): React.React
           <thead>
             {/* The band row. Runs of one are left blank rather than labelled —
                 a "group" of a single column is a second label for it. */}
-            <tr>
-              <th style={{ ...head, paddingLeft: 0, paddingBottom: 2 }} />
+            <tr className="peer-band-row">
+              <th style={{ ...head, paddingLeft: 16, paddingBottom: 2 }} />
               {groupSpans(cols).map((g, i) => (
                 <th
                   key={`${g.label}-${i}`}
@@ -286,7 +286,7 @@ export function PeerComparisonPanel({ symbol }: { symbol: string }): React.React
               ))}
             </tr>
             <tr>
-              <th style={{ ...head, textAlign: "left", paddingLeft: 0 }}>Company</th>
+              <th style={{ ...head, textAlign: "left", paddingLeft: 16 }}>Company</th>
               {cols.map((c) => {
                 const isExtra = extra.includes(c.id) && !COLUMNS[tab].some((b) => b.id === c.id);
                 return (
@@ -326,7 +326,7 @@ export function PeerComparisonPanel({ symbol }: { symbol: string }): React.React
           <tbody>
             {rows.map((r) => (
               <tr key={r.sc_id + r.symbol} style={{ borderTop: "1px solid var(--glass-border)" }}>
-                <td style={{ padding: "10px 12px 10px 0", minWidth: 210 }}>
+                <td style={{ padding: "10px 12px 10px 16px", minWidth: 210 }}>
                   <Link
                     href={`/stock/${r.symbol}`}
                     style={{
@@ -449,8 +449,13 @@ function ColumnPicker({
   });
 
   return (
-    <div ref={host} style={{ position: "relative", paddingBottom: 6 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+    // Uses the product's shared dropdown skin (`.pv-select-*`, the same as the
+    // Price / range pickers): a ghost trigger with a chevron and the standard
+    // menu sheet, so this reads as the same control rather than a second style
+    // of dropdown. It stays an ACTION menu — every row adds a column and the
+    // sheet closes — so it carries no selected-row tick, unlike the value Select.
+    <div ref={host} className="pv-select" style={{ paddingBottom: 6 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         {added.length ? (
           <button
             type="button"
@@ -466,66 +471,40 @@ function ColumnPicker({
         {offerable.length ? (
           <button
             type="button"
+            className="pv-select-btn"
+            aria-haspopup="menu"
             aria-expanded={open}
+            aria-label="Add ratio column"
             onClick={() => onOpen(!open)}
-            style={{
-              display: "inline-flex", alignItems: "center", gap: 5,
-              padding: "4px 11px", borderRadius: 99,
-              border: "1px solid var(--glass-border)", background: "transparent",
-              cursor: "pointer", fontFamily: "var(--font-ui)",
-              fontSize: "var(--sd-f115)", fontWeight: 500, color: "var(--text-secondary)",
-              whiteSpace: "nowrap",
-            }}
           >
-            <Plus size={12} aria-hidden="true" />
-            Add ratio
+            <span className="val">Add ratio</span>
+            <ChevronDown size={14} strokeWidth={2} aria-hidden="true" />
           </button>
         ) : null}
       </div>
 
       {open && offerable.length ? (
-        <div
-          role="menu"
-          style={{
-            position: "absolute", right: 0, top: "100%", zIndex: 30,
-            marginTop: 6, minWidth: 210, maxHeight: 320, overflowY: "auto",
-            padding: "6px 0",
-            background: "var(--bg-primary)",
-            border: "1px solid var(--glass-border)",
-            borderRadius: "var(--radius-md)",
-            boxShadow: "0 8px 28px rgba(15,18,22,.12)",
-          }}
-        >
+        <ul role="menu" className="pv-select-menu is-left" style={{ minWidth: 200 }}>
           {[...byGroup.entries()].map(([group, list]) => (
-            <div key={group}>
-              <div style={{
-                padding: "7px 12px 3px", fontSize: "var(--sd-f10)", fontWeight: 650,
-                letterSpacing: "0.06em", textTransform: "uppercase",
-                color: "var(--text-tertiary)",
-              }}>
-                {group}
-              </div>
+            <React.Fragment key={group}>
+              <li className="head" role="presentation">{group}</li>
               {list.map((c) => (
-                <button
+                <li
                   key={c.id}
-                  type="button"
                   role="menuitem"
+                  tabIndex={0}
+                  className="item"
                   onClick={() => { onAdd(c.id); onOpen(false); }}
-                  style={{
-                    display: "block", width: "100%", textAlign: "left",
-                    padding: "6px 12px", border: "none", background: "transparent",
-                    cursor: "pointer", fontFamily: "var(--font-ui)",
-                    fontSize: "var(--sd-f125)", color: "var(--text-primary)",
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-secondary)"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onAdd(c.id); onOpen(false); } }}
+                  onMouseEnter={(e) => e.currentTarget.classList.add("active")}
+                  onMouseLeave={(e) => e.currentTarget.classList.remove("active")}
                 >
-                  {c.label}
-                </button>
+                  <span>{c.label}</span>
+                </li>
               ))}
-            </div>
+            </React.Fragment>
           ))}
-        </div>
+        </ul>
       ) : null}
     </div>
   );

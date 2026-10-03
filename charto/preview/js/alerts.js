@@ -48,7 +48,7 @@ const Alerts = (() => {
   // Lightweight Charts LineStyle enum values. The library alias is scoped to
   // main.js, while these option values are part of its public API.
   const LINE_DOTTED = 1, LINE_DASHED = 2;
-  let selectedLine = null, lineDrag = null;
+  let selectedLine = null, lineDrag = null, hoverLine = null;
 
   /** A chart-created alert is also a chart fact. Keep one server-backed price
    *  line for every alert whose leading condition targets a literal price.
@@ -78,12 +78,17 @@ const Alerts = (() => {
       if (price == null) continue;
       keep.add(a.id);
       const selected = selectedLine === a.id;
-      const stateKey = `${price}|${a.state}|${a.note || ""}|${Theme.mode}|${selected}`;
+      // The note no longer touches the drawing — it lived on the price-line
+      // `title`, which Lightweight Charts paints as a label stretched across the
+      // whole chart width. That full-bleed bar is the "thick line" we are
+      // replacing: the line itself is the thin stroke, the state is carried by
+      // colour/width/style, the price rides the axis pill, and the note stays in
+      // the Alerts panel where there is room to read it.
+      const stateKey = `${price}|${a.state}|${Theme.mode}|${selected}`;
       const old = chartLines.get(a.id);
       if (old && old.key === stateKey) continue;
       if (old) series.removePriceLine(old.line);
       const active = a.state === "armed";
-      const label = active ? "Alert" : a.state === "fired" ? "Alert fired" : "Alert paused";
       const line = series.createPriceLine({
         price,
         color: selected ? Theme.c("annNeutral")
@@ -91,8 +96,6 @@ const Alerts = (() => {
         lineWidth: selected ? 3 : active ? 2 : 1,
         lineStyle: selected ? 0 : active ? LINE_DASHED : LINE_DOTTED,
         axisLabelVisible: true,
-        title: a.note ? `${selected ? "● " : ""}${label} · ${a.note}`
-                      : `${selected ? "● " : ""}${label}`,
       });
       chartLines.set(a.id, { line, key: stateKey });
     }
@@ -103,11 +106,135 @@ const Alerts = (() => {
     }
   }
 
+  /* ── the line badge ────────────────────────────────────────────────────────
+   * The price line is now a bare stroke; its identity used to ride the
+   * full-width `title` bar, which we removed. This is the replacement, built the
+   * way the ⊕ axis mark is (js/main.js): a DOM chip pinned to the line's
+   * y-coordinate rather than anything the canvas draws, so it is a small pill at
+   * the left edge instead of a slab across the chart. It names the alert the way
+   * the panel row does — symbol + condition — and carries the same delete the
+   * panel's ✕ does.
+   *
+   * It is shown only for the line under the pointer or the selected one: the
+   * point of removing the bar was a clean chart, and a permanent label on every
+   * alert would put the slab back one pill at a time. The map is keyed by alert
+   * id, parallel to chartLines, and reconciled by the same keep-set logic.
+   */
+  const badges = new Map();
+  let badgeRAF = 0;
+
+  /** symbol + condition, matching the Alerts panel's own phrasing (`a.cond` is
+   *  the server's human label, e.g. "Price Crossing"). Falls back to the first
+   *  condition's operator label if the server did not send `cond`. */
+  function badgeLabel(a) {
+    const cond = a.cond
+      || (a.when && a.when[0] && OPLABEL[a.when[0].op])
+      || "Alert";
+    return `${a.symbol} ${cond}`;
+  }
+
+  function ensureBadge(a) {
+    let node = badges.get(a.id);
+    if (node && node.isConnected) return node;
+    const host = el("chart");
+    if (!host) return null;
+    node = document.createElement("div");
+    node.className = "al-badge";
+    node.dataset.id = a.id;
+    node.innerHTML =
+      `<span class="al-badge-text"></span>` +
+      `<button type="button" class="al-badge-x" data-badge-del ` +
+        `tabindex="-1" aria-label="Delete alert">${Icons.svg("x", "xs")}</button>`;
+    // Clicking the body selects the line (same as grabbing it); the ✕ deletes.
+    node.addEventListener("pointerdown", (e) => {
+      if (e.target.closest("[data-badge-del]")) {
+        e.preventDefault(); e.stopPropagation();
+        const id = a.id;
+        selectLine(null);
+        remove(id).catch((err) => toast(err.message || "Could not delete alert"));
+        return;
+      }
+      e.stopPropagation();
+      selectLine(a.id);
+    });
+    host.appendChild(node);
+    badges.set(a.id, node);
+    return node;
+  }
+
+  /** Reconcile badges against the alerts that (a) have an on-chart line and
+   *  (b) are hovered or selected, and park each one at its line's y. */
+  function syncBadges() {
+    const pp = pricePane();
+    const host = el("chart");
+    if (!pp || !host) { for (const n of badges.values()) n.remove(); badges.clear(); return; }
+    const hostRect = host.getBoundingClientRect();
+    const shown = new Set();
+    for (const a of state.alerts) {
+      if (a.id !== hoverLine && a.id !== selectedLine) continue;
+      const price = alertPrice(a);
+      if (price == null) continue;
+      const y = pp.series.priceToCoordinate(price);
+      if (y == null) continue;
+      const node = ensureBadge(a);
+      if (!node) continue;
+      shown.add(a.id);
+      node.querySelector(".al-badge-text").textContent = badgeLabel(a);
+      node.classList.toggle("selected", a.id === selectedLine);
+      // y is relative to the price pane; the badge is positioned in #chart's box,
+      // so add the pane's offset within the chart. Left edge of the pane, inset a
+      // little, mirroring the reference's placement.
+      node.style.top = (pp.rect.top - hostRect.top + y) + "px";
+    }
+    for (const [id, node] of badges) {
+      if (shown.has(id)) continue;
+      node.remove();
+      badges.delete(id);
+    }
+    // While anything is on screen, follow the line as the chart scrolls or
+    // rescales — the library redraws the canvas on its own, but our DOM chip is
+    // not part of that pass, so it must be re-parked each frame. One loop, started
+    // when the first badge appears and stopped when the last leaves.
+    if (badges.size && !badgeRAF) {
+      const tick = () => { badgeRAF = badges.size ? requestAnimationFrame(tick) : 0; parkBadges(); };
+      badgeRAF = requestAnimationFrame(tick);
+    }
+  }
+
+  /** The per-frame half of syncBadges: move the chips that already exist. Does
+   *  not create, remove or re-label — that is syncBadges' job on a real change —
+   *  so the hot path stays cheap. */
+  function parkBadges() {
+    if (!badges.size) return;
+    const pp = pricePane();
+    const host = el("chart");
+    if (!pp || !host) return;
+    const hostRect = host.getBoundingClientRect();
+    for (const [id, node] of badges) {
+      const a = state.alerts.find((x) => x.id === id);
+      const price = a && alertPrice(a);
+      const y = price == null ? null : pp.series.priceToCoordinate(price);
+      if (y == null) { node.style.display = "none"; continue; }
+      node.style.display = "";
+      node.style.top = (pp.rect.top - hostRect.top + y) + "px";
+    }
+  }
+
   const emit = () => {
     syncChartLines();
+    syncBadges();
     listeners.forEach((f) => { try { f(state); } catch {} });
   };
-  Theme.onChange(syncChartLines);
+  Theme.onChange(() => { syncChartLines(); syncBadges(); });
+  // The chart-type switcher rebuilds the price series, taking its price lines
+  // (and __charto.candle) with it. Our map still names the old, destroyed
+  // lines, whose state keys match — so without this the alert lines would not
+  // be redrawn on the new series. Forget them, then re-sync onto it.
+  document.addEventListener("charto:series-swapped", () => {
+    chartLines.clear();
+    syncChartLines();
+    syncBadges();
+  });
 
   /** Price lines are canvas objects, so Lightweight Charts does not emit a
    *  DOM click for them. Hit-test their y coordinate against the price pane,
@@ -138,6 +265,15 @@ const Alerts = (() => {
     if (selectedLine === id) return;
     selectedLine = id;
     syncChartLines();
+    syncBadges();
+  }
+
+  /** The line the pointer is near, which shows that line's name chip. Kept
+   *  separate from selection: hovering reveals, clicking commits. */
+  function setHover(id) {
+    if (hoverLine === id) return;
+    hoverLine = id;
+    syncBadges();
   }
 
   function bindChartLineEditing() {
@@ -167,6 +303,7 @@ const Alerts = (() => {
     host.addEventListener("pointermove", (e) => {
       if (!lineDrag || e.pointerId !== lineDrag.pointer) {
         const hit = lineHit(e.clientY);
+        setHover(hit ? hit.id : null);
         if (hit) host.style.cursor = "ns-resize";
         else if (host.style.cursor === "ns-resize") host.style.cursor = "";
         return;
@@ -211,6 +348,10 @@ const Alerts = (() => {
     };
     host.addEventListener("pointerup", (e) => finish(e), true);
     host.addEventListener("pointercancel", (e) => finish(e, true), true);
+
+    // A pointer that leaves the chart has left every line — drop the hover chip,
+    // but keep a selected line's chip, which stands until the selection is cleared.
+    host.addEventListener("pointerleave", () => { if (!lineDrag) setHover(null); });
 
     document.addEventListener("pointerdown", (e) => {
       if (!host.contains(e.target) && !e.target.closest("#alertsPanel")) selectLine(null);
@@ -721,10 +862,15 @@ const Alerts = (() => {
     addEventListener("resize", closeCombo);
   }
 
+  /* The menu shows the HUMAN name only — "Average volume, 20 bars", not
+   * "avg(volume,20)". The raw address is the engine's language, not the user's;
+   * it still rides `data-addr`, so picking a row fills the field with the real
+   * address the server needs, and the field stays free text for anyone who wants
+   * to type a grammar term directly. The menu just stops leading with jargon. */
   const comboHTML = (groups) => groups.map(([name, rows]) =>
     `<div class="grp">${esc(name)}</div>` + rows.map(([addr, desc]) =>
       `<div class="row" data-addr="${esc(addr)}" role="button" tabindex="-1">` +
-        `<b>${esc(addr)}</b><span>${esc(desc)}</span></div>`).join("")).join("");
+        `<b>${esc(desc)}</b></div>`).join("")).join("");
 
   /** Does this condition want the × field?
    *

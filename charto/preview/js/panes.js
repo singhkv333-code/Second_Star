@@ -38,10 +38,16 @@ const Panes = (() => {
   let onSettings = null;
   // the server's own vocabulary; the header's D/W/M are display labels
   const WIRE = { D: "1d", W: "1w", M: "1mo" };
-  const IV_SEC = { "1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600,
-                   "1d": 86400, "1w": 604800, "1mo": 2592000 };
   const DISP = { "1d": "D", "1w": "W", "1mo": "M" };
   const PAGE = { "1m": 3000, "5m": 2500, "15m": 2000, "30m": 2000, "1h": 2000, D: 2000, W: 700, M: 200 };
+  // seconds per bar, keyed by BOTH the display label and the wire id — the
+  // drawing runtime asks for it (clone offset), and a pane speaks D/W/M while
+  // the server speaks 1d/1w/1mo.
+  const IV_SEC = {
+    "1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600,
+    D: 86400, W: 604800, M: 2592000,
+    "1d": 86400, "1w": 604800, "1mo": 2592000,
+  };
 
   /* ── the layout catalogue ────────────────────────────────────────────────
    *
@@ -116,6 +122,10 @@ const Panes = (() => {
     ["g42", "4 × 2", ["ab", "cd", "ef", "gh"]],
     ["c8", "Eight columns", ["abcdefgh"]],
     ["r8", "Eight rows", ["a", "b", "c", "d", "e", "f", "g", "h"]],
+    // 9
+    ["g33", "3 × 3", ["abc", "def", "ghi"]],
+    // 16
+    ["g44", "4 × 4", ["abcd", "efgh", "ijkl", "mnop"]],
   ];
 
   /** Area letters in the order a reader meets them, scanning row-major.
@@ -162,6 +172,51 @@ const Panes = (() => {
   /** Layout ids are persisted, and the first three used to be spelled out. */
   const LEGACY = { single: "s1", cols: "c2", rows: "r2" };
 
+  /* ── custom grids ────────────────────────────────────────────────────────
+   *
+   * The preset catalogue above is deliberately finite — the shapes a person
+   * actually reaches for. The custom picker is the escape hatch: drag a
+   * rectangle over a grid of cells and get exactly that uniform R×C, the way
+   * openmarket and TradingView both offer. It is NOT a second layout model —
+   * it builds the same {spec, template, areas} object every preset is and
+   * drops it into LAYOUTS, so apply(), the splitters, the thumbnail and the
+   * save/restore all treat it as any other layout with no special-casing.
+   *
+   * The id is `gRxC` (g2x3), memoised so the same drag twice is the same
+   * object, and persisted like any preset — a reload rebuilds it from the id
+   * alone. Capped at 5×5: one letter per cell keeps the string-spec model
+   * (areasOf/validate/template all walk characters), and 25 charts is already
+   * past the point of usefulness. */
+  const CUSTOM_MAX = 5;
+  const CELL = "abcdefghijklmnopqrstuvwxyz";
+
+  function customId(rows, cols) { return `g${rows}x${cols}`; }
+
+  /** Build (or fetch the memoised) LAYOUTS entry for a uniform rows×cols grid.
+   *  Returns the id, ready to hand to apply(). */
+  function ensureGrid(rows, cols) {
+    const r = Math.max(1, Math.min(CUSTOM_MAX, rows | 0));
+    const c = Math.max(1, Math.min(CUSTOM_MAX, cols | 0));
+    const id = customId(r, c);
+    if (LAYOUTS[id]) return id;
+    // row-major letters, one per cell — "ab" / "cd" for 2×2
+    const spec = [];
+    let k = 0;
+    for (let y = 0; y < r; y++) {
+      let row = "";
+      for (let x = 0; x < c; x++) row += CELL[k++];
+      spec.push(row);
+    }
+    validate(id, spec);
+    LAYOUTS[id] = {
+      id, label: `${r} × ${c}`, spec, custom: true,
+      panes: areasOf(spec).length, areas: areasOf(spec),
+      cols: c, rows: r,
+      template: spec.map((row) => `"${[...row].join(" ")}"`).join(" "),
+    };
+    return id;
+  }
+
   let gridEl = null;
   let stage = null;       // the PRIMARY pane's element (main.js owns its chart)
   let layout = "s1";
@@ -196,6 +251,10 @@ const Panes = (() => {
   }
   let active = 0;         // 0 = primary, 1..n = subs — the pane the toolbar drives
   const subs = [];        // active secondary charts
+  let subSeq = 0;         // monotonic id for a sub's drawing runtime (never reused)
+  // main.js installs this so a tool finishing on a secondary pane hands the
+  // rail back to the cursor, exactly as the primary's onToolDone does.
+  let onSubToolDone = null;
 
   /* Must stay identical to main.js's copy — a sub-pane's axis sits directly
      under the primary's and any difference reads as a rendering bug. */
@@ -263,10 +322,11 @@ const Panes = (() => {
     const legendEl = root.querySelector(".sub-legend .ind-legend");
 
     const chart = LWC.createChart(canvas, chartOpts());
-    const candle = chart.addSeries(LWC.CandlestickSeries, {
-      upColor: Theme.c("up"), downColor: Theme.c("down"), borderVisible: false,
-      wickUpColor: Theme.c("up"), wickDownColor: Theme.c("down"),
-    });
+    // Built through ChartSettings so this pane wears the same chart type the
+    // primary does — a split showing one instrument twice must show it the same
+    // way. `let`, because the type switcher rebuilds the series (see rebind in
+    // sub.settings below). See js/chartsettings.js makeSeries / setType.
+    let candle = ChartSettings.makeSeries(chart);
     // No volume series here either — it is an indicator now, added below
     // through this pane's OWN manager so it wears the same eye, gear and ×
     // as every other study on the pane. See js/indicators.js seriesFor().
@@ -282,9 +342,13 @@ const Panes = (() => {
       // "Default" in the dialog has to mean THESE, not the primary's
       defaults: { fontSize: 11, rightOffset: 4 },
       label: () => sub.symbol,
+      // The type switcher rebuilt this pane's price series — re-point the local
+      // and the sub's own handle. A secondary pane has no scene/markers, so
+      // there is nothing else bound to the old series.
+      rebind(next) { candle = next; sub.candle = next; },
       repaint() {
         if (!sub.bars.length) return;
-        candle.setData(ChartSettings.candlePoints(sub.bars));
+        candle.setData(ChartSettings.pricePoints(sub.bars));
         // the strip's colours are the study's, but the direction rule is the
         // dialog's — same coupling the primary chart documents
         if (sub.ind) sub.ind.retheme(sub.bars);
@@ -386,6 +450,96 @@ const Panes = (() => {
                     : sub.bars[sub.bars.length - 1]);
     });
 
+    /* ── the alert ⊕, on THIS pane ──────────────────────────────────────────
+     *
+     * The primary chart grows one of these (js/main.js makePlus/syncPlus): a
+     * mark that rides the pointer down the price axis and, clicked, opens the
+     * alert card at the level under it. Until now a secondary pane had none, so
+     * hovering pane 2's axis offered nothing — the reason the affordance only
+     * appeared "in the first box".
+     *
+     * This is the same mark and the same CSS, self-contained on the pane. It
+     * does not draw the alert's price LINE — that stays a primary-chart fact
+     * (see alerts.js syncChartLines, bound to __charto.candle) — but it does
+     * the thing the hover is for: it lets you ADD an alert on this pane's own
+     * instrument, at the price you are pointing at, on this pane's interval.
+     * The line then shows up whenever this pane's symbol is the page's symbol,
+     * which is exactly when alerts.js can draw it.
+     */
+    let plus = null, plusPrice = null;
+    const PLUS_PAD = 4;
+    function makePlus() {
+      const b = document.createElement("div");
+      b.className = "alert-plus";
+      b.innerHTML = `<span class="alert-plus-mark">`
+        + `<span class="alert-plus-ring">${Icons.svg("plus", "xs")}</span></span>`
+        + `<span class="alert-plus-value"></span>`;
+      canvas.appendChild(b);
+      return b;
+    }
+    function hidePlus() {
+      if (plus) plus.classList.remove("show", "hot");
+      plusPrice = null;
+    }
+    function onPlus(x, y) {
+      if (!plus || !plus.classList.contains("show")) return false;
+      const mark = plus.querySelector(".alert-plus-mark");
+      if (!mark) return false;
+      const r = mark.getBoundingClientRect();
+      return x >= r.left - PLUS_PAD && x <= r.right + PLUS_PAD
+          && y >= r.top - PLUS_PAD && y <= r.bottom + PLUS_PAD;
+    }
+    function syncPlus(clientX, clientY) {
+      // Only over the PRICE pane, and only on the candle side of the scale —
+      // the axis is what you grab to rescale, and lighting the mark on it turns
+      // an ordinary axis drag into a duplicate marker. Same split the primary
+      // makes: --axis-w is measured here off this pane's own scale.
+      // A tool armed on this pane owns the pointer — the ⊕ must not compete
+      // with a line being placed, the same rule the primary's syncPlus applies.
+      if (sub.draw && sub.draw.state.tool !== "cursor") return hidePlus();
+      let axisW = 0;
+      try { axisW = chart.priceScale("right").width(); } catch { /* not laid out */ }
+      canvas.style.setProperty("--axis-w", `${axisW || 64}px`);
+      const box = canvas.getBoundingClientRect();
+      const scaleLeft = box.right - (axisW || 64);
+      // The currency/venue badge sits at the top of the price scale; keep the
+      // pill clear of the first ~34px so it never prints across it.
+      const inside = clientX >= box.left && clientX < scaleLeft
+        && clientY >= box.top + 34 && clientY <= box.bottom;
+      if (!inside) return hidePlus();
+      const px = candle.coordinateToPrice(clientY - box.top);
+      if (px == null || !isFinite(px)) return hidePlus();
+      if (!plus || !plus.isConnected) plus = makePlus();
+      const d = Sym.of(sub.symbol);
+      plusPrice = Number(px.toFixed(px >= 100 ? 2 : 4));
+      const value = plus.querySelector(".alert-plus-value");
+      if (value) { try { value.textContent = d.num(plusPrice); }
+                   catch { value.textContent = String(plusPrice); } }
+      plus.style.top = (clientY - box.top) + "px";
+      plus.title = `Alert at ${d.num(plusPrice)} on ${sub.symbol}`;
+      plus.classList.add("show");
+      plus.classList.toggle("hot", onPlus(clientX, clientY));
+    }
+    canvas.addEventListener("mousemove", (e) => syncPlus(e.clientX, e.clientY));
+    canvas.addEventListener("mouseleave", hidePlus);
+    // Capture phase, ahead of the library's own canvas handlers, so a click on
+    // the mark opens the card instead of panning the chart underneath.
+    canvas.addEventListener("click", (e) => {
+      if (!onPlus(e.clientX, e.clientY)) return;
+      const at = plusPrice;
+      e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+      hidePlus();
+      if (at == null || typeof Alerts === "undefined") return;
+      const last = sub.bars.length ? sub.bars[sub.bars.length - 1].close : null;
+      Alerts.open({ symbol: sub.symbol, level: at, last,
+                    interval: WIRE[sub.interval] || sub.interval });
+    }, true);
+    canvas.addEventListener("mousedown", (e) => {
+      if (onPlus(e.clientX, e.clientY)) {
+        e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+      }
+    }, true);
+
     async function load(rawIv) {
       // The toolbar speaks the server's ids (1d/1w/1mo), this pane's ladder and
       // legend speak D/W/M. Normalising here is why a daily pane picked from
@@ -397,9 +551,10 @@ const Panes = (() => {
         const bars = await fetchBars(sub.symbol, iv, PAGE[iv] || 2000);
         if (sub.destroyed) return;
         sub.bars = bars;
-        // the settings module builds both series — see the note beside
-        // main.js's paint(): one place decides what a green bar is
-        candle.setData(ChartSettings.candlePoints(bars));
+        // the settings module builds the series — see the note beside
+        // main.js's paint(): one place decides what a green bar is, and
+        // pricePoints hands the active shape (candles/bars/line/area) its data
+        candle.setData(ChartSettings.pricePoints(bars));
         chart.applyOptions({
           timeScale: { timeVisible: !["D", "W", "M"].includes(iv) },
         });
@@ -422,11 +577,56 @@ const Panes = (() => {
             // one simply opens without the strip
             .catch(() => {});
         }
+        // the volume strip (and any study) is a new pane the drawing layer
+        // must attach its overlay to, the same re-attach the primary runs on
+        // charto:indicators-changed
+        if (sub._syncDrawPanes) requestAnimationFrame(sub._syncDrawPanes);
       } catch (e) {
         if (!sub.destroyed) titleEl.textContent = String(e.message || e);
       }
     }
     sub.load = load;
+
+    /* ── the drawing runtime, on THIS pane ──────────────────────────────────
+     *
+     * A secondary pane gets the same drawing engine the primary does — arm a
+     * tool, draw, select, drag, restyle — over its OWN canvas, bars and panes.
+     * It is `persist:false`, so its shapes live for the life of the pane and
+     * stay out of the symbol store and the undo history: a split pane is
+     * reference, and a line drawn on the 1h view is about reading the 1h view,
+     * not about the session the primary owns.
+     *
+     * The tool is armed on WHICHEVER pane holds the selection — see
+     * setActiveDraw()/toolForActive() below — so the one rail drives the one
+     * chart you are working in, exactly as the interval strip already does. */
+    const paneId = `sub-${++subSeq}`;
+    sub.paneId = paneId;
+    function subPanesList() {
+      const out = [{ key: "price", label: "price",
+                     pane: candle.getPane(), series: candle }];
+      for (const [, a] of sub.ind.active) {
+        if (!a.def || a.def.kind !== "pane" || !(a.series || []).length) continue;
+        out.push({ key: a.def.name, period: a.def.period, label: a.def.label,
+                   pane: a.series[0].getPane(), series: a.series[0] });
+      }
+      return out;
+    }
+    sub.draw = Drawings.create(chart, candle, {
+      getBars: () => sub.bars,
+      getIntervalSec: () => IV_SEC[sub.interval] || 86400,
+      container: canvas,
+      stage: root,
+      panes: subPanesList,
+      persist: false,
+      paneId,
+      setStatus: () => {},
+      // a tool that finishes hands the toolbar back to cursor, on every pane
+      onToolDone: () => { if (onSubToolDone) onSubToolDone(); },
+      onChange: () => {},
+    });
+    // panes come and go with this pane's own indicators — re-attach the
+    // drawing primitives the same way the primary does on its own changes
+    sub._syncDrawPanes = () => { try { sub.draw.syncPanes(); } catch {} };
 
     /** Point this pane at another instrument. A cold symbol hydrates server
      *  side (~6 s), so the legend says what it is doing rather than sitting
@@ -464,6 +664,10 @@ const Panes = (() => {
     sub.destroy = () => {
       sub.destroyed = true;
       sub.sceneAbort.abort();   // the scene's window listeners go with the pane
+      // the drawing runtime holds pointer listeners on this canvas and
+      // primitives on its series; drop them before the chart goes, and
+      // unregister so a stale paneId cannot resolve to a dead pane
+      try { sub.draw.destroy(); } catch { /* never created */ }
       // first: a settings edit must never reach a chart that is going away
       ChartSettings.unregister(sub.settings);
       // before the chart goes: the legend holds a sink on the manager and
@@ -631,6 +835,11 @@ const Panes = (() => {
 
   function apply(next) {
     if (!gridEl) return;
+    /* A custom grid id (gRxC) may not be in LAYOUTS yet — a reload restores it
+     * from the persisted id alone, before anyone has opened the picker — so
+     * rebuild it from the id before the lookup below. */
+    const cm = /^g(\d+)x(\d+)$/.exec(String(next || ""));
+    if (cm && !LAYOUTS[next]) ensureGrid(Number(cm[1]), Number(cm[2]));
     /* A persisted id from an older build (or a typo) must not leave the grid
      * with no template at all — that drops every pane into cell 1. */
     const id = LAYOUTS[next] ? next : (LEGACY[next] || "s1");
@@ -687,6 +896,16 @@ const Panes = (() => {
 
   return {
     init, apply, LAYOUTS, setActive,
+    /** The largest custom grid the picker offers, per side. */
+    CUSTOM_MAX,
+    /** Build (memoised) and apply a uniform rows×cols custom grid — the drag
+     *  picker's one entry point. Returns the layout id it applied. */
+    applyGrid(rows, cols) { const id = ensureGrid(rows, cols); apply(id); return id; },
+    /** The grid wrapper Panes builds around #stage. main.js parks the two
+     *  chart-corner marks (the Pivot signature, the reset button) on it when a
+     *  split is active, so they sit at the WHOLE grid's outer corners rather
+     *  than trapped inside the primary pane's box. */
+    gridEl() { return gridEl; },
     /** Where a secondary pane's legend sends a gear click. main.js owns the
      *  settings dialog (and the signal that follows an edit), so it hands
      *  down one opener rather than this file growing a second copy of it.
@@ -730,6 +949,19 @@ const Panes = (() => {
     all() { return subs.slice(); },
     /** The indicator manager the one toolbar drives. */
     activeInd() { const s = this.activeSub(); return s ? s.ind : null; },
+    /** The drawing runtime the rail should arm a tool on: null when the
+     *  primary is selected (main.js drives its own), else the selected
+     *  secondary pane's own runtime. */
+    activeDraw() { const s = this.activeSub(); return s ? s.draw : null; },
+    /** Run fn against every secondary pane's drawing runtime — used to put
+     *  them all back to the cursor when the tool arms elsewhere. */
+    eachSubDraw(fn) { for (const s of subs) if (s.draw) { try { fn(s.draw); } catch {} } },
+    /** Resolve a paneId (from a charto:draw-select detail) to its runtime, so
+     *  the edit toolbar can act on the pane the selection is actually on. */
+    drawByPaneId(id) { return Drawings.byPaneId(id); },
+    /** main.js hands down what "a tool finished" means, so a secondary pane
+     *  hands the rail back to the cursor exactly as the primary does. */
+    onSubToolDone(fn) { onSubToolDone = fn; },
     /** Route an interval choice to the selected pane. Returns false when the
      *  primary is selected, so main.js keeps ownership of its own chart. */
     setIntervalOnActive(iv) {

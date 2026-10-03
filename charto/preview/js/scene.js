@@ -97,6 +97,20 @@ const Scene = (() => {
         markerApi.setMarkers(evs);
       }
     }
+    /* The chart-type switcher rebuilt the price series, so the marker layer —
+     * the one thing in here bound to the series OBJECT rather than resolved
+     * live through env.panes() — is pointing at a series that no longer exists.
+     * Detach it and null the handle; the next syncMarkers() re-creates it on the
+     * new series with the current marks. Everything else (vToY, hit tests) goes
+     * through paneFor()/p.series, which already reads the new series. */
+    function rebindSeries(next) {
+      candle = next;
+      if (markerApi) { try { markerApi.detach(); } catch {} markerApi = null; }
+      syncMarkers();
+      // The chat's drawn annotations are series primitives too — re-attach them
+      // to the new series, or they vanish with the one that was removed.
+      syncPanes();
+    }
     const rus = new Map();                 // paneKey -> requestUpdate
     const _ru = () => { for (const f of rus.values()) f(); };
     const attached = new Map();            // paneKey -> {pane, prim}
@@ -984,9 +998,14 @@ const Scene = (() => {
       for (const [key, rec] of [...attached]) {
         // same KEY is not same PANE: re-perioding an indicator destroys its
         // pane and creates a fresh one under the same name, and a primitive
-        // left on the dead pane renders nothing, silently
+        // left on the dead pane renders nothing, silently.
+        //
+        // same PANE is not same SERIES either: the chart-type switcher rebuilds
+        // the price series in place (candles → line, …), and a primitive left
+        // on the removed series renders nothing just the same. Re-attach when
+        // the host series has moved out from under us.
         const lp = live.find((p) => p.key === key);
-        if (lp && lp.pane === rec.pane) continue;
+        if (lp && lp.pane === rec.pane && (lp.series || lp.pane) === rec.host) continue;
         try { rec.host.detachPrimitive(rec.prim); } catch { /* pane already gone */ }
         attached.delete(key); rus.delete(key); dropOverlay(key);
       }
@@ -1326,6 +1345,10 @@ const Scene = (() => {
 
     return {
       state,
+      /** Re-point the marker layer at a freshly built price series — the
+       *  chart-type switcher (candles/bars/line/area) rebuilds it, and markers
+       *  are the one thing here bound to the series object. */
+      rebindSeries,
       hitAt: (y, key, x) => hitAt(y, key, x),
       /** For the touch bridge in drawings.js: may a finger here drag one of
        *  the chat's annotations? Asked before the gesture is swallowed, so a

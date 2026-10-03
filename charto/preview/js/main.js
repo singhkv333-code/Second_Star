@@ -227,10 +227,14 @@
     stageEl.style.setProperty("--plate", Theme.c("crosshairLabel"));
   publishPlate();
 
-  const candle = chart.addSeries(LWC.CandlestickSeries, {
-    upColor: Theme.c("up"), downColor: Theme.c("down"), borderVisible: false,
-    wickUpColor: Theme.c("up"), wickDownColor: Theme.c("down"),
-  });
+  // The price series. `let`, not `const`, because the chart-type switcher
+  // (candles / bars / line / area) rebuilds it — a series' type is fixed at
+  // creation, so changing it means a new series. ChartSettings owns how each
+  // shape is built, so even the FIRST one comes from there: a restored "line"
+  // preference is honoured from the first paint. Everything that reads the
+  // price series live does so through panesList() below, so the swap re-points
+  // only this binding and the scene's marker layer (see scene.rebindSeries).
+  let candle = ChartSettings.makeSeries(chart);
   /* No volume series here. Volume was the one study welded into the chart —
    * always on, unstyleable, impossible to remove — and it is an ordinary
    * indicator now: Indicators ▸ Volume, with its own colours, its own MA and
@@ -248,6 +252,24 @@
     // was built with, twelve lines up
     defaults: { fontSize: 12, rightOffset: 5 },
     label: () => SYMBOL,
+    // The chart-type switcher rebuilt the price series — re-point every binding
+    // that held the old one. panesList() reads `candle` live so drawings, pins
+    // and the crosshair follow for free; the two that captured it directly are
+    // the scene's marker layer and the debug handle.
+    rebind(next) {
+      candle = next;
+      // The user's own drawings and the chat's annotations are series
+      // primitives attached to the OLD series — re-attach them to the new one,
+      // or they stay on the removed series and render nothing until a refresh.
+      if (draw && draw.syncPanes) draw.syncPanes();
+      if (scene && scene.rebindSeries) scene.rebindSeries(next);
+      if (window.__charto) window.__charto.candle = next;
+      // Anything that bound price lines to the OLD series — alerts is the one
+      // today — must drop and redraw them on the new one; its lines went with
+      // the series that was just removed.
+      document.dispatchEvent(new CustomEvent("charto:series-swapped",
+        { detail: { type: ChartSettings.getType() } }));
+    },
     repaint() {
       // LOAD-BEARING GUARD, not just an optimisation. register() calls this
       // synchronously, and `ind` is a const declared further down this
@@ -255,7 +277,9 @@
       // ReferenceError. Bars arrive only from loadInterval(), which runs
       // after the manager exists, so "there are bars" IS "ind is built".
       if (!state.bars.length) return;
-      candle.setData(ChartSettings.candlePoints(state.bars));
+      // pricePoints, not candlePoints: it hands the active shape the data it
+      // wants — OHLC for candles/bars, close for line/area.
+      candle.setData(ChartSettings.pricePoints(state.bars));
       // The volume strip's colours belong to the indicator now, but the
       // DIRECTION rule is still this dialog's — so a change to "colour bars
       // based on previous close" has to reach the study too.
@@ -285,7 +309,7 @@
     // colours are a setting (and, with "colour bars based on previous
     // close", a per-POINT one), and a second place deciding what green means
     // is a second place to get it wrong.
-    candle.setData(ChartSettings.candlePoints(state.bars));
+    candle.setData(ChartSettings.pricePoints(state.bars));
     // A new interval can move an indicator in or out of the timeframes its
     // Visibility tab allows, and the legend row is where that is legible —
     // without this the plot vanishes on 1h while its row still reads as live.
@@ -468,7 +492,7 @@
       // the bar BEFORE the forming one — the previous-close colouring rule
       // needs it, and on a replaced last bar that is two back
       const prev = state.bars[state.bars.length - 2] || null;
-      candle.update(ChartSettings.candlePoint(bar, prev));
+      candle.update(ChartSettings.pricePoint(bar, prev));
       // volume is a study now, so the strip is patched through the manager —
       // see Indicators updateEdge(). A no-op when the user has it switched off.
       ind.updateEdge(state.bars);
@@ -626,14 +650,18 @@
     return y >= top - slack && y <= bot + slack;
   }
   chart.subscribeCrosshairMove((p) => {
-    const b = p && p.seriesData ? p.seriesData.get(candle) : null;
+    const sd = p && p.seriesData ? p.seriesData.get(candle) : null;
+    // A line/area series reports {value}, not OHLC — so the readout (and the
+    // on-bar hit test) resolve the FULL bar from state.bars by time, falling
+    // back to the series datum. The lookup is what the V figure already needed.
+    const at = sd ? state.bars.find((x) => x.time === p.time) : null;
+    const b = at || sd;
     chartEl.classList.toggle("on-bar", yOnBar(p && p.point ? p.point.y : null, b, 2));
     if (b) {
       // The V figure comes from the BARS, not from a volume series: the
       // study can be switched off now, and the status line's volume is the
       // instrument's, not the indicator's.
       const src = state.bars[state.bars.length - 1];
-      const at = state.bars.find((x) => x.time === p.time);
       paintReadout({ ...b, volume: at ? at.volume : (src ? src.volume : 0) });
     } else paintReadout(lastBar);
   });
@@ -921,7 +949,8 @@
    * other menu button in here is an icon whose menu IS the feedback. Read off
    * the menus rather than tracked, so the document-wide close below cannot
    * leave a trigger looking open over a menu that isn't. */
-  const MENU_TRIGGERS = [["intervalBtn", "intervalMenu"], ["acctBtn", "acctMenu"]];
+  const MENU_TRIGGERS = [["intervalBtn", "intervalMenu"],
+                         ["chartTypeBtn", "chartTypeMenu"], ["acctBtn", "acctMenu"]];
   function syncMenuTriggers() {
     for (const [b, m] of MENU_TRIGGERS) {
       const btn = el(b), menu = el(m);
@@ -1009,6 +1038,49 @@
     }));
   });
 
+  // ── chart type ────────────────────────────────────────
+  /* Candles / bars / line / area, TradingView's switcher beside the interval.
+   * The series itself is rebuilt by ChartSettings.setType — which swaps it on
+   * EVERY chart on screen and persists the choice — so this is only the pill
+   * and its list. The list is built from the one catalogue the dialog's Type
+   * select reads too, so the two can never fall out of step. */
+  const ctBtn = el("chartTypeBtn"), ctMenu = el("chartTypeMenu");
+  const CHART_TYPES = ChartSettings.chartTypes();
+  ctMenu.innerHTML = CHART_TYPES.map((t) =>
+    `<button type="button" class="item ct-item" role="menuitemradio" `
+    + `data-ct="${t.id}"><span class="lead">${Icons.svg(t.icon, "xs")}`
+    + `<span>${t.label}</span></span>${Icons.svg("check", "tick")}</button>`).join("");
+
+  /** Paint the pill's glyph + title and tick the current row. Driven both by a
+   *  click here and by the settings dialog's Type select, through the
+   *  ChartSettings.onChange subscription below — one source of truth. */
+  function markChartType(id) {
+    const t = CHART_TYPES.find((x) => x.id === id) || CHART_TYPES[0];
+    // Icon only in the pill — the word lives in the menu. The title carries the
+    // name for the pointer and for a screen reader.
+    ctBtn.innerHTML = Icons.svg(t.icon);
+    ctBtn.title = `Chart type — ${t.label}`;
+    for (const b of ctMenu.querySelectorAll("[data-ct]"))
+      b.classList.toggle("on", b.dataset.ct === id);
+  }
+  ctBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    closeMenus(ctMenu);
+    ctMenu.classList.toggle("open");
+    syncMenuTriggers();
+  });
+  ctMenu.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-ct]");
+    if (!b) return;
+    ctMenu.classList.remove("open");
+    syncMenuTriggers();
+    ChartSettings.setType(b.dataset.ct);   // swaps the series; markChartType via onChange
+  });
+  // The dialog's Type select and this pill show the same state — let the pill
+  // follow any change ChartSettings makes, wherever it originated.
+  ChartSettings.onChange(() => markChartType(ChartSettings.getType()));
+  markChartType(ChartSettings.getType());
+
   /** Paint the pill and its list without claiming either as the primary's
    *  state — a selected secondary pane drives this too. */
   function markInterval(iv) {
@@ -1058,6 +1130,14 @@
     gannBox: "gannBox", gannSquare: "gannSquare",
     gannSquareFixed: "gannSquareFixed", gannFan: "gannFan",
     rect: "rect", triangle: "triangle", brush: "brush",
+    ellipse: "ellipse", arc: "arc", curve: "curve",
+    rotatedRect: "rotatedRect", path: "path",
+    xabcd: "xabcd", cypher: "cypher", abcd: "abcd", trianglePat: "trianglePat",
+    headShoulders: "headShoulders", threeDrives: "threeDrives",
+    elliottImpulse: "elliottImpulse", elliottCorrection: "elliottCorrection",
+    elliottTriangle: "elliottTriangle", elliottDoubleCombo: "elliottDoubleCombo",
+    elliottTripleCombo: "elliottTripleCombo",
+    cyclicLines: "cyclicLines", timeCycles: "timeCycles", sineLine: "sineLine",
     priceRange: "hline", dateRange: "vline", measure: "measure",
     long: "position", short: "position", text: "text" };
   const lastOfGroup = {};
@@ -1326,8 +1406,26 @@
   // panes appear and vanish with their indicators — re-attach on every change
   document.addEventListener("charto:indicators-changed", () => draw.syncPanes());
 
+  // The tool the rail is showing as armed, so switching the active pane can
+  // carry it to the newly-selected chart (see Panes.onActive below).
+  let railTool = "cursor";
   function selectTool(id) {
-    draw.setTool(id);
+    // One rail, the pane you are working in. A drawing tool arms on WHICHEVER
+    // pane holds the selection — the primary, or a secondary pane in a split —
+    // and every OTHER pane is put back to the cursor so two charts are never
+    // both waiting for the same click. The cursor tool itself arms everywhere,
+    // because "stop drawing" is not a per-pane statement.
+    railTool = id;
+    const activeDraw = Panes.activeDraw && Panes.activeDraw();
+    if (activeDraw && id !== "cursor") {
+      draw.setTool("cursor");
+      if (Panes.eachSubDraw) Panes.eachSubDraw((d) => d.setTool("cursor"));
+      activeDraw.setTool(id);
+    } else {
+      draw.setTool(id);
+      // cursor (or no secondary selected): clear any tool left armed on a sub
+      if (Panes.eachSubDraw) Panes.eachSubDraw((d) => d.setTool("cursor"));
+    }
     el("tool-cursor").classList.toggle("active", id === "cursor");
     const spec = Tools.SPECS[id];
     for (const g of Tools.GROUPS) {
@@ -3678,10 +3776,6 @@
     };
   };
 
-  const settingsRow = () => ({
-    icon: "settings", label: "Settings", on: () => ChartSettings.open(),
-  });
-
   /* ── 1 · empty chart: a price and a moment, and nothing else ──────────── */
   function menuForPoint(px, bar) {
     const level = levelAt(px);
@@ -3733,7 +3827,6 @@
         on: () => Shortcuts.run("reset-view") },
       removeRow(),
       { icon: "bell", label: "Alerts", hint: "⌥ A", on: () => Panels.show("alerts") },
-      settingsRow(),
     ];
   }
 
@@ -3797,8 +3890,6 @@
         { label: "Address", title: addressAt(bar.time, bar.close),
           on: () => copyText(addressAt(bar.time, bar.close), "address copied") },
       ] },
-      { sep: true },
-      settingsRow(),
     ];
   }
 
@@ -3815,6 +3906,89 @@
    * crossed, and none of them has a hit rate — so those two rows are left off
    * their menus entirely rather than offered and then refused. */
   const PRICELESS = new Set(["text", "vline", "dateRange", "measure"]);
+
+  /* ── the shape's own style, folded into the right-click sheet ─────────────
+   * These are the three edits the floating strip used to own on its own —
+   * colour, line width, line style. They live here too so there is ONE menu
+   * to reach for, not a glass sheet plus a second toolbar hovering the shape.
+   * Same palette, same widths, same dashes DrawEdit offered, so a shape reads
+   * the same whichever surface you restyle it from; each opens a submenu that
+   * marks the current value with a tick and writes through draw.setStyle —
+   * the same API the strip called, so "colour" has one meaning on the chart. */
+  const D_SWATCHES = [
+    { name: "Accent", val: null },   // null → the theme default
+    { name: "Red", val: "#f23645" },
+    { name: "Orange", val: "#ff9800" },
+    { name: "Yellow", val: "#ffd60a" },
+    { name: "Green", val: "#22ab94" },
+    { name: "Teal", val: "#089981" },
+    { name: "Blue", val: "#2962ff" },
+    { name: "Purple", val: "#9c27b0" },
+    { name: "Pink", val: "#e040fb" },
+    { name: "White", val: "#ffffff" },
+    { name: "Grey", val: "#787b86" },
+    { name: "Black", val: "#131722" },
+  ];
+  const D_WIDTHS = [1, 2, 3, 4];
+  const D_STYLES = [
+    { name: "Solid", dash: [] },
+    { name: "Dashed", dash: [6, 4] },
+    { name: "Dotted", dash: [2, 3] },
+  ];
+  /** Open the OS colour picker seeded with the shape's current ink and write
+   *  whatever is chosen straight onto it. A native <input type=color> is the
+   *  one picker every platform already has; it is thrown away as soon as it
+   *  has answered, so nothing lingers on the page. */
+  const pickCustomColor = (id, seed) => {
+    const inp = document.createElement("input");
+    inp.type = "color";
+    inp.value = /^#[0-9a-f]{6}$/i.test(seed || "") ? seed : "#2962ff";
+    inp.style.cssText = "position:fixed;left:-9999px;top:-9999px;opacity:0";
+    document.body.appendChild(inp);
+    inp.addEventListener("input", () => draw.setStyle(id, { color: inp.value }));
+    inp.addEventListener("change", () => inp.remove());
+    inp.addEventListener("blur", () => setTimeout(() => inp.remove(), 0));
+    inp.click();
+  };
+
+  /** The colour / width / style rows for a drawing's menu, each a submenu that
+   *  ticks the shape's current value. Returns an array so the caller can splice
+   *  it in with the spread that already threads a falsy row through the sheet. */
+  const styleRows = (id) => {
+    const st = draw.styleOf(id) || {};
+    const curColor = st.color || null;       // the raw hex, or null on the accent
+    const curWidth = st.width || 2;
+    const curDash = (st.dash || []).join(",");
+    // The current ink resolved to a hex, so the OS picker opens on the shape's
+    // real colour even when it is riding the theme accent.
+    const curHex = curColor || (draw.styleOf(id) || {}).color || "#2962ff";
+    // True when the shape is on a colour that is NOT one of the swatches — then
+    // the Custom row is the one that carries the tick.
+    const isPreset = D_SWATCHES.some((s) => (s.val || null) === curColor);
+    return [
+      { icon: "palette", label: "Colour",
+        sub: () => D_SWATCHES.map((s) => ({
+          swatch: s.val || "var(--primary)", label: s.name,
+          tick: (s.val || null) === curColor,
+          on: () => draw.setStyle(id, { color: s.val }),
+        })).concat([
+          { sep: true },
+          { icon: "pipette", label: "Custom…", tick: !isPreset,
+            on: () => pickCustomColor(id, curHex) },
+        ]) },
+      { icon: "lineWidth", label: "Line width",
+        sub: () => D_WIDTHS.map((w) => ({
+          label: `${w}px`, tick: w === curWidth,
+          on: () => draw.setStyle(id, { width: w }),
+        })) },
+      { icon: "lineStyle", label: "Line style",
+        sub: () => D_STYLES.map((s) => ({
+          label: s.name, tick: s.dash.join(",") === curDash,
+          on: () => draw.setStyle(id, { dash: s.dash }),
+        })) },
+    ];
+  };
+
   function menuForDrawing(d) {
     const ref = d.ref || d.id;
     const spec = draw.SPECS[d.type];
@@ -3836,6 +4010,9 @@
       // look when you do not know the gesture yet.
       draw.isText(d.id) && { icon: "pen", label: "Edit text", hint: "Double-click",
         on: () => draw.editText(d.id) },
+      // Colour / width / style — the strip's fast edits, now in the one sheet.
+      ...styleRows(d.id),
+      { sep: true },
       priced && { icon: "barChart", label: "Test drawing",
         title: "Hit rate against a control, not an opinion",
         on: askAbout(`How reliable is ${ref}? Test it against a control.`) },
@@ -3877,10 +4054,8 @@
         // evidence is the tick on a menu you have just dismissed.
         on: () => notify(`${ref} ${draw.setLocked(d.id, !d.locked) ? "locked" : "unlocked"}`) },
       { sep: true },
-      { icon: "trash", label: "Remove", hint: "⌫", danger: true,
+      { icon: "trash", label: "Remove", danger: true,
         on: () => draw.remove(d.id) },
-      { sep: true },
-      settingsRow(),
     ];
   }
 
@@ -3924,17 +4099,20 @@
     // subscription, so ask it whether the click was already spoken for.
     if (scene.hitAt(yInPane(downAt[1], "price"), "price",
                     downAt[0] - chartEl.getBoundingClientRect().left)) return;
-    const b = param.seriesData.get(candle);
+    if (!param.seriesData.get(candle)) return;
+    // The FULL bar, from state.bars — the series datum is {value} on a line or
+    // area chart, which carries no high/low to hit-test or pin. yOnBar and the
+    // pin both need OHLC, so resolve it by time; the volume rode here anyway.
+    const b = state.bars.find((x) => x.time === param.time);
     if (!b) return;
     // A pin means THE CANDLE, not "wherever I happened to click": the click
     // must land on the bar's high-low span (grab tolerance), so a stray click
     // in empty chart space attaches nothing to the chat. Same test the cursor
     // and the right-click use — see yOnBar.
     if (!yOnBar(yInPane(downAt[1], "price"), b, 8)) return;
-    const v = state.bars.find((x) => x.time === param.time);
     // The interval travels with the bar: a pin outlives an interval switch
     // (it is a bar, not a view), so "09:35" has to keep saying which 09:35.
-    pins.toggle({ ...b, volume: v ? v.volume : 0, interval: state.interval });
+    pins.toggle({ ...b, interval: state.interval });
   });
   document.addEventListener("charto:unpin", (e) => pins.remove(e.detail));
   // Clicking a pin chip goes back to the bar it names — a chip you can't
@@ -4135,6 +4313,10 @@
   // a gear on a secondary pane's legend row opens the one settings dialog,
   // pointed at that pane's own indicator manager
   Panes.onSettings((id, mgr) => openIndSettings(id, mgr));
+  // a drawing tool finishing on a secondary pane hands the rail back to the
+  // cursor, exactly as the primary's onToolDone does — one behaviour, both
+  // surfaces, so the tool never stays armed after a shape is placed
+  if (Panes.onSubToolDone) Panes.onSubToolDone(() => selectTool("cursor"));
   const layoutBtn = el("layoutBtn"), layoutMenu = el("layoutMenu");
   /* The picker is a GRID OF GLYPHS grouped by pane count, not a list of
    * names: with forty-two layouts a text menu would be four screens of
@@ -4144,6 +4326,18 @@
    *
    * Both the rows and the glyphs come from the Panes catalogue — this file
    * decides nothing about what layouts exist or what they look like. */
+  /* The custom picker — a grid of cells you sweep a rectangle over, the way
+   * openmarket and TradingView both let you build an arbitrary R×C. It is not a
+   * separate layout system: the cell you release on becomes a `gRxC` layout
+   * that apply() treats like any preset (see Panes.ensureGrid). The cells are
+   * built once here; hover/drag paints them and the caption reads back what a
+   * release would apply. */
+  const CMAX = Panes.CUSTOM_MAX || 5;
+  const customCells = Array.from({ length: CMAX * CMAX }, (_, i) => {
+    const r = Math.floor(i / CMAX) + 1, c = (i % CMAX) + 1;
+    return `<span class="lay-cell" data-r="${r}" data-c="${c}"></span>`;
+  }).join("");
+
   layoutMenu.innerHTML =
     `<div class="head">Layout</div>`
     + Panes.groups().map(([n, list]) =>
@@ -4154,7 +4348,35 @@
             `<button type="button" class="lay-opt" data-layout="${L.id}" `
             + `title="${L.label}" aria-label="${L.label}">`
             + Icons.layoutSvg(L.spec, "sm") + `</button>`).join("")
-        + `</div></div>`).join("");
+        + `</div></div>`).join("")
+    + `<div class="sep"></div>`
+    + `<div class="head lay-custom-head">Custom<span class="lay-custom-cap"></span></div>`
+    + `<div class="lay-custom" style="grid-template-columns:repeat(${CMAX},1fr)">`
+    + customCells + `</div>`;
+
+  /* ── the custom-grid sweep ────────────────────────────────────────────── */
+  const customGrid = layoutMenu.querySelector(".lay-custom");
+  const customCap = layoutMenu.querySelector(".lay-custom-cap");
+  function paintCustom(r, c) {
+    for (const cell of customGrid.querySelectorAll(".lay-cell")) {
+      const on = Number(cell.dataset.r) <= r && Number(cell.dataset.c) <= c;
+      cell.classList.toggle("on", on);
+    }
+    customCap.textContent = r && c ? ` ${r} × ${c}` : "";
+  }
+  const clearCustom = () => paintCustom(0, 0);
+  customGrid.addEventListener("pointerover", (e) => {
+    const cell = e.target.closest(".lay-cell");
+    if (cell) paintCustom(Number(cell.dataset.r), Number(cell.dataset.c));
+  });
+  customGrid.addEventListener("pointerleave", clearCustom);
+  customGrid.addEventListener("click", (e) => {
+    const cell = e.target.closest(".lay-cell");
+    if (!cell) return;
+    layoutMenu.classList.remove("open");
+    clearCustom();
+    Panes.applyGrid(Number(cell.dataset.r), Number(cell.dataset.c));
+  });
 
   // Another tab took this one's parallel-chart slot. Said, never silent; the
   // proper surface for it (a banner with "use this tab") is a design item.
@@ -4196,6 +4418,11 @@
   // you just clicked (unless you have pinned one yourself).
   Panes.onActive((i, iv, sym) => {
     markInterval(iv || state.interval);
+    // A tool armed on the pane you just left follows you to the one you
+    // selected — selectTool routes by which pane is now active, so re-arming
+    // the same id moves it. Nothing happens for the cursor, which is armed
+    // everywhere anyway.
+    if (railTool !== "cursor") selectTool(railTool);
     // …but only HALF the toolbar can re-aim, and that was the bug. The
     // interval pill follows the selection; the symbol pill cannot, because
     // picking a company there navigates to ?symbol= and reloads — it is a
@@ -4227,13 +4454,36 @@
   // ticking a row the screen was no longer in, and nothing in the store — so
   // a reload silently threw the second chart away. onChange fires for every
   // apply(), whoever called it, which is the whole point of putting it here.
+  /* The Pivot signature and the reset button are children of the PRIMARY
+   * pane, so on a split they end up boxed inside pane 1 instead of signing the
+   * chart. On any multi-pane layout they move to the grid wrapper and sit at
+   * the whole desk's outer corners — the mark bottom-left, the reset button
+   * bottom-right — which is where Groww and openmarket put them too. A `.on-grid`
+   * class flips their CSS anchoring from the axis-aware pane corners to plain
+   * grid corners; single-chart hands them back to the primary. */
+  function reparentMarks() {
+    const grid = Panes.gridEl && Panes.gridEl();
+    const split = Panes.LAYOUTS[Panes.layout].panes > 1;
+    const host = split && grid ? grid : null;
+    if (host) {
+      if (brandMark.parentNode !== host) host.appendChild(brandMark);
+      if (resetBtn.parentNode !== host) host.appendChild(resetBtn);
+    } else {
+      if (brandMark.parentNode !== chartEl) chartEl.appendChild(brandMark);
+      if (resetBtn.parentNode !== stageEl) stageEl.appendChild(resetBtn);
+    }
+    brandMark.classList.toggle("on-grid", !!host);
+    resetBtn.classList.toggle("on-grid", !!host);
+  }
   Panes.onChange(() => {
     paintLayoutBtn();
+    reparentMarks();
     Store.set("layout", Panes.layout);
     document.dispatchEvent(new CustomEvent("charto:panes-changed"));
   });
   Panes.apply(Store.get("layout") || "s1");
   paintLayoutBtn();
+  reparentMarks();
 
   // ── chart settings ────────────────────────────────────
   // One button, one dialog, every chart on screen: js/chartsettings.js holds
@@ -4382,6 +4632,12 @@
         // dev-only link would hide the connect flow from everybody in prod.
         + `<div class="item" data-acct="brokers"><span class="lead">`
         + Icons.svg("link", "xs") + `Brokers</span></div>`
+        // Upgrade — the one row that opens a different KIND of surface (the
+        // pricing page, js/pricing.js), so it carries the arrow its own CTA
+        // does and sits just above the ordinary settings rows.
+        + `<div class="item acct-upgrade" data-acct="upgrade"><span class="lead">`
+        + Icons.svg("sparkles", "xs") + `Upgrade</span>`
+        + Icons.svg("arrowUpRight", "xs") + `</div>`
         + `<div class="item" data-acct="settings"><span class="lead">`
         + Icons.svg("settings", "xs") + `Settings</span></div>`
         + `<div class="item" data-acct="help"><span class="lead">`
@@ -4397,6 +4653,9 @@
         + `<div class="item" data-acct="login"><span class="lead">Sign in</span></div>`
         + `<div class="item" data-acct="signup"><span class="lead">Create an account</span></div>`
         + `<div class="sep"></div>`
+        + `<div class="item acct-upgrade" data-acct="upgrade"><span class="lead">`
+        + Icons.svg("sparkles", "xs") + `See plans</span>`
+        + Icons.svg("arrowUpRight", "xs") + `</div>`
         + `<div class="item" data-acct="settings"><span class="lead">`
         + Icons.svg("settings", "xs") + `Settings</span></div>`
         + `<div class="item" data-acct="help"><span class="lead">`
@@ -4464,6 +4723,7 @@
     if (!it) return;
     closeMenus(null);
     if (it.dataset.acct === "theme") { Theme.toggle(); paintAccount(Auth.user); return; }
+    if (it.dataset.acct === "upgrade") { if (window.Pricing) window.Pricing.open(); return; }
     if (it.dataset.acct === "settings") { el("settingsBtn").click(); return; }
     if (it.dataset.acct === "help") return Shortcuts.open();
     if (it.dataset.acct === "shortcuts") return Shortcuts.open();

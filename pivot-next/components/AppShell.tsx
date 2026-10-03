@@ -61,6 +61,8 @@ import {
   ActiveDraftContext,
 } from "@/components/agent-panel/active-draft-context";
 import { BrokerGrid } from "@/components/brokers/BrokerGrid";
+import { BrokerSidebarButton } from "@/components/brokers/BrokerSidebarButton";
+import { BrokerConnectDialog } from "@/components/brokers/BrokerConnectDialog";
 import { AgentsTab } from "@/components/agent-panel/AgentsTab";
 import { PortfolioTab } from "@/components/agent-panel/PortfolioTab";
 import { ChartFrame } from "@/components/chart/ChartFrame";
@@ -93,8 +95,6 @@ import {
   type PortfolioSummary,
 } from "@/lib/api";
 import type { ResumeConversation } from "@/components/chat/ChatDemo";
-import { basketAttachment } from "@/components/chat/ComposerContext";
-import type { EquityBasket } from "@/lib/agentsApi";
 import type { Workflow } from "@/lib/types";
 import { isError } from "@/lib/types";
 import {
@@ -129,10 +129,10 @@ const NAV_ITEMS: {
   { key: "portfolio", label: "Portfolio", Icon: WalletCards },
   { key: "agents", label: "Strategy", Icon: WorkflowIcon },
   { key: "screener", label: "Screener", Icon: ListFilter },
-  // Where a strategy's orders actually go. It sits with Portfolio and
-  // Strategy rather than under settings, because connecting a broker is part
-  // of running a rule, not a preference.
-  { key: "brokers", label: "Brokers", Icon: Link2 },
+  // Brokers left the nav: whether a broker is linked is state you glance at,
+  // not a page you sit on. It now sits at the sidebar foot as
+  // <BrokerSidebarButton/>, which opens the same onboarding dialog. The
+  // "brokers" tab/pane is kept (deep-linkable via #brokers) but has no rail entry.
 ];
 
 // Home is the landing surface — a fresh visit to "/" (no hash), and every
@@ -141,6 +141,42 @@ const DEFAULT_TAB: TabKey = "home";
 const METRIC_REFRESH_MS = 30_000;
 const ACTIVE_COPILOT_KEY = "pivot:active-copilot-conversation";
 const COPILOT_CONTEXT_KEY = "pivot:copilot-page-context";
+
+/* Copilot side-panel width ------------------------------------------------
+   The panel was a fixed 25vw: `--copilot-side-w` was READ by globals.css in
+   both places that matter (the panel's own width and .copilot-main-with-panel's
+   padding) but nothing ever wrote it, so the fallback was the only value it
+   ever had. The chart page has had a draggable panel since the agent editor
+   landed; screener, portfolio and the company page were the pages where a
+   table and the panel had to share a viewport and neither could give.
+
+   Same storage shape as AgentPanel's own handle, under its own key, because
+   the two panels are sized for different work — a workflow editor wants to be
+   wide, a screener copilot usually wants to be narrow. */
+const COPILOT_PANEL_MIN_WIDTH = 320;
+const COPILOT_PANEL_MAX_WIDTH = 900;
+const COPILOT_PANEL_LS_KEY = "pivot.copilotPanelWidth";
+// Below this the panel is 100vw via globals.css, so a handle would resize
+// something the user cannot see the edge of.
+const COPILOT_PANEL_DESKTOP_MIN = 821;
+
+/** The widest the panel may be without starving the page beside it. */
+function clampCopilotWidth(w: number): number {
+  const maxW = Math.min(COPILOT_PANEL_MAX_WIDTH, window.innerWidth - 420);
+  return Math.max(COPILOT_PANEL_MIN_WIDTH, Math.min(maxW, w));
+}
+
+function readStoredCopilotWidth(): number | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const v = window.localStorage.getItem(COPILOT_PANEL_LS_KEY);
+    if (!v) return null;
+    const n = parseInt(v, 10);
+    return Number.isFinite(n) ? clampCopilotWidth(n) : null;
+  } catch {
+    return null;
+  }
+}
 
 type CopilotPageContext =
   | { kind: "page"; page: "home" | "portfolio" | "agents" | "screener" | "brokers"; label: string }
@@ -277,7 +313,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   // → "options"). Nonce-bumped so repeat requests re-fire; consumed by
   // AgentsTab even when it mounts lazily after the request is set.
   const [agentsSurfaceReq, setAgentsSurfaceReq] = useState<
-    { surface: "equity" | "options" | "baskets"; nonce: number } | null
+    { surface: "equity" | "options"; nonce: number } | null
   >(null);
   // Shared active-draft state: the workflow currently open in the editor
   // (unsaved only — id "" or "local-…", status "draft").
@@ -329,6 +365,11 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   // ground, and this should never become a request every session pays for.
   const [brokerNames, setBrokerNames] = useState<string[] | undefined>(undefined);
   const [brokersLiveArmed, setBrokersLiveArmed] = useState(false);
+  // Dragged width of the Copilot side panel. Read from localStorage on the
+  // first client render only — reading during SSR would hand the server a
+  // different number than the client and hydrate mismatched.
+  const [copilotWidth, setCopilotWidth] = useState<number | null>(null);
+  const [copilotResizable, setCopilotResizable] = useState(false);
   const [chartChatOpen, setChartChatOpen] = useState(false);
   const [activeConversationId, setActiveConversationId] = useState<string | undefined>(
     readStoredConversationId,
@@ -449,6 +490,102 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     if (!copilotPanelOpen) return;
     requestAnimationFrame(() => window.dispatchEvent(new Event("pivot:focus-composer")));
   }, [copilotPanelOpen]);
+
+  // Copilot panel width: hydrate the stored value and track whether the
+  // viewport is wide enough for the panel to have a left edge to drag.
+  useEffect(() => {
+    setCopilotWidth(readStoredCopilotWidth());
+    const mq = window.matchMedia(`(min-width: ${COPILOT_PANEL_DESKTOP_MIN}px)`);
+    const onChange = (e: MediaQueryListEvent) => setCopilotResizable(e.matches);
+    setCopilotResizable(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+
+  // Publish the width to CSS. globals.css already reads --copilot-side-w for
+  // BOTH the panel and the main region's padding, so writing it here keeps
+  // the two in lockstep — the page beside the panel reflows with the drag
+  // instead of sliding under it. Null (nothing stored yet) leaves the
+  // variable unset so the stylesheet's 25vw default still applies.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const root = document.documentElement;
+    if (copilotWidth != null && copilotResizable) {
+      root.style.setProperty("--copilot-side-w", `${copilotWidth}px`);
+    } else {
+      root.style.removeProperty("--copilot-side-w");
+    }
+  }, [copilotWidth, copilotResizable]);
+
+  // A window that shrinks can leave a stored width wider than the room left
+  // for the page; re-clamp rather than letting the panel squeeze the table out.
+  useEffect(() => {
+    if (!copilotResizable) return;
+    const onResize = () => {
+      setCopilotWidth((w) => (w == null ? w : clampCopilotWidth(w)));
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [copilotResizable]);
+
+  const copilotDragRef = useRef<{ x: number; w: number } | null>(null);
+
+  const onCopilotResizeStart = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (!copilotResizable) return;
+      event.preventDefault();
+      const startW =
+        copilotWidth ??
+        clampCopilotWidth(
+          document.querySelector<HTMLElement>(".copilot-side-panel--open")
+            ?.getBoundingClientRect().width ?? window.innerWidth * 0.25,
+        );
+      copilotDragRef.current = { x: event.clientX, w: startW };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+    },
+    [copilotResizable, copilotWidth],
+  );
+
+  const onCopilotResizeMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = copilotDragRef.current;
+    if (!drag) return;
+    // Panel is pinned right, so dragging LEFT (smaller clientX) widens it.
+    setCopilotWidth(clampCopilotWidth(drag.w + (drag.x - event.clientX)));
+  }, []);
+
+  const onCopilotResizeEnd = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (!copilotDragRef.current) return;
+    copilotDragRef.current = null;
+    try { event.currentTarget.releasePointerCapture(event.pointerId); } catch { /* already gone */ }
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+    setCopilotWidth((w) => {
+      if (w != null) {
+        try { window.localStorage.setItem(COPILOT_PANEL_LS_KEY, String(w)); }
+        catch { /* storage unavailable */ }
+      }
+      return w;
+    });
+  }, []);
+
+  // Keyboard resize — a pointer-only handle is unreachable without a mouse.
+  const onCopilotResizeKey = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    const step = event.shiftKey ? 64 : 16;
+    let dir = 0;
+    if (event.key === "ArrowLeft") dir = 1;
+    else if (event.key === "ArrowRight") dir = -1;
+    else return;
+    event.preventDefault();
+    setCopilotWidth((w) => {
+      const base = w ?? window.innerWidth * 0.25;
+      const next = clampCopilotWidth(base + dir * step);
+      try { window.localStorage.setItem(COPILOT_PANEL_LS_KEY, String(next)); }
+      catch { /* storage unavailable */ }
+      return next;
+    });
+  }, []);
 
   // Hash + theme init
   useEffect(() => {
@@ -935,25 +1072,6 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     });
   }, [goTab, openWorkflow]);
 
-  // "Edit with chat" for a saved basket — the same selection-not-sentence
-  // handoff as agents, minus the side editor (baskets have no step graph).
-  // The chip carries the basket id + exact legs, so "drop SUZLON" amends THIS
-  // basket rather than re-resolving it from a free-text name.
-  const editBasketWithChat = useCallback((basket: EquityBasket): void => {
-    setResumeConv(undefined);
-    setActiveConversationId(undefined);
-    try { sessionStorage.removeItem(ACTIVE_COPILOT_KEY); } catch { /* unavailable */ }
-    setChatResetKey((k) => k + 1);
-    goTab("chat");
-    requestAnimationFrame(() => {
-      window.dispatchEvent(
-        new CustomEvent("pivot:seed-composer", {
-          detail: { attach: basketAttachment(basket) },
-        }),
-      );
-    });
-  }, [goTab]);
-
   // True when the panel is open and actively bound to an unsaved draft.
   const panelOpenWithDraft = panelOpen && activeEditorDraft !== null;
 
@@ -1298,6 +1416,35 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
               aria-label={copilotPanelOpen ? "Pivot Assistant" : undefined}
               aria-hidden={!copilotPanelOpen}
             >
+              {copilotPanelOpen && copilotResizable
+                && (Boolean(children) || (active !== "chat" && active !== "chart")) && (
+                /* Left-edge drag handle. Pointer events (not mouse) so a
+                   trackpad, pen or touch-capable desktop all drag the same
+                   way, and pointer capture keeps the drag alive when the
+                   cursor outruns the 6px strip. */
+                <div
+                  role="separator"
+                  aria-orientation="vertical"
+                  aria-label="Resize Copilot panel"
+                  tabIndex={0}
+                  className="copilot-resize-handle"
+                  data-testid="copilot-resize-handle"
+                  onPointerDown={onCopilotResizeStart}
+                  onPointerMove={onCopilotResizeMove}
+                  onPointerUp={onCopilotResizeEnd}
+                  onPointerCancel={onCopilotResizeEnd}
+                  onKeyDown={onCopilotResizeKey}
+                  onDoubleClick={() => {
+                    // Back to the stylesheet's 25vw.
+                    setCopilotWidth(null);
+                    try { window.localStorage.removeItem(COPILOT_PANEL_LS_KEY); }
+                    catch { /* storage unavailable */ }
+                  }}
+                  title="Drag to resize · double-click to reset"
+                >
+                  <span aria-hidden={true} className="copilot-resize-grip" />
+                </div>
+              )}
               <AssistantPanel
                 page={assistPage}
                 symbol={assistSymbol}
@@ -1416,8 +1563,6 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
                 onOpenWorkflow={openWorkflow}
                 onEditWithChat={editWorkflowWithChat}
                 surfaceRequest={agentsSurfaceReq}
-                onSendPrompt={sendChatPrompt}
-                onEditBasketWithChat={editBasketWithChat}
               />
             </div>
           )}
@@ -1437,7 +1582,15 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
             if (!children && active === "chart") return;
             void getAccessToken().then((t) => warmAssist(assistPage, assistSymbol, t));
           }}
-          visible={active === "chart" ? !chartChatOpen : !copilotPanelOpen}
+          /* The drawer is a full-height overlay on phones, but QuickAsk is
+             fixed to the bottom of the VIEWPORT at a higher layer, so it
+             floated over the open menu — a prompt bar docked to a nav sheet
+             it has nothing to do with, and still tabbable behind it. It hides
+             for the menu the same way it already hides for an open panel. */
+          visible={
+            !mobileNavOpen
+            && (active === "chart" ? !chartChatOpen : !copilotPanelOpen)
+          }
         />
       )}
 
@@ -1614,7 +1767,14 @@ function TopHeader({
         <PivotWordmark className="top-header-wordmark" fontSize={22} />
       </button>
 
-      {/* Search — Quartr pill, sized + bordered, no Tailwind background.
+      {/* Search — Quartr pill, sized and filled, NO rule around it. The
+          border was the only hairline in the header, so the field read as a
+          control sitting on the bar rather than part of it. The fill does
+          that job instead: --muted, the EXACT grey the chart header's
+          ticker badge wears (charto/preview's .symbol), so the field reads
+          as a filled chip in the header rather than an outlined box on it.
+          It was --bg-elevated, a step darker, which made the same chip look
+          like two different greys across the chart and the shell.
           Hidden below lg; mobile users get the CommandPalette via the
           account menu / keyboard shortcut. */}
       {variant === "default" && <div
@@ -1624,10 +1784,9 @@ function TopHeader({
           maxWidth: 300,
           height: 30,
           padding: "0 12px",
-          background: "var(--bg-primary)",
-          border: "1px solid var(--glass-border)",
+          background: "hsl(var(--muted))",
+          border: "none",
           borderRadius: "var(--radius-pill)",
-          transition: "border-color 0.2s var(--ease-quartr)",
           position: "relative",
         }}
       >
@@ -1647,8 +1806,9 @@ function TopHeader({
         />
       </div>}
 
-      {/* Right cluster — metric stack + account menu */}
-      <div className="ml-auto flex shrink-0 items-center gap-6">
+      {/* Right cluster — metric stack + account menu. The broker connection
+          moved to the sidebar foot (<BrokerSidebarButton/>). */}
+      <div className="ml-auto flex shrink-0 items-center gap-3 lg:gap-4">
         {variant === "default" && <MetricStrip metrics={metrics} />}
         <AccountMenu
           theme={theme}
@@ -1703,7 +1863,11 @@ function AccountMenu({
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
   const [_helpOpen, setHelpOpen] = useState(false);
-  const [_isNarrow, setIsNarrow] = useState(false);
+  // True on phones (<640px), where the topbar broker pill is hidden — the menu
+  // shows a "Brokers" row instead so the connection is still reachable.
+  const [isNarrow, setIsNarrow] = useState(false);
+  // Broker connect dialog, opened from the mobile "Brokers" menu row.
+  const [brokerDialogOpen, setBrokerDialogOpen] = useState(false);
   // Touch-primary devices (phone/tablet) have no physical keyboard, so the
   // keyboard-shortcuts entry is hidden there. Keyed off pointer capability,
   // not screen width — a narrow/windowed desktop still has a keyboard.
@@ -1843,6 +2007,16 @@ function AccountMenu({
           </div>
           {/* "Paper book" lived here; removed per owner request — the paper
               surface is reached from Portfolio, not the account menu. */}
+          {/* Brokers — phone-only. On desktop the topbar pill owns this; on a
+              phone the pill is hidden, so the connection lives here instead. */}
+          {isNarrow ? (
+            <MenuItem
+              icon={Link2}
+              label="Brokers"
+              testId="menu-brokers"
+              onClick={() => { setOpen(false); setBrokerDialogOpen(true); }}
+            />
+          ) : null}
           <MenuItem icon={Settings} label="Settings" testId="menu-settings-chart-style" onClick={() => { setOpen(false); onOpenSettings(); }} />
           <MenuItem icon={HelpCircle} label="Help" onClick={() => { setOpen(false); onReportBug(); }} />
           <div aria-hidden={true} style={{ height: 1, background: "var(--glass-border)", margin: "5px -5px" }} />
@@ -1865,6 +2039,10 @@ function AccountMenu({
 
         </div>
       )}
+
+      {/* Phone-only broker connect surface — the same grid the desktop pill
+          opens, reached here from the "Brokers" menu row. */}
+      <BrokerConnectDialog open={brokerDialogOpen} onOpenChange={setBrokerDialogOpen} />
     </div>
   );
 }
@@ -2368,6 +2546,16 @@ function Sidebar({
             ))}
           </div>
         )}
+      </div>
+
+      {/* Broker connection — docked at the sidebar foot (moved here from the
+          top header). It sits below the flex-1 history list so it stays pinned
+          to the bottom-left corner regardless of how long the history grows.
+          In the collapsed 48px rail it is a single centred broker glyph; in the
+          expanded drawer it becomes a full row with a label (see globals.css
+          .broker-sidebar-row). */}
+      <div className="broker-sidebar-row shrink-0">
+        <BrokerSidebarButton />
       </div>
     </nav>
   );

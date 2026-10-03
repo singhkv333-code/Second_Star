@@ -82,7 +82,79 @@ const Icons = (() => {
     // the same figure with ONE anchor — the dot is the whole difference
     gannSquareFixed: '<rect x="3" y="4" width="18" height="16"/><path d="M9 4v16"/><path d="M15 4v16"/><path d="M3 9.33h18"/><path d="M3 14.67h18"/><path d="M3 20 21 4"/><circle cx="3" cy="20" r="2.1"/>',
     gannFan: '<path d="M3 21 21 3"/><path d="M3 21 21 10"/><path d="M3 21 21 16"/><path d="M3 21 12 3"/><path d="M3 21 17 3"/>',
+    /* ── patterns, elliott waves, cycles ───────────────────
+     * One group, one grammar — the glyph IS the zig-zag the tool draws
+     * through its pivots, and nothing else. The first version hung a filled
+     * dot on every pivot, which at 24px turned a five-point harmonic into a
+     * row of blobs with a faint line behind them: the dots, not the shape,
+     * were what the eye landed on. These carry at most ONE accent dot — the
+     * pivot a reader would otherwise miss — and let the SILHOUETTE do the
+     * identifying, the way the fib and gann glyphs above do. Each is tuned so
+     * it cannot be mistaken for its neighbour at the size it is read.
+     *
+     * Pivots marked `class="af"` take the chart accent as a fill, the one
+     * licensed fill in this set (see the template tiles) — used only where a
+     * single point is the whole difference between two tools. */
+    // the rail button: a clean five-pivot harmonic M, the group's signature
+    pattern: '<path d="M3 20 7.5 5l4.5 10 4-9 4 15"/>',
+    // XABCD — the classic harmonic butterfly, closed, with its D apex marked
+    xabcd: '<path d="M3 19 8 6l4 9 4-11 4.5 15Z"/>'
+      + '<circle cx="3" cy="19" r="1.7" fill="currentColor" stroke="none"/>',
+    // Cypher — the harmonic with the deep C leg that sets it apart from XABCD
+    cypher: '<path d="M4 18 8 7l5 6 3-10 4 16Z"/>'
+      + '<circle cx="4" cy="18" r="1.7" fill="currentColor" stroke="none"/>',
+    // ABCD — the one open four-point harmonic, two equal legs
+    abcd: '<path d="M3 19 8 7l4 8 9-12"/>'
+      + '<circle cx="3" cy="19" r="1.7" fill="currentColor" stroke="none"/>',
+    // a symmetrical triangle resolving to its apex — two converging rails
+    trianglePat: '<path d="M3 5 20 12 3 19"/><path d="M3 12h15" stroke-dasharray="2 2.5"/>',
+    // head between two shoulders — the one pattern read by silhouette alone,
+    // with the neckline it breaks drawn under it
+    headShoulders: '<path d="M2.5 15l3-3.5 3 5 3.5-9 3.5 9 3-5 3 3.5"/>'
+      + '<path d="M5.5 17.5h13" stroke-dasharray="2 2.5"/>',
+    // three ascending drives — three higher highs, each a thrust then a dip
+    threeDrives: '<path d="M3 20l2.5-5 2 3.5 3-7 2 3.5 3.5-9 2 3.5"/>',
+    // Elliott impulse — five legs, three up two back, numbered in the flyout
+    elliottImpulse: '<path d="M3 20l3.5-6 2.5 3 4-9 2.5 4 4.5-10"/>',
+    // ABC correction — the three-leg zig-zag that follows an impulse
+    elliottCorrection: '<path d="M3 7l5 8 4-5 6 8"/>',
+    // ABCDE triangle — five swings contracting into the apex
+    elliottTriangle: '<path d="M3 4.5l4.5 15 3.5-11 3 8 2.5-5.5"/>',
+    // W-X-Y — two corrective structures joined by a shallow X connector
+    elliottDoubleCombo: '<path d="M3 6l4 10 3.5-5.5 3.5 9 4-5.5"/>',
+    // W-X-Y-X-Z — three joined, the longest corrective run
+    elliottTripleCombo: '<path d="M3 6l3 8 2.5-4.5 3 7.5 2.5-5 3 7 2.5-5"/>',
+    // cyclic lines — the period marked across the range, the centre line
+    // heavier because it is the one anchor the others are measured from
+    cyclicLines: '<path d="M6 4v16" stroke-width="1.7"/><path d="M12 4v16"/>'
+      + '<path d="M18 4v16"/><path d="M3 4v16" opacity=".4"/><path d="M21 4v16" opacity=".4"/>',
+    // time cycles — the same period, drawn as touching half-circles along the
+    // axis, which is exactly the shape the tool lays down
+    timeCycles: '<path d="M3 15h18" stroke-dasharray="2 2.5"/>'
+      + '<path d="M3 15a4.5 4.5 0 0 1 9 0"/><path d="M12 15a4.5 4.5 0 0 1 9 0"/>',
+    // sine line — one smooth wave, the tool's own silhouette
+    sineLine: '<path d="M3 12c3-9 6-9 9 0s6 9 9 0"/>',
     brush: '<path d="m9.06 11.9 8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/>',
+    /* ── shapes (the drawing primitives) ───────────────────
+     * Each glyph IS the shape it draws, on the same 24-grid as the rest. */
+    // an ellipse — a circle on this chart is an ellipse in pixels (see
+    // geometry.js), so the glyph is honest about it
+    ellipse: '<ellipse cx="12" cy="12" rx="9.5" ry="6.5"/>',
+    // a quarter arc with the two anchors that set its span
+    arc: '<path d="M4 20A16 16 0 0 1 20 4"/><circle cx="4" cy="20" r="1.8" fill="currentColor" stroke="none"/><circle cx="20" cy="4" r="1.8" fill="currentColor" stroke="none"/>',
+    // a smooth bezier curve through two ends and a control point
+    curve: '<path d="M4 19C7 7 17 7 20 19"/><circle cx="4" cy="19" r="1.7" fill="currentColor" stroke="none"/><circle cx="20" cy="19" r="1.7" fill="currentColor" stroke="none"/>',
+    // a rectangle set at an angle — the rotated-rect tool
+    rotatedRect: '<path d="M8.5 3 21 9.5 15.5 21 3 14.5Z"/>',
+    // a free poly-line of straight segments, anchors at the bends
+    path: '<path d="M3 18 8 8l5 6 3-9 5 5"/><circle cx="3" cy="18" r="1.6" fill="currentColor" stroke="none"/><circle cx="21" cy="10" r="1.6" fill="currentColor" stroke="none"/>',
+    // Style rows in the drawing's right-click sheet — the three the floating
+    // strip used to own: a paint droplet, a stack of thickening rules, a
+    // dashed rule.
+    palette: '<circle cx="13.5" cy="6.5" r="1.3"/><circle cx="17.5" cy="10.5" r="1.3"/><circle cx="8.5" cy="7.5" r="1.3"/><circle cx="6.5" cy="12.5" r="1.3"/><path d="M12 2a10 10 0 1 0 0 20 2.5 2.5 0 0 0 2-4 2.5 2.5 0 0 1 2-4h2a4 4 0 0 0 4-4 10 10 0 0 0-10-8Z"/>',
+    lineWidth: '<path d="M3 5h18"/><path d="M3 10.5h18" stroke-width="2"/><path d="M3 17h18" stroke-width="3.5"/>',
+    lineStyle: '<path d="M3 12h4"/><path d="M11 12h4"/><path d="M19 12h2"/>',
+    pipette: '<path d="m2 22 1-1h3l9-9"/><path d="M3 21v-3l9-9"/><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z"/>',
     text: '<path d="M12 4v16"/><path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2"/><path d="M9 20h6"/>',
     measure: '<path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z"/><path d="m14.5 12.5 2-2"/><path d="m11.5 9.5 2-2"/><path d="m8.5 6.5 2-2"/><path d="m17.5 15.5 2-2"/>',
     magnet: '<path d="m6 15-4-4 6.75-6.77a7.79 7.79 0 0 1 11 11L13 22l-4-4 6.39-6.36a2.14 2.14 0 0 0-3-3L6 15"/><path d="m5 8 4 4"/><path d="m12 15 4 4"/>',
@@ -91,6 +163,26 @@ const Icons = (() => {
 
     // ── chrome ─────────────────────────────────────────────
     candles: '<path d="M9 5v4"/><path d="M9 15v4"/><rect x="6.5" y="9" width="5" height="6" rx="1"/><path d="M17 3v6"/><path d="M17 15v6"/><rect x="14.5" y="9" width="5" height="6" rx="1"/>',
+    /* ── chart-type switcher ────────────────────────────────────────────────
+     * A dedicated set for the candles/bars/line/area control, kept apart from
+     * the shared `candles` glyph above (that one labels cards, the journal and
+     * the settings nav, and reads as sliders at this size). Drawn to the same
+     * 24-grid, round-cap grammar so the four read as one family — each is the
+     * SHAPE the series makes, and each is unmistakable against the other three:
+     *  · ctCandles — two candlesticks, a filled body on a wick, like TradingView
+     *  · ctBars    — two OHLC bars: a vertical range, open tick left, close right
+     *  · ctLine    — a single close-price polyline
+     *  · ctArea    — that line closed to a baseline and lightly filled */
+    ctCandles: '<rect x="5" y="7" width="4.5" height="9" rx="1.2"/>'
+      + '<path d="M7.25 3v4"/><path d="M7.25 16v5"/>'
+      + '<rect x="14.5" y="9" width="4.5" height="7" rx="1.2"/>'
+      + '<path d="M16.75 5v4"/><path d="M16.75 16v3"/>',
+    ctBars: '<path d="M7 4v16"/><path d="M3.5 8H7"/><path d="M7 14h3.5"/>'
+      + '<path d="M17 5v14"/><path d="M13.5 10H17"/><path d="M17 17h3.5"/>',
+    ctLine: '<path d="M3 16l5-5.5 4 3 5-7.5"/>',
+    ctArea: '<path d="M3 16l5-5.5 4 3 5-7.5V20H3z" fill="currentColor" fill-opacity="0.2" stroke="none"/>'
+      + '<path d="M3 16l5-5.5 4 3 5-7.5"/>'
+      + '<path d="M3 20h18"/>',
     indicators: '<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="m19 9-5 5-4-4-3 3"/>',
     chevronDown: '<path d="m6 9 6 6 6-6"/>',
     chevronUp: '<path d="m18 15-6-6-6 6"/>',
@@ -271,6 +363,16 @@ const Icons = (() => {
      * than from the stroke, and could not follow the icon sizes. */
     info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
 
+    // ── plans / upgrade ───────────────────────────────────
+    // The upgrade row in the account menu and the plan marks on the pricing
+    // cards. One glyph per tier so a card can be read by its mark alone:
+    // sparkles for the free starting point, zap for Pro, crown for Pro+.
+    sparkles: '<path d="M9.94 5.5 11 2l1.06 3.5a3 3 0 0 0 2 2L17.5 8.56 14 9.62a3 3 0 0 0-2 2L11 15l-1.06-3.38a3 3 0 0 0-2-2L4.5 8.56 8 7.5a3 3 0 0 0 1.94-2Z"/><path d="M18 14.5 18.6 16.4a1.5 1.5 0 0 0 1 1L21.5 18l-1.9.6a1.5 1.5 0 0 0-1 1L18 21.5l-.6-1.9a1.5 1.5 0 0 0-1-1L14.5 18l1.9-.6a1.5 1.5 0 0 0 1-1Z"/>',
+    zap: '<path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/>',
+    crown: '<path d="M3 7l4.5 4L12 4l4.5 7L21 7l-1.8 11H4.8L3 7Z"/><path d="M4.8 18h14.4"/>',
+    infinity: '<path d="M7 9a3 3 0 1 0 0 6c1.5 0 2.5-1 3.5-2.5l3-4C17.5 10 18.5 9 20 9a3 3 0 1 1 0 6c-1.5 0-2.5-1-3.5-2.5l-3-4C9.5 10 8.5 9 7 9Z"/>',
+    arrowUpRight: '<path d="M7 17 17 7"/><path d="M7 7h10v10"/>',
+
     // ── account ────────────────────────────────────────────
     // The signed-OUT avatar. A signed-in one is an initial, not a glyph —
     // drawn by main.js in CSS, because a letter is not an icon.
@@ -285,6 +387,9 @@ const Icons = (() => {
     // The bar has no room for words on every slot, so these four carry a
     // whole sheet each. Same Lucide set, same 24×24 frame.
     more: '<circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/><circle cx="5" cy="12" r="1.4"/>',
+    // the six-dot grip TradingView/Groww put at the head of a floating toolbar
+    // to drag it — two columns of three
+    grip: '<circle cx="9" cy="6" r="1.3"/><circle cx="15" cy="6" r="1.3"/><circle cx="9" cy="12" r="1.3"/><circle cx="15" cy="12" r="1.3"/><circle cx="9" cy="18" r="1.3"/><circle cx="15" cy="18" r="1.3"/>',
     search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
     clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
     pen: '<path d="M21.2 6.8a2.82 2.82 0 0 0-4-4L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.63l4.36-1.33a2 2 0 0 0 .83-.5z"/><path d="m15 5 4 4"/>',

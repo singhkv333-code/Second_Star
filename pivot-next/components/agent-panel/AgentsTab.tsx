@@ -55,14 +55,11 @@ import {
 import {
   closeOptionStrategy,
   deleteWorkflow,
-  getBasketPerformance,
   getWorkflowPerformance,
   getWorkflowsSummary,
-  listEquityBaskets,
   listRegisteredOptionStrategies,
   returnTone,
   withdrawRegisteredOptionStrategy,
-  type EquityBasket,
   type RegisteredOptionStrategy,
   type StrategyReturn,
   type WorkflowPerformance,
@@ -72,7 +69,6 @@ import { toast } from "sonner";
 import { isError } from "@/lib/types";
 import type { Workflow, WorkflowStatus, WorkflowSummary } from "@/lib/types";
 import { AgentsSummaryHeader } from "./AgentsSummaryHeader";
-import { EquityBasketsSection } from "./EquityBasketsSection";
 
 const BRAND_GREEN = "#4CAF50";
 
@@ -95,17 +91,9 @@ export type AgentsTabProps = {
    * after the request is set. Null when no request is pending.
    */
   surfaceRequest?: { surface: Surface; nonce: number } | null;
-  /**
-   * Seed a prompt into the chat composer and jump there — e.g. the equity
-   * baskets "New basket" card, which opens a chat rather than a form.
-   */
-  onSendPrompt?: (prompt: string) => void;
-  /** Jump to chat with a saved basket selected as a context chip — the
-   *  basket equivalent of `onEditWithChat` for agents. */
-  onEditBasketWithChat?: (basket: EquityBasket) => void;
 };
 
-type Surface = "equity" | "options" | "baskets";
+type Surface = "equity" | "options";
 type Filter = "all" | WorkflowStatus;
 
 const FILTERS: { value: Filter; label: string }[] = [
@@ -206,8 +194,6 @@ export function AgentsTab({
   onOpenWorkflow,
   onEditWithChat,
   surfaceRequest,
-  onSendPrompt,
-  onEditBasketWithChat,
 }: AgentsTabProps): React.ReactElement {
   const [surface, setSurface] = useState<Surface>("equity");
   // Apply an external surface request (Home F&O tile → "options"), once per
@@ -235,18 +221,6 @@ export function AgentsTab({
   // Options strategies surface.
   const [optionsState, setOptionsState] = useState<OptionsState>({ kind: "loading" });
   const [optionsLoaded, setOptionsLoaded] = useState(false);
-
-  // Lightweight basket list — feeds ONLY the summary header's "Active baskets"
-  // card (count + names). EquityBasketsSection still owns the full basket grid
-  // and its own fetch; this is a small independent read so the header can show
-  // per-surface content without lifting that section's whole state up here.
-  const [baskets, setBaskets] = useState<EquityBasket[]>([]);
-  const [basketsLoading, setBasketsLoading] = useState(false);
-  const [basketsLoaded, setBasketsLoaded] = useState(false);
-  // Per-basket live return %, keyed by basket id — fetched once the basket
-  // list itself resolves (a basket's return lives on its linked forward-test
-  // idea, a separate on-read call per basket, not part of the list payload).
-  const [basketReturns, setBasketReturns] = useState<Record<number, number | null>>({});
 
   // Delete-in-flight ids (both surfaces) so the kebab disables + the card dims.
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -308,23 +282,6 @@ export function AgentsTab({
       });
   }, []);
 
-  const loadBaskets = useCallback((): void => {
-    setBasketsLoading(true);
-    listEquityBaskets()
-      .then((result) => {
-        if (isError(result)) return;
-        const items = result.data.baskets ?? [];
-        setBaskets(items);
-        Promise.all(
-          items.map((b) =>
-            getBasketPerformance(b.id).then((r) => [b.id, isError(r) ? null : r.data.return_pct] as const),
-          ),
-        ).then((pairs) => setBasketReturns(Object.fromEntries(pairs)));
-      })
-      .catch(() => {})
-      .finally(() => setBasketsLoading(false));
-  }, []);
-
   useEffect(() => {
     loadSummary();
   }, [loadSummary]);
@@ -341,15 +298,6 @@ export function AgentsTab({
       loadOptions();
     }
   }, [surface, optionsLoaded, loadOptions]);
-
-  // Lazy-load baskets the first time the Baskets surface opens (for the header
-  // card; the section below fetches its own full list independently).
-  useEffect(() => {
-    if (surface === "baskets" && !basketsLoaded) {
-      setBasketsLoaded(true);
-      loadBaskets();
-    }
-  }, [surface, basketsLoaded, loadBaskets]);
 
   const handleSelect = (id: string): void => {
     setOpeningId(id);
@@ -487,27 +435,6 @@ export function AgentsTab({
         loading: optionsState.kind === "loading",
       };
     }
-    if (surface === "baskets") {
-      return {
-        // These are SAVED basket definitions (deployed or not) — calling them
-        // "Active" implied a live position every one of them had, which isn't
-        // true. The card's Deploy ⇄ Square-off button now shows which are live.
-        pageTitle: "Saved Baskets",
-        label: "Saved baskets",
-        count: baskets.length,
-        rows: baskets.map((b) => ({
-          workflow_id: String(b.id),
-          name: b.name,
-          return_pct: basketReturns[b.id] ?? null,
-          series: [],
-          run_count: 0,
-          success_rate: null,
-          last_run_at: null,
-          has_data: false,
-        })),
-        loading: basketsLoading,
-      };
-    }
     return {
       pageTitle: "Active Strategies",
       label: "Active strategies",
@@ -633,7 +560,7 @@ export function AgentsTab({
             </div>
           )}
         </>
-      ) : surface === "options" ? (
+      ) : (
         // Options = the user's registered option strategies.
         <OptionsStrategiesSection
           state={optionsState}
@@ -642,12 +569,6 @@ export function AgentsTab({
           onRetry={loadOptions}
           onWithdraw={handleWithdrawOption}
           onClose={handleCloseOption}
-        />
-      ) : (
-        // Baskets = the equity/ETF baskets the user builds here.
-        <EquityBasketsSection
-          onSendPrompt={onSendPrompt}
-          onEditWithChat={onEditBasketWithChat}
         />
       )}
     </div>
@@ -668,7 +589,6 @@ function SurfaceToggle({
   const OPTIONS: { key: Surface; label: string }[] = [
     { key: "equity", label: "Equity" },
     { key: "options", label: "F&O" },
-    { key: "baskets", label: "Baskets" },
   ];
   return (
     <div
@@ -1628,6 +1548,72 @@ function WorkflowStatusPill({
 // Skeleton
 // ---------------------------------------------------------------------------
 
+/* A skeleton is a PICTURE OF THE CARD, not a rectangle where a card will be.
+   This used to render six bare <Skeleton> blocks — an empty bordered box each,
+   drawn from the shadcn primitive's own --background/--border palette rather
+   than the page's. Beside the summary cards above, whose skeletons are shaped
+   bars in --surface-track, they read as a different app's loading state: six
+   outlines with nothing in them and no hint of what is coming.
+
+   So the skeleton wears the card's own shell — same rounded-2xl, same border,
+   same --bg-secondary fill, same padding and gap — and stands in for each of
+   its parts in order: the category chip and status pill, the two-line title,
+   the performance block, and the three key/value rows. The bars use the same
+   --surface-track at 0.7 the summary skeletons use, so every skeleton on the
+   page is made of one material. */
+function AgentCardSkeleton(): React.ReactElement {
+  const bar = (w: string | number, h: number, radius = 4) => (
+    <span
+      style={{
+        display: "block",
+        width: typeof w === "number" ? w : w,
+        height: h,
+        borderRadius: radius,
+        background: "var(--surface-track)",
+        opacity: 0.7,
+      }}
+    />
+  );
+
+  return (
+    <div
+      className={cn(
+        "flex h-full flex-col gap-4 rounded-2xl border border-border/50 bg-[var(--bg-secondary)] px-5 py-5",
+        "shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_20px_-12px_rgba(15,23,42,0.08)]",
+      )}
+      aria-hidden={true}
+    >
+      {/* Header: category chip + status pill */}
+      <div className="flex items-center justify-between gap-3">
+        {bar(72, 18, 6)}
+        {bar(58, 20, 9999)}
+      </div>
+
+      {/* Title — two lines, the second short, the way a wrapped name sits */}
+      <div className="flex flex-col gap-1.5">
+        {bar("82%", 15)}
+        {bar("54%", 15)}
+      </div>
+
+      {/* Performance block */}
+      <div className="flex flex-col gap-2">
+        {bar(64, 12)}
+        {bar("100%", 34, 8)}
+      </div>
+
+      {/* KV rows, under the same rule the real card divides on */}
+      <div className="mt-auto flex flex-col gap-2 border-t border-border/40 pt-3">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="flex items-center justify-between gap-3">
+            {bar(56, 10)}
+            {bar(i === 1 ? 84 : 68, 10)}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function AgentsGridSkeleton(): React.ReactElement {
   return (
     <div
@@ -1635,7 +1621,7 @@ function AgentsGridSkeleton(): React.ReactElement {
       data-testid="agents-loading"
     >
       {Array.from({ length: 6 }).map((_, i) => (
-        <Skeleton key={i} className="h-64 w-full rounded-2xl" />
+        <AgentCardSkeleton key={i} />
       ))}
     </div>
   );

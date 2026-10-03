@@ -19,9 +19,19 @@ const Drawings = (() => {
   const HIT = 7;
   const G = Geo;
 
+  /** paneId → runtime, for secondary panes only (see create's tail). */
+  const REGISTRY = new Map();
+
   function create(chart, candle, env) {
     // env: { getBars, getIntervalSec, container, stage, panes, setStatus,
-    //        onToolDone, onChange }
+    //        onToolDone, onChange, persist, paneId }
+    // A secondary pane in a split draws for the life of that pane only: it is
+    // reference, not the subject of the session, so its shapes are NOT written
+    // to the symbol's store and do NOT enter the primary's undo history. `env.
+    // persist === false` is how panes.js asks for that — everything else about
+    // the runtime (placement, hit-testing, the edit toolbar) is identical.
+    // Read here, before load() runs in the state initialiser below.
+    const persists = env.persist !== false;
     // Short human-readable ref per drawing ("D3"), monotonic and never
     // recycled — it is what the chat tags and what the tools resolve by.
     let refSeq = 0;
@@ -55,8 +65,9 @@ const Drawings = (() => {
     // ── persistence + telemetry ─────────────────────────
     function load() {
       // A shared setup's drawings arrive through setAll(); the viewer's own
-      // saved shapes for this symbol stay where they are (see store.js).
-      if (Store.viewOnly) return [];
+      // saved shapes for this symbol stay where they are (see store.js). A
+      // secondary pane's shapes are never stored at all.
+      if (!persists || Store.viewOnly) return [];
       try {
         const raw = (JSON.parse(localStorage.getItem(STORE_KEY) || "[]") || [])
           .filter((d) => Tools.SPECS[d.type])
@@ -75,14 +86,19 @@ const Drawings = (() => {
       } catch { return []; }
     }
     const save = () => {
-      if (!Store.viewOnly) {
-        try { localStorage.setItem(STORE_KEY, JSON.stringify(state.drawings)); } catch {}
+      if (persists) {
+        // a view session (a shared setup) writes nothing of the reader's
+        if (!Store.viewOnly) {
+          try { localStorage.setItem(STORE_KEY, JSON.stringify(state.drawings)); } catch {}
+        }
+        // Every path that changes a drawing ends here — placement, the drag
+        // release, the Delete key, the card's Remove, clear-all — so this is
+        // the one line the undo stack has to hear about. It is a no-op while
+        // the stack is itself writing (js/history.js). A secondary pane's
+        // shapes are outside the undo history for the same reason they are
+        // outside the store: they belong to the pane, not the session.
+        Undo.touch();
       }
-      // Every path that changes a drawing ends here — placement, the drag
-      // release, the Delete key, the card's Remove, clear-all — so this is
-      // the one line the undo stack has to hear about. It is a no-op while
-      // the stack is itself writing (js/history.js).
-      Undo.touch();
       // …and the one line anything COUNTING drawings has to hear about. The
       // scene layer has had this since it was written; the drawing layer only
       // ever announced its selection, so a control that wanted to say "3
@@ -108,8 +124,12 @@ const Drawings = (() => {
     }
     function emitSelect(via) {
       const t = tagOf(state.selId);
+      // `paneId` tells the edit toolbar and the chat WHICH chart this
+      // selection is on — the primary or a numbered secondary pane — so a
+      // toolbar edit lands on the right runtime and mounts over the right pane.
+      // The primary leaves it undefined, exactly as it always did.
       document.dispatchEvent(new CustomEvent("charto:draw-select", {
-        detail: t && { ...t, via: via || "click" },
+        detail: t && { ...t, via: via || "click", paneId: env.paneId || null },
       }));
     }
     function logUse(tool) {
@@ -235,11 +255,16 @@ const Drawings = (() => {
      *  point. Padding here rather than in fifteen builders means a tool
      *  added tomorrow gets its preview for nothing, and no builder has to
      *  grow a branch for a state that is not a drawing yet. */
+    // "free" (drag a freehand stroke) and "path" (click a poly-line, finish
+    // on a double-click) are the two VARIABLE-length tools — they have no
+    // fixed anchor count to pad up to, so the preview-padding below skips them.
+    const isVariable = (spec) => spec.anchors === "free" || spec.anchors === "path";
+
     function primsOf(d) {
       const spec = Tools.SPECS[d.type];
       if (!spec || !d.pts || !d.pts.length) return [];
       let pts = d.pts;
-      if (spec.anchors !== "free" && pts.length < spec.anchors) {
+      if (!isVariable(spec) && pts.length < spec.anchors) {
         const last = pts[pts.length - 1];
         pts = pts.concat(Array(spec.anchors - pts.length).fill(last));
       }
@@ -251,7 +276,12 @@ const Drawings = (() => {
       const base = d.color || Theme.c("accent");
       return {
         color: prim.color || base,
-        width: prim.width || (selected ? 2 : 1.5),
+        // d.width is the user's own choice from the edit toolbar; it sits
+        // below a primitive that pins its OWN width (a fib band, a fork tine)
+        // and above the selected/idle default, so a plain line thickens while
+        // a structured shape's internal hairlines stay as their builder drew
+        // them.
+        width: prim.width || d.width || (selected ? 2 : 1.5),
         dash: isDraft ? [4, 4] : (prim.dash || d.dash || []),
         fillAlpha: prim.fillAlpha,
         /* "Show me the numbers." A shape that has a second, wordier reading
@@ -350,7 +380,12 @@ const Drawings = (() => {
         // pane and creates a fresh one under the same name, and a primitive
         // left on the dead pane renders nothing, silently
         const lp = live.find((p) => p.key === key);
-        if (lp && lp.pane === rec.pane) continue;
+        // same PANE is not same SERIES: the chart-type switcher rebuilds the
+        // price series in place, and a primitive left on the removed series
+        // renders nothing (this is why the user's shapes vanished on a type
+        // switch until a refresh re-ran syncPanes). Re-attach when the host
+        // series has moved.
+        if (lp && lp.pane === rec.pane && (lp.series || lp.pane) === rec.host) continue;
         try { rec.host.detachPrimitive(rec.prim); } catch {}
         attached.delete(key); rus.delete(key);
       }
@@ -602,8 +637,14 @@ const Drawings = (() => {
         if (spec.anchors === 1) return commit();
         state.draft.pts.push({ ...pt });          // the moving anchor
       } else if (a.key === state.draft.pane) {
+        // A PATH grows one click at a time and is finished by the user, not by
+        // a count: drop the floating anchor onto this click and start a new
+        // one. The double-click handler below is what ends it. Everything else
+        // commits the moment it has the anchors its spec declares.
         state.draft.pts[state.draft.pts.length - 1] = pt;
-        if (state.draft.pts.length >= spec.anchors) return commit();
+        if (spec.anchors !== "path" && state.draft.pts.length >= spec.anchors) {
+          return commit();
+        }
         state.draft.pts.push({ ...pt });
       }
       _ru();
@@ -734,7 +775,9 @@ const Drawings = (() => {
       // threshold has to clear its own tremor or every tap reads as a drag
       const slop = coarsePointer() ? 14 : 6;
       if (Math.hypot(x1 - x0, y1 - y0) <= slop) return;   // a tap: stay in click-click
-      if (pts.length >= spec.anchors) return commit();
+      // A path never commits on a filled count — it has none — so a
+      // drag-release only adds another segment; the double-click ends it.
+      if (spec.anchors !== "path" && pts.length >= spec.anchors) return commit();
       pts.push({ ...to });        // the next anchor, floating from here
       _ru();
     });
@@ -1034,6 +1077,24 @@ const Drawings = (() => {
      * underneath, so an edit that let the event through would retype the note
      * and throw the view away in the same motion. */
     el.addEventListener("dblclick", (e2) => {
+      /* A double-click FINISHES an open path. The two mousedowns that precede
+       * it have already dropped the last real anchor and left a floating one
+       * trailing the cursor; this drops that floater and commits what remains.
+       * Taken in capture, like the text edit below, so the library's own
+       * dbl-click-to-rescale never fires under a tool mid-placement. */
+      if (state.draft && Tools.SPECS[state.draft.type]
+          && Tools.SPECS[state.draft.type].anchors === "path") {
+        e2.preventDefault(); e2.stopPropagation();
+        // the trailing floating anchor, and the duplicate the second mousedown
+        // of this double-click just pushed, are both noise — a path is the
+        // points the user actually clicked
+        const pts = state.draft.pts;
+        const same = (p, q) => p && q && p.t === q.t && p.v === q.v;
+        while (pts.length > 2 && same(pts[pts.length - 1], pts[pts.length - 2])) pts.pop();
+        if (pts.length >= 2) pts.pop();          // drop the floating anchor
+        if (pts.length >= 2) return commit();
+        return cancel();
+      }
       if (state.tool !== "cursor" || state.draft) return;
       if (!inPlot(e2)) return;
       const a = anchorAt(e2);
@@ -1071,8 +1132,15 @@ const Drawings = (() => {
       return next;
     }
 
-    return {
+    const api = {
       state,
+      /** Which chart this runtime is: null for the primary, "sub-<n>" for a
+       *  secondary pane. The edit toolbar and the tool router use it to send an
+       *  action to the runtime the selection is actually on. */
+      paneId: env.paneId || null,
+      /** The element the runtime draws on — the edit toolbar mounts over it so
+       *  it sits above the pane the selection is on, primary or secondary. */
+      hostEl: env.stage || env.container,
       SPECS: Tools.SPECS,
       GROUPS: Tools.GROUPS,
       setTool(tool) {
@@ -1191,6 +1259,32 @@ const Drawings = (() => {
         env.setStatus(`${d.ref} ${d.locked ? "locked" : "unlocked"}`);
         return d.locked;
       },
+      /** Restyle one shape from the edit toolbar — colour, line width, dash.
+       *
+       *  These are the three properties styleOf() reads off the DRAWING (not
+       *  off a primitive): d.color is already the shape's ink, d.dash its line
+       *  style, and d.width now sits under any primitive that pins its own (see
+       *  styleOf). A patch of {color, width, dash} therefore lands on the next
+       *  paint with no per-tool wiring. Persisted and undoable through save(),
+       *  the same as every structural edit. Unknown keys are ignored so the
+       *  toolbar can send only what changed. */
+      setStyle(id, patch) {
+        const d = state.drawings.find((q) => q.id === (id || state.selId));
+        if (!d || !patch) return false;
+        if ("color" in patch) d.color = patch.color;
+        if ("width" in patch) d.width = patch.width;
+        if ("dash" in patch) d.dash = patch.dash;
+        save(); _ru();
+        return true;
+      },
+      /** The current style of one shape, so the toolbar can open showing what
+       *  the shape actually is rather than a guess. */
+      styleOf(id) {
+        const d = state.drawings.find((q) => q.id === (id || state.selId));
+        if (!d) return null;
+        return { color: d.color || Theme.c("accent"),
+                 width: d.width || null, dash: d.dash || [], type: d.type };
+      },
       /** Replace the whole set at once — the undo stack's write path.
        *
        *  Selection is DROPPED rather than carried across: the shape it
@@ -1244,6 +1338,29 @@ const Drawings = (() => {
         const d = state.drawings.find((q) => q.id === (id || state.selId));
         return d ? { id: d.id, type: d.type, pane: d.pane, pts: d.pts } : null;
       },
+      /** The shape's bounding box in CLIENT coordinates — what the floating
+       *  edit toolbar needs to sit itself just above the drawing, the way
+       *  TradingView does. Projects each anchor through this chart's own
+       *  scales; returns null when the shape has no laid-out point on screen
+       *  (off the visible range), so the caller can fall back to a fixed spot. */
+      screenBox(id) {
+        const d = state.drawings.find((q) => q.id === (id || state.selId));
+        if (!d || !d.pts || !d.pts.length) return null;
+        const key = d.pane || "price";
+        const r = el.getBoundingClientRect();
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, n = 0;
+        for (const p of d.pts) {
+          const x = tToX(p.t), y = vToY(p.v, key);
+          if (x == null || y == null) continue;
+          n++;
+          minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+          minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+        }
+        if (!n) return null;
+        return { left: r.left + minX, right: r.left + maxX,
+                 top: r.top + minY, bottom: r.top + maxY,
+                 cx: r.left + (minX + maxX) / 2 };
+      },
       exportJSON() {
         let usage = {};
         try { usage = JSON.parse(localStorage.getItem(USAGE_KEY) || "{}"); } catch {}
@@ -1251,8 +1368,25 @@ const Drawings = (() => {
                                 tool_usage: usage }, null, 2);
       },
       requestUpdate: () => _ru(),
+      /** Tear a secondary pane's runtime down when its pane dies with a layout
+       *  change: drop the pointer listeners' effect by clearing tool + draft,
+       *  detach every primitive, and unregister. The chart itself is removed by
+       *  panes.js; this just makes sure nothing here outlives it. */
+      destroy() {
+        state.tool = "cursor"; state.draft = null; state.selId = null;
+        for (const [key, rec] of [...attached]) {
+          try { rec.host.detachPrimitive(rec.prim); } catch {}
+          attached.delete(key); rus.delete(key);
+        }
+        if (api.paneId) REGISTRY.delete(api.paneId);
+      },
     };
+    // A secondary pane registers so the edit toolbar and the tool router can
+    // find it from the paneId a select event carries. The primary does not —
+    // callers reach it as window.__charto.draw, the way they always have.
+    if (api.paneId) REGISTRY.set(api.paneId, api);
+    return api;
   }
 
-  return { create };
+  return { create, byPaneId: (id) => (id ? REGISTRY.get(id) || null : null) };
 })();

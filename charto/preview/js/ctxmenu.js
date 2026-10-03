@@ -83,9 +83,16 @@ const Ctx = (() => {
       : spec.tick ? `<span class="ctx-tick">${Icons.svg("check", "xs")}</span>`
       : spec.hint ? `<span class="ctx-hint${numeric ? " num" : ""}">`
                     + `${esc(spec.hint)}</span>` : "";
+    // A `swatch` row wears a colour dot where the glyph goes — the colour
+    // picker's rows ARE their colour, so a named-hex label beside a dot would
+    // be saying the same thing twice. `null` is the theme accent, drawn as the
+    // primary so "Accent" reads as a colour and not a blank.
+    const lead = ("swatch" in spec)
+      ? `<span class="ctx-swatch" style="--sw:${esc(spec.swatch || "var(--primary)")}"></span>`
+      : spec.icon ? Icons.svg(spec.icon, "sm") : `<i class="ctx-nopic"></i>`;
     r.innerHTML =
       `<span class="ctx-lead">`
-      + (spec.icon ? Icons.svg(spec.icon, "sm") : `<i class="ctx-nopic"></i>`)
+      + lead
       + `<span class="ctx-label">${esc(spec.label)}</span></span>`
       + trail;
 
@@ -131,7 +138,7 @@ const Ctx = (() => {
     // plain names — the watchlists, the four prices, the questions — it is
     // 31px of empty paper before every word, which is what made a one-row
     // submenu read as a mostly-blank card.
-    const anyIcon = items.some((it) => it && it.icon && !it.sep && !it.head);
+    const anyIcon = items.some((it) => it && (it.icon || ("swatch" in it)) && !it.sep && !it.head);
     m.className = "ctx" + (depth ? " ctx-sub" : "") + (anyIcon ? "" : " ctx-plain");
     m.setAttribute("role", "menu");
     let lastWasSep = true;        // no leading rule, and never two in a row
@@ -361,18 +368,28 @@ const Ctx = (() => {
    * own ResizeObserver re-generates the map when the list's size changes — so
    * there is nothing to tear down and no work on the second open.
    *
-   * `.select-menu` is skipped: it opens inside an opaque settings dialog, where
-   * glass has nothing behind it to refract (see the note beside its rule). */
+   * The indicator settings dialog (`.dlg.indicator-settings`) is glazed too — it
+   * is a glass panel over candles like everything else. `.open` lands on its
+   * `.dlg-wrap`, not the `.dlg` itself, so the lens is attached to the child
+   * when the wrapper opens. `.select-menu` — a dropdown that opens INSIDE such a
+   * dialog — is still skipped: it carries its own opaque paper. */
   function glazeMenus(root) {
     const wanted = (n) => n && n.classList && n.classList.contains("dropdown")
       && !n.classList.contains("select-menu");
+    const glazeDlg = (wrap) => {
+      const dlg = wrap.querySelector && wrap.querySelector(".dlg.indicator-settings");
+      if (dlg) glaze(dlg);
+    };
     for (const n of root.querySelectorAll(".dropdown.open")) {
       if (wanted(n)) glaze(n);
     }
+    for (const w of root.querySelectorAll(".dlg-wrap.open")) glazeDlg(w);
     new MutationObserver((recs) => {
       for (const r of recs) {
         const n = r.target;
-        if (wanted(n) && n.classList.contains("open")) glaze(n);
+        if (!n.classList || !n.classList.contains("open")) continue;
+        if (wanted(n)) glaze(n);
+        else if (n.classList.contains("dlg-wrap")) glazeDlg(n);
       }
     }).observe(root, { subtree: true, attributes: true, attributeFilter: ["class"] });
   }
