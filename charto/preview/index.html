@@ -1298,6 +1298,132 @@ select.is-dressed { display: none; }
   .sx-foot { flex-direction: column; align-items: stretch; }
 }
 
+/* ── Your models (js/models.js) ─────────────────────────────────────────
+   Which model answers the chat: Pivot's, or one the user connected. The
+   chip sits beside the subject chip in the composer and stays as quiet as
+   it: a mark and a name. It only takes a fill when the answer is NOT ours,
+   because that is the case worth noticing before you press send. */
+.mk-chip-wrap { flex: none; min-width: 0; }
+.mk-chip { display: inline-flex; align-items: center; gap: 6px; height: 24px; max-width: 190px; padding: 0 8px 0 7px;
+  border: 0; border-radius: var(--radius-pill); background: transparent; color: var(--muted-foreground);
+  font: inherit; font-size: var(--text-2xs); line-height: 1; cursor: pointer;
+  transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr); }
+.mk-chip:hover, .mk-chip[aria-expanded="true"] { background: var(--accent); color: var(--foreground); }
+.mk-chip.own { background: var(--muted); color: var(--foreground); }
+.mk-chip-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--weight-medium); }
+.mk-caret { flex: none; width: 10px; height: 10px; opacity: .55; }
+.mk-caret path { fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.mk-logo { display: inline-grid; place-items: center; flex: none; width: 14px; height: 14px; color: var(--foreground); }
+.mk-logo svg { display: block; width: 100%; height: 100%; }
+.mk-logo[data-p="pivot"] svg.icon { stroke-width: 1.9; }
+.mk-logo.lg[data-p="pivot"] svg, .mk-logo.xl[data-p="pivot"] svg { color: var(--primary); }
+.mk-logo.lg, .mk-logo.xl { border-radius: 9px; background: var(--card);
+  box-shadow: inset 0 0 0 1px var(--border-soft), 0 1px 2px rgba(0, 0, 0, .05); }
+.mk-logo.lg { width: 30px; height: 30px; }
+.mk-logo.lg svg { width: 16px; height: 16px; }
+.mk-logo.xl { width: 46px; height: 46px; border-radius: 13px; }
+.mk-logo.xl svg { width: 24px; height: 24px; }
+.mk-menu { min-width: 280px; left: auto; right: auto; }
+.mk-item .lead { min-width: 0; }
+.mk-item .mk-logo { width: 18px; height: 18px; }
+.mk-item-t { display: grid; gap: 2px; min-width: 0; }
+.mk-item-t > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mk-item-t small { font-size: 11px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mk-item.on .mk-item-t > span { color: var(--primary); }
+.mk-item[aria-disabled="true"] { opacity: .45; cursor: default; }
+.mk-item[aria-disabled="true"]:hover { background: transparent; }
+.mk-note { font-size: 11px; color: var(--faint); line-height: 1.45; padding: 6px var(--menu-inset) 2px; }
+
+/* the dialog: providers down the left, the one you are looking at on the
+   right — the shape of every serious settings sheet (Raycast, Zed), because
+   a provider is a place you go to, not a row you toggle */
+.mk-dlg { width: min(880px, calc(100vw - 32px)); padding: 0; overflow: hidden auto; max-height: calc(100vh - 40px); }
+.mk { display: grid; grid-template-columns: 236px minmax(0, 1fr); min-height: 540px; }
+.mk-rail { display: flex; flex-direction: column; gap: 2px; padding: 12px 10px 16px;
+  border-right: 1px solid var(--border-soft); background: color-mix(in srgb, var(--foreground) 2.5%, transparent); }
+.mk-kick { padding: 12px 10px 6px; font-size: 10.5px; font-weight: var(--weight-semi); letter-spacing: .07em;
+  text-transform: uppercase; color: var(--faint); }
+.mk-prov { display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: center; gap: 11px; width: 100%;
+  padding: 7px 8px; border: 0; border-radius: 11px; background: transparent; color: var(--foreground);
+  font: inherit; text-align: left; cursor: pointer; transition: background var(--dur) var(--ease-quartr); }
+.mk-prov:hover { background: var(--accent); }
+.mk-prov.on { background: var(--card); box-shadow: 0 0 0 1px var(--border), 0 1px 3px rgba(0, 0, 0, .06); }
+.mk-prov-t { display: grid; gap: 2px; min-width: 0; font-size: var(--text-base); }
+.mk-prov-t small { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.mk-prov-t small.ok { color: var(--muted-foreground); }
+.mk-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--up); flex: none; }
+.mk-pane { display: flex; flex-direction: column; min-width: 0; padding: 24px 28px 18px; }
+.mk-head { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
+.mk-head h3 { margin: 0 0 3px; font-size: 20px; font-weight: var(--weight-semi); letter-spacing: -.015em; }
+.mk-head p { margin: 0; font-size: var(--text-sm); color: var(--muted-foreground); line-height: 1.45; }
+.mk-pane .ly-lab { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.mk-pane .ly-lab + .textfield, .mk-pane select.textfield { margin-bottom: 4px; }
+.mk-get { display: inline-flex; align-items: center; gap: 4px; color: var(--muted-foreground); text-decoration: none; }
+.mk-get:hover { color: var(--foreground); }
+.mk-get svg.icon { width: 11px; height: 11px; }
+.mk-count { color: var(--faint); }
+.mk-mono { font-family: var(--mono); font-size: 12.5px; letter-spacing: .01em; }
+.mk-key { position: relative; }
+.mk-key .textfield { height: 40px; padding-right: 44px; }
+.mk-eye { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); display: grid; place-items: center;
+  width: 30px; height: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--faint); cursor: pointer; }
+.mk-eye:hover, .mk-eye.on { color: var(--foreground); background: var(--accent); }
+.mk-eye svg.icon { width: 15px; height: 15px; }
+.mk-help { margin: 8px 0 0; font-size: var(--text-xs); color: var(--faint); line-height: 1.5; max-width: 58ch; }
+.mk-key-on { display: flex; align-items: center; gap: 10px; min-height: 42px; margin-bottom: 14px; padding: 0 6px 0 13px;
+  border: 1px solid var(--border-soft); border-radius: 11px; background: color-mix(in srgb, var(--foreground) 2.5%, transparent);
+  font-size: var(--text-sm); }
+.mk-key-on > svg.icon { width: 14px; height: 14px; color: var(--up); flex: none; }
+.mk-key-on small { flex: 1; min-width: 0; font-size: 11.5px; color: var(--faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mk-key-on .btn { height: 28px; font-size: var(--text-sm); }
+.mk-msg { min-height: 18px; margin: 10px 0 0; font-size: var(--text-xs); line-height: 1.45; color: var(--muted-foreground); }
+.mk-msg.bad { color: var(--down); }
+.mk-msg.good { color: var(--up); }
+.mk-wall { display: grid; grid-template-columns: 1fr 1fr; margin-top: 18px; border: 1px solid var(--border-soft);
+  border-radius: 12px; overflow: hidden; }
+.mk-wall > div { padding: 13px 15px 14px; }
+.mk-wall > div + div { border-left: 1px solid var(--border-soft); background: color-mix(in srgb, var(--foreground) 2.5%, transparent); }
+.mk-wall h4 { margin: 0 0 9px; font-size: 11px; font-weight: var(--weight-semi); letter-spacing: .02em; color: var(--muted-foreground); }
+.mk-wall ul { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.mk-wall li { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.45; }
+.mk-wall li svg.icon { width: 12px; height: 12px; margin-top: 2px; flex: none; color: var(--up); }
+.mk-wall ul.no li { color: var(--muted-foreground); }
+.mk-wall ul.no li svg.icon { color: var(--faint); }
+.mk-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: auto; padding-top: 18px; }
+.mk-actions .ly-actions { margin-top: 0; }
+.mk-remove { color: var(--muted-foreground); }
+.mk-remove:hover, .mk-remove.confirm { color: var(--down); background: var(--down-soft); }
+.mk-spin { width: 12px; height: 12px; margin-right: 7px; border-radius: 50%; border: 1.6px solid currentColor;
+  border-right-color: transparent; display: inline-block; animation: micSpin .8s linear infinite; }
+/* OpenAI's approved format: "Continue with ChatGPT", the ChatGPT mark, black
+   on light and white on dark */
+.mk-siwc { display: inline-flex; align-items: center; justify-content: center; gap: 10px; align-self: flex-start;
+  height: 44px; padding: 0 22px 0 18px; border: 0; border-radius: var(--radius-pill); background: #0d0d0d; color: #fff;
+  font: inherit; font-size: 15px; font-weight: var(--weight-medium); cursor: pointer; transition: opacity var(--dur) ease; }
+.mk-siwc svg { width: 20px; height: 20px; }
+.mk-siwc:hover { opacity: .86; }
+.mk-siwc:disabled { opacity: .35; cursor: not-allowed; }
+:root[data-theme="dark"] .mk-siwc { background: #fff; color: #0d0d0d; }
+.mk-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; margin: auto; padding: 40px 20px; text-align: center; }
+.mk-empty h3 { margin: 8px 0 0; font-size: 20px; font-weight: var(--weight-semi); letter-spacing: -.015em; }
+.mk-empty .sx-lede { margin: 0 0 8px; }
+.mk-foot .btn { flex: none; }
+@media (max-width: 680px) {
+  .mk { grid-template-columns: 1fr; min-height: 0; }
+  .mk-rail { flex-direction: row; overflow-x: auto; gap: 4px; padding: 10px; border-right: 0; border-bottom: 1px solid var(--border-soft); }
+  .mk-kick, .mk-prov-t small { display: none; }
+  .mk-prov { width: auto; flex: none; grid-template-columns: 30px auto; }
+  .mk-pane { padding: 18px 16px 14px; }
+  .mk-wall { grid-template-columns: 1fr; }
+  .mk-wall > div + div { border-left: 0; border-top: 1px solid var(--border-soft); }
+  .mk-chip { max-width: 120px; }
+  .mk-key-on small { display: none; }
+  .mk-key-on > span { flex: 1; }
+  .mk-foot .btn { align-self: flex-end; }
+}
+
 /* the author's list */
 .su-manage { width: min(640px, calc(100vw - 32px)); }
 .su-list { display: grid; gap: 4px; max-height: min(60vh, 520px); overflow-y: auto; margin: 0 -6px; padding: 0 6px; }
@@ -11094,7 +11220,9 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        and grouping, and nothing else — a renderer with no state of its own -->
   <script src="./js/cards.js?v=60"></script>
   <script src="./js/layers-panel.js?v=11"></script>
-  <script src="./js/chat.js?v=176"></script>
+  <script src="./js/model-logos.js?v=2"></script>
+  <script src="./js/models.js?v=3"></script>
+  <script src="./js/chat.js?v=177"></script>
   <script src="./js/codeview.js?v=5"></script>
   <script src="./js/journal.js?v=7"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it

@@ -1071,6 +1071,14 @@
           text += ev.text;
           turn.__streamText = text;
           paint();
+        } else if (ev.type === "retract") {
+          // The server took back what was streamed (a reply quoting Pivot's
+          // instructions) and sends what replaces it.
+          text = ev.text || "";
+          turn.__streamText = text;
+          shown = ""; stableLen = 0; stableMarks = 0;
+          stableEl.innerHTML = ""; tailEl.innerHTML = "";
+          paintAll();
         } else if (ev.type === "tool_start") {
           // the tool is RUNNING — say so now, not when it lands, or a
           // 20-second evaluation shows the step before it the whole time
@@ -2032,8 +2040,12 @@
         // chat_id is what lets recall_conversations EXCLUDE this conversation
         // from a search of the earlier ones — its turns are already in
         // `messages`, and finding them twice would read as two occasions.
+        // `engine` names the user's own connected model (js/models.js);
+        // absent, Pivot's model answers.
         body: JSON.stringify({ messages: wireHistory(), context, stream: true,
-                               chat_id: activeId, mode: chatMode }),
+                               chat_id: activeId, mode: chatMode,
+                               ...(typeof Models !== "undefined" && Models.engine()
+                                 ? { engine: Models.engine() } : {}) }),
         signal: requestAbort.signal,
       });
       if (!res.ok) {
@@ -2060,7 +2072,9 @@
       // usual one — the server sends `model` on a fallback and omits it
       // otherwise. An outage upstream otherwise reads as the product quietly
       // getting worse, which is the one explanation that is not true.
-      const meta = [`${secs}s`, ...(d.model ? [`${d.model} · fallback`] : [])];
+      // A user's own model is named on every answer it wrote (`engine`), so a
+      // thread that mixes models says which wrote what.
+      const meta = [`${secs}s`, ...(d.engine ? [d.model] : d.model ? [`${d.model} · fallback`] : [])];
       const acts = chartActions(d.scene_patch);
       // The panels are filed with the reply, not re-fetched: reopening a
       // conversation has to bring back the scan the answer was written about,

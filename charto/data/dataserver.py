@@ -199,7 +199,11 @@ AZURE_ENDPOINT, AZURE_KEY = _load_azure_creds()
 # The Browser widget's search engine and remote browser read theirs the same
 # way (websearch.py, _browser_ticket). Env wins over .env.
 for _k, _v in _env_values("YOUTUBE_API_KEY", "BRAVE_SEARCH_API_KEY", "SEARXNG_URL",
-                          "CHARTO_BROWSER_SECRET", "CHARTO_BROWSER_WS").items():
+                          "CHARTO_BROWSER_SECRET", "CHARTO_BROWSER_WS",
+                          # bring-your-own-model (byok.py)
+                          "CHARTO_BYOK_SECRET", "OPENAI_SIWC_CLIENT_ID",
+                          "OPENAI_SIWC_CLIENT_SECRET", "OPENAI_SIWC_REDIRECT_URI",
+                          "OPENAI_SIWC_PLAN").items():
     if _v and not environ.get(_k):
         environ[_k] = _v
 LLM_DEPLOYMENT = _env_values("CHARTO_LLM_MODEL")["CHARTO_LLM_MODEL"] or LLM_DEPLOYMENT_DEFAULT
@@ -12623,6 +12627,52 @@ def _journal_update_tool(trade_id: int, changes: dict):
 _DISPATCH["update_journal_trade"] = _journal_update_tool
 
 
+# ── a user's own model: the tools it is offered ─────────────────────────────
+# The same surface as Research mode, minus the two tools that spend Pivot's own
+# model behind the scenes — `search_news` browses with our deployment and
+# `custom_indicator` writes code with it — so a turn paid for by the user's key
+# never runs up ours. The web comes from the search engine API instead, with
+# no model in the loop. Enforced at dispatch, not only by omission: a call to
+# any name outside this set is refused (see llm_chat_stream).
+_BYOK_WITHHELD = frozenset({"search_news", "custom_indicator"})
+
+SEARCH_WEB_TOOL = {
+    "type": "function", "name": "search_web",
+    "description": "Search the web through Pivot's search engine (no browsing): returns up to 8 results with title, url, snippet, site and publish date when known. Use for news, announcements, outside causes of a move, or anything the market tools do not hold. kind='news' for recent reporting; fresh narrows by age. Cite the site and date of what you use, and never treat a headline as a number — numbers come from the chart tools.",
+    "parameters": {"type": "object", "properties": {
+        "q": {"type": "string", "description": "the query, e.g. 'Tata Motors Q2 results October 2026'"},
+        "kind": {"type": "string", "enum": ["web", "news"], "description": "default web"},
+        "fresh": {"type": "string", "enum": ["", "day", "week", "month", "year"], "description": "only results this recent; empty for any age"}},
+        "required": ["q"]}}
+
+
+def tool_search_web(q: str = "", kind: str = "web", fresh: str = "") -> dict:
+    q = str(q or "").strip()[:200]
+    if not q:
+        return {"error": "q is required"}
+    got = _websearch.search(q, 1, "news" if kind == "news" else "web", fresh or "")
+    if got is None:
+        return {"error": "web search is not configured on this server"}
+    rows = [{k: r.get(k) for k in ("title", "url", "snippet", "site", "published") if r.get(k)}
+            for r in (got.get("results") or [])[:8]]
+    return {"q": q, "results": rows, "source": got.get("source")} if rows else \
+        {"q": q, "results": [], "note": got.get("error") or "no results"}
+
+
+_DISPATCH["search_web"] = tool_search_web
+
+
+def _byok_tools() -> list[dict]:
+    return [t for t in TOOLS if t.get("name") not in _EXECUTION_ONLY_TOOLS
+            and t.get("name") not in _BYOK_WITHHELD] + [SEARCH_WEB_TOOL]
+
+
+BYOK_RULES = """\
+TOOLS ON THIS ENGINE: `search_news` is not available here — for news, filings
+coverage or outside causes call `search_web` and cite the site and date.
+Everything else works as described."""
+
+
 # The journal's own three, on the same terms as the watcher's: `user_id` is
 # read off the request's bearer token and is never a parameter, so the model
 # cannot address another account's book even if it invents the argument.
@@ -14234,7 +14284,9 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
     model has written a word. `done` carries the full list too — that is what
     a reloaded thread repaints from.
     """
-    if not AZURE_ENDPOINT or not AZURE_KEY:
+    # A user's own model (byok.py), set per request by the /chat handler.
+    eng = getattr(_req, "engine", None)
+    if not eng and (not AZURE_ENDPOINT or not AZURE_KEY):
         yield {"type": "done", "error": _creds_error()}
         return
     _off = _execution_unavailable_reply()
@@ -14253,6 +14305,17 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
     common = (build_context_block(context), FORMAT_RULES, ANSWERING_RULES)
     mode_context = ((mode_rules,) if mode_rules else (READING_RULES, CAUSAL_RULES))
     block = "\n\n".join(x for x in (*common, *mode_context) if x)
+    guard = None
+    offered = None
+    if eng:
+        # The confidentiality rules go to the user's model with the rest; the
+        # guard watches the reply for the rules coming back out verbatim.
+        block = "\n\n".join((block, BYOK_RULES, _byok.GUARD_RULES))
+        tools_now = _byok_tools()
+        offered = {t["name"] for t in tools_now}
+        guard = _byok.LeakGuard(*(x for x in (FORMAT_RULES, ANSWERING_RULES, READING_RULES,
+                                              CAUSAL_RULES, BYOK_RULES, _byok.GUARD_RULES) if x),
+                                *(t.get("description", "") for t in tools_now))
     wire: list[dict] = []
     if block:
         wire.append({"role": "system", "content": block})
@@ -14274,12 +14337,22 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
         text_parts: list[str] = []
         by_id: dict = {}
         try:
-            for ev in _post_responses_stream(wire, allow_tools=_round < _rounds - 1):
+            source = (eng.stream(wire, tools_now, _round < _rounds - 1) if eng
+                      else _post_responses_stream(wire, allow_tools=_round < _rounds - 1))
+            for ev in source:
                 t = ev.get("type", "")
                 if t == "response.output_text.delta":
                     d = ev.get("delta") or ""
+                    if d and guard and guard.tripped:
+                        continue
                     if d:
                         text_parts.append(d)
+                        if guard and guard.feed(d):
+                            # Quoting Pivot's instructions: take back what
+                            # was shown and answer with the refusal instead.
+                            text_parts[:] = [_byok.REFUSAL]
+                            yield {"type": "retract", "text": _byok.REFUSAL}
+                            continue
                         yield {"type": "delta", "text": d}
                 elif t == "response.reasoning_summary_text.delta":
                     # One part per titled paragraph; the id keeps a new round's
@@ -14316,6 +14389,11 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
             return
 
         calls = list(by_id.values())
+        if guard and not guard.tripped and text_parts and guard.check():
+            text_parts[:] = [_byok.REFUSAL]
+            yield {"type": "retract", "text": _byok.REFUSAL}
+        if guard and guard.tripped:
+            calls = []
         if not calls:
             answer = "".join(text_parts) or "(empty reply)"
             # Which arm wrote this. A reader on the fallback is getting
@@ -14324,6 +14402,17 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
             # look like the product getting worse. Only sent when it is not
             # the configured model — the normal case adds no noise.
             _served = _model()
+            if eng:
+                # No follow-up row: it is written by Pivot's model, and this
+                # turn is on the user's. The preview shows the envelope the
+                # user's own page sent, not Pivot's rules.
+                eng.touch()
+                yield {"type": "done", "text": answer, "model": eng.label(), "engine": eng.provider,
+                       "usage": {"input_tokens": tok_in, "output_tokens": tok_out},
+                       "context_preview": build_context_block(context),
+                       "tools_used": tool_trace, "scene_patch": scene_patch,
+                       "view_ops": view_ops, "cards": cards}
+                return
             yield {"type": "done",
                    "text": answer,
                    **({"model": _served} if _served != LLM_DEPLOYMENT else {}),
@@ -14350,7 +14439,12 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
             # happens; the tool's ordinary result arrives as its last event.
             streamer = _STREAMING_TOOLS.get(call.get("name", ""))
             stages = streamer(**args) if streamer and isinstance(args, dict) else None
-            if stages is not None:
+            if offered is not None and call.get("name") not in offered:
+                # Only what was offered runs. A model that names anything
+                # else — a withheld tool, an invented one — is told no.
+                stages = None
+                result = {"error": f"{call.get('name')} is not available on this engine"}
+            elif stages is not None:
                 result = None
                 try:
                     for sev in stages:
@@ -14379,14 +14473,19 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
             for c in fresh:
                 yield {"type": "card", "card": c}
             wire.append({"type": "function_call", "call_id": call.get("call_id"),
-                         "name": call.get("name"), "arguments": call.get("arguments")})
+                         "name": call.get("name"), "arguments": call.get("arguments"),
+                         **({"_sig": call["_sig"]} if call.get("_sig") else {})})
             wire.append({"type": "function_call_output", "call_id": call.get("call_id"),
                          "output": json.dumps(result, default=str)})
 
+    if eng:
+        eng.touch()
     yield {"type": "done",
+           **({"model": eng.label(), "engine": eng.provider} if eng else {}),
            "text": "I couldn't finish that lookup — try narrowing the question.",
            "usage": {"input_tokens": tok_in, "output_tokens": tok_out},
-           "context_preview": block, "tools_used": tool_trace,
+           "context_preview": build_context_block(context) if eng else block,
+           "tools_used": tool_trace,
            "scene_patch": scene_patch, "view_ops": view_ops, "cards": cards}
 
 
@@ -15712,6 +15811,15 @@ except Exception as _shares_exc:  # noqa: BLE001
     logging.warning("charto shared setups unavailable: %s", _shares_exc)
     _shares = None
 
+# A user's own model key or ChatGPT plan driving the chat (byok.py). Optional
+# on the same terms: if it cannot load, the chat runs on Pivot's model alone.
+try:
+    import byok as _byok
+    _byok.bind(_users, _users_lock)
+except Exception as _byok_exc:  # noqa: BLE001
+    logging.warning("charto bring-your-own-model unavailable: %s", _byok_exc)
+    _byok = None
+
 
 _CONV_KEEP = 200          # conversations retained per user
 _CONV_TURNS = 80          # turns retained per conversation
@@ -16720,6 +16828,62 @@ def quotes_for(names: list[str]) -> list[dict]:
 
 
 class Handler(BaseHTTPRequestHandler):
+    def _byok(self, u, body: dict | None) -> None:
+        """Your models (byok.py). Every route is the signed-in user's own and
+        answers no-store; no response ever carries a key or a token."""
+        hdr = {"Cache-Control": "no-store"}
+        if _byok is None:
+            return self._send(501, {"error": "Your own models are not available on this server."},
+                              headers=hdr)
+        if u.path == "/byok/chatgpt/callback":
+            # OpenAI's redirect lands here in the popup, with no bearer token:
+            # the single-use `state` is what names the account.
+            q = {k: v[0] for k, v in parse_qs(u.query).items()}
+            ok, msg = False, "ChatGPT sign-in was cancelled."
+            if q.get("code") and q.get("state"):
+                try:
+                    _byok.chatgpt_callback(q["code"], q["state"])
+                    ok, msg = True, "ChatGPT is connected. You can close this window."
+                except _byok.Refused as exc:
+                    msg = str(exc)
+                except Exception:  # noqa: BLE001
+                    logging.exception("byok: ChatGPT callback failed")
+                    msg = "ChatGPT sign-in failed on our side. Try again."
+            elif q.get("error"):
+                msg = f"ChatGPT sign-in did not complete ({_byok.scrub(q.get('error_description') or q['error'])})."
+            page = _byok.callback_html(ok, msg).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("Content-Length", str(len(page)))
+            self.end_headers()
+            self.wfile.write(page)
+            return
+        me = _auth_user(self.headers)
+        if not me:
+            return self._send(401, {"error": "Sign in to connect your own model."}, headers=hdr)
+        uid = me[0]
+        try:
+            if body is None:
+                if u.path == "/byok":
+                    return self._send(200, _byok.state(uid), headers=hdr)
+                if u.path == "/byok/chatgpt/start":
+                    return self._send(200, _byok.chatgpt_start(uid), headers=hdr)
+                return self._send(404, {"error": "not found"}, headers=hdr)
+            prov = str(body.get("provider") or "")
+            if u.path == "/byok/key":
+                return self._send(200, _byok.connect_key(uid, prov, str(body.get("key") or ""),
+                                                         str(body.get("model") or "")), headers=hdr)
+            if u.path == "/byok/model":
+                return self._send(200, _byok.set_model(uid, prov, str(body.get("model") or "")),
+                                  headers=hdr)
+            if u.path == "/byok/remove":
+                return self._send(200, _byok.remove(uid, prov), headers=hdr)
+            return self._send(404, {"error": "not found"}, headers=hdr)
+        except _byok.Refused as exc:
+            return self._send(exc.status, {"error": str(exc)}, headers=hdr)
+
     def _send(self, code: int, payload: dict, *, max_age: int = 0,
               headers: dict[str, str] | None = None) -> None:
         body = json.dumps(payload).encode()
@@ -17116,6 +17280,8 @@ class Handler(BaseHTTPRequestHandler):
                      "retry_after_s": _DATA_RETRY_AFTER_S},
                     headers={"Retry-After": str(_DATA_RETRY_AFTER_S)})
         try:
+            if u.path == "/byok" or u.path.startswith("/byok/"):
+                return self._byok(u, None)
             if u.path == "/health":
                 deep = q.get("deep", "").lower() in ("1", "true", "yes")
                 return self._send(*_health_report(deep=deep),
@@ -18135,6 +18301,17 @@ class Handler(BaseHTTPRequestHandler):
                 # /layouts already uses, so the server keeps two verbs
                 return self._send(*_alerts.api_patch(me[0], int(tail), body))
             return self._send(404, {"error": f"no alerts route '{tail}'"})
+        if u.path.startswith("/byok/"):
+            try:
+                ln = int(self.headers.get("Content-Length", 0))
+                if ln > 8192:
+                    return self._send(413, {"error": "too large"})
+                body = json.loads(self.rfile.read(ln) or b"{}")
+            except (ValueError, TypeError):
+                return self._send(400, {"error": "bad JSON body"})
+            if not isinstance(body, dict):
+                return self._send(400, {"error": "bad JSON body"})
+            return self._byok(u, body)
         if u.path.startswith("/auth/") or u.path in ("/workspace", "/layouts",
                                                      "/conversations", "/setups",
                                                      "/setups/copy"):
@@ -18258,6 +18435,24 @@ class Handler(BaseHTTPRequestHandler):
             _req.chat_id = str(body.get("chat_id") or "")[:64]
             _req.chat_mode = ("execution"
                               if body.get("mode") == "execution" else "chat")
+            # WHICH MODEL. Pivot's own unless the page names a connected one
+            # (byok.py). Reset on every request: _req is per thread, and a
+            # thread serves many users.
+            _req.engine = None
+            want = body.get("engine") if isinstance(body.get("engine"), dict) else {}
+            if want.get("provider") and want.get("provider") != "pivot":
+                if _byok is None:
+                    return self._send(501, {"error": "Your own models are not available on this server."})
+                if _req.chat_mode == "execution":
+                    return self._send(400, {"error": "Strategy building runs on Pivot's model. "
+                                                     "Switch the model to Pivot, or ask in Research."})
+                if not body.get("stream"):
+                    return self._send(400, {"error": "Your own model answers on the streaming path only."})
+                try:
+                    _req.engine = _byok.engine_for(_req.user[0] if _req.user else None,
+                                                   str(want.get("provider")), str(want.get("model") or ""))
+                except _byok.Refused as exc:
+                    return self._send(exc.status, {"error": str(exc), "byok": True})
             err = _ensure_symbol(sym)
             if err:
                 return self._send(400, err)
@@ -18310,6 +18505,13 @@ class Handler(BaseHTTPRequestHandler):
                  f"{_req.chat_id or int(time.time()) // 60}|{len(messages)}|"
                  + json.dumps(messages[-1], default=str)[:4000]).encode()
             ).hexdigest()[:32]
+            if _req.engine is not None:
+                # The user's key pays for this turn; Pivot's credits are untouched.
+                # The opened credential leaves the thread with the turn.
+                try:
+                    return self._send_stream(messages, ctx, None)
+                finally:
+                    _req.engine = None
             try:
                 credit = _ent.consume(uid, "ai.credits", turn, 1, client=client,
                                       meta=_req.chat_mode)
