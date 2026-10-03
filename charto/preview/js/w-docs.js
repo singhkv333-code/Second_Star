@@ -53,6 +53,7 @@
       const fit = Math.max(.2, (box.clientWidth - 24) / vp.width);
       return zoom === "fit" ? fit : zoom === "page" ? Math.min(fit, (box.clientHeight - 24) / vp.height) : Number(zoom);
     };
+    let scaleNow = 1;            // the scale the pages are drawn at now, as a number
     const paintZoom = () => { view.querySelector(".pv-z").textContent = zoom === "fit" ? "Fit" : zoom === "page" ? "Page" : Math.round(zoom * 100) + "%"; };
     async function draw(i) {
       const slot = pages[i];
@@ -75,7 +76,8 @@
     async function layoutPages() {
       width = box.clientWidth;
       const first = await doc.getPage(1);
-      const vp = first.getViewport({ scale: scaleFor(first) });
+      scaleNow = scaleFor(first);
+      const vp = first.getViewport({ scale: scaleNow });
       for (const sl of pages) {
         sl.drawn = "";
         if (!sl.el.firstChild) { sl.el.style.width = Math.floor(vp.width) + "px"; sl.el.style.height = Math.floor(vp.height) + "px"; }
@@ -96,16 +98,62 @@
     view.querySelector(".pv-bar").addEventListener("click", (e) => {
       const b = e.target.closest("[data-pv]");
       if (!b) return;
-      const a = b.dataset.pv, num_ = zoom === "fit" || zoom === "page" ? scaleFor({ getViewport: () => ({ width: 600, height: 800 }) }) : Number(zoom);
+      const a = b.dataset.pv;
       if (a === "prev") return go(current() - 1);
       if (a === "next") return go(current() + 1);
+      // + and − zoom about the middle of the view, the way a pinch does about the fingers
+      if (a === "in" || a === "out") return zoomTo(scaleNow * (a === "in" ? 1.2 : 1 / 1.2), box.clientWidth / 2, box.clientHeight / 2);
       const at = current();
-      if (a === "fit") zoom = zoom === "fit" ? "page" : "fit";
-      if (a === "in") zoom = Math.min(4, Math.round((num_ * 1.2) * 20) / 20);
-      if (a === "out") zoom = Math.max(.3, Math.round((num_ / 1.2) * 20) / 20);
+      zoom = zoom === "fit" ? "page" : "fit";
       ctx.setCfg({ pdfZoom: zoom });
       layoutPages().then(() => go(at));
     });
+
+    /* Zoom where the pointer is: Ctrl + wheel, or a trackpad pinch (which the
+     * browser reports as Ctrl + wheel). The pages stretch at once, the point
+     * under the pointer stays under it, and they are redrawn sharp when the
+     * gesture rests. */
+    let settle = 0;
+    function zoomTo(s1, cx, cy) {
+      if (!doc || !pages.length) return;
+      s1 = Math.max(.3, Math.min(5, s1));
+      const r = s1 / scaleNow;
+      if (Math.abs(r - 1) < .001) return;
+      const pad = 12;                     // the strip's padding does not scale
+      const x = box.scrollLeft + cx - pad, y = box.scrollTop + cy - pad;
+      for (const sl of pages) {
+        const w = parseFloat(sl.el.style.width) * r, h = parseFloat(sl.el.style.height) * r;
+        sl.el.style.width = w + "px"; sl.el.style.height = h + "px";
+        const cv = sl.el.firstChild;
+        if (cv) { cv.style.width = w + "px"; cv.style.height = h + "px"; }
+        sl.drawn = "";
+      }
+      // page gaps do not scale either: correct for the ones above the pointer
+      const gapsAbove = pages.filter((sl) => sl.el.offsetTop + sl.el.offsetHeight < y).length * 12;
+      scaleNow = s1;
+      zoom = s1;
+      box.scrollLeft = x * r + pad - cx;
+      box.scrollTop = (y - gapsAbove) * r + gapsAbove + pad - cy;
+      paintZoom();
+      box.classList.add("zooming");
+      clearTimeout(settle);
+      settle = setTimeout(() => {
+        box.classList.remove("zooming");
+        ctx.setCfg({ pdfZoom: zoom });
+        width = box.clientWidth;
+        io.disconnect();
+        pages.forEach((sl) => io.observe(sl.el));
+      }, 200);
+    }
+    box.addEventListener("wheel", (e) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const r = box.getBoundingClientRect();
+      const d = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+      // a pinch sends many small deltas, a mouse wheel few large ones (~100 a notch)
+      zoomTo(scaleNow * Math.exp(-d * (Math.abs(d) >= 50 ? .0022 : .01)), e.clientX - r.left, e.clientY - r.top);
+    }, { passive: false });
     let rz = 0;
     const ro = new ResizeObserver(() => {
       clearTimeout(rz);

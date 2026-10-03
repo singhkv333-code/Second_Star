@@ -7834,10 +7834,11 @@ body.dk-dragging .dk-pull { pointer-events: none; }
   background: var(--input); color: var(--foreground); font: inherit; user-select: text; }
 .pv-at b { font-weight: var(--weight-medium); opacity: .7; }
 .pv-z { min-width: 48px; justify-content: center; font-variant-numeric: tabular-nums; }
-.pv-pages { flex: 1; min-height: 0; overflow: auto; padding: 12px; display: flex; flex-direction: column; align-items: center; gap: 12px;
+.pv-pages { flex: 1; min-height: 0; overflow: auto; padding: 12px; display: flex; flex-direction: column; align-items: flex-start; gap: 12px;
   background: color-mix(in srgb, var(--foreground) 5%, var(--background)); }
-.pv-page { flex: none; background: #fff; border-radius: 3px; box-shadow: 0 1px 3px rgba(0,0,0,.12), 0 8px 24px -16px rgba(0,0,0,.3); }
+.pv-page { flex: none; margin: 0 auto; background: #fff; border-radius: 3px; box-shadow: 0 1px 3px rgba(0,0,0,.12), 0 8px 24px -16px rgba(0,0,0,.3); }
 .pv-page canvas { display: block; border-radius: 3px; }
+.pv-pages.zooming .pv-page canvas { image-rendering: auto; }
 .dk-w-docs .dc-doc { font-size: var(--dc-size, 14.5px); }
 .dk-w-docs .dc-text { font-size: calc(var(--dc-size, 14.5px) - 2px); }
 .dc-drop { flex: 1; display: flex; align-items: center; justify-content: center; margin: 12px; border: 1.5px dashed var(--border); border-radius: 14px; transition: border-color var(--dur), background var(--dur); }
@@ -10288,7 +10289,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/w-news.js?v=2"></script>
   <script src="./js/w-browser.js?v=1"></script>
   <script src="./js/w-code.js?v=4"></script>
-  <script src="./js/w-docs.js?v=3"></script>
+  <script src="./js/w-docs.js?v=4"></script>
   <script src="./js/w-media.js?v=5"></script>
   <!-- every widget is registered by now; build the rail before js/mobile.js
        reads it for the phone toolbar -->
