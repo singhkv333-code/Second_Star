@@ -9,3 +9,6 @@ RUN test -n "$SEARXNG_SECRET" && sed -i "s/__SEARXNG_SECRET__/$SEARXNG_SECRET/" 
 
 FROM searxng/searxng:2026.10.2-19ffbcd30
 COPY --from=cfg /settings.yml /etc/searxng/settings.yml
+# the image listens on "::"; Azure Container Instances has no IPv6 in the
+# container, so that bind fails and the container restarts forever
+ENV GRANIAN_HOST=0.0.0.0

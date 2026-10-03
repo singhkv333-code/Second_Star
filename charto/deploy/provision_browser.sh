@@ -26,6 +26,9 @@ SUBNET="${SUBNET:-charto-browser}"
 PREFIX="${PREFIX:-10.0.1.0/27}"
 NSG="${NSG:-charto-browser-nsg}"
 GROUP="${GROUP:-charto-browser}"
+# fixed, so nginx-charto.conf (/rb/) and pivot/.env (SEARXNG_URL) stay right
+# across redeploys; Azure keeps .0-.3 of the subnet for itself
+IP="${IP:-10.0.1.4}"
 VM_IP="${VM_IP:-10.0.0.4}"
 TAG="${TAG:-$(git -C "$(dirname "$0")/../.." rev-parse --short HEAD)}"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
@@ -78,6 +81,7 @@ properties:
     - id: $(az network vnet subnet show -g "$RG" --vnet-name "$VNET" -n "$SUBNET" --query id -o tsv)
   ipAddress:
     type: Private
+    ip: $IP
     ports:
       - { protocol: TCP, port: 5177 }
       - { protocol: TCP, port: 8080 }
@@ -100,7 +104,12 @@ properties:
         environmentVariables:
           - { name: SEARXNG_BASE_URL, value: 'http://searxng.internal/' }
 YAML
+# the private address cannot change in place: replace the group when it differs
+cur_ip="$(az container show -g "$RG" -n "$GROUP" --query ipAddress.ip -o tsv 2>/dev/null || true)"
+if [ -n "$cur_ip" ] && [ "$cur_ip" != "$IP" ]; then
+  say "replacing $GROUP ($cur_ip -> $IP)"
+  az container delete -g "$RG" -n "$GROUP" --yes -o none
+fi
 az container create -g "$RG" -f /tmp/charto-browser-aci.yaml -o none
 rm -f /tmp/charto-browser-aci.yaml
-IP="$(az container show -g "$RG" -n "$GROUP" --query ipAddress.ip -o tsv)"
-say "running at $IP (rb :5177, searxng :8080)"
+say "running at $(az container show -g "$RG" -n "$GROUP" --query ipAddress.ip -o tsv) (rb :5177, searxng :8080)"
