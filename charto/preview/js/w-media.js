@@ -333,7 +333,7 @@
         }
         if (id === "note") {
           const h = dayHead(it.date, it.date).main;
-          return ctx.send("notes", { symbol: sym, general: !sym,
+          return ctx.send("notes", { quiet: true, symbol: sym, general: !sym,
             html: `<p><b>${esc(h)}</b> — ${esc(sentence(it).replace(/^[^—]+—\s*/, ""))} <i>(${esc(it.source)})</i></p>` });
         }
         if (id === "ics") return ics(it);

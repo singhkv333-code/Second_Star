@@ -7831,20 +7831,84 @@ i.mg { height: 3px !important; border-radius: 2px !important; background: var(--
 .br-lock svg.icon { width: 13px; height: 13px; opacity: .55; }
 .br-url input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; color: var(--foreground); font: inherit; font-size: var(--text-base);
   user-select: text; -webkit-user-select: text; }
-.br-view { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
+.br-view { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; overflow-y: auto; }
+.br-bar .sh-btn:disabled { opacity: .3; cursor: default; }
 .br-frame { flex: 1; width: 100%; border: 0; background: #fff; }
-.br-start { padding: 22px 18px; display: flex; flex-direction: column; gap: 4px; overflow: auto; }
-.br-start > b { font-size: 16px; font-weight: var(--weight-semi); }
-.br-start > span { font-size: var(--text-base); opacity: .7; margin-bottom: 12px; }
-.br-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
-.br-tile { display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 11px; border: 1px solid var(--border); background: var(--surface-plain);
-  color: var(--foreground); cursor: pointer; text-align: left; font: inherit; transition: transform .2s var(--ease-quartr), border-color var(--dur); }
-.br-tile:hover { transform: translateY(-1px); border-color: color-mix(in srgb, var(--foreground) 30%, var(--border)); }
-.br-mono { flex: none; width: 34px; height: 34px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center;
-  font-style: normal; font-weight: var(--weight-semi); font-size: 15px; background: var(--rail); }
-.br-tile span { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.br-tile b { font-size: var(--text-base); font-weight: var(--weight-semi); }
-.br-tile em { font-style: normal; font-size: var(--text-sm); opacity: .65; }
+.br-livebar { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 8px 4px 12px;
+  font-size: var(--text-sm); color: var(--muted-foreground); border-bottom: 1px solid var(--border-soft); }
+.br-livebar span { display: inline-flex; align-items: center; gap: 6px; }
+.br-livebar svg.icon { width: 13px; height: 13px; }
+/* home */
+.br-home { margin: auto 0; padding: 28px 20px 40px; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.br-big { width: min(520px, 100%); display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 16px; border-radius: 23px;
+  background: var(--surface-plain); box-shadow: inset 0 0 0 1px var(--border), 0 6px 20px -14px rgba(0,0,0,.3); }
+.br-big:focus-within { box-shadow: inset 0 0 0 1.5px var(--foreground), 0 6px 20px -14px rgba(0,0,0,.3); }
+.br-big svg.icon { width: 17px; height: 17px; opacity: .55; flex: none; }
+.br-big input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; color: var(--foreground); font: inherit; font-size: 15px; user-select: text; }
+.br-sugs { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; max-width: 560px; }
+.br-sug { height: 28px; padding: 0 12px; border-radius: 14px; border: 1px solid var(--border); background: transparent; color: var(--foreground);
+  font: inherit; font-size: var(--text-sm); cursor: pointer; }
+.br-sug:hover { background: var(--hover-fill); }
+.br-note { margin: 4px 0 0; font-size: 12px; color: var(--muted-foreground); text-align: center; max-width: 420px; }
+/* results */
+.br-res { padding: 10px 14px 24px; display: flex; flex-direction: column; gap: 4px; font-size: var(--br-size, 14.5px); }
+.br-busy { display: flex; align-items: center; gap: 8px; padding: 4px 2px 10px; font-size: var(--text-sm); color: var(--muted-foreground); }
+.br-busy svg.icon { width: 14px; height: 14px; animation: br-pulse 1.2s ease-in-out infinite; }
+@keyframes br-pulse { 50% { opacity: .3; } }
+.br-hit { padding: 10px 10px 11px; margin: 0 -10px; border-radius: 10px; cursor: pointer; }
+.br-hit:hover { background: var(--hover-fill); }
+.br-hit b { display: block; margin: 3px 0 2px; font-size: 1em; font-weight: var(--weight-semi); line-height: 1.35; color: var(--foreground); }
+.br-hit:hover b { text-decoration: underline; text-underline-offset: 2px; }
+.br-hit p { margin: 0; font-size: .9em; line-height: 1.5; color: var(--muted-foreground); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.br-hit mark { background: none; color: var(--foreground); font-weight: var(--weight-semi); }
+.br-site { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; color: var(--muted-foreground); }
+.br-site img { width: 14px; height: 14px; border-radius: 3px; flex: none; }
+.br-site span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.br-wiki { display: flex; gap: 12px; align-items: center; padding: 12px; margin-bottom: 6px; border-radius: 12px; cursor: pointer;
+  background: color-mix(in srgb, var(--foreground) 4%, transparent); }
+.br-wiki:hover { background: color-mix(in srgb, var(--foreground) 7%, transparent); }
+.br-wiki img { width: 52px; height: 52px; border-radius: 8px; object-fit: cover; flex: none; background: #fff; }
+.br-wiki div { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.br-wiki em { font-style: normal; font-size: 11px; font-weight: var(--weight-semi); letter-spacing: .05em; text-transform: uppercase; color: var(--muted-foreground); }
+.br-wiki b { font-size: 1em; font-weight: var(--weight-semi); }
+.br-wiki span { font-size: .88em; color: var(--muted-foreground); }
+.br-none { padding: 20px 4px; color: var(--muted-foreground); font-size: var(--text-base); }
+/* the reading view */
+.br-doc { padding: 0 18px 30px; font-size: var(--br-size, 14.5px); line-height: 1.65; color: var(--foreground); user-select: text; -webkit-user-select: text; }
+.br-tools { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 2px; margin: 0 -18px 12px; padding: 6px 10px;
+  background: var(--background); border-bottom: 1px solid var(--border-soft); }
+.br-doc h1 { margin: 6px 0 4px; font-size: 1.55em; line-height: 1.25; font-weight: var(--weight-semi); letter-spacing: -.01em; }
+.br-doc .br-site { margin-top: 4px; }
+.br-desc { margin: 0 0 12px; color: var(--muted-foreground); }
+.br-doc h2 { font-size: 1.2em; font-weight: var(--weight-semi); margin: 1.4em 0 .4em; padding-bottom: .25em; border-bottom: 1px solid var(--border-soft); }
+.br-doc h3 { font-size: 1.05em; font-weight: var(--weight-semi); margin: 1.2em 0 .3em; }
+.br-doc p { margin: 0 0 .85em; }
+.br-doc p.li { padding-left: 1.1em; position: relative; }
+.br-doc p.li::before { content: "•"; position: absolute; left: .2em; color: var(--muted-foreground); }
+.br-doc blockquote { margin: 0 0 .9em; padding-left: 12px; border-left: 3px solid var(--border); color: var(--muted-foreground); }
+.br-doc a { color: var(--foreground); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--foreground) 30%, transparent); text-underline-offset: 2px; }
+.br-doc a:hover { text-decoration-color: var(--foreground); }
+.br-hero { display: block; width: 100%; max-height: 260px; object-fit: cover; border-radius: 10px; margin: 10px 0 14px; }
+.br-noimg .br-doc img, .br-noimg .br-wiki img, .br-noimg .br-hero { display: none; }
+.br-toc { margin: 4px 0 12px; font-size: .9em; }
+.br-toc summary { cursor: pointer; color: var(--muted-foreground); }
+.br-toc a { display: block; padding: 2px 0 2px 10px; text-decoration: none; }
+.br-wikibody ul, .br-wikibody ol { padding-left: 1.3em; margin: 0 0 .9em; }
+.br-wikibody table { border-collapse: collapse; margin: .4em 0 1em; font-size: .86em; display: block; max-width: 100%; overflow-x: auto; }
+.br-wikibody th, .br-wikibody td { border: 1px solid var(--border-soft); padding: 4px 8px; vertical-align: top; text-align: left; }
+.br-wikibody th { background: color-mix(in srgb, var(--foreground) 4%, transparent); font-weight: var(--weight-semi); }
+.br-wikibody table.infobox { float: right; width: min(280px, 46%); margin: 0 0 12px 16px; display: table; }
+@container (max-width: 520px) { .br-wikibody table.infobox { float: none; width: 100%; margin: 0 0 12px; } }
+.br-wikibody table.infobox caption { font-weight: var(--weight-semi); padding: 4px; }
+.br-wikibody img { max-width: 100%; height: auto; }
+.br-wikibody figure { margin: .4em 0 1em; }
+.br-wikibody figcaption { font-size: .85em; color: var(--muted-foreground); }
+.br-wikibody sup { font-size: .7em; }
+.br-thin { margin: 10px 0 16px; padding: 12px 14px; border-radius: 10px; background: color-mix(in srgb, var(--foreground) 4%, transparent); }
+.br-thin p { margin: 0 0 6px; }
+.br-thin span { display: block; font-size: .88em; color: var(--muted-foreground); margin-bottom: 8px; }
+.br-thin div { display: flex; flex-wrap: wrap; gap: 4px; }
+.br-lic { margin-top: 2em !important; font-size: 11.5px; color: var(--muted-foreground); }
 .br-view .side-empty a.dk-cta { text-decoration: none; }
 
 /* code */
@@ -10362,7 +10426,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/main.js?v=160"></script>
   <script src="./js/wkit.js?v=1"></script>
   <script src="./js/hub-art.js?v=3"></script>
-  <script src="./js/dock.js?v=13"></script>
+  <script src="./js/dock.js?v=15"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=11"></script>
@@ -10393,10 +10457,10 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/w-chart.js?v=2"></script>
   <script src="./js/w-fin.js?v=4"></script>
   <script src="./js/w-news.js?v=2"></script>
-  <script src="./js/w-browser.js?v=1"></script>
+  <script src="./js/w-browser.js?v=3"></script>
   <script src="./js/w-code.js?v=5"></script>
   <script src="./js/w-docs.js?v=4"></script>
-  <script src="./js/w-media.js?v=8"></script>
+  <script src="./js/w-media.js?v=9"></script>
   <!-- every widget is registered by now; build the rail before js/mobile.js
        reads it for the phone toolbar -->
   <script>Dock.start();</script>

@@ -37,6 +37,7 @@ from os import environ, statvfs
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -10069,6 +10070,125 @@ def _news_browse(prompt: str) -> tuple[str, list, int] | dict:
     return "".join(text).strip(), sources, searched
 
 
+_WEB_CACHE: dict[str, tuple[float, dict]] = {}
+_WEB_HITS: list[float] = []
+
+
+def _web_search(q: str) -> dict:
+    """The Browser widget's search: the hosted web search (India-located),
+    asked for the best pages on a query. Only pages the search itself cited
+    are kept, so a listed address is one the search really returned; each
+    result's summary is the page's own description where it has one."""
+    q = (q or "").strip()[:300]
+    if not q:
+        return {"q": q, "results": []}
+    if not AZURE_ENDPOINT or not AZURE_KEY:
+        return {"q": q, "results": [], "error": "Web search is not configured on this server."}
+    hit = _WEB_CACHE.get(q.lower())
+    if hit and time.time() - hit[0] < 900:
+        return hit[1]
+    now = time.time()
+    _WEB_HITS[:] = [t for t in _WEB_HITS if now - t < 60]
+    if len(_WEB_HITS) >= 20:
+        return {"q": q, "results": [], "error": "Too many searches this minute; try again shortly."}
+    _WEB_HITS.append(now)
+    payload = {
+        "model": _model(),
+        "input": [{"role": "user", "content": (
+            "Search the web for the query below, as a search engine would for a reader in India, "
+            "and list the 8 most useful distinct pages. Answer with ONLY a JSON array of objects "
+            '{"title": ..., "url": ..., "snippet": ...}, where snippet is one plain sentence on what the '
+            "page contains. Use only pages your search returned.\n\nQuery: " + q)}],
+        "tools": [{"type": "web_search_preview", "search_context_size": "low",
+                   "user_location": {"type": "approximate", "country": "IN"}}],
+        "max_output_tokens": 1400,
+        "reasoning": {"effort": "low"},
+        "service_tier": LLM_SERVICE_TIER,
+        "include": ["web_search_call.action.sources"],
+    }
+    req = urllib.request.Request(f"{AZURE_ENDPOINT}/responses", data=json.dumps(payload).encode(),
+                                 headers={"api-key": AZURE_KEY, "Content-Type": "application/json"}, method="POST")
+    try:
+        with _urlopen_with_retry(req, timeout=60, context=_ssl_ctx(), attempts=2) as r:
+            data = json.loads(r.read())
+    except Exception as exc:  # noqa: BLE001
+        return {"q": q, "results": [], "error": f"Web search did not answer ({type(exc).__name__})."}
+
+    def norm(u: str) -> str:
+        sp = urllib.parse.urlsplit(u)
+        qs = [(k, v) for k, v in urllib.parse.parse_qsl(sp.query) if not k.startswith("utm_")]
+        return urllib.parse.urlunsplit((sp.scheme, sp.netloc.lower(), sp.path.rstrip("/"), urllib.parse.urlencode(qs), ""))
+
+    text, cited = "", {}
+    for item in data.get("output", []):
+        if item.get("type") == "web_search_call":
+            # the pages the search engine actually returned
+            for src in ((item.get("action") or {}).get("sources") or []):
+                if isinstance(src, dict) and src.get("url"):
+                    cited.setdefault(norm(src["url"]), src.get("title") or "")
+        if item.get("type") == "message":
+            for c in item.get("content", []):
+                if c.get("type") == "output_text":
+                    text += c.get("text", "")
+                    for a in c.get("annotations") or []:
+                        if a.get("type") == "url_citation" and a.get("url"):
+                            cited[norm(a["url"])] = a.get("title") or ""
+    if environ.get("CHARTO_WEB_DEBUG"):
+        print("[web-search]", json.dumps({"text": text[:300], "cited": list(cited)[:12],
+              "calls": [i for i in data.get("output", []) if i.get("type") == "web_search_call"][:2]})[:3000], flush=True)
+    rows = []
+    m = re.search(r"\[.*\]", text, re.S)
+    try:
+        rows = json.loads(m.group(0)) if m else []
+    except ValueError:
+        rows = []
+    out, seen = [], set()
+    for r_ in rows if isinstance(rows, list) else []:
+        u = str((r_ or {}).get("url") or "")
+        n = norm(u) if u.startswith("http") else ""
+        if not n or n in seen or n not in cited:
+            continue
+        seen.add(n)
+        out.append({"title": str(r_.get("title") or cited[n] or u)[:200], "url": n,
+                    "snippet": str(r_.get("snippet") or "")[:300], "site": urllib.parse.urlsplit(n).hostname})
+    # citations the list left out are still real results
+    for n, t in cited.items():
+        if n not in seen and len(out) < 10:
+            seen.add(n)
+            out.append({"title": t or n, "url": n, "snippet": "", "site": urllib.parse.urlsplit(n).hostname})
+    # the page's own description beats the search's paraphrase
+    def desc(r_):
+        try:
+            d = _webfeeds.reader(r_["url"])
+            if d.get("description"):
+                r_["_own"] = d["description"][:300]
+            if d.get("title") and (r_["title"] == r_["url"] or not r_["title"]):
+                r_["title"] = d["title"][:200]
+            if d.get("image"):
+                r_["image"] = d["image"]
+        except Exception:  # noqa: BLE001
+            pass
+    ths = [threading.Thread(target=desc, args=(r_,), daemon=True) for r_ in out]
+    t_desc = time.time()
+    for t in ths:
+        t.start()
+    for t in ths:
+        t.join(max(0.05, 5 - (time.time() - t_desc)))
+    # a description the site puts on every page says nothing about this one
+    from collections import Counter
+    same = Counter((r_["site"], r_.get("_own")) for r_ in out if r_.get("_own"))
+    for r_ in out:
+        own = r_.pop("_own", None)
+        if own and (same[(r_["site"], own)] < 2 or not r_["snippet"]):
+            r_["snippet"], r_["described"] = own, True
+    res = {"q": q, "results": out, "source": "web"}
+    if not out:
+        res["error"] = "The search returned no pages for that."
+    else:
+        _WEB_CACHE[q.lower()] = (time.time(), res)
+    return res
+
+
 def _news_leg(key: str, ttl: int, prompt: str, empty: str,
               field: str) -> tuple[str, list, bool]:
     """(text, sources, cached) for one cached clerk leg; degrades honestly."""
@@ -17116,6 +17236,17 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/live-video":
                 # The TV widget: a channel's current live broadcast, by id.
                 return self._send(200, _webfeeds.live_video((q.get("channel") or "").strip()))
+            if u.path == "/web-search":
+                return self._send(200, _web_search(q.get("q") or ""))
+            if u.path == "/wiki/search":
+                return self._send(200, _webfeeds.wiki_search(q.get("q") or "", q.get("lang") or "en"))
+            if u.path == "/wiki/page":
+                return self._send(200, _webfeeds.wiki_page(q.get("title") or "", q.get("lang") or "en"))
+            if u.path == "/reader":
+                url = (q.get("url") or "").strip()
+                if not url or len(url) > 2000:
+                    return self._send(400, {"error": "url is required"})
+                return self._send(200, _webfeeds.reader(url))
             if u.path == "/calendar":
                 # The Calendar widget: NSE board meetings and ex-dates plus
                 # the macro schedule, each feed named with its status.

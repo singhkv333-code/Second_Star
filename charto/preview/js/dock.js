@@ -1363,15 +1363,28 @@ const Dock = (() => {
       visible: () => shown.has(id),
       compose: (text) => window.Chat && window.Chat.compose && window.Chat.compose(text),
       /** Hand something to another widget, opening one if none is open. */
-      send: (type, payload) => sendTo(type, payload),
+      send: (type, payload) => sendTo(type, payload, id),
       close: () => close(id),
       openSymbol, warm, menu, toast,
     };
   }
 
-  function sendTo(type, payload) {
+  function sendTo(type, payload, from) {
     let id = placedOf(type).find((x) => lastVisible.has(x)) || placedOf(type)[0];
+    // a quiet send (a "save to …") files into a widget already on the
+    // workspace without bringing it forward over the one you are using
+    if (id && payload && payload.quiet) {
+      const api = ensureMounted(id);
+      if (api && api.receive) { try { api.receive(payload); } catch (e) { console.error("[dock] receive", e); } }
+      return id;
+    }
     id = id ? (open(type), id) : open(type);
+    // the first quiet save opens the widget it saves into, but never in
+    // front of the widget the save came from
+    if (payload && payload.quiet && from && id) {
+      const gf = groupOf(from), gt = groupOf(id);
+      if (gf && gf === gt && S.groups[gf].active !== from) { S.groups[gf].active = from; layout(false); }
+    }
     const api = id && ensureMounted(id);
     if (api && api.receive) {
       try { api.receive(payload); } catch (e) { console.error("[dock] receive", e); }
