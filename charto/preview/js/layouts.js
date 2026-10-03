@@ -149,6 +149,12 @@ const Layouts = (() => {
       try { c.panes.openChart(charts[i].symbol, charts[i].interval, i); } catch {}
     }
     await c.workspace.write(spec.workspace || {});
+    // a shared workspace brings its widgets (setups.js); a layout saved
+    // here has no `dock` and leaves the widgets as they are
+    if (spec.dock && window.Setups && Setups.applyDesk) {
+      try { await Setups.applyDesk(spec.dock, !!Store.viewOnly); }
+      catch (e) { console.error("[charto] workspace restore", e); }
+    }
     dirty = false;
     paint();
   }

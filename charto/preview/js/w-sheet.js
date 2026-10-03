@@ -156,6 +156,8 @@
       say("Saving…");
       saveT = setTimeout(async () => {
         if (!wb) return;
+        // someone else's shared sheet: edits stay on screen, nothing is kept
+        if (Store.viewOnly) { say("View only"); return; }
         // a sheet still being built has no methods yet: save its options' data
         const out = { sheets: wb.map((w) => ({
           name: w.options.worksheetName, data: typeof w.getData === "function" ? w.getData() : (w.options.data || []),
@@ -177,7 +179,7 @@
 
     async function build() {
       await boot();
-      const saved = (await idb.get(KEY)) || null;
+      const saved = (Store.viewOnly && window.Setups && Setups.sheet && Setups.sheet(KEY)) || (await idb.get(KEY)) || null;
       const book = saved && saved.sheets && saved.sheets.length ? saved : seed();
       grid.innerHTML = "";
       const holder = document.createElement("div");

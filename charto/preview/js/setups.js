@@ -20,12 +20,12 @@
  * chat.js files nothing. The server side is read-only by construction
  * (dataserver /setup is a GET that returns a snapshot). See shares.py.
  *
- * ── the ASCII ─────────────────────────────────────────────────────────────
- * Headers are set with figlet.js (MIT, vendor/figlet/) in "Calvin S", a
- * box-drawing face, patched with matching digits so NIFTY 50 sets as well as
- * TCS. Frames, the sparkline and the credit tree are drawn from the same
- * box-drawing and block characters, in JetBrains Mono, so the whole card
- * reads as one typeset object rather than decoration pasted on a panel.
+ * ── what travels ──────────────────────────────────────────────────────
+ * The whole workspace, not only the chart: every widget, where it sits and
+ * its settings (Dock.exportState), and — if the author leaves it on — what
+ * the notes and sheets hold. Documents' files and the author's custom
+ * indicators stay with the author. The dialog draws the workspace as it is,
+ * tile for tile, so the author sees exactly what a reader will open.
  */
 "use strict";
 
@@ -40,45 +40,8 @@ const Setups = (() => {
   const VIEW = Store.viewOnly ? Store.viewToken : "";
   let viewing = null;                 // the setup on screen, in a view session
 
-  /* ══ the ASCII kit ════════════════════════════════════════════════════ */
+  /* ══ the visual kit ══════════════════════════════════════════════════ */
 
-  let figP = null;
-  function figlet() {
-    if (!figP) {
-      figP = (async () => {
-        const mod = await import(new URL("../vendor/figlet/figlet.js", BASE).href);
-        const fig = mod.default;
-        const font = await (await fetch(new URL("../vendor/figlet/calvin-pivot.flf", BASE))).text();
-        fig.parseFont("CalvinPivot", font);
-        return fig;
-      })().catch((e) => { console.warn("[charto] figlet unavailable", e); return null; });
-    }
-    return figP;
-  }
-
-  /** The ticker set in box-drawing type. Falls back to the plain word, so a
-   *  missing vendor file costs a flourish and never the header. */
-  async function banner(text) {
-    const f = await figlet();
-    const t = String(text || "").toUpperCase().slice(0, 14);
-    if (!f) return t;
-    try { return f.textSync(t, { font: "CalvinPivot" }).replace(/\s+$/gm, ""); }
-    catch { return t; }
-  }
-
-  const len = (s) => Array.from(s).length;
-  const pad = (s, n) => s + " ".repeat(Math.max(0, n - len(s)));
-
-  /** A titled box: ┌─ title ──┐ │ rows │ └────┘. Mono, so widths are exact. */
-  function frame(rows, title, width) {
-    const inner = Math.max(width || 0, len(title || "") + 4, ...rows.map((r) => len(r) + 2));
-    const top = title ? `┌─ ${title} ${"─".repeat(inner - len(title) - 3)}┐`
-                      : `┌${"─".repeat(inner)}┐`;
-    return [top, ...rows.map((r) => `│ ${pad(r, inner - 2)} │`),
-            `└${"─".repeat(inner)}┘`].join("\n");
-  }
-
-  const BLOCKS = "▁▂▃▄▅▆▇█";
   /** The bars ON SCREEN, not the whole history loaded behind them: a
    *  sparkline beside a picture of the desk has to describe that picture. */
   function onScreen(c) {
@@ -89,19 +52,21 @@ const Setups = (() => {
     } catch { /* no chart yet: fall back to the tail */ }
     return bars.slice(-120);
   }
-  /** Closes as block characters, bucketed to `width` cells. */
-  function spark(bars, width = 34) {
+  /** Closes as a small SVG line; green or red only for the direction. */
+  function spark(bars) {
     const closes = (bars || []).map((b) => b.close).filter((x) => Number.isFinite(x));
     if (closes.length < 2) return null;
-    const step = Math.max(1, closes.length / width);
-    const pts = [];
-    for (let i = 0; i < width && Math.floor(i * step) < closes.length; i++) {
-      pts.push(closes[Math.min(closes.length - 1, Math.floor((i + 1) * step) - 1)]);
-    }
+    const step = Math.max(1, Math.floor(closes.length / 60));
+    const pts = closes.filter((_, i) => i % step === 0 || i === closes.length - 1);
     const lo = Math.min(...pts), hi = Math.max(...pts), span = hi - lo || 1;
-    const line = pts.map((p) => BLOCKS[Math.round(((p - lo) / span) * 7)]).join("");
+    const W = 120, H = 30;
+    const xy = pts.map((p, i) => [(i / (pts.length - 1)) * W, H - 2 - ((p - lo) / span) * (H - 4)]);
+    const line = xy.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
     const chg = (closes[closes.length - 1] / closes[0] - 1) * 100;
-    return { line, chg, first: closes[0], last: closes[closes.length - 1] };
+    const dir = chg >= 0 ? "up" : "down";
+    const svg = `<svg class="sx-spark ${dir}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">` +
+      `<polygon points="0,${H} ${line} ${W},${H}"/><polyline points="${line}"/></svg>`;
+    return { svg, chg, dir };
   }
 
   function indicatorName(id) {
@@ -114,37 +79,164 @@ const Setups = (() => {
     return m ? `${m[1].toUpperCase()} ${m[2]}` : String(id || "").toUpperCase();
   }
 
-  /** What a desk carries, as rows for a frame. The same words in the Share
-   *  dialog and on the setup card, so the author sees what the reader gets.
-   *  Plain ASCII inside the box: its right edge is only straight if every
-   *  glyph is exactly one cell wide, and a separator like a middle dot or a
-   *  guillemet, drawn from a fallback face, is not. */
-  function manifest(spec, chatTurns) {
-    const ws = (spec && spec.workspace) || {};
-    const charts = (spec && spec.charts) || [];
-    const syms = [...new Set(charts.map((c) => c.symbol).filter(Boolean))];
-    const iv = charts[0] && charts[0].interval ? String(charts[0].interval).toUpperCase() : "";
-    const inds = (ws.indicators || []).map(indicatorName);
-    const rows = [
-      `> ${charts.length} chart${charts.length === 1 ? " " : "s"}   ${syms.join(" / ")}${iv ? "  " + iv : ""}`,
-      `> ${(ws.drawings || []).length} drawing${(ws.drawings || []).length === 1 ? "" : "s"}`,
-      `> ${(ws.scene || []).length} annotation${(ws.scene || []).length === 1 ? "" : "s"} from the chat`,
-      `> ${inds.length} indicator${inds.length === 1 ? "" : "s"}${inds.length ? "   " + inds.slice(0, 4).join(" / ") + (inds.length > 4 ? ` +${inds.length - 4}` : "") : ""}`,
-    ];
-    if (ws.vp) rows.push("> volume profile");
-    rows.push(chatTurns === null ? "> conversation   not shared"
-      : `> conversation   ${chatTurns} turn${chatTurns === 1 ? "" : "s"}`);
-    return rows;
+  const typeMeta = (type) => (type === "main" ? { title: "Chart", icon: "candles" }
+    : (typeof Dock !== "undefined" && Dock.meta && Dock.meta(type)) || { title: type, icon: "widgets" });
+
+  /** The tiled tree of a workspace state, each group by its active widget. */
+  function shapeOf(st) {
+    if (!st || !st.tree || !st.groups || !st.inst) return null;
+    const g = (n) => {
+      if (!n) return null;
+      if (n.k === "g") {
+        const gr = st.groups[n.g];
+        if (!gr) return null;
+        const tabs = gr.tabs.map((id) => (st.inst[id] || {}).type).filter(Boolean);
+        return tabs.length ? { g: true, tabs, active: (st.inst[gr.active] || {}).type || tabs[0] } : null;
+      }
+      const kids = (n.c || []).map((c, j) => [g(c), (n.s || [])[j] || 1]).filter(([c]) => c);
+      return kids.length ? { k: n.k, c: kids.map(([c]) => c), s: kids.map(([, w]) => w) } : null;
+    };
+    return { tree: g(st.tree), floats: (st.floats || []).map((f) => g({ k: "g", g: f.gid })).filter(Boolean) };
+  }
+  const widgetsIn = (st) => (st && st.inst ? Object.values(st.inst).filter((i) => i.type !== "main" && i.type !== "slot").length : 0);
+
+  /** The workspace in miniature: one tile per group at its real share of the
+   *  screen, the chart tile showing the chart. */
+  function deskMini(shape, thumb, sym) {
+    let i = 0;
+    const tile = (n) => {
+      const chart = n.active === "main";
+      const m = chart ? { title: sym || "Chart", icon: "candles" } : typeMeta(n.active);
+      const more = n.tabs.length - 1;
+      return `<div class="sx-tile${chart ? " chart" : ""}" style="--i:${i++}">` +
+        (chart && thumb ? `<img src="${esc(thumb)}" alt="">` : `<i class="sx-glyph">${Icons.svg(m.icon, "sm")}</i>`) +
+        `<span class="sx-lab">${Icons.svg(m.icon, "xs")}<b>${esc(m.title)}</b>${more > 0 ? `<em>+${more}</em>` : ""}</span></div>`;
+    };
+    const node = (n) => {
+      if (n.g) return tile(n);
+      const tot = n.s.reduce((x, y) => x + y, 0) || 1;
+      return `<div class="sx-split ${n.k}">` +
+        n.c.map((c, j) => `<div class="sx-cell" style="flex:${(n.s[j] / tot).toFixed(4)} 1 0">${node(c)}</div>`).join("") + `</div>`;
+    };
+    const body = shape && shape.tree ? node(shape.tree) : tile({ g: true, tabs: ["main"], active: "main" });
+    const fl = shape && shape.floats && shape.floats.length
+      ? `<div class="sx-floats">${shape.floats.map(tile).join("")}</div>` : "";
+    return `<div class="sx-desk">${body}${fl}</div>`;
   }
 
-  /** The credit chain as a tree, nearest first. */
-  function lineageTree(chain) {
+  /** What a desk carries, as chips. The same words in the Share dialog and
+   *  on the setup card, so the author sees what the reader gets. */
+  function manifest(spec, chatTurns, dataOn) {
+    const ws = (spec && spec.workspace) || {};
+    const charts = (spec && spec.charts) || [];
+    const st = spec && spec.dock && spec.dock.state;
+    const n = (v, one, many) => `${v} ${v === 1 ? one : many}`;
+    const inds = (ws.indicators || []).map(indicatorName);
+    const chips = [
+      ["candles", n(charts.length, "chart", "charts")],
+      ["pen", n((ws.drawings || []).length, "drawing", "drawings")],
+      ["indicators", n(inds.length, "indicator", "indicators"), inds.slice(0, 6).join(", ")],
+    ];
+    if ((ws.scene || []).length) chips.push(["sparkles", n(ws.scene.length, "chat annotation", "chat annotations")]);
+    if (st || dataOn !== undefined) chips.push(["widgets", n(widgetsIn(st), "widget", "widgets"), "Every widget with its settings"]);
+    if (dataOn) chips.push(["note", "Notes and sheets"]);
+    if (chatTurns) chips.push(["chat", n(chatTurns, "chat turn", "chat turns")]);
+    return chips.map(([ic, t, tip]) => `<span class="sx-chip"${tip ? ` title="${esc(tip)}"` : ""}>${Icons.svg(ic, "xs")}${esc(t)}</span>`).join("");
+  }
+
+  /** The instrument strip: logo, name, interval, the move on screen. */
+  function idStrip(sym, iv, sp) {
+    const logo = typeof Universe !== "undefined" && Universe.logoHTML ? Universe.logoHTML(sym, "sx-logo") : "";
+    return `<div class="sx-id">${logo || `<span class="sx-logo sx-mono">${esc(String(sym || "?").charAt(0))}</span>`}` +
+      `<div class="sx-idt"><b>${esc(sym)}</b>${iv ? `<span>${esc(iv)}</span>` : ""}</div>` +
+      (sp ? `<span class="sx-gap"></span>${sp.svg}<b class="sx-chg ${sp.dir}">${sp.chg >= 0 ? "+" : "−"}${Math.abs(sp.chg).toFixed(2)}%</b>` : "") +
+      `</div>`;
+  }
+
+  /** The credit chain, nearest first. */
+  function lineage(chain) {
     if (!chain || !chain.length) return "";
-    const lines = ["built on"];
-    chain.slice(0, 5).forEach((c, i) => {
-      lines.push(`${"   ".repeat(i)}└─ "${c.title}" by ${c.by}`);
-    });
-    return lines.join("\n");
+    return `<div class="sx-lineage"><span>Built on</span>` + chain.slice(0, 5).map((c) =>
+      `<span class="sx-credit">${Icons.svg("link", "xs")}“${esc(c.title)}” by ${esc(c.by)}</span>`).join("") + `</div>`;
+  }
+
+  /* ── the workspace's own contents ─────────────────────────────────────
+   * Notes travel as blocks of plain text (the server strips angle brackets
+   * from everything shared, so HTML would not survive, and should not);
+   * sheets as their cells. Both are put back by applyDesk. */
+  function noteBlocks(html) {
+    const doc = new DOMParser().parseFromString(`<div>${html || ""}</div>`, "text/html");
+    const out = [];
+    const walk = (el) => {
+      for (const n of el.children) {
+        const t = n.tagName;
+        if (/^(UL|OL|DIV|SECTION|ARTICLE)$/.test(t) && n.children.length) { walk(n); continue; }
+        const text = n.textContent.replace(/\s+/g, " ").trim();
+        if (!text) continue;
+        out.push({ t: /^H[1-6]$/.test(t) ? "h" : t === "LI" ? "li" : t === "BLOCKQUOTE" ? "q" : "p", s: text.slice(0, 4000) });
+      }
+    };
+    walk(doc.body.firstChild);
+    if (!out.length) { const t = doc.body.textContent.trim(); if (t) out.push({ t: "p", s: t.slice(0, 8000) }); }
+    return out.slice(0, 400);
+  }
+  const blocksHtml = (bl) => (bl || []).map((b) => b.t === "h" ? `<h3>${esc(b.s)}</h3>` : b.t === "li" ? `<ul><li>${esc(b.s)}</li></ul>`
+    : b.t === "q" ? `<blockquote>${esc(b.s)}</blockquote>` : `<p>${esc(b.s)}</p>`).join("");
+
+  async function deskOf(withData, symbols) {
+    if (typeof Dock === "undefined" || !Dock.exportState) return null;
+    const state = Dock.exportState();
+    const out = { v: 1, state };
+    if (!withData) return out;
+    const ids = Object.entries(state.inst);
+    const noteSuffix = new Set(ids.filter(([, i]) => i.type === "notes").map(([id]) => (id === "notes" ? "" : id.split(":")[1])));
+    const scopes = new Set(["general", ...symbols]);
+    out.notes = {};
+    try {
+      for (const key of Object.keys(localStorage)) {
+        const m = /^charto:(note:([^:]+)(?::(.+))?)$/.exec(key);
+        if (!m || !scopes.has(m[2]) || !noteSuffix.has(m[3] || "")) continue;
+        const v = JSON.parse(localStorage.getItem(key) || "null");
+        const bl = v && noteBlocks(v.html);
+        if (bl && bl.length) out.notes[m[1]] = bl;
+      }
+    } catch { /* notes are a courtesy; the workspace still travels */ }
+    out.sheets = {};
+    for (const [id, i] of ids) {
+      if (i.type !== "sheet") continue;
+      try {
+        const v = await WKit.idb.get(`sheet:${id}`);
+        if (v && JSON.stringify(v).length < 400_000) out.sheets[id] = v;
+      } catch { /* skip it */ }
+    }
+    if (JSON.stringify(out).length > 1_100_000) delete out.sheets;
+    return out;
+  }
+
+  let sharedSheets = {};
+  /** A sheet a shared workspace brought, for w-sheet.js in a view session. */
+  const sheet = (key) => sharedSheets[key.replace(/^sheet:/, "")] || null;
+
+  /** Put a shared workspace's widgets and contents on screen. In a view
+   *  session everything stays in memory (store.js); on a copy the notes join
+   *  the reader's own (never replacing them) and a sheet lands only where
+   *  the reader has none under that id. */
+  async function applyDesk(desk, view) {
+    if (!desk || !desk.state || typeof Dock === "undefined" || !Dock.applyState) return;
+    for (const [key, bl] of Object.entries(desk.notes || {})) {
+      if (!/^note:[^:]+(:[\w-]+)?$/.test(key)) continue;
+      const html = blocksHtml(bl);
+      const had = Store.get(key, null);
+      if (view || !had || !had.html) Store.set(key, { html, at: Date.now() });
+      else if (!had.html.includes(html)) Store.set(key, { html: `${had.html}<p><b>From a shared setup</b></p>${html}`, at: Date.now() });
+    }
+    sharedSheets = view ? (desk.sheets || {}) : {};
+    if (!view) {
+      for (const [id, v] of Object.entries(desk.sheets || {})) {
+        try { if (!(await WKit.idb.get(`sheet:${id}`))) await WKit.idb.set(`sheet:${id}`, v); } catch {}
+      }
+    }
+    Dock.applyState(desk.state);
   }
 
   function ago(ts) {
@@ -215,63 +307,62 @@ const Setups = (() => {
     const named = cur && cur.name && cur.name !== "Unnamed" ? cur.name : "";
     const state = {
       include_chat: existing ? existing.has_chat : chat.length > 0,
+      include_data: true,
       allow_copy: existing ? existing.allow_copy : true,
       mode: existing ? "update" : "new",
     };
-    const s = spark(onScreen(c));
+    const live = typeof Dock !== "undefined" && Dock.exportState ? Dock.exportState() : null;
+    const preview = { ...spec, dock: live ? { state: live } : undefined };
+    const sp = spark(onScreen(c));
     const firstAsk = (chat.find((t) => t.role === "user") || {}).content || "";
+    const row = (name, icon, on, label, sub, off) =>
+      `<label class="sx-opt${off ? " off" : ""}" data-sw="${name}"><span class="sx-opt-ic">${Icons.svg(icon, "xs")}</span>` +
+      `<span class="sx-opt-t"><span>${esc(label)}</span>${sub ? `<small>${esc(sub)}</small>` : ""}</span>` +
+      `<span class="switch${on ? " on" : ""}" role="switch" aria-checked="${on}"><i></i></span></label>`;
 
     const { dlg, close } = dialog(`
-      <div class="su-head">
-        <pre class="su-fig" aria-hidden="true">${esc(sym)}</pre>
-        <div class="su-head-copy">
-          <h3>Share this setup</h3>
-          <p>A read-only snapshot of this desk. People with the link see it on a
-             live chart and can copy it to build on.</p>
-        </div>
-      </div>
-      <div class="su-grid">
-        <div class="su-left">
-          <div class="su-shot">${thumb ? `<img src="${esc(thumb)}" alt="Preview of this desk">`
-            : `<div class="ly-noshot">${Icons.svg("candles", "sm")}<span>No preview</span></div>`}
-            <span class="su-corner tl">┌</span><span class="su-corner tr">┐</span>
-            <span class="su-corner bl">└</span><span class="su-corner br">┘</span></div>
-          ${s ? `<pre class="su-spark" title="Closes on screen">${esc(s.line)}  <b class="${s.chg >= 0 ? "up" : "down"}">${s.chg >= 0 ? "+" : ""}${s.chg.toFixed(2)}%</b></pre>` : ""}
-          <pre class="su-manifest" id="suManifest"></pre>
-        </div>
-        <div class="su-right">
+      <div class="sx">
+        <aside class="sx-art">
+          <div class="sx-kick"><span class="sx-dot"></span>Your workspace, as it is now</div>
+          ${deskMini(shapeOf(live), thumb, sym)}
+          ${idStrip(sym, iv, sp)}
+          <div class="sx-chips" id="sxChips"></div>
+        </aside>
+        <section class="sx-form">
+          <h3>Share this workspace</h3>
+          <p class="sx-lede">A read-only copy of your screen: the chart, every widget and its settings.
+             Anyone with the link opens it live, and can copy it to build on.</p>
           <label class="ly-lab" for="suTitle">Title</label>
           <input class="textfield" id="suTitle" maxlength="120" autocomplete="off"
-                 value="${esc(existing ? existing.title : named || `${sym} ${iv} setup`)}">
+                 value="${esc(existing ? existing.title : named || `${sym} ${iv} workspace`)}">
           <label class="ly-lab su-gap" for="suNote">Your read <span class="su-count" id="suCount"></span></label>
-          <textarea class="textfield su-note" id="suNote" maxlength="2000" rows="5"
+          <textarea class="textfield su-note" id="suNote" maxlength="2000" rows="4"
             placeholder="What are you seeing? The levels that matter, what would confirm it, what would prove it wrong.">${esc(existing ? existing.note : "")}</textarea>
-          <div class="su-switches">
-            ${sw("include_chat", state.include_chat, `Include the conversation${chat.length ? ` · ${chat.length} turns` : ""}`,
-                 chat.length ? `Starts with “${firstAsk.slice(0, 60)}${firstAsk.length > 60 ? "…" : ""}”. Text only; screenshots stay private.`
-                             : "There is no conversation on this desk yet.")}
-            ${sw("allow_copy", state.allow_copy, "Let others copy it as a template",
-                 "Copies are theirs to edit. Your setup never changes.")}
+          <div class="sx-opts">
+            ${row("include_chat", "chat", state.include_chat, `The conversation${chat.length ? ` · ${chat.length} turns` : ""}`,
+                  chat.length ? `Starts with “${firstAsk.slice(0, 56)}${firstAsk.length > 56 ? "…" : ""}”` : "There is no conversation on this desk yet.", !chat.length)}
+            ${row("include_data", "note", state.include_data, "What the notes and sheets hold",
+                  "Their text and cells. Documents' files stay with you.")}
+            ${row("allow_copy", "copy", state.allow_copy, "Let others copy it", "Copies are theirs to edit. Yours never changes.")}
           </div>
           ${existing ? `<div class="su-seg" role="radiogroup" aria-label="Link">
               <button type="button" data-mode="update" class="${state.mode === "update" ? "on" : ""}">Update the existing link</button>
               <button type="button" data-mode="new" class="${state.mode === "new" ? "on" : ""}">Publish a new link</button>
             </div>` : ""}
-        </div>
+        </section>
       </div>
-      <div class="su-foot">
+      <div class="sx-foot">
         <span class="su-privacy">${Icons.svg("lock", "xs")} Unlisted. Only people with the link can open it; your email is never shown.</span>
         <div class="ly-actions">
           <button class="btn" data-x>Cancel</button>
           <button class="btn cta" data-ok>${Icons.svg("link", "xs")}<span>${existing ? "Update link" : "Publish"}</span></button>
         </div>
       </div>`);
-    dlg.classList.add("su-publish");
-    banner(sym).then((b) => { const f = dlg.querySelector(".su-fig"); if (f) f.textContent = b; });
+    dlg.classList.add("sx-dlg");
 
     const paintManifest = () => {
-      dlg.querySelector("#suManifest").textContent =
-        frame(manifest(spec, state.include_chat && chat.length ? chat.length : null), "what travels");
+      dlg.querySelector("#sxChips").innerHTML =
+        manifest(preview, state.include_chat && chat.length ? chat.length : 0, state.include_data);
     };
     paintManifest();
     const note = dlg.querySelector("#suNote"), count = dlg.querySelector("#suCount");
@@ -307,14 +398,15 @@ const Setups = (() => {
       ok.disabled = true;
       ok.querySelector("span").textContent = "Publishing…";
       try {
+        const desk = await deskOf(state.include_data, [...new Set((spec.charts || []).map((x) => x.symbol))]);
         const d = await Layouts.call("/setups", {
           ...(state.mode === "update" && existing ? { token: existing.token } : {}),
           layout_id: cur && cur.id ? cur.id : undefined,
-          title, note: note.value, spec, thumb,
+          title, note: note.value, spec: desk ? { ...spec, dock: desk } : spec, thumb,
           include_chat: !!(state.include_chat && chat.length), chat,
           allow_copy: state.allow_copy,
         });
-        published(dlg, close, d.token, sym, title, !d.created);
+        published(dlg, close, d.token, sym, title, !d.created, deskMini(shapeOf(live), thumb, sym));
       } catch (err) {
         ok.disabled = false;
         ok.querySelector("span").textContent = existing ? "Update link" : "Publish";
@@ -323,31 +415,59 @@ const Setups = (() => {
     };
   }
 
-  function published(dlg, close, token, sym, title, updated) {
+  // Share targets are plain links the reader's own apps open; nothing is
+  // sent from here. Marks drawn in the icon set's 24-unit, 2px-stroke style.
+  const TARGETS = [
+    ["WhatsApp", (u, t) => `https://wa.me/?text=${encodeURIComponent(`${t} ${u}`)}`,
+      '<path d="M3.5 20.5 5 16a8.5 8.5 0 1 1 3.2 3.1Z"/><path d="M9 8.5c0 3.3 3.2 6.5 6.5 6.5l1.2-1.6-2.2-1.1-.9.9a5 5 0 0 1-2.8-2.8l.9-.9-1.1-2.2Z"/>'],
+    ["X", (u, t) => `https://x.com/intent/post?text=${encodeURIComponent(t)}&url=${encodeURIComponent(u)}`,
+      '<path d="M4 4l16 16M20 4 4 20"/>'],
+    ["Telegram", (u, t) => `https://t.me/share/url?url=${encodeURIComponent(u)}&text=${encodeURIComponent(t)}`,
+      '<path d="M21 4 3 11l6 2.5L19 7l-8 8 6.5 5Z"/>'],
+    ["LinkedIn", (u) => `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(u)}`,
+      '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 10v7M8 7v.01M12 17v-4a2 2 0 0 1 4 0v4M12 10v7"/>'],
+    ["Email", (u, t) => `mailto:?subject=${encodeURIComponent(t)}&body=${encodeURIComponent(u)}`,
+      '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 6 8.5 7 8.5-7"/>'],
+  ];
+  const mark = (path) => `<svg class="icon icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
+
+  function published(dlg, close, token, sym, title, updated, mini) {
     const url = linkFor(token, sym);
-    dlg.classList.add("su-done");
+    dlg.classList.add("sx-done");
     dlg.innerHTML = `
-      <pre class="su-okart" aria-hidden="true">${esc(frame([
-        `${updated ? "UPDATED" : "PUBLISHED"}  /  read-only  /  ${sym}`,
-        `"${title.slice(0, 40)}${title.length > 40 ? "..." : ""}"`,
-      ], "setup"))}</pre>
-      <p class="su-done-copy">${updated
-        ? "The same link now shows this version. Copies people already took are unchanged."
-        : "Anyone with this link can open the setup on a live chart and copy it to build on."}</p>
-      <div class="su-linkrow">
-        <input class="textfield su-link" readonly value="${esc(url)}" aria-label="Share link">
-        <button class="btn cta" data-copy>${Icons.svg("copy", "xs")}<span>Copy link</span></button>
+      <div class="sx-ok">
+        <div class="sx-ok-art">${mini}
+          <svg class="sx-check" viewBox="0 0 52 52" aria-hidden="true"><circle cx="26" cy="26" r="23"/><path d="m15 27 7.5 7.5L37.5 19"/></svg>
+        </div>
+        <h3>${updated ? "The link shows this version now" : "Your workspace is live"}</h3>
+        <p class="sx-lede">${updated
+          ? "Anyone opening the link sees what is on your screen now. Copies people already took are unchanged."
+          : `“${esc(title)}” opens read-only on a live chart, with every widget in place.`}</p>
+        <div class="sx-link">${Icons.svg("lock", "xs")}<input readonly value="${esc(url)}" aria-label="Share link">
+          <button class="btn cta" data-copy>${Icons.svg("copy", "xs")}<span>Copy</span></button></div>
+        <div class="sx-targets">
+          ${TARGETS.map(([n, , path], i) => `<button type="button" class="sx-target" data-t="${i}" title="Share on ${n}">${mark(path)}<span>${n}</span></button>`).join("")}
+          ${navigator.share ? `<button type="button" class="sx-target" data-t="more" title="More ways to share">${Icons.svg("more", "xs")}<span>More</span></button>` : ""}
+        </div>
       </div>
       <div class="ly-actions">
         <button class="btn" data-manage>${Icons.svg("eye", "xs")}<span>My shared setups</span></button>
         <a class="btn" href="${esc(url)}" target="_blank" rel="noopener">${Icons.svg("externalLink", "xs")}<span>Open as a viewer</span></a>
         <button class="btn" data-x>Done</button>
       </div>`;
-    const input = dlg.querySelector(".su-link");
+    const input = dlg.querySelector(".sx-link input");
     input.addEventListener("focus", () => input.select());
     dlg.querySelector("[data-copy]").onclick = () => copyText(url, "Link copied");
     dlg.querySelector("[data-x]").onclick = close;
     dlg.querySelector("[data-manage]").onclick = () => { close(); manage(); };
+    dlg.querySelector(".sx-targets").addEventListener("click", (e) => {
+      const b = e.target.closest("[data-t]");
+      if (!b) return;
+      const text = `${title} · ${sym} on Pivot`;
+      if (b.dataset.t === "more") { navigator.share({ title: text, url }).catch(() => {}); return; }
+      const [, make] = TARGETS[+b.dataset.t];
+      open(make(url, text), "_blank", "noopener,noreferrer");
+    });
     copyText(url, "Published. The link is on your clipboard");
   }
 
@@ -376,11 +496,8 @@ const Setups = (() => {
       dlg.querySelector("#suTotals").textContent = list.length
         ? `${list.length} live · ${views} views · ${copies} copies` : "";
       if (!list.length) {
-        box.innerHTML = `<pre class="su-empty">${esc(frame([
-          "Nothing shared yet.", "",
-          "Share  >  publishes the desk",
-          "you are on, read-only.",
-        ], "shared setups", 34))}</pre>`;
+        box.innerHTML = `<div class="sx-empty">${Icons.svg("link", "sm")}<b>Nothing shared yet</b>` +
+          `<span>Share, in the top bar, publishes the workspace you are on as a read-only link.</span></div>`;
         return;
       }
       box.innerHTML = list.map((s) => `
@@ -463,9 +580,7 @@ const Setups = (() => {
     document.body.classList.add("view-only", "su-gone");
     const bar = document.createElement("div");
     bar.className = "su-bar gone";
-    bar.innerHTML = `<pre class="su-404" aria-hidden="true">${esc(frame([
-      "404 / link closed", "", msg,
-    ], "shared setup"))}</pre>
+    bar.innerHTML = `<div class="sx-gone">${Icons.svg("link", "sm")}<b>This link is closed</b><span>${esc(msg)}</span></div>
       <a class="btn cta" href="${esc(exitUrl())}">Open my chart</a>`;
     (el("stage") || document.body).appendChild(bar);
   }
@@ -519,16 +634,18 @@ const Setups = (() => {
         <span title="Copies">${Icons.svg("copy", "xs")}${d.copies}</span>
         <span title="Published">${Icons.svg("clock", "xs")}${esc(ago(d.updated))}</span>
       </div>`;
+    const st = d.spec && d.spec.dock && d.spec.dock.state;
+    const iv = String(((d.spec && d.spec.charts) || [{}])[0].interval || "").toUpperCase();
     card.innerHTML = `
-      <pre class="su-fig" aria-hidden="true">${esc(d.symbol)}</pre>
+      ${st ? deskMini(shapeOf(st), d.thumb || "", d.symbol) : ""}
+      ${idStrip(d.symbol, iv, s)}
       <h2 class="su-card-title">${esc(d.title)}</h2>
       <div class="su-card-by"><span class="su-avatar">${esc((d.by || "?").trim().charAt(0).toUpperCase())}</span>
         <span>${esc(d.by)}</span></div>
       ${stats}
       ${d.note ? `<div class="su-card-note">${esc(d.note)}</div>` : ""}
-      ${s ? `<pre class="su-spark">${esc(s.line)}  <b class="${s.chg >= 0 ? "up" : "down"}">${s.chg >= 0 ? "+" : ""}${s.chg.toFixed(2)}%</b></pre>` : ""}
-      <pre class="su-manifest">${esc(frame(manifest(d.spec, d.chat ? d.chat.length : null), "in this setup"))}</pre>
-      ${d.lineage && d.lineage.length ? `<pre class="su-tree">${esc(lineageTree(d.lineage))}</pre>` : ""}
+      <div class="sx-chips">${manifest(d.spec, d.chat ? d.chat.length : 0, !!(d.spec && d.spec.dock && (d.spec.dock.notes || d.spec.dock.sheets)))}</div>
+      ${lineage(d.lineage)}
       ${d.chat && d.chat.length ? `<div class="su-card-rule"><span>the conversation</span></div>` : ""}`;
     thread.insertBefore(card, thread.firstChild);
     // The thread opens at its newest turn, and chat.js keeps pulling it back
@@ -546,7 +663,6 @@ const Setups = (() => {
       thread.scrollTop = 0;
       if (performance.now() - t0 < 2500) requestAnimationFrame(hold);
     })();
-    banner(d.symbol).then((b) => { const f = card.querySelector(".su-fig"); if (f) f.textContent = b; });
 
     const wrap = document.querySelector(".composer-wrap");
     if (wrap && !el("suReadonly")) {
@@ -554,7 +670,7 @@ const Setups = (() => {
       note.className = "su-readonly";
       note.id = "suReadonly";
       const canCopy = d.allow_copy || d.own;
-      note.innerHTML = `<span class="su-mono su-ro-mark">┆</span>
+      note.innerHTML = `<span class="su-ro-mark">${Icons.svg("lock", "xs")}</span>
         <span class="su-ro-text">${canCopy
           ? "This conversation is read-only. Make it mine to continue it on your own copy."
           : "This setup is view-only. The author has not allowed copies."}</span>
@@ -698,7 +814,7 @@ const Setups = (() => {
 
   return { publish, manage, makeItMine, get viewing() { return viewing; },
            // exposed for tests and for the eval harness
-           _ascii: { frame, spark, manifest, lineageTree, banner } };
+           applyDesk, sheet, _kit: { spark, manifest, shapeOf, deskMini } };
 })();
 
 window.Setups = Setups;

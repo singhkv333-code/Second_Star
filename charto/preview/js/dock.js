@@ -114,8 +114,8 @@ const Dock = (() => {
                          focus: false, lock: false, links: {} });
   let S = blank();
 
-  function load() {
-    const raw = Store.get(KEY, null);
+  function load() { return parse(Store.get(KEY, null)); }
+  function parse(raw) {
     if (!raw || typeof raw !== "object") return blank();
     const s = blank();
     s.focus = !!raw.focus; s.lock = !!raw.lock;
@@ -236,6 +236,32 @@ const Dock = (() => {
     S.closed = S.closed.filter((c) => S.inst[c.id] && !placed.has(c.id));
     const kept = new Set([...placed, ...S.closed.map((c) => c.id)]);
     for (const id of Object.keys(S.inst)) if (!kept.has(id)) delete S.inst[id];
+  }
+
+  /** The workspace as data, for a shared setup: every widget, where it sits
+   *  and its settings. What a widget keeps outside its settings (a note's
+   *  text, a sheet's cells) is gathered by setups.js. */
+  function exportState() {
+    const s = JSON.parse(JSON.stringify(S));
+    s.closed = []; s.focus = false; s.lock = false;
+    for (const [id, i] of Object.entries(s.inst)) if (i.type === SLOT) delete s.inst[id];
+    return s;
+  }
+  /** Put a shared workspace on screen. Every widget remounts, so none keeps
+   *  showing what it held before. */
+  function applyState(raw) {
+    if (!raw || typeof raw !== "object" || !raw.inst) return false;
+    closeSettings();
+    for (const [id, api] of [...live]) {
+      if (id === CHART) continue;
+      try { if (api.hide) api.hide(); } catch {}
+      live.delete(id); shown.delete(id); lastVisible.delete(id);
+      const h = hosts.get(id);
+      if (h) { h.remove(); hosts.delete(id); }
+    }
+    S = parse(raw);
+    layout(false);
+    return true;
   }
 
   let saveT = 0;
@@ -2288,6 +2314,14 @@ const Dock = (() => {
     cfgOf: (idOrType) => { const id = S.inst[idOrType] ? idOrType : placedOf(idOrType)[0] || idOrType; return S.inst[id] ? S.inst[id].cfg : {}; },
     settings: (idOrType) => { const id = S.inst[idOrType] ? idOrType : placedOf(idOrType)[0]; if (id) settingsPanel(id); },
     reset: () => resetWorkspace(),
+    exportState, applyState,
+    /** The tiled tree with each group's active widget: what the Share dialog draws. */
+    shape: () => {
+      const g = (n) => n.k === "g" ? { g: n.g, tabs: S.groups[n.g].tabs.map((id) => S.inst[id].type), active: S.inst[S.groups[n.g].active].type }
+        : { k: n.k, s: n.s.slice(), c: n.c.map(g) };
+      return { tree: S.tree ? g(S.tree) : null, floats: S.floats.map((f) => g({ k: "g", g: f.gid })) };
+    },
+    meta: (type) => { const t = TYPES.get(type); return t ? { title: t.title, icon: t.icon, hue: t.hue || "" } : null; },
     state: () => ({ focus: !!S.focus, lock: !!S.lock, hub: hubOpen, fullscreen: !!document.fullscreenElement }),
     send: sendTo,
     setCfg, toast, menu, closeMenu: closePop,
