@@ -7801,7 +7801,38 @@ body.dk-dragging .dk-pull { pointer-events: none; }
 .cd-state { font-size: var(--text-sm); opacity: .6; margin-right: 4px; white-space: nowrap; }
 .cd-body { flex: 1; min-height: 0; overflow: auto; background: #0f1012; }
 .dk-w-code .cd-ed { font-size: var(--cd-size, 12.5px); line-height: 1.6; }
-.cd-wrap .cd-in { white-space: pre-wrap; word-break: break-word; }
+/* CodeJar writes white-space: pre-wrap inline; unwrapped code must not wrap,
+   or a long line slides off its number */
+.dk-w-code .cd-in { white-space: pre !important; overflow-wrap: normal !important; }
+.dk-w-code.cd-wrap .cd-in, .cd-mirror { white-space: pre-wrap !important; overflow-wrap: anywhere !important; }
+.cd-ed { position: relative; }
+.cd-mirror { position: absolute; left: 0; top: 0; visibility: hidden; pointer-events: none; box-sizing: border-box;
+  padding: 0 14px 0 4px; tab-size: 4; font: inherit; line-height: inherit; }
+.cd-gutter span { display: block; flex: none; }
+.dk-w-code.cd-wrap .cd-ed { min-width: 0; }
+.dk-w-code.cd-wrap .cd-in { min-width: 0; }
+/* syntax: VS Code's Dark+ and Light+ */
+.dk-w-code {
+  --cd-kw: #569cd6; --cd-ctl: #c586c0; --cd-fn: #dcdcaa; --cd-bi: #4ec9b0; --cd-num: #b5cea8; --cd-str: #ce9178;
+  --cd-com: #6a9955; --cd-par: #9cdcfe; --cd-lit: #569cd6; --cd-op: #d4d4d4; --cd-meta: #d7ba7d;
+}
+:root[data-theme="light"] .dk-w-code:not([data-theme="dark"]), .dk-w-code[data-theme="light"] {
+  --cd-kw: #0000ff; --cd-ctl: #af00db; --cd-fn: #795e26; --cd-bi: #267f99; --cd-num: #098658; --cd-str: #a31515;
+  --cd-com: #008000; --cd-par: #001080; --cd-lit: #0000ff; --cd-op: #000000; --cd-meta: #795e26;
+}
+.dk-w-code .hljs-keyword { color: var(--cd-kw); }
+.dk-w-code .hljs-built_in { color: var(--cd-bi); }
+.dk-w-code .hljs-literal { color: var(--cd-lit); }
+.dk-w-code .hljs-number { color: var(--cd-num); }
+.dk-w-code .hljs-string, .dk-w-code .hljs-subst .hljs-string { color: var(--cd-str); }
+.dk-w-code .hljs-comment { color: var(--cd-com); font-style: italic; }
+.dk-w-code .hljs-title.function_, .dk-w-code .hljs-title.class_, .dk-w-code .hljs-title { color: var(--cd-fn); }
+.dk-w-code .hljs-params, .dk-w-code .hljs-variable, .dk-w-code .hljs-attr { color: var(--cd-par); }
+.dk-w-code .hljs-meta, .dk-w-code .hljs-decorator { color: var(--cd-meta); }
+.dk-w-code .hljs-operator, .dk-w-code .hljs-punctuation { color: var(--cd-op); }
+.dk-w-code .hljs-subst { color: inherit; }
+.dk-w-code .cd-k-ctl { color: var(--cd-ctl); }
+.dk-w-code .cd-k-self { color: var(--cd-par); }
 .cd-nonum .cd-gutter { display: none; }
 .cd-nonum .cd-in { padding-left: 14px; }
 .dk-w-code[data-theme="dark"] .cd-body { background: #0f1012; color: #e8e8ea; }
@@ -10288,7 +10319,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/w-fin.js?v=2"></script>
   <script src="./js/w-news.js?v=2"></script>
   <script src="./js/w-browser.js?v=1"></script>
-  <script src="./js/w-code.js?v=4"></script>
+  <script src="./js/w-code.js?v=5"></script>
   <script src="./js/w-docs.js?v=4"></script>
   <script src="./js/w-media.js?v=5"></script>
   <!-- every widget is registered by now; build the rail before js/mobile.js

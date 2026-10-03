@@ -24,14 +24,18 @@
     import("../vendor/codeedit/codejar.js"),
   ]).then(([core, py, jar]) => { core.default.registerLanguage("python", py.default); return { hljs: core.default, CodeJar: jar.CodeJar }; }));
 
+  const CTL = /<span class="hljs-keyword">(if|elif|else|for|while|return|break|continue|import|from|try|except|finally|raise|with|yield|pass|as|match|case)<\/span>/g;
+
   function mount(host, ctx) {
-    let list = [], cur = null, jar = null, dirty = false, busy = false;
+    let list = [], cur = null, jar = null, dirty = false, busy = false, lines = () => {};
+    let rw = 0;
+    const ro = new ResizeObserver(() => { cancelAnimationFrame(rw); rw = requestAnimationFrame(() => { if (ctx.cfg.wrap) lines(); }); });
     host.innerHTML =
       `<div class="cd-bar">` +
         `<button type="button" class="side-pick cd-pick" data-cd="pick" title="Open a study"></button>` +
         `<span class="sh-gap"></span>` +
         `<span class="cd-state"></span>` +
-        `<button type="button" class="sh-btn" data-cd="chart" title="Add to or remove from the chart">${ic("candles")}<span>On chart</span></button>` +
+        `<button type="button" class="sh-btn" data-cd="chart" title="Add to the chart">${ic("lineChart")}<span>Add to chart</span></button>` +
         `<button type="button" class="sh-btn cd-save" data-cd="save" title="Validate and save (Ctrl S)">${ic("save")}<span>Save</span></button>` +
         `<button type="button" class="sh-btn i" data-cd="new" title="New study (in chat)">${ic("plus")}</button>` +
       `</div>` +
@@ -74,13 +78,29 @@
         ctx.setCfg({ cid: id });
         ctx.setTitle(r.spec && (r.spec.short || r.spec.title) || id);
         $(".cd-pick").innerHTML = `${esc(r.spec && r.spec.title || id)}<em>v${r.version}</em>${ic("chevronDown", "")}`;
-        body.innerHTML = `<div class="cd-ed"><div class="cd-gutter" aria-hidden="true"></div><code class="cd-in hljs" spellcheck="false"></code></div>`;
-        const input = body.querySelector(".cd-in"), gutter = body.querySelector(".cd-gutter");
-        jar = CodeJar(input, (el) => { el.innerHTML = hljs.highlight(el.textContent, { language: "python", ignoreIllegals: true }).value; },
+        body.innerHTML = `<div class="cd-ed"><div class="cd-gutter" aria-hidden="true"></div><code class="cd-in hljs" spellcheck="false"></code>` +
+          `<div class="cd-mirror" aria-hidden="true"></div></div>`;
+        const input = body.querySelector(".cd-in"), gutter = body.querySelector(".cd-gutter"), mirror = body.querySelector(".cd-mirror");
+        // as VS Code does, flow-control keywords take their own colour
+        jar = CodeJar(input, (el) => { el.innerHTML = hljs.highlight(el.textContent, { language: "python", ignoreIllegals: true }).value.replace(CTL, '<span class="hljs-keyword cd-k-ctl">$1</span>'); },
                       { tab: " ".repeat(Number(ctx.cfg.tab) || 4), indentOn: /:$/ });
         jar.updateCode(r.code || "");
-        const lines = () => { gutter.innerHTML = Array.from({ length: (jar.toString().match(/\n/g) || []).length + 1 }, (_, i) => `<span>${i + 1}</span>`).join(""); };
+        /* One number per line of code. Wrapped, a line of code can take two
+         * rows on screen, so each number is given the height its line really
+         * takes — measured on a hidden copy laid out at the editor's width. */
+        lines = () => {
+          const src = jar.toString().split("\n");
+          let hs = null;
+          if (ctx.cfg.wrap) {
+            mirror.style.width = input.clientWidth + "px";
+            mirror.innerHTML = src.map((l) => `<div>${esc(l) || " "}</div>`).join("");
+            hs = [...mirror.children].map((d) => d.getBoundingClientRect().height);
+            mirror.textContent = "";
+          }
+          gutter.innerHTML = src.map((_, i) => `<span${hs ? ` style="height:${hs[i]}px"` : ""}>${i + 1}</span>`).join("");
+        };
         lines();
+        ro.disconnect(); ro.observe(input);
         jar.onUpdate(() => { dirty = jar.toString() !== cur.code; paintState(); lines(); });
         input.addEventListener("keydown", (e) => {
           e.stopPropagation();
@@ -93,7 +113,10 @@
     const confirmDiscard = () => { ctx.toast("Save or undo your edits first — they would be lost."); return false; };
     function paintState() {
       const on = cur && typeof window.__chartoCustomActive === "function" && window.__chartoCustomActive(cur.id);
-      $('[data-cd="chart"]').classList.toggle("on", !!on);
+      const cb = $('[data-cd="chart"]');
+      cb.classList.toggle("on", !!on);
+      cb.title = on ? "Remove from the chart" : "Add to the chart";
+      cb.innerHTML = `${ic(on ? "check" : "lineChart")}<span>${on ? "On chart" : "Add to chart"}</span>`;
       $('[data-cd="chart"]').hidden = !cur || cur.status !== "validated";
       $(".cd-save").hidden = !cur;
       $(".cd-pick").hidden = !list.length;
@@ -154,7 +177,7 @@
       const c = ctx.cfg;
       host.style.setProperty("--cd-size", (c.fontSize || 12.5) + "px");
       host.classList.toggle("cd-wrap", !!c.wrap);
-      host.classList.toggle("cd-nonum", c.numbers === false || !!c.wrap);
+      host.classList.toggle("cd-nonum", c.numbers === false);
       host.dataset.theme = c.theme || "auto";
     }
     prefs();
@@ -163,7 +186,7 @@
     let booted = false;
     return {
       show() { if (!booted) { booted = true; loadList(); } else paintState(); },
-      config(cfg, patch) { prefs(); if ("tab" in patch && cur && !dirty) openStudy(cur.id); },
+      config(cfg, patch) { prefs(); if ("wrap" in patch || "fontSize" in patch) requestAnimationFrame(() => lines()); if ("tab" in patch && cur && !dirty) openStudy(cur.id); },
       ask: () => cur ? `Explain what my custom indicator "${cur.spec && cur.spec.title}" computes, line by line, and how to read it on the chart:\n\n\`\`\`python\n${(jar ? jar.toString() : cur.code).slice(0, 4000)}\n\`\`\`` : "",
     };
   }
@@ -176,8 +199,9 @@
       { key: "fontSize", label: "Font size", def: 12.5, options: [{ v: 11, label: "11" }, { v: 12.5, label: "12.5" }, { v: 14, label: "14" }, { v: 16, label: "16" }] },
       { key: "tab", label: "Tab inserts", def: 4, options: [{ v: 2, label: "2 spaces" }, { v: 4, label: "4 spaces" }] },
       { key: "numbers", label: "Line numbers", kind: "toggle", def: true },
-      { key: "wrap", label: "Wrap long lines", kind: "toggle", def: false, hint: "Line numbers hide while wrapping" },
-      { key: "theme", label: "Theme", def: "auto", options: [{ v: "auto", label: "Match the app" }, { v: "dark", label: "Dark" }, { v: "light", label: "Light" }] },
+      { key: "wrap", label: "Wrap long lines", kind: "toggle", def: false },
+      { key: "theme", label: "Theme", def: "auto", options: [{ v: "auto", label: "Match the app" }, { v: "dark", label: "Dark+" }, { v: "light", label: "Light+" }],
+        hint: "The colours of VS Code's default themes" },
       { kind: "note", label: "Saving runs the code in the server's sandbox on the chart's bars; only a pass becomes a new version." },
     ],
   });
