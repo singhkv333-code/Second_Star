@@ -21,6 +21,7 @@ from __future__ import annotations
 import email.utils
 import html
 import ipaddress
+import json
 import re
 import socket
 import threading
@@ -290,6 +291,16 @@ def live_video(channel: str) -> dict:
     m = _CANON.search(page)
     # a channel that is off air redirects /live to its channel page: no watch link
     out = {"video": m.group(1) if m else None, "live": bool(m) and '"isLive":true' in page}
+    # what is on, and the channel's own picture, for the widget's guide
+    t = re.search(r'"videoDetails":\{"videoId":"[^"]+","title":"((?:[^"\\]|\\.)*)"', page)
+    if t and out["live"]:
+        try:
+            out["title"] = json.loads(f'"{t.group(1)}"')[:160]
+        except ValueError:
+            pass
+    av = re.search(r"https://yt3\.ggpht\.com/[\w\-=/]+", page)
+    if av:
+        out["avatar"] = re.sub(r"=s\d+-", "=s88-", av.group(0))
     _live_cache[channel] = (time.time(), out)
     return out
 

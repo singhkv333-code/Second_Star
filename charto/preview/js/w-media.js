@@ -26,21 +26,50 @@
     { id: "UCvJJ_dzjViJCoLf5uKUTwoA", name: "CNBC" },
   ];
 
+  /* The picture on top at 16:9, edge to edge; under it what is on; under
+   * that, a guide of every channel with what each is showing right now. In a
+   * short tile the guide gives way and the picture keeps its shape. */
   function tvMount(host, ctx) {
     host.innerHTML =
-      `<div class="tv-bar"><div class="tv-chips"></div><span class="sh-gap"></span>` +
+      `<div class="tv-stage"><div class="tv-screen"></div></div>` +
+      `<div class="tv-now"><button type="button" class="tv-who" data-tv="pick" title="Change channel"></button>` +
         `<a class="sh-btn i tv-out" target="_blank" rel="noopener noreferrer" title="Watch on YouTube">${ic("externalLink")}</a></div>` +
-      `<div class="tv-screen"></div>`;
+      `<div class="tv-guide" role="listbox" aria-label="Channels"></div>`;
     const $ = (s) => host.querySelector(s);
-    let playing = null;
+    let playing = null, guideAt = 0, timer = 0;
+    const info = new Map();           // channel id → /live-video answer
 
-    function chips() {
-      $(".tv-chips").innerHTML = CHANNELS.map((c) =>
-        `<button type="button" class="tv-chip${c.id === ctx.cfg.ch ? " on" : ""}" data-ch="${c.id}">${esc(c.name)}</button>`).join("") +
-        `<button type="button" class="tv-chip" data-ch="custom" title="Any YouTube video or live stream">${ic("plus")}</button>`;
+    const avatar = (c, big) => {
+      const r = info.get(c.id);
+      return r && r.avatar ? `<img class="tv-av${big ? " big" : ""}" src="${esc(r.avatar)}" alt="" referrerpolicy="no-referrer" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'tv-av mono',textContent:'${esc(c.name[0])}'}))">`
+        : `<span class="tv-av mono${big ? " big" : ""}">${esc(c.name[0])}</span>`;
+    };
+    function now() {
+      const vid = ctx.cfg.video, c = CHANNELS.find((x) => x.id === (ctx.cfg.ch || CHANNELS[0].id));
+      const r = c && info.get(c.id);
+      $(".tv-who").innerHTML = vid ? `<span class="tv-av mono big">${ic("play")}</span><span class="tv-t"><b>A YouTube video</b><em>From a link you pasted</em></span>${ic("chevronDown", "chev")}`
+        : `${avatar(c, true)}<span class="tv-t"><b>${esc(c.name)}</b><em>${esc(r ? (r.live ? r.title || "Live" : "Off air") : "…")}</em></span>${ic("chevronDown", "chev")}`;
     }
+    function guide() {
+      const cur = ctx.cfg.video ? null : ctx.cfg.ch || CHANNELS[0].id;
+      $(".tv-guide").innerHTML = CHANNELS.map((c) => {
+        const r = info.get(c.id);
+        return `<button type="button" role="option" class="tv-row${c.id === cur ? " on" : ""}" data-ch="${c.id}" aria-selected="${c.id === cur}">` +
+          `${avatar(c)}<span class="tv-t"><b>${esc(c.name)}</b><em>${esc(r ? (r.live ? r.title || "Live" : "Off air") : "")}</em></span>` +
+          (r && r.live ? `<i class="tv-live">Live</i>` : "") + `</button>`;
+      }).join("") +
+        `<button type="button" class="tv-row tv-link" data-tv="link">${`<span class="tv-av mono">${ic("plus")}</span>`}<span class="tv-t"><b>Play a YouTube link</b><em>Any video or live stream</em></span></button>`;
+    }
+    async function refreshGuide() {
+      guideAt = Date.now();
+      await Promise.all(CHANNELS.map(async (c) => {
+        try { info.set(c.id, await json(`/live-video?channel=${encodeURIComponent(c.id)}`)); } catch { }
+      }));
+      now(); guide();
+    }
+
     function frame(vid, title) {
-      const q = `autoplay=1&mute=${ctx.cfg.muted === false ? 0 : 1}&rel=0&modestbranding=1${ctx.cfg.captions ? "&cc_load_policy=1" : ""}`;
+      const q = `autoplay=1&mute=${ctx.cfg.muted === false ? 0 : 1}&rel=0&modestbranding=1&playsinline=1${ctx.cfg.captions ? "&cc_load_policy=1" : ""}`;
       $(".tv-screen").innerHTML = `<iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(vid)}?${q}" ` +
         `title="${esc(title)}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
     }
@@ -49,7 +78,7 @@
       const c = CHANNELS.find((x) => x.id === ch);
       const vid = ctx.cfg.video;
       const key = vid || ch;
-      chips();
+      now(); guide();
       $(".tv-out").href = vid ? `https://www.youtube.com/watch?v=${encodeURIComponent(vid)}` : `https://www.youtube.com/channel/${ch}/live`;
       ctx.setTitle(vid ? "Video" : c ? c.name : "Live");
       if (playing === key) return;
@@ -62,17 +91,14 @@
       try { r = await json(`/live-video?channel=${encodeURIComponent(ch)}`); }
       catch (e) { r = { video: null, error: e.message }; }
       if (playing !== key) return;
+      info.set(ch, r); now(); guide();
       if (r.video && r.live) return frame(r.video, c ? c.name : "Live");
       $(".tv-screen").innerHTML = `<div class="tv-off">${Icons.svg("tv")}<p>${esc(c ? c.name : "This channel")} ` +
         `${r.error ? `could not be reached: ${esc(r.error)}` : "is not broadcasting live right now."}</p>` +
         `<a class="dk-cta" href="https://www.youtube.com/channel/${ch}" target="_blank" rel="noopener noreferrer">${ic("externalLink")}Open the channel</a></div>`;
     }
-    host.addEventListener("click", (e) => {
-      const b = e.target.closest("[data-ch]");
-      if (!b) return;
-      e.stopPropagation();
-      if (b.dataset.ch !== "custom") { ctx.setCfg({ ch: b.dataset.ch, video: null }); return play(); }
-      const p = ctx.menu(b, `<div class="head">Play a YouTube link</div>` +
+    function linkForm(anchor) {
+      const p = ctx.menu(anchor, `<div class="head">Play a YouTube link</div>` +
         `<form class="tv-form"><input name="u" placeholder="Paste a YouTube link" autocomplete="off"><button class="dk-cta" type="submit">Play</button></form>`, null);
       if (!p) return;
       const f = p.querySelector("form");
@@ -85,11 +111,31 @@
         Dock.closeMenu();
         ctx.setCfg({ video: m[1] }); play();
       });
+    }
+    host.addEventListener("click", (e) => {
+      const row = e.target.closest("[data-ch]");
+      if (row) { e.stopPropagation(); ctx.setCfg({ ch: row.dataset.ch, video: null }); return play(); }
+      const b = e.target.closest("[data-tv]");
+      if (!b) return;
+      e.stopPropagation();
+      if (b.dataset.tv === "link") return linkForm(b);
+      if (b.dataset.tv === "pick") {
+        const cur = ctx.cfg.video ? null : ctx.cfg.ch || CHANNELS[0].id;
+        return ctx.menu(b, [{ head: "Channels" },
+          ...CHANNELS.map((c) => { const r = info.get(c.id); return { id: c.id, label: c.name, on: c.id === cur, hint: r && !r.live ? "Off air" : "" }; }),
+          { sep: true }, { id: "link", label: "Play a YouTube link…", icon: "plus" }],
+          (id) => { if (id === "link") { setTimeout(() => linkForm(b), 0); return; } ctx.setCfg({ ch: id, video: null }); play(); });
+      }
     });
-    const prefs = () => host.classList.toggle("tv-nochips", ctx.cfg.chips === false);
+    const prefs = () => host.classList.toggle("tv-noguide", ctx.cfg.guide === false || ctx.cfg.chips === false);
     prefs();
     return {
-      show() { if (!playing) play(); },
+      show() {
+        if (!playing) play();
+        if (Date.now() - guideAt > 5 * 60e3) refreshGuide();
+        clearInterval(timer);
+        timer = setInterval(() => { if (document.visibilityState === "visible") refreshGuide(); }, 5 * 60e3);
+      },
       config(cfg, patch) {
         prefs();
         // sound and captions are the player's own parameters: reload it
@@ -97,7 +143,7 @@
         if ("ch" in patch) { ctx.cfg.video = null; playing = null; play(); }
       },
       // a hidden tile stops playing: the frame is removed, not just covered
-      hide() { playing = null; $(".tv-screen").innerHTML = ""; },
+      hide() { playing = null; clearInterval(timer); $(".tv-screen").innerHTML = ""; },
     };
   }
 
@@ -108,7 +154,7 @@
     settings: [
       { section: "Channel" },
       { key: "ch", label: "Plays", kind: "select", def: CHANNELS[0].id, options: CHANNELS.map((c) => ({ v: c.id, label: c.name })) },
-      { key: "chips", label: "Channel buttons", kind: "toggle", def: true },
+      { key: "guide", label: "Channel guide under the picture", kind: "toggle", def: true, hint: "What every channel is showing now" },
       { section: "Player" },
       { key: "muted", label: "Start muted", kind: "toggle", def: true, hint: "Browsers only autoplay video that starts muted" },
       { key: "captions", label: "Captions when the channel has them", kind: "toggle", def: false },
