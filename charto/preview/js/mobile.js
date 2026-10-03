@@ -273,6 +273,7 @@
         tile('data-more="journal"', Icons.svg("fileText"), "Journal") +
         tile('data-more="depth"', Icons.svg("depth"), "Market depth") +
         tile('data-more="notes"', Icons.svg("note"), "Notes") +
+        tile('data-more="widgets"', Icons.svg("widgets"), "All widgets") +
       "</div>" +
       '<div class="sheet-sec">Conversation</div><div class="sheet-grid">' +
         tile('data-more="chat"', Icons.svg("chat"), chatOn ? "Hide chat" : "Show chat",
@@ -353,9 +354,10 @@
       case "account": return openSheet("account");
       case "shotFull": return act(el("shotMenu").querySelector('[data-shot="full"]'));
       case "shotRegion": return act(el("shotMenu").querySelector('[data-shot="region"]'));
-      case "journal": return act(el("wb-journal"));
-      case "depth": return act(el("wb-depth"));
-      case "notes": return act(el("wb-notes"));
+      case "journal": closeSheet(); return Dock.toggle("journal");
+      case "depth": closeSheet(); return Dock.toggle("depth");
+      case "notes": closeSheet(); return Dock.toggle("notes");
+      case "widgets": closeSheet(); return Dock.hub(true);
       case "chat": return act(el("chatToggle"));
       case "scene": return act(el("sceneClear"));
     }
@@ -369,9 +371,10 @@
    * else in this file, each one CLICKS the real button rather than owning a
    * state of its own. Read off #wbar, so a widget added there arrives here
    * with no edit to this file. */
-  const widgetBtns = [...document.querySelectorAll("#rail [data-widget]")]
-    // the three a phone reaches for most; the rest live behind More
-    .filter((b) => ["watch", "screener", "alerts"].includes(b.dataset.widget));
+  // the three a phone reaches for most; the rest live behind More. Read off
+  // the dock's catalogue, so a renamed or re-iconed widget arrives here too.
+  const widgetBtns = (typeof Dock !== "undefined" && Dock.catalog ? Dock.catalog() : [])
+    .filter((w) => ["watch", "screener", "alerts"].includes(w.type));
   bar.innerHTML =
     '<button type="button" class="mbtn" data-slot="symbol" id="mbSymbol"></button>' +
     '<span class="msep"></span>' +
@@ -398,11 +401,8 @@
     '<button type="button" class="mbtn mb-del" data-act="del" ' +
       'aria-label="Delete selected" hidden>' + Icons.svg("eraser") + "</button>" +
     '<span class="mspace"></span>' +
-    widgetBtns.map((b) => {
-      const label = b.querySelector(".tip").textContent;
-      return `<button type="button" class="mbtn" data-widget="${b.dataset.widget}" ` +
-        `aria-label="${label}">${lift(b, "list")}</button>`;
-    }).join("") +
+    widgetBtns.map((w) => `<button type="button" class="mbtn" data-widget="${w.type}" ` +
+      `aria-label="${w.title}">${Icons.svg(w.icon)}</button>`).join("") +
     '<span class="msep"></span>' +
     '<button type="button" class="mbtn" data-slot="more" aria-label="More">' +
       Icons.svg("more") + "</button>";
@@ -415,7 +415,7 @@
     // of the chart's way first: click the real widget-bar button and let
     // js/panels.js apply its own one-panel rule.
     const w = e.target.closest("[data-widget]");
-    if (w) { closeSheet(); el(`wb-${w.dataset.widget}`).click(); return syncBar(); }
+    if (w) { closeSheet(); Dock.toggle(w.dataset.widget); return syncBar(); }
     const act = e.target.closest("[data-act]");
     if (act && act.dataset.act === "del") {
       closeSheet();
@@ -473,10 +473,8 @@
     // proxies, including the bell's "something fired" dot: at this width the
     // bar is hidden, so this row is the only place that mark can show.
     for (const b of bar.querySelectorAll("[data-widget]")) {
-      const real = el(`wb-${b.dataset.widget}`);
-      if (!real) continue;
-      b.classList.toggle("armed", real.classList.contains("active"));
-      b.classList.toggle("has-new", real.classList.contains("has-new"));
+      b.classList.toggle("armed", Dock.visible(b.dataset.widget));
+      b.classList.toggle("has-new", Dock.badged(b.dataset.widget));
     }
   }
 
@@ -491,6 +489,7 @@
     mo.observe(el("tool-cursor"), { attributes: true, attributeFilter: ["class"] });
   }
   document.addEventListener("charto:pane-active", syncBar);
+  document.addEventListener("charto:dock", syncBar);
   // the instrument's mark lands after its own fetch; repaint once it is known
   if (typeof Universe !== "undefined") Universe.load().then(syncBar);
   syncBar();

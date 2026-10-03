@@ -891,8 +891,8 @@ const Panels = (() => {
    *  version marked it whenever today had a row, which meant it lit again on
    *  every reload of something already read. */
   function syncBell() {
-    const b = el("wb-alerts");
-    if (b) b.classList.toggle("has-new", Alerts.state.unseen > 0);
+    // the dock shows it on the Alerts tab, its hub card and the Widgets button
+    if (typeof Dock !== "undefined" && Dock.badge) Dock.badge("alerts", Alerts.state.unseen > 0);
   }
 
   /* One subscription, three jobs: keep the bell honest, keep an open panel

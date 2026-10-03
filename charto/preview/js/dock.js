@@ -421,9 +421,10 @@ const Dock = (() => {
     const spec = act && TYPES.get(act.type);
     node.querySelector(".dk-tabs").innerHTML = g.tabs.map((id) => {
       const s = TYPES.get(S.inst[id].type), l = label(id), on = id === g.active;
+      const dot = badges.has(S.inst[id].type) ? `<i class="dk-dot" aria-label="New"></i>` : "";
       return `<button type="button" class="dk-tab${on ? " on" : ""}" role="tab" ` +
         `aria-selected="${on}" data-inst="${id}" title="${esc(l.title + (l.sub ? " · " + l.sub : ""))}">` +
-        `${icon(s.icon)}<span class="t">${esc(l.title)}</span>` +
+        `${icon(s.icon)}<span class="t">${esc(l.title)}</span>${dot}` +
         (l.sub ? `<span class="s">${esc(l.sub)}</span>` : "") +
         (g.tabs.length > 1 && id !== CHART ? `<span class="x" data-act="close-tab" role="button" ` +
           `aria-label="Close ${esc(l.title)}">${icon("x")}</span>` : "") +
@@ -927,6 +928,9 @@ const Dock = (() => {
       ...(!spec.single && !chart ? [{ id: "new", label: `New ${spec.title.toLowerCase()}`, icon: "plus" },
                                    { id: "dup", label: "Duplicate", icon: "copy" }] : []),
       ...(spec.settings && spec.settings.length ? [{ id: "settings", label: "Settings", icon: "settings" }] : []),
+      // a narrow tile hides its maximize button, so the menu always offers it
+      ...(compact || fl ? [] : [{ id: "max", label: maxed === groupOf(id) ? "Restore" : "Maximize",
+                                  icon: maxed === groupOf(id) ? "shrink" : "expand", hint: "Double-click tab" }]),
       ...(compact || (chart && S.lock) ? [] : [{ sep: true }, { head: "Move to" },
         { id: "mv:left", label: "Left edge", icon: "panelLeft" },
         { id: "mv:right", label: "Right edge", icon: "panelRight" },
@@ -942,6 +946,7 @@ const Dock = (() => {
       if (pick === "dup") return duplicate(id);
       if (pick === "settings") return setTimeout(() => settingsSheet(anchor, id), 0);
       if (pick === "close") return close(id);
+      if (pick === "max") return max(groupOf(id));
       if (pick === "lock") return setLock();
       if (pick.startsWith("mv:")) return moveTo(id, pick.slice(3));
     });
@@ -1401,8 +1406,11 @@ const Dock = (() => {
     const sib = e.key === "ArrowLeft" ? tab.previousElementSibling : tab.nextElementSibling;
     if (sib && sib.classList.contains("dk-tab")) { sib.click(); sib.focus(); }
   });
+  // Escape steps back one layer at a time: a menu, then the drawer, then a
+  // maximized tile
   addEventListener("keydown", (e) => {
     if (e.key !== "Escape" || drag) return;
+    if (pop) { e.preventDefault(); return closePop(); }
     if (hubOpen) return hub(false);
     if (maxed) unmax();
   });
@@ -1442,52 +1450,26 @@ const Dock = (() => {
 
   /* ══ the rail and the header ═════════════════════════════════════════════ */
 
-  const railBtns = new Map();
+  /* The drawing rail is for drawing. Widgets used to sit on it as a second
+   * column of icons, which made the chart's own tools hard to find; they are
+   * reached from the header (Widgets, and Go to — Ctrl K) instead. */
 
-  function buildRail() {
-    const spacer = document.querySelector("#rail .rail-spacer");
-    if (!spacer) return;
-    const specs = [...TYPES.values()].filter((s) => s.rail !== false && s.type !== CHART);
-    spacer.insertAdjacentHTML("afterend",
-      `<div class="rail-sep rail-widget-sep"></div>` +
-      specs.map((s) => `<button type="button" class="tool dk-rail" id="wb-${s.type}" ` +
-        `data-widget="${s.type}" data-anim="${s.anim || ""}" aria-expanded="false">${icon(s.icon)}` +
-        `<span class="tip">${esc(s.title)}${s.key ? ` <kbd>${esc(s.key)}</kbd>` : ""}</span></button>`).join("") +
-      `<button type="button" class="tool dk-rail dk-rail-more" id="wb-more" aria-label="All widgets">` +
-        `${icon("widgets")}<span class="tip">All widgets</span></button>` +
-      `<div class="rail-sep rail-export-sep"></div>`);
-    for (const s of specs) railBtns.set(s.type, el(`wb-${s.type}`));
-    const rail = el("rail");
-    rail.addEventListener("pointerdown", (e) => {
-      const b = e.target.closest(".dk-rail[data-widget]");
-      if (!b || e.button !== 0 || compact) return;
-      beginDrag(e, { kind: "new", type: b.dataset.widget });
-    });
-    rail.addEventListener("click", (e) => {
-      if (e.target.closest("#wb-more")) { e.stopPropagation(); return hub(); }
-      const b = e.target.closest(".dk-rail[data-widget]");
-      if (!b || dragJustEnded) return;
-      toggle(b.dataset.widget);
-    });
-    rail.addEventListener("contextmenu", (e) => {
-      const b = e.target.closest(".dk-rail[data-widget]");
-      if (!b || compact) return;
-      e.preventDefault();
-      const spec = TYPES.get(b.dataset.widget);
-      const fresh = !spec.single && !!placedOf(spec.type).length;
-      menu(b, [
-        { head: `Open ${spec.title}` },
-        { id: "left", label: "On the left", icon: "panelLeft" },
-        { id: "right", label: "On the right", icon: "panelRight" },
-        { id: "bottom", label: "Along the bottom", icon: "panelBottom" },
-        { id: "float", label: "As a floating window", icon: "float" },
-        ...(spec.single ? [] : [{ sep: true }, { id: "new", label: `New ${spec.title.toLowerCase()}`, icon: "plus" }]),
-      ], (pick) => {
-        if (pick === "new") return open(spec.type, null, { fresh: true });
-        const c = floatLayer.getBoundingClientRect();
-        open(spec.type, pick === "float" ? { kind: "float", x: c.width / 2 - FLOAT_DEF.w / 2, y: 40 }
-                                         : { kind: "edge", side: pick }, { fresh });
-      });
+  /** Where to put a widget: the menu a right-click on its hub card opens. */
+  function placeMenu(anchor, type) {
+    const spec = TYPES.get(type);
+    const fresh = !spec.single && !!placedOf(type).length;
+    menu(anchor, [
+      { head: `Open ${spec.title}` },
+      { id: "left", label: "On the left", icon: "panelLeft" },
+      { id: "right", label: "On the right", icon: "panelRight" },
+      { id: "bottom", label: "Along the bottom", icon: "panelBottom" },
+      { id: "float", label: "As a floating window", icon: "float" },
+      ...(spec.single ? [] : [{ sep: true }, { id: "new", label: `New ${spec.title.toLowerCase()}`, icon: "plus" }]),
+    ], (pick) => {
+      if (pick === "new") return open(type, null, { fresh: true });
+      const c = floatLayer.getBoundingClientRect();
+      open(type, pick === "float" ? { kind: "float", x: c.width / 2 - FLOAT_DEF.w / 2, y: 40 }
+                                  : { kind: "edge", side: pick }, { fresh });
     });
   }
   let dragJustEnded = false;
@@ -1497,14 +1479,36 @@ const Dock = (() => {
     }
   }, true);
 
+  /** After every layout: the header, the drawer's badges, and one event for
+   *  anyone who mirrors the workspace (the phone bar, Go to). */
   function syncRail() {
-    for (const [type, b] of railBtns) {
-      const on = placedOf(type).some((id) => lastVisible.has(id));
-      b.classList.toggle("active", on);
-      b.setAttribute("aria-expanded", String(on));
-    }
     syncHeader();
     if (hubOpen) paintHubState();
+    document.dispatchEvent(new CustomEvent("charto:dock"));
+  }
+
+  /* A widget can ask for attention — the alerts bell's "something fired".
+   * The mark is shown on the widget's tabs, its hub card and the Widgets
+   * button, so it is visible whether the widget is open or not. */
+  const badges = new Set();
+  function badge(type, on) {
+    if (on === badges.has(type)) return;
+    on ? badges.add(type) : badges.delete(type);
+    for (const gid of Object.keys(S.groups)) if (groupEls.has(gid)) paintHead(gid);
+    syncRail();
+  }
+
+  /** Bring an open widget forward: its tab, its tile, a flash. */
+  function reveal(id) {
+    const gid = groupOf(id);
+    if (!gid) return;
+    if (S.focus) S.focus = false;
+    if (maxed && maxed !== gid) unmax();
+    S.groups[gid].active = id;
+    compactSheet.active = id;
+    if (compact && !compactSheet.shown) { compactSheet.shown = true; phoneMakeRoom(); }
+    layout(true);
+    flash(id);
   }
 
   let wsBtn = null, fsBtn = null;
@@ -1528,7 +1532,10 @@ const Dock = (() => {
       fsBtn.title = on ? "Exit fullscreen (Alt Shift F)" : "Fullscreen (Alt Shift F)";
       fsBtn.classList.toggle("on", on);
     }
-    if (wsBtn) wsBtn.classList.toggle("on", hubOpen);
+    if (wsBtn) {
+      wsBtn.classList.toggle("on", hubOpen);
+      wsBtn.classList.toggle("has-new", badges.size > 0);
+    }
   }
 
   /* ══ the widget hub ══════════════════════════════════════════════════════
@@ -1550,11 +1557,25 @@ const Dock = (() => {
       paintHubState();
       hubEl.hidden = false;
       requestAnimationFrame(() => hubEl.classList.add("open"));
+      setTimeout(() => document.addEventListener("pointerdown", hubOff, true), 0);
+      const f = hubEl.querySelector(".hub-find input");
+      if (f && f.value) { f.value = ""; f.dispatchEvent(new Event("input")); }
+      if (f && matchMedia("(pointer: fine)").matches) setTimeout(() => f.focus({ preventScroll: true }), 60);
     } else {
+      document.removeEventListener("pointerdown", hubOff, true);
       hubEl.classList.remove("open");
       setTimeout(() => { if (!hubOpen) hubEl.hidden = true; }, 220);
     }
     syncHeader();
+  }
+
+  // a press anywhere outside the drawer closes it — except on the button
+  // that toggles it, and inside a menu the drawer itself opened
+  function hubOff(e) {
+    if (!hubOpen || drag) return;
+    const t = e.target;
+    if (hubEl.contains(t) || (wsBtn && wsBtn.contains(t)) || (pop && pop.contains(t))) return;
+    hub(false);
   }
 
   function buildHub() {
@@ -1573,7 +1594,7 @@ const Dock = (() => {
       `</div>`;
     hubEl.innerHTML =
       `<div class="hub-head">` +
-        `<div><b>Widgets</b><span>Click to add, or drag a card onto the canvas.</span></div>` +
+        `<div><b>Widgets</b><span>Click to add, drag a card onto the canvas, or right-click to choose where.</span></div>` +
         `<button type="button" class="hub-close" data-hub="close" aria-label="Close">${icon("x")}<kbd>Esc</kbd></button>` +
       `</div>` +
       `<div class="hub-bar">` +
@@ -1583,12 +1604,38 @@ const Dock = (() => {
         `<button type="button" class="dk-pill" data-hub="full">${icon("fullscreen", "xs")}Fullscreen</button>` +
         `<button type="button" class="dk-pill" data-hub="reset">${icon("rotateCw", "xs")}Reset</button>` +
       `</div>` +
+      `<div class="hub-find">${Icons.field('<input type="search" placeholder="Search widgets" autocomplete="off" spellcheck="false" aria-label="Search widgets">')}</div>` +
       `<div class="hub-scroll">` +
         SECTIONS.map((sec) => {
           const list = specs.filter((s) => (s.group || "Tools") === sec);
           return list.length ? `<div class="hub-sec">${sec}</div><div class="hub-grid">${list.map(card).join("")}</div>` : "";
         }).join("") +
+        `<p class="hub-none" hidden>No widget matches that. Try “chart”, “news” or “sheet”.</p>` +
       `</div>`;
+    const find = hubEl.querySelector(".hub-find input");
+    const matches = (c, q) => !q || (c.textContent + " " + c.dataset.type).toLowerCase().includes(q);
+    find.addEventListener("input", () => {
+      const q = find.value.trim().toLowerCase();
+      let any = false;
+      for (const grid of hubEl.querySelectorAll(".hub-grid")) {
+        let n = 0;
+        for (const c of grid.children) { const on = matches(c, q); c.hidden = !on; if (on) n++; }
+        grid.hidden = !n; grid.previousElementSibling.hidden = !n;
+        any = any || n > 0;
+      }
+      hubEl.querySelector(".hub-none").hidden = any;
+    });
+    find.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      const c = [...hubEl.querySelectorAll(".hub-card")].find((x) => !x.hidden);
+      if (c) { e.preventDefault(); open(c.dataset.type); hub(false); }
+    });
+    hubEl.addEventListener("contextmenu", (e) => {
+      const c = e.target.closest(".hub-card");
+      if (!c || compact) return;
+      e.preventDefault();
+      placeMenu(c, c.dataset.type);
+    });
     hubEl.addEventListener("click", (e) => {
       const h = e.target.closest("[data-hub]");
       if (h) {
@@ -1646,6 +1693,7 @@ const Dock = (() => {
       c.classList.toggle("on", n > 0);
       const i = c.querySelector(".hub-n");
       i.hidden = n < 1; i.textContent = n > 1 ? `${n} open` : "Open";
+      c.classList.toggle("has-new", badges.has(c.dataset.type));
     }
   }
 
@@ -1690,7 +1738,6 @@ const Dock = (() => {
       sanitize();
       place(legacy, { kind: "zone", zone: TYPES.get(legacy).zone || "right" });
     }
-    buildRail();
     buildHeader();
     layout(false);
     if (typeof Shortcuts !== "undefined" && Shortcuts.on) {
@@ -1706,6 +1753,17 @@ const Dock = (() => {
     register, start, open, close, toggle, openSymbol, warm, setFocus, fullscreen, setLock, hub,
     visible: (type) => placedOf(type).some((id) => lastVisible.has(id)),
     instances: (type) => placedOf(type),
+    /** Every widget the hub offers: what Go to and the phone bar list. */
+    catalog: () => [...TYPES.values()].filter((t) => t.catalog !== false && t.type !== CHART)
+      .map((t) => ({ type: t.type, title: t.title, icon: t.icon, desc: t.desc || "", group: t.group || "",
+                     key: t.key || "", anim: t.anim || "", single: !!t.single, open: placedOf(t.type).length })),
+    /** What is on the workspace now, in reading order. */
+    opened: () => [...treeGroups(), ...S.floats.map((f) => f.gid)].flatMap((gid) => S.groups[gid].tabs)
+      .map((id) => ({ id, type: S.inst[id].type, icon: (TYPES.get(S.inst[id].type) || {}).icon,
+                      ...label(id), visible: lastVisible.has(id) })),
+    reveal, badge, badged: (type) => badges.has(type),
+    reset: () => resetWorkspace(),
+    state: () => ({ focus: !!S.focus, lock: !!S.lock, hub: hubOpen, fullscreen: !!document.fullscreenElement }),
     send: sendTo,
     setCfg, toast, menu, closeMenu: closePop,
   };

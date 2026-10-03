@@ -96,6 +96,7 @@
       $('[data-cd="chart"]').classList.toggle("on", !!on);
       $('[data-cd="chart"]').hidden = !cur || cur.status !== "validated";
       $(".cd-save").hidden = !cur;
+      $(".cd-pick").hidden = !list.length;
       $(".cd-state").textContent = busy ? "Validating…" : dirty ? "Edited" : cur ? (cur.status === "validated" ? "Validated" : "Not validated") : "";
       $(".cd-save").disabled = !dirty || busy;
     }

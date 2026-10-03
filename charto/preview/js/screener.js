@@ -127,6 +127,9 @@
       if (hit) { state = { ...state, ...hit, loading: false, error: "" }; return paint(); }
       state.loading = true; state.error = "";
       paint();
+      // a re-run that comes back identical would look like a dead button
+      const spin = $('[data-s="refresh"]');
+      if (spin) spin.classList.add("spinning");
       try {
         const r = await Net.get(`${API}/screen/run?spec=` + encodeURIComponent(key));
         const d = await r.json();
@@ -144,11 +147,13 @@
         if (my !== seq) return;
         state = { ...state, loading: false, res: d, feats };
         cachePut(key, { res: d, feats });
+        if (force) ctx.toast(`Screen re-run · ${(d.rows || []).length} stocks`);
       } catch (e) {
         if (my !== seq) return;
         state.loading = false;
         state.error = e.message || String(e);
       }
+      if (spin) spin.classList.remove("spinning");
       paint();
     }
 

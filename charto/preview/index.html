@@ -7158,14 +7158,9 @@ body.dk-resizing { user-select: none; }
 body.dk-col-resize, body.dk-col-resize * { cursor: col-resize !important; }
 body.dk-row-resize, body.dk-row-resize * { cursor: row-resize !important; }
 
-/* the rail's widget buttons: a small motion that says what each one is */
-.tool.dk-rail svg.icon { transition: transform var(--dur-slow) var(--ease-quartr); }
-.tool.dk-rail:hover svg.icon { transform: translateY(-1px) scale(1.06); }
-.tool.dk-rail:active svg.icon { transform: scale(.9); }
-.tool.dk-rail[data-anim="ring"]:hover svg.icon { animation: dk-ring .6s var(--ease-quartr); }
-.tool.dk-rail[data-anim="spin"]:hover svg.icon { animation: dk-spin .6s var(--ease-quartr); }
-.tool.dk-rail[data-anim="pulse"]:hover svg.icon { animation: dk-pulse .7s var(--ease-quartr); }
-.dk-rail-more:hover svg.icon { transform: rotate(90deg) !important; }
+/* a small motion that says what a widget is (Go to's rows) */
+.side-act.spinning svg.icon { animation: dk-turn .8s linear infinite; }
+@keyframes dk-turn { to { transform: rotate(360deg); } }
 @keyframes dk-ring { 0%,100% { transform: rotate(0); } 20% { transform: rotate(16deg); } 45% { transform: rotate(-12deg); } 70% { transform: rotate(6deg); } }
 @keyframes dk-spin { from { transform: rotate(0) scale(1); } 60% { transform: rotate(80deg) scale(1.1); } to { transform: rotate(72deg) scale(1.05); } }
 @keyframes dk-pulse { 0%,100% { transform: scale(1); } 40% { transform: scale(1.16); } 70% { transform: scale(.96); } }
@@ -7214,6 +7209,56 @@ body.dk-row-resize, body.dk-row-resize * { cursor: row-resize !important; }
 .dk-addw svg.icon { width: 15px; height: 15px; transition: transform var(--dur-slow) var(--ease-quartr); }
 .dk-addw:hover svg.icon { transform: rotate(90deg); }
 .dk-hbtn.on { background: var(--foreground) !important; color: var(--background) !important; }
+/* Go to: a quiet search-shaped button that teaches its own shortcut */
+.gt-btn { gap: 7px; padding: 0 6px 0 9px; font-weight: var(--weight-medium); color: var(--foreground); }
+.gt-btn svg.icon { width: 14px; height: 14px; opacity: .7; }
+.gt-btn kbd { font: inherit; font-size: 10.5px; padding: 1px 5px; border-radius: 5px; border: 1px solid var(--border); opacity: .7; }
+.gt-btn.on kbd { border-color: color-mix(in srgb, var(--background) 40%, transparent); }
+@media (max-width: 1280px) { .gt-btn span, .gt-btn kbd { display: none; } .gt-btn { padding: 0 8px; } }
+
+/* Go to — the palette */
+.gt-wrap {
+  position: fixed; inset: 0; z-index: 900; display: none; justify-content: center; align-items: flex-start;
+  padding: 11vh 16px 16px; background: rgba(0,0,0,.18);
+}
+.gt-wrap.open { display: flex; animation: gt-fade .14s ease-out; }
+@keyframes gt-fade { from { opacity: 0; } }
+.gt {
+  width: min(600px, 100%); max-height: min(560px, 78vh); display: flex; flex-direction: column; overflow: hidden;
+  background: var(--surface-plain); border: 1px solid var(--border); border-radius: 16px;
+  box-shadow: 0 30px 80px -30px rgba(0,0,0,.45), 0 2px 8px -4px rgba(0,0,0,.12);
+  animation: gt-rise .2s var(--ease-quartr);
+}
+@keyframes gt-rise { from { transform: translateY(-6px) scale(.985); opacity: 0; } }
+.gt-in { flex: none; display: flex; align-items: center; gap: 10px; padding: 0 14px; height: 54px; border-bottom: 1px solid var(--border-soft); }
+.gt-in svg.icon { width: 17px; height: 17px; opacity: .6; flex: none; }
+.gt-in input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; color: var(--foreground);
+  font: inherit; font-size: 15.5px; user-select: text; -webkit-user-select: text; }
+.gt-in input::placeholder { color: var(--foreground); opacity: .42; }
+.gt kbd { font: inherit; font-size: 10.5px; line-height: 1; padding: 3px 5px; border-radius: 5px; border: 1px solid var(--border);
+  background: var(--surface-plain); color: var(--foreground); opacity: .75; white-space: nowrap; }
+.gt-list { flex: 1; min-height: 0; overflow-y: auto; padding: 6px; scrollbar-width: thin; }
+.gt-sec { padding: 10px 10px 5px; font-size: var(--text-2xs); font-weight: var(--weight-semi); letter-spacing: .07em; text-transform: uppercase; opacity: .5; }
+.gt-row { display: flex; align-items: center; gap: 11px; padding: 7px 10px; border-radius: 10px; cursor: pointer; }
+.gt-row.on { background: var(--hover-fill); }
+.gt-ic { flex: none; width: 30px; height: 30px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border); background: var(--surface-plain); transition: background var(--dur), color var(--dur), border-color var(--dur); }
+.gt-ic svg.icon { width: 15px; height: 15px; }
+.gt-row.on .gt-ic { background: var(--foreground); color: var(--background); border-color: var(--foreground); }
+.gt-row.on[data-anim="ring"] .gt-ic svg.icon { animation: dk-ring .6s var(--ease-quartr); }
+.gt-row.on[data-anim="spin"] .gt-ic svg.icon { animation: dk-spin .6s var(--ease-quartr) forwards; }
+.gt-row.on[data-anim="pulse"] .gt-ic svg.icon { animation: dk-pulse .7s var(--ease-quartr); }
+.gt-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.gt-txt b { font-size: var(--text-base); font-weight: var(--weight-medium); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gt-txt em { font-style: normal; font-size: var(--text-sm); opacity: .6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gt-hint { flex: none; font-size: var(--text-sm); opacity: .5; }
+.gt-row.on .gt-hint { opacity: .85; }
+.gt-none { padding: 26px 12px; text-align: center; font-size: var(--text-base); opacity: .6; }
+.gt-foot { flex: none; display: flex; gap: 16px; padding: 9px 14px; border-top: 1px solid var(--border-soft); font-size: var(--text-sm); }
+.gt-foot span { display: inline-flex; align-items: center; gap: 4px; opacity: .65; }
+.gt-foot span:last-child { margin-left: auto; }
+@media (max-width: 640px) { .gt-wrap { padding-top: 10px; } .gt-foot { display: none; } }
+
 #fullBtn svg.icon { transition: transform var(--dur-slow) var(--ease-quartr); }
 #fullBtn:hover svg.icon { transform: scale(1.12); }
 
@@ -7234,6 +7279,16 @@ body.dk-row-resize, body.dk-row-resize * { cursor: row-resize !important; }
   transform: translateX(24px); opacity: 0;
   transition: transform .26s var(--ease-quartr), opacity .2s var(--ease-quartr);
 }
+/* An author display beats the UA's [hidden] rule, so the closed drawer used
+   to stay over the canvas — invisible at opacity 0 and still taking every
+   click and hover meant for the tiles under it. Closed is display:none, and
+   closing is pointer-events:none from the first frame of the slide-out. */
+.dk-hub[hidden] { display: none; }
+.dk-hub:not(.open) { pointer-events: none; }
+/* Same trap inside every widget: a class that sets display would keep a
+   hidden overlay on screen (the extra chart's message plate sat over its
+   plot and ate the pointer). The main chart is left to its own rules. */
+.dk-host:not(.dk-w-main) [hidden], .dk-menu [hidden] { display: none !important; }
 .dk-hub.open { transform: none; opacity: 1; }
 .dk-hub.away { opacity: .12; pointer-events: none; transform: translateX(40px); }
 .hub-head { flex: none; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 18px 18px 10px; }
@@ -7260,14 +7315,28 @@ body.dk-row-resize, body.dk-row-resize * { cursor: row-resize !important; }
 .hub-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
 .hub-card {
   position: relative; display: flex; flex-direction: column; border-radius: 14px; overflow: hidden;
-  background: var(--surface-plain); border: 1px solid var(--border); cursor: grab; outline: none;
+  background: var(--surface-plain); border: 1px solid var(--border); cursor: pointer; outline: none;
   transition: transform .25s var(--ease-quartr), border-color var(--dur), box-shadow .25s var(--ease-quartr);
 }
 .hub-card:hover, .hub-card:focus-visible {
   transform: translateY(-2px); border-color: color-mix(in srgb, var(--foreground) 28%, var(--border));
   box-shadow: 0 14px 34px -22px rgba(0,0,0,.45);
 }
-.hub-card:active { cursor: grabbing; transform: scale(.99); }
+.hub-card:active { transform: scale(.99); }
+.hub-card[hidden], .hub-grid[hidden], .hub-sec[hidden], .hub-none[hidden] { display: none; }
+.hub-find { flex: none; padding: 2px 18px 6px; }
+.hub-none { margin: 28px 4px; font-size: var(--text-base); opacity: .65; }
+/* "something here wants you": the alerts bell's unseen mark, wherever the
+   widget is reachable from */
+.hub-card.has-new .hub-meta b::after, .dk-tab .dk-dot {
+  content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--down); flex: none;
+}
+.dk-tab .dk-dot { margin-left: -2px; align-self: center; }
+#dockBtn { position: relative; }
+#dockBtn.has-new::after {
+  content: ""; position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--down); box-shadow: 0 0 0 2px var(--background);
+}
 /* the picture: a still from a film — soft-focus background, the subject
    sharp, grain and vignette baked into the SVG; on hover, a slow push-in and
    one pass of light across the frame */
@@ -9850,7 +9919,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/store.js?v=18"></script>
   <script src="./js/theme.js?v=10"></script>
   <script src="./js/universe.js?v=9"></script>
-  <script src="./js/icons.js?v=34"></script>
+  <script src="./js/icons.js?v=35"></script>
   <!-- after icons.js (every row is drawn with one) and before main.js, which
        builds the chart's three right-click menus out of it -->
   <script src="./js/ctxmenu.js?v=8"></script>
@@ -9875,7 +9944,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- after dlgkit.js (its sheet is a .dlg card, positioned and dragged by
        the kit) and before main.js, which registers what every row of its
        catalogue MEANS the moment it boots -->
-  <script src="./js/shortcuts.js?v=4"></script>
+  <script src="./js/shortcuts.js?v=5"></script>
   <!-- before panes.js and main.js: both register their charts with it as
        they build them, and read their series colours out of it -->
   <script src="./js/chartsettings.js?v=3"></script>
@@ -9887,7 +9956,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/main.js?v=158"></script>
   <script src="./js/wkit.js?v=1"></script>
   <script src="./js/hub-art.js?v=1"></script>
-  <script src="./js/dock.js?v=6"></script>
+  <script src="./js/dock.js?v=7"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=11"></script>
@@ -9902,7 +9971,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/layers-panel.js?v=11"></script>
   <script src="./js/chat.js?v=176"></script>
   <script src="./js/codeview.js?v=5"></script>
-  <script src="./js/journal.js?v=6"></script>
+  <script src="./js/journal.js?v=7"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it
        uses. Everything it needs from main.js (SYMBOL) and panels.js
@@ -9910,8 +9979,8 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/alerts.js?v=16"></script>
   <!-- after chat.js: the widget panels share the phone's one panel slot with
        the conversation, and close it by clicking its real toggle -->
-  <script src="./js/panels.js?v=16"></script>
-  <script src="./js/screener.js?v=3"></script>
+  <script src="./js/panels.js?v=17"></script>
+  <script src="./js/screener.js?v=4"></script>
   <script src="./js/depth.js?v=3"></script>
   <script src="./js/notes.js?v=3"></script>
   <script src="./js/w-sheet.js?v=1"></script>
@@ -9919,14 +9988,15 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/w-fin.js?v=1"></script>
   <script src="./js/w-news.js?v=1"></script>
   <script src="./js/w-browser.js?v=1"></script>
-  <script src="./js/w-code.js?v=2"></script>
+  <script src="./js/w-code.js?v=3"></script>
   <script src="./js/w-docs.js?v=2"></script>
   <script src="./js/w-media.js?v=2"></script>
   <!-- every widget is registered by now; build the rail before js/mobile.js
        reads it for the phone toolbar -->
   <script>Dock.start();</script>
+  <script src="./js/goto.js?v=1"></script>
   <!-- last: every control it proxies has to exist and be wired first -->
-  <script src="./js/mobile.js?v=14"></script>
+  <script src="./js/mobile.js?v=15"></script>
   <script src="./js/embed.js?v=8"></script>
 </body>
 </html>

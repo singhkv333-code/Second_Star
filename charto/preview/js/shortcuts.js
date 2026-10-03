@@ -83,6 +83,7 @@ const Shortcuts = (() => {
     ] },
 
     { heading: "Workspace", rows: [
+      { act: "goto", label: "Go to — any widget, or a workspace action", keys: ["Ctrl + K"] },
       { act: "watchlist", label: "Watchlist", keys: ["Alt + W"] },
       { act: "alerts", label: "Alerts", keys: ["Alt + A"] },
       { act: "screener", label: "Screener", keys: ["Alt + Shift + S"] },
