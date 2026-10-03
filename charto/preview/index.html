@@ -7425,10 +7425,10 @@ label.ds-row { cursor: pointer; }
   display: inline-flex; align-items: center; justify-content: center; background: transparent; color: var(--foreground); opacity: .5; }
 .dk-slot-x:hover { opacity: 1; background: var(--hover-fill); }
 .dk-slot-x svg.icon { width: 14px; height: 14px; }
-.dk-pull { position: absolute; z-index: 25; }
+.dk-pull { position: absolute; z-index: 25; touch-action: none; }
 .dk-pull[hidden] { display: none; }
-.dk-pull[data-side="left"], .dk-pull[data-side="right"] { width: 6px; cursor: col-resize; }
-.dk-pull[data-side="top"], .dk-pull[data-side="bottom"] { height: 6px; cursor: row-resize; }
+.dk-pull[data-side="left"], .dk-pull[data-side="right"] { width: 5px; cursor: col-resize; }
+.dk-pull[data-side="top"], .dk-pull[data-side="bottom"] { height: 5px; cursor: row-resize; }
 /* a small grabber, like a split-view handle, shown when the pointer is near */
 .dk-pull::after {
   content: ""; position: absolute; border-radius: 3px; background: var(--foreground); opacity: 0;
@@ -10426,7 +10426,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/main.js?v=160"></script>
   <script src="./js/wkit.js?v=1"></script>
   <script src="./js/hub-art.js?v=3"></script>
-  <script src="./js/dock.js?v=15"></script>
+  <script src="./js/dock.js?v=17"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=11"></script>

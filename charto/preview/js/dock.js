@@ -2107,7 +2107,7 @@ const Dock = (() => {
       host.innerHTML = `<div class="dk-slot">` +
         `<button type="button" class="dk-slot-add" data-slot="add">${icon("plus")}<span>Add a widget</span></button>` +
         `<em>or drag one here</em>` +
-        `<button type="button" class="dk-slot-x" data-slot="close" title="Give the room back to the chart" aria-label="Close">${icon("x")}</button>` +
+        `<button type="button" class="dk-slot-x" data-slot="close" title="Close this space; the widgets beside it take the room back" aria-label="Close">${icon("x")}</button>` +
       `</div>`;
       host.addEventListener("click", (e) => {
         const b = e.target.closest("[data-slot]");
@@ -2120,65 +2120,100 @@ const Dock = (() => {
     },
   });
 
-  /* Pull handles: thin strips along whichever edges of the workspace the
-   * chart touches. Dragging one in makes a slot on that side, sized live by
-   * the pointer; let go near the edge and nothing is made. They sit only
-   * along the chart, so they never cover another widget's scrollbar. */
-  const pulls = ["left", "right", "top", "bottom"].map((side) => {
-    const n = document.createElement("div");
-    n.className = "dk-pull";
-    n.dataset.side = side;
-    n.title = "Drag to make room beside the chart";
-    n.setAttribute("aria-hidden", "true");
-    canvas.appendChild(n);
-    n.addEventListener("pointerdown", (e) => pullStart(e, side));
+  /* Edge handles: every tile can be resized from every side. Between two
+   * tiles that is the gutter; where a tile meets the edge of the workspace
+   * there is no gutter, so a thin handle sits along THAT tile's edge. Drag it
+   * in and the tile shrinks on that side, leaving an empty slot sized live by
+   * the pointer — the space a widget can be dropped or picked into. Let go
+   * near where you started and nothing is made. */
+  const pullEls = [];
+  const SIDES = ["left", "right", "top", "bottom"];
+  function pullEl(k) {
+    let n = pullEls[k];
+    if (!n) {
+      n = pullEls[k] = document.createElement("div");
+      n.className = "dk-pull";
+      n.setAttribute("aria-hidden", "true");
+      n.addEventListener("pointerdown", (e) => pullStart(e, n.dataset.gid, n.dataset.side));
+      canvas.appendChild(n);
+    }
     return n;
-  });
+  }
   function syncPulls() {
     const off = compact || S.focus || maxed || drag;
-    const cn = groupEls.get(groupOf(CHART));
     const cv = canvas.getBoundingClientRect();
-    const r = cn && cn.isConnected && !floatOf(groupOf(CHART)) ? cn.getBoundingClientRect() : null;
-    for (const n of pulls) {
-      const side = n.dataset.side;
-      const touch = r && !off && (side === "left" ? r.left - cv.left < 2 : side === "right" ? cv.right - r.right < 2
-        : side === "top" ? r.top - cv.top < 2 : cv.bottom - r.bottom < 2);
-      n.hidden = !touch;
-      if (!touch) continue;
-      const v = side === "left" || side === "right";
-      Object.assign(n.style, v
-        ? { top: r.top - cv.top + "px", height: r.height + "px", left: side === "left" ? "0px" : "", right: side === "right" ? "0px" : "", width: "", bottom: "" }
-        : { left: r.left - cv.left + "px", width: r.width + "px", top: side === "top" ? "0px" : "", bottom: side === "bottom" ? "0px" : "", height: "", right: "" });
+    let k = 0;
+    if (!off) {
+      for (const gid of treeGroups()) {
+        if (isSlot(gid) || floatOf(gid)) continue;
+        const node = groupEls.get(gid);
+        if (!node || !node.isConnected) continue;
+        const r = node.getBoundingClientRect();
+        if (r.width < 2 || r.height < 2) continue;
+        for (const side of SIDES) {
+          const touch = side === "left" ? r.left - cv.left < 2 : side === "right" ? cv.right - r.right < 2
+            : side === "top" ? r.top - cv.top < 2 : cv.bottom - r.bottom < 2;
+          if (!touch) continue;
+          const n = pullEl(k++);
+          if (n.parentNode !== canvas) canvas.appendChild(n);
+          n.hidden = false;
+          n.dataset.gid = gid; n.dataset.side = side;
+          n.title = `Drag to resize ${label(S.groups[gid].active).title} from this side`;
+          const v = side === "left" || side === "right";
+          Object.assign(n.style, v
+            ? { top: r.top - cv.top + 8 + "px", height: Math.max(0, r.height - 16) + "px", left: side === "left" ? r.left - cv.left + "px" : "",
+                right: side === "right" ? cv.right - r.right + "px" : "", width: "", bottom: "" }
+            : { left: r.left - cv.left + 8 + "px", width: Math.max(0, r.width - 16) + "px", top: side === "top" ? r.top - cv.top + "px" : "",
+                bottom: side === "bottom" ? cv.bottom - r.bottom + "px" : "", height: "", right: "" });
+        }
+      }
     }
+    for (; k < pullEls.length; k++) pullEls[k].hidden = true;
   }
   addEventListener("resize", () => requestAnimationFrame(syncPulls));
+  // the chat opening, a sidebar folding: the workspace changes size with no
+  // window resize, and the handles must follow the tiles
+  if (typeof ResizeObserver !== "undefined") {
+    let pr = 0;
+    new ResizeObserver(() => { cancelAnimationFrame(pr); pr = requestAnimationFrame(syncPulls); }).observe(canvas);
+  }
 
-  function pullStart(e, side) {
-    if (e.button !== 0) return;
+  function pullStart(e, target, side) {
+    if (e.button !== 0 || !S.groups[target]) return;
     e.preventDefault();
-    const cv = canvas.getBoundingClientRect();
-    const size = side === "left" || side === "right" ? cv.width : cv.height;
+    e.stopPropagation();
+    const node = groupEls.get(target);
+    const r0 = node.getBoundingClientRect();
+    const v = side === "left" || side === "right";
+    const size = v ? r0.width : r0.height;
+    const before = BEFORE[side];
     let id = null, gid = null, share = 0, raf = 0;
-    document.body.classList.add("dk-resizing", side === "left" || side === "right" ? "dk-col-resize" : "dk-row-resize");
-    const dist = (ev) => side === "left" ? ev.clientX - cv.left : side === "right" ? cv.right - ev.clientX
-      : side === "top" ? ev.clientY - cv.top : cv.bottom - ev.clientY;
+    document.body.classList.add("dk-resizing", v ? "dk-col-resize" : "dk-row-resize");
+    const dist = (ev) => side === "left" ? ev.clientX - r0.left : side === "right" ? r0.right - ev.clientX
+      : side === "top" ? ev.clientY - r0.top : r0.bottom - ev.clientY;
+    // the tile keeps at least what it needs to be read
+    const spec = TYPES.get((S.inst[S.groups[target].active] || {}).type) || {};
+    const keep = hasChart(target) ? (v ? 320 : 180) : (v ? Math.min(spec.minW || 220, 260) : 120);
     const apply = () => {
       raf = 0;
       const loc = locate(gid);
       if (!loc || !loc.p) return;
-      const others = sum(loc.p.s) - loc.p.s[loc.i];
-      loc.p.s[loc.i] = others * share / (1 - share);
+      const ti = before ? loc.i + 1 : loc.i - 1;
+      if (ti < 0 || ti >= loc.p.s.length) return;
+      const pair = loc.p.s[loc.i] + loc.p.s[ti];
+      loc.p.s[loc.i] = pair * share;
+      loc.p.s[ti] = pair * (1 - share);
       layout(false);
     };
     const mv = (ev) => {
       const d = dist(ev);
-      share = clamp(d / size, .04, .75);
+      share = clamp(d / size, .03, Math.max(.05, 1 - keep / size));
       if (!id) {
-        if (d < 14) return;
+        if (d < 12) return;
         id = uid("slot:");
         S.inst[id] = { type: SLOT, cfg: {} };
         gid = newGroup([id]);
-        addEdge(side, gid, share);
+        splitAt(target, side, gid, share);
         layout(false);
         return;
       }
@@ -2191,7 +2226,7 @@ const Dock = (() => {
       cancelAnimationFrame(raf);
       document.body.classList.remove("dk-resizing", "dk-col-resize", "dk-row-resize");
       if (!id) return;
-      if (share < .09) { detach(id); delete S.inst[id]; layout(true); return; }
+      if (share * size < 40) { detach(id); delete S.inst[id]; layout(true); return; }
       apply();
       flash(id);
     };
