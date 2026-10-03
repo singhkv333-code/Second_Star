@@ -106,6 +106,25 @@ def _day(s: str) -> str | None:
         return None
 
 
+_MON = {m: i for i, m in enumerate(
+    ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], 1)}
+
+
+def _quarter(text: str) -> str | None:
+    """'…for the quarter ended June 30, 2026' -> 'Q1 FY27' (India's April year)."""
+    m = re.search(r"ended\s+(?:on\s+)?([A-Za-z]{3,9})\.?\s+(\d{1,2}),?\s+(\d{4})", text) \
+        or re.search(r"ended\s+(?:on\s+)?(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3,9}),?\s+(\d{4})", text)
+    if not m:
+        return None
+    a, b, y = m.groups()
+    mon = _MON.get((a if a[0].isalpha() else b)[:3].lower())
+    if not mon or mon not in (3, 6, 9, 12):
+        return None
+    fy = int(y) + (1 if mon > 3 else 0)
+    q = {6: 1, 9: 2, 12: 3, 3: 4}[mon]
+    return f"Q{q} FY{fy % 100:02d}"
+
+
 def _board() -> list[dict]:
     out = []
     for r in _nse("event-calendar?index=equities"):
@@ -113,18 +132,29 @@ def _board() -> list[dict]:
         if not d:
             continue
         purpose = (r.get("purpose") or "").strip()
-        kind = "results" if re.search(r"financial result", purpose, re.I) else "board"
-        detail = re.sub(r"\s+", " ", (r.get("bm_desc") or purpose)).strip()
+        desc = re.sub(r"\s+", " ", (r.get("bm_desc") or purpose)).strip()
+        parts = [p.strip() for p in purpose.split("/") if p.strip()]
+        results = any(re.search(r"financial result", p, re.I) for p in parts)
+        also = [p for p in parts if not re.search(r"financial result|other business", p, re.I)]
         out.append({
-            "date": d, "time": None, "kind": kind, "region": "IN",
+            "date": d, "time": None, "kind": "results" if results else "board", "region": "IN",
             "symbol": (r.get("symbol") or "").upper(), "title": (r.get("company") or r.get("symbol") or "").strip(),
-            "purpose": purpose, "detail": detail[:220], "source": "NSE event calendar",
+            "purpose": purpose, "period": _quarter(desc) if results else None,
+            "also": also,                      # e.g. ["Dividend", "Bonus"] on a results meeting
+            "detail": desc[:400], "source": "NSE event calendar",
         })
     return out
 
 
 _ACT = [("dividend", r"dividend"), ("bonus", r"bonus"), ("split", r"split|sub-?division"),
-        ("rights", r"rights"), ("buyback", r"buy ?back")]
+        ("rights", r"rights"), ("buyback", r"buy ?back"), ("demerger", r"demerger"), ("merger", r"amalgamation|merger")]
+
+
+def _num(x: str) -> float | None:
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return None
 
 
 def _actions() -> list[dict]:
@@ -135,13 +165,25 @@ def _actions() -> list[dict]:
             continue
         subject = re.sub(r"\s+", " ", (r.get("subject") or "")).strip()
         what = next((k for k, rx in _ACT if re.search(rx, subject, re.I)), "action")
-        rec = _day(r.get("recDate", "") or "")
-        out.append({
-            "date": d, "time": None, "kind": "action", "action": what, "region": "IN",
-            "symbol": (r.get("symbol") or "").upper(), "title": (r.get("comp") or r.get("symbol") or "").strip(),
-            "detail": subject + (f" · record date {rec}" if rec and rec != d else ""),
-            "source": "NSE corporate actions",
-        })
+        row = {
+            "date": d, "time": None, "kind": "dividend" if what == "dividend" else "action", "action": what,
+            "region": "IN", "symbol": (r.get("symbol") or "").upper(),
+            "title": (r.get("comp") or r.get("symbol") or "").strip(),
+            "record": _day(r.get("recDate", "") or ""), "detail": subject, "source": "NSE corporate actions",
+        }
+        if what == "dividend":
+            m = re.search(r"R[se]\.?\s*([\d.]+)", subject)
+            row["amount"] = _num(m.group(1)) if m else None
+            row["unit"] = "%" if re.search(r"\d\s*%", subject) and not m else "₹"
+            t = re.search(r"\b(interim|final|special)\b", subject, re.I)
+            row["dtype"] = t.group(1).title() if t else None
+        elif what == "split":
+            m = re.search(r"From\s+R[se]\.?\s*([\d.]+).*?To\s+R[se]\.?\s*([\d.]+)", subject, re.I)
+            row["ratio"] = f"₹{_num(m.group(1)):g} → ₹{_num(m.group(2)):g}" if m else None
+        elif what in ("bonus", "rights"):
+            m = re.search(r"(\d+)\s*:\s*(\d+)", subject)
+            row["ratio"] = f"{m.group(1)}:{m.group(2)}" if m else None
+        out.append(row)
     return out
 
 

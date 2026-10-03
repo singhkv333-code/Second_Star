@@ -207,6 +207,18 @@
     });
 
     return {
+      /** Another widget files a line into a note: { symbol | general, html }.
+       *  It lands at the end of that symbol's note (or the general one),
+       *  whether or not that note is the one on screen. */
+      receive(p) {
+        if (!p || !p.html) return;
+        if (saveT) save();
+        const key = KEY(p.general ? "general" : String(p.symbol || scopeKey(ctx)).toUpperCase(), ctx);
+        const v = Store.get(key, null);
+        Store.set(key, { html: clean((v && v.html || "") + p.html), at: Date.now() });
+        if (key === current) load();
+        ctx.toast(p.general ? "Saved to your general note." : `Saved to your notes on ${String(p.symbol).toUpperCase()}.`);
+      },
       show() { load(); },
       hide() { if (saveT) save(); },
       config(cfg, patch) {

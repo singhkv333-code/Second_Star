@@ -117,15 +117,19 @@
   });
 
   /* Calendar — our own feed (/calendar): NSE board meetings and ex-dates, and
-   * the macro schedule. Grouped by day; each kind keeps one colour. */
-  const KINDS = {
-    macro:   { label: "Macro",     cls: "k-macro" },
-    results: { label: "Results",   cls: "k-results" },
-    board:   { label: "Board",     cls: "k-board" },
-    action:  { label: "Ex-date",   cls: "k-action" },
+   * the macro schedule. Sections as TradingView's calendar has them; rows are
+   * a logo, the company, and the one fact that matters for that kind. */
+  const TABS = [
+    ["all", "All"], ["results", "Earnings"], ["dividend", "Dividends"],
+    ["action", "Splits & bonus"], ["board", "Board"], ["macro", "Economy"],
+  ];
+  const FEED_OF = { macro: "macro", results: "board", board: "board", dividend: "actions", action: "actions" };
+  const ACT = { bonus: "Bonus", split: "Split", rights: "Rights", buyback: "Buyback", demerger: "Demerger", merger: "Merger", action: "Corporate action" };
+  // flags for the two economies the macro schedule covers
+  const FLAG = {
+    IN: `<svg viewBox="0 0 30 30" class="cl-flag" aria-label="India"><clipPath id="clf-in"><circle cx="15" cy="15" r="15"/></clipPath><g clip-path="url(#clf-in)"><rect width="30" height="10" fill="#FF9933"/><rect y="10" width="30" height="10" fill="#fff"/><rect y="20" width="30" height="10" fill="#138808"/><circle cx="15" cy="15" r="3.2" fill="none" stroke="#000080" stroke-width=".9"/></g></svg>`,
+    US: `<svg viewBox="0 0 30 30" class="cl-flag" aria-label="United States"><clipPath id="clf-us"><circle cx="15" cy="15" r="15"/></clipPath><g clip-path="url(#clf-us)"><rect width="30" height="30" fill="#fff"/>${[0, 2, 4, 6, 8, 10, 12].map((k) => `<rect y="${k * 2.31}" width="30" height="2.31" fill="#B22234"/>`).join("")}<rect width="14" height="16.2" fill="#3C3B6E"/></g></svg>`,
   };
-  const ACT = { dividend: "Dividend", bonus: "Bonus", split: "Split", rights: "Rights", buyback: "Buyback", action: "Action" };
-  const FEED_OF = { macro: "macro", results: "board", board: "board", action: "actions" };
 
   function watchSyms() {
     try {
@@ -133,22 +137,71 @@
       return [...new Set((w && w.lists || []).flatMap((l) => l.syms || []))];
     } catch { return []; }
   }
-  const dayName = (iso, today) => {
-    const d = new Date(iso + "T00:00:00+05:30");
-    const diff = Math.round((d - new Date(today + "T00:00:00+05:30")) / 864e5);
-    const rel = diff === 0 ? "Today" : diff === 1 ? "Tomorrow" : d.toLocaleDateString("en-IN", { weekday: "long", timeZone: "Asia/Kolkata" });
-    return { rel, date: d.toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" }) };
+  const IST = { timeZone: "Asia/Kolkata" };
+  const dOf = (iso) => new Date(iso + "T00:00:00+05:30");
+  const short = (iso) => dOf(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", ...IST });
+  const dayHead = (iso, today) => {
+    const diff = Math.round((dOf(iso) - dOf(today)) / 864e5);
+    const wd = dOf(iso).toLocaleDateString("en-IN", { weekday: "short", ...IST });
+    return { main: `${wd}, ${short(iso)}`, rel: diff === 0 ? "Today" : diff === 1 ? "Tomorrow" : "" };
   };
+  const coName = (t) => String(t || "").replace(/\s+(Limited|Ltd\.?)$/i, "").trim();
+  const money = (v) => "₹" + (Number.isInteger(v) ? v : v.toFixed(2));
+
+  /** The one fact a row states, in words a trader reads at a glance. */
+  function fact(it, all) {
+    if (it.kind === "results") return { v: it.period || "Results", sub: all ? "Results" : (it.also || []).join(" · ") };
+    if (it.kind === "dividend") return { v: it.amount != null ? money(it.amount) : "Dividend",
+      sub: [all ? "Dividend" : it.dtype, it.record && it.record !== it.date ? `Record ${short(it.record)}` : ""].filter(Boolean).join(" · ") };
+    if (it.kind === "action") return { v: it.ratio ? `${ACT[it.action] || "Action"} ${it.ratio}` : ACT[it.action] || "Corporate action",
+      sub: it.record && it.record !== it.date ? `Record ${short(it.record)}` : "" };
+    if (it.kind === "board") return { v: (it.also && it.also[0]) || "Board meeting", sub: all ? "Board meeting" : "" };
+    return { v: it.time ? `${it.time}` : "", sub: it.approx ? "Expected" : "IST" };
+  }
+  /** One sentence for a note, a copy or the chat. */
+  function sentence(it) {
+    const f = fact(it, true);
+    const nm = coName(it.title);
+    const who = it.symbol ? (nm && nm.toUpperCase() !== it.symbol ? `${nm} (${it.symbol})` : it.symbol) : it.title;
+    const when = `${dayHead(it.date, it.date).main}${it.time ? " " + it.time + " IST" : ""}`;
+    const what = it.kind === "results" ? `board meets on results${it.period ? " for " + it.period : ""}`
+      : it.kind === "dividend" ? `goes ex-dividend${it.amount != null ? ", " + money(it.amount) + " a share" : ""}`
+      : it.kind === "action" ? `goes ex-${(ACT[it.action] || "action").toLowerCase()}${it.ratio ? " " + it.ratio : ""}`
+      : it.kind === "board" ? `board meets: ${it.purpose || "other business"}`
+      : (it.approx ? "expected (the usual date; not yet published)" : "scheduled");
+    return `${when} — ${who} ${what}.${f.sub && /Record/.test(f.sub) ? " " + f.sub.replace(/.*(Record [^·]+).*/, "$1") + "." : ""}`;
+  }
+  function ics(it) {
+    const d = it.date.replace(/-/g, "");
+    let when;
+    if (it.time) {
+      const t = new Date(`${it.date}T${it.time}:00+05:30`).toISOString().replace(/[-:]/g, "").replace(/\.\d+/, "");
+      const e = new Date(new Date(`${it.date}T${it.time}:00+05:30`).getTime() + 30 * 60e3).toISOString().replace(/[-:]/g, "").replace(/\.\d+/, "");
+      when = `DTSTART:${t}\r\nDTEND:${e}`;
+    } else {
+      const nx = new Date(dOf(it.date).getTime() + 864e5).toISOString().slice(0, 10).replace(/-/g, "");
+      when = `DTSTART;VALUE=DATE:${d}\r\nDTEND;VALUE=DATE:${nx}`;
+    }
+    const sum = (it.symbol ? `${it.symbol}: ` : "") + (it.kind === "macro" ? it.title : fact(it, true).sub + " " + fact(it, true).v);
+    const body = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Pivot//Calendar//EN", "BEGIN:VEVENT",
+      `UID:${d}-${(it.symbol || it.title).replace(/\W/g, "")}-${it.kind}@pivot`, `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+/, "")}`,
+      when, `SUMMARY:${sum.replace(/[,;]/g, " ")}`, `DESCRIPTION:${sentence(it).replace(/[,;]/g, " ")} Source: ${it.source}.`, "END:VEVENT", "END:VCALENDAR"].join("\r\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([body], { type: "text/calendar" }));
+    a.download = `${(it.symbol || it.title).replace(/\W+/g, "-")}-${it.date}.ics`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  }
 
   function calMount(host, ctx) {
     host.innerHTML =
-      `<div class="cl-bar"><div class="cl-kinds" role="tablist"></div><span class="sh-gap"></span>` +
+      `<div class="cl-bar"><div class="cl-tabs" role="tablist"></div>` +
         `<button type="button" class="sh-btn i" data-cl="refresh" title="Refresh">${ic("rotateCw")}</button></div>` +
       `<div class="cl-list"></div><div class="cl-foot"></div>`;
     const $ = (q) => host.querySelector(q);
-    let data = null, busy = false, open = new Set();
+    let data = null, busy = false, rows = [];
     const cfg = () => ctx.cfg;
-    const kinds = () => (Array.isArray(cfg().kinds) && cfg().kinds.length ? cfg().kinds : Object.keys(KINDS));
+    const tab = () => cfg().tab || "all";
 
     function scopeSyms() {
       if (cfg().scope === "watch") return watchSyms();
@@ -156,100 +209,127 @@
       return null;
     }
 
-    async function load(force) {
+    async function load() {
       if (busy) return;
       busy = true;
       if (!data) $(".cl-list").innerHTML = WKit.skel(10, "cl-skel");
-      const feeds = [...new Set(kinds().map((k) => FEED_OF[k]))];
       const syms = scopeSyms();
-      const q = new URLSearchParams({ days: String(cfg().days || 14), kinds: feeds.join(",") });
+      const q = new URLSearchParams({ days: String(cfg().days || 14), kinds: "macro,board,actions" });
       if (syms) q.set("symbols", syms.join(",") || "-");
       try { data = await json(`/calendar?${q}`); }
       catch (e) { data = null; $(".cl-list").innerHTML = WKit.empty("calendar", "The calendar is unavailable right now."); $(".cl-foot").innerHTML = ""; busy = false; return; }
       busy = false;
+      if (typeof Universe !== "undefined" && Universe.load) Universe.load().then(() => paint());
       paint();
     }
 
     function visible() {
       if (!data) return [];
-      const want = new Set(kinds()), f = cfg().filter || "all", reg = cfg().region || "all";
-      return data.items.filter((it) => want.has(it.kind) && (f === "all" || it.kind === f)
+      const t = tab(), reg = cfg().region || "all";
+      return data.items.filter((it) => (t === "all" || it.kind === t)
         && !(it.kind === "macro" && reg !== "all" && it.region !== reg));
     }
 
+    function mark(it) {
+      if (it.kind === "macro") return FLAG[it.region] || `<span class="cl-mono">${esc(it.region)}</span>`;
+      const img = typeof Universe !== "undefined" ? Universe.logoHTML(it.symbol, "cl-logo") : "";
+      return img ? img.replace('loading="lazy"', "") : `<span class="cl-mono">${esc((coName(it.title) || it.symbol || "?")[0])}</span>`;
+    }
+
     function paint() {
-      const k = kinds(), f = cfg().filter || "all";
-      const counts = {};
-      for (const it of (data ? data.items : [])) counts[it.kind] = (counts[it.kind] || 0) + 1;
-      $(".cl-kinds").innerHTML = [["all", "All"], ...k.map((x) => [x, KINDS[x].label])].map(([v, l]) =>
-        `<button type="button" role="tab" class="cl-k ${v === "all" ? "" : KINDS[v].cls}${f === v ? " on" : ""}" data-f="${v}">` +
-        `${v === "all" ? "" : "<i></i>"}${esc(l)}${v !== "all" && counts[v] ? `<span>${counts[v]}</span>` : ""}</button>`).join("");
+      $(".cl-tabs").innerHTML = TABS.map(([v, l]) =>
+        `<button type="button" role="tab" class="cl-tab${tab() === v ? " on" : ""}" data-t="${v}" aria-selected="${tab() === v}">${esc(l)}</button>`).join("");
       host.classList.toggle("cl-compact", cfg().density === "compact");
       if (!data) return;
-      const rows = visible();
-      const list = $(".cl-list");
+      rows = visible();
+      const list = $(".cl-list"), all = tab() === "all";
       if (!rows.length) {
         list.innerHTML = WKit.empty("calendar", cfg().scope === "watch" ? "Nothing scheduled for your watchlist in this window."
           : cfg().scope === "symbol" ? `Nothing scheduled for ${esc(ctx.symbol() || "this symbol")} in this window.` : "Nothing scheduled in this window.");
       } else {
-        const byDay = new Map();
-        for (const it of rows) (byDay.get(it.date) || byDay.set(it.date, []).get(it.date)).push(it);
-        list.innerHTML = [...byDay].map(([day, its]) => {
-          const n = dayName(day, data.today);
-          return `<section class="cl-day"><h4><b>${esc(n.rel)}</b><span>${esc(n.date)}</span><em>${its.length}</em></h4>` +
-            its.map((it, i) => row(it, `${day}|${i}|${it.symbol || it.title}`)).join("") + `</section>`;
-        }).join("");
+        let last = null, html = "";
+        rows.forEach((it, i) => {
+          if (it.date !== last) {
+            last = it.date;
+            const h = dayHead(it.date, data.today);
+            html += `<h4 class="cl-day"><b>${esc(h.main)}</b>${h.rel ? `<span>${h.rel}</span>` : ""}</h4>`;
+          }
+          const f = fact(it, all);
+          const name = it.kind === "macro" ? it.title : coName(it.title) || it.symbol;
+          html += `<div class="cl-row" data-i="${i}" title="${esc(sentence(it))}">` +
+            `<span class="cl-mark">${mark(it)}</span>` +
+            `<span class="cl-who"><b>${esc(name)}</b><em>${esc(it.kind === "macro" ? (it.region === "IN" ? "India" : "United States") : it.symbol)}</em></span>` +
+            `<span class="cl-fact"><b>${esc(f.v)}</b>${f.sub ? `<em>${esc(f.sub)}</em>` : ""}</span>` +
+            `<button type="button" class="cl-more" data-more="${i}" title="More" aria-label="More">${ic("more")}</button></div>`;
+        });
+        list.innerHTML = html;
       }
-      const srcs = data.sources.map((s) => `<span class="cl-src${s.ok ? (s.stale ? " stale" : "") : " off"}" title="${s.ok ? (s.stale ? "Showing the last copy; the feed did not answer" : "Updated " + WKit.ago(s.as_of)) : "Unavailable right now"}"><i></i>${esc(s.name)}</span>`).join("");
-      $(".cl-foot").innerHTML = srcs + (data.items.some((x) => x.approx) ? `<span class="cl-note">~ usual date, not yet published</span>` : "");
+      const down = data.sources.filter((s) => !s.ok), stale = data.sources.filter((s) => s.stale);
+      $(".cl-foot").innerHTML = `<span>NSE · RBI, MOSPI, Fed and BLS schedules</span>` +
+        (down.length ? `<span class="cl-warn">${esc(down.map((s) => s.name).join(", "))} unavailable</span>`
+          : stale.length ? `<span class="cl-warn">${esc(stale.map((s) => s.name).join(", "))}: last copy</span>` : "");
     }
 
-    function row(it, key) {
-      const K = KINDS[it.kind] || KINDS.board;
-      const tag = it.kind === "action" ? ACT[it.action] || "Ex-date" : it.kind === "macro" ? `${K.label} · ${it.region}` : K.label;
-      const sym = it.symbol ? `<button type="button" class="cl-sym" data-sym="${esc(it.symbol)}" title="Open ${esc(it.symbol)}">${esc(it.symbol)}</button>` : "";
-      const when = it.time ? `<time>${esc(it.time)} IST</time>` : "";
-      const name = it.kind === "macro" ? it.title : (it.title || it.symbol);
-      const sub = it.kind === "results" ? "Financial results" : it.kind === "board" ? (it.purpose || "Board meeting")
-        : it.kind === "macro" ? it.detail : it.detail;
-      const long = cfg().details !== false && it.detail && it.kind !== "action" && it.kind !== "macro";
-      const isOpen = open.has(key);
-      return `<div class="cl-row ${K.cls}${isOpen ? " open" : ""}${long ? " more" : ""}" data-key="${esc(key)}">` +
-        `<span class="cl-rail"></span>` +
-        `<div class="cl-main"><div class="cl-t"><span class="cl-name" title="${esc(name)}">${esc(name)}</span>` +
-          `${it.approx ? `<span class="cl-approx" title="The usual date; not yet published">~ date</span>` : ""}</div>` +
-          `<div class="cl-sub">${sym}${when}<span>${esc(sub || "")}</span></div>` +
-          (long && isOpen ? `<p class="cl-more">${esc(it.detail)}</p>` : "") + `</div>` +
-        `<span class="cl-tag">${esc(tag)}</span></div>`;
+    function menu(anchor, it) {
+      const sym = it.symbol;
+      ctx.menu(anchor, [
+        ...(sym ? [{ id: "open", label: `Open ${sym}`, icon: "lineChart" },
+                   { id: "watch", label: "Add to watchlist", icon: "star" }] : []),
+        { id: "note", label: "Save to notes", icon: "note" },
+        { id: "ics", label: "Add to my calendar", icon: "calendar" },
+        { id: "ask", label: "Ask in chat", icon: "chat" },
+        { id: "copy", label: "Copy", icon: "copy" },
+      ], (id) => {
+        if (id === "open") return ctx.pick(sym);
+        if (id === "watch") {
+          if (typeof Panels !== "undefined" && Panels.watch) { Panels.watch(sym); ctx.toast(`${sym} is on your watchlist.`); }
+          return;
+        }
+        if (id === "note") {
+          const h = dayHead(it.date, it.date).main;
+          return ctx.send("notes", { symbol: sym, general: !sym,
+            html: `<p><b>${esc(h)}</b> — ${esc(sentence(it).replace(/^[^—]+—\s*/, ""))} <i>(${esc(it.source)})</i></p>` });
+        }
+        if (id === "ics") return ics(it);
+        if (id === "ask") return ctx.compose(it.kind === "macro"
+          ? `${sentence(it)} What does it usually mean for Indian markets, and how have NIFTY and BANKNIFTY moved around past releases?`
+          : `${sentence(it)} What should I look at on ${sym}'s chart and financials before this date, and how has the stock usually moved around it?`);
+        if (id === "copy") { try { navigator.clipboard.writeText(sentence(it)); ctx.toast("Copied."); } catch { } }
+      });
     }
 
     host.addEventListener("click", (e) => {
-      const s = e.target.closest("[data-sym]");
-      if (s) { e.stopPropagation(); return ctx.pick(s.dataset.sym); }
-      const f = e.target.closest("[data-f]");
-      if (f) { ctx.setCfg({ filter: f.dataset.f }); return paint(); }
+      const t = e.target.closest("[data-t]");
+      if (t) { ctx.setCfg({ tab: t.dataset.t }); host.querySelector(".cl-list").scrollTop = 0; return paint(); }
       const b = e.target.closest("[data-cl]");
-      if (b && b.dataset.cl === "refresh") return load(true);
+      if (b && b.dataset.cl === "refresh") return load();
+      const m = e.target.closest("[data-more]");
+      if (m) { e.stopPropagation(); return menu(m, rows[+m.dataset.more]); }
       const r = e.target.closest(".cl-row");
-      if (r && r.classList.contains("more")) { const k = r.dataset.key; open.has(k) ? open.delete(k) : open.add(k); paint(); }
+      if (r) { const it = rows[+r.dataset.i]; if (it && it.symbol) ctx.pick(it.symbol); else if (it) menu(r.querySelector(".cl-more"), it); }
+    });
+    host.addEventListener("contextmenu", (e) => {
+      const r = e.target.closest(".cl-row");
+      if (!r) return;
+      e.preventDefault();
+      menu({ x: e.clientX, y: e.clientY }, rows[+r.dataset.i]);
     });
 
     let timer = 0;
     return {
       show() {
-        load(!data);
+        load();
         clearInterval(timer);
-        timer = setInterval(() => { if (document.visibilityState === "visible") load(false); }, 30 * 60e3);
+        timer = setInterval(() => { if (document.visibilityState === "visible") load(); }, 30 * 60e3);
       },
       hide() { clearInterval(timer); },
       config(c, patch) {
-        if ("days" in patch || "kinds" in patch || "scope" in patch || "symbol" in patch || "link" in patch) return load(true);
+        if ("days" in patch || "scope" in patch || "symbol" in patch || "link" in patch) return load();
         paint();
       },
       ask: () => {
-        const rows = visible().slice(0, 25);
-        return rows.length ? `These are on the calendar for the next ${cfg().days || 14} days:\n` +
-          rows.map((it) => `- ${it.date}${it.time ? " " + it.time + " IST" : ""}: ${it.kind === "macro" ? it.title : `${it.symbol} — ${it.kind === "action" ? it.detail : it.purpose || it.kind}`}${it.approx ? " (usual date, not yet published)" : ""}`).join("\n") +
+        const r = visible().slice(0, 25);
+        return r.length ? `On the calendar for the next ${cfg().days || 14} days:\n` + r.map((it) => "- " + sentence(it)).join("\n") +
           `\n\nWhich of these matter most for Indian markets, and what has usually happened around them?` : "";
       },
     };
@@ -257,24 +337,21 @@
 
   Dock.register({
     type: "calendar", title: "Calendar", icon: "calendar", hue: "azure", group: "Research",
-    desc: "Results, ex-dates, board meetings and macro events", zone: "right", minW: 280, mount: calMount,
+    desc: "Earnings, dividends, splits and the economy", zone: "right", minW: 280, mount: calMount,
     linkable: true,
-    defaults: { days: 14, scope: "all" },
+    defaults: { days: 14, scope: "all", tab: "all" },
     settings: [
       { section: "What to show" },
-      { key: "kinds", label: "Events", kind: "chips", min: 1, def: ["macro", "results", "action", "board"],
-        options: Object.entries(KINDS).map(([v, k]) => ({ v, label: k.label })) },
       { key: "scope", label: "Companies", kind: "seg", def: "all",
         options: [{ v: "all", label: "All NSE" }, { v: "watch", label: "Watchlist" }, { v: "symbol", label: "This symbol" }],
         hint: "This symbol follows the chart, or the tile's link group" },
-      { key: "region", label: "Macro events", kind: "seg", def: "all",
+      { key: "region", label: "Economy", kind: "seg", def: "all",
         options: [{ v: "all", label: "India + US" }, { v: "IN", label: "India" }, { v: "US", label: "US" }] },
       { key: "days", label: "Look ahead", kind: "seg", def: 14,
         options: [{ v: 7, label: "1 week" }, { v: 14, label: "2 weeks" }, { v: 30, label: "1 month" }] },
       { section: "Display" },
       { key: "density", label: "Rows", kind: "seg", def: "comfortable", options: [{ v: "comfortable", label: "Comfortable" }, { v: "compact", label: "Compact" }] },
-      { key: "details", label: "Expand a row for the full notice", kind: "toggle", def: true },
-      { kind: "note", label: "Sources: NSE's event calendar and corporate actions, and Pivot's macro schedule (RBI, MOSPI, Fed, BLS). Refreshed every 30 minutes." },
+      { kind: "note", label: "Click a company to open its chart; right-click, or ⋯, to save it to notes, add it to your calendar, or ask about it. Sources: NSE's event calendar and corporate actions, and Pivot's macro schedule. Refreshed every 30 minutes." },
     ],
   });
 })();
