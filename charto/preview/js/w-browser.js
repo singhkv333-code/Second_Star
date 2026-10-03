@@ -491,7 +491,7 @@
       if (wm) {
         const d = await json(`/wiki/page?lang=${wm[1]}&title=${encodeURIComponent(decodeURIComponent(wm[2]).replace(/_/g, " "))}`).catch((e) => ({ error: e.message }));
         if (my !== seq) return;
-        if (d.error) return fail(url, d.error);
+        if (d.error) return fail(url, d.error, why);
         cur = { kind: "page", url: d.url || url, title: d.title, text: () => view.querySelector(".br-doc").innerText };
         $('[data-br="more"]').hidden = false;
         ctx.setTitle(d.title);
@@ -506,7 +506,7 @@
       const d = await json(`/reader?url=${encodeURIComponent(url)}`).catch((e) => ({ error: e.message }));
       if (my !== seq) return;
       if (d.pdf) return openPdf(d.final || url);
-      if (d.error && !(d.blocks || []).length) return fail(url, d.error);
+      if (d.error && !(d.blocks || []).length) return fail(url, d.error, why);
       cur = { kind: "page", url: d.final || url, title: d.title, text: () => view.querySelector(".br-doc").innerText };
       $('[data-br="more"]').hidden = false;
       ctx.setTitle(d.title || hostOf(url));
@@ -525,9 +525,12 @@
         `<p class="br-lic">Shown as text by Pivot's reader. <a href="${esc(d.final || url)}" target="_blank" rel="noopener noreferrer">Open the original</a></p></article>`;
       view.scrollTop = 0;
     }
-    function fail(url, why) {
+    function fail(url, msg, why) {
       cur = { kind: "page", url, title: hostOf(url), text: () => "" };
-      view.innerHTML = `<div class="side-empty">${Icons.svg("globe")}<p>${esc(why)}</p>` +
+      const signin = why === WHY.signin && typeof window.CHARTO_AUTH_OPEN === "function";
+      view.innerHTML = `<div class="side-empty">${Icons.svg("globe")}<p>${esc(msg)}</p>` +
+        (why ? `<p class="br-why-s">${esc(why)}</p>` : "") +
+        (signin ? `<button type="button" class="dk-cta" data-br="signin">${ic("user")}Sign in to open it live</button>` : "") +
         `<a class="dk-cta" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${ic("externalLink")}Open ${esc(hostOf(url))} in a new tab</a></div>`;
     }
 
@@ -614,6 +617,7 @@
       if (a === "reload") return send({ t: b.dataset.loading ? "stop" : "reload" });
       if (a === "home") return nav({ kind: "home" });
       if (a === "unflash") { flash.hidden = true; return; }
+      if (a === "signin") { window.CHARTO_AUTH_OPEN(); return; }
       if (a === "resume") { over.hidden = true; const u = (cur && cur.url) || rb.st.url; rb.ws = null; return u && showRemote(u, ++seq); }
       if (a === "page") return morePage(b);
       if (a === "fresh") {
