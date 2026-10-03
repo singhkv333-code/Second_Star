@@ -193,6 +193,12 @@ def _load_azure_creds() -> tuple[str, str]:
 
 
 AZURE_ENDPOINT, AZURE_KEY = _load_azure_creds()
+# Live TV: YouTube hides live links from cloud servers, so on the VM the data
+# API is the source (webfeeds.live_video reads it from the environment).
+if not environ.get("YOUTUBE_API_KEY"):
+    _yt_key = _env_values("YOUTUBE_API_KEY")["YOUTUBE_API_KEY"]
+    if _yt_key:
+        environ["YOUTUBE_API_KEY"] = _yt_key
 LLM_DEPLOYMENT = _env_values("CHARTO_LLM_MODEL")["CHARTO_LLM_MODEL"] or LLM_DEPLOYMENT_DEFAULT
 # Overridable the same way, so an A/B between efforts is a restart rather than
 # an edit — a benchmark needing a code change between its arms is one nobody

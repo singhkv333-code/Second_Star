@@ -39,6 +39,8 @@
     let playing = null, guideAt = 0, timer = 0;
     const info = new Map();           // channel id → /live-video answer
 
+    // what a channel is doing, in words; "blocked" is YouTube refusing to say
+    const status = (r) => !r ? "" : r.live ? r.title || "Live" : r.blocked ? "Watch on YouTube" : r.error ? "Not reachable" : "Off air";
     const avatar = (c, big) => {
       const r = info.get(c.id);
       return r && r.avatar ? `<img class="tv-av${big ? " big" : ""}" src="${esc(r.avatar)}" alt="" referrerpolicy="no-referrer" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'tv-av mono',textContent:'${esc(c.name[0])}'}))">`
@@ -48,14 +50,14 @@
       const vid = ctx.cfg.video, c = CHANNELS.find((x) => x.id === (ctx.cfg.ch || CHANNELS[0].id));
       const r = c && info.get(c.id);
       $(".tv-who").innerHTML = vid ? `<span class="tv-av mono big">${ic("play")}</span><span class="tv-t"><b>A YouTube video</b><em>From a link you pasted</em></span>${ic("chevronDown", "chev")}`
-        : `${avatar(c, true)}<span class="tv-t"><b>${esc(c.name)}</b><em>${esc(r ? (r.live ? r.title || "Live" : "Off air") : "…")}</em></span>${ic("chevronDown", "chev")}`;
+        : `${avatar(c, true)}<span class="tv-t"><b>${esc(c.name)}</b><em>${esc(r ? status(r) : "…")}</em></span>${ic("chevronDown", "chev")}`;
     }
     function guide() {
       const cur = ctx.cfg.video ? null : ctx.cfg.ch || CHANNELS[0].id;
       $(".tv-guide").innerHTML = CHANNELS.map((c) => {
         const r = info.get(c.id);
         return `<button type="button" role="option" class="tv-row${c.id === cur ? " on" : ""}" data-ch="${c.id}" aria-selected="${c.id === cur}">` +
-          `${avatar(c)}<span class="tv-t"><b>${esc(c.name)}</b><em>${esc(r ? (r.live ? r.title || "Live" : "Off air") : "")}</em></span>` +
+          `${avatar(c)}<span class="tv-t"><b>${esc(c.name)}</b><em>${esc(status(r))}</em></span>` +
           (r && r.live ? `<i class="tv-live">Live</i>` : "") + `</button>`;
       }).join("") +
         `<button type="button" class="tv-row tv-link" data-tv="link">${`<span class="tv-av mono">${ic("plus")}</span>`}<span class="tv-t"><b>Play a YouTube link</b><em>Any video or live stream</em></span></button>`;
@@ -93,9 +95,11 @@
       if (playing !== key) return;
       info.set(ch, r); now(); guide();
       if (r.video && r.live) return frame(r.video, c ? c.name : "Live");
-      $(".tv-screen").innerHTML = `<div class="tv-off">${Icons.svg("tv")}<p>${esc(c ? c.name : "This channel")} ` +
-        `${r.error ? `could not be reached: ${esc(r.error)}` : "is not broadcasting live right now."}</p>` +
-        `<a class="dk-cta" href="https://www.youtube.com/channel/${ch}" target="_blank" rel="noopener noreferrer">${ic("externalLink")}Open the channel</a></div>`;
+      const nm = esc(c ? c.name : "This channel");
+      $(".tv-screen").innerHTML = `<div class="tv-off">${Icons.svg("tv")}<p>` +
+        (r.blocked ? `YouTube does not tell our server which video ${nm} is streaming, so it cannot be played here yet.`
+          : r.error ? `${nm} could not be reached: ${esc(r.error)}` : `${nm} is not broadcasting live right now.`) + `</p>` +
+        `<a class="dk-cta" href="https://www.youtube.com/channel/${ch}${r.blocked ? "/live" : ""}" target="_blank" rel="noopener noreferrer">${ic("externalLink")}${r.blocked ? "Watch live on YouTube" : "Open the channel"}</a></div>`;
     }
     function linkForm(anchor) {
       const p = ctx.menu(anchor, `<div class="head">Play a YouTube link</div>` +
@@ -122,7 +126,7 @@
       if (b.dataset.tv === "pick") {
         const cur = ctx.cfg.video ? null : ctx.cfg.ch || CHANNELS[0].id;
         return ctx.menu(b, [{ head: "Channels" },
-          ...CHANNELS.map((c) => { const r = info.get(c.id); return { id: c.id, label: c.name, on: c.id === cur, hint: r && !r.live ? "Off air" : "" }; }),
+          ...CHANNELS.map((c) => { const r = info.get(c.id); return { id: c.id, label: c.name, on: c.id === cur, hint: r && !r.live && !r.blocked ? "Off air" : "" }; }),
           { sep: true }, { id: "link", label: "Play a YouTube link…", icon: "plus" }],
           (id) => { if (id === "link") { setTimeout(() => linkForm(b), 0); return; } ctx.setCfg({ ch: id, video: null }); play(); });
       }

@@ -22,6 +22,7 @@ import email.utils
 import html
 import ipaddress
 import json
+import os
 import re
 import socket
 import threading
@@ -274,12 +275,41 @@ _LIVE_TTL = 600.0
 _live_cache: dict[str, tuple[float, dict]] = {}
 
 
+def _live_via_api(channel: str) -> dict | None:
+    """The YouTube Data API's answer, when a key is configured. YouTube shows a
+    cloud server's address a stripped page with no live link, so on the VM this
+    is the only reliable source. search.list costs 100 units of the 10,000 a
+    day; answers are cached for _LIVE_API_TTL."""
+    key = os.environ.get("YOUTUBE_API_KEY", "").strip()
+    if not key:
+        return None
+    try:
+        q = urllib.parse.urlencode({"part": "snippet", "channelId": channel, "eventType": "live",
+                                    "type": "video", "maxResults": 1, "key": key})
+        req = urllib.request.Request(f"https://www.googleapis.com/youtube/v3/search?{q}", headers={"User-Agent": _UA})
+        with urllib.request.urlopen(req, timeout=8, context=_ssl_ctx()) as r:
+            d = json.loads(r.read(200_000))
+    except Exception as e:                     # noqa: BLE001
+        return {"video": None, "live": False, "error": f"YouTube's API did not answer ({type(e).__name__})"}
+    items = d.get("items") or []
+    if not items:
+        return {"video": None, "live": False}
+    it = items[0]
+    sn = it.get("snippet") or {}
+    th = ((sn.get("thumbnails") or {}).get("default") or {}).get("url")
+    return {"video": (it.get("id") or {}).get("videoId"), "live": True,
+            "title": html.unescape(sn.get("title") or "")[:160], **({"thumb": th} if th else {})}
+
+
+_LIVE_API_TTL = 7200.0
+
+
 def live_video(channel: str) -> dict:
     """{"video": id|None, "live": bool} for a YouTube channel id."""
     if not _CHANNEL.match(channel or ""):
         return {"video": None, "live": False, "error": "not a channel id"}
     hit = _live_cache.get(channel)
-    if hit and time.time() - hit[0] < _LIVE_TTL:
+    if hit and time.time() - hit[0] < (_LIVE_API_TTL if hit[1].get("via") == "api" else _LIVE_TTL):
         return hit[1]
     try:
         req = urllib.request.Request(f"https://www.youtube.com/channel/{channel}/live",
@@ -291,6 +321,18 @@ def live_video(channel: str) -> dict:
     m = _CANON.search(page)
     # a channel that is off air redirects /live to its channel page: no watch link
     out = {"video": m.group(1) if m else None, "live": bool(m) and '"isLive":true' in page}
+    if not m and re.search(r"<title>\s*-\s*YouTube</title>", page):
+        # the stripped page YouTube gives a cloud server: it says nothing
+        # about whether the channel is live, so do not claim it is off air
+        api = _live_via_api(channel)
+        if api is not None:
+            api["via"] = "api"
+            av = re.search(r"https://yt3\.ggpht\.com/[\w\-=/]+", page)
+            if av:
+                api["avatar"] = re.sub(r"=s\d+-", "=s88-", av.group(0))
+            _live_cache[channel] = (time.time(), api)
+            return api
+        out["blocked"] = True
     # what is on, and the channel's own picture, for the widget's guide
     t = re.search(r'"videoDetails":\{"videoId":"[^"]+","title":"((?:[^"\\]|\\.)*)"', page)
     if t and out["live"]:
