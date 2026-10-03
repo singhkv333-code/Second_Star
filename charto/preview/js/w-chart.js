@@ -17,7 +17,9 @@
   if (typeof Dock === "undefined" || typeof LightweightCharts === "undefined") return;
   const { API, esc, ic, num, pct, dir } = WKit;
   const IVS = [["5m", "5m"], ["15m", "15m"], ["1h", "1H"], ["1d", "1D"], ["1w", "1W"]];
-  const TYPES = [["candles", "Candles"], ["line", "Line"], ["area", "Area"]];
+  const TYPES = [["candles", "Candles"], ["hollow", "Hollow candles"], ["bars", "Bars"], ["line", "Line"],
+                 ["area", "Area"], ["baseline", "Baseline"]];
+  const OHLC = new Set(["candles", "hollow", "bars"]);
   const POLL_MS = 15_000;
 
   const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
@@ -30,7 +32,9 @@
   }
 
   function mount(host, ctx) {
-    if (!ctx.cfg.pin) ctx.setCfg({ pin: defaultSymbol(ctx.pageSymbol()) });
+    // a new chart starts on something other than the page's symbol, unless
+    // it has been told to follow the chart or to join a group
+    if (!ctx.cfg.pin && !ctx.cfg.link) ctx.setCfg({ pin: defaultSymbol(ctx.pageSymbol()) });
     let chart = null, series = null, vol = null, timer = 0, bars = [], busy = false;
     host.innerHTML =
       `<div class="mc-head">` +
@@ -45,36 +49,51 @@
     const $ = (s) => host.querySelector(s);
     const plot = $(".mc-plot"), msg = $(".mc-msg");
 
-    const sym = () => (ctx.cfg.pin || ctx.pageSymbol()).toUpperCase();
-    const iv = () => ctx.cfg.iv || "1d";
+    const sym = () => ctx.symbol().toUpperCase();
+    const iv = () => ctx.linkedIv() || ctx.cfg.iv || "1d";
     const kind = () => ctx.cfg.kind || "candles";
 
     function theme() {
       return {
         layout: { background: { type: "solid", color: "transparent" }, textColor: css("--foreground") || "#111",
                   fontFamily: getComputedStyle(document.body).fontFamily, fontSize: 11, attributionLogo: false },
-        grid: { vertLines: { color: css("--border-soft") || "#eee" }, horzLines: { color: css("--border-soft") || "#eee" } },
-        rightPriceScale: { borderVisible: false }, timeScale: { borderVisible: false, timeVisible: !["1d", "1w"].includes(iv()) },
-        crosshair: { mode: 0 },
+        grid: { vertLines: { visible: ctx.cfg.grid !== false, color: css("--border-soft") || "#eee" },
+                horzLines: { visible: ctx.cfg.grid !== false, color: css("--border-soft") || "#eee" } },
+        rightPriceScale: { borderVisible: false, mode: { log: 1, pct: 2 }[ctx.cfg.scale] || 0 },
+        timeScale: { borderVisible: false, timeVisible: !["1d", "1w"].includes(iv()) },
+        crosshair: { mode: ctx.cfg.magnet ? 1 : 0 },
       };
     }
     function build() {
       if (chart) chart.remove();
       chart = LightweightCharts.createChart(plot, { autoSize: true, ...theme() });
       const up = css("--up") || "#089981", down = css("--down") || "#f23645";
+      const common = { priceLineVisible: ctx.cfg.priceLine !== false, lastValueVisible: true };
       if (kind() === "candles") {
         series = chart.addSeries(LightweightCharts.CandlestickSeries,
-          { upColor: up, downColor: down, wickUpColor: up, wickDownColor: down, borderVisible: false });
+          { ...common, upColor: up, downColor: down, wickUpColor: up, wickDownColor: down, borderVisible: false });
+      } else if (kind() === "hollow") {
+        series = chart.addSeries(LightweightCharts.CandlestickSeries,
+          { ...common, upColor: "rgba(0,0,0,0)", downColor: down, borderUpColor: up, borderDownColor: down,
+            wickUpColor: up, wickDownColor: down, borderVisible: true });
+      } else if (kind() === "bars") {
+        series = chart.addSeries(LightweightCharts.BarSeries, { ...common, upColor: up, downColor: down, thinBars: false });
+      } else if (kind() === "baseline") {
+        series = chart.addSeries(LightweightCharts.BaselineSeries, { ...common, lineWidth: 2,
+          topLineColor: up, bottomLineColor: down,
+          topFillColor1: "rgba(8,153,129,.18)", topFillColor2: "rgba(8,153,129,0)",
+          bottomFillColor1: "rgba(242,54,69,0)", bottomFillColor2: "rgba(242,54,69,.18)" });
       } else if (kind() === "line") {
-        series = chart.addSeries(LightweightCharts.LineSeries, { color: css("--foreground"), lineWidth: 2 });
+        series = chart.addSeries(LightweightCharts.LineSeries, { ...common, color: css("--foreground"), lineWidth: 2 });
       } else {
-        series = chart.addSeries(LightweightCharts.AreaSeries, { lineColor: css("--foreground"), lineWidth: 2,
+        series = chart.addSeries(LightweightCharts.AreaSeries, { ...common, lineColor: css("--foreground"), lineWidth: 2,
           topColor: "rgba(120,120,120,.18)", bottomColor: "rgba(120,120,120,0)" });
       }
-      vol = chart.addSeries(LightweightCharts.HistogramSeries, { priceFormat: { type: "volume" }, priceScaleId: "v" });
-      chart.priceScale("v").applyOptions({ scaleMargins: { top: .82, bottom: 0 } });
+      vol = ctx.cfg.volume === false ? null
+        : chart.addSeries(LightweightCharts.HistogramSeries, { priceFormat: { type: "volume" }, priceScaleId: "v", lastValueVisible: false, priceLineVisible: false });
+      if (vol) chart.priceScale("v").applyOptions({ scaleMargins: { top: .82, bottom: 0 } });
     }
-    const point = (b) => kind() === "candles"
+    const point = (b) => OHLC.has(kind())
       ? { time: b.t + tzOf(sym()), open: b.o, high: b.h, low: b.l, close: b.c }
       : { time: b.t + tzOf(sym()), value: b.c };
     const vpoint = (b) => ({ time: b.t + tzOf(sym()), value: b.v || 0,
@@ -85,7 +104,7 @@
       busy = true;
       const want = sym(), wantIv = iv();
       try {
-        const qs = new URLSearchParams({ symbol: want, interval: wantIv, limit: full ? "800" : "3" });
+        const qs = new URLSearchParams({ symbol: want, interval: wantIv, limit: full ? String(ctx.cfg.depth || 800) : "3" });
         const r = await Net.get(`${API}/bars?${qs}`, typeof Auth !== "undefined" ? { headers: Auth.headers() } : undefined);
         const d = await r.json();
         if (want !== sym() || wantIv !== iv()) return;
@@ -93,12 +112,13 @@
         if (full) {
           bars = d.bars;
           if (!bars.length) throw new Error(`No ${wantIv} bars are stored for ${want}.`);
+          if (kind() === "baseline") series.applyOptions({ baseValue: { type: "price", price: bars[0].c } });
           series.setData(bars.map(point));
-          vol.setData(bars.map(vpoint));
+          if (vol) vol.setData(bars.map(vpoint));
           chart.timeScale().fitContent();
           msg.hidden = true;
         } else {
-          for (const b of d.bars) { series.update(point(b)); vol.update(vpoint(b)); }
+          for (const b of d.bars) { series.update(point(b)); if (vol) vol.update(vpoint(b)); }
           const last = d.bars[d.bars.length - 1];
           if (last) bars[bars.length - 1] = last;
         }
@@ -129,12 +149,19 @@
 
     host.addEventListener("click", (e) => {
       const b = e.target.closest("[data-iv]");
-      if (b) { ctx.setCfg({ iv: b.dataset.iv }); return; }
+      if (b) {
+        // in a group the interval is the group's, so every chart in it moves
+        if (ctx.linkedIv() !== null || /^[1-4]$/.test(ctx.link())) ctx.setLinkedIv(b.dataset.iv);
+        ctx.setCfg({ iv: b.dataset.iv });
+        return;
+      }
       const a = e.target.closest("[data-mc]");
       if (!a) return;
       e.stopPropagation();
       if (a.dataset.mc === "sym") {
-        return Universe.open({ anchor: a, current: sym(), onPick: (s) => ctx.setCfg({ pin: s }) });
+        // in a group, choosing a symbol here moves the whole group
+        return Universe.open({ anchor: a, current: sym(),
+          onPick: (s) => /^[1-4]$/.test(ctx.link()) ? ctx.pick(s) : ctx.setCfg({ pin: s, link: "pin" }) });
       }
       if (a.dataset.mc === "type") {
         return ctx.menu(a, [{ head: "Chart type" }, ...TYPES.map(([id, label]) => ({ id, label, on: kind() === id }))],
@@ -144,21 +171,42 @@
     });
     if (typeof Theme !== "undefined" && Theme.onChange) Theme.onChange(() => chart && chart.applyOptions(theme()));
 
+    const poll = () => {
+      clearInterval(timer);
+      timer = setInterval(() => { if (document.visibilityState === "visible") load(false); }, Number(ctx.cfg.refresh) || POLL_MS);
+    };
     return {
-      show() {
-        if (!chart) reload();
-        clearInterval(timer);
-        timer = setInterval(() => { if (document.visibilityState === "visible") load(false); }, POLL_MS);
-      },
+      show() { if (!chart) reload(); poll(); },
       hide() { clearInterval(timer); },
-      config(cfg, patch) { if ("pin" in patch || "iv" in patch || "kind" in patch) reload(); },
+      config(cfg, patch) {
+        const keys = Object.keys(patch).filter((k) => k !== "title");
+        if (!keys.length) return;
+        if (keys.every((k) => k === "refresh")) return poll();
+        // grid, scale and crosshair are options on the live chart; the rest rebuild it
+        if (chart && keys.every((k) => ["grid", "scale", "magnet"].includes(k))) return chart.applyOptions(theme());
+        reload();
+      },
       ask: () => `Compare ${sym()} with ${ctx.pageSymbol()} on the ${iv()} chart: how have they moved relative to each other, and what does that say?`,
     };
   }
 
   Dock.register({
     type: "chart", title: "Chart", icon: "candles", hue: "blue", group: "Market",
-    desc: "Another chart — any symbol, any interval", zone: "right", minW: 280, mount,
+    desc: "Another chart — any symbol, any interval", zone: "right", minW: 280, mount, linkable: true,
     defaults: { iv: "1d", kind: "candles" },
+    settings: [
+      { section: "Chart" },
+      { key: "iv", label: "Interval", def: "1d", options: IVS.map(([v, l]) => ({ v, label: l })), hint: "In a link group, the group's interval" },
+      { key: "kind", label: "Style", def: "candles", kind: "select", options: TYPES.map(([v, label]) => ({ v, label })) },
+      { key: "scale", label: "Price scale", def: "normal", options: [{ v: "normal", label: "Normal" }, { v: "log", label: "Log" }, { v: "pct", label: "Percent" }] },
+      { key: "depth", label: "History", def: 800, options: [{ v: 300, label: "300 bars" }, { v: 800, label: "800" }, { v: 2000, label: "2,000" }] },
+      { section: "Display" },
+      { key: "volume", label: "Volume", kind: "toggle", def: true },
+      { key: "grid", label: "Grid lines", kind: "toggle", def: true },
+      { key: "priceLine", label: "Last price line", kind: "toggle", def: true },
+      { key: "magnet", label: "Snap the crosshair to prices", kind: "toggle", def: false },
+      { section: "Data" },
+      { key: "refresh", label: "Update every", def: 15000, options: [{ v: 5000, label: "5s" }, { v: 15000, label: "15s" }, { v: 60000, label: "1m" }] },
+    ],
   });
 })();

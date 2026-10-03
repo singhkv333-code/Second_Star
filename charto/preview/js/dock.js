@@ -45,6 +45,7 @@ const Dock = (() => {
   const KEY = "dock";
   const CHART = "main";              // the chart's instance id
   const SLOT = "slot";               // an empty tile: room made beside the chart
+  const LINK_IDS = ["1", "2", "3", "4"];   // the coloured link groups
   const FLOAT_DEF = { w: 380, h: 420 };
   const MIN_TILE = 150;
   const EDGE_SHARE = .27;            // a new edge tile takes this much of the canvas
@@ -110,7 +111,7 @@ const Dock = (() => {
   const leaf = (g) => ({ k: "g", g, id: nid() });
   const box = (k, c, s) => ({ k, c, s: s || c.map(() => 1), id: nid() });
   const blank = () => ({ v: 2, inst: {}, groups: {}, tree: null, floats: [], closed: [],
-                         focus: false, lock: false });
+                         focus: false, lock: false, links: {} });
   let S = blank();
 
   function load() {
@@ -141,6 +142,10 @@ const Dock = (() => {
       .map((f) => ({ gid: f.gid, x: +f.x || 40, y: +f.y || 40,
                      w: +f.w || FLOAT_DEF.w, h: +f.h || FLOAT_DEF.h }));
     s.closed = (raw.closed || []).filter((c) => c && s.inst[c.id]).slice(-24);
+    for (const g of LINK_IDS) {
+      const l = raw.links && raw.links[g];
+      if (l && typeof l === "object") s.links[g] = { sym: typeof l.sym === "string" ? l.sym : null, iv: typeof l.iv === "string" ? l.iv : null };
+    }
     return s;
   }
 
@@ -419,6 +424,8 @@ const Dock = (() => {
   /** "Notes 2" when there are two of them. */
   function label(id) {
     const spec = TYPES.get(S.inst[id].type);
+    const named = S.inst[id].cfg && S.inst[id].cfg.title;
+    if (named) return { title: String(named).slice(0, 40), sub: titles.get(id) || "" };
     let title = spec.title;
     if (!spec.single) {
       const n = instancesOf(spec.type).indexOf(id);
@@ -447,10 +454,8 @@ const Dock = (() => {
     const cfg = act ? act.cfg : {};
     const fl = !!floatOf(gid);
     node.querySelector(".dk-acts").innerHTML =
-      (spec && spec.linkable ? btn("link", "link", cfg.pin ? `Pinned to ${esc(cfg.pin)} — click to change`
-                                            : "Following the chart — click to change",
-                    cfg.pin ? 'data-pinned="1"' : "") : "") +
-      (spec && spec.settings && spec.settings.length ? btn("settings", "settings", "Widget settings") : "") +
+      (spec && spec.linkable ? linkChip(g.active) : "") +
+      (spec && g.active !== CHART && act.type !== SLOT ? btn("settings", "settings", "Settings") : "") +
       btn("more", "more", "More") +
       (!fl ? btn("max", maxed === gid ? "shrink" : "expand", maxed === gid ? "Restore" : "Maximize") : "") +
       (g.active !== CHART ? btn("close", "x", "Close") : "");
@@ -588,6 +593,9 @@ const Dock = (() => {
     }
     if (vm.groups !== stored) S.groups = stored;
 
+    // settings belong to a widget on screen: closed, moved away or hidden, they go
+    if (setsOpen && (!S.inst[setsOpen.id] || !visibleNow.has(setsOpen.id) || !setsOpen.el.isConnected
+        || setsOpen.el.parentNode !== groupEls.get(groupOf(setsOpen.id)))) closeSettings();
     document.body.classList.toggle("dk-focus", !!S.focus);
     document.body.classList.toggle("dk-compact", compact);
     document.body.classList.toggle("dk-chart-locked", !!S.lock);
@@ -941,7 +949,7 @@ const Dock = (() => {
       ...(api.ask ? [{ id: "ask", label: "Ask in chat", icon: "chat" }] : []),
       ...(!spec.single && !chart ? [{ id: "new", label: `New ${spec.title.toLowerCase()}`, icon: "plus" },
                                    { id: "dup", label: "Duplicate", icon: "copy" }] : []),
-      ...(spec.settings && spec.settings.length ? [{ id: "settings", label: "Settings", icon: "settings" }] : []),
+      { id: "settings", label: chart ? "Chart settings" : "Settings", icon: "settings" },
       // a narrow tile hides its maximize button, so the menu always offers it
       ...(compact || fl ? [] : [{ id: "max", label: maxed === groupOf(id) ? "Restore" : "Maximize",
                                   icon: maxed === groupOf(id) ? "shrink" : "expand", hint: "Double-click tab" }]),
@@ -958,7 +966,7 @@ const Dock = (() => {
       if (pick === "ask") return askFrom(id);
       if (pick === "new") return open(spec.type, null, { fresh: true });
       if (pick === "dup") return duplicate(id);
-      if (pick === "settings") return setTimeout(() => settingsSheet(anchor, id), 0);
+      if (pick === "settings") return setTimeout(() => settingsPanel(id), 0);
       if (pick === "close") return close(id);
       if (pick === "max") return max(groupOf(id));
       if (pick === "lock") return setLock();
@@ -973,39 +981,228 @@ const Dock = (() => {
     else if (!text) toast("There is nothing in this widget to ask about yet.");
   }
 
-  function settingsSheet(anchor, id) {
+  /* ══ widget settings ═════════════════════════════════════════════════════
+   * A panel that slides over the widget's own body — frosted, so the change
+   * shows behind it as it is made. Every widget gets a NAME and, where it
+   * follows a symbol, its LINK; the rest is the widget's own, declared in
+   * spec.settings:
+   *
+   *   { section: "Display" }                          a heading
+   *   { key, label, kind, def, options, hint, when,   a control
+   *     min, max, step, unit, placeholder, get, set, run }
+   *
+   * kind: seg (default when there are options) · toggle · select · chips
+   * (several of the options) · range · text · action (a button) · note.
+   * `options` may be a function, `when(cfg)` hides a row that does not
+   * apply, and `get`/`set` bind a row to state the widget keeps itself (the
+   * watchlist's columns live with its lists, not in the dock). Every change
+   * is applied as it is made; Reset puts back the defaults, and Apply to all
+   * copies them to every other widget of the same kind. */
+  let setsOpen = null;
+  function closeSettings() {
+    if (!setsOpen) return;
+    const el_ = setsOpen.el;
+    setsOpen = null;
+    el_.classList.remove("on");
+    setTimeout(() => el_.remove(), 200);
+  }
+
+  function settingsPanel(id) {
+    if (id === CHART) { const b = el("settingsBtn"); return b && b.click(); }
+    if (setsOpen && setsOpen.id === id) return closeSettings();
+    closeSettings();
+    closePop();
+    const gid = groupOf(id);
+    if (!gid) return;
+    if (S.groups[gid].active !== id) { S.groups[gid].active = id; layout(false); }
+    const node = groupEls.get(gid);
+    if (!node) return;
+    const p = document.createElement("div");
+    p.className = "dk-sets";
+    p.setAttribute("role", "dialog");
+    p.setAttribute("aria-label", "Widget settings");
+    node.appendChild(p);
+    setsOpen = { id, el: p };
+    paintSettings();
+    p.addEventListener("click", onSetsClick);
+    p.addEventListener("change", onSetsChange);
+    p.addEventListener("input", onSetsInput);
+    p.addEventListener("keydown", (e) => { if (e.key !== "Escape") e.stopPropagation(); });
+    requestAnimationFrame(() => p.classList.add("on"));
+  }
+
+  const optsOf = (s, cfg) => (typeof s.options === "function" ? s.options(cfg) : s.options) || [];
+  const valOf = (s, cfg) => s.get ? s.get(cfg) : cfg[s.key] !== undefined ? cfg[s.key] : s.def;
+
+  function paintSettings() {
+    if (!setsOpen) return;
+    const { id, el: p } = setsOpen;
+    if (!S.inst[id]) return closeSettings();
     const spec = TYPES.get(S.inst[id].type), cfg = S.inst[id].cfg;
-    const row = (s) => {
-      const v = cfg[s.key] !== undefined ? cfg[s.key] : s.def;
-      if (s.kind === "toggle") {
-        return `<label class="dk-set"><span>${esc(s.label)}</span>` +
-          `<input type="checkbox" class="dk-switch" data-key="${s.key}" ${v ? "checked" : ""}></label>`;
+    const keep = p.querySelector(".ds-body") ? p.querySelector(".ds-body").scrollTop : 0;
+    const row = (s, i) => {
+      if (s.section) return `<div class="ds-sec">${esc(s.section)}</div>`;
+      if (s.when && !s.when(cfg)) return "";
+      const v = valOf(s, cfg);
+      const kind = s.kind || (s.options ? "seg" : "toggle");
+      const lab = `<span class="ds-l">${esc(s.label || "")}${s.hint ? `<em>${esc(s.hint)}</em>` : ""}</span>`;
+      const at = `data-i="${i}"`;
+      if (kind === "note") return `<p class="ds-note">${esc(s.label)}</p>`;
+      if (kind === "toggle") {
+        return `<label class="ds-row">${lab}<input type="checkbox" class="dk-switch" ${at} ${v ? "checked" : ""}></label>`;
       }
-      return `<div class="dk-set"><span>${esc(s.label)}</span><div class="dk-seg" data-key="${s.key}">` +
-        s.options.map((o) => `<button type="button" class="${String(o.v) === String(v) ? "on" : ""}" ` +
-          `data-v="${esc(o.v)}">${esc(o.label)}</button>`).join("") + `</div></div>`;
+      if (kind === "action") {
+        return `<div class="ds-row">${lab}<button type="button" class="ds-btn" ${at}>${esc(s.button || "Do it")}</button></div>`;
+      }
+      if (kind === "select") {
+        return `<label class="ds-row">${lab}<select class="ds-select" ${at}>` +
+          optsOf(s, cfg).map((o) => `<option value="${esc(o.v)}" ${String(o.v) === String(v) ? "selected" : ""}>${esc(o.label)}</option>`).join("") +
+          `</select></label>`;
+      }
+      if (kind === "range") {
+        return `<label class="ds-row ds-col">${lab}<span class="ds-range"><input type="range" ${at} min="${s.min}" max="${s.max}" step="${s.step || 1}" value="${esc(v)}">` +
+          `<output>${esc(v)}${esc(s.unit || "")}</output></span></label>`;
+      }
+      if (kind === "text") {
+        return `<label class="ds-row ds-col">${lab}<input type="text" class="ds-text" ${at} value="${esc(v || "")}" ` +
+          `placeholder="${esc(s.placeholder || "")}" spellcheck="false" autocomplete="off"></label>`;
+      }
+      if (kind === "chips") {
+        const on = new Set((v || []).map(String));
+        return `<div class="ds-row ds-col">${lab}<div class="ds-chips" ${at}>` +
+          optsOf(s, cfg).map((o) => `<button type="button" class="${on.has(String(o.v)) ? "on" : ""}" data-v="${esc(o.v)}">${esc(o.label)}</button>`).join("") +
+          `</div></div>`;
+      }
+      const opts = optsOf(s, cfg);
+      return `<div class="ds-row${opts.length > 3 ? " ds-col" : ""}">${lab}<div class="ds-seg" ${at}>` +
+        opts.map((o) => `<button type="button" class="${String(o.v) === String(v) ? "on" : ""}" data-v="${esc(o.v)}">${esc(o.label)}</button>`).join("") +
+        `</div></div>`;
     };
-    const p = menu(anchor, `<div class="head">${esc(spec.title)} settings</div>` +
-      spec.settings.map(row).join(""), null, "dk-settings");
-    if (!p) return;
-    p.addEventListener("change", (e) => {
-      const k = e.target.dataset.key;
-      if (k) setCfg(id, { [k]: e.target.checked });
-    });
-    p.addEventListener("click", (e) => {
-      const b = e.target.closest(".dk-seg button");
-      if (!b) return;
-      const seg = b.parentNode;
-      seg.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
-      const s = spec.settings.find((x) => x.key === seg.dataset.key);
-      setCfg(id, { [seg.dataset.key]: typeof s.def === "number" ? Number(b.dataset.v) : b.dataset.v });
-    });
+    const l = linkOf(id);
+    const linkRow = spec.linkable
+      ? `<div class="ds-sec">Link</div><div class="ds-links">` +
+        `<button type="button" class="${l === "chart" ? "on" : ""}" data-link="chart" title="Follow the chart (${esc(pageSymbol())})">${icon("link")}<span>Chart</span></button>` +
+        LINK_IDS.map((g) => `<button type="button" class="g${g}${l === g ? " on" : ""}" data-link="${g}" ` +
+          `title="Group ${g}${S.links[g] && S.links[g].sym ? " · " + esc(S.links[g].sym) : ""}"><i>${g}</i></button>`).join("") +
+        `<button type="button" class="${l === "pin" ? "on" : ""}" data-link="pin" title="Pin a symbol">${icon("pin")}<span>${l === "pin" ? esc(symbolOf(id)) : "Pin"}</span></button>` +
+        `</div><p class="ds-note">${l === "chart" ? `Follows the chart: ${esc(pageSymbol())}.`
+          : l === "pin" ? `Stays on ${esc(symbolOf(id))} whatever the chart shows.`
+          : `Shares a symbol${spec.type === "chart" ? " and an interval" : ""} with every group-${l} widget · now ${esc(symbolOf(id))}.`}</p>`
+      : "";
+    const others = placedOf(spec.type).filter((x) => x !== id).length;
+    p.innerHTML =
+      `<div class="ds-head"><span class="ds-ic">${icon(spec.icon)}</span><b>${esc(label(id).title)}</b>` +
+        `<button type="button" class="ds-x" data-ds="close" title="Close (Esc)" aria-label="Close settings">${icon("x")}</button></div>` +
+      `<div class="ds-body">` +
+        linkRow +
+        (spec.settings || []).map(row).join("") +
+        `<div class="ds-sec">Widget</div>` +
+        `<label class="ds-row ds-col"><span class="ds-l">Name</span><input type="text" class="ds-text" data-name="1" ` +
+          `value="${esc(cfg.title || "")}" placeholder="${esc(spec.title)}" maxlength="40" spellcheck="false" autocomplete="off"></label>` +
+      `</div>` +
+      `<div class="ds-foot">` +
+        `<button type="button" class="ds-btn ghost" data-ds="reset">${icon("rotateCw", "xs")}Reset</button>` +
+        (others ? `<button type="button" class="ds-btn ghost" data-ds="all">Apply to all ${others + 1}</button>` : "") +
+        `<button type="button" class="ds-btn" data-ds="close">Done</button>` +
+      `</div>`;
+    p.querySelector(".ds-body").scrollTop = keep;
+  }
+
+  function setOne(i, v) {
+    const { id } = setsOpen;
+    const spec = TYPES.get(S.inst[id].type), s = spec.settings[i];
+    if (s.set) { s.set(v, S.inst[id].cfg); setCfg(id, {}); }
+    else setCfg(id, { [s.key]: v });
+  }
+  function onSetsClick(e) {
+    const { id } = setsOpen || {};
+    if (!id) return;
+    e.stopPropagation();
+    const spec = TYPES.get(S.inst[id].type), cfg = S.inst[id].cfg;
+    const ds = e.target.closest("[data-ds]");
+    if (ds) {
+      const a = ds.dataset.ds;
+      if (a === "close") return closeSettings();
+      if (a === "reset") {
+        const patch = { title: null };
+        for (const s of spec.settings || []) {
+          if (!s.key || s.def === undefined || s.kind === "action") continue;
+          if (s.set) s.set(Array.isArray(s.def) ? [...s.def] : s.def, cfg);
+          else patch[s.key] = Array.isArray(s.def) ? [...s.def] : s.def;
+        }
+        setCfg(id, patch);
+        layout(false);
+        toast(`${spec.title} is back to its defaults.`);
+        return paintSettings();
+      }
+      if (a === "all") {
+        const patch = {};
+        for (const s of spec.settings || []) if (s.key && !s.set && cfg[s.key] !== undefined) patch[s.key] = JSON.parse(JSON.stringify(cfg[s.key]));
+        const others = placedOf(spec.type).filter((x) => x !== id);
+        others.forEach((x) => setCfg(x, patch));
+        return toast(`Applied to ${others.length} other ${spec.title.toLowerCase()} widget${others.length === 1 ? "" : "s"}.`);
+      }
+    }
+    const lk = e.target.closest("[data-link]");
+    if (lk) {
+      const v = lk.dataset.link;
+      if (v !== "pin") { setLinkOf(id, v); return paintSettings(); }
+      if (typeof Universe !== "undefined") {
+        Universe.open({ anchor: lk, current: symbolOf(id), onPick: (sym) => { setLinkOf(id, "pin", sym); paintSettings(); } });
+      }
+      return;
+    }
+    const seg = e.target.closest(".ds-seg button, .ds-chips button");
+    if (seg) {
+      const box_ = seg.parentNode, i = +box_.dataset.i, s = spec.settings[i];
+      const num = (x) => typeof (Array.isArray(s.def) ? s.def[0] : s.def) === "number" ? Number(x) : x;
+      if (box_.classList.contains("ds-chips")) {
+        const cur = new Set((valOf(s, cfg) || []).map(String));
+        cur.has(seg.dataset.v) ? cur.delete(seg.dataset.v) : cur.add(seg.dataset.v);
+        if (cur.size < (s.min || 0)) return toast(`Keep at least ${s.min} on.`);
+        // keep the options' own order, not the order they were clicked in
+        setOne(i, optsOf(s, cfg).map((o) => String(o.v)).filter((v) => cur.has(v)).map(num));
+      } else setOne(i, num(seg.dataset.v));
+      return paintSettings();
+    }
+    const act = e.target.closest(".ds-btn[data-i]");
+    if (act) { const s = spec.settings[+act.dataset.i]; if (s.run) Promise.resolve(s.run(cfg)).then(paintSettings); }
+  }
+  function onSetsChange(e) {
+    const t = e.target;
+    if (!setsOpen) return;
+    if (t.matches('input[type="checkbox"][data-i]')) { setOne(+t.dataset.i, t.checked); return paintSettings(); }
+    if (t.matches("select[data-i]")) {
+      const s = TYPES.get(S.inst[setsOpen.id].type).settings[+t.dataset.i];
+      setOne(+t.dataset.i, typeof s.def === "number" ? Number(t.value) : t.value);
+      return paintSettings();
+    }
+    if (t.matches('input[type="range"][data-i]')) return setOne(+t.dataset.i, Number(t.value));
+  }
+  let textT = 0;
+  function onSetsInput(e) {
+    const t = e.target;
+    if (!setsOpen) return;
+    if (t.matches('input[type="range"][data-i]')) {
+      const s = TYPES.get(S.inst[setsOpen.id].type).settings[+t.dataset.i];
+      t.nextElementSibling.textContent = t.value + (s.unit || "");
+      return;
+    }
+    if (!t.matches(".ds-text")) return;
+    clearTimeout(textT);
+    const id = setsOpen.id;
+    textT = setTimeout(() => {
+      if (t.dataset.name) { setCfg(id, { title: t.value.trim() || null }); const g = groupOf(id); if (g) paintHead(g); }
+      else setOne(+t.dataset.i, t.value);
+    }, 300);
   }
 
   function setCfg(id, patch) {
     const i = S.inst[id];
     if (!i) return;
     Object.assign(i.cfg, patch);
+    // a widget's own "pin this instrument" menu is a link change too
+    if ("pin" in patch && !("link" in patch)) i.cfg.link = patch.pin ? "pin" : "chart";
     persist();
     const api = live.get(id);
     if (api && api.config) try { api.config(i.cfg, patch); } catch (e) { console.error(e); }
@@ -1013,20 +1210,92 @@ const Dock = (() => {
     if (gid && groupEls.has(gid)) paintHead(gid);
   }
 
+  /* ══ link groups ═════════════════════════════════════════════════════════
+   * TakeProfit's best idea, kept small: a widget follows the CHART (the
+   * page's symbol), joins one of four coloured GROUPS, or is PINNED to a
+   * symbol of its own. Widgets in a group share a symbol and an interval:
+   * click a row in a watchlist in group 2 and every group-2 widget — an
+   * extra chart, the order book, the financials — moves to it, without the
+   * page navigating. The colour is the only meaning colour carries here. */
+  const linkOf = (id) => {
+    const c = (S.inst[id] && S.inst[id].cfg) || {};
+    return c.link && (c.link === "chart" || c.link === "pin" || LINK_IDS.includes(c.link)) ? c.link : c.pin ? "pin" : "chart";
+  };
+  function symbolOf(id) {
+    const c = (S.inst[id] && S.inst[id].cfg) || {}, l = linkOf(id);
+    if (l === "pin") return c.pin || pageSymbol();
+    if (LINK_IDS.includes(l)) return (S.links[l] && S.links[l].sym) || pageSymbol();
+    return pageSymbol();
+  }
+  const members = (g) => Object.keys(S.inst).filter((iid) => linkOf(iid) === g && groupOf(iid));
+
+  /** Tell a widget its symbol (or interval) changed under it. */
+  function notify(iid, patch) {
+    const api = live.get(iid);
+    if (api && api.config) try { api.config(S.inst[iid].cfg, patch); } catch (e) { console.error("[dock] config", e); }
+    const gid = groupOf(iid);
+    if (gid && groupEls.has(gid)) paintHead(gid);
+  }
+  function setLink(g, patch, from) {
+    S.links[g] = { ...(S.links[g] || {}), ...patch };
+    persist();
+    const out = {};
+    if ("sym" in patch) out.symbol = patch.sym;
+    if ("iv" in patch) out.iv = patch.iv;
+    for (const iid of members(g)) if (iid !== from) notify(iid, out);
+  }
+  /** A row clicked in a list: the group's symbol if the list is in one,
+   *  else the chart's (a navigation, or a selected pane). */
+  function pickSymbol(id, sym, how) {
+    const s = String(sym || "").trim().toUpperCase();
+    const l = linkOf(id);
+    if (s && LINK_IDS.includes(l) && how !== "beside") {
+      setLink(l, { sym: s });
+      for (const iid of members(l)) flash(iid);
+      return;
+    }
+    openSymbol(s, how);
+  }
+  /** Move a widget to a link: the chart, a group (adopting the group's
+   *  symbol, or giving the group its own if the group is empty), or a pin. */
+  function setLinkOf(id, l, pin) {
+    const before = symbolOf(id);
+    if (LINK_IDS.includes(l) && !(S.links[l] && S.links[l].sym)) S.links[l] = { ...(S.links[l] || {}), sym: before };
+    Object.assign(S.inst[id].cfg, { link: l, pin: l === "pin" ? (pin || before) : null });
+    persist();
+    notify(id, { symbol: symbolOf(id), link: l, pin: S.inst[id].cfg.pin });
+  }
+
+  function linkChip(id) {
+    const l = linkOf(id), sym = symbolOf(id);
+    if (LINK_IDS.includes(l)) {
+      return `<button type="button" class="dk-act dk-link g${l}" data-act="link" title="Link group ${l} · ${esc(sym)}" ` +
+        `aria-label="Link group ${l}">${l}</button>`;
+    }
+    return `<button type="button" class="dk-act dk-link" data-act="link" data-pinned="${l === "pin" ? 1 : ""}" ` +
+      `title="${l === "pin" ? `Pinned to ${esc(sym)}` : `Following the chart (${esc(sym)})`} — click to link" ` +
+      `aria-label="Link">${icon(l === "pin" ? "pin" : "link")}</button>`;
+  }
+
   function linkMenu(anchor, id) {
-    const cfg = S.inst[id].cfg;
-    menu(anchor, [
-      { head: "Symbol" },
-      { id: "follow", label: `Follow the chart (${pageSymbol()})`, icon: "link", on: !cfg.pin },
-      { id: "pin", label: cfg.pin ? `Pinned to ${cfg.pin} — change…` : "Pin another symbol…",
-        icon: "pin", on: !!cfg.pin },
-    ], (pick) => {
-      if (pick === "follow") return setCfg(id, { pin: null });
+    const l = linkOf(id);
+    const html = `<div class="head">Link</div>` +
+      `<div class="item${l === "chart" ? " on" : ""}" data-pick="chart"><span class="lead">${icon("link", "xs")}Follow the chart</span>` +
+        `<span class="sc">${esc(pageSymbol())}</span></div>` +
+      LINK_IDS.map((g) => {
+        const n = members(g).filter((x) => x !== id).length, sym = S.links[g] && S.links[g].sym;
+        return `<div class="item${l === g ? " on" : ""}" data-pick="${g}"><span class="lead"><i class="dk-swatch g${g}">${g}</i>Group ${g}</span>` +
+          `<span class="sc">${sym ? esc(sym) : ""}${n ? ` · ${n} more` : ""}</span></div>`;
+      }).join("") +
+      `<div class="sep"></div>` +
+      `<div class="item${l === "pin" ? " on" : ""}" data-pick="pin"><span class="lead">${icon("pin", "xs")}${l === "pin" ? "Pinned — change…" : "Pin a symbol…"}</span>` +
+        `<span class="sc">${l === "pin" ? esc(symbolOf(id)) : ""}</span></div>`;
+    menu(anchor, html, (pick) => {
+      if (pick !== "pin") return setLinkOf(id, pick);
       if (typeof Universe !== "undefined") {
-        setTimeout(() => Universe.open({ anchor, current: cfg.pin || pageSymbol(),
-                                         onPick: (s) => setCfg(id, { pin: s }) }), 0);
+        setTimeout(() => Universe.open({ anchor, current: symbolOf(id), onPick: (s) => setLinkOf(id, "pin", s) }), 0);
       }
-    });
+    }, "dk-linkmenu");
   }
 
   let toastT = 0;
@@ -1049,7 +1318,13 @@ const Dock = (() => {
       id,
       get cfg() { return S.inst[id] ? S.inst[id].cfg : {}; },
       setCfg: (patch) => setCfg(id, patch),
-      symbol: () => (S.inst[id] && S.inst[id].cfg.pin) || pageSymbol(),
+      symbol: () => symbolOf(id),
+      link: () => linkOf(id),
+      /** A list's row was chosen: the group's symbol, or the chart's. */
+      pick: (sym, how) => pickSymbol(id, sym, how),
+      /** The interval a group shares (null outside a group). */
+      linkedIv: () => { const l = linkOf(id); return LINK_IDS.includes(l) && S.links[l] ? S.links[l].iv || null : null; },
+      setLinkedIv: (iv) => { const l = linkOf(id); if (LINK_IDS.includes(l)) setLink(l, { iv }, id); },
       pageSymbol,
       setTitle: (sub) => {
         if (titles.get(id) === sub) return;
@@ -1398,7 +1673,7 @@ const Dock = (() => {
     if (a === "close") { e.stopPropagation(); return sheet ? hideSheet() : close(g.active); }
     if (a === "max") return max(gid);
     if (a === "more") { e.stopPropagation(); return moreMenu(b, g.active); }
-    if (a === "settings") { e.stopPropagation(); return settingsSheet(b, g.active); }
+    if (a === "settings") { e.stopPropagation(); return settingsPanel(g.active); }
     if (a === "link") { e.stopPropagation(); return linkMenu(b, g.active); }
   }
 
@@ -1429,6 +1704,7 @@ const Dock = (() => {
   addEventListener("keydown", (e) => {
     if (e.key !== "Escape" || drag) return;
     if (pop) { e.preventDefault(); return closePop(); }
+    if (setsOpen) { e.preventDefault(); return closeSettings(); }
     if (hubOpen) return hub(false);
     if (maxed) unmax();
   });
@@ -1930,6 +2206,15 @@ const Dock = (() => {
       .map((id) => ({ id, type: S.inst[id].type, icon: (TYPES.get(S.inst[id].type) || {}).icon,
                       ...label(id), visible: lastVisible.has(id) })),
     reveal, badge, badged: (type) => badges.has(type),
+    /** A list widget's row was chosen (by instance id, or by type for a
+     *  single widget): the group's symbol, or the chart's. */
+    pick: (idOrType, sym, how) => {
+      const id = S.inst[idOrType] ? idOrType : placedOf(idOrType)[0];
+      return id ? pickSymbol(id, sym, how) : openSymbol(sym, how);
+    },
+    symbolOf: (idOrType) => { const id = S.inst[idOrType] ? idOrType : placedOf(idOrType)[0]; return id ? symbolOf(id) : pageSymbol(); },
+    cfgOf: (idOrType) => { const id = S.inst[idOrType] ? idOrType : placedOf(idOrType)[0] || idOrType; return S.inst[id] ? S.inst[id].cfg : {}; },
+    settings: (idOrType) => { const id = S.inst[idOrType] ? idOrType : placedOf(idOrType)[0]; if (id) settingsPanel(id); },
     reset: () => resetWorkspace(),
     state: () => ({ focus: !!S.focus, lock: !!S.lock, hub: hubOpen, fullscreen: !!document.fullscreenElement }),
     send: sendTo,

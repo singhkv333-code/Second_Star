@@ -98,8 +98,14 @@
           `${d.ceo ? `<span>CEO ${esc(d.ceo.replace(/\s+/g, " "))}</span>` : ""}</div>`;
     }
 
+    // ₹ crore as filed, or ₹ lakh crore for the large companies whose
+    // numbers run to seven digits
+    const big = () => ctx.cfg.units === "lcr";
+    const amt = (v, d) => v == null ? "—" : big() ? num(v / 1e5, 2) : num(v, d);
+    const unitName = () => big() ? "₹ lakh crore" : "₹ crore";
+
     function quarters(d) {
-      const q = (d.quarters || []).slice(0, 8).reverse();
+      const q = (d.quarters || []).slice(0, ctx.cfg.quarters || 8).reverse();
       if (!d.available || !q.length) return empty("landmark", `No quarterly results are on file for ${esc(sym())}.`);
       const max = Math.max(...q.map((x) => Math.abs(x.revenue || 0)), 1);
       const bars = q.map((x) => {
@@ -108,11 +114,11 @@
           `<i class="np${(x.net_profit || 0) < 0 ? " neg" : ""}" style="height:${hp.toFixed(1)}%"></i></div>` +
           `<span>${esc(x.period_label || "")}</span></div>`;
       }).join("");
-      const rows = [...q].reverse().map((x) => `<tr><td>${esc(x.period_label)}</td><td>${num(x.revenue, 0)}</td>` +
-        `<td>${num(x.net_profit, 0)}</td><td>${x.net_margin_pct == null ? "—" : num(x.net_margin_pct, 1) + "%"}</td>` +
+      const rows = [...q].reverse().map((x) => `<tr><td>${esc(x.period_label)}</td><td>${amt(x.revenue, 0)}</td>` +
+        `<td>${amt(x.net_profit, 0)}</td><td>${x.net_margin_pct == null ? "—" : num(x.net_margin_pct, 1) + "%"}</td>` +
         `<td class="${dir(x.revenue_yoy_pct)}">${pct(x.revenue_yoy_pct, 1)}</td><td class="${dir(x.net_profit_yoy_pct)}">${pct(x.net_profit_yoy_pct, 1)}</td></tr>`).join("");
-      return `<div class="fq-chart">${bars}</div>` +
-        `<div class="fq-key"><span><i></i>Revenue</span><span><i class="np"></i>Net profit</span><em>₹ crore · ${esc(d.basis || "")}</em></div>` +
+      return (ctx.cfg.chart === false ? "" : `<div class="fq-chart">${bars}</div>` +
+        `<div class="fq-key"><span><i></i>Revenue</span><span><i class="np"></i>Net profit</span><em>${unitName()} · ${esc(d.basis || "")}</em></div>`) +
         `<table class="fin-table"><thead><tr><th>Quarter</th><th>Revenue</th><th>Net profit</th><th>Margin</th><th>Rev YoY</th><th>NP YoY</th></tr></thead>` +
         `<tbody>${rows}</tbody></table>`;
     }
@@ -120,13 +126,23 @@
     function statement(d) {
       if (!d.available || !(d.rows || []).length) return empty("landmark", `No ${esc((TABS.find((t) => t[0] === tab) || [])[1] || "statement")} is on file for ${esc(sym())}.`);
       const periods = (d.periods || []).slice(0, ctx.cfg.years || 5);
+      // growth is arithmetic on the two newest filed values — computed here,
+      // never estimated — and only where both exist and the base is not zero
+      const yoy = ctx.cfg.growth === true && periods.length > 1;
+      const ratios = tab === "ratios";
+      const cell = (v) => v == null ? "—" : ratios ? num(v, Math.abs(v) < 100 ? 2 : 0) : amt(v, Math.abs(v) < 100 ? 2 : 0);
       let lastSec = null;
-      const rows = d.rows.map((r) => {
-        const sec = r.section && r.section !== lastSec ? (lastSec = r.section, `<tr class="sec"><td colspan="${periods.length + 1}">${esc(r.section)}</td></tr>`) : "";
-        return sec + `<tr><td>${esc(r.line_item)}</td>${periods.map((p) => `<td>${r.values && r.values[p] != null ? num(r.values[p], Math.abs(r.values[p]) < 100 ? 2 : 0) : "—"}</td>`).join("")}</tr>`;
+      const rows = d.rows.filter((r) => ctx.cfg.hideEmpty !== true || periods.some((p) => r.values && r.values[p] != null)).map((r) => {
+        const sec = r.section && r.section !== lastSec ? (lastSec = r.section, `<tr class="sec"><td colspan="${periods.length + 1 + (yoy ? 1 : 0)}">${esc(r.section)}</td></tr>`) : "";
+        const a = r.values && r.values[periods[0]], b = r.values && r.values[periods[1]];
+        const g = yoy && a != null && b != null && b !== 0 ? (a - b) / Math.abs(b) * 100 : null;
+        return sec + `<tr><td>${esc(r.line_item)}</td>${periods.map((p) => `<td>${cell(r.values && r.values[p])}</td>`).join("")}` +
+          (yoy ? `<td class="${dir(g)}">${g == null ? "—" : pct(g, 1)}</td>` : "") + `</tr>`;
       }).join("");
-      return `<div class="fin-unit">${esc(d.unit || "")} · ${esc(d.basis || "")}</div>` +
-        `<table class="fin-table st"><thead><tr><th></th>${periods.map((p) => `<th>${esc(p)}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table>`;
+      return `<div class="fin-unit">${esc(ratios ? d.unit || "" : big() ? unitName() : d.unit || "")} · ${esc(d.basis || "")}</div>` +
+        `<table class="fin-table st"><thead><tr><th></th>${periods.map((p) => `<th>${esc(p)}</th>`).join("")}` +
+        (yoy ? `<th title="Change from ${esc(periods[1])} to ${esc(periods[0])}">YoY</th>` : "") +
+        `</tr></thead><tbody>${rows}</tbody></table>`;
     }
 
     function toSheet() {
@@ -152,18 +168,14 @@
       if (!a) return;
       e.stopPropagation();
       if (a.dataset.fn === "sym") {
-        return ctx.menu(a, [{ head: "Company" },
-          { id: "follow", label: `Follow the chart (${ctx.pageSymbol()})`, icon: "link", on: !ctx.cfg.pin },
-          { id: "pin", label: "Pin another company…", icon: "pin", on: !!ctx.cfg.pin }],
-          (p) => p === "follow" ? ctx.setCfg({ pin: null })
-            : setTimeout(() => Universe.open({ anchor: a, onPick: (s) => ctx.setCfg({ pin: s }) }), 0));
+        return setTimeout(() => Universe.open({ anchor: a, current: sym(), onPick: (s) => ctx.setCfg({ pin: s, link: "pin" }) }), 0);
       }
       if (a.dataset.fn === "sheet") return toSheet();
     });
 
     return {
       show: paint,
-      config(cfg, patch) { if ("pin" in patch || "years" in patch) paint(); },
+      config(cfg, patch) { if (Object.keys(patch).some((k) => k !== "title")) paint(); },
       ask: () => `Walk me through ${sym()}'s financials: growth, margins, balance sheet strength and valuation, with the numbers. This is analysis, not advice.`,
     };
   }
@@ -171,7 +183,17 @@
   Dock.register({
     type: "financials", title: "Financials", icon: "landmark", hue: "copper", group: "Research",
     desc: "Valuation, quarterly results and the filed statements", zone: "right", minW: 300, mount,
-    linkable: false,
-    settings: [{ key: "years", label: "Years shown", def: 5, options: [{ v: 5, label: "5" }, { v: 8, label: "8" }, { v: 12, label: "12" }] }],
+    linkable: true,
+    settings: [
+      { section: "Statements" },
+      { key: "years", label: "Years shown", def: 5, options: [{ v: 3, label: "3" }, { v: 5, label: "5" }, { v: 8, label: "8" }, { v: 12, label: "12" }] },
+      { key: "growth", label: "Growth column", kind: "toggle", def: false, hint: "Latest year against the one before" },
+      { key: "hideEmpty", label: "Hide empty lines", kind: "toggle", def: false },
+      { section: "Quarterly" },
+      { key: "quarters", label: "Quarters shown", def: 8, options: [{ v: 4, label: "4" }, { v: 8, label: "8" }, { v: 12, label: "12" }] },
+      { key: "chart", label: "Revenue and profit bars", kind: "toggle", def: true },
+      { section: "Numbers" },
+      { key: "units", label: "Amounts in", def: "cr", options: [{ v: "cr", label: "₹ crore" }, { v: "lcr", label: "₹ lakh crore" }] },
+    ],
   });
 })();
