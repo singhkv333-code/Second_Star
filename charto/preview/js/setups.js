@@ -46,7 +46,7 @@ const Setups = (() => {
   function figlet() {
     if (!figP) {
       figP = (async () => {
-        const mod = await import(new URL("../vendor/figlet/figlet.mjs", BASE).href);
+        const mod = await import(new URL("../vendor/figlet/figlet.js", BASE).href);
         const fig = mod.default;
         const font = await (await fetch(new URL("../vendor/figlet/calvin-pivot.flf", BASE))).text();
         fig.parseFont("CalvinPivot", font);

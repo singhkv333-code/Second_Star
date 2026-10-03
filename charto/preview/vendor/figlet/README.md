@@ -2,7 +2,7 @@
 
 - Source: https://github.com/patorjk/figlet.js, npm `figlet@1.12.0`, MIT
   (see `LICENSE.txt`).
-- Files: `figlet.mjs` and `figlet-CP8UBLgW.js`, copied unmodified from the
+- Files: `figlet.js` and `figlet-CP8UBLgW.js`, copied unmodified from the
   package's `dist/`. The browser build has no imports and only fetches fonts
   when `loadFont` is called. We never call it; `js/setups.js` parses one font.
 - Font: `calvin-pivot.flf` is the package's `fonts/Calvin S.flf` (a

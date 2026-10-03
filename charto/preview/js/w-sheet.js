@@ -147,7 +147,7 @@
     const $ = (s) => host.querySelector(s);
     const grid = $(".sh-grid"), fxIn = $(".sh-in"), addr = $(".sh-addr"), state = $(".sh-state");
 
-    const ws = () => wb && wb[wb[0].parent.getWorksheetActive()];
+    const ws = () => wb && wb[wb[0].getWorksheetActive()];
     const colName = (x) => { let s = ""; x++; while (x) { const m = (x - 1) % 26; s = String.fromCharCode(65 + m) + s; x = Math.floor((x - 1) / 26); } return s; };
 
     function say(t) { state.textContent = t; }
@@ -156,9 +156,10 @@
       say("Saving…");
       saveT = setTimeout(async () => {
         if (!wb) return;
+        // a sheet still being built has no methods yet: save its options' data
         const out = { sheets: wb.map((w) => ({
-          name: w.options.worksheetName, data: w.getData(),
-          style: w.getStyle ? w.getStyle() : {}, widths: w.getWidth ? w.getWidth() : [] })) };
+          name: w.options.worksheetName, data: typeof w.getData === "function" ? w.getData() : (w.options.data || []),
+          style: typeof w.getStyle === "function" ? w.getStyle() : {}, widths: typeof w.getWidth === "function" ? w.getWidth() : [] })) };
         await idb.set(KEY, out);
         say("Saved on this device");
       }, 600);
@@ -302,11 +303,11 @@
     });
 
     async function fileAction(a) {
-      if (a === "new") return wb[0].parent.createWorksheet({ worksheetName: `Sheet${wb.length + 1}`, minDimensions: [12, 40] });
+      if (a === "new") return wb[0].createWorksheet({ worksheetName: `Sheet${wb.length + 1}`, minDimensions: [12, 40] });
       if (a === "import") return $(".sh-file").click();
       if (a === "rename") {
         const w = ws();
-        const tab = host.querySelectorAll(".jtabs-headers > div:not(.jtabs-add)")[wb[0].parent.getWorksheetActive()];
+        const tab = host.querySelectorAll(".jtabs-headers > div:not(.jtabs-add)")[wb[0].getWorksheetActive()];
         if (!tab) return;
         tab.contentEditable = "true"; tab.focus();
         document.getSelection().selectAllChildren(tab);
@@ -321,7 +322,7 @@
       }
       if (a === "delete") {
         if (wb.length < 2) return ctx.toast("A workbook keeps at least one sheet.");
-        return wb[0].parent.deleteWorksheet(wb[0].parent.getWorksheetActive());
+        return wb[0].deleteWorksheet(wb[0].getWorksheetActive());
       }
       if (a === "csv") {
         const w = ws();
@@ -381,7 +382,7 @@
             }
             data.push(row);
           }
-          wb[0].parent.createWorksheet(wsOptions({ name: name.slice(0, 40), data }));
+          wb[0].createWorksheet(wsOptions({ name: name.slice(0, 40), data }));
           n++;
         }
         ctx.toast(`Opened ${n} sheet${n > 1 ? "s" : ""} from ${f.name}.`);
@@ -397,9 +398,9 @@
       if (!t) return;
       const data = [t.columns || [], ...(t.rows || [])];
       const name = String(t.title || "Imported").slice(0, 40);
-      wb[0].parent.createWorksheet(wsOptions({ name, data,
+      wb[0].createWorksheet(wsOptions({ name, data,
         style: Object.fromEntries((t.columns || []).map((_, x) => [colName(x) + "1", "font-weight:600"])) }));
-      setTimeout(() => wb[0].parent.openWorksheet && wb[0].parent.openWorksheet(wb.length - 1), 0);
+      setTimeout(() => wb[0].openWorksheet && wb[0].openWorksheet(wb.length - 1), 0);
       ctx.toast(`“${name}” added as a sheet.`);
     }
 

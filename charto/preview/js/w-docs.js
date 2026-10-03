@@ -27,8 +27,8 @@
   const size = (b) => b > 1e6 ? (b / 1e6).toFixed(1) + " MB" : Math.max(1, Math.round(b / 1e3)) + " KB";
 
   let pdfLib = null;
-  const loadPdf = () => pdfLib || (pdfLib = import("../vendor/docs/pdf.min.mjs").then((m) => {
-    m.GlobalWorkerOptions.workerSrc = new URL("vendor/docs/pdf.worker.min.mjs", document.baseURI).href;
+  const loadPdf = () => pdfLib || (pdfLib = import("../vendor/docs/pdf.min.js").then((m) => {
+    m.GlobalWorkerOptions.workerSrc = new URL("vendor/docs/pdf.worker.min.js", document.baseURI).href;
     return m;
   }));
 
