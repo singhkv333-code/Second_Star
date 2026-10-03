@@ -44,6 +44,7 @@ const Dock = (() => {
 
   const KEY = "dock";
   const CHART = "main";              // the chart's instance id
+  const SLOT = "slot";               // an empty tile: room made beside the chart
   const FLOAT_DEF = { w: 380, h: 420 };
   const MIN_TILE = 150;
   const EDGE_SHARE = .27;            // a new edge tile takes this much of the canvas
@@ -196,6 +197,15 @@ const Dock = (() => {
    *  is always somewhere. */
   function sanitize() {
     for (const [id, i] of Object.entries(S.inst)) if (!TYPES.has(i.type)) delete S.inst[id];
+    // an empty slot exists only to be filled: once something joins it, it goes
+    for (const g of Object.values(S.groups)) {
+      const full = g.tabs.filter((t) => S.inst[t] && S.inst[t].type !== SLOT);
+      if (full.length && full.length < g.tabs.length) {
+        g.tabs.filter((t) => S.inst[t] && S.inst[t].type === SLOT).forEach((t) => delete S.inst[t]);
+        g.tabs = full;
+        if (!full.includes(g.active)) g.active = full[0];
+      }
+    }
     S.inst[CHART] = S.inst[CHART] || { type: CHART, cfg: {} };
     const placed = new Set();
     for (const [gid, g] of Object.entries(S.groups)) {
@@ -234,7 +244,9 @@ const Dock = (() => {
   const instancesOf = (type) => Object.keys(S.inst).filter((id) => S.inst[id].type === type);
   const placedOf = (type) => instancesOf(type).filter((id) => groupOf(id));
   const floatOf = (gid) => S.floats.find((f) => f.gid === gid);
-  const isBare = (g) => g && g.tabs.length === 1 && g.tabs[0] === CHART && S.lock;
+  const isSlot = (gid) => { const g = S.groups[gid]; return !!g && g.tabs.length === 1 && S.inst[g.tabs[0]] && S.inst[g.tabs[0]].type === SLOT; };
+  const isBare = (g) => g && g.tabs.length === 1 && (g.tabs[0] === CHART && S.lock
+    || (S.inst[g.tabs[0]] && S.inst[g.tabs[0]].type === SLOT));
   const hasChart = (gid) => S.groups[gid] && S.groups[gid].tabs.includes(CHART);
 
   function detach(id) {
@@ -549,7 +561,7 @@ const Dock = (() => {
       root.style.flex = "1 1 0";
       if (canvas.firstElementChild !== root) move(canvas, root, canvas.firstElementChild);
     }
-    for (const c of [...canvas.children]) if (c !== root && c !== floatLayer && !c.classList.contains("dk-hub")) c.remove();
+    for (const c of [...canvas.children]) if (c !== root && c !== floatLayer && !c.classList.contains("dk-hub") && !c.classList.contains("dk-pull")) c.remove();
     // forget boxes no longer in the tree
     const live_ = new Set(); walk(vm.tree, (n) => live_.add(n.id));
     for (const id of [...boxEls.keys()]) if (!live_.has(id)) boxEls.delete(id);
@@ -581,6 +593,7 @@ const Dock = (() => {
     document.body.classList.toggle("dk-chart-locked", !!S.lock);
     syncVisibility(visibleNow);
     placeFloats();
+    requestAnimationFrame(syncPulls);
     syncDense();
     syncRail();
     if (before) play(before);
@@ -714,6 +727,7 @@ const Dock = (() => {
 
   function close(id) {
     if (!S.inst[id] || id === CHART) return;
+    if (S.inst[id].type === SLOT) { detach(id); delete S.inst[id]; layout(true); return; }
     const at = detach(id);
     if (at) S.closed.push({ id, ...at });
     S.closed = S.closed.slice(-24);
@@ -1194,6 +1208,10 @@ const Dock = (() => {
           return { kind: "tab", gid, index, rect: { left: cx - 1.5, top: head.top + 6, width: 3, height: head.height - 12 } };
         }
       }
+      // an empty slot is a target as a whole: whatever lands in it fills it
+      if (isSlot(gid) && !movingChart) {
+        return { kind: "tab", gid, index: null, merge: true, rect: { left: b.left, top: b.top, width: b.width, height: b.height } };
+      }
       // 2 · a side of the tile: split it there
       if (!fl) {
         const fx = (x - b.left) / b.width, fy = (y - b.top) / b.height;
@@ -1546,8 +1564,24 @@ const Dock = (() => {
   const SECTIONS = ["Market", "Research", "Tools", "Media"];
   let hubEl = null, hubOpen = false;
 
-  function hub(on) {
+  let hubTarget = null;               // an empty slot the drawer was opened to fill
+  /** A card was chosen: fill the slot the drawer was opened from, or open it
+   *  where it usually goes (a fresh copy when its + was pressed). */
+  function pickCard(type, add) {
+    const spec = TYPES.get(type);
+    const slotGid = hubTarget && S.inst[hubTarget] && groupOf(hubTarget);
+    if (slotGid) {
+      open(type, { kind: "tab", gid: slotGid }, { fresh: !spec.single && placedOf(type).length > 0 });
+      hubTarget = null;
+      return hub(false);
+    }
+    open(type, null, { fresh: !spec.single && placedOf(type).length > 0 && add });
+  }
+
+  function hub(on, target) {
     on = on == null ? !hubOpen : on;
+    if (on) hubTarget = target || null;
+    else hubTarget = null;
     if (on === hubOpen) return;
     hubOpen = on;
     closePop();
@@ -1584,51 +1618,81 @@ const Dock = (() => {
     hubEl.hidden = true;
     hubEl.setAttribute("aria-label", "Widgets");
     const specs = [...TYPES.values()].filter((s) => s.catalog !== false && s.type !== CHART);
+    const order = (s) => SECTIONS.indexOf(s.group || "Tools");
+    specs.sort((x, y) => order(x) - order(y));
+    // a picture and a name; the one-line description is the tooltip
     const card = (s) =>
-      `<div class="hub-card" data-type="${s.type}" role="button" tabindex="0" aria-label="Add ${esc(s.title)}">` +
-        `<div class="hub-pic">${typeof HubArt !== "undefined" ? HubArt.svg(s.type) : ""}</div>` +
-        `<div class="hub-meta"><b>${icon(s.icon, "xs")}${esc(s.title)}<i class="hub-n" hidden></i></b>` +
-          `<span>${esc(s.desc || "")}</span></div>` +
-        `<button type="button" class="hub-add" data-add="${s.type}" title="Add ${esc(s.title.toLowerCase())}" ` +
-          `aria-label="Add ${esc(s.title.toLowerCase())}">${icon("plus")}</button>` +
+      `<div class="hub-card" data-type="${s.type}" data-group="${esc(s.group || "Tools")}" role="button" tabindex="0" ` +
+        `title="${esc(s.desc || s.title)}" aria-label="Add ${esc(s.title)}">` +
+        `<div class="hub-pic">${typeof HubArt !== "undefined" ? HubArt.svg(s.type) : ""}` +
+          `<button type="button" class="hub-add" data-add="${s.type}" title="Add another" ` +
+            `aria-label="Add ${esc(s.title.toLowerCase())}">${icon("plus")}</button></div>` +
+        `<b class="hub-t">${icon(s.icon, "xs")}<span>${esc(s.title)}</span><i class="hub-n" hidden></i></b>` +
       `</div>`;
     hubEl.innerHTML =
-      `<div class="hub-head">` +
-        `<div><b>Widgets</b><span>Click to add, drag a card onto the canvas, or right-click to choose where.</span></div>` +
-        `<button type="button" class="hub-close" data-hub="close" aria-label="Close">${icon("x")}<kbd>Esc</kbd></button>` +
+      `<div class="hub-top">` +
+        `<div class="hub-tabs" role="tablist">` +
+          ["All", ...SECTIONS].map((g, i) => `<button type="button" role="tab" data-hubg="${g}" class="${i ? "" : "on"}">${g}</button>`).join("") +
+        `</div>` +
+        `<div class="hub-find">${Icons.field('<input type="search" placeholder="Search" autocomplete="off" spellcheck="false" aria-label="Search widgets">')}</div>` +
+        `<span class="hub-gap"></span>` +
+        `<label class="hub-switch" title="Let the chart be dragged and resized like any widget">` +
+          `<input type="checkbox" class="dk-switch" data-hub="lock"><span>Movable chart</span></label>` +
+        `<button type="button" class="hub-ico" data-hub="focus" title="Focus on the chart (Alt Z)" aria-label="Focus">${icon("focus")}</button>` +
+        `<button type="button" class="hub-ico" data-hub="full" title="Fullscreen (Alt Shift F)" aria-label="Fullscreen">${icon("fullscreen")}</button>` +
+        `<button type="button" class="hub-ico" data-hub="reset" title="Reset the workspace — close every widget" aria-label="Reset">${icon("rotateCw")}</button>` +
+        `<button type="button" class="hub-ico" data-hub="close" title="Close (Esc)" aria-label="Close">${icon("x")}</button>` +
       `</div>` +
-      `<div class="hub-bar">` +
-        `<label class="hub-switch"><input type="checkbox" class="dk-switch" data-hub="lock">` +
-          `<span>Movable chart</span></label>` +
-        `<button type="button" class="dk-pill" data-hub="focus">${icon("focus", "xs")}Focus<kbd>Alt Z</kbd></button>` +
-        `<button type="button" class="dk-pill" data-hub="full">${icon("fullscreen", "xs")}Fullscreen</button>` +
-        `<button type="button" class="dk-pill" data-hub="reset">${icon("rotateCw", "xs")}Reset</button>` +
-      `</div>` +
-      `<div class="hub-find">${Icons.field('<input type="search" placeholder="Search widgets" autocomplete="off" spellcheck="false" aria-label="Search widgets">')}</div>` +
-      `<div class="hub-scroll">` +
-        SECTIONS.map((sec) => {
-          const list = specs.filter((s) => (s.group || "Tools") === sec);
-          return list.length ? `<div class="hub-sec">${sec}</div><div class="hub-grid">${list.map(card).join("")}</div>` : "";
-        }).join("") +
-        `<p class="hub-none" hidden>No widget matches that. Try “chart”, “news” or “sheet”.</p>` +
+      `<div class="hub-rail">` +
+        `<button type="button" class="hub-arrow l" data-scroll="-1" aria-label="Scroll left" tabindex="-1">${icon("chevronLeft")}</button>` +
+        `<div class="hub-row">${specs.map(card).join("")}<p class="hub-none" hidden>No widget by that name.</p></div>` +
+        `<button type="button" class="hub-arrow r" data-scroll="1" aria-label="Scroll right" tabindex="-1">${icon("chevronRight")}</button>` +
       `</div>`;
+    const row = hubEl.querySelector(".hub-row");
     const find = hubEl.querySelector(".hub-find input");
-    const matches = (c, q) => !q || (c.textContent + " " + c.dataset.type).toLowerCase().includes(q);
-    find.addEventListener("input", () => {
+    let group = "All";
+    const filter = () => {
       const q = find.value.trim().toLowerCase();
       let any = false;
-      for (const grid of hubEl.querySelectorAll(".hub-grid")) {
-        let n = 0;
-        for (const c of grid.children) { const on = matches(c, q); c.hidden = !on; if (on) n++; }
-        grid.hidden = !n; grid.previousElementSibling.hidden = !n;
-        any = any || n > 0;
+      for (const c of row.querySelectorAll(".hub-card")) {
+        const on = (group === "All" || c.dataset.group === group)
+          && (!q || (c.textContent + " " + c.title + " " + c.dataset.type).toLowerCase().includes(q));
+        c.hidden = !on;
+        any = any || on;
       }
       hubEl.querySelector(".hub-none").hidden = any;
+      row.scrollLeft = 0;
+      arrows();
+    };
+    const arrows = () => {
+      const max = row.scrollWidth - row.clientWidth;
+      hubEl.querySelector(".hub-arrow.l").disabled = row.scrollLeft < 4;
+      hubEl.querySelector(".hub-arrow.r").disabled = row.scrollLeft > max - 4;
+    };
+    hubEl.__arrows = arrows;
+    find.addEventListener("input", filter);
+    row.addEventListener("scroll", arrows, { passive: true });
+    // a mouse wheel scrolls the strip sideways — a trackpad already does
+    row.addEventListener("wheel", (e) => {
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY) || row.scrollWidth <= row.clientWidth) return;
+      e.preventDefault();
+      row.scrollLeft += e.deltaY;
+    }, { passive: false });
+    hubEl.querySelector(".hub-tabs").addEventListener("click", (e) => {
+      const b = e.target.closest("[data-hubg]");
+      if (!b) return;
+      group = b.dataset.hubg;
+      for (const x of hubEl.querySelectorAll("[data-hubg]")) x.classList.toggle("on", x === b);
+      filter();
+    });
+    hubEl.querySelector(".hub-rail").addEventListener("click", (e) => {
+      const a = e.target.closest("[data-scroll]");
+      if (a) row.scrollBy({ left: +a.dataset.scroll * row.clientWidth * .8, behavior: reduced.matches ? "auto" : "smooth" });
     });
     find.addEventListener("keydown", (e) => {
       if (e.key !== "Enter") return;
       const c = [...hubEl.querySelectorAll(".hub-card")].find((x) => !x.hidden);
-      if (c) { e.preventDefault(); open(c.dataset.type); hub(false); }
+      if (c) { e.preventDefault(); pickCard(c.dataset.type, false); }
     });
     hubEl.addEventListener("contextmenu", (e) => {
       const c = e.target.closest(".hub-card");
@@ -1650,14 +1714,11 @@ const Dock = (() => {
       const c = e.target.closest(".hub-card");
       if (!add && !c) return;
       if (hubDragged) return;
-      const type = (add || c).dataset.add || c.dataset.type;
-      const spec = TYPES.get(type);
-      const fresh = !spec.single && placedOf(type).length > 0 && !!add;
-      open(type, null, { fresh });
+      pickCard((add || c).dataset.add || c.dataset.type, !!add);
     });
     hubEl.addEventListener("keydown", (e) => {
       if ((e.key === "Enter" || e.key === " ") && e.target.classList.contains("hub-card")) {
-        e.preventDefault(); open(e.target.dataset.type);
+        e.preventDefault(); pickCard(e.target.dataset.type, false);
       }
     });
     let hubDragged = false;
@@ -1688,11 +1749,13 @@ const Dock = (() => {
     if (lock) lock.checked = !S.lock;
     const f = hubEl.querySelector('[data-hub="focus"]');
     if (f) f.classList.toggle("on", !!S.focus);
+    if (hubEl.__arrows) requestAnimationFrame(hubEl.__arrows);
     for (const c of hubEl.querySelectorAll(".hub-card")) {
       const n = placedOf(c.dataset.type).length;
       c.classList.toggle("on", n > 0);
       const i = c.querySelector(".hub-n");
-      i.hidden = n < 1; i.textContent = n > 1 ? `${n} open` : "Open";
+      i.hidden = n < 1; i.textContent = n > 1 ? String(n) : "";
+      i.title = n ? `${n} open` : "";
       c.classList.toggle("has-new", badges.has(c.dataset.type));
     }
   }
@@ -1719,6 +1782,110 @@ const Dock = (() => {
       return { show() { ctx.setTitle(pageSymbol()); } };
     },
   });
+
+  /* ══ the empty slot ══════════════════════════════════════════════════════
+   * Pull the chart in from an edge of the workspace and the room it gives up
+   * is a slot: a dashed place that says what it is for. Fill it from the
+   * drawer, drag any widget into it, or close it and the chart takes the
+   * room back. */
+  TYPES.set(SLOT, {
+    type: SLOT, title: "Empty", icon: "plus", catalog: false, rail: false,
+    mount(host, ctx) {
+      host.innerHTML = `<div class="dk-slot">` +
+        `<button type="button" class="dk-slot-add" data-slot="add">${icon("plus")}<span>Add a widget</span></button>` +
+        `<em>or drag one here</em>` +
+        `<button type="button" class="dk-slot-x" data-slot="close" title="Give the room back to the chart" aria-label="Close">${icon("x")}</button>` +
+      `</div>`;
+      host.addEventListener("click", (e) => {
+        const b = e.target.closest("[data-slot]");
+        if (!b) return;
+        e.stopPropagation();
+        if (b.dataset.slot === "add") hub(true, ctx.id);
+        else ctx.close();
+      });
+      return {};
+    },
+  });
+
+  /* Pull handles: thin strips along whichever edges of the workspace the
+   * chart touches. Dragging one in makes a slot on that side, sized live by
+   * the pointer; let go near the edge and nothing is made. They sit only
+   * along the chart, so they never cover another widget's scrollbar. */
+  const pulls = ["left", "right", "top", "bottom"].map((side) => {
+    const n = document.createElement("div");
+    n.className = "dk-pull";
+    n.dataset.side = side;
+    n.title = "Drag to make room beside the chart";
+    n.setAttribute("aria-hidden", "true");
+    canvas.appendChild(n);
+    n.addEventListener("pointerdown", (e) => pullStart(e, side));
+    return n;
+  });
+  function syncPulls() {
+    const off = compact || S.focus || maxed || drag;
+    const cn = groupEls.get(groupOf(CHART));
+    const cv = canvas.getBoundingClientRect();
+    const r = cn && cn.isConnected && !floatOf(groupOf(CHART)) ? cn.getBoundingClientRect() : null;
+    for (const n of pulls) {
+      const side = n.dataset.side;
+      const touch = r && !off && (side === "left" ? r.left - cv.left < 2 : side === "right" ? cv.right - r.right < 2
+        : side === "top" ? r.top - cv.top < 2 : cv.bottom - r.bottom < 2);
+      n.hidden = !touch;
+      if (!touch) continue;
+      const v = side === "left" || side === "right";
+      Object.assign(n.style, v
+        ? { top: r.top - cv.top + "px", height: r.height + "px", left: side === "left" ? "0px" : "", right: side === "right" ? "0px" : "", width: "", bottom: "" }
+        : { left: r.left - cv.left + "px", width: r.width + "px", top: side === "top" ? "0px" : "", bottom: side === "bottom" ? "0px" : "", height: "", right: "" });
+    }
+  }
+  addEventListener("resize", () => requestAnimationFrame(syncPulls));
+
+  function pullStart(e, side) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const cv = canvas.getBoundingClientRect();
+    const size = side === "left" || side === "right" ? cv.width : cv.height;
+    let id = null, gid = null, share = 0, raf = 0;
+    document.body.classList.add("dk-resizing", side === "left" || side === "right" ? "dk-col-resize" : "dk-row-resize");
+    const dist = (ev) => side === "left" ? ev.clientX - cv.left : side === "right" ? cv.right - ev.clientX
+      : side === "top" ? ev.clientY - cv.top : cv.bottom - ev.clientY;
+    const apply = () => {
+      raf = 0;
+      const loc = locate(gid);
+      if (!loc || !loc.p) return;
+      const others = sum(loc.p.s) - loc.p.s[loc.i];
+      loc.p.s[loc.i] = others * share / (1 - share);
+      layout(false);
+    };
+    const mv = (ev) => {
+      const d = dist(ev);
+      share = clamp(d / size, .04, .75);
+      if (!id) {
+        if (d < 14) return;
+        id = uid("slot:");
+        S.inst[id] = { type: SLOT, cfg: {} };
+        gid = newGroup([id]);
+        addEdge(side, gid, share);
+        layout(false);
+        return;
+      }
+      if (!raf) raf = requestAnimationFrame(apply);
+    };
+    const up = () => {
+      removeEventListener("pointermove", mv);
+      removeEventListener("pointerup", up);
+      removeEventListener("pointercancel", up);
+      cancelAnimationFrame(raf);
+      document.body.classList.remove("dk-resizing", "dk-col-resize", "dk-row-resize");
+      if (!id) return;
+      if (share < .09) { detach(id); delete S.inst[id]; layout(true); return; }
+      apply();
+      flash(id);
+    };
+    addEventListener("pointermove", mv);
+    addEventListener("pointerup", up);
+    addEventListener("pointercancel", up);
+  }
 
   /* ══ registration and start ══════════════════════════════════════════════ */
 
@@ -1759,6 +1926,7 @@ const Dock = (() => {
                      key: t.key || "", anim: t.anim || "", single: !!t.single, open: placedOf(t.type).length })),
     /** What is on the workspace now, in reading order. */
     opened: () => [...treeGroups(), ...S.floats.map((f) => f.gid)].flatMap((gid) => S.groups[gid].tabs)
+      .filter((id) => S.inst[id].type !== SLOT)
       .map((id) => ({ id, type: S.inst[id].type, icon: (TYPES.get(S.inst[id].type) || {}).icon,
                       ...label(id), visible: lastVisible.has(id) })),
     reveal, badge, badged: (type) => badges.has(type),

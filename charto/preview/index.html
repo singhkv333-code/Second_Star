@@ -7271,79 +7271,134 @@ body.dk-row-resize, body.dk-row-resize * { cursor: row-resize !important; }
 }
 .dk-toast.on { opacity: 1; transform: translate(-50%, 0); }
 
-/* ── the widget hub: a drawer of picture cards over the canvas ── */
-.dk-hub {
-  position: absolute; top: 0; right: 0; bottom: 0; z-index: 80; width: min(560px, 92%);
-  display: flex; flex-direction: column; background: var(--surface-plain);
-  border-left: 1px solid var(--border); box-shadow: -24px 0 60px -30px rgba(0,0,0,.35);
-  transform: translateX(24px); opacity: 0;
-  transition: transform .26s var(--ease-quartr), opacity .2s var(--ease-quartr);
+/* ── the empty slot, and the handles that make one ── */
+.dk-slot {
+  position: relative; flex: 1; margin: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  border-radius: 14px; border: 1.5px dashed color-mix(in srgb, var(--foreground) 18%, transparent);
+  transition: border-color var(--dur), background var(--dur);
 }
-/* An author display beats the UA's [hidden] rule, so the closed drawer used
-   to stay over the canvas — invisible at opacity 0 and still taking every
-   click and hover meant for the tiles under it. Closed is display:none, and
-   closing is pointer-events:none from the first frame of the slide-out. */
+.dk-group:hover .dk-slot { border-color: color-mix(in srgb, var(--foreground) 32%, transparent); }
+.dk-slot-add {
+  display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 14px 0 11px; border-radius: 10px; border: 0; cursor: pointer;
+  background: var(--foreground); color: var(--background); font: inherit; font-size: var(--text-base); font-weight: var(--weight-semi);
+  transition: transform var(--dur-fast), opacity var(--dur);
+}
+.dk-slot-add:hover { opacity: .86; } .dk-slot-add:active { transform: scale(.97); }
+.dk-slot-add svg.icon { width: 15px; height: 15px; }
+.dk-slot em { font-style: normal; font-size: var(--text-sm); opacity: .55; }
+.dk-slot-x { position: absolute; top: 8px; right: 8px; width: 26px; height: 26px; border: 0; border-radius: 7px; padding: 0; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; background: transparent; color: var(--foreground); opacity: .5; }
+.dk-slot-x:hover { opacity: 1; background: var(--hover-fill); }
+.dk-slot-x svg.icon { width: 14px; height: 14px; }
+.dk-pull { position: absolute; z-index: 25; }
+.dk-pull[hidden] { display: none; }
+.dk-pull[data-side="left"], .dk-pull[data-side="right"] { width: 6px; cursor: col-resize; }
+.dk-pull[data-side="top"], .dk-pull[data-side="bottom"] { height: 6px; cursor: row-resize; }
+/* a small grabber, like a split-view handle, shown when the pointer is near */
+.dk-pull::after {
+  content: ""; position: absolute; border-radius: 3px; background: var(--foreground); opacity: 0;
+  transition: opacity .18s var(--ease-quartr);
+}
+.dk-pull[data-side="left"]::after, .dk-pull[data-side="right"]::after { top: 50%; width: 4px; height: 40px; margin-top: -20px; }
+.dk-pull[data-side="left"]::after { left: 1px; } .dk-pull[data-side="right"]::after { right: 1px; }
+.dk-pull[data-side="top"]::after, .dk-pull[data-side="bottom"]::after { left: 50%; height: 4px; width: 40px; margin-left: -20px; }
+.dk-pull[data-side="top"]::after { top: 1px; } .dk-pull[data-side="bottom"]::after { bottom: 1px; }
+.dk-pull:hover::after, body.dk-resizing .dk-pull::after { opacity: .35; }
+body.dk-dragging .dk-pull { pointer-events: none; }
+
+/* ── the widget hub: a sheet that rises from the bottom of the canvas ──
+   One row of picture cards, scrolled sideways like a film strip. The sheet
+   is frosted glass over the workspace — the workspace stays visible through
+   it — and the cards carry no plate of their own: a picture and a name. */
+.dk-hub {
+  position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 80;
+  display: flex; flex-direction: column; gap: 4px; padding: 10px 0 14px;
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--surface-plain) 58%, transparent);
+  -webkit-backdrop-filter: blur(26px) saturate(1.5); backdrop-filter: blur(26px) saturate(1.5);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 9%, transparent),
+              0 24px 70px -28px rgba(0,0,0,.42);
+  transform: translateY(calc(100% + 24px)); opacity: 0;
+  transition: transform .42s cubic-bezier(.2,.9,.2,1), opacity .25s var(--ease-quartr);
+}
 .dk-hub[hidden] { display: none; }
 .dk-hub:not(.open) { pointer-events: none; }
-/* Same trap inside every widget: a class that sets display would keep a
-   hidden overlay on screen (the extra chart's message plate sat over its
-   plot and ate the pointer). The main chart is left to its own rules. */
-.dk-host:not(.dk-w-main) [hidden], .dk-menu [hidden] { display: none !important; }
 .dk-hub.open { transform: none; opacity: 1; }
-.dk-hub.away { opacity: .12; pointer-events: none; transform: translateX(40px); }
-.hub-head { flex: none; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 18px 18px 10px; }
-.hub-head b { display: block; font-size: 18px; font-weight: var(--weight-semi); letter-spacing: -.01em; }
-.hub-head span { font-size: var(--text-base); color: var(--foreground); opacity: .7; }
-.hub-close {
-  display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px 0 7px; border-radius: 9px;
-  border: 1px solid var(--border); background: var(--surface-plain); color: var(--foreground); cursor: pointer; font: inherit;
-  transition: background var(--dur);
+/* dragging a card out: the sheet ducks below the edge so the whole canvas is a target */
+.dk-hub.away { opacity: 0; pointer-events: none; transform: translateY(calc(100% + 24px)); transition-duration: .25s; }
+
+.hub-top { flex: none; display: flex; align-items: center; gap: 6px; padding: 0 12px 0 16px; min-height: 34px; }
+.hub-tabs { display: flex; gap: 2px; padding: 2px; border-radius: 10px; background: color-mix(in srgb, var(--foreground) 6%, transparent); }
+.hub-tabs button {
+  height: 26px; padding: 0 11px; border: 0; border-radius: 8px; background: transparent; cursor: pointer;
+  color: var(--foreground); opacity: .62; font: inherit; font-size: var(--text-sm); font-weight: var(--weight-medium);
+  transition: background var(--dur), opacity var(--dur), color var(--dur);
 }
-.hub-close:hover { background: var(--hover-fill); }
-.hub-close svg.icon { width: 14px; height: 14px; }
-.hub-close kbd { font: inherit; font-size: 10.5px; opacity: .55; }
-.hub-bar { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 18px 12px; border-bottom: 1px solid var(--border-soft); }
-.hub-switch {
-  display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px 0 7px; margin-right: auto;
-  border-radius: 9px; border: 1px solid var(--border); cursor: pointer; font-size: var(--text-sm); font-weight: var(--weight-medium);
+.hub-tabs button:hover { opacity: 1; }
+.hub-tabs button.on { opacity: 1; background: var(--foreground); color: var(--background); }
+.hub-find { flex: 0 1 200px; min-width: 120px; }
+.hub-find .searchfield { height: 30px; background: color-mix(in srgb, var(--foreground) 6%, transparent); border-color: transparent; }
+.hub-gap { flex: 1; }
+.hub-switch { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 10px 0 6px; border-radius: 9px; cursor: pointer;
+  font-size: var(--text-sm); font-weight: var(--weight-medium); transition: background var(--dur); }
+.hub-switch:hover { background: color-mix(in srgb, var(--foreground) 6%, transparent); }
+/* the one coloured control here: green means "the chart can move" */
+.hub-switch .dk-switch:checked { background: var(--up); border-color: var(--up); }
+.hub-ico {
+  width: 30px; height: 30px; padding: 0; border: 0; border-radius: 9px; background: transparent; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; color: var(--foreground);
+  transition: background var(--dur), color var(--dur), transform var(--dur-fast);
 }
-.hub-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 18px 22px; scrollbar-width: thin; }
-.hub-sec {
-  margin: 16px 2px 8px; font-size: var(--text-2xs); font-weight: var(--weight-semi);
-  letter-spacing: .07em; text-transform: uppercase; color: var(--foreground); opacity: .55;
+.hub-ico svg.icon { width: 16px; height: 16px; }
+.hub-ico:hover { background: color-mix(in srgb, var(--foreground) 8%, transparent); }
+.hub-ico:active { transform: scale(.94); }
+.hub-ico.on { background: var(--foreground); color: var(--background); }
+.hub-ico[data-hub="reset"]:hover { color: var(--down); background: color-mix(in srgb, var(--down) 10%, transparent); }
+.hub-ico[data-hub="reset"]:hover svg.icon { transform: rotate(-120deg); transition: transform .4s var(--ease-quartr); }
+
+/* the strip */
+.hub-rail { position: relative; flex: none; }
+.hub-row {
+  display: flex; gap: 14px; overflow-x: auto; overflow-y: hidden; padding: 8px 16px 4px;
+  scroll-snap-type: x proximity; scroll-padding: 0 16px; scrollbar-width: none; overscroll-behavior-x: contain;
 }
-.hub-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.hub-row::-webkit-scrollbar { display: none; }
+.hub-arrow {
+  position: absolute; top: 8px; bottom: 30px; z-index: 2; width: 44px; border: 0; padding: 0; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; color: var(--foreground);
+  opacity: 0; transition: opacity .2s var(--ease-quartr);
+}
+.hub-arrow.l { left: 0; border-radius: 20px 0 0 20px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--surface-plain) 85%, transparent), transparent); }
+.hub-arrow.r { right: 0; border-radius: 0 20px 20px 0;
+  background: linear-gradient(270deg, color-mix(in srgb, var(--surface-plain) 85%, transparent), transparent); }
+.hub-arrow svg.icon { width: 30px; height: 30px; padding: 6px; border-radius: 50%; background: var(--surface-plain);
+  box-shadow: 0 4px 14px -6px rgba(0,0,0,.35); transition: transform .2s var(--ease-quartr); }
+.hub-arrow:hover svg.icon { transform: scale(1.08); }
+.hub-rail:hover .hub-arrow:not([disabled]) { opacity: 1; }
+.hub-arrow[disabled] { pointer-events: none; }
+
 .hub-card {
-  position: relative; display: flex; flex-direction: column; border-radius: 14px; overflow: hidden;
-  background: var(--surface-plain); border: 1px solid var(--border); cursor: pointer; outline: none;
-  transition: transform .25s var(--ease-quartr), border-color var(--dur), box-shadow .25s var(--ease-quartr);
+  position: relative; flex: none; width: 196px; display: flex; flex-direction: column; gap: 8px;
+  scroll-snap-align: start; cursor: pointer; outline: none; background: transparent; border: 0;
+  transition: transform .3s var(--ease-quartr);
 }
-.hub-card:hover, .hub-card:focus-visible {
-  transform: translateY(-2px); border-color: color-mix(in srgb, var(--foreground) 28%, var(--border));
-  box-shadow: 0 14px 34px -22px rgba(0,0,0,.45);
-}
-.hub-card:active { transform: scale(.99); }
-.hub-card[hidden], .hub-grid[hidden], .hub-sec[hidden], .hub-none[hidden] { display: none; }
-.hub-find { flex: none; padding: 2px 18px 6px; }
-.hub-none { margin: 28px 4px; font-size: var(--text-base); opacity: .65; }
-/* "something here wants you": the alerts bell's unseen mark, wherever the
-   widget is reachable from */
-.hub-card.has-new .hub-meta b::after, .dk-tab .dk-dot {
-  content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--down); flex: none;
-}
-.dk-tab .dk-dot { margin-left: -2px; align-self: center; }
-#dockBtn { position: relative; }
-#dockBtn.has-new::after {
-  content: ""; position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; border-radius: 50%;
-  background: var(--down); box-shadow: 0 0 0 2px var(--background);
-}
+.hub-card[hidden] { display: none; }
+.hub-card:hover, .hub-card:focus-visible { transform: translateY(-3px); }
+.hub-card:active { transform: scale(.98); }
+.hub-none[hidden] { display: none; }
+.hub-none { flex: none; margin: 44px auto; font-size: var(--text-base); opacity: .6; }
 /* the picture: a still from a film — soft-focus background, the subject
    sharp, grain and vignette baked into the SVG; on hover, a slow push-in and
    one pass of light across the frame */
 .hub-pic {
-  position: relative; aspect-ratio: 16 / 9; overflow: hidden;
-  background: color-mix(in srgb, var(--foreground) 3%, var(--surface-plain));
-  border-bottom: 1px solid var(--border-soft);
+  position: relative; aspect-ratio: 16 / 10; overflow: hidden; border-radius: 14px;
+  background: color-mix(in srgb, var(--foreground) 4%, var(--surface-plain));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 8%, transparent), 0 10px 28px -20px rgba(0,0,0,.5);
+  transition: box-shadow .3s var(--ease-quartr);
+}
+.hub-card:hover .hub-pic, .hub-card:focus-visible .hub-pic {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 22%, transparent), 0 18px 34px -20px rgba(0,0,0,.55);
 }
 .hub-pic .hub-art { position: absolute; inset: 0; width: 100%; height: 100%; transition: transform 1.6s cubic-bezier(.2,.7,.2,1); }
 .hub-pic .hub-back { transition: transform 1.6s cubic-bezier(.2,.7,.2,1); }
@@ -7356,25 +7411,41 @@ body.dk-row-resize, body.dk-row-resize * { cursor: row-resize !important; }
 }
 .hub-card:hover .hub-pic::after { animation: hub-sweep 1.2s var(--ease-quartr) forwards; }
 @keyframes hub-sweep { 0% { transform: translateX(-60%); opacity: 0; } 25% { opacity: 1; } 100% { transform: translateX(60%); opacity: 0; } }
-.hub-meta { display: flex; flex-direction: column; gap: 3px; padding: 11px 12px 12px; }
-.hub-meta b { display: flex; align-items: center; gap: 7px; font-size: var(--text-xl); font-weight: var(--weight-semi); }
-.hub-meta b svg.icon { width: 15px; height: 15px; }
-.hub-meta span { font-size: var(--text-sm); line-height: 1.4; color: var(--foreground); opacity: .7; }
+.hub-t {
+  display: flex; align-items: center; gap: 7px; padding: 0 4px; font-size: var(--text-base); font-weight: var(--weight-semi);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.hub-t svg.icon { width: 14px; height: 14px; flex: none; opacity: .75; }
+/* open: a quiet ink dot, a number when there are several */
 .hub-n {
-  margin-left: auto; font-style: normal; font-size: 11px; font-weight: var(--weight-medium);
-  padding: 2px 7px; border-radius: 6px; border: 1px solid var(--border); opacity: .8;
+  margin-left: auto; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; font-style: normal;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 10.5px; font-weight: var(--weight-semi); background: var(--foreground); color: var(--background);
 }
+.hub-n:empty { min-width: 7px; width: 7px; height: 7px; padding: 0; }
+.hub-n[hidden] { display: none; }
+/* "something here wants you": the alerts bell's unseen mark */
+.dk-tab .dk-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--down); flex: none; margin-left: -2px; align-self: center; }
+#dockBtn { position: relative; }
+#dockBtn.has-new::after {
+  content: ""; position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--down); box-shadow: 0 0 0 2px var(--background);
+}
+.hub-card.has-new .hub-t::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--down); flex: none; }
 .hub-add {
-  position: absolute; top: 10px; left: 10px; width: 30px; height: 30px; padding: 0; border-radius: 50%;
+  position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; padding: 0; border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
-  background: var(--surface-plain); color: var(--foreground); border: 1px solid var(--border);
-  box-shadow: 0 2px 8px -2px rgba(0,0,0,.18);
-  transition: transform .2s var(--ease-quartr), background var(--dur), color var(--dur);
+  background: color-mix(in srgb, var(--surface-plain) 80%, transparent); color: var(--foreground); border: 0;
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  box-shadow: 0 2px 10px -3px rgba(0,0,0,.3);
+  opacity: 0; transform: scale(.85);
+  transition: transform .22s var(--ease-quartr), opacity .2s var(--ease-quartr), background var(--dur), color var(--dur);
 }
-.hub-add svg.icon { width: 16px; height: 16px; transition: transform .25s var(--ease-quartr); }
-.hub-add:hover { background: var(--foreground); color: var(--background); transform: scale(1.06); }
+.hub-card:hover .hub-add, .hub-card:focus-visible .hub-add, .hub-add:focus-visible { opacity: 1; transform: none; }
+.hub-add svg.icon { width: 15px; height: 15px; transition: transform .25s var(--ease-quartr); }
+.hub-add:hover { background: var(--foreground); color: var(--background); }
 .hub-add:hover svg.icon { transform: rotate(90deg); }
-.hub-card.on .hub-add { background: var(--foreground); color: var(--background); }
+@media (hover: none) { .hub-add { opacity: 1; transform: none; } }
 
 /* an empty widget: its mark on a plain plate, one sentence, one button */
 .dk-host .side-empty { padding: 28px 22px; }
@@ -9956,7 +10027,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/main.js?v=158"></script>
   <script src="./js/wkit.js?v=1"></script>
   <script src="./js/hub-art.js?v=1"></script>
-  <script src="./js/dock.js?v=7"></script>
+  <script src="./js/dock.js?v=8"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=11"></script>
