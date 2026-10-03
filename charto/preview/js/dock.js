@@ -773,6 +773,9 @@ const Dock = (() => {
       const sg = sib && groupOf(sib);
       if (sg && !floatOf(sg)) target = { kind: "split", gid: sg, side: "bottom" };
     }
+    // A widget that always opens in its own zone (`zoneOnly`) does not go
+    // back to wherever it was last docked; a floating window is still kept.
+    if (remembered && spec.zoneOnly && !remembered.float) remembered = null;
     if (!target && remembered) {
       target = remembered.float && remembered.rect ? { kind: "float", ...remembered.rect }
         : S.groups[remembered.gid] ? { kind: "tab", gid: remembered.gid } : null;

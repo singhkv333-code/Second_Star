@@ -123,6 +123,12 @@
       C1: "font-weight:600", D1: "font-weight:600", E1: "font-weight:600" }, widths: [110, 96, 80, 96, 80] }] };
   }
 
+  // Cell fills: pale enough that black text stays readable on every one, and
+  // each with a stronger edge for its patch in the menu.
+  const FILLS = [["none", "No fill", "transparent"], ["grey", "Grey", "#eef0f3"], ["green", "Green", "#e3f4ec"],
+                 ["red", "Red", "#fbe6e6"], ["orange", "Orange", "#fdecdc"], ["yellow", "Yellow", "#fdf4d7"],
+                 ["blue", "Blue", "#e6eefb"], ["purple", "Purple", "#efe8fb"]];
+
   function mount(host, ctx) {
     const KEY = `sheet:${ctx.id}`;
     let wb = null, saveT = 0, refreshT = 0, sel = null, pending = [];
@@ -133,7 +139,7 @@
         `<button type="button" class="sh-btn i" data-sh="bold" title="Bold">${ic("bold")}</button>` +
         `<button type="button" class="sh-btn i" data-sh="italic" title="Italic">${ic("italic")}</button>` +
         `<button type="button" class="sh-btn i" data-sh="align" title="Alignment">${ic("listBullet")}</button>` +
-        `<button type="button" class="sh-btn i" data-sh="fill" title="Cell colour"><span class="sh-sw"></span></button>` +
+        `<button type="button" class="sh-btn i sh-fillb" data-sh="fill" title="Cell colour">${ic("paintBucket")}<i class="sh-swbar"></i></button>` +
         `<span class="sh-sep"></span>` +
         `<button type="button" class="sh-btn" data-sh="fx" title="Insert a function">${ic("sigma")}<span>Functions</span></button>` +
         `<span class="sh-gap"></span>` +
@@ -275,10 +281,23 @@
           (v) => setStyleAll("text-align", v));
       }
       if (a === "fill") {
-        const C = [["none", "No fill", "transparent"], ["grey", "Grey", "#f1f2f4"], ["green", "Green", "#e3f4ec"],
-                   ["red", "Red", "#fbe6e6"], ["yellow", "Yellow", "#fdf4d7"], ["blue", "Blue", "#e6eefb"]];
-        return ctx.menu(b, [{ head: "Cell colour" }, ...C.map(([id, l]) => ({ id, label: l }))],
-          (id) => setStyleAll("background-color", C.find((c) => c[0] === id)[2]));
+        if (!sel) return ctx.toast("Select some cells first.");
+        // The cell's current fill, so the menu can tick it — read off the
+        // first selected cell, the one the formula bar is showing.
+        let now = "";
+        try { now = (/background-color:\s*([^;]+)/.exec(sel.w.getStyle(colName(sel.x1) + (sel.y1 + 1)) || "") || [])[1] || ""; } catch {}
+        now = now.trim().toLowerCase();
+        const rows = FILLS.map(([id, label, hex]) => {
+          const on = hex === "transparent" ? !now || now === "transparent" : now === hex;
+          return `<div class="item sh-fill${on ? " on" : ""}" data-pick="${id}">` +
+            `<span class="lead"><i class="sh-patch${hex === "transparent" ? " none" : ""}" style="--c:${hex}"></i>${esc(label)}</span>` +
+            (on ? ic("check") : "") + `</div>`;
+        }).join("");
+        return ctx.menu(b, `<div class="head">Cell colour</div>${rows}`, (id) => {
+          const hex = FILLS.find((c) => c[0] === id)[2];
+          setStyleAll("background-color", hex);
+          b.style.setProperty("--fill", hex === "transparent" ? "transparent" : hex);
+        }, "sh-fillmenu");
       }
       if (a === "fx") {
         return ctx.menu(b, [{ head: "Market functions" },
@@ -461,7 +480,9 @@
   Dock.register({
     type: "sheet", title: "Sheet", icon: "sheet", hue: "green", group: "Tools",
     desc: "A spreadsheet with live market functions and Excel files",
-    zone: "bottom", mount,
+    // A vertical tool beside the chart, never a strip under it: a strip
+    // squeezed the chart's height and showed two rows of the grid.
+    zone: "right", zoneOnly: true, minW: 340, mount,
     settings: [
       { section: "Live cells" },
       { key: "refresh", label: "Market functions update", def: 30000, hint: "PRICE, CHG, FEATURE and the rest",

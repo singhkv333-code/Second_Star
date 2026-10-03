@@ -192,6 +192,20 @@ const HubArt = (() => {
         `<text x="85" y="45" text-anchor="middle" font-size="8" font-weight="700" fill="#fff" font-family="var(--font)">LIVE</text>` +
         `<rect x="130" y="152" width="60" height="5" rx="2.5" ${ink(.35)}/>`);
     },
+    portfolio(id) {
+      const R = 46, C = Math.PI * 2 * R, parts = [[.34, "#4f6bed"], [.22, "#14a3b8"], [.18, "#d4a72c"], [.14, "#8b5cf6"], [.12, "#e07a3f"]];
+      let off = 0;
+      const arcs = parts.map(([w, c]) => {
+        const len = w * C - 3;
+        const a = `<circle cx="104" cy="90" r="${R}" fill="none" stroke="${c}" stroke-width="13" stroke-dasharray="${len} ${C - len}" stroke-dashoffset="${-off}"/>`;
+        off += w * C;
+        return a;
+      }).join("");
+      const legend = parts.map(([w, c], i) => `<rect x="182" y="${52 + i * 17}" width="8" height="8" rx="2" fill="${c}"/>` +
+        bar(196, 53 + i * 17, 56 - i * 6, 6, .35) + bar(266, 53 + i * 17, 18, 6, .2)).join("");
+      return frame(id, bar(20, 20, 280, 140, .04, 10),
+        `<g transform="rotate(-90 104 90)">${arcs}</g>` + bar(86, 84, 36, 7, .7) + bar(92, 96, 24, 5, .25) + legend);
+    },
     calendar(id) {
       const cells = [];
       for (let r = 0; r < 4; r++) for (let c = 0; c < 7; c++) {

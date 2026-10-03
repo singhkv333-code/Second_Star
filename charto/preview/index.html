@@ -8061,7 +8061,19 @@ body.dk-dragging .dk-pull { pointer-events: none; }
 .sh-btn:active { transform: scale(.95); }
 .sh-btn svg.icon { width: 15px; height: 15px; }
 .sh-btn svg.icon:last-child:not(:first-child) { width: 12px; height: 12px; opacity: .6; }
-.sh-sw { width: 14px; height: 14px; border-radius: 4px; border: 1.5px solid var(--foreground); background: linear-gradient(135deg, transparent 45%, var(--foreground) 46%, var(--foreground) 54%, transparent 55%); }
+/* the fill button: a bucket over a bar showing the last colour poured */
+.sh-fillb { position: relative; flex-direction: column; gap: 1px; }
+.sh-fillb svg.icon { width: 14px; height: 14px; margin-top: -2px; }
+.sh-swbar { display: block; width: 14px; height: 3px; border-radius: 1.5px; background: var(--fill, var(--foreground));
+  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--foreground) 35%, transparent); }
+/* its menu: opaque paper, because a translucent sheet over red price labels
+   read as a red smear behind the words */
+.dk-menu.sh-fillmenu { min-width: 176px; background: var(--popover); -webkit-backdrop-filter: none; backdrop-filter: none; }
+.sh-fill .lead { gap: 10px; }
+.sh-patch { width: 16px; height: 16px; flex: none; border-radius: 4px; background: var(--c);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 55%, #000 18%); }
+.sh-patch.none { background: linear-gradient(135deg, transparent 44%, var(--down) 45%, var(--down) 55%, transparent 56%), var(--background);
+  box-shadow: inset 0 0 0 1px var(--border); }
 .sh-sep { width: 1px; height: 16px; margin: 0 4px; background: var(--border); }
 .sh-gap { flex: 1; }
 .sh-state { font-size: var(--text-sm); opacity: .6; margin-right: 6px; white-space: nowrap; }
@@ -8235,6 +8247,70 @@ i.mg { height: 3px !important; border-radius: 2px !important; background: var(--
 @container (max-width: 380px) {
   .fin-table.st td:first-child { min-width: 132px; }
   .fin-table td + td, .fin-table th + th { min-width: 64px; padding-left: 6px; padding-right: 6px; }
+}
+
+/* portfolio (js/w-portfolio.js) — a ring, the numbers, the holdings */
+.pf-body { padding: 10px 12px 12px; }
+.pf-top { display: flex; align-items: center; gap: 18px; padding: 6px 2px 14px; }
+.pf-ring { position: relative; flex: none; width: 150px; height: 150px; }
+.pf-ring svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.pf-track { fill: none; stroke: color-mix(in srgb, var(--foreground) 6%, transparent); }
+.pf-arc { fill: none; cursor: pointer; transition: stroke-width var(--dur) var(--ease-quartr), opacity var(--dur) var(--ease-quartr); }
+.pf-ring:has(.pf-arc.hot) .pf-arc:not(.hot) { opacity: .35; }
+.pf-arc.hot { stroke-width: 16; }
+.pf-centre { position: absolute; inset: 22px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px; text-align: center; pointer-events: none; min-width: 0; }
+.pf-centre .pf-k { max-width: 100%; font-size: 10.5px; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pf-centre b { font-size: 16px; font-weight: var(--weight-semi); letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.pf-centre .pf-s { font-size: 11px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+.pf-s.up, .pf-stats .up, .pf-table .up, .pf-det .up { color: var(--up); }
+.pf-s.down, .pf-stats .down, .pf-table .down, .pf-det .down { color: var(--down); }
+.pf-legend { flex: 1; min-width: 0; display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.pf-legend li { display: grid; grid-template-columns: 9px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 4px 6px;
+  border-radius: 6px; font-size: 12px; cursor: default; }
+.pf-legend li.hot { background: var(--hover-fill); }
+.pf-legend i { width: 9px; height: 9px; border-radius: 3px; }
+.pf-legend span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pf-legend b { font-weight: var(--weight-medium); font-variant-numeric: tabular-nums; color: var(--muted-foreground); }
+.pf-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; margin-bottom: 12px; border-radius: 10px;
+  overflow: hidden; background: var(--border-soft); border: 1px solid var(--border-soft); }
+.pf-stat { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; background: var(--background); min-width: 0; }
+.pf-stat span { font-size: 10.5px; color: var(--muted-foreground); }
+.pf-stat b { font-size: 13px; font-weight: var(--weight-semi); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pf-stat small { font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.pf-table { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: auto; }
+.pf-foot span { white-space: nowrap; }
+.pf-table th { position: sticky; top: 0; z-index: 1; padding: 6px 6px; background: var(--background); text-align: left;
+  font-size: 10.5px; font-weight: var(--weight-medium); color: var(--muted-foreground); border-bottom: 1px solid var(--border-soft); }
+.pf-table td { padding: 7px 6px; border-bottom: 1px solid var(--border-soft); vertical-align: middle; font-variant-numeric: tabular-nums; }
+.pf-table .n { text-align: right; white-space: nowrap; }
+.pf-table td small { display: block; font-size: 10.5px; color: var(--faint); }
+.pf-table td.up small, .pf-table td.down small { color: inherit; opacity: .8; }
+.pf-row { cursor: pointer; }
+.pf-row:hover td, .pf-row.hot td, .pf-row.open td { background: var(--hover-fill); }
+.pf-co { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.pf-dot { width: 4px; height: 22px; border-radius: 2px; flex: none; }
+.pf-logo { width: 20px; height: 20px; border-radius: 5px; object-fit: contain; flex: none; background: #fff; }
+.pf-nm { display: flex; flex-direction: column; min-width: 0; }
+.pf-nm b { font-weight: var(--weight-semi); }
+.pf-nm small { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pf-more td { padding: 0 6px 10px; background: var(--hover-fill); }
+.pf-det { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 12px; padding: 8px 4px 10px; }
+.pf-det span { display: flex; flex-direction: column; gap: 1px; font-size: 12px; min-width: 0; }
+.pf-det small { font-size: 10.5px; color: var(--faint); }
+.pf-det em { font-style: normal; }
+.pf-acts { display: flex; gap: 6px; padding: 0 4px; }
+.pf-acts .btn { height: 28px; font-size: 12px; gap: 6px; }
+.pf-acts svg.icon { width: 13px; height: 13px; }
+@container (max-width: 380px) {
+  .pf-top { flex-direction: column; align-items: stretch; }
+  .pf-ring { align-self: center; }
+  .pf-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pf-table th:nth-child(3), .pf-table td:nth-child(3) { display: none; }
+  .pf-table .pf-nm small { display: none; }
+  .pf-table td, .pf-table th { padding-left: 4px; padding-right: 4px; }
+  .pf-logo { width: 18px; height: 18px; }
+  .pf-det { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 /* news */
@@ -11163,7 +11239,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/store.js?v=19"></script>
   <script src="./js/theme.js?v=12"></script>
   <script src="./js/universe.js?v=10"></script>
-  <script src="./js/icons.js?v=43"></script>
+  <script src="./js/icons.js?v=44"></script>
   <!-- after icons.js (every row is drawn with one) and before main.js, which
        builds the chart's three right-click menus out of it -->
   <script src="./js/ctxmenu.js?v=10"></script>
@@ -11206,8 +11282,8 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        __charto and ChartSettings exist by the first selection. -->
   <script src="./js/drawedit.js?v=7"></script>
   <script src="./js/wkit.js?v=1"></script>
-  <script src="./js/hub-art.js?v=3"></script>
-  <script src="./js/dock.js?v=18"></script>
+  <script src="./js/hub-art.js?v=4"></script>
+  <script src="./js/dock.js?v=19"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=12"></script>
@@ -11236,10 +11312,11 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/screener.js?v=5"></script>
   <script src="./js/depth.js?v=4"></script>
   <script src="./js/notes.js?v=5"></script>
-  <script src="./js/w-sheet.js?v=4"></script>
+  <script src="./js/w-sheet.js?v=5"></script>
   <script src="./js/w-chart.js?v=2"></script>
   <script src="./js/w-fin.js?v=4"></script>
   <script src="./js/w-news.js?v=2"></script>
+  <script src="./js/w-portfolio.js?v=2"></script>
   <script src="./js/w-browser.js?v=6"></script>
   <script src="./js/w-code.js?v=5"></script>
   <script src="./js/w-docs.js?v=6"></script>

@@ -333,6 +333,35 @@ def prev_close(symbol: str) -> Optional[Decimal]:
     return None
 
 
+# Moneycontrol's industry slugs for the rows the profile source never covered
+# (sector empty). Shown raw they read "bankspublicsector" — and for ITC the
+# slug is just "itc" — so they are put on the same eleven sectors the profile
+# rows use. A slug not listed here is "Unclassified", never a guess.
+_MC_SECTOR = {
+    "bankspublicsector": "Financial Services", "banksprivatesector": "Financial Services",
+    "financeinvestment": "Financial Services", "financetermlendinginstitutions": "Financial Services",
+    "financepayments": "Financial Services", "mmfinancial": "Financial Services",
+    "insurancelife": "Financial Services", "licindia": "Financial Services",
+    "pharmaceuticals": "Healthcare", "pharmaceuticalsdrugs": "Healthcare",
+    "foodprocessing": "Consumer Defensive", "plantationsteacoffee": "Consumer Defensive",
+    "personalcare": "Consumer Defensive", "itc": "Consumer Defensive",
+    "hotels": "Consumer Cyclical", "tyres": "Consumer Cyclical", "autocarsjeeps": "Consumer Cyclical",
+    "tatamotorscom": "Consumer Cyclical", "motherson": "Consumer Cyclical",
+    "cementmajor": "Basic Materials", "pesticidesagrochemicals": "Basic Materials",
+    "steellarge": "Basic Materials", "paintsvarnishes": "Basic Materials",
+    "miningminerals": "Basic Materials", "fertilisers": "Basic Materials",
+    "constructioncontractingrealestate": "Real Estate",
+    "constructioncontractingcivil": "Industrials", "shipping": "Industrials",
+    "powertransmissionequipment": "Industrials", "electrodesgraphite": "Industrials",
+    "electricals": "Industrials", "castingsforgings": "Industrials",
+    "telecomservices": "Communication Services", "telecommunicationsequipment": "Technology",
+    "indexsector": "Index", "indexbroad": "Index", "volatility": "Index",
+    "cryptocurrency": "Crypto", "currency": "Currency",
+    "commoditypreciousmetals": "Commodities", "commoditybasemetals": "Commodities",
+    "commodityenergy": "Commodities",
+}
+
+
 def _sector(symbol: str) -> str:
     try:
         row = ds._classification_full((symbol or "").upper())
@@ -340,7 +369,10 @@ def _sector(symbol: str) -> str:
         return "Unclassified"
     if not row:
         return "Unclassified"
-    return str(row[3] or row[2] or row[1] or "Unclassified")
+    if row[3]:
+        return str(row[3])
+    slug = str(row[1] or row[2] or "").strip().lower()
+    return _MC_SECTOR.get(slug, "Unclassified")
 
 
 # ── the fill engine ──────────────────────────────────────────────────
