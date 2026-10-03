@@ -207,7 +207,7 @@
     open();
   }, true);
 
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", header);
-  else header();
+  // No header button: the header is kept to what is about the chart. Go to is
+  // Ctrl K (⌘K), listed on the shortcuts sheet, and in every widget's reach.
   window.GoTo = { open, close };
 })();

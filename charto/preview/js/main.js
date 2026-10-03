@@ -2277,8 +2277,11 @@
     // thing. Clicking still lands on the chart for the candle-pin path.
     onSelect: () => {},
   });
-  el("sceneClear").innerHTML = Icons.svg("eraser", "sm");
+  el("sceneClear").innerHTML = Icons.svg("eraser") + '<span class="tip">Clear what the chat drew</span>';
+  el("sceneClear").className = "tool";
   el("sceneClear").addEventListener("click", () => scene.clear());
+  // with the drawing tools, not in the header: it erases drawings
+  if (el("tool-export")) el("rail").insertBefore(el("sceneClear"), el("tool-export"));
 
   /* ── undo / redo ────────────────────────────────────────────────────────
    * TradingView's pair, in TradingView's place: the top bar, immediately
@@ -3999,7 +4002,11 @@
     return out;
   }
 
-  function captureChart(rect) {
+  /** Where a snapshot goes: the chat (default), a PNG file, or the clipboard. */
+  let shotDest = "chat";
+  function captureChart(rect, dest) {
+    dest = dest || shotDest || "chat";
+    shotDest = "chat";
     const shots = paneShots();
     const x0 = Math.min(...shots.map(([, r]) => r.left));
     const y0 = Math.min(...shots.map(([, r]) => r.top));
@@ -4041,10 +4048,38 @@
       d.getContext("2d").drawImage(c, 0, 0, d.width, d.height);
       c = d;
     }
+    const say = (t) => (typeof Dock !== "undefined" && Dock.toast ? Dock.toast(t) : status(t));
+    const name = `${SYMBOL || "chart"}-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}.png`;
+    if (dest === "download") {
+      c.toBlob((blob) => {
+        if (!blob) return say("The snapshot could not be made.");
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = name;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+        say(`Saved ${name}`);
+      }, "image/png");
+      return;
+    }
+    if (dest === "copy") {
+      c.toBlob(async (blob) => {
+        try {
+          await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+          say("Snapshot copied — paste it anywhere.");
+        } catch {
+          say("This browser would not let the page copy an image. Use Download instead.");
+        }
+      }, "image/png");
+      return;
+    }
+    // to the chat: open it first if it is hidden, so the attachment is seen
+    const panel = el("chatPanel");
+    if (panel && panel.classList.contains("hidden")) el("chatToggle").click();
     document.dispatchEvent(new CustomEvent("charto:screenshot", {
       detail: { uri: c.toDataURL("image/png") },
     }));
-    status("screenshot captured — attach it in the chat");
+    say("Snapshot attached to the chat.");
   }
 
   /** Drag a marquee over the chart; the selection becomes the screenshot.
@@ -4211,19 +4246,41 @@
     ChartSettings.open();
   });
 
-  el("shotBtn").innerHTML = Icons.svg("camera", "sm");
-  el("shotBtn").addEventListener("click", (e) => {
-    e.stopPropagation();
-    closeMenus(el("shotMenu"));
-    el("shotMenu").classList.toggle("open");
-  });
-  el("shotMenu").addEventListener("click", (e) => {
-    const it = e.target.closest("[data-shot]");
-    if (!it) return;
-    el("shotMenu").classList.remove("open");
-    if (it.dataset.shot === "full") captureChart(null);
-    else selectRegionCapture();
-  });
+  /* The snapshot is a rail tool with a flyout: what to capture (the whole
+   * chart, or an area you drag out), and where it goes (the chat, a PNG
+   * file, the clipboard). The header keeps no camera of its own. */
+  {
+    const wrap = el("shotBtn").closest(".menu-wrap");
+    const menu = el("shotMenu");
+    wrap.className = "tool-wrap shot-wrap";
+    el("shotBtn").className = "tool has-group";
+    el("shotBtn").innerHTML = Icons.svg("camera") + '<span class="tip">Snapshot</span>';
+    menu.className = "dropdown side shot-menu";
+    const row = (shot, dest, icon, label, sub, key) =>
+      `<div class="item" data-shot="${shot}" data-dest="${dest}"><span class="lead">${Icons.svg(icon, "xs")}` +
+      `<span class="sm-t"><b>${label}</b><em>${sub}</em></span></span>${key ? `<span class="sc">${key}</span>` : ""}</div>`;
+    menu.innerHTML =
+      `<div class="head">Snapshot</div>` +
+      row("full", "chat", "chat", "Send to the chat", "The whole chart, attached to your next question",
+        typeof Shortcuts !== "undefined" && Shortcuts.chord ? Shortcuts.chord("snapshot") : "") +
+      row("region", "chat", "rect", "Send an area", "Drag over the part you mean") +
+      `<div class="sep"></div>` +
+      row("full", "download", "download", "Download image", "A PNG of the chart") +
+      row("full", "copy", "copy", "Copy image", "Paste it into a message or a doc");
+    el("rail").insertBefore(wrap, el("tool-export") ? el("sceneClear") || el("tool-export") : null);
+    el("shotBtn").addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeMenus(menu);
+      menu.classList.toggle("open");
+    });
+    menu.addEventListener("click", (e) => {
+      const it = e.target.closest("[data-shot]");
+      if (!it) return;
+      menu.classList.remove("open");
+      if (it.dataset.shot === "full") captureChart(null, it.dataset.dest);
+      else { shotDest = it.dataset.dest; selectRegionCapture(); }
+    });
+  }
 
   const themeBtn = document.createElement("button");
   function paintThemeBtn() {

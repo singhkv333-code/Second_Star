@@ -1906,23 +1906,25 @@ const Dock = (() => {
         `<b class="hub-t">${icon(s.icon, "xs")}<span>${esc(s.title)}</span><i class="hub-n" hidden></i></b>` +
       `</div>`;
     hubEl.innerHTML =
-      `<div class="hub-top">` +
-        `<div class="hub-tabs" role="tablist">` +
-          ["All", ...SECTIONS].map((g, i) => `<button type="button" role="tab" data-hubg="${g}" class="${i ? "" : "on"}">${g}</button>`).join("") +
-        `</div>` +
-        `<div class="hub-find">${Icons.field('<input type="search" placeholder="Search" autocomplete="off" spellcheck="false" aria-label="Search widgets">')}</div>` +
-        `<span class="hub-gap"></span>` +
+      `<div class="hub-top hub-glass">` +
+        `<div class="hub-find">${Icons.field('<input type="search" placeholder="Search widgets" autocomplete="off" spellcheck="false" aria-label="Search widgets">')}</div>` +
+        `<button type="button" class="hub-ico" data-hub="close" title="Close (Esc)" aria-label="Close">${icon("x")}</button>` +
+      `</div>` +
+      `<div class="hub-tabs hub-glass" role="tablist">` +
+        ["All", ...SECTIONS].map((g, i) => `<button type="button" role="tab" data-hubg="${g}" class="${i ? "" : "on"}">${g}</button>`).join("") +
+      `</div>` +
+      `<div class="hub-rail">` +
+        `<button type="button" class="hub-arrow l" data-scroll="-1" aria-label="Scroll up" tabindex="-1">${icon("chevronUp")}</button>` +
+        `<div class="hub-row">${specs.map(card).join("")}<p class="hub-none" hidden>No widget by that name.</p></div>` +
+        `<button type="button" class="hub-arrow r" data-scroll="1" aria-label="Scroll down" tabindex="-1">${icon("chevronDown")}</button>` +
+      `</div>` +
+      `<div class="hub-tools hub-glass">` +
         `<label class="hub-switch" title="Let the chart be dragged and resized like any widget">` +
           `<input type="checkbox" class="dk-switch" data-hub="lock"><span>Movable chart</span></label>` +
+        `<span class="hub-gap"></span>` +
         `<button type="button" class="hub-ico" data-hub="focus" title="Focus on the chart (Alt Z)" aria-label="Focus">${icon("focus")}</button>` +
         `<button type="button" class="hub-ico" data-hub="full" title="Fullscreen (Alt Shift F)" aria-label="Fullscreen">${icon("fullscreen")}</button>` +
         `<button type="button" class="hub-ico" data-hub="reset" title="Reset the workspace — close every widget" aria-label="Reset">${icon("rotateCw")}</button>` +
-        `<button type="button" class="hub-ico" data-hub="close" title="Close (Esc)" aria-label="Close">${icon("x")}</button>` +
-      `</div>` +
-      `<div class="hub-rail">` +
-        `<button type="button" class="hub-arrow l" data-scroll="-1" aria-label="Scroll left" tabindex="-1">${icon("chevronLeft")}</button>` +
-        `<div class="hub-row">${specs.map(card).join("")}<p class="hub-none" hidden>No widget by that name.</p></div>` +
-        `<button type="button" class="hub-arrow r" data-scroll="1" aria-label="Scroll right" tabindex="-1">${icon("chevronRight")}</button>` +
       `</div>`;
     const row = hubEl.querySelector(".hub-row");
     const find = hubEl.querySelector(".hub-find input");
@@ -1937,23 +1939,17 @@ const Dock = (() => {
         any = any || on;
       }
       hubEl.querySelector(".hub-none").hidden = any;
-      row.scrollLeft = 0;
+      row.scrollTop = 0;
       arrows();
     };
     const arrows = () => {
-      const max = row.scrollWidth - row.clientWidth;
-      hubEl.querySelector(".hub-arrow.l").disabled = row.scrollLeft < 4;
-      hubEl.querySelector(".hub-arrow.r").disabled = row.scrollLeft > max - 4;
+      const max = row.scrollHeight - row.clientHeight;
+      hubEl.querySelector(".hub-arrow.l").disabled = row.scrollTop < 4;
+      hubEl.querySelector(".hub-arrow.r").disabled = row.scrollTop > max - 4;
     };
     hubEl.__arrows = arrows;
     find.addEventListener("input", filter);
     row.addEventListener("scroll", arrows, { passive: true });
-    // a mouse wheel scrolls the strip sideways — a trackpad already does
-    row.addEventListener("wheel", (e) => {
-      if (Math.abs(e.deltaX) > Math.abs(e.deltaY) || row.scrollWidth <= row.clientWidth) return;
-      e.preventDefault();
-      row.scrollLeft += e.deltaY;
-    }, { passive: false });
     hubEl.querySelector(".hub-tabs").addEventListener("click", (e) => {
       const b = e.target.closest("[data-hubg]");
       if (!b) return;
@@ -1963,7 +1959,7 @@ const Dock = (() => {
     });
     hubEl.querySelector(".hub-rail").addEventListener("click", (e) => {
       const a = e.target.closest("[data-scroll]");
-      if (a) row.scrollBy({ left: +a.dataset.scroll * row.clientWidth * .8, behavior: reduced.matches ? "auto" : "smooth" });
+      if (a) row.scrollBy({ top: +a.dataset.scroll * row.clientHeight * .8, behavior: reduced.matches ? "auto" : "smooth" });
     });
     find.addEventListener("keydown", (e) => {
       if (e.key !== "Enter") return;

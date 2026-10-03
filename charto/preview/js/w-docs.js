@@ -1,7 +1,9 @@
 /* Charto preview — the Documents widget: read beside the chart.
  *
- * Drop in an annual report, a broker note, a screenshot, a CSV: PDFs open in
- * the browser's own viewer, Word files are turned into readable HTML
+ * Drop in an annual report, a broker note, a screenshot, a CSV: PDFs are
+ * drawn here with PDF.js (vendor/docs — the browser's own viewer is blocked
+ * inside a frame by some Chrome settings and absent on Android), Word files
+ * are turned into readable HTML
  * (mammoth.js, loaded on first use), images and text show as they are, and
  * a spreadsheet file offers to open in a Sheet. Files stay in THIS browser
  * (IndexedDB) and nowhere else — nothing is uploaded — and the widget says so.
@@ -24,9 +26,123 @@
   };
   const size = (b) => b > 1e6 ? (b / 1e6).toFixed(1) + " MB" : Math.max(1, Math.round(b / 1e3)) + " KB";
 
+  let pdfLib = null;
+  const loadPdf = () => pdfLib || (pdfLib = import("../vendor/docs/pdf.min.mjs").then((m) => {
+    m.GlobalWorkerOptions.workerSrc = new URL("vendor/docs/pdf.worker.min.mjs", document.baseURI).href;
+    return m;
+  }));
+
+  /** A PDF drawn page by page into canvases: only the pages near the screen
+   *  are rendered, at the device's pixel ratio, and redrawn when the tile's
+   *  width changes so "fit width" stays true after a resize. */
+  function pdfViewer(view, data, ctx, onText) {
+    let doc = null, zoom = ctx.cfg.pdfZoom || "fit", width = 0, dead = false;
+    const pages = [];
+    view.innerHTML = `<div class="pv-bar">` +
+        `<button type="button" class="sh-btn i" data-pv="prev" title="Previous page">${ic("chevronUp")}</button>` +
+        `<span class="pv-at"><input type="text" inputmode="numeric" aria-label="Page"> / <b>…</b></span>` +
+        `<button type="button" class="sh-btn i" data-pv="next" title="Next page">${ic("chevronDown")}</button>` +
+        `<span class="sh-gap"></span>` +
+        `<button type="button" class="sh-btn i" data-pv="out" title="Zoom out">−</button>` +
+        `<button type="button" class="sh-btn pv-z" data-pv="fit" title="Fit the width"></button>` +
+        `<button type="button" class="sh-btn i" data-pv="in" title="Zoom in">+</button>` +
+      `</div><div class="pv-pages"></div>`;
+    const box = view.querySelector(".pv-pages"), atIn = view.querySelector(".pv-at input");
+    const scaleFor = (pg) => {
+      const vp = pg.getViewport({ scale: 1 });
+      const fit = Math.max(.2, (box.clientWidth - 24) / vp.width);
+      return zoom === "fit" ? fit : zoom === "page" ? Math.min(fit, (box.clientHeight - 24) / vp.height) : Number(zoom);
+    };
+    const paintZoom = () => { view.querySelector(".pv-z").textContent = zoom === "fit" ? "Fit" : zoom === "page" ? "Page" : Math.round(zoom * 100) + "%"; };
+    async function draw(i) {
+      const slot = pages[i];
+      if (!slot || slot.drawn === width + ":" + zoom) return;
+      slot.drawn = width + ":" + zoom;
+      const pg = await doc.getPage(i + 1);
+      const sc = scaleFor(pg), vp = pg.getViewport({ scale: sc });
+      const dpr = Math.min(2.5, devicePixelRatio || 1);
+      const cv = document.createElement("canvas");
+      cv.width = Math.floor(vp.width * dpr); cv.height = Math.floor(vp.height * dpr);
+      cv.style.width = Math.floor(vp.width) + "px"; cv.style.height = Math.floor(vp.height) + "px";
+      slot.el.style.width = cv.style.width; slot.el.style.height = cv.style.height;
+      await pg.render({ canvasContext: cv.getContext("2d"), viewport: vp, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null }).promise;
+      if (dead) return;
+      slot.el.replaceChildren(cv);
+    }
+    const io = new IntersectionObserver((ents) => {
+      for (const e of ents) if (e.isIntersecting) draw(+e.target.dataset.i);
+    }, { root: box, rootMargin: "600px 0px" });
+    async function layoutPages() {
+      width = box.clientWidth;
+      const first = await doc.getPage(1);
+      const vp = first.getViewport({ scale: scaleFor(first) });
+      for (const sl of pages) {
+        sl.drawn = "";
+        if (!sl.el.firstChild) { sl.el.style.width = Math.floor(vp.width) + "px"; sl.el.style.height = Math.floor(vp.height) + "px"; }
+      }
+      io.disconnect();
+      pages.forEach((sl) => io.observe(sl.el));
+      paintZoom();
+    }
+    const current = () => {
+      const top = box.scrollTop + box.clientHeight / 3;
+      let n = 0;
+      for (let i = 0; i < pages.length; i++) if (pages[i].el.offsetTop <= top) n = i;
+      return n;
+    };
+    const go = (i) => { const sl = pages[Math.max(0, Math.min(pages.length - 1, i))]; if (sl) box.scrollTo({ top: sl.el.offsetTop - 8 }); };
+    box.addEventListener("scroll", () => { if (document.activeElement !== atIn) atIn.value = current() + 1; }, { passive: true });
+    atIn.addEventListener("keydown", (e) => { e.stopPropagation(); if (e.key === "Enter") { go(parseInt(atIn.value, 10) - 1); atIn.blur(); } });
+    view.querySelector(".pv-bar").addEventListener("click", (e) => {
+      const b = e.target.closest("[data-pv]");
+      if (!b) return;
+      const a = b.dataset.pv, num_ = zoom === "fit" || zoom === "page" ? scaleFor({ getViewport: () => ({ width: 600, height: 800 }) }) : Number(zoom);
+      if (a === "prev") return go(current() - 1);
+      if (a === "next") return go(current() + 1);
+      const at = current();
+      if (a === "fit") zoom = zoom === "fit" ? "page" : "fit";
+      if (a === "in") zoom = Math.min(4, Math.round((num_ * 1.2) * 20) / 20);
+      if (a === "out") zoom = Math.max(.3, Math.round((num_ / 1.2) * 20) / 20);
+      ctx.setCfg({ pdfZoom: zoom });
+      layoutPages().then(() => go(at));
+    });
+    let rz = 0;
+    const ro = new ResizeObserver(() => {
+      clearTimeout(rz);
+      rz = setTimeout(() => { if (doc && Math.abs(box.clientWidth - width) > 8 && zoom !== Number(zoom)) layoutPages(); }, 120);
+    });
+    ro.observe(box);
+    (async () => {
+      try {
+        const lib = await loadPdf();
+        doc = await lib.getDocument({ data }).promise;
+        if (dead) return;
+        view.querySelector(".pv-at b").textContent = doc.numPages;
+        atIn.value = 1;
+        for (let i = 0; i < doc.numPages; i++) {
+          const el_ = document.createElement("div");
+          el_.className = "pv-page"; el_.dataset.i = i;
+          box.appendChild(el_);
+          pages.push({ el: el_, drawn: "" });
+        }
+        await layoutPages();
+        // the words of the first pages, for "Ask in chat"
+        let text = "";
+        for (let i = 1; i <= Math.min(doc.numPages, 6) && text.length < 6000; i++) {
+          const tc = await (await doc.getPage(i)).getTextContent();
+          text += tc.items.map((x) => x.str).join(" ") + "\n";
+        }
+        onText(text.trim());
+      } catch (e) {
+        view.innerHTML = empty("doc", `This PDF could not be read: ${esc(e.message || e)}`);
+      }
+    })();
+    return { destroy() { dead = true; io.disconnect(); ro.disconnect(); if (doc) doc.destroy(); } };
+  }
+
   function mount(host, ctx) {
     const LIST = `docs:${ctx.id}`;
-    let files = [], cur = null, url = null;
+    let files = [], cur = null, url = null, viewer = null, pdfText = "";
     host.innerHTML =
       `<div class="dc-bar">` +
         `<button type="button" class="side-pick dc-pick" data-dc="pick"></button>` +
@@ -41,6 +157,7 @@
 
     async function init() {
       files = (await idb.get(LIST)) || [];
+      if (ctx.cfg.sort === "name") files.sort((a, b) => a.name.localeCompare(b.name));
       if (files.length) show(ctx.cfg.cur && files.find((f) => f.id === ctx.cfg.cur) ? ctx.cfg.cur : files[0].id);
       else blank();
     }
@@ -79,15 +196,14 @@
       const blob = await idb.get(`doc:${id}`);
       if (url) URL.revokeObjectURL(url);
       url = null;
+      if (viewer) { viewer.destroy(); viewer = null; }
+      pdfText = "";
+      host.style.setProperty("--dc-size", { s: "13px", m: "14.5px", l: "16.5px" }[ctx.cfg.textSize || "m"]);
       if (!blob) { view.innerHTML = empty("doc", "This file is no longer stored in this browser."); return; }
       const k = kindOf(meta.name, meta.type);
       if (k === "pdf") {
         url = URL.createObjectURL(blob);
-        // a browser without a built-in PDF viewer (Android Chrome, some
-        // embedded browsers) would draw an empty frame — say so instead
-        view.innerHTML = navigator.pdfViewerEnabled === false
-          ? empty("doc", "This browser cannot show PDFs inside a page.", `${ic("externalLink")}Open it in a new tab`, `data-dc="tab"`)
-          : `<iframe class="dc-frame" title="${esc(meta.name)}" src="${url}#view=FitH"></iframe>`;
+        viewer = pdfViewer(view, new Uint8Array(await blob.arrayBuffer()), ctx, (t) => { pdfText = t; });
       } else if (k === "image") {
         url = URL.createObjectURL(blob);
         view.innerHTML = `<div class="dc-img"><img src="${url}" alt="${esc(meta.name)}"></div>`;
@@ -150,9 +266,11 @@
     let booted = false;
     return {
       show() { if (!booted) { booted = true; init(); } },
+      config(cfg, patch) { if (("textSize" in patch || "pdfZoom" in patch) && cur && !("pdfZoom" in patch && viewer)) show(cur.id); },
       ask: () => {
         const t = view.querySelector(".dc-doc, .dc-text");
-        return t ? `Summarise this document (${cur.name}) and pull out anything that matters for the stock:\n\n${t.innerText.slice(0, 6000)}` : "";
+        const text = t ? t.innerText : pdfText;
+        return text ? `Summarise this document (${cur.name}) and pull out anything that matters for the stock:\n\n${text.slice(0, 6000)}` : "";
       },
     };
   }
@@ -160,5 +278,13 @@
   Dock.register({
     type: "docs", title: "Documents", icon: "doc", hue: "rose", group: "Research",
     desc: "Read PDFs, Word files and images beside the chart", zone: "right", minW: 320, mount,
+    settings: [
+      { section: "Reading" },
+      { key: "pdfZoom", label: "PDF opens at", def: "fit", options: [{ v: "fit", label: "Fit width" }, { v: "page", label: "Whole page" }, { v: 1, label: "100%" }] },
+      { key: "textSize", label: "Text size", def: "m", hint: "Word and text files", options: [{ v: "s", label: "Small" }, { v: "m", label: "Medium" }, { v: "l", label: "Large" }] },
+      { section: "Files" },
+      { key: "sort", label: "List files by", def: "new", options: [{ v: "new", label: "Newest" }, { v: "name", label: "Name" }] },
+      { label: "Files stay in this browser and are never uploaded. Clearing the site's data removes them.", kind: "note" },
+    ],
   });
 })();
