@@ -92,7 +92,8 @@
       if (askB) {
         e.preventDefault(); e.stopPropagation();
         const it = data.items[+askB.dataset.ask];
-        return ctx.compose(`This headline from ${it.source}: "${it.title}". What does it mean for the stocks involved, and did the chart react?`);
+        return ctx.ask({ sub: `${it.source} · ${it.title}`, context: `Headline from ${it.source}: "${it.title}"${it.summary ? `\n${it.summary}` : ""}\n${it.link}`,
+          question: "What does this mean for the stocks involved, and did the chart react?" });
       }
       const sc = e.target.closest("[data-sc]");
       if (sc) { ctx.setCfg({ scope: sc.dataset.sc }); return load(true); }
@@ -127,7 +128,9 @@
         paint();
       },
       ask: () => data && data.items.length
-        ? `Here are the latest market headlines:\n${data.items.slice(0, 10).map((it) => `- ${it.title} (${it.source})`).join("\n")}\n\nWhich of these matter for Indian markets today, and why?` : "",
+        ? { sub: `${Math.min(10, data.items.length)} latest headlines`,
+            context: `Latest market headlines:\n${data.items.slice(0, 10).map((it) => `- ${it.title} (${it.source})`).join("\n")}`,
+            question: "Which of these matter for Indian markets today, and why?" } : null,
     };
   }
 

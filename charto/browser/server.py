@@ -57,6 +57,7 @@ PROXY_PORT = int(os.environ.get("RB_PROXY_PORT", "8899"))
 MAX_SESSIONS = int(os.environ.get("RB_MAX_SESSIONS", "4"))
 PER_USER = int(os.environ.get("RB_PER_USER", "2"))
 GRACE, IDLE, LIFETIME = 90, 15 * 60, 2 * 3600
+MOTION_Q, STILL_Q, STILL_AFTER = 80, 92, 0.6     # JPEG quality while moving / once still; seconds
 
 _used: dict[str, float] = {}
 sessions: dict[str, "Session"] = {}
@@ -160,6 +161,13 @@ class Session:
         self._last_cursor = 0.0
         self._closed = False
         self._target = ""
+        # Frames stream at MOTION quality while the page moves; once it has
+        # been still for a moment the cast restarts at STILL quality, which
+        # makes Chromium send the settled page again, sharp. The next input
+        # drops back to motion quality. No loop: the restart's own frame
+        # arrives with _hq already set.
+        self._hq = False
+        self._still = None
 
     async def start(self, w: int, h: int, dpr: float) -> None:
         self.size, self.dpr = (w, h), dpr
@@ -194,11 +202,22 @@ class Session:
     async def _frame(self, p) -> None:
         try:
             await self.send(base64.b64decode(p["data"]))
+            if not self._hq:
+                if self._still:
+                    self._still.cancel()
+                self._still = asyncio.get_running_loop().call_later(
+                    STILL_AFTER, lambda: asyncio.ensure_future(self._settle()))
         finally:
             try:
                 await self.cdp.send("Page.screencastFrameAck", {"sessionId": p["sessionId"]})
             except Exception:  # noqa: BLE001
                 pass
+
+    async def _settle(self) -> None:
+        if self._hq or self._closed or self.ws is None:
+            return
+        self._hq = True
+        await self.cast()
 
     async def cast(self, on: bool = True) -> None:
         try:
@@ -206,7 +225,7 @@ class Session:
             if on:
                 w, h = self.size
                 await self.cdp.send("Page.startScreencast", {
-                    "format": "jpeg", "quality": 72, "everyNthFrame": 1,
+                    "format": "jpeg", "quality": STILL_Q if self._hq else MOTION_Q, "everyNthFrame": 1,
                     "maxWidth": int(w * self.dpr), "maxHeight": int(h * self.dpr)})
         except Exception:  # noqa: BLE001
             pass
@@ -311,6 +330,10 @@ class Session:
     async def handle(self, m: dict) -> None:
         t = m.get("t")
         self.last_input = time.time()
+        if self._hq and t in ("mouse", "wheel", "key", "text", "nav", "back", "fwd", "reload", "size") \
+                and not (t == "mouse" and m.get("e") == "move" and not m.get("bs")):
+            self._hq = False
+            await self.cast()
         c = self.cdp
         if t == "mouse":
             x, y = float(m.get("x", 0)), float(m.get("y", 0))

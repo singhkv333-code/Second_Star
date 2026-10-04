@@ -339,6 +339,24 @@ svg.icon.xs { width: 14px; height: 14px; stroke-width: 1.95; }
 @keyframes pop { from { opacity: 0; transform: translateY(-3px) scale(.985); } }
 @keyframes fade { from { opacity: 0; } }
 
+/* Menus unfold from the edge they hang from: a sheet below its button is
+   revealed top to bottom, one above it bottom to top (js/ctxmenu.js stamps
+   data-drop from the click that opened it). The same move Radix/shadcn menus
+   make — a short slide from the trigger's side with a fade — plus a clip that
+   uncovers the rows in reading order. The clip's sides and foot sit outside
+   the box so the shadow is never cut, and nothing is left clipped when the
+   animation ends. */
+@keyframes drop-down {
+  from { opacity: 0; transform: translateY(-6px); clip-path: inset(-12px -40px 100% -40px); }
+  60%  { opacity: 1; }
+  to   { opacity: 1; transform: none; clip-path: inset(-12px -40px -60px -40px); }
+}
+@keyframes drop-up {
+  from { opacity: 0; transform: translateY(6px); clip-path: inset(100% -40px -60px -40px); }
+  60%  { opacity: 1; }
+  to   { opacity: 1; transform: none; clip-path: inset(-12px -40px -60px -40px); }
+}
+
 /* The uppercase micro-label — Pivot's spec, used by the dropdown header,
    the exchange suffix and the table head. It was written out five times; it
    is one rule now.
@@ -647,7 +665,9 @@ select.is-dressed { display: none; }
 .dropdown::-webkit-scrollbar-thumb:hover { background: var(--faint); border: 0; }
 .dropdown.right { left: auto; right: 0; }
 .dropdown.up { top: auto; bottom: calc(100% + 8px); }
-.dropdown.open { display: block; animation: pop var(--dur) ease-out; }
+.dropdown.open { display: block; animation: drop-down .2s var(--ease-quartr); }
+.dropdown.open.up, .dropdown.open[data-drop="up"] { animation-name: drop-up; }
+@media (prefers-reduced-motion: reduce) { .dropdown.open, .ctx.in { animation: fade var(--dur) ease-out; } }
 /* Rows follow the sheet: a 8px pill inside a 6px box left more corner than
    row, so the radius steps down with the panel's. */
 .dropdown .item {
@@ -763,7 +783,8 @@ select.is-dressed { display: none; }
 /* Entering: the same 3px rise the rest of the app's popovers use, so this
    reads as one of them despite being built differently. A submenu comes in
    from its parent's side instead — it is arriving from somewhere. */
-.ctx.in { animation: pop var(--dur-slow) var(--ease-quartr); }
+.ctx.in { animation: drop-down .2s var(--ease-quartr); }
+.ctx.in[data-drop="up"] { animation-name: drop-up; }
 .ctx-sub.in { animation: ctx-slide var(--dur-slow) var(--ease-quartr); }
 @keyframes ctx-slide { from { opacity: 0; transform: translateX(-5px); } }
 
@@ -7774,6 +7795,8 @@ body.dk-row-resize, body.dk-row-resize * { cursor: row-resize !important; }
   font-style: normal; font-size: 10px; font-weight: 700; color: #fff; background: var(--lk); margin-right: 2px;
 }
 .dk-linkmenu .item .lead { gap: 8px; }
+.dk-linkmenu { width: 264px; }
+.dk-linkhelp { margin: 0 0 4px; padding: 0 var(--menu-inset) 6px; font-size: var(--text-sm); line-height: 1.4; opacity: .7; white-space: normal; }
 
 /* ── widget settings: a frosted panel over the widget's own body ── */
 .dk-sets {
@@ -8455,6 +8478,27 @@ i.mg { height: 3px !important; border-radius: 2px !important; background: var(--
 .br-lic { margin-top: 2em !important; font-size: 11.5px; color: var(--muted-foreground); }
 .br-view .side-empty a.dk-cta { text-decoration: none; }
 .br-why-s { margin-top: -4px !important; font-size: var(--text-sm); color: var(--muted-foreground); }
+/* the real page, framed */
+.br-frame { flex: 1; min-height: 0; position: relative; background: #fff; }
+.br-frame[hidden] { display: none; }
+.br-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
+/* a site opened in the user's own browser, over the widget */
+.br-beside {
+  display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px;
+  max-width: 340px; margin: 0 auto; padding: 48px 20px 24px;
+}
+.br-beside .br-fav { width: 32px; height: 32px; border-radius: 8px; padding: 6px; box-sizing: content-box;
+  background: color-mix(in srgb, var(--foreground) 6%, transparent); }
+.br-beside b { font-size: var(--text-md); font-weight: var(--weight-semi); margin-top: 4px; }
+.br-beside p { margin: 0; font-size: var(--text-base); line-height: 1.45; color: var(--foreground); opacity: .8; }
+.br-beside .br-why-s { margin-top: 0 !important; opacity: 1; }
+.br-beside-acts { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 10px; }
+.br-beside-acts .dk-cta { flex-basis: 100%; justify-content: center; }
+.br-none .br-beside-acts { justify-content: flex-start; }
+.br-beside-acts .sh-btn span { display: inline !important; }
+.br-beside-acts .sh-btn { width: auto; padding: 0 10px; gap: 6px; }
+.scr-val input::-webkit-inner-spin-button, .scr-val input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.scr-val input { -moz-appearance: textfield; appearance: textfield; }
 .br-view[hidden], .br-stage[hidden] { display: none; }
 /* the live page: frames painted on a canvas, input sent back */
 .br-stage { flex: 1; min-height: 0; position: relative; overflow: hidden; background: var(--surface-plain); }
@@ -8756,7 +8800,34 @@ i.mg { height: 3px !important; border-radius: 2px !important; background: var(--
 }
 .dp-skel i { height: 14px; }
 @keyframes dk-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
-.dropdown.scr-sheet { width: 280px; }
+.dropdown.scr-sheet { width: 300px; max-width: calc(100vw - 16px); }
+.scr-chip .scr-edit {
+  width: auto; height: 24px; padding: 0 2px; opacity: 1; gap: 4px; font-size: var(--text-sm);
+  font-weight: var(--weight-regular); color: var(--foreground); border-radius: 5px;
+}
+.scr-chip .scr-edit:hover { background: transparent; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, var(--foreground) 35%, transparent); }
+.scr-chip .scr-edit b { font-weight: var(--weight-semi); }
+.scr-cond { display: flex; width: 100%; }
+.scr-cond button { flex: 1; }
+.scr-vals { display: flex; align-items: center; gap: 8px; }
+.scr-vals[hidden] { display: none; }
+.scr-vals .scr-and, .scr-vals .scr-val:last-child { display: none; }
+.scr-vals.two .scr-and, .scr-vals.two .scr-val:last-child { display: flex; }
+.scr-and { font-size: var(--text-sm); opacity: .6; flex: none; }
+.scr-val { flex: 1; min-width: 0; display: flex; align-items: center; position: relative; }
+.scr-val input { width: 100%; padding-right: 44px !important; font-variant-numeric: tabular-nums; }
+.scr-val .u { position: absolute; right: 9px; font-size: var(--text-sm); opacity: .55; pointer-events: none; }
+.scr-dist { display: flex; flex-direction: column; gap: 4px; }
+.scr-hist { width: 100%; height: 44px; display: block; }
+.scr-hist rect { fill: color-mix(in srgb, var(--foreground) 16%, transparent); cursor: pointer; transition: fill var(--dur); }
+.scr-hist rect.in { fill: var(--primary); }
+.scr-hist rect:hover { fill: color-mix(in srgb, var(--foreground) 40%, transparent); }
+.scr-hist rect.in:hover { fill: color-mix(in srgb, var(--primary) 80%, var(--foreground)); }
+.scr-scale { display: flex; justify-content: space-between; font-size: var(--text-xs, 11px); opacity: .6; font-variant-numeric: tabular-nums; }
+.scr-count { margin: 0; font-size: var(--text-sm); }
+.scr-count b { font-weight: var(--weight-semi); font-variant-numeric: tabular-nums; }
+.scr-btns { display: flex; align-items: center; gap: 8px; }
+.scr-btns .btn { height: 32px; padding: 0 14px; justify-content: center; }
 .scr-form { display: flex; flex-direction: column; gap: 10px; padding: 4px var(--menu-inset) 6px; }
 .scr-form select, .scr-form input {
   height: 32px; padding: 0 9px; border: 1px solid var(--border); border-radius: 8px;
@@ -8768,6 +8839,7 @@ i.mg { height: 3px !important; border-radius: 2px !important; background: var(--
 .scr-op input { flex: 1; }
 .scr-help { margin: 0; font-size: var(--text-sm); line-height: 1.4; color: var(--foreground); opacity: .75; min-height: 17px; }
 .scr-form .btn.cta { height: 32px; justify-content: center; }
+.scr-form .scr-help:empty { display: none; }
 
 /* ── market depth ── */
 .dp-head .dp-live {
@@ -11242,7 +11314,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/icons.js?v=44"></script>
   <!-- after icons.js (every row is drawn with one) and before main.js, which
        builds the chart's three right-click menus out of it -->
-  <script src="./js/ctxmenu.js?v=10"></script>
+  <script src="./js/ctxmenu.js?v=11"></script>
   <!-- before anything that edits the chart: drawings.js and scene.js call
        Undo.touch() from their save paths, so the module has to exist by the
        time the first one runs -->
@@ -11276,14 +11348,14 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- The pricing / upgrade overlay. Before main.js so window.Pricing exists
        when the account menu's Upgrade row is wired. -->
   <script src="./js/pricing.js?v=1"></script>
-  <script src="./js/main.js?v=161"></script>
+  <script src="./js/main.js?v=163"></script>
   <!-- the floating drawing edit toolbar — listens for charto:draw-select and
        drives js/drawings.js's setStyle/clone/lock/remove. After main.js so
        __charto and ChartSettings exist by the first selection. -->
   <script src="./js/drawedit.js?v=7"></script>
   <script src="./js/wkit.js?v=1"></script>
   <script src="./js/hub-art.js?v=4"></script>
-  <script src="./js/dock.js?v=19"></script>
+  <script src="./js/dock.js?v=20"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=12"></script>
@@ -11298,7 +11370,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/layers-panel.js?v=11"></script>
   <script src="./js/model-logos.js?v=2"></script>
   <script src="./js/models.js?v=3"></script>
-  <script src="./js/chat.js?v=177"></script>
+  <script src="./js/chat.js?v=179"></script>
   <script src="./js/codeview.js?v=5"></script>
   <script src="./js/journal.js?v=7"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
@@ -11308,19 +11380,19 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/alerts.js?v=20"></script>
   <!-- after chat.js: the widget panels share the phone's one panel slot with
        the conversation, and close it by clicking its real toggle -->
-  <script src="./js/panels.js?v=19"></script>
-  <script src="./js/screener.js?v=5"></script>
-  <script src="./js/depth.js?v=4"></script>
-  <script src="./js/notes.js?v=5"></script>
-  <script src="./js/w-sheet.js?v=5"></script>
-  <script src="./js/w-chart.js?v=2"></script>
-  <script src="./js/w-fin.js?v=4"></script>
-  <script src="./js/w-news.js?v=2"></script>
-  <script src="./js/w-portfolio.js?v=2"></script>
-  <script src="./js/w-browser.js?v=6"></script>
-  <script src="./js/w-code.js?v=5"></script>
-  <script src="./js/w-docs.js?v=6"></script>
-  <script src="./js/w-media.js?v=10"></script>
+  <script src="./js/panels.js?v=20"></script>
+  <script src="./js/screener.js?v=6"></script>
+  <script src="./js/depth.js?v=5"></script>
+  <script src="./js/notes.js?v=6"></script>
+  <script src="./js/w-sheet.js?v=6"></script>
+  <script src="./js/w-chart.js?v=3"></script>
+  <script src="./js/w-fin.js?v=5"></script>
+  <script src="./js/w-news.js?v=3"></script>
+  <script src="./js/w-portfolio.js?v=3"></script>
+  <script src="./js/w-browser.js?v=8"></script>
+  <script src="./js/w-code.js?v=6"></script>
+  <script src="./js/w-docs.js?v=7"></script>
+  <script src="./js/w-media.js?v=11"></script>
   <!-- every widget is registered by now; build the rail before js/mobile.js
        reads it for the phone toolbar -->
   <script>Dock.start();</script>

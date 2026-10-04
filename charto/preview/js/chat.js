@@ -50,7 +50,14 @@
     ...(t.image ? { image: t.image } : {}),
     ...(t.drawing ? { drawing: t.drawing } : {}),
     ...(t.journal ? { journal: t.journal } : {}),
-  }));
+  })).map((m, i) => {
+    // A widget attached to a question travels as part of it: the model reads
+    // what the widget was showing, the thread shows only the tag.
+    const w = turns[i] && turns[i].widget;
+    return w && w.context
+      ? { ...m, content: `${m.content}\n\n[Attached from the ${w.title} widget${w.sub ? ` — ${w.sub}` : ""}]\n${w.context}` }
+      : m;
+  });
 
   /* ── the archive ─────────────────────────────────────────────────────────
    * A conversation is kept, not overwritten. Starting a new one files the
@@ -219,6 +226,33 @@
   let pendingImage = null;   // a captured screenshot waiting to ride the next send
   let pendingDraw = null;    // the drawing this message is about, by ref
   let pendingJournal = null; // an exact journal record, attached deliberately
+  let pendingWidget = null;  // what a widget was showing, from its "Ask in chat"
+
+  /* ── a widget, attached ──────────────────────────────────────────────────
+   * "Ask in chat" on a widget used to paste a paragraph into the composer —
+   * the screen's criteria, its ten names, the date — which the user then had
+   * to read past to write their own question. It is a tag now, the same
+   * object a drawing or a journal trade becomes: the widget's icon, its name
+   * and one line of what it holds. The snapshot itself rides with the
+   * message (see wireHistory) and never sits in the box. The widget's
+   * suggested question is the placeholder, so Enter alone asks it and
+   * typing replaces it. */
+  function widgetTagInner(w, removable) {
+    return `<span class="draw-tag-mark">${Icons.svg(w.icon || "widgets", "sm")}</span>`
+      + `<span class="draw-tag-copy"><strong>${drawEsc(w.title || "Widget")}</strong>`
+      + `<small>${drawEsc(w.sub || "")}</small></span>`
+      + (removable ? `<button type="button" class="x" data-unwidget="1" aria-label="Remove ${drawEsc(w.title || "widget")} attachment" title="Remove attachment">${Icons.svg("x", "xs")}</button>` : "");
+  }
+  function setWidgetTag(w) {
+    pendingWidget = w;
+    let row = el("widgetTagRow");
+    if (!row) { row = document.createElement("div"); row.id = "widgetTagRow"; row.className = "draw-tag-row"; el("drawTagRow").after(row); }
+    row.style.display = w ? "" : "none";
+    row.innerHTML = w ? `<span class="draw-tag widget-tag">${widgetTagInner(w, true)}</span>` : "";
+    input.placeholder = w ? (w.question || `Ask about ${w.title}…`)
+      : (chatMode === "execution" ? EXECUTION_PLACEHOLDER : PLACEHOLDER);
+  }
+  document.addEventListener("click", (e) => { if (e.target.closest("[data-unwidget]")) { setWidgetTag(null); input.focus(); } });
 
   function journalTagInner(j, removable) {
     const t = j.trade || j;
@@ -559,7 +593,7 @@
    *  Retry SENDS rather than refilling the composer — re-asking is one click
    *  in Pivot and has to be one here, and it appends a fresh turn rather than
    *  rewriting the old one, so the thread stays a record of what was asked. */
-  function userMeta(text, ts) {
+  function userMeta(text, ts, widget) {
     if (!ts && !text) return null;
     const meta = document.createElement("div");
     meta.className = "turn-meta";
@@ -571,13 +605,13 @@
       meta.appendChild(when);
     }
     if (text) {
-      meta.appendChild(actBtn("rotateCw", "Retry", () => send(text)));
+      meta.appendChild(actBtn("rotateCw", "Retry", () => send(text, widget)));
       meta.appendChild(copyBtn(text, "Copy prompt"));
     }
     return meta;
   }
 
-  function addUserTurn(text, image, drawing, ts, journal) {
+  function addUserTurn(text, image, drawing, ts, journal, widget) {
     clearEmpty();
     const turn = document.createElement("div");
     turn.className = "turn user";
@@ -595,6 +629,10 @@
       const tg = document.createElement("div"); tg.className = "bubble-tag";
       tg.innerHTML = journalTagInner(journal, false); b.appendChild(tg);
     }
+    if (widget) {
+      const tg = document.createElement("div"); tg.className = "bubble-tag widget-tag";
+      tg.innerHTML = widgetTagInner(widget, false); b.appendChild(tg);
+    }
     if (image) {
       const img = document.createElement("img");
       img.className = "shot";
@@ -607,7 +645,7 @@
       b.appendChild(t);
     }
     turn.appendChild(b);
-    const meta = userMeta(text, ts);
+    const meta = userMeta(text, ts, widget);
     if (meta) turn.appendChild(meta);
     msgsEl.appendChild(turn);
     toBottom();
@@ -1820,15 +1858,19 @@
     if (slow) return;
     if (turns.length) return;      // a thread was restored: never start
     let i = 0, ch = 0, dir = 1, timer = null, done = false;
+    const resting = () => (pendingWidget && (pendingWidget.question || `Ask about ${pendingWidget.title}…`))
+      || (chatMode === "execution" ? EXECUTION_PLACEHOLDER : PLACEHOLDER);
     function retire() {           // used once; the bar is static from here on
       if (done) return;
       done = true;
       clearTimeout(timer);
-      input.placeholder = chatMode === "execution" ? EXECUTION_PLACEHOLDER : PLACEHOLDER;
+      input.placeholder = resting();
       input.classList.remove("ph-typing");
     }
     function step() {
       if (done) return;
+      // an attached widget's question owns the box until it is sent
+      if (pendingWidget) { input.placeholder = resting(); input.classList.remove("ph-typing"); timer = setTimeout(step, 900); return; }
       if (chatMode === "execution") { retire(); return; }
       // The conversation started, however it started — typed, clicked off a
       // template tile, or sent from a follow-up chip.
@@ -1838,7 +1880,7 @@
       // check has to be on the value and not only on the event.
       if (input.value) { retire(); return; }
       if (document.activeElement === input) {   // focused but still empty: hold
-        input.placeholder = chatMode === "execution" ? EXECUTION_PLACEHOLDER : PLACEHOLDER;
+        input.placeholder = resting();
         input.classList.remove("ph-typing");
         timer = setTimeout(step, 900);
         return;
@@ -1859,7 +1901,7 @@
     input.addEventListener("input", retire);
     input.addEventListener("focus", () => {
       if (done) return;
-      input.placeholder = chatMode === "execution" ? EXECUTION_PLACEHOLDER : PLACEHOLDER;
+      input.placeholder = resting();
       input.classList.remove("ph-typing");
     });
   })();
@@ -1943,7 +1985,7 @@
       return;
     }
     for (const t of turns) {
-      if (t.role === "user") { addUserTurn(t.content, t.image, t.drawing, t.ts, t.journal); continue; }
+      if (t.role === "user") { addUserTurn(t.content, t.image, t.drawing, t.ts, t.journal, t.widget); continue; }
       const turn = addAssistantTurn(false);
       finishTurn(turn, t.content, t.meta || [], t.acts || [], t.cards || []);
       if (t.thought) turn.prepend(thoughtLog(t.thought.secs, t.thought.parts || []));
@@ -1965,9 +2007,12 @@
    *  what you clicked — and carries no attachment: a screenshot and a tagged
    *  drawing were pinned for the message they went with, and silently
    *  re-attaching them to a re-ask would change the question. */
-  async function send(again) {
+  async function send(again, againWidget) {
     const retry = typeof again === "string";
-    const text = retry ? again.trim() : input.value.trim();
+    // a widget's retry re-asks WITH the widget: the question means nothing
+    // without what it was asked about
+    const widget = retry ? (againWidget || null) : pendingWidget;
+    const text = retry ? again.trim() : (input.value.trim() || (widget && widget.question) || "");
     if ((!text && !pendingImage) || pending) return;
     clearSuggest();          // the offer is spent the moment anything is asked
     const image = retry ? null : pendingImage;
@@ -1977,6 +2022,7 @@
       setAttachment(null);
       setDrawTag(null);
       setJournalTag(null);
+      setWidgetTag(null);
       // Mode-aware, not the literal. Sending a message used to reset the box
       // to the research prompt, so the builder asked you to "ask about this
       // chart" the moment you finished building something on it.
@@ -1995,11 +2041,11 @@
     const ts = Date.now();
     turns.push({ role: "user", content: text, ts,
                  ...(image ? { image } : {}), ...(drawing ? { drawing } : {}),
-                 ...(journal ? { journal } : {}) });
+                 ...(journal ? { journal } : {}), ...(widget ? { widget } : {}) });
     showTray(false);          // first question asked — the openings fold away
     const onTile = trayEl.querySelector(".tpl-card.is-on");
     if (onTile) onTile.classList.remove("is-on");
-    addUserTurn(text, image, drawing, ts, journal);
+    addUserTurn(text, image, drawing, ts, journal, widget);
     const turn = addAssistantTurn();
     const t0 = performance.now();
 
@@ -3046,6 +3092,17 @@
      * "Edit with chat" arrives as a page LOAD, and a page load that spends an
      * LLM turn before the reader has read anything is a side effect nobody
      * asked for. Composing costs nothing and the send is still one Enter. */
+    /* A widget's "Ask in chat": the widget is attached as a tag and its
+     * question waits as the placeholder — nothing is sent. `w` is
+     * { type, icon, title, sub, context, question }. */
+    attach(w) {
+      if (!w || !w.context) return;
+      if (panel.classList.contains("hidden")) chatToggle.click();
+      setWidgetTag({ type: w.type || "", icon: w.icon || "", title: String(w.title || "Widget").slice(0, 60),
+                     sub: String(w.sub || "").slice(0, 90), context: String(w.context).slice(0, 6000),
+                     question: String(w.question || "").slice(0, 200) });
+      input.focus();
+    },
     compose(text) {
       const q = String(text || "").trim();
       if (!q) return;

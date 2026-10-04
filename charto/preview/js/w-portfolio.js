@@ -222,8 +222,10 @@
         if (a === "chart") return ctx.openSymbol ? ctx.openSymbol(b.dataset.s) : null;
         if (a === "ask") {
           const r = rows.find((x) => x.symbol === b.dataset.s);
-          return ctx.compose(`I hold ${num(r.quantity, 0)} ${r.symbol} in my paper portfolio at an average of ${num(r.avg_cost)}; ` +
-            `it last traded at ${num(r.last_price)} (${pct(r.unrealized_pct)} on cost). What is the chart saying, and what would change the picture?`);
+          return ctx.ask({ sub: `${r.symbol} · ${num(r.quantity, 0)} @ ${num(r.avg_cost)} · ${pct(r.unrealized_pct)}`,
+            context: `Paper portfolio (simulated) position: ${num(r.quantity, 0)} ${r.symbol} at an average of ${num(r.avg_cost)}; ` +
+              `last traded ${num(r.last_price)} (${pct(r.unrealized_pct)} on cost).`,
+            question: "What is the chart saying, and what would change the picture?" });
         }
         return;
       }
@@ -245,10 +247,11 @@
         paint();
       },
       ask: () => rows && rows.length
-        ? `My paper portfolio (simulated): holdings value ${inr(sum.positions_mv)}, unrealised ${inr(sum.unrealized_pnl)} (${pct(sum.unrealized_pct)}), cash ${inr(sum.cash_available)}.\n` +
-          rows.map((r) => `- ${r.symbol}: ${num(r.quantity, 0)} @ ${num(r.avg_cost)}, now ${num(r.last_price)}, ${pct(r.unrealized_pct)}, sector ${r.sector || "n/a"}`).join("\n") +
-          `\n\nHow concentrated is this, what is the biggest risk in it, and which positions need a closer look on the chart?`
-        : "",
+        ? { sub: `${rows.length} holding${rows.length === 1 ? "" : "s"} · ${inr(sum.positions_mv)} · ${pct(sum.unrealized_pct)}`,
+            context: `My paper portfolio (simulated): holdings value ${inr(sum.positions_mv)}, unrealised ${inr(sum.unrealized_pnl)} (${pct(sum.unrealized_pct)}), cash ${inr(sum.cash_available)}.\n` +
+              rows.map((r) => `- ${r.symbol}: ${num(r.quantity, 0)} @ ${num(r.avg_cost)}, now ${num(r.last_price)}, ${pct(r.unrealized_pct)}, sector ${r.sector || "n/a"}`).join("\n"),
+            question: "How concentrated is this, what is the biggest risk, and which positions need a closer look?" }
+        : null,
     };
   }
 

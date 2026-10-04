@@ -41,12 +41,29 @@
     hi20_break_pct: "vs 20D high %", lo20_break_pct: "vs 20D low %", streak: "Up/down streak",
     adx14: "ADX 14", macd_hist_pct: "MACD hist %", bb_pct_b: "Bollinger %B",
     bb_width_pct: "Bollinger width %", stoch_k: "Stochastic %K", supertrend_dir: "Supertrend",
+    ret_open: "Close vs open %", turnover_20d_musd: "Turnover $ m",
+    vp20_pos: "In value area %", vp20_va_width_pct: "Value area width %",
+    vp20_poc_dist_pct: "From POC %", vp20_poc_shift_pct: "POC shift %",
+    orb15_pos: "15-min opening range %", orb30_pos: "30-min opening range %",
   };
+  /* The measures as a trader groups them, for the filter editor's list. */
+  const GROUPS = [
+    ["Price and returns", ["close", "ret_1d", "ret_1w", "ret_1m", "ret_3m", "ret_6m", "ret_1y", "gap_pct", "ret_open", "close_pos", "streak"]],
+    ["Highs, lows and breakouts", ["dist_52w_high", "dist_52w_low", "hi20_break_pct", "lo20_break_pct", "range_20d_pct", "orb15_pos", "orb30_pos"]],
+    ["Trend", ["sma20_rel", "sma50_rel", "sma200_rel", "sma50_cross_ago", "sma200_cross_ago", "adx14", "supertrend_dir"]],
+    ["Momentum", ["rsi14", "macd_hist_pct", "stoch_k", "bb_pct_b"]],
+    ["Volatility", ["atr_pct", "bb_width_pct"]],
+    ["Volume and liquidity", ["vol_ratio20", "vol_z20", "turnover_20d_cr", "turnover_20d_musd"]],
+    ["Volume profile", ["vp20_pos", "vp20_va_width_pct", "vp20_poc_dist_pct", "vp20_poc_shift_pct"]],
+  ];
+  const unitOf = (k) => k === "vol_ratio20" ? "×" : k === "vol_z20" ? "σ" : k === "turnover_20d_cr" ? "₹ cr"
+    : k === "turnover_20d_musd" ? "$ m" : /cross_ago$/.test(k) ? "sessions" : k === "streak" ? "closes"
+    : k === "close" ? "₹" : /^(rsi14|adx14|stoch_k|supertrend_dir)$/.test(k) ? "" : "%";
   let help = {};               // feature → the engine's own description
 
   const PRESETS = [
     { id: "gainers", label: "Top gainers", filters: [], sort: "ret_1d" },
-    { id: "losers", label: "Top losers", filters: [["ret_1d", "lt", 0]], sort: "ret_1d" },
+    { id: "losers", label: "Top losers", filters: [["ret_1d", "lt", 0]], sort: "ret_1d", order: "asc" },
     { id: "oversold", label: "Oversold", filters: [["rsi14", "lt", 30]], sort: "rsi14" },
     { id: "overbought", label: "Overbought", filters: [["rsi14", "gt", 70]], sort: "rsi14" },
     { id: "high", label: "Near the 52-week high", filters: [["dist_52w_high", "gt", -3]], sort: "dist_52w_high" },
@@ -103,7 +120,45 @@
     const spec = () => ({
       filters: cfg().filters.map(([feature, op, value]) => ({ feature, op, value })),
       sort: cfg().sort, limit: cfg().rows || 50,
+      ...(cfg().order ? { order: cfg().order } : {}),
     });
+
+    /* Every stock's values, for the editor's distribution and its live
+     * count. The engine's own matrix (/screen/features), fetched when the
+     * editor first opens and kept ten minutes: end-of-day data. The engine
+     * still decides the list — this only previews how many would pass. */
+    let all = null, allAt = 0, allP = null;
+    function universe() {
+      if (all && Date.now() - allAt < CACHE_MS) return Promise.resolve(all);
+      if (allP) return allP;
+      allP = Net.get(`${API}/screen/features`).then((r) => r.json()).then((d) => {
+        all = d.features || {}; allAt = Date.now();
+        if (d.fields) help = d.fields;
+        return all;
+      }).catch(() => null).finally(() => { allP = null; });
+      return allP;
+    }
+    const passes = (v, op, x) => v != null && (op === "gt" ? v > x : v < x);
+
+    /** The filters, one entry per measure: a measure with both an above and
+     *  a below is a "between". The engine only knows gt/lt; this is how the
+     *  widget shows and edits them. */
+    function grouped() {
+      const by = new Map();
+      for (const [f, op, v] of cfg().filters) {
+        const g = by.get(f) || { f };
+        g[op] = v;
+        by.set(f, g);
+      }
+      return [...by.values()];
+    }
+    const nice = (v) => Math.abs(v) >= 100 ? Math.round(v) : Math.abs(v) >= 10 ? Math.round(v * 10) / 10 : Math.round(v * 100) / 100;
+    function chipText(g) {
+      const u = unitOf(g.f), n = (v) => `${fmt(v, Math.abs(v) >= 100 || Number.isInteger(v) ? 0 : Math.abs(v) >= 10 ? 1 : 2)}${u && u !== "₹" ? (u.length > 1 ? " " + u : u) : ""}`;
+      if (g.f === "supertrend_dir") return `<b>Supertrend</b> ${g.gt != null ? "up" : "down"}`;
+      if (g.gt != null && g.lt != null) return `<b>${esc(F[g.f] || g.f)}</b> ${n(g.gt)} – ${n(g.lt)}`;
+      return `<b>${esc(F[g.f] || g.f)}</b> ${g.gt != null ? "&gt;" : "&lt;"} ${n(g.gt != null ? g.gt : g.lt)}`;
+    }
 
     function title() {
       const p = presetOf(cfg().preset);
@@ -113,14 +168,16 @@
     function paintHead() {
       $(".side-pick").innerHTML = `${esc(title())}${ic("chevronDown", "")}`;
       ctx.setTitle(title());
-      const chips = cfg().filters.map(([f, op, v], i) =>
-        `<span class="scr-chip" role="listitem" title="${esc(help[f] || F[f] || f)}">` +
-        `<b>${esc(F[f] || f)}</b> ${op === "lt" ? "&lt;" : "&gt;"} ${esc(v)}` +
-        `<button type="button" data-s="drop" data-i="${i}" aria-label="Remove this filter">${ic("x")}</button></span>`);
+      const chips = grouped().map((g) =>
+        `<span class="scr-chip" role="listitem">` +
+        `<button type="button" class="scr-edit" data-s="edit" data-f="${esc(g.f)}" title="Edit · ${esc(help[g.f] || F[g.f] || g.f)}">${chipText(g)}</button>` +
+        `<button type="button" data-s="drop" data-f="${esc(g.f)}" aria-label="Remove this filter">${ic("x")}</button></span>`);
+      const served = state.res && state.res.sorted_by && state.res.sorted_by.feature === cfg().sort ? state.res.sorted_by.order : null;
+      const ord = cfg().order || served || "desc";
       $(".scr-chips").innerHTML = chips.join("") +
         `<button type="button" class="scr-chip add" data-s="add">${ic("plus")}Filter</button>` +
-        `<button type="button" class="scr-chip sort" data-s="sort" title="What the list is ranked by">` +
-        `${ic("sort")}${esc(F[cfg().sort] || cfg().sort)}</button>`;
+        `<button type="button" class="scr-chip sort" data-s="sort" title="Ranked by ${esc(F[cfg().sort] || cfg().sort)}, ${ord === "asc" ? "lowest" : "highest"} first">` +
+        `${ic(ord === "asc" ? "arrowUp" : "arrowDown")}${esc(F[cfg().sort] || cfg().sort)}</button>`;
     }
 
     async function run(force) {
@@ -252,54 +309,162 @@
         { sep: true },
         { id: "custom", label: "Start from nothing", icon: "plus" },
       ], (id) => {
-        if (id === "custom") return setScreen({ preset: null, filters: [], sort: "ret_1d" });
+        if (id === "custom") return setScreen({ preset: null, filters: [], sort: "ret_1d", order: null });
         const p = presetOf(id);
-        setScreen({ preset: p.id, filters: p.filters.map((f) => [...f]), sort: p.sort });
+        setScreen({ preset: p.id, filters: p.filters.map((f) => [...f]), sort: p.sort, order: p.order || null });
       });
     }
 
-    function filterSheet(anchor) {
-      const opts = Object.entries(F).filter(([k]) => k !== "close" || true)
-        .map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join("");
+    /* The filter editor: a measure, a condition (above, between, below),
+     * the value, and — before anything is applied — where that value falls
+     * across the universe and how many stocks it would leave. */
+    function filterSheet(anchor, editing) {
+      const cur = editing ? grouped().find((g) => g.f === editing) : null;
+      const opts = GROUPS.map(([g, ks]) => `<optgroup label="${esc(g)}">` +
+        ks.filter((k) => F[k]).map((k) => `<option value="${k}">${esc(F[k])}</option>`).join("") + `</optgroup>`).join("");
       const p = ctx.menu(anchor,
-        `<div class="head">Add a filter</div>` +
-        `<form class="scr-form">` +
+        `<div class="head">${cur ? "Edit filter" : "Add a filter"}</div>` +
+        `<form class="scr-form" novalidate>` +
           `<select name="f" aria-label="Measure">${opts}</select>` +
-          `<div class="scr-op"><div class="dk-seg"><button type="button" class="on" data-op="gt">Above</button>` +
-          `<button type="button" data-op="lt">Below</button></div>` +
-          `<input name="v" type="number" step="any" required placeholder="Value" aria-label="Value"></div>` +
           `<p class="scr-help"></p>` +
-          `<button type="submit" class="btn cta">Add filter</button>` +
+          `<div class="dk-seg scr-cond" role="radiogroup" aria-label="Condition"></div>` +
+          `<div class="scr-vals">` +
+            `<label class="scr-val"><input name="a" type="number" step="any" inputmode="decimal" aria-label="Value"><span class="u"></span></label>` +
+            `<span class="scr-and">and</span>` +
+            `<label class="scr-val"><input name="b" type="number" step="any" inputmode="decimal" aria-label="Upper value"><span class="u"></span></label>` +
+          `</div>` +
+          `<div class="scr-dist" aria-hidden="true"><svg class="scr-hist" viewBox="0 0 240 44" preserveAspectRatio="none"></svg>` +
+            `<div class="scr-scale"><span></span><span></span><span></span></div></div>` +
+          `<p class="scr-count" aria-live="polite"></p>` +
+          `<div class="scr-btns">` +
+            (cur ? `<button type="button" class="btn outline" data-x="remove">Remove</button>` : "") +
+            `<span class="spacer"></span><button type="submit" class="btn cta">${cur ? "Apply" : "Add filter"}</button>` +
+          `</div>` +
         `</form>`, null, "scr-sheet");
       if (!p) return;
-      const form = p.querySelector("form"), help_ = p.querySelector(".scr-help");
-      let op = "gt";
-      const say = () => { help_.textContent = help[form.f.value] || ""; };
-      form.f.value = "rsi14"; say();
-      form.f.addEventListener("change", say);
+      const form = p.querySelector("form"), $$ = (q) => p.querySelector(q);
+      let op = cur ? (cur.gt != null && cur.lt != null ? "between" : cur.gt != null ? "gt" : "lt") : "gt";
+      let vals = null;              // the chosen measure's values, sorted
+
+      const segs = () => form.f.value === "supertrend_dir"
+        ? [["gt", "Up"], ["lt", "Down"]] : [["gt", "Above"], ["between", "Between"], ["lt", "Below"]];
+      function paintSeg() {
+        if (form.f.value === "supertrend_dir" && op === "between") op = "gt";
+        $$(".scr-cond").innerHTML = segs().map(([k, l]) =>
+          `<button type="button" role="radio" aria-checked="${op === k}" class="${op === k ? "on" : ""}" data-op="${k}">${l}</button>`).join("");
+        const st = form.f.value === "supertrend_dir";
+        $$(".scr-vals").hidden = st;
+        $$(".scr-vals").classList.toggle("two", op === "between");
+        p.querySelectorAll(".scr-val .u").forEach((u) => { u.textContent = unitOf(form.f.value); });
+      }
+      /** [lo, hi] the condition keeps, from the inputs. */
+      function range() {
+        const a = form.a.value === "" ? NaN : Number(form.a.value), b = form.b.value === "" ? NaN : Number(form.b.value);
+        if (form.f.value === "supertrend_dir") return op === "gt" ? [0, Infinity] : [-Infinity, 0];
+        if (op === "gt") return [a, Infinity];
+        if (op === "lt") return [-Infinity, a];
+        return [Math.min(a, b), Math.max(a, b)];
+      }
+      const valid = () => { const [lo, hi] = range(); return !Number.isNaN(lo) && !Number.isNaN(hi) && lo < hi; };
+      const keeps = (v, lo, hi) => v != null && v > lo && v < hi;
+
+      function paintDist() {
+        const f = form.f.value, svg = $$(".scr-hist"), sc = p.querySelectorAll(".scr-scale span"), cnt = $$(".scr-count");
+        if (!all) { svg.innerHTML = ""; sc.forEach((x) => { x.textContent = ""; }); cnt.textContent = "Loading the universe…"; return; }
+        vals = Object.values(all).map((r) => r[f]).filter((v) => v != null && Number.isFinite(v)).sort((x, y) => x - y);
+        if (!vals.length) { svg.innerHTML = ""; cnt.textContent = "No stock carries this measure yet."; return; }
+        const q = (t) => vals[Math.min(vals.length - 1, Math.max(0, Math.round(t * (vals.length - 1))))];
+        // the outer 1% would stretch the axis into one tall bar; they are
+        // still counted, just drawn in the end bins
+        const lo0 = q(0.01), hi0 = q(0.99) > lo0 ? q(0.99) : vals[vals.length - 1] + 1, N = 30, w = (hi0 - lo0) / N;
+        const bins = new Array(N).fill(0);
+        for (const v of vals) bins[Math.max(0, Math.min(N - 1, Math.floor((v - lo0) / w)))]++;
+        const top = Math.max(...bins), [lo, hi] = range(), ok = valid();
+        svg.innerHTML = bins.map((n, i) => {
+          const x0 = lo0 + i * w, mid = x0 + w / 2, h = n ? Math.max(2, (n / top) * 42) : 0;
+          return `<rect x="${i * 8 + 0.5}" y="${44 - h}" width="7" height="${h}" rx="1.5" class="${ok && keeps(mid, lo, hi) ? "in" : ""}" data-v="${nice(x0)}"></rect>`;
+        }).join("");
+        const u = unitOf(f), lab = (v) => `${fmt(v, Math.abs(v) >= 100 || Number.isInteger(v) ? 0 : 1)}${u && u.length === 1 && u !== "₹" ? u : ""}`;
+        sc[0].textContent = lab(vals[0]); sc[1].textContent = `median ${lab(q(0.5))}`; sc[2].textContent = lab(vals[vals.length - 1]);
+        if (!ok) { cnt.textContent = op === "between" ? "Enter both ends of the range." : "Enter a value."; return; }
+        const others = grouped().filter((g) => g.f !== f);
+        let alone = 0, both = 0;
+        for (const r of Object.values(all)) {
+          if (!keeps(r[f], lo, hi)) continue;
+          alone++;
+          if (others.every((g) => (g.gt == null || passes(r[g.f], "gt", g.gt)) && (g.lt == null || passes(r[g.f], "lt", g.lt)))) both++;
+        }
+        const n = Object.keys(all).length;
+        cnt.innerHTML = `<b>${alone}</b> of ${n} pass` + (others.length ? ` · <b>${both}</b> with your other filters` : "");
+      }
+      function seed(f) {
+        form.a.value = form.b.value = "";
+        if (!all) return;
+        const v = Object.values(all).map((r) => r[f]).filter((x) => x != null).sort((x, y) => x - y);
+        if (!v.length) return;
+        const at = (t) => nice(v[Math.round(t * (v.length - 1))]);
+        if (op === "between") { form.a.value = at(0.25); form.b.value = at(0.75); }
+        else form.a.value = at(op === "gt" ? 0.75 : 0.25);
+      }
+      const say = () => { $$(".scr-help").textContent = (help[form.f.value] || "").replace(/\s*—\s*/g, " — "); };
+
+      form.f.value = cur ? cur.f : "rsi14";
+      if (cur) {
+        if (op === "between") { form.a.value = cur.gt; form.b.value = cur.lt; }
+        else form.a.value = cur.gt != null ? cur.gt : cur.lt;
+      }
+      paintSeg(); say(); paintDist();
+      universe().then(() => { if (!p.isConnected) return; if (!cur && form.a.value === "") seed(form.f.value); say(); paintDist(); });
+
+      form.f.addEventListener("change", () => { paintSeg(); say(); seed(form.f.value); paintDist(); });
+      form.addEventListener("input", paintDist);
       p.addEventListener("click", (e) => {
         const b = e.target.closest("[data-op]");
-        if (!b) return;
-        op = b.dataset.op;
-        p.querySelectorAll("[data-op]").forEach((x) => x.classList.toggle("on", x === b));
+        if (b) {
+          const was = op; op = b.dataset.op;
+          if (op === "between" && was !== "between" && form.b.value === "") {
+            // keep the value typed as the lower end and offer the top quartile
+            const v = Number(form.a.value);
+            if (vals && vals.length) form.b.value = nice(Math.max(v + 1e-9, vals[Math.round(0.9 * (vals.length - 1))]));
+          }
+          paintSeg(); paintDist();
+          return;
+        }
+        const bar = e.target.closest("rect[data-v]");
+        if (bar && op !== "between" && form.f.value !== "supertrend_dir") { form.a.value = bar.dataset.v; paintDist(); return; }
+        if (e.target.closest('[data-x="remove"]')) {
+          Dock.closeMenu();
+          setScreen({ preset: null, filters: cfg().filters.filter((x) => x[0] !== cur.f) });
+        }
       });
-      form.addEventListener("keydown", (e) => e.stopPropagation());
+      form.addEventListener("keydown", (e) => { if (e.key === "Escape") { Dock.closeMenu(); return; } e.stopPropagation(); });
       form.addEventListener("submit", (e) => {
         e.preventDefault();
-        const v = Number(form.v.value);
-        if (!Number.isFinite(v)) return;
+        if (!valid()) { paintDist(); return; }
+        const f = form.f.value, [lo, hi] = range();
+        const keep = cfg().filters.filter((x) => x[0] !== f && (!cur || x[0] !== cur.f));
+        const add = f === "supertrend_dir" ? [[f, op, 0]]
+          : op === "between" ? [[f, "gt", lo], [f, "lt", hi]] : [[f, op, op === "gt" ? lo : hi]];
         Dock.closeMenu();
-        setScreen({ preset: null, filters: [...cfg().filters, [form.f.value, op, v]] });
+        setScreen({ preset: null, filters: [...keep, ...add] });
       });
-      setTimeout(() => form.v.focus(), 0);
+      setTimeout(() => { if (form.f.value !== "supertrend_dir") form.a.focus(); }, 0);
     }
 
     function sortMenu(anchor) {
-      const used = new Set(["ret_1d", "ret_1w", "ret_1m", "rsi14", "vol_ratio20", "turnover_20d_cr",
-                            "dist_52w_high", "adx14", "atr_pct", ...cfg().filters.map((f) => f[0])]);
-      ctx.menu(anchor, [{ head: "Rank by" },
-        ...[...used].map((k) => ({ id: k, label: F[k] || k, on: cfg().sort === k }))],
-        (k) => setScreen({ sort: k, preset: cfg().preset && presetOf(cfg().preset).sort === k ? cfg().preset : null }));
+      const used = ["ret_1d", "ret_1w", "ret_1m", "ret_3m", "ret_1y", "rsi14", "adx14", "vol_ratio20", "turnover_20d_cr",
+                    "dist_52w_high", "atr_pct", "range_20d_pct", ...cfg().filters.map((f) => f[0])];
+      const served = state.res && state.res.sorted_by ? state.res.sorted_by.order : "desc";
+      const ord = cfg().order || served;
+      ctx.menu(anchor, [{ head: "Order" },
+        { id: "ord:desc", label: "Highest first", icon: "arrowDown", on: ord === "desc" },
+        { id: "ord:asc", label: "Lowest first", icon: "arrowUp", on: ord === "asc" },
+        { sep: true }, { head: "Rank by" },
+        ...[...new Set(used)].map((k) => ({ id: k, label: F[k] || k, on: cfg().sort === k }))],
+        (k) => {
+          if (k.startsWith("ord:")) return setScreen({ order: k.slice(4), preset: null });
+          setScreen({ sort: k, order: null, preset: cfg().preset && presetOf(cfg().preset).sort === k ? cfg().preset : null });
+        });
     }
 
     host.addEventListener("click", (e) => {
@@ -317,12 +482,10 @@
         if (a === "preset") return presetMenu(b);
         if (a === "refresh") return run(true);
         if (a === "add") return filterSheet(b);
+        if (a === "edit") return filterSheet(b, b.dataset.f);
         if (a === "sort") return sortMenu(b);
-        if (a === "drop") {
-          const f = [...cfg().filters]; f.splice(Number(b.dataset.i), 1);
-          return setScreen({ preset: null, filters: f });
-        }
-        if (a === "ask") return ctx.compose(askText());
+        if (a === "drop") return setScreen({ preset: null, filters: cfg().filters.filter((x) => x[0] !== b.dataset.f) });
+        if (a === "ask") return ctx.ask(askText());
         if (a === "watch" && row) {
           if (typeof Panels !== "undefined" && Panels.watch) Panels.watch(row.dataset.sym);
           return ctx.toast(`${row.dataset.sym} added to your watchlist`);
@@ -351,10 +514,19 @@
 
     function askText() {
       const d = state.res;
-      if (!d || !d.rows || !d.rows.length) return "";
-      const top = d.rows.slice(0, 10).map((r) => r.symbol).join(", ");
-      return `My screen "${title()}" (${d.criteria}; ${d.ranking}) matched ${d.matched} of ${d.universe} ` +
-        `as of ${d.as_of}. The top names are ${top}. Which of these look strongest on the chart, and why?`;
+      if (!d || !d.rows || !d.rows.length) return null;
+      const k = cfg().sort;
+      const top = d.rows.slice(0, 15).map((r, i) => {
+        const f = state.feats[r.symbol] || {};
+        return `${i + 1}. ${r.symbol}${r.name ? ` (${r.name})` : ""} — last ${fmt(r.close)}, 1D ${fmtPct(f.ret_1d)}` +
+          (k !== "close" && k !== "ret_1d" && r[k] != null ? `, ${F[k] || k} ${fmt(r[k])}` : "");
+      });
+      return {
+        sub: `${title()} · ${d.matched} of ${d.universe} · ${d.as_of}`,
+        context: `Screen "${title()}": ${d.criteria}. ${d.ranking}. ${d.matched} of ${d.universe} stocks matched, ` +
+          `end-of-day values as of ${d.as_of}. Top ${top.length}:\n${top.join("\n")}`,
+        question: "Which of these look strongest on the chart, and why?",
+      };
     }
 
     // a resize that changes how many extra columns fit redraws the table

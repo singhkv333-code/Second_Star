@@ -48,6 +48,36 @@
     down: "The live browser did not answer; this page is shown as text.",
     ticket: "The live browser did not accept this session; this page is shown as text.",
   };
+  /* Sites that turn away every browser running in a data centre — their bot
+   * managers score the address itself, so no server-side browser gets in.
+   * Seeded with the ones seen refusing ours, then learned: a site that
+   * answers the live browser 401/403/429 is remembered for a week and opens
+   * in the user's OWN browser, in a window sized over this widget. */
+  const REFUSED_KEY = "charto:br:refused", WEEK = 7 * 864e5;
+  const SEEN_REFUSING = ["moneycontrol.com", "nseindia.com", "investing.com", "bloomberg.com"];
+  const refusedMap = () => { try { return JSON.parse(localStorage.getItem(REFUSED_KEY) || "{}") || {}; } catch { return {}; } };
+  const isRefused = (u) => {
+    const h = hostOf(u), m = refusedMap();
+    return SEEN_REFUSING.some((x) => h === x || h.endsWith("." + x)) || (!!m[h] && Date.now() - m[h] < WEEK);
+  };
+  const markRefused = (u) => { try { const m = refusedMap(); m[hostOf(u)] = Date.now(); localStorage.setItem(REFUSED_KEY, JSON.stringify(m)); } catch { } };
+  /* A site that allows framing opens as itself, in an iframe: the real page,
+   * native text and scrolling, loaded by the user's own browser. Asked once
+   * per host (/frame-check reads its X-Frame-Options and CSP), bounded so a
+   * slow answer never holds a page up. */
+  const frames = new Map();
+  function frameable(url) {
+    if (!/^https:/i.test(url)) return Promise.resolve(false);
+    const h = hostOf(url);
+    if (!frames.has(h)) {
+      frames.set(h, Promise.race([
+        json(`/frame-check?url=${encodeURIComponent(url)}`)
+          .then((d) => !!(d && d.embeddable && (!d.status || d.status < 400))).catch(() => false),
+        new Promise((r) => setTimeout(() => r(false), 2500)),
+      ]));
+    }
+    return frames.get(h);
+  }
 
   function mount(host, ctx) {
     let hist = [], at = -1, cur = null, seq = 0;
@@ -65,11 +95,14 @@
       `<div class="br-view"></div>` +
       `<div class="br-stage" hidden><div class="br-flash" hidden></div><canvas></canvas>` +
         `<textarea class="br-kb" aria-label="Keyboard input for the page" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>` +
-        `<div class="br-over" hidden></div></div>`;
+        `<div class="br-over" hidden></div></div>` +
+      `<div class="br-frame" hidden></div>`;
     const $ = (s) => host.querySelector(s);
     const view = $(".br-view"), form = $(".br-url"), input = form.u;
     const stage = $(".br-stage"), canvas = stage.querySelector("canvas"), kb = $(".br-kb"), flash = $(".br-flash"), over = $(".br-over");
     const g2 = canvas.getContext("2d");
+    const frameEl = $(".br-frame");
+    let outWin = null, outT = 0;   // the window opened over this widget, and its watch
     const cfg = () => ctx.cfg;
 
     function prefs() {
@@ -170,9 +203,13 @@
       } else if (m.t === "notice") {
         note(esc(m.msg));
       } else if (m.t === "refused") {
-        note(`${esc(hostOf(m.url))} turns away automated browsers${m.code ? ` (it answered ${m.code})` : ""}, so it cannot be shown live.`,
-          `<button type="button" class="sh-btn" data-br="out">${ic("externalLink")}<span>Open in a new tab</span></button>` +
-          `<button type="button" class="sh-btn" data-br="text">${ic("fileText")}<span>Read as text</span></button>`, 0);
+        // the site turned our browser away: remember it, free the remote
+        // page, and offer the user's own browser over the widget instead
+        markRefused(m.url);
+        if (rb.ws) { const w = rb.ws; rb.ws = null; try { w.close(1000, "refused"); } catch { } }
+        rb.sid = null;
+        ++seq;
+        beside(m.url, false, `${hostOf(m.url)} turns away browsers that run on servers${m.code ? ` (it answered ${m.code})` : ""}.`);
       } else if (m.t === "bye") {
         ended({ idle: "The live page closed after 15 minutes without use.", time: "The live page reached its two-hour limit.",
           crash: "The live page stopped unexpectedly.", replaced: "This page was closed to open another.",
@@ -197,7 +234,7 @@
     }
     function reloadBtn(loading) {
       const b = $('[data-br="reload"]');
-      b.hidden = !rb.live;
+      b.hidden = !(rb.live || (cur && cur.frame));
       b.innerHTML = loading ? ic("x") : ic("rotateCw");
       b.title = loading ? "Stop" : "Reload";
       b.dataset.loading = loading ? "1" : "";
@@ -207,6 +244,8 @@
       rb.live = on;
       stage.hidden = !on;
       view.hidden = on;
+      frameEl.hidden = true;
+      if (frameEl.firstChild) frameEl.innerHTML = "";
       $('[data-br="more"]').hidden = !(on || (cur && cur.kind === "page"));
       if (!on) { $(".br-prog").classList.remove("on"); flash.hidden = true; }
       reloadBtn(on && rb.st.loading);
@@ -379,7 +418,7 @@
             `<span class="br-ico" data-host="${esc(ICON_HOST[h] || h)}"><i>${esc(name[0])}</i></span><b>${esc(name)}</b>` +
             `<button type="button" class="br-ext" data-go="https://${esc(h)}/" title="Open ${esc(domainOf(h))}">${ic("arrowUpRight")}</button></div>`).join("") +
           `</div></section>`).join("") +
-        `<p class="br-note">Pages open in a live browser beside the chart. Pick a site to search only it.</p></div>`;
+        `<p class="br-note">Pages open right here: a site that allows it loads as itself, others run in a live browser on Pivot's side, and the few that refuse both open in your own browser over this widget. Pick a site to search only it.</p></div>`;
       const f = view.querySelector(".br-big");
       paintScope(f);
       f.q.addEventListener("keydown", (e) => { e.stopPropagation(); if (e.key === "Backspace" && !f.q.value && scope) { scope = null; paintScope(f); paintTiles(); } });
@@ -445,7 +484,8 @@
           `<div><em>Wikipedia</em><b>${esc(top.title)}</b><span>${esc(top.description || "")}</span></div></div>`;
         const rs = (web && web.results) || [];
         html += rs.map(hitRow).join("");
-        if (!rs.length) html += `<div class="br-none">${esc((web && web.error) || (site ? `No pages on ${domainOf(site)} came back for that.` : "No pages came back for that."))}</div>`;
+        if (!rs.length) html += `<div class="br-none">${esc((web && web.error) || (site ? `No pages on ${domainOf(site)} came back for that.` : "No pages came back for that."))}` +
+          (web && web.error ? `<div class="br-beside-acts"><button type="button" class="sh-btn" data-br="gsearch">${ic("search")}<span>Search Google over the widget</span></button></div>` : "") + `</div>`;
         if (rs.length) html += `<div class="br-foot">` + (web.more ? `<button type="button" class="sh-btn" data-br="page" data-p="${(web.page || 1) + 1}">${ic("chevronDown")}<span>More results</span></button>` : "") +
           `<span>Results from ${esc(SOURCE[web.source] || "the web")}${web.stale ? " (saved earlier; the search did not answer)" : ""}</span></div>`;
       }
@@ -470,9 +510,94 @@
     async function page(url, asText) {
       const my = ++seq;
       if (isPdf(url)) return openPdf(url);
-      if (!asText && mode(cfg()) === "browser") return showRemote(url, my);
+      if (asText || mode(cfg()) !== "browser") { setLive(false); return readPage(url, my); }
+      // before any await: a window can only be opened inside the click
+      if (isRefused(url)) return beside(url, true);
+      if (await frameable(url)) { if (my === seq) showFrame(url); return; }
+      if (my !== seq) return;
+      return showRemote(url, my);
+    }
+
+    /* ── the real page, framed ───────────────────────────────────────────
+     * Sandboxed: it may run its scripts and open links in new tabs, but it
+     * can never navigate this page. Its own navigation is not visible here
+     * (it is another origin), so the address bar keeps the page it opened. */
+    function showFrame(url) {
       setLive(false);
-      return readPage(url, my);
+      cur = { kind: "page", url, title: hostOf(url), text: () => "", frame: true };
+      input.value = url; lockIcon(url); ctx.setTitle(hostOf(url));
+      $('[data-br="more"]').hidden = false;
+      view.hidden = true;
+      frameEl.hidden = false;
+      frameEl.innerHTML = `<iframe src="${esc(url)}" title="${esc(hostOf(url))}" ` +
+        `sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads" ` +
+        `referrerpolicy="strict-origin-when-cross-origin" allow="clipboard-write; fullscreen"></iframe>`;
+      const f = frameEl.firstChild;
+      $(".br-prog").classList.add("on");
+      f.addEventListener("load", () => $(".br-prog").classList.remove("on"), { once: true });
+      reloadBtn(false);
+    }
+
+    /* ── the user's own browser, over the widget ─────────────────────────
+     * For a site that refuses every server-side browser. The window opens on
+     * about:blank — still ours, so it can be sized and placed exactly over
+     * the widget — then its tie back to this page is cut and only then is it
+     * sent to the site. Once the site loads it is another origin's window:
+     * it cannot be moved again, so "Snap to the widget" reopens it in place. */
+    function dockBox() {
+      const r = host.getBoundingClientRect();
+      const top = Math.max(0, outerHeight - innerHeight), side = Math.max(0, (outerWidth - innerWidth) / 2);
+      return { left: Math.round(screenX + side + r.left), top: Math.round(screenY + top + r.top),
+               width: Math.max(320, Math.round(r.width)), height: Math.max(320, Math.round(r.height)) };
+    }
+    function openDocked(url) {
+      const g = dockBox();
+      const w = window.open("about:blank", `pivot-beside-${ctx.id}`,
+        `popup=yes,left=${g.left},top=${g.top},width=${g.width},height=${g.height}`);
+      if (!w) return false;
+      try {
+        w.resizeTo(g.width, g.height);      // outer box = the widget's box
+        w.moveTo(g.left, g.top);
+      } catch { }
+      try { w.opener = null; } catch { }
+      try { w.location.replace(url); } catch { w.location.href = url; }
+      outWin = w;
+      clearInterval(outT);
+      outT = setInterval(() => {
+        if (!outWin || !outWin.closed) return;
+        clearInterval(outT); outWin = null;
+        if (cur && cur.beside) paintBeside(cur.url, "offer", "The window was closed.");
+      }, 1000);
+      return true;
+    }
+    function beside(url, auto, why) {
+      setLive(false);
+      cur = { kind: "page", url, title: hostOf(url), text: () => "", beside: true };
+      input.value = url; ctx.setTitle(hostOf(url));
+      $('[data-br="more"]').hidden = false;
+      reloadBtn(false);
+      const opened = auto && openDocked(url);
+      paintBeside(url, opened ? "open" : "offer", why || (auto && !opened
+        ? "The browser blocked the window. Allow pop-ups for Pivot, or use a button below." : ""));
+    }
+    function paintBeside(url, state, why) {
+      const h = hostOf(url);
+      const lead = state === "open"
+        ? `${esc(h)} is open in your own browser, in a window over this widget.`
+        : `${esc(h)} turns away browsers that run on servers, so it opens in your own browser instead.`;
+      view.hidden = false;
+      view.innerHTML = `<div class="br-beside">` +
+        `<img class="br-fav" src="${esc(favicon(url))}" alt="" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'">` +
+        `<b>${esc(h)}</b><p>${lead}</p>` + (why && why !== lead ? `<p class="br-why-s">${esc(why)}</p>` : "") +
+        `<div class="br-beside-acts">` +
+          (state === "open"
+            ? `<button type="button" class="dk-cta" data-br="dockfocus">${ic("arrowUpRight")}Bring it to the front</button>` +
+              `<button type="button" class="sh-btn" data-br="docksnap">${ic("expand")}<span>Snap to the widget</span></button>` +
+              `<button type="button" class="sh-btn" data-br="dockclose">${ic("x")}<span>Close the window</span></button>`
+            : `<button type="button" class="dk-cta" data-br="dock">${ic("arrowUpRight")}Open over the widget</button>` +
+              `<button type="button" class="sh-btn" data-br="out">${ic("externalLink")}<span>Open in a new tab</span></button>` +
+              `<button type="button" class="sh-btn" data-br="text">${ic("fileText")}<span>Try it as text</span></button>`) +
+        `</div></div>`;
     }
     function openPdf(url, name) {
       ctx.send("docs", { url, name });
@@ -525,13 +650,15 @@
         `<p class="br-lic">Shown as text by Pivot's reader. <a href="${esc(d.final || url)}" target="_blank" rel="noopener noreferrer">Open the original</a></p></article>`;
       view.scrollTop = 0;
     }
+    // neither the live browser nor the reader could show it: the user's own
+    // browser can, over the widget
     function fail(url, msg, why) {
-      cur = { kind: "page", url, title: hostOf(url), text: () => "" };
-      const signin = why === WHY.signin && typeof window.CHARTO_AUTH_OPEN === "function";
-      view.innerHTML = `<div class="side-empty">${Icons.svg("globe")}<p>${esc(msg)}</p>` +
-        (why ? `<p class="br-why-s">${esc(why)}</p>` : "") +
-        (signin ? `<button type="button" class="dk-cta" data-br="signin">${ic("user")}Sign in to open it live</button>` : "") +
-        `<a class="dk-cta" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${ic("externalLink")}Open ${esc(hostOf(url))} in a new tab</a></div>`;
+      if (/\b(401|403|429)\b/.test(String(msg))) markRefused(url);
+      beside(url, false, [msg, why].filter(Boolean).join(" "));
+      if (why === WHY.signin && typeof window.CHARTO_AUTH_OPEN === "function") {
+        view.querySelector(".br-beside-acts").insertAdjacentHTML("beforeend",
+          `<button type="button" class="sh-btn" data-br="signin">${ic("user")}<span>Sign in to open pages live</span></button>`);
+      }
     }
 
     function tools(anchor) {
@@ -541,12 +668,16 @@
         { id: "note", label: "Save to notes" },
         { id: "ask", label: "Ask the chat about this page" },
         { id: "copy", label: "Copy the address" },
+        { id: "dock", label: "Open over the widget", hint: "In your own browser" },
         { id: "out", label: "Open in a new tab" }];
       ctx.menu(anchor, items, (id) => act(id));
     }
     async function act(a) {
       if (!cur || cur.kind !== "page") return;
       if (a === "out") return open(cur.url, "_blank", "noopener,noreferrer");
+      if (a === "dock" || a === "docksnap") { if (!cur.beside) beside(cur.url, true); else if (openDocked(cur.url)) paintBeside(cur.url, "open"); else paintBeside(cur.url, "offer", "The browser blocked the window. Allow pop-ups for Pivot."); return; }
+      if (a === "dockfocus") { if (outWin && !outWin.closed) outWin.focus(); else paintBeside(cur.url, "offer", "The window was closed."); return; }
+      if (a === "dockclose") { if (outWin && !outWin.closed) outWin.close(); outWin = null; clearInterval(outT); return paintBeside(cur.url, "offer"); }
       if (a === "live") { hist[at] = { kind: "page", url: cur.url }; return page(cur.url); }
       if (a === "text") { const my = ++seq; setLive(false); hist[at] = { kind: "page", url: cur.url, text: true }; return readPage(cur.url, my); }
       if (a === "copy") { try { await navigator.clipboard.writeText(cur.url); ctx.toast("Address copied."); } catch {} return; }
@@ -557,11 +688,13 @@
       }
       if (a === "ask") {
         let t = cur.text ? cur.text().replace(/\s+\n/g, "\n").slice(0, 3000) : "";
-        if (!t && rb.live) {
+        if (!t) {
           const d = await json(`/reader?url=${encodeURIComponent(cur.url)}`).catch(() => null);
           t = d && !d.thin ? (d.blocks || []).map((b) => b.text).join("\n").slice(0, 3000) : "";
         }
-        return ctx.compose(`I'm reading "${cur.title || cur.url}" (${cur.url}).${t ? `\n\n${t}\n\n` : " "}What in it matters for an investor or trader in India? Quote it where you rely on it.`);
+        return ctx.ask({ sub: `${hostOf(cur.url)} · ${cur.title || cur.url}`,
+          context: `The page "${cur.title || cur.url}" (${cur.url}).${t ? `\nIts text:\n${t}` : " Its text could not be read."}`,
+          question: "What in this page matters for an investor or trader in India? Quote it where you rely on it." });
       }
     }
 
@@ -614,12 +747,19 @@
         if (at < hist.length - 1) return nav(hist[++at], false);
         return;
       }
-      if (a === "reload") return send({ t: b.dataset.loading ? "stop" : "reload" });
+      if (a === "reload") {
+        if (cur && cur.frame && frameEl.firstChild) { const f = frameEl.firstChild; f.src = f.src; return; }
+        return send({ t: b.dataset.loading ? "stop" : "reload" });
+      }
       if (a === "home") return nav({ kind: "home" });
       if (a === "unflash") { flash.hidden = true; return; }
       if (a === "signin") { window.CHARTO_AUTH_OPEN(); return; }
       if (a === "resume") { over.hidden = true; const u = (cur && cur.url) || rb.st.url; rb.ws = null; return u && showRemote(u, ++seq); }
       if (a === "page") return morePage(b);
+      if (a === "gsearch" && cur && cur.kind === "search") {
+        const q = cur.site ? `site:${domainOf(cur.site)} ${cur.q}` : cur.q;
+        return beside(`https://www.google.com/search?q=${encodeURIComponent(q)}`, true);
+      }
       if (a === "fresh") {
         e.stopPropagation();
         return ctx.menu(b, [{ head: "Published" }, ...FRESH.map(([v, l]) => ({ id: v || "any", label: l, on: (hist[at].fresh || "") === v }))],
@@ -652,7 +792,9 @@
         if ("sharp" in patch && rb.ws) { const w = rb.ws; rb.ws = null; try { w.close(1000); } catch {} rb.sid = null; if (cur) showRemote(cur.url, ++seq); }
       },
       receive(p) { if (p && p.url) nav({ kind: "page", url: p.url, ...(p.reader ? { text: true } : {}) }); else if (p && p.q) go(p.q); },
-      ask: () => cur && cur.kind === "page" ? `I'm reading ${cur.title || cur.url} (${cur.url}). Summarise what matters on it for a trader in India.` : "",
+      ask: () => cur && cur.kind === "page" ? { sub: `${hostOf(cur.url)} · ${cur.title || cur.url}`,
+        context: `The page "${cur.title || cur.url}" (${cur.url})${cur.text && cur.text() ? `. Its text:\n${cur.text().replace(/\s+\n/g, "\n").slice(0, 3000)}` : "."}`,
+        question: "Summarise what matters on this page for a trader in India." } : null,
     };
   }
 
@@ -670,7 +812,7 @@
         hint: "Light sends a smaller picture, for slow connections" },
       { key: "textSize", label: "Text size", kind: "seg", def: "m", options: [{ v: "s", label: "Small" }, { v: "m", label: "Medium" }, { v: "l", label: "Large" }] },
       { key: "images", label: "Pictures in text pages", kind: "toggle", def: true },
-      { kind: "note", label: "Searches and pages go through Pivot's servers. A live page runs in a private browser there that is closed when you leave it; nothing from the site runs in this page." },
+      { kind: "note", label: "Searches go through Pivot's servers. A site that allows framing loads directly in your browser, sandboxed so it cannot touch this page; otherwise the page runs in a private browser on Pivot's side, closed when you leave it. Sites that refuse both open in a window of your own browser." },
     ],
   });
 })();

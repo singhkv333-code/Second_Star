@@ -186,7 +186,9 @@
         if (chart && keys.every((k) => ["grid", "scale", "magnet"].includes(k))) return chart.applyOptions(theme());
         reload();
       },
-      ask: () => `Compare ${sym()} with ${ctx.pageSymbol()} on the ${iv()} chart: how have they moved relative to each other, and what does that say?`,
+      ask: () => ({ sub: `${sym()} vs ${ctx.pageSymbol()} · ${iv()}`,
+        context: `A second chart of ${sym()} on the ${iv()} interval, open beside the main chart of ${ctx.pageSymbol()}.`,
+        question: `How have ${sym()} and ${ctx.pageSymbol()} moved relative to each other, and what does that say?` }),
     };
   }
 

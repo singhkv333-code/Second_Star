@@ -5910,7 +5910,8 @@ def _screen_vocab(msg: str) -> dict:
 
 def tool_screen_universe(filters: list | None = None, industry: str = "",
                          pattern: str = "", pattern_within: int = 5,
-                         sort: str = "", limit: int = 15) -> dict:
+                         sort: str = "", limit: int = 15,
+                         order: str = "") -> dict:
     """Rank the whole stored universe on end-of-day features.
 
     Deliberately not a catalogue of named screens: the model composes the
@@ -6036,6 +6037,11 @@ def tool_screen_universe(filters: list | None = None, industry: str = "",
     # Descending unless the screen itself asked for small values of this
     # feature — "RSI under 30" wants the most oversold first, not the least.
     desc = not any(nm == sort_by and op == "lt" for nm, op, _ in parsed)
+    # The Screener widget can say which end it wants ("lowest 1-day return
+    # first" without inventing a `ret_1d < 0` filter). Not in the chat tool's
+    # schema, so the model's calls keep the rule above.
+    if str(order or "").lower() in ("asc", "desc"):
+        desc = str(order).lower() == "desc"
     survivors.sort(key=lambda r: (r["_f"].get(sort_by) is None,
                                   -(r["_f"].get(sort_by) or 0) if desc
                                   else (r["_f"].get(sort_by) or 0)))
@@ -17557,7 +17563,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(spec, dict):
                     return self._send(400, {"error": "spec must be an object"})
                 allowed = ("filters", "industry", "pattern", "pattern_within",
-                           "sort", "limit")
+                           "sort", "limit", "order")
                 out = tool_screen_universe(
                     **{k: spec[k] for k in allowed if k in spec})
                 # The engine also composes the chart's screen panel on this

@@ -437,12 +437,15 @@
           rows.push(r);
         }
       } else rows = w.getData(false, true).filter((r) => r.some((c) => c !== "" && c != null)).slice(0, 40);
-      if (!rows.length) { if (explicit) ctx.toast("This sheet is empty."); return ""; }
+      if (!rows.length) { if (explicit) ctx.toast("This sheet is empty."); return null; }
       const md = rows.map((r) => "| " + r.map((c) => String(c ?? "").replace(/<[^>]+>/g, "")).join(" | ") + " |");
       md.splice(1, 0, "| " + rows[0].map(() => "---").join(" | ") + " |");
-      const text = `Here is a table from my sheet "${w.options.worksheetName}":\n\n${md.join("\n")}\n\nWhat stands out, and what would you check next?`;
-      if (explicit) ctx.compose(text);
-      return text;
+      const picked = sel && (sel.x1 !== sel.x2 || sel.y1 !== sel.y2);
+      const got = { sub: `${w.options.worksheetName} · ${rows.length} row${rows.length === 1 ? "" : "s"}${picked ? " selected" : ""}`,
+        context: `A table from my sheet "${w.options.worksheetName}":\n${md.join("\n")}`,
+        question: "What stands out, and what would you check next?" };
+      if (explicit) ctx.ask(got);
+      return got;
     }
 
     function prefs() {

@@ -399,6 +399,32 @@ const Ctx = (() => {
     glazeMenus(document.body);
   }
 
+  /* ── which way a menu unfolds ────────────────────────────────────────────
+   * The stylesheet reveals a menu top to bottom (drop-down) unless it hangs
+   * ABOVE what opened it, where it unrolls upward instead. No opener has to
+   * say which: the press that opened it is remembered, and a sheet whose foot
+   * is above that point was placed above it. Stamped as data-drop before the
+   * first paint (observer callbacks run before rendering), so the animation
+   * never starts the wrong way. Submenus keep their sideways entrance. */
+  let pressY = null;
+  addEventListener("pointerdown", (e) => { pressY = e.clientY; }, true);
+  addEventListener("keydown", () => { pressY = null; }, true);
+  function stampDrop(n) {
+    if (!n || !n.classList || n.classList.contains("ctx-sub")) return;
+    const isMenu = (n.classList.contains("dropdown") && n.classList.contains("open"))
+      || (n.classList.contains("ctx") && n.classList.contains("in"));
+    if (!isMenu) return;
+    const r = n.getBoundingClientRect();
+    const up = n.classList.contains("up") || (pressY != null && r.height > 0 && r.bottom <= pressY + 2);
+    n.dataset.drop = up ? "up" : "down";
+  }
+  new MutationObserver((recs) => {
+    for (const r of recs) {
+      if (r.type === "attributes") stampDrop(r.target);
+      else for (const n of r.addedNodes) if (n.nodeType === 1) stampDrop(n);
+    }
+  }).observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ["class"] });
+
   return {
     open, close, isOpen: () => chain.length > 0,
     /** THE app's lens, for anything outside this file that needs to be made of

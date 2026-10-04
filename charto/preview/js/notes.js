@@ -197,9 +197,17 @@
       }
       if (e.target.closest('[data-n="ask"]')) {
         const text = ed.innerText.trim();
-        if (text) ctx.compose(`Here are my notes on ${ctx.cfg.scope === "general" ? "the market" : ctx.symbol()}:\n\n${text}\n\nWhat would you check on the chart to test them?`);
+        if (text) ctx.ask(noteAsk(text));
       }
     });
+
+    function noteAsk(text) {
+      const on = ctx.cfg.scope === "general" ? "the market" : ctx.symbol();
+      const words = text.split(/\s+/).filter(Boolean).length;
+      return { sub: `On ${on} · ${words} word${words === 1 ? "" : "s"}`,
+        context: `My notes on ${on}:\n${text.slice(0, 5000)}`,
+        question: "What would you check on the chart to test these notes?" };
+    }
 
     // another tab editing the same note
     addEventListener("storage", (e) => {
@@ -227,7 +235,7 @@
       },
       ask: () => {
         const text = ed.innerText.trim();
-        return text ? `Here are my notes:\n\n${text}\n\nWhat would you check on the chart to test them?` : "";
+        return text ? noteAsk(text) : null;
       },
     };
   }

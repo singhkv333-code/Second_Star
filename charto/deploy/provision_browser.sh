@@ -92,7 +92,7 @@ properties:
       properties:
         image: $ACR.azurecr.io/rb:$TAG
         ports: [ { port: 5177 } ]
-        resources: { requests: { cpu: 1.0, memoryInGB: 2.5 } }
+        resources: { requests: { cpu: 2.0, memoryInGB: 4.0 } }
         environmentVariables:
           - { name: RB_MAX_SESSIONS, value: '3' }
           - { name: CHARTO_BROWSER_SECRET, secureValue: '$SECRET' }

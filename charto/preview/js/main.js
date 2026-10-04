@@ -967,7 +967,17 @@
     });
     syncMenuTriggers();
   }
-  document.addEventListener("click", () => closeMenus(null));
+  // A click INSIDE one of the dock's menus is that menu's business: it closes
+  // itself on a pick, and some of them are small forms (the screener's filter
+  // editor) whose segmented buttons are clicks that must not fold the sheet
+  // away mid-edit. Every other dropdown still closes on any click.
+  document.addEventListener("click", (e) => {
+    // the dispatch path, not target.closest: a control that re-draws itself
+    // on click is already detached by the time this bubbles up
+    const own = (e.composedPath ? e.composedPath() : [])
+      .find((n) => n.classList && n.classList.contains("dropdown") && n.classList.contains("dk-menu"));
+    closeMenus(own || null);
+  });
   window.__chartoCloseMenus = closeMenus;
 
   // Input-modality flag the stylesheet gates .btn's focus ring on: Tab arms

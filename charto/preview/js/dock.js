@@ -1032,9 +1032,19 @@ const Dock = (() => {
 
   function askFrom(id) {
     const api = live.get(id) || {};
-    const text = api.ask && api.ask();
-    if (text && window.Chat && window.Chat.compose) window.Chat.compose(text);
-    else if (!text) toast("There is nothing in this widget to ask about yet.");
+    askWith(id, api.ask && api.ask());
+  }
+  /** A widget's "Ask in chat". A widget hands back { sub, context, question }
+   *  and the chat wears it as a tag — the widget's icon and name, one line of
+   *  what it holds — with the snapshot riding on the message rather than
+   *  pasted into the box. A plain string still drafts it as text. */
+  function askWith(id, got) {
+    if (!got) return toast("There is nothing in this widget to ask about yet.");
+    if (typeof got === "string") return window.Chat && window.Chat.compose && window.Chat.compose(got);
+    const spec = TYPES.get(S.inst[id].type);
+    if (window.Chat && window.Chat.attach) {
+      window.Chat.attach({ type: spec.type, icon: spec.icon, title: label(id).title, ...got });
+    }
   }
 
   /* ══ widget settings ═════════════════════════════════════════════════════
@@ -1325,7 +1335,7 @@ const Dock = (() => {
   function linkChip(id) {
     const l = linkOf(id), sym = symbolOf(id);
     if (LINK_IDS.includes(l)) {
-      return `<button type="button" class="dk-act dk-link g${l}" data-act="link" title="Link group ${l} · ${esc(sym)}" ` +
+      return `<button type="button" class="dk-act dk-link g${l}" data-act="link" title="Colour group ${l} · showing ${esc(sym)}. Widgets in this colour share a symbol." ` +
         `aria-label="Link group ${l}">${l}</button>`;
     }
     return `<button type="button" class="dk-act dk-link" data-act="link" data-pinned="${l === "pin" ? 1 : ""}" ` +
@@ -1335,8 +1345,9 @@ const Dock = (() => {
 
   function linkMenu(anchor, id) {
     const l = linkOf(id);
-    const html = `<div class="head">Link</div>` +
-      `<div class="item${l === "chart" ? " on" : ""}" data-pick="chart"><span class="lead">${icon("link", "xs")}Follow the chart</span>` +
+    const html = `<div class="head">Which symbol this shows</div>` +
+      `<p class="dk-linkhelp">Widgets with the same colour share a symbol: pick a stock in one and the others in that colour switch to it.</p>` +
+      `<div class="item${l === "chart" ? " on" : ""}" data-pick="chart"><span class="lead">${icon("link", "xs")}Follow the main chart</span>` +
         `<span class="sc">${esc(pageSymbol())}</span></div>` +
       LINK_IDS.map((g) => {
         const n = members(g).filter((x) => x !== id).length, sym = S.links[g] && S.links[g].sym;
@@ -1391,6 +1402,8 @@ const Dock = (() => {
       },
       visible: () => shown.has(id),
       compose: (text) => window.Chat && window.Chat.compose && window.Chat.compose(text),
+      /** Attach this widget to the chat: { sub, context, question }. */
+      ask: (got) => askWith(id, got),
       /** Hand something to another widget, opening one if none is open. */
       send: (type, payload) => sendTo(type, payload, id),
       close: () => close(id),

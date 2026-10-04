@@ -340,7 +340,8 @@
       ask: () => {
         const t = view.querySelector(".dc-doc, .dc-text");
         const text = t ? t.innerText : pdfText;
-        return text ? `Summarise this document (${cur.name}) and pull out anything that matters for the stock:\n\n${text.slice(0, 6000)}` : "";
+        return text ? { sub: `${cur.name}`, context: `Document "${cur.name}" (its text, first part):\n${text.slice(0, 5500)}`,
+          question: "Summarise this and pull out anything that matters for the stock." } : null;
       },
     };
   }

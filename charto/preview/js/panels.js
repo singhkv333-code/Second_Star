@@ -950,7 +950,9 @@ const Panels = (() => {
     ask: () => {
       const l = activeList();
       return l.syms.length
-        ? `Compare the instruments on my "${l.name}" watchlist: ${l.syms.join(", ")}.` : "";
+        ? { sub: `${l.name} · ${l.syms.length} instrument${l.syms.length === 1 ? "" : "s"}`,
+            context: `My "${l.name}" watchlist: ${l.syms.join(", ")}.`,
+            question: "Compare these: which are strongest on the chart right now, and why?" } : null;
     },
   });
   const perm = () => ("Notification" in window ? Notification.permission : "unsupported");

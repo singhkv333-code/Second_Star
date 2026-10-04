@@ -284,7 +284,8 @@
     return {
       show: paint,
       config(cfg, patch) { if (Object.keys(patch).some((k) => k !== "title")) paint(); },
-      ask: () => `Walk me through ${sym()}'s financials: growth, margins, balance sheet strength and valuation, with the numbers. This is analysis, not advice.`,
+      ask: () => ({ sub: `${sym()} · financials`, context: `The financials widget is open on ${sym()}.`,
+        question: `Walk me through ${sym()}'s growth, margins, balance sheet and valuation, with the numbers.` }),
     };
   }
 

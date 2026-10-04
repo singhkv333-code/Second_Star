@@ -180,7 +180,10 @@
       // a price on the ladder is a level: hand it to the chat as a question
       const r = e.target.closest(".dp-row");
       if (r && e.detail === 2) {
-        ctx.compose(`${sym} has ${r.classList.contains("bid") ? "bids" : "offers"} stacked at ${r.dataset.px}. Does that level matter on the chart?`);
+        const side = r.classList.contains("bid") ? "bids" : "offers";
+        ctx.ask({ sub: `${sym} · ${side} at ${r.dataset.px}`,
+          context: `${sym}'s order book has ${side} stacked at ${r.dataset.px}.`,
+          question: "Does that level matter on the chart?" });
       }
     });
 
@@ -199,8 +202,12 @@
         poll();
       },
       ask: () => last && last.available
-        ? `Read the order book for ${sym}: best bid ${last.bids[0] && last.bids[0][0]}, best ask ${last.asks[0] && last.asks[0][0]}. What does the imbalance suggest, and how much does a book like this usually mean?`
-        : "",
+        ? { sub: `${sym} · bid ${last.bids[0] && last.bids[0][0]} / ask ${last.asks[0] && last.asks[0][0]}`,
+            context: `Order book for ${sym}. Best bid ${last.bids[0] && last.bids[0][0]}, best ask ${last.asks[0] && last.asks[0][0]}.\n` +
+              `Bids (price × qty): ${last.bids.slice(0, 5).map((l) => `${l[0]} × ${l[1]}`).join(", ")}\n` +
+              `Asks (price × qty): ${last.asks.slice(0, 5).map((l) => `${l[0]} × ${l[1]}`).join(", ")}`,
+            question: "What does the imbalance suggest, and how much does a book like this usually mean?" }
+        : null,
     };
   }
 

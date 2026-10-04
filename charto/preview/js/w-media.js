@@ -341,9 +341,10 @@
             html: `<p><b>${esc(h)}</b> — ${esc(sentence(it).replace(/^[^—]+—\s*/, ""))} <i>(${esc(it.source)})</i></p>` });
         }
         if (id === "ics") return ics(it);
-        if (id === "ask") return ctx.compose(it.kind === "macro"
-          ? `${sentence(it)} What does it usually mean for Indian markets, and how have NIFTY and BANKNIFTY moved around past releases?`
-          : `${sentence(it)} What should I look at on ${sym}'s chart and financials before this date, and how has the stock usually moved around it?`);
+        if (id === "ask") return ctx.ask({ sub: `${sym || "Economy"} · ${dayHead(it.date, it.date).main}`, context: sentence(it),
+          question: it.kind === "macro"
+            ? "What does this usually mean for Indian markets, and how have NIFTY and BANKNIFTY moved around past releases?"
+            : `What should I look at on ${sym}'s chart and financials before this date, and how has it usually moved around it?` });
         if (id === "copy") { try { navigator.clipboard.writeText(sentence(it)); ctx.toast("Copied."); } catch { } }
       });
     }
@@ -379,8 +380,9 @@
       },
       ask: () => {
         const r = visible().slice(0, 25);
-        return r.length ? `On the calendar for the next ${cfg().days || 14} days:\n` + r.map((it) => "- " + sentence(it)).join("\n") +
-          `\n\nWhich of these matter most for Indian markets, and what has usually happened around them?` : "";
+        return r.length ? { sub: `Next ${cfg().days || 14} days · ${r.length} event${r.length === 1 ? "" : "s"}`,
+          context: `On the calendar for the next ${cfg().days || 14} days:\n` + r.map((it) => "- " + sentence(it)).join("\n"),
+          question: "Which of these matter most for Indian markets, and what has usually happened around them?" } : null;
       },
     };
   }

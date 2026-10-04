@@ -187,7 +187,9 @@
     return {
       show() { if (!booted) { booted = true; loadList(); } else paintState(); },
       config(cfg, patch) { prefs(); if ("wrap" in patch || "fontSize" in patch) requestAnimationFrame(() => lines()); if ("tab" in patch && cur && !dirty) openStudy(cur.id); },
-      ask: () => cur ? `Explain what my custom indicator "${cur.spec && cur.spec.title}" computes, line by line, and how to read it on the chart:\n\n\`\`\`python\n${(jar ? jar.toString() : cur.code).slice(0, 4000)}\n\`\`\`` : "",
+      ask: () => cur ? { sub: `${(cur.spec && cur.spec.title) || "Custom indicator"} · Python`,
+        context: `My custom indicator "${cur.spec && cur.spec.title}":\n\`\`\`python\n${(jar ? jar.toString() : cur.code).slice(0, 4000)}\n\`\`\``,
+        question: "Explain what this computes, line by line, and how to read it on the chart." } : null,
     };
   }
 
