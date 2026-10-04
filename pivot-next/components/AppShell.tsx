@@ -40,6 +40,7 @@ import {
   Plus,
   Search,
   Settings,
+  Sparkles,
   Sun,
   Trash2,
   WalletCards,
@@ -1868,6 +1869,9 @@ function AccountMenu({
   const [isNarrow, setIsNarrow] = useState(false);
   // Broker connect dialog, opened from the mobile "Brokers" menu row.
   const [brokerDialogOpen, setBrokerDialogOpen] = useState(false);
+  // The Upgrade row navigates to the /pricing page rather than opening an
+  // overlay — a pricing page is a destination, not a modal over the chart.
+  const router = useRouter();
   // Touch-primary devices (phone/tablet) have no physical keyboard, so the
   // keyboard-shortcuts entry is hidden there. Keyed off pointer capability,
   // not screen width — a narrow/windowed desktop still has a keyboard.
@@ -2017,6 +2021,17 @@ function AccountMenu({
               onClick={() => { setOpen(false); setBrokerDialogOpen(true); }}
             />
           ) : null}
+          {/* Upgrade — navigates to the /pricing page (a real destination, not
+              an overlay). The chevron points to the side, like the other rows
+              that open a dedicated surface. */}
+          <MenuItem
+            icon={Sparkles}
+            label="Upgrade"
+            hasChevron
+            chevronDirection="side"
+            testId="menu-upgrade"
+            onClick={() => { setOpen(false); router.push("/pricing"); }}
+          />
           <MenuItem icon={Settings} label="Settings" testId="menu-settings-chart-style" onClick={() => { setOpen(false); onOpenSettings(); }} />
           <MenuItem icon={HelpCircle} label="Help" onClick={() => { setOpen(false); onReportBug(); }} />
           <div aria-hidden={true} style={{ height: 1, background: "var(--glass-border)", margin: "5px -5px" }} />
