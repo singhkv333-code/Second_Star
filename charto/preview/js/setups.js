@@ -559,10 +559,17 @@ const Setups = (() => {
   }
 
   async function fetchSetup(token) {
-    const r = await fetch(`${API}/shared?token=${encodeURIComponent(token)}`,
-      { headers: (typeof Auth !== "undefined" && Auth.token) ? Auth.headers({}) : {} });
-    let d = {};
-    try { d = await r.json(); } catch { /* an HTML fall-through is a miss too */ }
+    // The page's own link was asked for by store.js before anything booted;
+    // reuse that answer rather than asking a second time.
+    let r = token === VIEW && Store.viewSetup ? await Store.viewSetup : null;
+    if (!r) {
+      const res = await fetch(`${API}/shared?token=${encodeURIComponent(token)}`,
+        { headers: (typeof Auth !== "undefined" && Auth.token) ? Auth.headers({}) : {} });
+      let body = {};
+      try { body = await res.json(); } catch { /* an HTML fall-through is a miss too */ }
+      r = { ok: res.ok, status: res.status, d: body };
+    }
+    const d = r.d || {};
     if (!r.ok || !d.spec) return { error: d.error || "This setup is no longer shared", status: r.status };
     // An older live layout link (`?shared=`) answers in the layout's shape;
     // it is shown the same way, without a conversation or a copy button.
@@ -708,6 +715,21 @@ const Setups = (() => {
     const d = viewing;
     if (!d || d.legacy) return toast("This older link can be viewed but not copied");
     if (!d.allow_copy && !d.own) return toast("The author has made this setup view-only");
+    // Opened as a bare link, the chart stands on its own, without the rest
+    // of Pivot. A copy is the reader moving in, so it is finished inside the
+    // whole platform: the shell asks them to sign in to Pivot (and returns
+    // here after), opens this setup on its Chart tab, and the frame completes
+    // the copy (mine=1, see enterView). Only where the shell serves this page
+    // — under /chart-app/ — since a local chart server has no shell to go to.
+    if (window.parent === window && /^\/chart-app\//.test(location.pathname)) {
+      const u = new URL("/", location.origin);
+      u.searchParams.set("symbol", d.symbol);
+      u.searchParams.set("view", d.token);
+      u.searchParams.set("mine", "1");
+      u.hash = "chart";
+      location.href = u.toString();
+      return;
+    }
     if (typeof Auth === "undefined" || !Auth.token) {
       // Signing in reloads the page; the intent survives it and finishes on
       // the other side (see enterView).
@@ -775,6 +797,16 @@ const Setups = (() => {
     try { pending = sessionStorage.getItem("charto:pending-copy"); } catch {}
     if (pending && pending === d.token && Auth.token) {
       try { sessionStorage.removeItem("charto:pending-copy"); } catch {}
+      makeItMine();
+      return;
+    }
+    // Handed over from the bare link with "Make it mine" already chosen:
+    // finish it here, inside the shell. Off the URL first, so a reload is a
+    // view rather than a second copy.
+    const u = new URL(location.href);
+    if (u.searchParams.get("mine") === "1") {
+      u.searchParams.delete("mine");
+      history.replaceState(history.state, "", u.toString());
       makeItMine();
     }
   }

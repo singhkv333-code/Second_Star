@@ -32,13 +32,13 @@
    * pointer-rest away without costing a column its width. */
   const F = {
     close: "Last", ret_1d: "1D %", ret_1w: "1W %", ret_1m: "1M %", ret_3m: "3M %",
-    ret_6m: "6M %", ret_1y: "1Y %", dist_52w_high: "From 52w high %",
-    dist_52w_low: "Above 52w low %", rsi14: "RSI 14", atr_pct: "ATR %",
+    ret_6m: "6M %", ret_1y: "1Y %", dist_52w_high: "From 52W high %",
+    dist_52w_low: "Above 52W low %", rsi14: "RSI 14", atr_pct: "ATR %",
     sma20_rel: "vs SMA 20 %", sma50_rel: "vs SMA 50 %", sma200_rel: "vs SMA 200 %",
     sma50_cross_ago: "SMA 50 cross, sessions ago", sma200_cross_ago: "SMA 200 cross, sessions ago",
-    range_20d_pct: "20D range %", vol_z20: "Volume σ", vol_ratio20: "Volume × 20D avg",
+    range_20d_pct: "20D range %", vol_z20: "Volume z-score", vol_ratio20: "Volume × 20D avg",
     turnover_20d_cr: "Turnover ₹ cr", gap_pct: "Gap %", close_pos: "Close in day range %",
-    hi20_break_pct: "vs 20D high %", lo20_break_pct: "vs 20D low %", streak: "Up/down streak",
+    hi20_break_pct: "vs 20D high %", lo20_break_pct: "vs 20D low %", streak: "Close streak",
     adx14: "ADX 14", macd_hist_pct: "MACD hist %", bb_pct_b: "Bollinger %B",
     bb_width_pct: "Bollinger width %", stoch_k: "Stochastic %K", supertrend_dir: "Supertrend",
     ret_open: "Close vs open %", turnover_20d_musd: "Turnover $ m",
@@ -46,6 +46,28 @@
     vp20_poc_dist_pct: "From POC %", vp20_poc_shift_pct: "POC shift %",
     orb15_pos: "15-min opening range %", orb30_pos: "30-min opening range %",
   };
+  /* The same measures spelled out, for the lists that have the room: the
+   * filter editor's measure picker and the sort menu's "Rank by". A chip or a
+   * column head keeps the short name above. */
+  const LONG = {
+    close: "Last price", ret_1d: "1-day change", ret_1w: "1-week change", ret_1m: "1-month change",
+    ret_3m: "3-month change", ret_6m: "6-month change", ret_1y: "1-year change",
+    dist_52w_high: "Distance from 52-week high", dist_52w_low: "Distance above 52-week low",
+    rsi14: "RSI (14)", atr_pct: "ATR (% of price)", sma20_rel: "Distance from 20-day SMA",
+    sma50_rel: "Distance from 50-day SMA", sma200_rel: "Distance from 200-day SMA",
+    sma50_cross_ago: "Sessions since 50-day SMA cross", sma200_cross_ago: "Sessions since 200-day SMA cross",
+    range_20d_pct: "20-day range (%)", vol_z20: "Volume z-score (20-day)", vol_ratio20: "Volume vs 20-day average",
+    turnover_20d_cr: "Turnover, 20-day average (₹ cr)", turnover_20d_musd: "Turnover, 20-day average ($ m)",
+    gap_pct: "Opening gap", ret_open: "Close vs open", close_pos: "Close within day's range",
+    hi20_break_pct: "Distance from 20-day high", lo20_break_pct: "Distance from 20-day low",
+    streak: "Consecutive closes up or down", adx14: "ADX (14)", macd_hist_pct: "MACD histogram (% of price)",
+    bb_pct_b: "Bollinger %B", bb_width_pct: "Bollinger Band width", stoch_k: "Stochastic %K",
+    supertrend_dir: "Supertrend direction", vp20_pos: "Position in value area",
+    vp20_va_width_pct: "Value area width", vp20_poc_dist_pct: "Distance from point of control",
+    vp20_poc_shift_pct: "Point of control shift", orb15_pos: "15-minute opening range",
+    orb30_pos: "30-minute opening range",
+  };
+  const longOf = (k) => LONG[k] || F[k] || k;
   /* The measures as a trader groups them, for the filter editor's list. */
   const GROUPS = [
     ["Price and returns", ["close", "ret_1d", "ret_1w", "ret_1m", "ret_3m", "ret_6m", "ret_1y", "gap_pct", "ret_open", "close_pos", "streak"]],
@@ -61,21 +83,49 @@
     : k === "close" ? "₹" : /^(rsi14|adx14|stoch_k|supertrend_dir)$/.test(k) ? "" : "%";
   let help = {};               // feature → the engine's own description
 
+  /* The ready-made screens, grouped the way the menu shows them. Ids are
+   * stored in each widget's settings, so an existing id keeps its meaning
+   * even when its label changes. Thresholds were set against the live
+   * universe's distribution (Oct 2026) so each screen returns a short list
+   * on an ordinary day rather than nothing or half the market. The hint is
+   * the rule itself, so a reader knows what a name means before choosing it. */
   const PRESETS = [
-    { id: "gainers", label: "Top gainers", filters: [], sort: "ret_1d" },
-    { id: "losers", label: "Top losers", filters: [["ret_1d", "lt", 0]], sort: "ret_1d", order: "asc" },
-    { id: "oversold", label: "Oversold", filters: [["rsi14", "lt", 30]], sort: "rsi14" },
-    { id: "overbought", label: "Overbought", filters: [["rsi14", "gt", 70]], sort: "rsi14" },
-    { id: "high", label: "Near the 52-week high", filters: [["dist_52w_high", "gt", -3]], sort: "dist_52w_high" },
-    { id: "trend", label: "Strong uptrend",
+    { group: "Movers" },
+    { id: "gainers", label: "Top gainers", hint: "1D change", filters: [], sort: "ret_1d" },
+    { id: "losers", label: "Top losers", hint: "1D change", filters: [["ret_1d", "lt", 0]], sort: "ret_1d", order: "asc" },
+    { id: "active", label: "Most active", hint: "Turnover", filters: [], sort: "turnover_20d_cr" },
+    { id: "volume", label: "Unusual volume", hint: "Vol > 2× avg", filters: [["vol_ratio20", "gt", 2]], sort: "vol_ratio20" },
+    { id: "gapup", label: "Gap up", hint: "Gap > 1%", filters: [["gap_pct", "gt", 1]], sort: "gap_pct" },
+    { id: "gapdown", label: "Gap down", hint: "Gap < −1%", filters: [["gap_pct", "lt", -1]], sort: "gap_pct" },
+    { group: "Momentum" },
+    { id: "leaders", label: "1-month leaders", hint: "1M > 10%", filters: [["ret_1m", "gt", 10]], sort: "ret_1m" },
+    { id: "upstreak", label: "Winning streak", hint: "4+ higher closes", filters: [["streak", "gt", 3]], sort: "streak" },
+    { id: "downstreak", label: "Losing streak", hint: "4+ lower closes", filters: [["streak", "lt", -3]], sort: "streak" },
+    { id: "oversold", label: "RSI oversold", hint: "RSI < 30", filters: [["rsi14", "lt", 30]], sort: "rsi14" },
+    { id: "overbought", label: "RSI overbought", hint: "RSI > 70", filters: [["rsi14", "gt", 70]], sort: "rsi14" },
+    { group: "Trend" },
+    { id: "trend", label: "Strong uptrend", hint: "> SMA 50, 200 · ADX > 25",
       filters: [["sma200_rel", "gt", 0], ["sma50_rel", "gt", 0], ["adx14", "gt", 25]], sort: "adx14" },
-    { id: "breakout", label: "20-day breakout", filters: [["hi20_break_pct", "gt", 0]], sort: "vol_ratio20" },
-    { id: "volume", label: "Volume surge", filters: [["vol_ratio20", "gt", 2]], sort: "vol_ratio20" },
-    { id: "coiled", label: "Coiled — tight 20-day range", filters: [["range_20d_pct", "lt", 6]], sort: "range_20d_pct" },
-    { id: "cross50", label: "Just crossed above SMA 50",
+    { id: "downtrend", label: "Strong downtrend", hint: "< SMA 50, 200 · ADX > 25",
+      filters: [["sma200_rel", "lt", 0], ["sma50_rel", "lt", 0], ["adx14", "gt", 25]], sort: "adx14" },
+    { id: "pullback", label: "Pullback in an uptrend", hint: "> SMA 200 · RSI < 40",
+      filters: [["sma200_rel", "gt", 0], ["rsi14", "lt", 40]], sort: "rsi14" },
+    { id: "cross50", label: "Crossed above 50-day SMA", hint: "Last 5 sessions",
       filters: [["sma50_cross_ago", "lt", 5], ["sma50_rel", "gt", 0]], sort: "sma50_rel" },
+    { id: "cross200", label: "Crossed above 200-day SMA", hint: "Last 10 sessions",
+      filters: [["sma200_cross_ago", "lt", 10], ["sma200_rel", "gt", 0]], sort: "sma200_rel" },
+    { group: "Highs, lows and breakouts" },
+    { id: "high", label: "Near 52-week high", hint: "Within 3%", filters: [["dist_52w_high", "gt", -3]], sort: "dist_52w_high" },
+    { id: "low", label: "Near 52-week low", hint: "Within 5%", filters: [["dist_52w_low", "lt", 5]], sort: "dist_52w_low" },
+    { id: "breakout", label: "20-day breakout", hint: "Close > 20D high", filters: [["hi20_break_pct", "gt", 0]], sort: "vol_ratio20" },
+    { id: "breakdown", label: "20-day breakdown", hint: "Close < 20D low", filters: [["lo20_break_pct", "lt", 0]], sort: "lo20_break_pct" },
+    { id: "orb", label: "Opening range breakout", hint: "Above first 15 min", filters: [["orb15_pos", "gt", 100]], sort: "orb15_pos" },
+    { group: "Volatility" },
+    { id: "coiled", label: "Tight 20-day range", hint: "Range < 6%", filters: [["range_20d_pct", "lt", 6]], sort: "range_20d_pct" },
+    { id: "squeeze", label: "Bollinger squeeze", hint: "Width < 5%", filters: [["bb_width_pct", "lt", 5]], sort: "bb_width_pct" },
+    { id: "volatile", label: "High volatility", hint: "ATR > 4%", filters: [["atr_pct", "gt", 4]], sort: "atr_pct" },
   ];
-  const presetOf = (id) => PRESETS.find((p) => p.id === id);
+  const presetOf = (id) => PRESETS.find((p) => p.id && p.id === id);
 
   /* Answers are cached for the session, per spec: the data is end-of-day, so
    * a list asked for twice in an afternoon is the same list, and reopening
@@ -304,10 +354,11 @@
 
     function presetMenu(anchor) {
       ctx.menu(anchor, [
-        { head: "Screens" },
-        ...PRESETS.map((p) => ({ id: p.id, label: p.label, on: cfg().preset === p.id })),
+        ...PRESETS.flatMap((p, i) => p.group
+          ? [...(i ? [{ sep: true }] : []), { head: p.group }]
+          : [{ id: p.id, label: p.label, hint: cfg().preset === p.id ? null : p.hint, on: cfg().preset === p.id }]),
         { sep: true },
-        { id: "custom", label: "Start from nothing", icon: "plus" },
+        { id: "custom", label: "New custom screen", icon: "plus" },
       ], (id) => {
         if (id === "custom") return setScreen({ preset: null, filters: [], sort: "ret_1d", order: null });
         const p = presetOf(id);
@@ -321,7 +372,7 @@
     function filterSheet(anchor, editing) {
       const cur = editing ? grouped().find((g) => g.f === editing) : null;
       const opts = GROUPS.map(([g, ks]) => `<optgroup label="${esc(g)}">` +
-        ks.filter((k) => F[k]).map((k) => `<option value="${k}">${esc(F[k])}</option>`).join("") + `</optgroup>`).join("");
+        ks.filter((k) => F[k]).map((k) => `<option value="${k}">${esc(longOf(k))}</option>`).join("") + `</optgroup>`).join("");
       const p = ctx.menu(anchor,
         `<div class="head">${cur ? "Edit filter" : "Add a filter"}</div>` +
         `<form class="scr-form" novalidate>` +
@@ -460,7 +511,7 @@
         { id: "ord:desc", label: "Highest first", icon: "arrowDown", on: ord === "desc" },
         { id: "ord:asc", label: "Lowest first", icon: "arrowUp", on: ord === "asc" },
         { sep: true }, { head: "Rank by" },
-        ...[...new Set(used)].map((k) => ({ id: k, label: F[k] || k, on: cfg().sort === k }))],
+        ...[...new Set(used)].map((k) => ({ id: k, label: longOf(k), on: cfg().sort === k }))],
         (k) => {
           if (k.startsWith("ord:")) return setScreen({ order: k.slice(4), preset: null });
           setScreen({ sort: k, order: null, preset: cfg().preset && presetOf(cfg().preset).sort === k ? cfg().preset : null });

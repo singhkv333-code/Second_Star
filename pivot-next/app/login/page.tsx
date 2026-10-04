@@ -7,7 +7,7 @@
  * Aesthetic follows the Quartr/ink tokens in globals.css and AppShell.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import { authHref, returnPath } from "@/lib/returnTo";
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -58,6 +59,9 @@ export default function LoginPage(): React.ReactElement {
   const router = useRouter();
   const [serverError, setServerError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  // Read after mount: the URL is not known while the page is prerendered.
+  const [signupHref, setSignupHref] = useState("/signup");
+  useEffect(() => { setSignupHref(authHref("/signup")); }, []);
 
   const {
     register,
@@ -90,7 +94,7 @@ export default function LoginPage(): React.ReactElement {
       /* private mode — skip; no functional impact */
     }
     armLoginIntro();
-    router.replace("/");
+    router.replace(returnPath());
   };
 
   return (
@@ -208,7 +212,7 @@ export default function LoginPage(): React.ReactElement {
 
             <p className="mt-6 text-center text-sm text-muted-foreground">
               New to Pivot?{" "}
-              <Link href="/signup" className="font-medium text-foreground underline-offset-4 hover:underline">
+              <Link href={signupHref} className="font-medium text-foreground underline-offset-4 hover:underline">
                 Create an account
               </Link>
             </p>

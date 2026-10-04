@@ -664,12 +664,14 @@
     function tools(anchor) {
       if (!cur || cur.kind !== "page") return;
       const items = [{ head: hostOf(cur.url) },
-        rb.live ? { id: "text", label: "Read as text", hint: "Title, headings and paragraphs" } : { id: "live", label: "Open it live", hint: "In the live browser" },
-        { id: "note", label: "Save to notes" },
-        { id: "ask", label: "Ask the chat about this page" },
-        { id: "copy", label: "Copy the address" },
-        { id: "dock", label: "Open over the widget", hint: "In your own browser" },
-        { id: "out", label: "Open in a new tab" }];
+        rb.live ? { id: "text", label: "Reader view", icon: "doc", hint: "Text only" } : { id: "live", label: "Open live", icon: "globe", hint: "Live browser" },
+        { sep: true },
+        { id: "note", label: "Save to notes", icon: "note" },
+        { id: "ask", label: "Ask in chat", icon: "chat" },
+        { id: "copy", label: "Copy link", icon: "link" },
+        { sep: true },
+        { id: "dock", label: "Open in this widget", icon: "float", hint: "Your browser" },
+        { id: "out", label: "Open in new tab", icon: "externalLink" }];
       ctx.menu(anchor, items, (id) => act(id));
     }
     async function act(a) {

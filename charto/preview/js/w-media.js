@@ -326,9 +326,9 @@
         ...(sym ? [{ id: "open", label: `Open ${sym}`, icon: "lineChart" },
                    { id: "watch", label: "Add to watchlist", icon: "star" }] : []),
         { id: "note", label: "Save to notes", icon: "note" },
-        { id: "ics", label: "Add to my calendar", icon: "calendar" },
+        { id: "ics", label: "Add to calendar", icon: "calendar" },
         { id: "ask", label: "Ask in chat", icon: "chat" },
-        { id: "copy", label: "Copy", icon: "copy" },
+        { id: "copy", label: "Copy text", icon: "copy" },
       ], (id) => {
         if (id === "open") return ctx.pick(sym);
         if (id === "watch") {

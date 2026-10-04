@@ -1010,12 +1010,12 @@ const Dock = (() => {
       ...(compact || fl ? [] : [{ id: "max", label: maxed === groupOf(id) ? "Restore" : "Maximize",
                                   icon: maxed === groupOf(id) ? "shrink" : "expand", hint: "Double-click tab" }]),
       ...(compact || (chart && S.lock) ? [] : [{ sep: true }, { head: "Move to" },
-        { id: "mv:left", label: "Left edge", icon: "panelLeft" },
-        { id: "mv:right", label: "Right edge", icon: "panelRight" },
-        { id: "mv:top", label: "Top edge", icon: "panelBottom" },
-        { id: "mv:bottom", label: "Bottom edge", icon: "panelBottom" },
+        { id: "mv:left", label: "Left side", icon: "panelLeft" },
+        { id: "mv:right", label: "Right side", icon: "panelRight" },
+        { id: "mv:top", label: "Top", icon: "panelTop" },
+        { id: "mv:bottom", label: "Bottom", icon: "panelBottom" },
         { id: "mv:float", label: "Floating window", icon: "float", on: fl }]),
-      ...(chart ? [{ sep: true }, { id: "lock", label: S.lock ? "Unlock the chart" : "Lock the chart in place",
+      ...(chart ? [{ sep: true }, { id: "lock", label: S.lock ? "Unlock chart" : "Lock chart in place",
                                     icon: S.lock ? "unlock" : "lock" }]
                 : [{ sep: true }, { id: "close", label: "Close", icon: "x" }]),
     ], (pick) => {
@@ -1837,10 +1837,10 @@ const Dock = (() => {
     const fresh = !spec.single && !!placedOf(type).length;
     menu(anchor, [
       { head: `Open ${spec.title}` },
-      { id: "left", label: "On the left", icon: "panelLeft" },
-      { id: "right", label: "On the right", icon: "panelRight" },
-      { id: "bottom", label: "Along the bottom", icon: "panelBottom" },
-      { id: "float", label: "As a floating window", icon: "float" },
+      { id: "left", label: "Left side", icon: "panelLeft" },
+      { id: "right", label: "Right side", icon: "panelRight" },
+      { id: "bottom", label: "Bottom", icon: "panelBottom" },
+      { id: "float", label: "Floating window", icon: "float" },
       ...(spec.single ? [] : [{ sep: true }, { id: "new", label: `New ${spec.title.toLowerCase()}`, icon: "plus" }]),
     ], (pick) => {
       if (pick === "new") return open(type, null, { fresh: true });

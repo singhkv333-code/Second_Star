@@ -27,6 +27,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { setAuthTokenProvider, setBackendSource } from "@/lib/api";
 import { scheduleAutoRefresh, stopAutoRefresh } from "@/lib/authToken";
 import { LoadingCubes } from "@/components/ui/LoadingCubes";
+import { loginForHere } from "@/lib/returnTo";
 
 const TOKEN_KEY = "pivot_jwt";
 
@@ -80,7 +81,9 @@ export function AppBootstrap({
       // redirects back to /login, so the account-creation form is
       // unreachable.
       if (!ungated) {
-        router.replace("/login");
+        // Carry the page along (?next=) so signing in returns to it — a
+        // shared chart's "Make it mine" lands here with the setup in the URL.
+        router.replace(loginForHere());
       }
     }
     return () => stopAutoRefresh();

@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import { authHref, returnPath } from "@/lib/returnTo";
 
 // ---------------------------------------------------------------------------
 // Password-strength types + helpers
@@ -133,6 +134,9 @@ export default function SignupPage(): React.ReactElement {
   const [watchedPassword, setWatchedPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  // Read after mount: the URL is not known while the page is prerendered.
+  const [loginHref, setLoginHref] = useState("/login");
+  useEffect(() => { setLoginHref(authHref("/login")); }, []);
 
   const {
     register,
@@ -181,7 +185,7 @@ export default function SignupPage(): React.ReactElement {
       /* private mode / storage full — skip; no functional impact */
     }
     armLoginIntro();
-    router.replace("/");
+    router.replace(returnPath());
   };
 
   return (
@@ -370,7 +374,7 @@ export default function SignupPage(): React.ReactElement {
 
             <p className="mt-6 text-center text-sm text-muted-foreground">
               Already have an account?{" "}
-              <Link href="/login" className="font-medium text-foreground underline-offset-4 hover:underline">
+              <Link href={loginHref} className="font-medium text-foreground underline-offset-4 hover:underline">
                 Sign in
               </Link>
             </p>

@@ -52,6 +52,9 @@ const CHART_BASE = "/chart-app";
 type Props = {
   /** Symbol to open. Changing it reloads the frame, by design. */
   symbol?: string;
+  /** Extra parameters for the chart's URL — a shared setup's `view` token,
+   *  and `mine` when the reader chose "Make it mine" on its bare link. */
+  query?: Record<string, string>;
   /** "dark" | "light", pushed to the chart whenever the shell's theme changes. */
   theme?: "dark" | "light";
   /** The chart handing a universe screen to the Screener tab. The frame only
@@ -64,7 +67,7 @@ type Props = {
 };
 
 export function ChartFrame({
-  symbol, theme, onOpenScreen, onChatVisibilityChange,
+  symbol, query, theme, onOpenScreen, onChatVisibilityChange,
 }: Props): React.ReactElement {
   const ref = useRef<HTMLIFrameElement>(null);
   // The message listener is deliberately mounted ONCE (empty deps, so the
@@ -94,7 +97,8 @@ export function ChartFrame({
   // `/chart-app/` would fix the base, but Next 308-redirects a trailing slash
   // away before the rewrite runs and we are back at the first case. Naming the
   // file gives the same base with no redirect and no global config change.
-  const src = `${CHART_BASE}/index.html${symbol ? `?symbol=${encodeURIComponent(symbol)}` : ""}`;
+  const qs = new URLSearchParams({ ...(symbol ? { symbol } : {}), ...(query ?? {}) }).toString();
+  const src = `${CHART_BASE}/index.html${qs ? `?${qs}` : ""}`;
 
   const post = useCallback((msg: Record<string, unknown>) => {
     const win = ref.current?.contentWindow;

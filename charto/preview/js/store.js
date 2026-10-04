@@ -146,6 +146,29 @@ const Store = (() => {
    * never written back. Close the tab and nothing of the visit remains. */
   const VIEW = (new URLSearchParams(location.search).get("view") || "").trim();
   const mem = VIEW ? new Map() : null;
+
+  /* A shared link is asked for HERE, the moment the first script runs, rather
+   * than after the workspace has booted. Waiting cost the reader a whole boot
+   * in series — and the chart booted on the reader's default interval and
+   * studies only to throw them away for the setup's. main.js reads this
+   * before its first load and boots straight onto the setup's interval and
+   * studies; setups.js reads the same answer instead of asking again.
+   * Resolves to { status, d } and never rejects: a dead network is a miss. */
+  let viewSetup = null;
+  if (VIEW) {
+    const API = ["localhost", "127.0.0.1"].includes(location.hostname)
+      ? "http://127.0.0.1:5174" : "";
+    let tok = null;
+    try { tok = localStorage.getItem("charto:auth:token"); } catch {}
+    viewSetup = fetch(`${API}/shared?token=${encodeURIComponent(VIEW)}`,
+      { headers: tok ? { Authorization: `Bearer ${tok}` } : {} })
+      .then(async (r) => {
+        let d = {};
+        try { d = await r.json(); } catch { /* an HTML fall-through is a miss */ }
+        return { status: r.status, ok: r.ok, d };
+      })
+      .catch(() => ({ status: 0, ok: false, d: {} }));
+  }
   const DESK = new Set([...SCOPED, "chat", "chats", "chatid", "chatmode",
                         "indicators", "interval"]);
 
@@ -191,6 +214,7 @@ const Store = (() => {
   return {
     viewOnly: !!VIEW,
     viewToken: VIEW,
+    viewSetup,
     get(key, fallback) {
       if (mem) {
         if (mem.has(k(key))) return JSON.parse(mem.get(k(key)));

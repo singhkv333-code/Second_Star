@@ -312,13 +312,13 @@
         return ctx.menu(b, [
           { head: "Workbook" },
           { id: "new", label: "New sheet", icon: "plus" },
-          { id: "rename", label: "Rename this sheet", icon: "pen" },
-          { id: "import", label: "Open an Excel or CSV file…", icon: "upload" },
+          { id: "rename", label: "Rename sheet…", icon: "pen" },
+          { id: "import", label: "Import Excel or CSV…", icon: "upload" },
           { sep: true },
-          { id: "xlsx", label: "Download as Excel (.xlsx)", icon: "download" },
-          { id: "csv", label: "Download this sheet as CSV", icon: "download" },
+          { id: "xlsx", label: "Download as Excel", icon: "download", hint: ".xlsx" },
+          { id: "csv", label: "Download as CSV", icon: "download", hint: ".csv" },
           { sep: true },
-          { id: "delete", label: "Delete this sheet", icon: "trash", danger: true },
+          { id: "delete", label: "Delete sheet", icon: "trash", danger: true },
         ], fileAction);
       }
     });

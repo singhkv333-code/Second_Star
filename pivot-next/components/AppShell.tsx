@@ -337,6 +337,11 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   // the effect below corrects it before the frame is ever told anything.
   const [resolvedTheme, setResolvedTheme] = useState<"dark" | "light">("dark");
   const [chartSymbol, setChartSymbol] = useState<string | undefined>(undefined);
+  // A shared chart handed over from its bare link (`/?symbol=&view=&mine=1`,
+  // see charto/preview/js/setups.js makeItMine): the frame opens the setup and
+  // finishes the copy INSIDE the shell. Cleared as soon as the user opens any
+  // other chart, so it never re-applies.
+  const [chartQuery, setChartQuery] = useState<Record<string, string> | undefined>(undefined);
   // Global trading mode (real/live vs paper). Mirrors the persisted store so
   // the toggle + banner re-render; the data layer reads the store directly.
   // Default 'paper' matches lib/trading-mode.ts DEFAULT_MODE so the first
@@ -900,9 +905,31 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   useEffect(() => { goTabRef.current = goTab; }, [goTab]);
 
   const openChart = useCallback((symbol: string): void => {
+    setChartQuery(undefined);
     setChartSymbol(symbol.trim().toUpperCase());
     goTab("chart");
   }, [goTab]);
+
+  // Arriving with a shared setup in the URL: open it on the Chart tab, then
+  // take the parameters off the address bar so a refresh does not copy the
+  // setup a second time.
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const view = params.get("view");
+      const symbol = params.get("symbol");
+      if (!view || !symbol || !/^[\w-]{8,64}$/.test(view)) return;
+      setChartSymbol(symbol.trim().toUpperCase());
+      setChartQuery(params.get("mine") === "1" ? { view, mine: "1" } : { view });
+      goTab("chart");
+      for (const key of ["view", "symbol", "mine"]) params.delete(key);
+      const qs = params.toString();
+      window.history.replaceState(null, "", `${window.location.pathname}${qs ? `?${qs}` : ""}#chart`);
+    } catch {
+      /* a malformed URL just opens the app as usual */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const handleOpenChart = (event: Event): void => {
@@ -1508,6 +1535,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
                   which floats over everything and reserves nothing. */}
               <ChartFrame
                 symbol={chartSymbol}
+                query={chartQuery}
                 theme={resolvedTheme}
                 onOpenScreen={openScreenFromChart}
                 onChatVisibilityChange={setChartChatOpen}

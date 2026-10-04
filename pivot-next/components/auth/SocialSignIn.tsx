@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { googleLogin } from "@/lib/api";
 import { armLoginIntro } from "@/components/onboarding/LoginIntroGate";
 import { isError } from "@/lib/types";
+import { returnPath } from "@/lib/returnTo";
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "";
 const GIS_SRC = "https://accounts.google.com/gsi/client";
@@ -104,7 +105,7 @@ export function SocialSignIn(): React.ReactElement {
       }
       // Same hand-off as an email login: play the brand intro, enter the app.
       armLoginIntro();
-      router.replace("/");
+      router.replace(returnPath());
     },
     [router],
   );

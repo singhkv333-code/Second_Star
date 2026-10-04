@@ -4781,6 +4781,21 @@
       }
     }
     await Indicators.loadCatalogue(API, SYMBOL);
+    // A shared link: boot straight onto the setup's interval and studies
+    // (store.js asked for it before this script ran). Booting on the reader's
+    // defaults first meant loading one interval's bars and studies only to
+    // replace them a moment later with the setup's — a second full load the
+    // reader sat through. Bounded, so a slow answer still leaves a chart.
+    if (Store.viewSetup) {
+      const sv = await Promise.race([Store.viewSetup,
+        new Promise((r) => setTimeout(() => r(null), 4000))]);
+      const spec = sv && sv.ok && sv.d && sv.d.spec;
+      const c0 = spec && (spec.charts || [])[0];
+      if (c0 && (!c0.symbol || c0.symbol === SYMBOL) && IV_SEC[c0.interval]) Store.set("interval", c0.interval);
+      if (spec && spec.workspace && Array.isArray(spec.workspace.indicators)) {
+        Store.set("indicators", spec.workspace.indicators);
+      }
+    }
     ind.setContext({ interval: Store.get("interval", "5m") });
     renderIndMenu();
     // Read the restore list BEFORE the first load: saveIndicators() runs on

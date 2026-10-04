@@ -374,8 +374,10 @@ const Ctx = (() => {
    * when the wrapper opens. `.select-menu` — a dropdown that opens INSIDE such a
    * dialog — is still skipped: it carries its own opaque paper. */
   function glazeMenus(root) {
+    // .sh-fillmenu is the sheet's colour swatches: a palette has to be read on
+    // flat paper, so it opts out in the stylesheet and here alike.
     const wanted = (n) => n && n.classList && n.classList.contains("dropdown")
-      && !n.classList.contains("select-menu");
+      && !n.classList.contains("select-menu") && !n.classList.contains("sh-fillmenu");
     const glazeDlg = (wrap) => {
       const dlg = wrap.querySelector && wrap.querySelector(".dlg.indicator-settings");
       if (dlg) glaze(dlg);
@@ -384,14 +386,31 @@ const Ctx = (() => {
       if (wanted(n)) glaze(n);
     }
     for (const w of root.querySelectorAll(".dlg-wrap.open")) glazeDlg(w);
+    // Most menus outside this file are built FRESH on every open — created
+    // with `open` already in their class and appended (the widget menus in
+    // js/dock.js, the watchlist's, the symbol picker, the chat's subject
+    // list…). No class ever changes on those, so watching attributes alone
+    // left every one of them merely blurred while the long-lived menus
+    // refracted: two materials for one object. So arrivals are watched too,
+    // and a fresh menu's lens is released when the menu leaves — each lens
+    // adds a filter to one shared <defs>, and a menu rebuilt on every open
+    // would otherwise leave one behind per open. The callback runs after the
+    // opener's synchronous placement, so the map is cut to the final box.
     new MutationObserver((recs) => {
       for (const r of recs) {
+        if (r.type === "childList") {
+          for (const n of r.removedNodes) if (n.__lg && !n.isConnected) unglaze(n);
+          for (const n of r.addedNodes) {
+            if (n.nodeType === 1 && n.classList.contains("open") && wanted(n)) glaze(n);
+          }
+          continue;
+        }
         const n = r.target;
         if (!n.classList || !n.classList.contains("open")) continue;
         if (wanted(n)) glaze(n);
         else if (n.classList.contains("dlg-wrap")) glazeDlg(n);
       }
-    }).observe(root, { subtree: true, attributes: true, attributeFilter: ["class"] });
+    }).observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ["class"] });
   }
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => glazeMenus(document.body));
