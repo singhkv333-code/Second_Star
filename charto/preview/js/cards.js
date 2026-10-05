@@ -2324,26 +2324,30 @@ const Cards = (() => {
     // return, highest first — which is the same shape and visual language as a
     // screen. A multi-interval comparison still measures every window, but the
     // reading a table makes best is "who is ahead, and by how much", and that
-    // is one window's ordering. The per-interval gaps and correlation ride
-    // above as context, the way a screen's criteria do.
+    // is one window's ordering.
+    //
+    // ONE table and nothing else: the gap / correlation that used to sit above
+    // as a separate stat strip now ride INSIDE the card as chips, the way a
+    // screen's filters do, so the response is a single card rather than a strip
+    // of tiles stacked on a table.
     const primary = cols[0];
     const g = (pick, s) => (primary[pick] ? primary[pick][s] : null);
 
-    // Context strip: the return gap and correlation the model reads from, kept
-    // because they are the two numbers a pair comparison is usually about.
-    const stats = [];
+    // The gap and correlation, folded into the card's chips.
+    const chipBits = [];
     for (const gap of (c.gaps || [])) {
-      stats.push(stat(`${gap.label} return gap`, signed(sym, gap.gap_pp, " pp"),
-                      way(gap.gap_pp), gap.pair));
+      const v = signed(sym, gap.gap_pp, " pp");
+      if (v) chipBits.push(`${gap.label} gap ${v}`);
     }
     for (const col of cols) {
       const corr = col.correlation && pair
         ? col.correlation[`${syms[0]}~${syms[1]}`] : null;
-      if (corr != null) {
-        stats.push(stat(`${col.label} correlation`, n2(sym, corr), "",
-                        "daily returns"));
-      }
+      if (corr != null) chipBits.push(`${col.label} corr ${n2(sym, corr)}`);
     }
+    const chips = chipBits.length
+      ? `<div class="sc-chips">`
+        + chipBits.map((t) => `<span class="sc-chip">${esc(t)}</span>`).join("")
+        + `</div>` : "";
 
     // Rank the symbols by the primary interval's return, highest first. The
     // benchmark rides in as a final, unranked row where the window carries one,
@@ -2381,7 +2385,9 @@ const Cards = (() => {
       ? `${primary.label} · ${primary.window}` : primary.label;
     const meta = `${ranked.length} symbols · ranked by ${primary.label} return`
       + (c.intervals.length > 1
-          ? ` · also measured on ${c.intervals.slice(1).map((x) => x.label).join(", ")}` : "");
+          ? ` · also measured on ${c.intervals.slice(1).map((x) => x.label).join(", ")}` : "")
+      + ((c.unavailable || []).length
+          ? ` · not measured: ${(c.unavailable || []).join(", ")}` : "");
 
     // The index as a final, muted footer row inside the same table — its
     // return next to the names it is the baseline for.
@@ -2395,8 +2401,10 @@ const Cards = (() => {
         + `</tr>`;
     }
 
-    const table = screenTable({
+    return screenTable({
       title: "Peer comparison",
+      control: "",
+      chips,
       criteria: windowLabel ? `Window: ${windowLabel}` : "",
       meta,
       firstCol: "Symbol",
@@ -2406,11 +2414,6 @@ const Cards = (() => {
       page: ranked.length,   // a peer set is short; never fold it
       extraFoot,
     });
-
-    return (stats.length ? `<div class="scan-stats">${stats.join("")}</div>` : "")
-      + table
-      + ((c.unavailable || []).length
-         ? callout(`Not measured: ${(c.unavailable || []).join(" · ")}`) : "");
   }
 
   // ── why it moved ────────────────────────────────────────────────────
