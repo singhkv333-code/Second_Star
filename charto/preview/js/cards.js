@@ -2318,11 +2318,23 @@ const Cards = (() => {
     const sym = syms[0];
     const cols = c.intervals || [];
     const pair = syms.length === 2;
+    if (!syms.length || !cols.length) return "";
 
+    // The PRIMARY interval drives the table — one row per symbol, ranked by
+    // return, highest first — which is the same shape and visual language as a
+    // screen. A multi-interval comparison still measures every window, but the
+    // reading a table makes best is "who is ahead, and by how much", and that
+    // is one window's ordering. The per-interval gaps and correlation ride
+    // above as context, the way a screen's criteria do.
+    const primary = cols[0];
+    const g = (pick, s) => (primary[pick] ? primary[pick][s] : null);
+
+    // Context strip: the return gap and correlation the model reads from, kept
+    // because they are the two numbers a pair comparison is usually about.
     const stats = [];
-    for (const g of (c.gaps || [])) {
-      stats.push(stat(`${g.label} return gap`, signed(sym, g.gap_pp, " pp"),
-                      way(g.gap_pp), g.pair));
+    for (const gap of (c.gaps || [])) {
+      stats.push(stat(`${gap.label} return gap`, signed(sym, gap.gap_pp, " pp"),
+                      way(gap.gap_pp), gap.pair));
     }
     for (const col of cols) {
       const corr = col.correlation && pair
@@ -2332,68 +2344,71 @@ const Cards = (() => {
                         "daily returns"));
       }
     }
-    if (!stats.length) {
-      for (const col of cols) {
-        stats.push(stat(`${col.label} bars`, col.bars ? col.bars[syms[0]] : ""));
-      }
+
+    // Rank the symbols by the primary interval's return, highest first. The
+    // benchmark rides in as a final, unranked row where the window carries one,
+    // because "both fell" and "both fell while the index fell too" are
+    // different answers.
+    const ranked = syms.slice().sort((a, b) => {
+      const ra = g("ret", a), rb = g("ret", b);
+      if (ra == null && rb == null) return 0;
+      if (ra == null) return 1;
+      if (rb == null) return -1;
+      return rb - ra;
+    }).map((s) => ({ sym: s }));
+
+    const units = { cr: " cr", musd: " M$" };
+    const turn = (s) => {
+      const t = primary.turnover && primary.turnover[s];
+      return t ? esc(Sym.of(sym).num(t.value, { maximumFractionDigits: 1 })
+                     + (units[t.unit] || "")) : "—";
+    };
+    const haveTurn = ranked.some((r) => primary.turnover && primary.turnover[r.sym]);
+
+    const cols2 = [
+      { label: "Return", align: "num",
+        get: (r) => { const v = g("ret", r.sym);
+          return v == null ? "—"
+            : `<span class="sc-tone ${way(v)}">${signed(sym, v, "%")}</span>`; } },
+      { label: "Max DD", align: "num",
+        get: (r) => { const v = g("dd", r.sym); return v == null ? "—" : `${n2(sym, v)}%`; } },
+      { label: "ATR %", align: "num",
+        get: (r) => { const v = g("atr", r.sym); return v == null ? "—" : `${n2(sym, v)}%`; } },
+    ];
+    if (haveTurn) cols2.push({ label: "Turnover", align: "num", get: (r) => turn(r.sym) });
+
+    const windowLabel = primary.window
+      ? `${primary.label} · ${primary.window}` : primary.label;
+    const meta = `${ranked.length} symbols · ranked by ${primary.label} return`
+      + (c.intervals.length > 1
+          ? ` · also measured on ${c.intervals.slice(1).map((x) => x.label).join(", ")}` : "");
+
+    // The index as a final, muted footer row inside the same table — its
+    // return next to the names it is the baseline for.
+    let extraFoot = "";
+    if (primary.benchmark && primary.benchmark.ret != null) {
+      const b = primary.benchmark;
+      extraFoot = `<tr class="sc-foot"><td></td>`
+        + `<td class="sc-foot-label">${esc(b.name)}</td>`
+        + `<td class="sc-num"><span class="sc-tone ${way(b.ret)}">${signed(sym, b.ret, "%")}</span></td>`
+        + `<td></td>`.repeat(cols2.length - 1)
+        + `</tr>`;
     }
 
-    /* One group per interval, one bar per symbol, and the benchmark as the
-     * last bar of the group where there is one. Grouped this way because the
-     * comparison inside a window is the reading and the comparison BETWEEN
-     * windows is the second one — a flat list of six bars would offer
-     * neither.
-     *
-     * Coloured by SYMBOL, not by sign, and the same symbol keeps its colour
-     * through every section. Sign colouring is the right choice on a single
-     * series and the wrong one here: in a year both names can be down, and
-     * two red bars under two labels is a chart the eye cannot follow across
-     * three sections. The sign is not lost — it is printed, and zero is
-     * drawn down the middle of the track. */
-    const series = (pick, opt) => cols.map((col) => {
-      const items = syms.map((s, i) => ({
-        label: s, value: col[pick] ? col[pick][s] : null,
-        text: signed(sym, col[pick] ? col[pick][s] : null, "%"),
-        tone: "s" + Math.min(i + 1, 4),
-      }));
-      if (pick === "ret" && col.benchmark) {
-        items.push({ label: col.benchmark.name, value: col.benchmark.ret,
-                     text: signed(sym, col.benchmark.ret, "%"), tone: "bench" });
-      }
-      return group(col.label, col.window || "",
-                   colChart(items.filter((x) => x.value != null),
-                            { signed: !!(opt && opt.signed) }));
-    }).join("");
+    const table = screenTable({
+      title: "Peer comparison",
+      criteria: windowLabel ? `Window: ${windowLabel}` : "",
+      meta,
+      firstCol: "Symbol",
+      rows: ranked,
+      cols: cols2,
+      rowSym: (r) => ({ sym: r.sym, name: null }),
+      page: ranked.length,   // a peer set is short; never fold it
+      extraFoot,
+    });
 
-    /* Turnover is the one quantity that is neither signed nor comparable
-     * across instruments by size alone, and it comes in two units. A table
-     * keeps the unit next to every figure; a bar row would have to pick one
-     * scale for rupees crore and millions of dollars at once. */
-    const units = { cr: " cr", musd: " M$" };
-    const haveTurn = cols.some((col) => col.turnover);
-    const turnRows = haveTurn ? syms.map((s) => [
-      `<b>${esc(s)}</b>`,
-      ...cols.map((col) => {
-        const t = col.turnover && col.turnover[s];
-        return t ? esc(Sym.of(sym).num(t.value, { maximumFractionDigits: 1 })
-                       + (units[t.unit] || "")) : "—";
-      }),
-    ]) : [];
-
-    return `<div class="scan-stats">${stats.join("")}</div>`
-      // Return takes the centred zero because a return set really does hold
-      // both signs and which side of nothing a name landed on is the whole
-      // reading. Drawdown and ATR never do — a drawdown is a fall and an ATR
-      // is a width — so centring them would spend half the track drawing a
-      // side no value can ever be on. The figures keep their own signs.
-      + section("Return", "per bar window, against the index",
-                series("ret", { signed: true }))
-      + section("Maximum drawdown", "peak to trough, inside the window",
-                series("dd", {}))
-      + section("ATR volatility", "average true range as % of price",
-                series("atr", {}))
-      + section("Average turnover per bar", "",
-                haveTurn ? grid(["", ...cols.map((x) => x.label)], turnRows) : "")
+    return (stats.length ? `<div class="scan-stats">${stats.join("")}</div>` : "")
+      + table
       + ((c.unavailable || []).length
          ? callout(`Not measured: ${(c.unavailable || []).join(" · ")}`) : "");
   }
@@ -2614,6 +2629,101 @@ const Cards = (() => {
     });
   }
 
+  /* ── the one table design, shared by `screen` and `compare` ───────────
+   *
+   * A bordered, rounded card carrying a ranked table — the same shape the main
+   * chat's ScreenResultsCard renders, so a screen on the chart and a screen in
+   * the full chat read as one product. The caller supplies the title, the one
+   * head control, the chips/meta above the table, the columns, the rows, and
+   * an optional median footer; everything below here is presentation.
+   *
+   * `cols`: [{ label, align?: "num"|"text", get(row) -> cell html,
+   *            foot?(rows) -> cell html }]. A cell's html is trusted — callers
+   * build it through `esc`/`signed`/`num`. `rowSym(row)` gives the symbol and
+   * name for the company cell; `PAGE` rows show, the rest fold behind "Show
+   * all N" through the panel's own [data-more] handler.
+   */
+  const SCREEN_PAGE = 10;
+
+  function symCell(sym, name) {
+    const initials = esc(String(sym || "?").slice(0, 2));
+    return `<div class="sc-symcell">`
+      + `<span class="sc-logo" data-logo="${esc(sym)}">${initials}</span>`
+      + `<span class="sc-sym"><b>${esc(sym)}</b>`
+      + (name && name !== sym ? `<span>${esc(name)}</span>` : "")
+      + `</span></div>`;
+  }
+
+  function screenTable(opt) {
+    const rows = opt.rows || [];
+    const cols = opt.cols || [];
+    if (!rows.length) return "";
+
+    const head = `<tr><th class="sc-rank">#</th><th class="sc-sym">${esc(opt.firstCol || "Company")}</th>`
+      + cols.map((col) =>
+          `<th class="${col.align === "text" ? "" : "sc-num"}">${esc(col.label)}</th>`).join("")
+      + `</tr>`;
+
+    const rowHtml = (r, i) =>
+      `<tr><td class="sc-rank">${i + 1}</td>`
+      + `<td>${symCell(opt.rowSym(r).sym, opt.rowSym(r).name)}</td>`
+      + cols.map((col) =>
+          `<td class="${col.align === "text" ? "" : "sc-num"}">${col.get(r)}</td>`).join("")
+      + `</tr>`;
+
+    const page = Math.max(1, opt.page || SCREEN_PAGE);
+    const shown = rows.slice(0, page).map(rowHtml).join("");
+    const rest = rows.length > page
+      ? `<tbody data-more-rows hidden>`
+        + rows.slice(page).map((r, i) => rowHtml(r, page + i)).join("")
+        + `</tbody>` : "";
+
+    // The median / summary footer, drawn only when a column asks for one, plus
+    // any explicit extra footer rows the caller supplies (a benchmark row).
+    const medianRow = cols.some((col) => typeof col.foot === "function")
+      ? `<tr class="sc-foot">`
+        + `<td></td><td class="sc-foot-label">${esc(opt.footLabel || `Median of ${rows.length}`)}</td>`
+        + cols.map((col) => {
+            const f = typeof col.foot === "function" ? col.foot(rows) : "";
+            return `<td class="${col.align === "text" ? "" : "sc-num"}">${f || ""}</td>`;
+          }).join("")
+        + `</tr>` : "";
+    const footRows = medianRow + (opt.extraFoot || "");
+    const foot = footRows ? `<tfoot>${footRows}</tfoot>` : "";
+
+    const more = rows.length > page
+      ? `<button type="button" class="sc-more" data-more="[data-more-rows]">`
+        + `Show all ${rows.length}`
+        + `<svg class="icon" viewBox="0 0 24 24" width="14" height="14" fill="none" `
+        + `stroke="currentColor" stroke-width="2" stroke-linecap="round" `
+        + `stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>`
+        + `</button>` : "";
+
+    return `<div class="sc-card">`
+      + `<div class="sc-head"><div class="sc-title">${esc(opt.title)}</div>`
+      + (opt.control || "") + `</div>`
+      + (opt.chips || "")
+      + (opt.criteria ? `<div class="sc-crit">${esc(opt.criteria)}</div>` : "")
+      + (opt.rankLine ? `<div class="sc-rank-line">${esc(opt.rankLine)}</div>` : "")
+      + (opt.meta ? `<div class="sc-meta">${esc(opt.meta)}</div>` : "")
+      + `<div class="sc-tablewrap"><table class="sc-table">`
+      + `<thead>${head}</thead>`
+      + `<tbody>${shown}</tbody>${rest}${foot}</table></div>`
+      + more
+      + `</div>`;
+  }
+
+  /** The middle value of a numeric column — presentation arithmetic over what
+   *  the card already shows, drawn in the footer. Null below three numbers. */
+  function median(rows, get) {
+    const xs = rows.map(get)
+      .filter((v) => typeof v === "number" && Number.isFinite(v))
+      .sort((a, b) => a - b);
+    if (xs.length < 3) return null;
+    const m = xs.length >> 1;
+    return xs.length % 2 ? xs[m] : (xs[m - 1] + xs[m]) / 2;
+  }
+
   /** A universe screen: what it looked for, what matched, and a control that
    *  carries the membership to the Screener.
    *
@@ -2640,29 +2750,23 @@ const Cards = (() => {
     // rather than a fixed set that might be all nulls.
     const SKIP = new Set(["symbol", "name", "industry", "as_of", "pattern",
                           "universe_rate", "volume_profile"]);
-    const cols = [];
-    if (sortKey && rows.some((r) => r[sortKey] != null)) cols.push(sortKey);
+    const keys = [];
+    if (sortKey && rows.some((r) => r[sortKey] != null)) keys.push(sortKey);
     for (const k of Object.keys(rows[0] || {})) {
-      if (cols.length >= 3) break;
+      if (keys.length >= 3) break;
       if (SKIP.has(k) || k === sortKey) continue;
-      if (rows.some((r) => typeof r[k] === "number")) cols.push(k);
+      if (rows.some((r) => typeof r[k] === "number")) keys.push(k);
     }
-    const label = (k) => esc(k.replace(/_/g, " "));
-    const cell = (v) => (typeof v === "number"
+    const label = (k) => k.replace(/_/g, " ");
+    const fmt = (v) => (typeof v === "number"
       ? (Math.abs(v) >= 1000 ? v.toFixed(0) : v.toFixed(2))
       : (v == null ? "—" : esc(String(v))));
-
-    const head = `<tr><th class="sc-rank">#</th><th>Stock</th>`
-      + cols.map((k) => `<th class="sc-num">${label(k)}</th>`).join("")
-      + `</tr>`;
-    const body = rows.map((r, i) =>
-      `<tr><td class="sc-rank">${i + 1}</td>`
-      + `<td class="sc-sym"><b>${esc(r.symbol)}</b>`
-      + (r.name && r.name !== r.symbol
-          ? `<span>${esc(r.name)}</span>` : "")
-      + `</td>`
-      + cols.map((k) => `<td class="sc-num">${cell(r[k])}</td>`).join("")
-      + `</tr>`).join("");
+    const cols = keys.map((k) => ({
+      label: label(k),
+      align: rows.some((r) => typeof r[k] === "number") ? "num" : "text",
+      get: (r) => fmt(r[k]),
+      foot: (rr) => { const m = median(rr, (r) => r[k]); return m == null ? "" : fmt(m); },
+    }));
 
     const framed = (() => {
       try { return window.parent && window.parent !== window; }
@@ -2673,33 +2777,27 @@ const Cards = (() => {
     const matched = c.matched != null ? c.matched : rows.length;
     const meta = `${matched} of ${c.universe || "?"}`
       + (rows.length < matched ? ` · top ${rows.length}` : "")
-      + (c.as_of ? ` · ${esc(String(c.as_of))}` : "");
+      + (c.as_of ? ` · ${String(c.as_of)}` : "");
 
-    // Header is a two-column row: the screen on the left, its one control on
-    // the right. The button was full-width and directly under the text, which
-    // read as the panel's primary action when it is a side door — the table
-    // below it is what the user asked for.
-    return `<div class="sc-card">`
-      + `<div class="sc-head">`
-      + `<div class="sc-title">Screen</div>`
-      + (framed
-          ? `<button type="button" class="ui-btn ui-btn-sm" `
-            + `data-screen-open `
-            + `title="Open these ${syms.length} names in the Screener">`
-            + `Open`
-            + `<svg class="icon" viewBox="0 0 24 24" fill="none" `
-            + `stroke="currentColor" stroke-width="2.25" stroke-linecap="round" `
-            + `stroke-linejoin="round" aria-hidden="true">`
-            + `<path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>`
-            + `</button>`
-          : "")
-      + `</div>`
-      + (c.criteria ? `<div class="sc-crit">${esc(c.criteria)}</div>` : "")
-      + (c.ranking ? `<div class="sc-rank-line">${esc(c.ranking)}</div>` : "")
-      + `<div class="sc-meta">${meta}</div>`
-      + `<div class="sc-tablewrap"><table class="sc-table">`
-      + `<thead>${head}</thead><tbody>${body}</tbody></table></div>`
-      + `</div>`;
+    const control = framed
+      ? `<button type="button" class="ui-btn ui-btn-sm" data-screen-open `
+        + `title="Open these ${syms.length} names in the Screener">Open`
+        + `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" `
+        + `stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" `
+        + `aria-hidden="true"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg></button>`
+      : "";
+
+    return screenTable({
+      title: c.title || "Screen",
+      control,
+      criteria: c.criteria || "",
+      rankLine: c.ranking || "",
+      meta,
+      firstCol: "Company",
+      rows,
+      cols,
+      rowSym: (r) => ({ sym: r.symbol, name: r.name }),
+    });
   }
 
   /** Hand this screen to the shell's Screener tab.
