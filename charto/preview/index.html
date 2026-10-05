@@ -185,6 +185,14 @@
   --down: #f23645;
   --ann-res: #f5a524;
   --ann-sup: #22d3ee;
+  /* Pattern-drawing green/red — the exact hues the chart paints a formation
+     with (js/theme.js annSup / annRes), a step off the candle tones so a
+     formation reads as structure rather than one coloured bar. The pattern
+     widgets use THESE, not --up/--down, so the card and the drawing agree. */
+  --pat-up: #22c55e;
+  --pat-down: #ef4444;
+  --pat-up-soft: color-mix(in srgb, var(--pat-up) 16%, transparent);
+  --pat-down-soft: color-mix(in srgb, var(--pat-down) 16%, transparent);
 }
 
 :root[data-theme="dark"] {
@@ -244,6 +252,8 @@
 :root[data-theme="light"] {
   --ann-res: #b45309;
   --ann-sup: #0e7490;
+  --pat-up: #15a349;
+  --pat-down: #dc2626;
   --background: #ffffff;
   --foreground: #0d0d0e;
   --card: #fbfbfc;
@@ -4254,8 +4264,8 @@ body.two-columns .readout .row { display: none; }
 /* Only a reading with a DIRECTION takes a colour — the structure read, the
    directional bias. A count is not bullish, and neither is ADX, which
    measures how much movement there is and says nothing about which way. */
-.scan-stat .v.up { color: var(--up); }
-.scan-stat .v.down { color: var(--down); }
+.scan-stat .v.up { color: var(--pat-up); }
+.scan-stat .v.down { color: var(--pat-down); }
 /* The qualifier under a figure: the word or fraction that says how to read
    it — Wilder's band under an ADX, where the last close sits under a high
    and a low. Quieter than the label above it, because it is the third thing
@@ -4308,8 +4318,8 @@ body.two-columns .readout .row { display: none; }
   flex: none; margin-left: auto; font-size: var(--text-xs);
   color: var(--faint); white-space: nowrap;
 }
-.scan-row .bias.tone-up { color: var(--up); }
-.scan-row .bias.tone-down { color: var(--down); }
+.scan-row .bias.tone-up { color: var(--pat-up); }
+.scan-row .bias.tone-down { color: var(--pat-down); }
 /* A row that points at something ON the chart is reachable — hovering it
    lights the annotation up, the same gesture as hovering a mention in the
    prose. A row with no handle was never drawn and gets no affordance, which
@@ -4335,17 +4345,24 @@ body.two-columns .readout .row { display: none; }
   gap: 8px;
 }
 .scan-tile {
-  display: flex; flex-direction: column; gap: 3px; min-width: 0;
+  display: flex; align-items: center; gap: 10px; min-width: 0;
   padding: 9px 11px 10px; border: 1px solid var(--border-soft);
   border-radius: var(--radius-sm); background: var(--card);
   transition: background var(--dur) var(--ease-quartr),
               border-color var(--dur) var(--ease-quartr);
 }
+/* The text column. The glyph is the tile's second child and sits to its
+   right; everything the card used to stack — badge, name, sub, fact —
+   lives here so the two never share a line. */
+.scan-tile-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
 .scan-tile[data-ann]:hover { border-color: var(--border); background: var(--accent); }
 .scan-tile .nm {
   font-size: var(--text-md); font-weight: var(--weight-semi);
   letter-spacing: -.015em; color: var(--foreground);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  /* Wraps rather than ellipsising: a momentum tile's name ("MACD histogram",
+     "MACD / signal") is the reading's subject and must stay whole — clipped to
+     "MACD…" it names nothing. The tile grows a line; it never hides the label. */
+  min-width: 0; overflow-wrap: anywhere;
 }
 .scan-tile .sub, .scan-fact {
   font-size: var(--text-xs); color: var(--muted-foreground);
@@ -4361,13 +4378,13 @@ body.two-columns .readout .row { display: none; }
    failure: those share the annotation amber rather than the candle red,
    because an unresolved wedge is not a bearish wedge. */
 .scan-badge {
-  align-self: flex-start; margin-bottom: 2px;
+  align-self: flex-start; margin-bottom: 2px; white-space: nowrap;
   font-size: var(--text-2xs); font-weight: var(--weight-medium);
   letter-spacing: .01em; border-radius: var(--radius-pill); padding: 2px 8px;
   background: var(--muted); color: var(--muted-foreground);
 }
-.scan-badge.ok { background: var(--up-soft); color: var(--up); }
-.scan-badge.bad { background: var(--down-soft); color: var(--down); }
+.scan-badge.ok { background: var(--pat-up-soft); color: var(--pat-up); }
+.scan-badge.bad { background: var(--pat-down-soft); color: var(--pat-down); }
 .scan-badge.open {
   background: color-mix(in srgb, var(--ann-res) 15%, transparent);
   color: var(--ann-res);
@@ -4396,6 +4413,120 @@ body.two-columns .readout .row { display: none; }
   color: var(--faint);
 }
 
+/* ── the formation glyph ──────────────────────────────────────────────────
+   A small schematic of the shape, drawn in the bias colour. The pole is the
+   loud stroke, the consolidation is a lighter pair, and the breakout tick is
+   the one that resumes the pole's direction — so the eye reads the story
+   (run, pause, resume) at a glance, not a logo. It carries no numbers; the
+   card prints those. On the folded inventory tiles it is small and quiet; on
+   the hero card it grows into its own tinted well. */
+.scan-glyph {
+  flex: none; display: grid; place-items: center;
+  width: 34px; height: 24px; color: var(--muted-foreground);
+}
+.scan-glyph svg { width: 100%; height: 100%; display: block; }
+.scan-glyph path {
+  stroke: currentColor; stroke-width: 2;
+  stroke-linecap: round; stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.scan-glyph .g-pole { stroke-width: 2.4; }
+.scan-glyph .g-chan { opacity: .5; stroke-width: 1.6; }
+.scan-glyph .g-brk  { stroke-width: 2.4; }
+.scan-glyph-up   { color: var(--pat-up); }
+.scan-glyph-down { color: var(--pat-down); }
+
+/* ── the formation list ───────────────────────────────────────────────────
+   A formation as one scannable line rather than a tile in a grid. The eye
+   cannot rank a grid; a ranked list reads top-down, and the confirmed
+   formation that answers the question sits first and loudest. Three columns,
+   closed into one card with hairline seams between the rows: the name with its
+   direction arrow and window on the left, the strength in the middle, and the
+   one measured level with its role against the right edge so every figure
+   stacks into a column. The whole row is a button — clicking it expands the
+   full detail card in place beneath it. */
+.pl-list {
+  display: block;
+  border: 1px solid var(--border-soft); border-radius: var(--radius-sm);
+  background: var(--background); overflow: hidden;
+}
+.pl-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) auto minmax(0, 1fr) 16px;
+  align-items: center; gap: 12px; width: 100%;
+  margin: 0; padding: 11px 13px; border: 0; border-top: 1px solid var(--border-soft);
+  background: none; font: inherit; text-align: left; cursor: pointer;
+  color: var(--foreground);
+  transition: background var(--dur) var(--ease-quartr);
+}
+.pl-row:first-child { border-top: 0; }
+.pl-row:hover { background: var(--accent); }
+.pl-name { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pl-nm {
+  font-size: var(--text-h3); font-weight: var(--weight-semi);
+  letter-spacing: -.015em; color: var(--foreground);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pl-arrow { font-size: .82em; margin-right: 6px; vertical-align: 1px; }
+.pl-arrow.up { color: var(--pat-up); }
+.pl-arrow.dn { color: var(--pat-down); }
+.pl-sub {
+  font-size: var(--text-md); color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pl-mid { justify-self: start; }
+/* Strength is a confidence axis, not a direction — one ink at three
+   intensities, the same ladder the tiles and the chart use (strong: filled and
+   dark; moderate: filled and mid; weak: outlined and faint). */
+.pl-str {
+  font-size: var(--text-md); color: var(--muted-foreground);
+  font-weight: var(--weight-medium);
+}
+.pl-str.s-strong { color: var(--foreground); font-weight: var(--weight-semi); }
+.pl-str.s-mid    { color: var(--muted-foreground); }
+.pl-str.s-weak   { color: var(--faint); font-weight: var(--weight-regular); }
+.pl-fact {
+  justify-self: end; text-align: right; min-width: 0; line-height: 1.25;
+}
+.pl-fact b {
+  display: block; font-family: var(--font-numeric);
+  font-size: var(--text-h3); font-weight: var(--weight-semi);
+  letter-spacing: -.02em; color: var(--foreground);
+  font-variant-numeric: tabular-nums;
+}
+.pl-fact span {
+  font-size: var(--text-xs); color: var(--muted-foreground);
+}
+.pl-caret {
+  justify-self: end; display: grid; place-items: center;
+  color: var(--faint);
+  transition: transform var(--dur) var(--ease-quartr),
+              color var(--dur) var(--ease-quartr);
+}
+.pl-caret svg { width: 15px; height: 15px; }
+.pl-row:hover .pl-caret { color: var(--muted-foreground); }
+/* An open row stays on the list's own white — the expanded card beneath it is
+   what signals the open state, so the row needs no fill of its own; only the
+   caret flips. */
+.pl-row.open .pl-caret { transform: rotate(180deg); color: var(--foreground); }
+/* The detail card the row expands into. It is moved to sit directly beneath
+   its row, so it reads as belonging to the line it came from; a hairline above
+   it keeps the seam while it is open. Inside the dropdown the card is FLAT —
+   the `.pw` left accent bar, the corner glow and the bias wash are all stripped
+   so it reads as the plain bordered card of the reference, not a tinted hero.
+   Separation here is the dropdown's own seam and fill, nothing more. */
+.pl-detail {
+  padding: 10px 11px 12px; border-top: 1px solid var(--border-soft);
+  background: var(--background);
+}
+.pl-detail .pw,
+.pl-detail .pw.up,
+.pl-detail .pw.down {
+  background: var(--background); box-shadow: none; border-radius: 0; padding: 4px 2px 2px;
+}
+.pl-detail .pw::before { display: none; }
+
 /* ── the hero card ───────────────────────────────────────────────────────
    The compact answer to "what is this": two or three formations at full
    presence rather than thirteen, and NOT a row of pills — a pill can carry
@@ -4413,8 +4544,144 @@ body.two-columns .readout .row { display: none; }
    the difference between the two states has to be visible or the fold is
    just a place things went. */
 .scan-tiles.hero { grid-template-columns: 1fr; gap: 7px; }
-.scan-tiles.hero .scan-tile { padding: 11px 13px 12px; }
-.scan-tiles.hero .scan-tile .nm { font-size: var(--text-h3); }
+
+/* The hero glyph tile (the non-flag formations: triangles, double tops …).
+   Borderless — a soft bias-tinted wash and a faint inset ring instead of the
+   hairline box the folded inventory wears. The tint follows the glyph's
+   direction via :has(), so the card and its drawing agree before a word is
+   read. Flags skip this entirely: they become the full `.pw` widget below. */
+.scan-tiles.hero .scan-tile {
+  border: 0; padding: 12px 14px; border-radius: var(--radius);
+  background: color-mix(in srgb, var(--muted-foreground) 4%, var(--card));
+}
+.scan-tiles.hero .scan-tile:has(.scan-glyph-up) {
+  background: color-mix(in srgb, var(--up) 7%, var(--card));
+}
+.scan-tiles.hero .scan-tile:has(.scan-glyph-down) {
+  background: color-mix(in srgb, var(--down) 7%, var(--card));
+}
+.scan-tiles.hero .scan-tile[data-ann] { cursor: pointer; }
+.scan-tiles.hero .scan-tile[data-ann]:has(.scan-glyph-up):hover {
+  background: color-mix(in srgb, var(--up) 12%, var(--card));
+}
+.scan-tiles.hero .scan-tile[data-ann]:has(.scan-glyph-down):hover {
+  background: color-mix(in srgb, var(--down) 12%, var(--card));
+}
+.scan-tiles.hero .scan-tile .nm {
+  font-size: var(--text-h3); letter-spacing: -.02em;
+}
+.scan-tiles.hero .scan-tile-main { gap: 4px; }
+.scan-tiles.hero .scan-glyph {
+  width: 50px; height: 38px; border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+/* ── the pattern widget ──────────────────────────────────────────────────
+   The full answer to "is there a flag": the shape drawn to scale, the
+   numbers it is made of, and the one line that keeps it a watch rather than a
+   signal. BORDERLESS throughout — no box fences the figure, the stat tiles or
+   the footer. Separation is by fill and space alone: the diagram floats on
+   the card, the stats sit in soft wells, the caution wears the annotation
+   amber. One tinted accent runs down the left edge in the bias colour, and a
+   faint corner glow places the direction without a coloured frame. */
+.pw {
+  position: relative; overflow: hidden;
+  border-radius: var(--radius-lg, 14px);
+  padding: 16px 18px 15px; background: var(--card);
+  box-shadow: var(--shadow);
+}
+.pw::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--muted-foreground);
+}
+.pw.up { background:
+  radial-gradient(130% 150% at 100% 0%,
+    color-mix(in srgb, var(--pat-up) 10%, transparent), transparent 55%),
+  var(--card); }
+.pw.down { background:
+  radial-gradient(130% 150% at 100% 0%,
+    color-mix(in srgb, var(--pat-down) 10%, transparent), transparent 55%),
+  var(--card); }
+.pw.up::before   { background: var(--pat-up); }
+.pw.down::before { background: var(--pat-down); }
+.pw[data-ann] { cursor: pointer; }
+
+/* header */
+.pw-head { display: flex; align-items: flex-start; gap: 11px; }
+.pw-ico {
+  flex: none; width: 34px; height: 34px; border-radius: 10px;
+  display: grid; place-items: center;
+  background: var(--pat-up-soft); color: var(--pat-up);
+}
+.pw-ico.down { background: var(--pat-down-soft); color: var(--pat-down); }
+.pw-ico svg { width: 18px; height: 18px; }
+.pw-htext { flex: 1; min-width: 0; }
+.pw-title {
+  font-size: var(--text-h3); font-weight: var(--weight-semi);
+  letter-spacing: -.02em; line-height: 1.2; color: var(--foreground);
+}
+.pw-sub {
+  font-size: var(--text-xs); color: var(--muted-foreground); margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+.pw-pills {
+  display: flex; gap: 5px; align-items: center; flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.pw-pill {
+  font-size: var(--text-2xs); font-weight: var(--weight-medium);
+  padding: 2px 8px; border-radius: var(--radius-pill); white-space: nowrap;
+  background: var(--muted); color: var(--muted-foreground);
+}
+.pw-pill.warn {
+  background: color-mix(in srgb, var(--ann-res) 15%, transparent);
+  color: var(--ann-res);
+}
+.pw-pill.up   { background: var(--pat-up-soft); color: var(--pat-up); }
+.pw-pill.down { background: var(--pat-down-soft); color: var(--pat-down); }
+.pw-pill.plain { background: transparent; color: var(--muted-foreground);
+  box-shadow: inset 0 0 0 1px var(--border-soft); }
+
+/* diagram */
+.pw-diagram { margin: 12px 0 2px; }
+.pw-svg { display: block; width: 100%; height: auto; }
+.pw-svg text { font-family: inherit; font-variant-numeric: tabular-nums; }
+.pw-note {
+  font-size: var(--text-2xs); color: var(--faint); margin-top: 0;
+}
+/* stat strip — borderless wells */
+.pw-stats {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px;
+  margin-top: 13px;
+}
+.pw-stat { background: var(--muted); border-radius: var(--radius-sm); padding: 10px 12px; }
+.pw-stat .k { font-size: var(--text-2xs); color: var(--muted-foreground); }
+.pw-stat .v {
+  font-size: var(--text-h2, 20px); font-weight: var(--weight-semi);
+  font-family: var(--font-numeric); letter-spacing: -.02em;
+  line-height: 1; margin-top: 4px; color: var(--foreground);
+}
+.pw-stat .s {
+  font-size: var(--text-2xs); color: var(--muted-foreground); margin-top: 5px;
+  font-variant-numeric: tabular-nums;
+}
+.pw-stat .s.up { color: var(--pat-up); }
+.pw-stat .s.down { color: var(--pat-down); }
+
+/* footer banner — borderless amber fill */
+.pw-foot {
+  display: flex; align-items: center; gap: 9px; margin-top: 11px;
+  padding: 10px 12px; border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--ann-res) 13%, transparent);
+  color: var(--ann-res); font-size: var(--text-xs); line-height: 1.35;
+}
+.pw-foot svg { flex: none; width: 15px; height: 15px; }
+.pw-foot b { font-weight: var(--weight-semi); }
+
+@media (max-width: 420px) {
+  .pw-stats { grid-template-columns: 1fr; }
+}
 
 /* ── bars: the panel's one chart primitive ───────────────────────────────
    Two numbers whose entire content is the comparison: 8.59 says nothing at
@@ -4447,8 +4714,8 @@ body.two-columns .readout .row { display: none; }
   font-variant-numeric: tabular-nums; color: var(--foreground);
   text-align: right; white-space: nowrap;
 }
-.scan-bar .num.tone-up { color: var(--up); }
-.scan-bar .num.tone-down { color: var(--down); }
+.scan-bar .num.tone-up { color: var(--pat-up); }
+.scan-bar .num.tone-down { color: var(--pat-down); }
 .scan-bar .track {
   position: relative; grid-column: 1 / -1; height: 5px;
   border-radius: var(--radius-pill); background: var(--muted);
@@ -4460,8 +4727,8 @@ body.two-columns .readout .row { display: none; }
   position: absolute; top: 0; bottom: 0; border-radius: inherit;
   background: var(--muted-foreground); min-width: 2px;
 }
-.scan-bar .fill.up { background: var(--up); }
-.scan-bar .fill.down { background: var(--down); }
+.scan-bar .fill.up { background: var(--pat-up); }
+.scan-bar .fill.down { background: var(--pat-down); }
 .scan-bar .fill.ann { background: var(--ann-res); }
 /* A comparison of SUBJECTS, not of directions: in a falling year both names
    are down, and two red bars under two labels is a chart the eye cannot
@@ -4601,8 +4868,8 @@ body.two-columns .readout .row { display: none; }
   background: var(--muted); font-variant-numeric: tabular-nums;
 }
 .scan-read + .scan-read { margin-top: 6px; }
-.scan-read.tone-up { background: var(--up-soft); }
-.scan-read.tone-down { background: var(--down-soft); }
+.scan-read.tone-up { background: var(--pat-up-soft); }
+.scan-read.tone-down { background: var(--pat-down-soft); }
 /* A COLUMN, not a word. `flex: none` sized this to its own text, so "5m" and
    "Weekly" left the readings starting at a different x on every row and the
    wrapped second line inherited that raggedness — four rows that should read
@@ -4614,8 +4881,8 @@ body.two-columns .readout .row { display: none; }
   font-size: var(--text-sm); font-weight: var(--weight-semi);
   letter-spacing: -.01em; color: var(--foreground);
 }
-.scan-read.tone-up .nm { color: var(--up); }
-.scan-read.tone-down .nm { color: var(--down); }
+.scan-read.tone-up .nm { color: var(--pat-up); }
+.scan-read.tone-down .nm { color: var(--pat-down); }
 /* Wraps rather than ellipsising. A timeframe rung's line is five readings
    long and the pane is resizable: clipped to "RSI 35.97 · MACD hist −0.12 ·
    ADX 29.47 · −D…" it has hidden the two that decide the row. A second line
@@ -4641,11 +4908,16 @@ body.two-columns .readout .row { display: none; }
    two-word stance takes two short right-aligned lines inside the height the
    readings already need, and every rung wraps the same way. */
 .scan-read .num {
-  flex: none; margin-left: auto; max-width: 3.4rem; text-align: right;
+  flex: none; margin-left: auto; text-align: right;
   font-family: var(--font-numeric);
   font-size: var(--text-sm); font-weight: var(--weight-medium);
   letter-spacing: -.02em; color: var(--foreground);
-  text-wrap: balance;
+  /* A price is one token and must never wrap — "₹1,325.21" split across two
+     lines reads as two numbers. The old max-width cap was tuned for a
+     timeframe stance word and clipped the overlay strip's prices into a second
+     line; prices have no spaces, so nowrap keeps them whole while a two-word
+     stance can still wrap between its words. */
+  white-space: nowrap;
 }
 
 /* ── the staged checklist ────────────────────────────────────────────────
@@ -4741,8 +5013,11 @@ body.two-columns .readout .row { display: none; }
 .scan-rung.sup .px { color: var(--ann-sup); }
 .scan-rung.crossed { color: var(--faint); }
 .scan-rung.crossed .px { color: var(--faint); text-decoration: line-through; }
+/* The current price's rung is marked by a soft fill alone — no boxed border.
+   An outline here fenced one row off from the ladder it belongs to; the fill
+   says "you are here" without breaking the column. */
 .scan-rung.current {
-  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  border-top-color: transparent; border-radius: var(--radius-xs);
   background: var(--accent);
 }
 .scan-rung.current + .scan-rung { border-top: 0; }
@@ -11092,7 +11367,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- before chat.js, which asks it to render the panels a tool prints as the
        reply streams in. It reads Sym (store.js) for the instrument's currency
        and grouping, and nothing else — a renderer with no state of its own -->
-  <script src="./js/cards.js?v=60"></script>
+  <script src="./js/cards.js?v=65"></script>
   <script src="./js/layers-panel.js?v=11"></script>
   <script src="./js/chat.js?v=176"></script>
   <script src="./js/codeview.js?v=5"></script>
