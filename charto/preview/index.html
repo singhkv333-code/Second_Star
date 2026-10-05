@@ -8100,17 +8100,31 @@ body.dk-dragging .dk-pull { pointer-events: none; }
    (14px outer − 5px padding ≈ 9px) instead of the default 4px */
 .hub-find .searchfield { height: 30px; background: transparent; border-color: transparent; }
 .hub-find .searchfield input { border-radius: 9px; }
-/* tabs size to their labels and wrap to a second row rather than ellipsize,
-   so every name stays fully readable at the hub's width */
-.hub-tabs { flex: none; display: flex; flex-wrap: wrap; justify-content: center; gap: 2px; padding: 4px; }
-.hub-tabs button {
-  flex: 0 0 auto; height: 26px; padding: 0 9px; border: 0; border-radius: 9px; background: transparent; cursor: pointer;
+/* one line: a track that scrolls sideways between two end chevrons, each of
+   which appears only while there is more to reveal that way. Every label is
+   shown in full — none is squeezed or ellipsized. */
+.hub-tabs { flex: none; position: relative; display: flex; align-items: center; gap: 2px; padding: 4px; }
+.hub-track { flex: 1; min-width: 0; display: flex; gap: 2px; overflow-x: auto; scroll-behavior: smooth; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.hub-track::-webkit-scrollbar { display: none; }
+.hub-tabs button[data-hubg] {
+  flex: 0 0 auto; height: 26px; padding: 0 10px; border: 0; border-radius: 9px; background: transparent; cursor: pointer;
   color: var(--foreground); opacity: .62; font: inherit; font-size: var(--text-sm); font-weight: var(--weight-medium);
   white-space: nowrap;
   transition: background var(--dur), opacity var(--dur), color var(--dur);
 }
-.hub-tabs button:hover { opacity: 1; }
-.hub-tabs button.on { opacity: 1; background: var(--foreground); color: var(--background); }
+/* the end navigators: hidden until the track overflows that side, then a
+   small glass chevron that nudges the strip along */
+.hub-tscroll {
+  flex: 0 0 auto; width: 22px; height: 26px; padding: 0; border: 0; border-radius: 8px; cursor: pointer;
+  display: none; align-items: center; justify-content: center; color: var(--foreground);
+  background: color-mix(in srgb, var(--foreground) 7%, transparent);
+  transition: background var(--dur), opacity var(--dur);
+}
+.hub-tscroll svg.icon { width: 15px; height: 15px; }
+.hub-tscroll:hover { background: color-mix(in srgb, var(--foreground) 14%, transparent); }
+.hub-tabs.has-l .hub-tscroll.l, .hub-tabs.has-r .hub-tscroll.r { display: inline-flex; }
+.hub-tabs button[data-hubg]:hover { opacity: 1; }
+.hub-tabs button[data-hubg].on { opacity: 1; background: var(--foreground); color: var(--background); }
 .hub-tools { flex: none; display: flex; align-items: center; gap: 2px; padding: 4px; }
 .hub-gap { flex: 1; }
 .hub-switch { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 8px 0 4px; border-radius: 9px; cursor: pointer;
@@ -11397,7 +11411,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/drawedit.js?v=7"></script>
   <script src="./js/wkit.js?v=1"></script>
   <script src="./js/hub-art.js?v=3"></script>
-  <script src="./js/dock.js?v=18"></script>
+  <script src="./js/dock.js?v=19"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=12"></script>
