@@ -65,6 +65,7 @@ import webfeeds as _webfeeds   # sibling module: news feeds + frame checks for w
 import websearch as _websearch  # sibling module: the Browser's search engine APIs
 import drawtools   # sibling module: the Fibonacci / Gann catalogue, backend half
 import execution_bridge   # sibling module: Pivot's automation engine, borrowed
+import strategy_lab        # the Strategy widget's templates, resolver and report
 import indicators   # sibling module: the indicator registry
 import mark   # sibling module: symbolic addresses → real chart coordinates
 import patterns   # sibling module: candlestick / chart-pattern / structure detectors
@@ -17857,6 +17858,11 @@ class Handler(BaseHTTPRequestHandler):
                                             "live_available": False})
                 return self._send(404, {"error": f"no paper route '{tail}'"})
 
+            # The Strategy widget's catalogue: templates and their bounded
+            # parameters, the intervals and the windows each can test over.
+            if u.path == "/execution/templates":
+                return self._send(200, strategy_lab.catalog())
+
             # Saved strategies — the rules that put the shares there.
             if u.path == "/strategies" or u.path.startswith("/strategies/"):
                 if _strategies is None:
@@ -18352,6 +18358,51 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_events(_suggest_stream(msgs))
             finally:
                 _chat_slot_release()
+        if u.path == "/execution/lab":
+            # The Strategy widget. A template, a saved strategy (by id, for
+            # the signed-in user) or a raw draft resolves to the same steps[]
+            # the draft card's Backtest button sends, through the same engine
+            # call — then strategy_lab.report() adds the tester's derived
+            # figures beside the engine's, computed server-side.
+            try:
+                ln = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(ln) or b"{}")
+            except (ValueError, TypeError):
+                return self._send(400, {"error": "bad JSON body"})
+            me = _auth_user(self.headers)
+            lookup = None
+            if me and _strategies is not None:
+                lookup = lambda sid: _strategies.draft_of(me[0], sid)   # noqa: E731
+            try:
+                plan = strategy_lab.resolve(body, saved_draft=lookup)
+            except strategy_lab.LabError as exc:
+                return self._send(400, {"error": str(exc)})
+            if not _data_slot_acquire():
+                return self._send(
+                    503,
+                    {"error": "Backtest capacity is busy. Retry shortly.",
+                     "retryable": True,
+                     "retry_after_s": _DATA_RETRY_AFTER_S},
+                    headers={"Retry-After": str(_DATA_RETRY_AFTER_S)})
+            try:
+                is_dsl = any(isinstance(st, dict)
+                             and st.get("step_type") == "trigger.compound"
+                             for st in plan["args"]["steps"])
+                res = execution_bridge.dispatch(
+                    "backtest_dsl_draft" if is_dsl else "backtest_workflow",
+                    plan["args"])
+                closes = []
+                if not res.get("error"):
+                    try:
+                        closes = strategy_lab.closes(res)
+                    except Exception as exc:                # noqa: BLE001
+                        # no closes, no buy & hold line; the run still stands
+                        logging.getLogger("charto").warning("lab closes failed: %s", exc)
+            finally:
+                _data_slot_release()
+            if res.get("error"):
+                return self._send(400, res)
+            return self._send(200, strategy_lab.shape(res, plan, closes))
         if u.path == "/execution/backtest":
             # The draft card's Backtest button. It runs the SAME engine the
             # model's backtest uses, on the draft's own trees — but a button is

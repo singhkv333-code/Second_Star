@@ -977,6 +977,23 @@ def api_patch(uid: int, sid: int, body: dict) -> tuple[int, dict]:
     return api_get(uid, sid)
 
 
+def draft_of(uid: int, sid: int) -> Optional[dict]:
+    """The draft a strategy was armed from, for the user who owns it: what the
+    Strategy widget re-tests, so the backtest is of the rule that runs."""
+    init_db()
+    with ds._users_lock:
+        r = _db().execute("SELECT spec, name FROM strategies WHERE id=? AND user_id=?",
+                          (int(sid), int(uid))).fetchone()
+    if r is None:
+        return None
+    try:
+        d = json.loads(r[0]) or {}
+    except (TypeError, ValueError):
+        return None
+    d.setdefault("name", r[1])
+    return d
+
+
 def api_delete(uid: int, sid: int) -> tuple[int, dict]:
     """Retire, never erase. A strategy that filled orders is the provenance of
     those fills, and deleting the row would orphan them."""

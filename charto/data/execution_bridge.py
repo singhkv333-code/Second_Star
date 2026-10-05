@@ -756,6 +756,22 @@ def _patch_fetcher() -> None:
     be._charto_memo = True
 
 
+def cached_bars(symbol: str, interval: str):
+    """The newest bars the engine fetched for (symbol, interval), or None.
+
+    Read from the memo above, so it is exactly the frame a backtest just ran
+    on and costs no fetch. A caller that needs these bars after a run (the
+    lab's buy & hold line) reads them here instead of asking a source again
+    with dates that would miss the memo.
+    """
+    want = (str(symbol).upper(), str(interval))
+    with _BARS_GUARD:
+        for key in reversed(list(_BARS.keys())):
+            if (key[0], key[3]) == want:
+                return _BARS[key][1].copy()
+    return None
+
+
 # ── Tools this surface owns ──────────────────────────────────────────
 #
 # `evaluate_strategies` is the builder's homework: several candidate ways of

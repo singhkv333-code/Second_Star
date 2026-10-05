@@ -2621,6 +2621,9 @@ const Cards = (() => {
                    custom_indicator: customIndicator };
 
   return {
+    /** The backtest's trades as chart objects, for surfaces other than the
+     *  card (the Strategy widget). Same builder, same symbol guard. */
+    strategyLayer: { items: strategyItems, clear: clearStrategy, blocker: strategyBlocker },
     /** A card object → an element for the thread, or null when this build has
      *  no renderer for that kind. Null rather than a placeholder: a panel
      *  reading "unsupported card" tells the user about our deploy schedule
