@@ -420,17 +420,23 @@ const Setups = (() => {
   // white, served as an image the same way the instrument logos are (a CDN by
   // brand, not a hand-drawn path that distorts), on a disc of the brand colour.
   const ICON = (slug) => `https://cdn.simpleicons.org/${slug}/white`;
+  // LinkedIn is not on Simple Icons (brand policy), so it carries its own white
+  // glyph inline rather than a slug. The others resolve to the CDN by slug.
+  const LINKEDIN = '<svg viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M20.45 20.45h-3.56v-5.57c0-1.33-.02-3.04-1.85-3.04-1.86 0-2.14 1.45-2.14 2.94v5.67H9.35V9h3.41v1.56h.05c.48-.9 1.64-1.85 3.37-1.85 3.6 0 4.27 2.37 4.27 5.46v6.28ZM5.34 7.43a2.07 2.07 0 1 1 0-4.14 2.07 2.07 0 0 1 0 4.14Zm1.78 13.02H3.56V9h3.56v11.45ZM22.22 0H1.77C.8 0 0 .78 0 1.73v20.54C0 23.22.8 24 1.77 24h20.45c.98 0 1.78-.78 1.78-1.73V1.73C24 .78 23.2 0 22.22 0Z"/></svg>';
   const TARGETS = [
     ["Facebook", (u) => `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(u)}`, "#1877F2", "facebook"],
     ["X", (u, t) => `https://x.com/intent/post?text=${encodeURIComponent(t)}&url=${encodeURIComponent(u)}`, "#000000", "x"],
     ["WhatsApp", (u, t) => `https://wa.me/?text=${encodeURIComponent(`${t} ${u}`)}`, "#25D366", "whatsapp"],
     ["Telegram", (u, t) => `https://t.me/share/url?url=${encodeURIComponent(u)}&text=${encodeURIComponent(t)}`, "#229ED9", "telegram"],
-    ["LinkedIn", (u) => `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(u)}`, "#0A66C2", "linkedin"],
+    ["LinkedIn", (u) => `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(u)}`, "#0A66C2", LINKEDIN],
   ];
-  // A full-colour brand badge: the real mark in white on a disc of the brand's
-  // colour (the disc colour is set per chip from --brand). A dead CDN leaves
-  // the coloured disc rather than a broken-image ghost (onerror removes it).
-  const mark = (slug) => `<img class="sx-brand" src="${ICON(slug)}" alt="" loading="lazy" onerror="this.remove()"/>`;
+  // A full-colour brand badge: a disc of the brand's colour (set per chip from
+  // --brand) carrying the real mark in white. The disc is the WRAPPER, so a
+  // dead CDN hides only the glyph and leaves the coloured disc — never a gap.
+  // An inline SVG (one starting with "<") is used as-is; a slug goes to the CDN.
+  const mark = (icon) => `<span class="sx-disc">${/^</.test(icon)
+    ? `<span class="sx-brand">${icon}</span>`
+    : `<img class="sx-brand" src="${ICON(icon)}" alt="" loading="lazy" onerror="this.style.display='none'"/>`}</span>`;
 
   function published(dlg, close, token, sym, title, updated, mini) {
     const url = linkFor(token, sym);

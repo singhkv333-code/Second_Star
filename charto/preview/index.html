@@ -1245,6 +1245,9 @@ select.is-dressed { display: none; }
 .sx-chip svg.icon { width: 12px; height: 12px; opacity: .8; }
 .sx-form { padding: 22px 24px 6px; min-width: 0; }
 .sx-form h3, .sx-ok h3 { margin: 0 0 6px; font-size: 20px; font-weight: var(--weight-semi); letter-spacing: -.015em; }
+/* breathing room under "Your workspace is live" before the link row */
+.sx-ok h3 { margin-bottom: 18px; }
+.sx-ok .sx-lede { margin-top: -6px; }
 .sx-lede { margin: 0 0 16px; font-size: var(--text-sm); color: var(--muted-foreground); line-height: 1.55; max-width: 54ch; }
 .sx-opts { display: grid; gap: 6px; margin-top: 14px; }
 .sx-opt { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px 10px;
@@ -1291,12 +1294,14 @@ select.is-dressed { display: none; }
 .sx-targets { display: flex; justify-content: space-between; gap: 8px; margin: 0 auto 2px; }
 .sx-target { display: flex; flex-direction: column; align-items: center; gap: 8px; border: 0;
   background: none; color: var(--muted-foreground); font: inherit; font-size: var(--text-xs); cursor: pointer; }
-/* a full-colour brand badge: the white mark on a disc of the brand's colour */
-.sx-target .sx-brand { box-sizing: border-box; width: 46px; height: 46px; padding: 12px; border-radius: 50%;
-  object-fit: contain; background: var(--brand, var(--foreground));
-  transition: filter var(--dur) var(--ease-quartr); }
+/* a full-colour brand badge: a disc of the brand's colour (the wrapper, so it
+   survives a failed mark) carrying the white glyph */
+.sx-target .sx-disc { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 50%;
+  background: var(--brand, var(--foreground)); transition: filter var(--dur) var(--ease-quartr); }
+.sx-target .sx-brand { display: block; width: 22px; height: 22px; object-fit: contain; }
+.sx-target .sx-brand svg { display: block; width: 100%; height: 100%; }
 .sx-target:hover { color: var(--foreground); }
-.sx-target:hover .sx-brand { filter: brightness(1.08); }
+.sx-target:hover .sx-disc { filter: brightness(1.08); }
 .sx-empty, .sx-gone { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 26px 18px; text-align: center; }
 .sx-empty svg.icon, .sx-gone svg.icon { width: 22px; height: 22px; opacity: .5; margin-bottom: 4px; }
 .sx-empty b, .sx-gone b { font-size: var(--text-md); font-weight: var(--weight-semi); }
@@ -11420,7 +11425,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=12"></script>
   <!-- shared setups: publish, view-only links, "Make it mine" -->
-  <script src="./js/setups.js?v=10"></script>
+  <script src="./js/setups.js?v=11"></script>
   <!-- Voice must load before chat.js, which wires it to the composer. -->
   <script src="./js/voice.js?v=2"></script>
   <!-- before chat.js, which asks it to render the panels a tool prints as the
