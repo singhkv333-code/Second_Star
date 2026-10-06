@@ -323,7 +323,7 @@ const Setups = (() => {
     const { dlg, close } = dialog(`
       <div class="sx">
         <aside class="sx-art">
-          <div class="sx-kick">Your workspace, as it is now</div>
+          <div class="sx-kick">Your workspace</div>
           ${deskMini(shapeOf(live), thumb, sym)}
           ${idStrip(sym, iv, sp)}
           <div class="sx-chips" id="sxChips"></div>

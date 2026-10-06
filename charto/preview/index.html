@@ -1204,7 +1204,7 @@ select.is-dressed { display: none; }
   letter-spacing: .07em; text-transform: uppercase; color: var(--muted-foreground); }
 .sx-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--foreground); opacity: .55; }
 .sx-desk { position: relative; display: flex; aspect-ratio: 16 / 10.5; padding: 5px; border-radius: 14px;
-  background: var(--background); box-shadow: 0 0 0 1px var(--border), 0 22px 44px -26px rgba(0,0,0,.55); }
+  background: var(--background); }
 .sx-split { flex: 1; display: flex; gap: 4px; min-width: 0; min-height: 0; }
 .sx-split.col { flex-direction: column; }
 .sx-cell { display: flex; min-width: 0; min-height: 0; }
@@ -1265,7 +1265,7 @@ select.is-dressed { display: none; }
 .sx-foot .ly-actions { margin-top: 0; }
 /* published */
 .sx-dlg.sx-done { width: min(560px, calc(100vw - 32px)); padding: 0 0 18px; }
-.sx-done .ly-actions { padding: 0 22px; }
+.sx-done .ly-actions { padding: 0 22px; justify-content: center; }
 .sx-ok { padding: 26px 26px 4px; text-align: center; }
 .sx-ok-art { position: relative; width: min(280px, 80%); margin: 0 auto 18px; }
 .sx-ok-art .sx-desk { animation: sx-settle .5s var(--ease-quartr) both; }
@@ -11425,7 +11425,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=12"></script>
   <!-- shared setups: publish, view-only links, "Make it mine" -->
-  <script src="./js/setups.js?v=11"></script>
+  <script src="./js/setups.js?v=12"></script>
   <!-- Voice must load before chat.js, which wires it to the composer. -->
   <script src="./js/voice.js?v=2"></script>
   <!-- before chat.js, which asks it to render the panels a tool prints as the
