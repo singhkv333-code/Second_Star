@@ -1275,23 +1275,28 @@ select.is-dressed { display: none; }
   stroke-dasharray: 34; stroke-dashoffset: 34; animation: sx-draw .4s .7s var(--ease-quartr) forwards; }
 @keyframes sx-draw { to { stroke-dashoffset: 0; } }
 .sx-ok .sx-lede { margin: 0 auto 16px; }
-.sx-link { display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 12px; border-radius: 12px;
-  border: 1px solid var(--border); background: var(--background); text-align: left; }
+/* The link row and the brand row share one width, centred, so the dialog
+   reads as one tidy column (the reference layout). */
+.sx-ok .sx-link, .sx-ok .sx-targets, .sx-ok .sx-share-lab { width: min(360px, 100%); margin-left: auto; margin-right: auto; }
+.sx-link { display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 12px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: var(--muted, color-mix(in srgb, var(--foreground) 4%, var(--background))); text-align: left; }
 .sx-link > svg.icon { width: 13px; height: 13px; opacity: .55; flex: none; }
 .sx-link input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; color: var(--foreground);
   font-family: var(--mono); font-size: 12px; }
-.sx-targets { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; margin: 14px 0 6px; }
-.sx-target { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 66px; padding: 6px 2px; border: 0;
-  border-radius: 12px; background: none; color: var(--muted-foreground); font: inherit; font-size: 11px; cursor: pointer; }
-/* the real brand mark (an <img>) and the "More" glyph share one chip shape:
-   a soft neutral circle that, on hover, takes a tint of the brand's colour */
-.sx-target .sx-brand, .sx-target svg.icon { box-sizing: content-box; width: 18px; height: 18px; padding: 10px; border-radius: 50%;
-  color: var(--foreground); background: color-mix(in srgb, var(--foreground) 7%, transparent);
-  transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr); }
-.sx-target .sx-brand { object-fit: contain; }
+.sx-copy { flex: none; width: 30px; height: 30px; color: var(--muted-foreground); }
+.sx-copy:hover { color: var(--foreground); }
+/* the "Share to" caption, left-aligned over the brand row */
+.sx-share-lab { margin: 16px auto 10px; font-size: var(--text-sm); font-weight: var(--weight-semi);
+  text-align: left; color: var(--foreground); }
+.sx-targets { display: flex; justify-content: space-between; gap: 8px; margin: 0 auto 2px; }
+.sx-target { display: flex; flex-direction: column; align-items: center; gap: 8px; border: 0;
+  background: none; color: var(--muted-foreground); font: inherit; font-size: var(--text-xs); cursor: pointer; }
+/* a full-colour brand badge: the white mark on a disc of the brand's colour */
+.sx-target .sx-brand { box-sizing: border-box; width: 46px; height: 46px; padding: 12px; border-radius: 50%;
+  object-fit: contain; background: var(--brand, var(--foreground));
+  transition: filter var(--dur) var(--ease-quartr); }
 .sx-target:hover { color: var(--foreground); }
-.sx-target:hover .sx-brand { background: color-mix(in srgb, var(--brand, var(--foreground)) 16%, transparent); }
-.sx-target:hover svg.icon { background: var(--foreground); color: var(--background); }
+.sx-target:hover .sx-brand { filter: brightness(1.08); }
 .sx-empty, .sx-gone { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 26px 18px; text-align: center; }
 .sx-empty svg.icon, .sx-gone svg.icon { width: 22px; height: 22px; opacity: .5; margin-bottom: 4px; }
 .sx-empty b, .sx-gone b { font-size: var(--text-md); font-weight: var(--weight-semi); }
@@ -11378,7 +11383,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        shared set, and a classic script cannot reach a const declared by one
        that has not run yet -->
   <script src="./js/auth.js?v=6"></script>
-  <script src="./js/plan.js?v=3"></script>
+  <script src="./js/plan.js?v=4"></script>
   <script src="./js/indicators.js?v=37"></script>
   <!-- before both legends: each asks it whether the series runs behind a row
        or a chip, which is what puts the plate there -->
@@ -11415,7 +11420,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=12"></script>
   <!-- shared setups: publish, view-only links, "Make it mine" -->
-  <script src="./js/setups.js?v=9"></script>
+  <script src="./js/setups.js?v=10"></script>
   <!-- Voice must load before chat.js, which wires it to the composer. -->
   <script src="./js/voice.js?v=2"></script>
   <!-- before chat.js, which asks it to render the panels a tool prints as the

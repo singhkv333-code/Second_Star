@@ -416,21 +416,21 @@ const Setups = (() => {
   }
 
   // Share targets are plain links the reader's own apps open; nothing is
-  // sent from here. Each carries its REAL brand mark, served as an image the
-  // same way the instrument logos are (a CDN by brand, not a hand-drawn path
-  // that distorts), plus its brand colour for the chip on hover. The mark is
-  // served in the brand's own colour; a dead CDN leaves the chip's fallback.
-  const ICON = (slug, color) => `https://cdn.simpleicons.org/${slug}/${color.replace("#", "")}`;
+  // sent from here. Each shows as a full-colour brand badge: the real mark in
+  // white, served as an image the same way the instrument logos are (a CDN by
+  // brand, not a hand-drawn path that distorts), on a disc of the brand colour.
+  const ICON = (slug) => `https://cdn.simpleicons.org/${slug}/white`;
   const TARGETS = [
-    ["WhatsApp", (u, t) => `https://wa.me/?text=${encodeURIComponent(`${t} ${u}`)}`, "#25D366", "whatsapp"],
+    ["Facebook", (u) => `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(u)}`, "#1877F2", "facebook"],
     ["X", (u, t) => `https://x.com/intent/post?text=${encodeURIComponent(t)}&url=${encodeURIComponent(u)}`, "#000000", "x"],
+    ["WhatsApp", (u, t) => `https://wa.me/?text=${encodeURIComponent(`${t} ${u}`)}`, "#25D366", "whatsapp"],
     ["Telegram", (u, t) => `https://t.me/share/url?url=${encodeURIComponent(u)}&text=${encodeURIComponent(t)}`, "#229ED9", "telegram"],
     ["LinkedIn", (u) => `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(u)}`, "#0A66C2", "linkedin"],
-    ["Email", (u, t) => `mailto:?subject=${encodeURIComponent(t)}&body=${encodeURIComponent(u)}`, "#6B7280", "maildotru"],
   ];
-  // The brand mark as an <img>, with the ticker-logo fallback (onerror removes
-  // it, leaving the chip as a plain circle rather than a broken-image ghost).
-  const mark = (slug, color) => `<img class="sx-brand" src="${ICON(slug, color)}" alt="" loading="lazy" onerror="this.remove()"/>`;
+  // A full-colour brand badge: the real mark in white on a disc of the brand's
+  // colour (the disc colour is set per chip from --brand). A dead CDN leaves
+  // the coloured disc rather than a broken-image ghost (onerror removes it).
+  const mark = (slug) => `<img class="sx-brand" src="${ICON(slug)}" alt="" loading="lazy" onerror="this.remove()"/>`;
 
   function published(dlg, close, token, sym, title, updated, mini) {
     const url = linkFor(token, sym);
@@ -441,14 +441,12 @@ const Setups = (() => {
           <svg class="sx-check" viewBox="0 0 52 52" aria-hidden="true"><circle cx="26" cy="26" r="23"/><path d="m15 27 7.5 7.5L37.5 19"/></svg>
         </div>
         <h3>${updated ? "The link shows this version now" : "Your workspace is live"}</h3>
-        <p class="sx-lede">${updated
-          ? "Anyone opening the link sees what is on your screen now. Copies people already took are unchanged."
-          : `“${esc(title)}” opens read-only on a live chart, with every widget in place.`}</p>
+        ${updated ? `<p class="sx-lede">Anyone opening the link sees what is on your screen now. Copies people already took are unchanged.</p>` : ""}
         <div class="sx-link">${Icons.svg("lock", "xs")}<input readonly value="${esc(url)}" aria-label="Share link">
-          <button class="btn cta" data-copy>${Icons.svg("copy", "xs")}<span>Copy</span></button></div>
+          <button class="btn icon sx-copy" data-copy title="Copy link" aria-label="Copy link">${Icons.svg("copy", "sm")}</button></div>
+        <div class="sx-share-lab">Share to</div>
         <div class="sx-targets">
-          ${TARGETS.map(([n, , brand, slug], i) => `<button type="button" class="sx-target" data-t="${i}" title="Share on ${n}" style="--brand:${brand}">${mark(slug, brand)}<span>${n}</span></button>`).join("")}
-          ${navigator.share ? `<button type="button" class="sx-target" data-t="more" title="More ways to share">${Icons.svg("more", "xs")}<span>More</span></button>` : ""}
+          ${TARGETS.map(([n, , brand, slug], i) => `<button type="button" class="sx-target" data-t="${i}" title="Share on ${n}" style="--brand:${brand}">${mark(slug)}<span>${n}</span></button>`).join("")}
         </div>
       </div>
       <div class="ly-actions">
