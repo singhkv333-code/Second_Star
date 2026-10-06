@@ -323,7 +323,7 @@ const Setups = (() => {
     const { dlg, close } = dialog(`
       <div class="sx">
         <aside class="sx-art">
-          <div class="sx-kick"><span class="sx-dot"></span>Your workspace, as it is now</div>
+          <div class="sx-kick">Your workspace, as it is now</div>
           ${deskMini(shapeOf(live), thumb, sym)}
           ${idStrip(sym, iv, sp)}
           <div class="sx-chips" id="sxChips"></div>
@@ -416,21 +416,21 @@ const Setups = (() => {
   }
 
   // Share targets are plain links the reader's own apps open; nothing is
-  // sent from here. Each carries its real brand mark (a filled 24-unit glyph)
-  // and its brand colour, shown on the chip on hover.
+  // sent from here. Each carries its REAL brand mark, served as an image the
+  // same way the instrument logos are (a CDN by brand, not a hand-drawn path
+  // that distorts), plus its brand colour for the chip on hover. The mark is
+  // served in the brand's own colour; a dead CDN leaves the chip's fallback.
+  const ICON = (slug, color) => `https://cdn.simpleicons.org/${slug}/${color.replace("#", "")}`;
   const TARGETS = [
-    ["WhatsApp", (u, t) => `https://wa.me/?text=${encodeURIComponent(`${t} ${u}`)}`, "#25D366",
-      '<path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.46 0 9.91-4.45 9.91-9.91C21.96 6.45 17.5 2 12.04 2Zm5.8 14.17c-.25.69-1.45 1.32-1.99 1.37-.53.05-1.03.24-3.47-.72-2.93-1.15-4.8-4.14-4.95-4.33-.14-.2-1.18-1.57-1.18-2.99 0-1.42.75-2.12 1.01-2.41.25-.3.55-.37.74-.37l.53.01c.17 0 .4-.06.62.47.25.6.86 2.07.94 2.22.07.15.12.32.02.52-.1.2-.15.32-.3.5-.15.17-.31.39-.45.52-.15.15-.3.31-.13.6.17.3.76 1.25 1.63 2.03 1.12 1 2.06 1.3 2.36 1.45.3.15.47.12.64-.07.17-.2.74-.86.94-1.16.2-.3.4-.25.67-.15.27.1 1.71.81 2 .96.3.15.5.22.57.35.07.12.07.72-.18 1.41Z"/>'],
-    ["X", (u, t) => `https://x.com/intent/post?text=${encodeURIComponent(t)}&url=${encodeURIComponent(u)}`, "#000000",
-      '<path d="M18.9 2h3.3l-7.2 8.26L23.5 22h-6.6l-5.18-6.78L5.8 22H2.5l7.73-8.84L2 2h6.77l4.68 6.19L18.9 2Zm-1.16 18h1.83L7.34 3.9H5.38L17.74 20Z"/>'],
-    ["Telegram", (u, t) => `https://t.me/share/url?url=${encodeURIComponent(u)}&text=${encodeURIComponent(t)}`, "#229ED9",
-      '<path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm4.64 6.8-1.56 7.36c-.12.52-.42.65-.86.4l-2.37-1.75-1.14 1.1c-.13.13-.24.24-.48.24l.17-2.43 4.42-3.99c.19-.17-.04-.27-.3-.1l-5.46 3.44-2.35-.73c-.51-.16-.52-.51.11-.76l9.18-3.54c.42-.15.8.1.66.76Z"/>'],
-    ["LinkedIn", (u) => `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(u)}`, "#0A66C2",
-      '<path d="M20.45 20.45h-3.56v-5.57c0-1.33-.02-3.04-1.85-3.04-1.85 0-2.14 1.45-2.14 2.94v5.67H9.35V9h3.41v1.56h.05c.48-.9 1.64-1.85 3.37-1.85 3.6 0 4.27 2.37 4.27 5.46v6.28ZM5.34 7.43a2.07 2.07 0 1 1 0-4.14 2.07 2.07 0 0 1 0 4.14Zm1.78 13.02H3.56V9h3.56v11.45ZM22.22 0H1.77C.8 0 0 .78 0 1.75v20.5C0 23.22.8 24 1.77 24h20.45c.98 0 1.78-.78 1.78-1.75V1.75C24 .78 23.2 0 22.22 0Z"/>'],
-    ["Email", (u, t) => `mailto:?subject=${encodeURIComponent(t)}&body=${encodeURIComponent(u)}`, "",
-      '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2Zm16 2H4l8 5 8-5Zm0 2.25-7.47 4.67a1 1 0 0 1-1.06 0L4 8.25V18h16V8.25Z"/>'],
+    ["WhatsApp", (u, t) => `https://wa.me/?text=${encodeURIComponent(`${t} ${u}`)}`, "#25D366", "whatsapp"],
+    ["X", (u, t) => `https://x.com/intent/post?text=${encodeURIComponent(t)}&url=${encodeURIComponent(u)}`, "#000000", "x"],
+    ["Telegram", (u, t) => `https://t.me/share/url?url=${encodeURIComponent(u)}&text=${encodeURIComponent(t)}`, "#229ED9", "telegram"],
+    ["LinkedIn", (u) => `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(u)}`, "#0A66C2", "linkedin"],
+    ["Email", (u, t) => `mailto:?subject=${encodeURIComponent(t)}&body=${encodeURIComponent(u)}`, "#6B7280", "maildotru"],
   ];
-  const mark = (path) => `<svg class="icon icon-xs" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${path}</svg>`;
+  // The brand mark as an <img>, with the ticker-logo fallback (onerror removes
+  // it, leaving the chip as a plain circle rather than a broken-image ghost).
+  const mark = (slug, color) => `<img class="sx-brand" src="${ICON(slug, color)}" alt="" loading="lazy" onerror="this.remove()"/>`;
 
   function published(dlg, close, token, sym, title, updated, mini) {
     const url = linkFor(token, sym);
@@ -447,7 +447,7 @@ const Setups = (() => {
         <div class="sx-link">${Icons.svg("lock", "xs")}<input readonly value="${esc(url)}" aria-label="Share link">
           <button class="btn cta" data-copy>${Icons.svg("copy", "xs")}<span>Copy</span></button></div>
         <div class="sx-targets">
-          ${TARGETS.map(([n, , brand, path], i) => `<button type="button" class="sx-target" data-t="${i}" title="Share on ${n}"${brand ? ` style="--brand:${brand}"` : ""}>${mark(path)}<span>${n}</span></button>`).join("")}
+          ${TARGETS.map(([n, , brand, slug], i) => `<button type="button" class="sx-target" data-t="${i}" title="Share on ${n}" style="--brand:${brand}">${mark(slug, brand)}<span>${n}</span></button>`).join("")}
           ${navigator.share ? `<button type="button" class="sx-target" data-t="more" title="More ways to share">${Icons.svg("more", "xs")}<span>More</span></button>` : ""}
         </div>
       </div>

@@ -1182,9 +1182,7 @@ select.is-dressed { display: none; }
   margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border-soft); }
 .su-foot .ly-actions { margin-top: 0; }
 .su-privacy { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-xs); color: var(--faint); }
-.su-dlg .btn.cta { transition: background var(--dur) var(--ease-quartr), transform var(--dur) var(--ease-quartr), box-shadow var(--dur) var(--ease-quartr); }
-.su-dlg .btn.cta:hover:not(:disabled), .su-bar .btn.cta:hover:not(:disabled), .su-readonly .btn.cta:hover {
-  transform: translateY(-1px); box-shadow: 0 4px 14px color-mix(in srgb, var(--foreground) 22%, transparent); }
+.su-dlg .btn.cta { transition: background var(--dur) var(--ease-quartr); }
 
 .su-done-copy { margin: 0 0 14px; font-size: var(--text-sm); color: var(--muted-foreground); line-height: 1.5; }
 .su-linkrow { display: flex; gap: 8px; }
@@ -1206,10 +1204,7 @@ select.is-dressed { display: none; }
   letter-spacing: .07em; text-transform: uppercase; color: var(--muted-foreground); }
 .sx-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--foreground); opacity: .55; }
 .sx-desk { position: relative; display: flex; aspect-ratio: 16 / 10.5; padding: 5px; border-radius: 14px;
-  background: var(--background); box-shadow: 0 0 0 1px var(--border), 0 22px 44px -26px rgba(0,0,0,.55);
-  transition: transform .5s var(--ease-quartr); }
-.sx-art .sx-desk { transform: perspective(1100px) rotateX(9deg) rotateY(-9deg) rotateZ(.6deg); transform-origin: 50% 60%; }
-.sx-art:hover .sx-desk { transform: perspective(1100px) rotateX(0) rotateY(0); }
+  background: var(--background); box-shadow: 0 0 0 1px var(--border), 0 22px 44px -26px rgba(0,0,0,.55); }
 .sx-split { flex: 1; display: flex; gap: 4px; min-width: 0; min-height: 0; }
 .sx-split.col { flex-direction: column; }
 .sx-cell { display: flex; min-width: 0; min-height: 0; }
@@ -1270,8 +1265,8 @@ select.is-dressed { display: none; }
 .sx-done .ly-actions { padding: 0 22px; }
 .sx-ok { padding: 26px 26px 4px; text-align: center; }
 .sx-ok-art { position: relative; width: min(280px, 80%); margin: 0 auto 18px; }
-.sx-ok-art .sx-desk { animation: sx-settle .6s var(--ease-quartr) both; }
-@keyframes sx-settle { from { transform: perspective(1100px) rotateX(9deg) rotateY(-9deg) translateY(8px); opacity: .4; } }
+.sx-ok-art .sx-desk { animation: sx-settle .5s var(--ease-quartr) both; }
+@keyframes sx-settle { from { transform: translateY(8px); opacity: .4; } }
 .sx-check { position: absolute; right: -16px; bottom: -16px; width: 52px; height: 52px; border-radius: 50%;
   background: var(--popover); box-shadow: 0 0 0 1px var(--border), 0 8px 20px -10px rgba(0,0,0,.5); }
 .sx-check circle { fill: none; stroke: var(--up); stroke-width: 2.5; stroke-dasharray: 145; stroke-dashoffset: 145;
@@ -1288,14 +1283,15 @@ select.is-dressed { display: none; }
 .sx-targets { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; margin: 14px 0 6px; }
 .sx-target { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 66px; padding: 6px 2px; border: 0;
   border-radius: 12px; background: none; color: var(--muted-foreground); font: inherit; font-size: 11px; cursor: pointer; }
-.sx-target svg.icon { box-sizing: content-box; width: 18px; height: 18px; padding: 10px; border-radius: 50%;
+/* the real brand mark (an <img>) and the "More" glyph share one chip shape:
+   a soft neutral circle that, on hover, takes a tint of the brand's colour */
+.sx-target .sx-brand, .sx-target svg.icon { box-sizing: content-box; width: 18px; height: 18px; padding: 10px; border-radius: 50%;
   color: var(--foreground); background: color-mix(in srgb, var(--foreground) 7%, transparent);
-  transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr), transform var(--dur) var(--ease-quartr); }
+  transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr); }
+.sx-target .sx-brand { object-fit: contain; }
 .sx-target:hover { color: var(--foreground); }
-/* on hover a branded chip takes the brand's own colour with a white mark;
-   the email chip, having no brand, keeps the neutral foreground fill */
-.sx-target:hover svg.icon { background: var(--foreground); color: var(--background); transform: translateY(-2px); }
-.sx-target[style*="--brand"]:hover svg.icon { background: var(--brand); color: #fff; }
+.sx-target:hover .sx-brand { background: color-mix(in srgb, var(--brand, var(--foreground)) 16%, transparent); }
+.sx-target:hover svg.icon { background: var(--foreground); color: var(--background); }
 .sx-empty, .sx-gone { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 26px 18px; text-align: center; }
 .sx-empty svg.icon, .sx-gone svg.icon { width: 22px; height: 22px; opacity: .5; margin-bottom: 4px; }
 .sx-empty b, .sx-gone b { font-size: var(--text-md); font-weight: var(--weight-semi); }
@@ -1319,8 +1315,8 @@ select.is-dressed { display: none; }
 .su-loading { padding: 18px; color: var(--faint); font-size: var(--text-sm); }
 .su-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 14px;
   padding: 10px 12px; border: 1px solid transparent; border-radius: var(--radius);
-  transition: background var(--dur) var(--ease-quartr), border-color var(--dur) var(--ease-quartr), transform var(--dur) var(--ease-quartr); }
-.su-row:hover { background: var(--accent); border-color: var(--border); transform: translateY(-1px); }
+  transition: background var(--dur) var(--ease-quartr); }
+.su-row:hover { background: var(--accent); }
 .su-row-title { display: flex; align-items: center; gap: 6px; font-size: var(--text-base);
   font-weight: var(--weight-medium); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .su-row-sub { font-size: var(--text-xs); color: var(--faint); margin-top: 3px; }
@@ -1331,7 +1327,7 @@ select.is-dressed { display: none; }
 .su-row:hover .su-row-acts, .su-row:focus-within .su-row-acts, .su-row.confirm .su-row-acts { opacity: 1; }
 .su-row-acts .btn.icon { width: 28px; height: 28px; }
 .su-row-acts a.btn { text-decoration: none; }
-.su-danger:hover, .su-row.confirm .su-danger { color: var(--down); background: var(--down-soft); }
+.su-row.confirm .su-danger { color: var(--down); background: var(--down-soft); }
 
 /* view mode — the bar over the candles */
 .su-bar { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 30;
@@ -1342,7 +1338,6 @@ select.is-dressed { display: none; }
   box-shadow: var(--menu-shadow); font-size: var(--text-base);
   transition: border-color var(--dur-slow) var(--ease-quartr), box-shadow var(--dur-slow) var(--ease-quartr);
   animation: pop var(--dur-slow) ease-out; }
-.su-bar:hover { border-color: var(--muted-foreground); }
 .su-badge { display: inline-flex; align-items: center; gap: 5px; flex: none;
   padding: 3px 8px 3px 6px; border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--muted-foreground) 11%, transparent);
@@ -11420,7 +11415,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=12"></script>
   <!-- shared setups: publish, view-only links, "Make it mine" -->
-  <script src="./js/setups.js?v=8"></script>
+  <script src="./js/setups.js?v=9"></script>
   <!-- Voice must load before chat.js, which wires it to the composer. -->
   <script src="./js/voice.js?v=2"></script>
   <!-- before chat.js, which asks it to render the panels a tool prints as the
