@@ -26,7 +26,7 @@
 <link rel="apple-touch-icon" href="./assets/charto-mark.svg?v=1" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;550;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400;1,6..72,500&display=swap" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;550;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400;1,6..72,500&display=swap" />
 <style>
 /* ══════════════════════════════════════════════════════════════════════════
    CHARTO — stylesheet
@@ -70,11 +70,13 @@
      every figure BESIDE it were two different typefaces. --font-numeric is
      now the same stack as --font; alignment comes from `tabular-nums`,
      which Inter carries, instead of from a second family.
-     --mono survives for the three surfaces that are genuinely CODE — the
-     hex field, the JSON inspector, and inline `code` in a reply. */
+     --mono is now the same Inter stack as --font: labels, addresses and the
+     hex field all read in the UI face, with `tabular-nums` giving alignment.
+     Genuine CODE surfaces (the JSON inspector, the code-view editor) set a
+     raw ui-monospace stack directly, not this token. */
   --font: 'Inter', ui-sans-serif, -apple-system, BlinkMacSystemFont,
           "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  --mono: var(--font);
   --font-numeric: var(--font);
   --font-serif: 'Newsreader', Georgia, 'Times New Roman', serif;
 
@@ -1187,7 +1189,7 @@ select.is-dressed { display: none; }
 .su-done-copy { margin: 0 0 14px; font-size: var(--text-sm); color: var(--muted-foreground); line-height: 1.5; }
 .su-linkrow { display: flex; gap: 8px; }
 .su-link { font-family: var(--mono); font-size: var(--text-xs); }
-.su-done .ly-actions a.btn { text-decoration: none; }
+.sx-done .ly-actions a.btn { text-decoration: none; }
 
 /* ── the Share dialog: the workspace drawn as it is ───────────────────────
    Left, the desk in miniature — one tile per widget at its real share of
@@ -1286,11 +1288,14 @@ select.is-dressed { display: none; }
 .sx-targets { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; margin: 14px 0 6px; }
 .sx-target { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 66px; padding: 6px 2px; border: 0;
   border-radius: 12px; background: none; color: var(--muted-foreground); font: inherit; font-size: 11px; cursor: pointer; }
-.sx-target svg.icon { box-sizing: content-box; width: 17px; height: 17px; padding: 10px; border-radius: 50%;
+.sx-target svg.icon { box-sizing: content-box; width: 18px; height: 18px; padding: 10px; border-radius: 50%;
   color: var(--foreground); background: color-mix(in srgb, var(--foreground) 7%, transparent);
   transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr), transform var(--dur) var(--ease-quartr); }
 .sx-target:hover { color: var(--foreground); }
+/* on hover a branded chip takes the brand's own colour with a white mark;
+   the email chip, having no brand, keeps the neutral foreground fill */
 .sx-target:hover svg.icon { background: var(--foreground); color: var(--background); transform: translateY(-2px); }
+.sx-target[style*="--brand"]:hover svg.icon { background: var(--brand); color: #fff; }
 .sx-empty, .sx-gone { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 26px 18px; text-align: center; }
 .sx-empty svg.icon, .sx-gone svg.icon { width: 22px; height: 22px; opacity: .5; margin-bottom: 4px; }
 .sx-empty b, .sx-gone b { font-size: var(--text-md); font-weight: var(--weight-semi); }
@@ -1338,12 +1343,12 @@ select.is-dressed { display: none; }
   transition: border-color var(--dur-slow) var(--ease-quartr), box-shadow var(--dur-slow) var(--ease-quartr);
   animation: pop var(--dur-slow) ease-out; }
 .su-bar:hover { border-color: var(--muted-foreground); }
-.su-badge { display: inline-flex; align-items: center; gap: 6px; flex: none;
-  font-size: 10.5px; letter-spacing: .09em; color: var(--muted-foreground); }
-.su-badge i { width: 6px; height: 6px; border-radius: 50%; background: var(--up);
-  box-shadow: 0 0 0 0 var(--up); animation: su-live 2.4s ease-out infinite; }
-@keyframes su-live { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--up) 55%, transparent); }
-  70%, 100% { box-shadow: 0 0 0 7px transparent; } }
+.su-badge { display: inline-flex; align-items: center; gap: 5px; flex: none;
+  padding: 3px 8px 3px 6px; border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--muted-foreground) 11%, transparent);
+  font-size: var(--text-xs); font-weight: var(--weight-medium); letter-spacing: 0;
+  text-transform: none; color: var(--muted-foreground); }
+.su-badge svg.icon { width: 13px; height: 13px; opacity: .85; }
 .su-bar-title { font-weight: var(--weight-semi); min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .su-bar-by { color: var(--muted-foreground); white-space: nowrap; }
 .su-bar-sep { width: 1px; height: 18px; background: var(--border); margin: 0 2px; flex: none; }
@@ -1383,11 +1388,18 @@ body.su-gone #chatPanel, body.su-gone #chatToggle { display: none !important; }
 .su-ro-text { flex: 1; min-width: 0; }
 .su-readonly .btn { flex: none; }
 
-/* view mode — the editing surfaces stand down; nothing here is the reader's */
+/* view mode — the editing surfaces stand down; nothing here is the reader's.
+   The chart is the author's, frozen: the controls that would change it —
+   interval, chart type, indicators, layout, settings, the drawing rail, undo/
+   redo, clear-what-chat-drew — all go, leaving the chart to be read, not edited. */
 body.view-only .composer-inner, body.view-only #chatNew, body.view-only #chatHistoryBtn,
 body.view-only #chatModeSwitch, body.view-only #shareBtn, body.view-only #lySaveName,
 body.view-only #undoBtn, body.view-only #redoBtn, body.view-only #rail,
+body.view-only #chartTools, body.view-only #sceneClear, body.view-only #shotBtn,
+body.view-only #chartToolsSep,
 body.view-only #tplTray { display: none !important; }
+/* A tab bar in a view session is read-only too: no close buttons, no add-tab. */
+body.view-only .dk-tab .x, body.view-only #dockBtn { display: none !important; }
 
 @media (max-width: 760px) {
   .su-grid { grid-template-columns: 1fr; }
@@ -1402,7 +1414,6 @@ body.view-only #tplTray { display: none !important; }
   .su-row, .su-card, .su-bar { transition: none; }
   .sx-tile, .sx-check circle, .sx-check path, .sx-ok-art .sx-desk { animation: none !important; }
   .sx-art .sx-desk { transform: none; }
-  .su-badge i { animation: none; }
 }
 
 /* layout picker — a grid of glyphs grouped by pane count, not a list of
@@ -2226,11 +2237,9 @@ header > .btn, header > .badge { flex: none; }
   display: flex; align-items: center; justify-content: center; position: relative;
   transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr);
 }
-/* the glyph lifts, not the 34px button — a moving hit target is worse to
-   aim at than a still one, and the fill already says which button is hot */
-.tool svg.icon { transition: transform var(--dur-fast) var(--ease-quartr); }
-.tool:hover svg.icon { transform: scale(1.12); }
-.tool:active svg.icon { transform: scale(.94); }
+/* the fill already says which button is hot; the glyph stays put — a moving
+   hit target is worse to aim at than a still one */
+.tool:hover svg.icon, .tool:active svg.icon { transform: none; }
 /* the rail's own glyph size — a drawing tool is the thing you aim at most
    often on this screen, and it was the smallest target on it */
 .tool svg.icon { width: 21px; height: 21px; stroke-width: 1.55; }
@@ -5999,8 +6008,7 @@ body.two-columns .readout .row { display: none; }
 /* The caption is set in the SAME face as the name above it. It carried the
    machine face, which made "Chart analysis · on RSI" read as a different kind
    of thing from "Falling wedge" one line up — two typefaces inside a chip
-   44px tall. --mono is for the three surfaces that are genuinely code (the
-   hex field, the JSON inspector, inline `code`); a caption is prose. */
+   44px tall. Everything in the chip now sets the UI face; a caption is prose. */
 .draw-tag-copy small {
   margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: var(--faint); font: var(--text-3xs) var(--font); letter-spacing: 0;
@@ -7681,9 +7689,8 @@ svg.icon.op {
   transition: color var(--dur) var(--ease-quartr);
 }
 .dk-tab .t { overflow: hidden; text-overflow: ellipsis; }
-.dk-tab svg.icon { flex: none; width: 15px; height: 15px; transition: transform var(--dur-slow) var(--ease-quartr); }
+.dk-tab svg.icon { flex: none; width: 15px; height: 15px; }
 .dk-tab:hover { color: var(--foreground); }
-.dk-tab:hover svg.icon { transform: translateY(-1px); }
 .dk-tab.on { color: var(--foreground); font-weight: var(--weight-semi); }
 .dk-tab .s {
   font-weight: var(--weight-medium); color: var(--foreground); opacity: .6;
@@ -7722,10 +7729,9 @@ svg.icon.op {
 .dk-tools .btn.icon svg.icon { width: 17px; height: 17px; }
 .dk-tools .vsep { height: 16px; margin: 0 4px; }
 /* the bar's buttons answer the pointer: a clear fill on hover, a press on click */
-.dk-tools .btn { transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr), transform var(--dur-fast); }
+.dk-tools .btn { transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr); }
 .dk-tools .btn:hover:not(:disabled), .dk-tools .btn.open, .dk-tools .menu-wrap:has(.dropdown.open) > .btn {
   background: color-mix(in srgb, var(--foreground) 10%, transparent); color: var(--foreground); }
-.dk-tools .btn:active:not(:disabled) { transform: scale(.96); }
 .dk-tools .btn:disabled { cursor: default; }
 .dk-tools .dropdown { z-index: 120; }
 .ct-docked #chartToolsSep { display: none; }
@@ -7743,7 +7749,6 @@ body:not(.ct-docked) .chart-tools .ct-gap { display: none; }
 .dk-group:hover .dk-act, .dk-act:focus-visible, .dk-act[data-pinned] { opacity: .75; }
 .dk-act svg.icon { width: 15px; height: 15px; stroke-width: 1.8; }
 .dk-act:hover { opacity: 1 !important; background: var(--hover-fill); }
-.dk-act:active { transform: scale(.92); }
 .dk-act[data-act="settings"]:hover svg.icon { transform: rotate(60deg); transition: transform .35s var(--ease-quartr); }
 .dk-act[data-act="close"]:hover svg.icon { transform: rotate(90deg); transition: transform .2s var(--ease-quartr); }
 .dk-act[data-pinned] { background: var(--hover-fill); }
@@ -7866,8 +7871,7 @@ body.dk-row-resize, body.dk-row-resize * { cursor: row-resize !important; }
 
 /* the header: "Widgets" is a labelled button, fullscreen an icon */
 .dk-addw { gap: 6px; padding: 0 11px 0 9px; font-weight: var(--weight-medium); }
-.dk-addw svg.icon { width: 15px; height: 15px; transition: transform var(--dur-slow) var(--ease-quartr); }
-.dk-addw:hover svg.icon { transform: rotate(90deg); }
+.dk-addw svg.icon { width: 15px; height: 15px; }
 .dk-hbtn.on { background: var(--foreground) !important; color: var(--background) !important; }
 /* Go to: a quiet search-shaped button that teaches its own shortcut */
 .gt-btn { gap: 7px; padding: 0 6px 0 9px; font-weight: var(--weight-medium); color: var(--foreground); }
@@ -11416,7 +11420,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=12"></script>
   <!-- shared setups: publish, view-only links, "Make it mine" -->
-  <script src="./js/setups.js?v=7"></script>
+  <script src="./js/setups.js?v=8"></script>
   <!-- Voice must load before chat.js, which wires it to the composer. -->
   <script src="./js/voice.js?v=2"></script>
   <!-- before chat.js, which asks it to render the panels a tool prints as the
