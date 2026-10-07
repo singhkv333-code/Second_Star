@@ -373,6 +373,84 @@ const Ctx = (() => {
    * `.dlg-wrap`, not the `.dlg` itself, so the lens is attached to the child
    * when the wrapper opens. `.select-menu` — a dropdown that opens INSIDE such a
    * dialog — is still skipped: it carries its own opaque paper. */
+  /* ── keep an anchored menu inside the viewport ───────────────────────────
+   * The header pills, the chart-type swapper, the indicator list and every
+   * other `.dropdown` that lives next to its button are placed by CSS alone:
+   * `position:absolute; top:calc(100% + 6px); left:0`, with a `max-height`
+   * measured off `100dvh`. That max-height is wrong the moment the button is
+   * not at the top of the viewport — it reserves a full screen of room above
+   * the menu that isn't there, so a long list (Indicators is 20+ rows) runs
+   * off the BOTTOM edge and is clipped before it ever starts scrolling. The
+   * same list opened near the right edge of the window overflows SIDEWAYS.
+   *
+   * So on open we measure the real gap. The menu is anchored to its wrapper,
+   * which sits on the trigger button, so the button's rect tells us how much
+   * room is below it and above it; we cap `max-height` to whichever side we
+   * use, flip UP when below is cramped and above is roomier, and swing the
+   * menu to open leftward (`.right`) when it would spill past the right edge.
+   * Menus that position themselves — `.floating` (fixed, appended to body),
+   * `.side` (the drawing rail's flyouts, offset horizontally), and any menu
+   * carrying an inline top/bottom already — are left exactly as they are. */
+  function placeAnchored(m) {
+    if (!m.classList.contains("dropdown")) return;
+    if (m.classList.contains("floating") || m.classList.contains("side")
+        || m.classList.contains("select-menu")) return;
+    // The class toggles below re-enter this observer; a flag keeps placement a
+    // single settling pass per open rather than a ping-pong of mutations.
+    if (m.__placing) return;
+    m.__placing = true;
+    try { settle(); } finally { m.__placing = false; }
+    function settle() {
+    // A self-positioning site set these inline; don't fight it.
+    if (m.style.top || m.style.bottom) return;
+    const wrap = m.parentElement;
+    if (!wrap) return;
+    // The trigger is the wrapper (which is pinned on the button). Measuring the
+    // wrapper rather than the button keeps this correct when the wrap holds a
+    // pill, an icon and a label — the menu is anchored to the wrap's box.
+    // Remember the alignment the markup authored (`.right` on the right-hand
+    // toolbar menus, `.up` on the mobile chat sheet). We only ever ADD a flip
+    // to keep the menu on screen — never strip one the author chose — and we
+    // restore this baseline on close.
+    if (m.dataset.alignSeen == null) {
+      m.dataset.alignSeen = "1";
+      m.dataset.alignRight = m.classList.contains("right") ? "1" : "";
+      m.dataset.alignUp = m.classList.contains("up") ? "1" : "";
+    }
+    const r = wrap.getBoundingClientRect();
+    if (!r.height && !r.width) return;            // wrapper not laid out yet
+    const GAP = 6;
+    const below = innerHeight - r.bottom - GAP - EDGE;
+    const above = r.top - GAP - EDGE;
+    // Flip up only when below genuinely can't hold the menu AND above is the
+    // roomier side — a short menu near the top stays down, as it reads best.
+    // An author-chosen `.up` always wins.
+    const needed = m.scrollHeight;
+    const up = m.dataset.alignUp || (below < needed && above > below);
+    m.classList.toggle("up", !!up);
+    const room = Math.max(120, Math.floor(up ? above : below));
+    m.style.maxHeight = room + "px";
+    // Horizontal: a left-aligned menu that would spill past the right edge
+    // swings to align on its anchor's right edge. A menu the markup already
+    // right-aligned stays right-aligned.
+    const w = m.offsetWidth;
+    const wouldClipRight = !m.dataset.alignRight
+      && r.left + w > innerWidth - EDGE && r.right - w > EDGE;
+    m.classList.toggle("right", !!(m.dataset.alignRight || wouldClipRight));
+    }
+  }
+  /* Opened menus set an inline max-height / flip class above; strip them on
+   * close so the next open measures from the CSS baseline, not a stale cap. */
+  function unplaceAnchored(m) {
+    if (!m.classList || !m.classList.contains("dropdown")) return;
+    if (m.classList.contains("floating") || m.classList.contains("side")) return;
+    if (!m.style.top && !m.style.bottom) {
+      m.style.maxHeight = "";
+      m.classList.toggle("up", m.dataset.alignUp === "1");
+      m.classList.toggle("right", m.dataset.alignRight === "1");
+    }
+  }
+
   function glazeMenus(root) {
     // .sh-fillmenu is the sheet's colour swatches: a palette has to be read on
     // flat paper, so it opts out in the stylesheet and here alike.
@@ -383,7 +461,7 @@ const Ctx = (() => {
       if (dlg) glaze(dlg);
     };
     for (const n of root.querySelectorAll(".dropdown.open")) {
-      if (wanted(n)) glaze(n);
+      if (wanted(n)) { glaze(n); placeAnchored(n); }
     }
     for (const w of root.querySelectorAll(".dlg-wrap.open")) glazeDlg(w);
     // Most menus outside this file are built FRESH on every open — created
@@ -406,9 +484,14 @@ const Ctx = (() => {
           continue;
         }
         const n = r.target;
-        if (!n.classList || !n.classList.contains("open")) continue;
-        if (wanted(n)) glaze(n);
-        else if (n.classList.contains("dlg-wrap")) glazeDlg(n);
+        if (!n.classList) continue;
+        const open = n.classList.contains("open");
+        if (n.classList.contains("dropdown") && !n.classList.contains("select-menu")) {
+          if (open) { glaze(n); placeAnchored(n); }
+          else unplaceAnchored(n);
+          continue;
+        }
+        if (open && n.classList.contains("dlg-wrap")) glazeDlg(n);
       }
     }).observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ["class"] });
   }

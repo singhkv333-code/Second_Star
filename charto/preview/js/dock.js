@@ -1993,8 +1993,12 @@ const Dock = (() => {
         `<div class="hub-find">${Icons.field('<input type="search" placeholder="Search widgets" autocomplete="off" spellcheck="false" aria-label="Search widgets">')}</div>` +
         `<button type="button" class="hub-ico" data-hub="close" title="Close (Esc)" aria-label="Close">${icon("x")}</button>` +
       `</div>` +
-      `<div class="hub-tabs hub-glass" role="tablist">` +
-        ["All", ...SECTIONS].map((g, i) => `<button type="button" role="tab" data-hubg="${g}" class="${i ? "" : "on"}">${g}</button>`).join("") +
+      `<div class="hub-tabs hub-glass">` +
+        `<button type="button" class="hub-tscroll l" data-tscroll="-1" aria-label="Earlier tabs" tabindex="-1">${icon("chevronLeft")}</button>` +
+        `<div class="hub-track" role="tablist">` +
+          ["All", ...SECTIONS].map((g, i) => `<button type="button" role="tab" data-hubg="${g}" class="${i ? "" : "on"}">${g}</button>`).join("") +
+        `</div>` +
+        `<button type="button" class="hub-tscroll r" data-tscroll="1" aria-label="More tabs" tabindex="-1">${icon("chevronRight")}</button>` +
       `</div>` +
       `<div class="hub-rail">` +
         `<button type="button" class="hub-arrow l" data-scroll="-1" aria-label="Scroll up" tabindex="-1">${icon("chevronUp")}</button>` +
@@ -2033,11 +2037,26 @@ const Dock = (() => {
     hubEl.__arrows = arrows;
     find.addEventListener("input", filter);
     row.addEventListener("scroll", arrows, { passive: true });
-    hubEl.querySelector(".hub-tabs").addEventListener("click", (e) => {
+    // the one-line tab strip: a track that scrolls sideways between the two
+    // end chevrons, which light up only while there is more to see that way
+    const track = hubEl.querySelector(".hub-track");
+    const tabsBar = hubEl.querySelector(".hub-tabs");
+    const tabArrows = () => {
+      const max = track.scrollWidth - track.clientWidth;
+      tabsBar.classList.toggle("has-l", track.scrollLeft > 4);
+      tabsBar.classList.toggle("has-r", max > 4 && track.scrollLeft < max - 4);
+    };
+    hubEl.__tabArrows = tabArrows;
+    track.addEventListener("scroll", tabArrows, { passive: true });
+    tabsBar.addEventListener("click", (e) => {
+      const s = e.target.closest("[data-tscroll]");
+      if (s) { track.scrollBy({ left: +s.dataset.tscroll * track.clientWidth * .6, behavior: reduced.matches ? "auto" : "smooth" }); return; }
       const b = e.target.closest("[data-hubg]");
       if (!b) return;
       group = b.dataset.hubg;
       for (const x of hubEl.querySelectorAll("[data-hubg]")) x.classList.toggle("on", x === b);
+      // keep the chosen tab in view within the strip
+      b.scrollIntoView({ inline: "nearest", block: "nearest", behavior: reduced.matches ? "auto" : "smooth" });
       filter();
     });
     hubEl.querySelector(".hub-rail").addEventListener("click", (e) => {
@@ -2105,6 +2124,7 @@ const Dock = (() => {
     const f = hubEl.querySelector('[data-hub="focus"]');
     if (f) f.classList.toggle("on", !!S.focus);
     if (hubEl.__arrows) requestAnimationFrame(hubEl.__arrows);
+    if (hubEl.__tabArrows) requestAnimationFrame(hubEl.__tabArrows);
     for (const c of hubEl.querySelectorAll(".hub-card")) {
       const n = placedOf(c.dataset.type).length;
       c.classList.toggle("on", n > 0);

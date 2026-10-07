@@ -11,9 +11,9 @@ import { PortfolioTab } from "@/components/agent-panel/PortfolioTab";
 import * as api from "@/lib/api";
 import type { Holding, PortfolioSummary } from "@/lib/api";
 import * as portfolioApi from "@/lib/portfolioApi";
-import type { PortfolioPerformance, PortfolioScoresResponse } from "@/lib/portfolioApi";
+import type { PortfolioPerformance } from "@/lib/portfolioApi";
 
-// PerformanceChart and PortfolioScores mount unconditionally (in parallel
+// PerformanceChart mount unconditionally (in parallel
 // with summary/holdings, not gated behind their success) and fetch through
 // lib/portfolioApi.ts — stub both to an "ok" response in every test so they
 // don't hit the network or render their own error+Retry button, which would
@@ -28,13 +28,6 @@ const MOCK_PERF: PortfolioPerformance = {
   ending_value: 115000,
   total_return: 15000,
   total_return_pct: 15,
-};
-
-const MOCK_SCORES: PortfolioScoresResponse = {
-  diversification_score: null,
-  portfolio_score: null,
-  community_score: null,
-  reason: "no_holdings",
 };
 
 const SUMMARY: PortfolioSummary = {
@@ -66,11 +59,11 @@ const HOLDINGS: Holding[] = [
 
 beforeEach(() => {
   vi.restoreAllMocks();
-  // Performance chart + scores are always stubbed to avoid real network
+  // Performance chart are always stubbed to avoid real network
   // calls in tests (both mount unconditionally, in parallel with
   // summary/holdings — see PortfolioTab.tsx).
   vi.spyOn(portfolioApi, "getPortfolioPerformance").mockResolvedValue({ data: MOCK_PERF });
-  vi.spyOn(portfolioApi, "getPortfolioScores").mockResolvedValue({ data: MOCK_SCORES });
+  vi.spyOn(api, "getOpenOrders").mockResolvedValue({ data: [] });
   // Per-row company logos are fetched via useCompanyLogos → getCompanyLogos on
   // every holdings render — stub to an empty map so the table falls back to
   // monograms instead of hitting the network (a relative URL throws in jsdom).

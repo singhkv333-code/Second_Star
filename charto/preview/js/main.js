@@ -4976,6 +4976,12 @@
   (() => {
     el("symbolName").textContent = Universe.shown(SYMBOL);
     el("symbolVenue").textContent = Sym.venue;
+    const companyPageLink = el("companyPageLink");
+    if (companyPageLink) {
+      companyPageLink.href = `${COMPANY_PAGE}/stock/${encodeURIComponent(SYMBOL)}`;
+      companyPageLink.title = `Open the ${Universe.shown(SYMBOL)} company page`;
+      companyPageLink.innerHTML = `${Icons.svg("externalLink", "xs")}<span>Company</span>`;
+    }
     setText("srcLine", `local store · ${Sym.feed}`);
     paintTitle();
     // PIVOT, which is what the header lockup, the static <title> and the
@@ -4985,6 +4991,9 @@
     document.title = `${Universe.shown(SYMBOL)} — Pivot`;
     const pill = el("symbolPill"), menu = el("symbolMenu");
     const input = el("symSearch"), list = el("symList");
+    const tabs = el("symbolCategories");
+    tabs.innerHTML = Universe.tabsHTML().replace(/^<div[^>]*>|<\/div>$/g, "");
+    let selectedCategory = "All";
     let all = null, hyd = new Set(), names = {}, shortNames = {};
     /** The instrument's own mark, on the pill. It sits BEFORE the ticker, the
      *  same order the search rows and the chat's tables use — one instrument,
@@ -5014,12 +5023,12 @@
       // the list look like it "couldn't load more" past the B's
       // a name search is how people actually look ("laurus", not LAURUSLABS)
       const hits = q
-        ? pool.filter((s) => s.includes(q)
+        ? pool.filter((s) => (selectedCategory === "All" || Universe.category(s) === selectedCategory) && (s.includes(q)
                           || (names[s] || "").toUpperCase().includes(q)
-                          || (shortNames[s] || "").toUpperCase().includes(q))
+                          || (shortNames[s] || "").toUpperCase().includes(q)))
             .sort((a, b) => (a.startsWith(q) ? 0 : 1) - (b.startsWith(q) ? 0 : 1)
                             || a.localeCompare(b))
-        : pool;
+        : pool.filter((s) => selectedCategory === "All" || Universe.category(s) === selectedCategory);
       // One row builder for both instrument lists — see Universe.rowHTML.
       // The company-page link is this menu's own affordance: the row opens
       // the CHART, and `/stock/X` is same-origin (serve.py in dev, nginx on
@@ -5060,6 +5069,17 @@
       }
     });
     input.addEventListener("input", () => render(input.value));
+    // The document-wide menu closer must not treat a category or field click
+    // inside this picker as an outside click.
+    menu.addEventListener("click", (e) => e.stopPropagation());
+    menu.querySelector(".symbol-close").addEventListener("click", () => menu.classList.remove("open"));
+    tabs.addEventListener("click", (e) => {
+      const tab = e.target.closest("[data-category]");
+      if (!tab) return;
+      selectedCategory = tab.dataset.category;
+      tabs.querySelectorAll("[data-category]").forEach((button) => button.setAttribute("aria-selected", String(button === tab)));
+      render(input.value);
+    });
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter") go(list.querySelector(".item[data-sym]")?.dataset.sym);
       if (e.key === "Escape") menu.classList.remove("open");
@@ -5168,23 +5188,68 @@
    * symbol at that interval takes it, then any pane on that symbol, and the
    * main chart otherwise (and for anything unstamped). */
   const wireIv = (iv) => ({ D: "1d", W: "1w", M: "1mo" })[iv] || String(iv || "");
+
+  /* A chat line the user can OWN.
+   *
+   * mark.py resolves a trendline's two addresses into real (t, v) anchors and
+   * emits it as a `segment` annotation. Left in the scene it is a read-only
+   * fact the chat drew; but a trendline is also exactly the geometry the rail's
+   * own `trend`/`ray`/`extended` tools produce. So when the shape has a manual
+   * twin, we hand it to the DRAWINGS layer instead — it gets a D-ref, saves to
+   * the user's store, shows in the layers panel and takes the full edit
+   * toolbar and undo, the same as a line dragged by hand. The only promotable
+   * kind today is the segment family; everything else stays a scene annotation,
+   * because it has no editable manual equivalent (a computed profile, markers)
+   * or is already a catalogued `drawing`. `extend` is mark.py's own field:
+   * "right" is a ray, "both" an extended line, anything else a plain trend. */
+  function promoteToDrawing(a) {
+    if (!a || a.kind !== "segment" || !a.p1 || !a.p2) return null;
+    const type = a.extend === "right" ? "ray"
+      : a.extend === "both" ? "extended"
+        : "trend";
+    return {
+      type,
+      pane: a.pane || "price",
+      pts: [{ t: a.p1.t, v: a.p1.v }, { t: a.p2.t, v: a.p2.v }],
+      ...(a.dashed ? { dash: [4, 4] } : {}),
+      origin: "chat",
+    };
+  }
+
   function applyScenePatch(patch) {
     const groups = new Map();
+    // Which drawings runtime pairs with each scene the patch is routed to, so a
+    // promoted line lands on the same pane its scene annotation would have.
+    const drawFor = new Map([[scene, draw]]);
     for (const a of patch || []) {
       const c = a.chart || {};
       const sym = String(c.symbol || "").toUpperCase();
       const iv = wireIv(c.interval);
       let to = scene;
+      let toDraw = draw;
       if (sym && !(sym === SYMBOL && (!iv || iv === wireIv(state.interval)))) {
         const subs = Panes.all();
         const hit = subs.find((s) => s.symbol === sym && wireIv(s.interval) === iv)
           || (sym !== SYMBOL && subs.find((s) => s.symbol === sym));
-        if (hit) to = hit.scene;
+        if (hit) { to = hit.scene; toDraw = hit.draw || null; }
       }
+      drawFor.set(to, toDraw);
       if (!groups.has(to)) groups.set(to, []);
       groups.get(to).push(a);
     }
-    for (const [sc, items] of groups) sc.apply(items);
+    for (const [sc, items] of groups) {
+      const d = drawFor.get(sc);
+      // Promote what has an editable twin; everything else goes to the scene as
+      // before. A promotion is only attempted where a drawings runtime exists
+      // for that pane — a sub-pane without one keeps the scene annotation.
+      const rest = [];
+      for (const a of items) {
+        const spec = d ? promoteToDrawing(a) : null;
+        if (spec && d.add(spec)) continue;
+        rest.push(a);
+      }
+      if (rest.length) sc.apply(rest);
+    }
   }
 
   window.__charto = { chart, candle, state, draw, ind, scene, pins, applyScenePatch,

@@ -1176,6 +1176,47 @@ const Drawings = (() => {
         return true;
       },
       clearAll() { state.drawings = []; state.selId = null; state.draft = null; save(); _ru(); emitSelect(); },
+      /** Place a drawing the SAME WAY a manual placement does — mint an id and
+       *  a monotonic D-ref, push it into the store, select it, persist and
+       *  redraw — but from geometry handed in rather than from pointer clicks.
+       *
+       *  This is how a chat-drawn line becomes a line the user owns: the model
+       *  resolves two addresses into (t, v) anchors through mark.py, and the
+       *  result lands here as a real `trend`/`ray`/… drawing, indistinguishable
+       *  from one dragged with the rail — same D-ref, same store, same layers
+       *  row, same edit toolbar, same undo step. `origin: "chat"` is carried
+       *  through only as provenance; it changes nothing about how the shape is
+       *  edited. Returns the ref, or null if the spec is not a drawable one.
+       *
+       *  No `logUse` (the user did not reach for the tool) and no
+       *  `env.onToolDone` (no tool was armed); everything else is `place`. */
+      add(d) {
+        const spec = d && Tools.SPECS[d.type];
+        if (!spec || !Array.isArray(d.pts)) return null;
+        // A chat line is only ever as trustworthy as its anchors: a fixed-count
+        // tool must arrive with exactly the anchors its spec declares, or the
+        // builder would read past the end of the array and paint nothing.
+        if (typeof spec.anchors === "number" && d.pts.length < spec.anchors) return null;
+        const copy = {
+          type: d.type,
+          pane: d.pane || "price",
+          pts: d.pts.map((p) => ({ t: p.t, v: p.v })),
+          ...(d.color ? { color: d.color } : {}),
+          ...(d.width ? { width: d.width } : {}),
+          ...(Array.isArray(d.dash) ? { dash: d.dash } : {}),
+          ...(d.text != null ? { text: d.text } : {}),
+          ...(d.origin ? { origin: d.origin } : {}),
+        };
+        copy.id = newId();
+        copy.ref = "D" + (++refSeq);
+        state.drawings.push(copy);
+        state.selId = copy.id;
+        save();
+        emitSelect("create");
+        env.setStatus(`${spec.label.toLowerCase()} added (${state.drawings.length})`);
+        _ru();
+        return copy.ref;
+      },
       /** The tag object for one shape — see tagOf. */
       tagOf,
       /** Re-open a text note's editor. The chart's menu offers it as a row;

@@ -26,7 +26,7 @@
 <link rel="apple-touch-icon" href="./assets/charto-mark.svg?v=1" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;550;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400;1,6..72,500&display=swap" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;550;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400;1,6..72,500&display=swap" />
 <style>
 /* ══════════════════════════════════════════════════════════════════════════
    CHARTO — stylesheet
@@ -70,11 +70,13 @@
      every figure BESIDE it were two different typefaces. --font-numeric is
      now the same stack as --font; alignment comes from `tabular-nums`,
      which Inter carries, instead of from a second family.
-     --mono survives for the three surfaces that are genuinely CODE — the
-     hex field, the JSON inspector, and inline `code` in a reply. */
+     --mono is now the same Inter stack as --font: labels, addresses and the
+     hex field all read in the UI face, with `tabular-nums` giving alignment.
+     Genuine CODE surfaces (the JSON inspector, the code-view editor) set a
+     raw ui-monospace stack directly, not this token. */
   --font: 'Inter', ui-sans-serif, -apple-system, BlinkMacSystemFont,
           "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  --mono: var(--font);
   --font-numeric: var(--font);
   --font-serif: 'Newsreader', Georgia, 'Times New Roman', serif;
 
@@ -185,6 +187,14 @@
   --down: #f23645;
   --ann-res: #f5a524;
   --ann-sup: #22d3ee;
+  /* Pattern-drawing green/red — the exact hues the chart paints a formation
+     with (js/theme.js annSup / annRes), a step off the candle tones so a
+     formation reads as structure rather than one coloured bar. The pattern
+     widgets use THESE, not --up/--down, so the card and the drawing agree. */
+  --pat-up: #22c55e;
+  --pat-down: #ef4444;
+  --pat-up-soft: color-mix(in srgb, var(--pat-up) 16%, transparent);
+  --pat-down-soft: color-mix(in srgb, var(--pat-down) 16%, transparent);
 }
 
 :root[data-theme="dark"] {
@@ -244,6 +254,8 @@
 :root[data-theme="light"] {
   --ann-res: #b45309;
   --ann-sup: #0e7490;
+  --pat-up: #15a349;
+  --pat-down: #dc2626;
   --background: #ffffff;
   --foreground: #0d0d0e;
   --card: #fbfbfc;
@@ -1157,8 +1169,9 @@ select.is-dressed { display: none; }
    Hover is quiet and physical — an edge sharpens, a card lifts a pixel, the
    viewfinder corners open — never a colour flood. */
 .su-mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
-.su-share-btn { gap: 6px; }
-.su-share-btn svg { width: 14px; height: 14px; }
+.su-share-btn, .company-page-link { gap: 6px; }
+.su-share-btn svg, .company-page-link svg { width: 14px; height: 14px; }
+.company-page-link { text-decoration: none; }
 
 .su-dlg { width: min(840px, calc(100vw - 32px)); padding: 20px 22px 18px;
   max-height: calc(100vh - 48px); overflow-y: auto; }
@@ -1191,14 +1204,12 @@ select.is-dressed { display: none; }
   margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border-soft); }
 .su-foot .ly-actions { margin-top: 0; }
 .su-privacy { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-xs); color: var(--faint); }
-.su-dlg .btn.cta { transition: background var(--dur) var(--ease-quartr), transform var(--dur) var(--ease-quartr), box-shadow var(--dur) var(--ease-quartr); }
-.su-dlg .btn.cta:hover:not(:disabled), .su-bar .btn.cta:hover:not(:disabled), .su-readonly .btn.cta:hover {
-  transform: translateY(-1px); box-shadow: 0 4px 14px color-mix(in srgb, var(--foreground) 22%, transparent); }
+.su-dlg .btn.cta { transition: background var(--dur) var(--ease-quartr); }
 
 .su-done-copy { margin: 0 0 14px; font-size: var(--text-sm); color: var(--muted-foreground); line-height: 1.5; }
 .su-linkrow { display: flex; gap: 8px; }
 .su-link { font-family: var(--mono); font-size: var(--text-xs); }
-.su-done .ly-actions a.btn { text-decoration: none; }
+.sx-done .ly-actions a.btn { text-decoration: none; }
 
 /* ── the Share dialog: the workspace drawn as it is ───────────────────────
    Left, the desk in miniature — one tile per widget at its real share of
@@ -1215,10 +1226,7 @@ select.is-dressed { display: none; }
   letter-spacing: .07em; text-transform: uppercase; color: var(--muted-foreground); }
 .sx-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--foreground); opacity: .55; }
 .sx-desk { position: relative; display: flex; aspect-ratio: 16 / 10.5; padding: 5px; border-radius: 14px;
-  background: var(--background); box-shadow: 0 0 0 1px var(--border), 0 22px 44px -26px rgba(0,0,0,.55);
-  transition: transform .5s var(--ease-quartr); }
-.sx-art .sx-desk { transform: perspective(1100px) rotateX(9deg) rotateY(-9deg) rotateZ(.6deg); transform-origin: 50% 60%; }
-.sx-art:hover .sx-desk { transform: perspective(1100px) rotateX(0) rotateY(0); }
+  background: var(--background); }
 .sx-split { flex: 1; display: flex; gap: 4px; min-width: 0; min-height: 0; }
 .sx-split.col { flex-direction: column; }
 .sx-cell { display: flex; min-width: 0; min-height: 0; }
@@ -1259,6 +1267,9 @@ select.is-dressed { display: none; }
 .sx-chip svg.icon { width: 12px; height: 12px; opacity: .8; }
 .sx-form { padding: 22px 24px 6px; min-width: 0; }
 .sx-form h3, .sx-ok h3 { margin: 0 0 6px; font-size: 20px; font-weight: var(--weight-semi); letter-spacing: -.015em; }
+/* breathing room under "Your workspace is live" before the link row */
+.sx-ok h3 { margin-bottom: 18px; }
+.sx-ok .sx-lede { margin-top: -6px; }
 .sx-lede { margin: 0 0 16px; font-size: var(--text-sm); color: var(--muted-foreground); line-height: 1.55; max-width: 54ch; }
 .sx-opts { display: grid; gap: 6px; margin-top: 14px; }
 .sx-opt { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px 10px;
@@ -1276,11 +1287,11 @@ select.is-dressed { display: none; }
 .sx-foot .ly-actions { margin-top: 0; }
 /* published */
 .sx-dlg.sx-done { width: min(560px, calc(100vw - 32px)); padding: 0 0 18px; }
-.sx-done .ly-actions { padding: 0 22px; }
+.sx-done .ly-actions { padding: 0 22px; justify-content: center; }
 .sx-ok { padding: 26px 26px 4px; text-align: center; }
 .sx-ok-art { position: relative; width: min(280px, 80%); margin: 0 auto 18px; }
-.sx-ok-art .sx-desk { animation: sx-settle .6s var(--ease-quartr) both; }
-@keyframes sx-settle { from { transform: perspective(1100px) rotateX(9deg) rotateY(-9deg) translateY(8px); opacity: .4; } }
+.sx-ok-art .sx-desk { animation: sx-settle .5s var(--ease-quartr) both; }
+@keyframes sx-settle { from { transform: translateY(8px); opacity: .4; } }
 .sx-check { position: absolute; right: -16px; bottom: -16px; width: 52px; height: 52px; border-radius: 50%;
   background: var(--popover); box-shadow: 0 0 0 1px var(--border), 0 8px 20px -10px rgba(0,0,0,.5); }
 .sx-check circle { fill: none; stroke: var(--up); stroke-width: 2.5; stroke-dasharray: 145; stroke-dashoffset: 145;
@@ -1289,19 +1300,30 @@ select.is-dressed { display: none; }
   stroke-dasharray: 34; stroke-dashoffset: 34; animation: sx-draw .4s .7s var(--ease-quartr) forwards; }
 @keyframes sx-draw { to { stroke-dashoffset: 0; } }
 .sx-ok .sx-lede { margin: 0 auto 16px; }
-.sx-link { display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 12px; border-radius: 12px;
-  border: 1px solid var(--border); background: var(--background); text-align: left; }
+/* The link row and the brand row share one width, centred, so the dialog
+   reads as one tidy column (the reference layout). */
+.sx-ok .sx-link, .sx-ok .sx-targets, .sx-ok .sx-share-lab { width: min(360px, 100%); margin-left: auto; margin-right: auto; }
+.sx-link { display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 12px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: var(--muted, color-mix(in srgb, var(--foreground) 4%, var(--background))); text-align: left; }
 .sx-link > svg.icon { width: 13px; height: 13px; opacity: .55; flex: none; }
 .sx-link input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; color: var(--foreground);
   font-family: var(--mono); font-size: 12px; }
-.sx-targets { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; margin: 14px 0 6px; }
-.sx-target { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 66px; padding: 6px 2px; border: 0;
-  border-radius: 12px; background: none; color: var(--muted-foreground); font: inherit; font-size: 11px; cursor: pointer; }
-.sx-target svg.icon { box-sizing: content-box; width: 17px; height: 17px; padding: 10px; border-radius: 50%;
-  color: var(--foreground); background: color-mix(in srgb, var(--foreground) 7%, transparent);
-  transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr), transform var(--dur) var(--ease-quartr); }
+.sx-copy { flex: none; width: 30px; height: 30px; color: var(--muted-foreground); }
+.sx-copy:hover { color: var(--foreground); }
+/* the "Share to" caption, left-aligned over the brand row */
+.sx-share-lab { margin: 16px auto 10px; font-size: var(--text-sm); font-weight: var(--weight-semi);
+  text-align: left; color: var(--foreground); }
+.sx-targets { display: flex; justify-content: space-between; gap: 8px; margin: 0 auto 2px; }
+.sx-target { display: flex; flex-direction: column; align-items: center; gap: 8px; border: 0;
+  background: none; color: var(--muted-foreground); font: inherit; font-size: var(--text-xs); cursor: pointer; }
+/* a full-colour brand badge: a disc of the brand's colour (the wrapper, so it
+   survives a failed mark) carrying the white glyph */
+.sx-target .sx-disc { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 50%;
+  background: var(--brand, var(--foreground)); transition: filter var(--dur) var(--ease-quartr); }
+.sx-target .sx-brand { display: block; width: 22px; height: 22px; object-fit: contain; }
+.sx-target .sx-brand svg { display: block; width: 100%; height: 100%; }
 .sx-target:hover { color: var(--foreground); }
-.sx-target:hover svg.icon { background: var(--foreground); color: var(--background); transform: translateY(-2px); }
+.sx-target:hover .sx-disc { filter: brightness(1.08); }
 .sx-empty, .sx-gone { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 26px 18px; text-align: center; }
 .sx-empty svg.icon, .sx-gone svg.icon { width: 22px; height: 22px; opacity: .5; margin-bottom: 4px; }
 .sx-empty b, .sx-gone b { font-size: var(--text-md); font-weight: var(--weight-semi); }
@@ -1451,8 +1473,8 @@ select.is-dressed { display: none; }
 .su-loading { padding: 18px; color: var(--faint); font-size: var(--text-sm); }
 .su-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 14px;
   padding: 10px 12px; border: 1px solid transparent; border-radius: var(--radius);
-  transition: background var(--dur) var(--ease-quartr), border-color var(--dur) var(--ease-quartr), transform var(--dur) var(--ease-quartr); }
-.su-row:hover { background: var(--accent); border-color: var(--border); transform: translateY(-1px); }
+  transition: background var(--dur) var(--ease-quartr); }
+.su-row:hover { background: var(--accent); }
 .su-row-title { display: flex; align-items: center; gap: 6px; font-size: var(--text-base);
   font-weight: var(--weight-medium); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .su-row-sub { font-size: var(--text-xs); color: var(--faint); margin-top: 3px; }
@@ -1463,7 +1485,7 @@ select.is-dressed { display: none; }
 .su-row:hover .su-row-acts, .su-row:focus-within .su-row-acts, .su-row.confirm .su-row-acts { opacity: 1; }
 .su-row-acts .btn.icon { width: 28px; height: 28px; }
 .su-row-acts a.btn { text-decoration: none; }
-.su-danger:hover, .su-row.confirm .su-danger { color: var(--down); background: var(--down-soft); }
+.su-row.confirm .su-danger { color: var(--down); background: var(--down-soft); }
 
 /* view mode — the bar over the candles */
 .su-bar { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 30;
@@ -1474,13 +1496,12 @@ select.is-dressed { display: none; }
   box-shadow: var(--menu-shadow); font-size: var(--text-base);
   transition: border-color var(--dur-slow) var(--ease-quartr), box-shadow var(--dur-slow) var(--ease-quartr);
   animation: pop var(--dur-slow) ease-out; }
-.su-bar:hover { border-color: var(--muted-foreground); }
-.su-badge { display: inline-flex; align-items: center; gap: 6px; flex: none;
-  font-size: 10.5px; letter-spacing: .09em; color: var(--muted-foreground); }
-.su-badge i { width: 6px; height: 6px; border-radius: 50%; background: var(--up);
-  box-shadow: 0 0 0 0 var(--up); animation: su-live 2.4s ease-out infinite; }
-@keyframes su-live { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--up) 55%, transparent); }
-  70%, 100% { box-shadow: 0 0 0 7px transparent; } }
+.su-badge { display: inline-flex; align-items: center; gap: 5px; flex: none;
+  padding: 3px 8px 3px 6px; border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--muted-foreground) 11%, transparent);
+  font-size: var(--text-xs); font-weight: var(--weight-medium); letter-spacing: 0;
+  text-transform: none; color: var(--muted-foreground); }
+.su-badge svg.icon { width: 13px; height: 13px; opacity: .85; }
 .su-bar-title { font-weight: var(--weight-semi); min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .su-bar-by { color: var(--muted-foreground); white-space: nowrap; }
 .su-bar-sep { width: 1px; height: 18px; background: var(--border); margin: 0 2px; flex: none; }
@@ -1520,11 +1541,18 @@ body.su-gone #chatPanel, body.su-gone #chatToggle { display: none !important; }
 .su-ro-text { flex: 1; min-width: 0; }
 .su-readonly .btn { flex: none; }
 
-/* view mode — the editing surfaces stand down; nothing here is the reader's */
+/* view mode — the editing surfaces stand down; nothing here is the reader's.
+   The chart is the author's, frozen: the controls that would change it —
+   interval, chart type, indicators, layout, settings, the drawing rail, undo/
+   redo, clear-what-chat-drew — all go, leaving the chart to be read, not edited. */
 body.view-only .composer-inner, body.view-only #chatNew, body.view-only #chatHistoryBtn,
 body.view-only #chatModeSwitch, body.view-only #shareBtn, body.view-only #lySaveName,
 body.view-only #undoBtn, body.view-only #redoBtn, body.view-only #rail,
+body.view-only #chartTools, body.view-only #sceneClear, body.view-only #shotBtn,
+body.view-only #chartToolsSep,
 body.view-only #tplTray { display: none !important; }
+/* A tab bar in a view session is read-only too: no close buttons, no add-tab. */
+body.view-only .dk-tab .x, body.view-only #dockBtn { display: none !important; }
 
 @media (max-width: 760px) {
   .su-grid { grid-template-columns: 1fr; }
@@ -1539,7 +1567,6 @@ body.view-only #tplTray { display: none !important; }
   .su-row, .su-card, .su-bar { transition: none; }
   .sx-tile, .sx-check circle, .sx-check path, .sx-ok-art .sx-desk { animation: none !important; }
   .sx-art .sx-desk { transform: none; }
-  .su-badge i { animation: none; }
 }
 
 /* layout picker — a grid of glyphs grouped by pane count, not a list of
@@ -2363,11 +2390,9 @@ header > .btn, header > .badge { flex: none; }
   display: flex; align-items: center; justify-content: center; position: relative;
   transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr);
 }
-/* the glyph lifts, not the 34px button — a moving hit target is worse to
-   aim at than a still one, and the fill already says which button is hot */
-.tool svg.icon { transition: transform var(--dur-fast) var(--ease-quartr); }
-.tool:hover svg.icon { transform: scale(1.12); }
-.tool:active svg.icon { transform: scale(.94); }
+/* the fill already says which button is hot; the glyph stays put — a moving
+   hit target is worse to aim at than a still one */
+.tool:hover svg.icon, .tool:active svg.icon { transform: none; }
 /* the rail's own glyph size — a drawing tool is the thing you aim at most
    often on this screen, and it was the smallest target on it */
 .tool svg.icon { width: 21px; height: 21px; stroke-width: 1.55; }
@@ -4076,51 +4101,85 @@ body.two-columns .readout .row { display: none; }
    with a full-width control under them. The fix is spacing and hierarchy, not
    more copy: one idea per line, each line a different weight, and room between
    them. */
-.sc-card { display: flex; flex-direction: column; gap: 8px; }
-/* Label left, the one control right, both on the SAME line — the control now
-   aligns to the "SCREEN" eyebrow rather than floating beside a paragraph, so
-   it reads as this panel's affordance instead of a stray button. */
+/* The screen / peer-comparison table is the ONE table design this app ships.
+   It mirrors the main chat's ScreenResultsCard: a bordered, rounded shell with
+   a titled head, optional condition chips, a bottom-ruled row table with a
+   hover tint, toned signed numbers, a median footer and a "Show all" fold.
+   Keep this in step with pivot-next/components/chat/ScreenResultsCard.tsx so
+   the two surfaces read as one product. */
+.sc-card { display: flex; flex-direction: column;
+           border: 1px solid var(--border); border-radius: 12px;
+           background: var(--card, var(--background)); overflow: hidden; }
+/* Title left, the one control right, both on the SAME line. */
 .sc-head { display: flex; align-items: center; justify-content: space-between;
-           gap: 12px; min-height: 28px; margin-bottom: 2px; }
-.sc-title { font-size: var(--text-2xs); font-weight: var(--weight-medium);
-            letter-spacing: .08em; text-transform: uppercase;
-            color: var(--muted-foreground); }
-/* The text now runs the panel's full width beneath the head row, instead of
-   flowing around a vertically-centred button that left a ragged hole in it. */
-/* The conditions ARE the screen — the one line that gets read at full size. */
-.sc-crit { font-size: var(--text-md, 14px); color: var(--foreground);
-           line-height: 1.5; letter-spacing: -0.005em; }
-/* The ranking is only the order the rows arrived in: its own line, caption
-   weight, so it stops competing with the conditions the way the old run-on
-   sentence did. */
+           flex-wrap: wrap; gap: 8px 16px; padding: 12px 14px 8px; }
+.sc-title { font-size: var(--text-md, 15px); font-weight: var(--weight-semibold, 600);
+            color: var(--foreground); line-height: 1.3; }
+/* The conditions ARE the screen — rendered as chips beneath the head, the way
+   the main chat shows applied filters. One line of plain criteria still falls
+   back to a readable sentence. */
+.sc-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 14px 10px; }
+.sc-chip { font-size: var(--text-2xs); color: var(--muted-foreground);
+           background: var(--muted, color-mix(in srgb, var(--foreground) 6%, transparent));
+           border-radius: 6px; padding: 2px 8px; line-height: 1.5; }
+.sc-crit { font-size: var(--text-xs); color: var(--foreground);
+           line-height: 1.5; padding: 0 14px 8px; }
+/* The ranking / meta line: caption weight, under the criteria. */
 .sc-rank-line { font-size: var(--text-xs); color: var(--muted-foreground);
-                line-height: 1.5; }
+                line-height: 1.5; padding: 0 14px 4px; }
 .sc-meta { font-size: var(--text-2xs); color: var(--muted-foreground);
-           letter-spacing: .02em; margin-top: 2px; padding-bottom: 10px;
-           border-bottom: 1px solid var(--border); }
-/* The table scrolls INSIDE the card. A screen can carry three numeric
-   columns and long instrument names, and letting it widen the panel would
-   push the chat column itself sideways. */
+           letter-spacing: .02em; padding: 0 14px 10px; }
+/* The table scrolls INSIDE the card so long names never widen the chat column. */
 .sc-tablewrap { overflow-x: auto; }
 .sc-table { width: 100%; border-collapse: collapse; font-size: var(--text-xs); }
-.sc-table th { text-align: left; font-weight: var(--weight-medium);
+.sc-table thead th { text-align: left; font-weight: var(--weight-medium);
                color: var(--muted-foreground); font-size: var(--text-2xs);
                letter-spacing: .03em; text-transform: uppercase;
-               padding: 0 8px 6px 0; white-space: nowrap; }
-.sc-table td { padding: 6px 8px 6px 0; border-top: 1px solid var(--border);
-               vertical-align: baseline; }
-.sc-table tr:first-child td { border-top: 0; }
-.sc-rank { width: 22px; color: var(--muted-foreground);
+               padding: 6px 12px; white-space: nowrap;
+               border-top: 1px solid var(--border);
+               border-bottom: 1px solid var(--border); }
+.sc-table tbody td { padding: 7px 12px;
+               border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+               vertical-align: middle; }
+.sc-table tbody tr:last-child td { border-bottom: 0; }
+.sc-table tbody tr:hover td {
+               background: color-mix(in srgb, var(--foreground) 4%, transparent); }
+.sc-rank { width: 40px; text-align: right; color: var(--muted-foreground);
            font-variant-numeric: tabular-nums; }
 .sc-sym { white-space: nowrap; }
-.sc-sym b { font-weight: var(--weight-medium); }
-/* The company name is context, not a column — it sits under the ticker so a
-   long name cannot set the table's width. */
+.sc-symcell { display: flex; align-items: center; gap: 9px; min-width: 150px; }
+.sc-logo { width: 26px; height: 26px; border-radius: 50%; flex: none;
+           display: flex; align-items: center; justify-content: center;
+           font-size: 10px; font-weight: var(--weight-semibold, 600);
+           text-transform: uppercase; overflow: hidden;
+           color: var(--muted-foreground);
+           background: var(--muted, color-mix(in srgb, var(--foreground) 8%, transparent)); }
+.sc-logo img { width: 100%; height: 100%; object-fit: cover; }
+.sc-sym b { font-weight: var(--weight-semibold, 600); color: var(--foreground);
+            display: block; line-height: 1.25; }
+/* The company name is context — it sits under the ticker so a long name cannot
+   set the table's width. */
 .sc-sym span { display: block; font-size: var(--text-2xs);
                color: var(--muted-foreground); max-width: 190px;
-               overflow: hidden; text-overflow: ellipsis; }
+               overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sc-num { text-align: right; font-variant-numeric: tabular-nums;
-          white-space: nowrap; }
+          white-space: nowrap; color: var(--foreground); }
+.sc-num.up, .sc-tone.up { color: var(--up); }
+.sc-num.down, .sc-tone.down { color: var(--down); }
+.sc-foot td { padding: 7px 12px; font-size: var(--text-2xs);
+              color: var(--muted-foreground); border-top: 1px solid var(--border);
+              background: color-mix(in srgb, var(--foreground) 3%, transparent);
+              font-variant-numeric: tabular-nums; }
+.sc-foot td.sc-foot-label { font-weight: var(--weight-medium); }
+.sc-more { display: flex; width: 100%; align-items: center;
+           justify-content: center; gap: 6px; padding: 9px;
+           border: 0; border-top: 1px solid var(--border);
+           background: transparent; cursor: pointer; font: inherit;
+           font-size: var(--text-2xs); font-weight: var(--weight-medium);
+           color: var(--muted-foreground);
+           transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr); }
+.sc-more:hover { background: color-mix(in srgb, var(--foreground) 4%, transparent);
+                 color: var(--foreground); }
 .wf-primary { height: 32px; width: 100%; border: 0; border-radius: 999px;
               background: var(--foreground); color: var(--background); cursor: pointer;
               font: inherit; font-size: var(--text-xs); font-weight: var(--weight-medium);
@@ -4401,8 +4460,8 @@ body.two-columns .readout .row { display: none; }
 /* Only a reading with a DIRECTION takes a colour — the structure read, the
    directional bias. A count is not bullish, and neither is ADX, which
    measures how much movement there is and says nothing about which way. */
-.scan-stat .v.up { color: var(--up); }
-.scan-stat .v.down { color: var(--down); }
+.scan-stat .v.up { color: var(--pat-up); }
+.scan-stat .v.down { color: var(--pat-down); }
 /* The qualifier under a figure: the word or fraction that says how to read
    it — Wilder's band under an ADX, where the last close sits under a high
    and a low. Quieter than the label above it, because it is the third thing
@@ -4455,8 +4514,8 @@ body.two-columns .readout .row { display: none; }
   flex: none; margin-left: auto; font-size: var(--text-xs);
   color: var(--faint); white-space: nowrap;
 }
-.scan-row .bias.tone-up { color: var(--up); }
-.scan-row .bias.tone-down { color: var(--down); }
+.scan-row .bias.tone-up { color: var(--pat-up); }
+.scan-row .bias.tone-down { color: var(--pat-down); }
 /* A row that points at something ON the chart is reachable — hovering it
    lights the annotation up, the same gesture as hovering a mention in the
    prose. A row with no handle was never drawn and gets no affordance, which
@@ -4482,17 +4541,24 @@ body.two-columns .readout .row { display: none; }
   gap: 8px;
 }
 .scan-tile {
-  display: flex; flex-direction: column; gap: 3px; min-width: 0;
+  display: flex; align-items: center; gap: 10px; min-width: 0;
   padding: 9px 11px 10px; border: 1px solid var(--border-soft);
   border-radius: var(--radius-sm); background: var(--card);
   transition: background var(--dur) var(--ease-quartr),
               border-color var(--dur) var(--ease-quartr);
 }
+/* The text column. The glyph is the tile's second child and sits to its
+   right; everything the card used to stack — badge, name, sub, fact —
+   lives here so the two never share a line. */
+.scan-tile-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
 .scan-tile[data-ann]:hover { border-color: var(--border); background: var(--accent); }
 .scan-tile .nm {
   font-size: var(--text-md); font-weight: var(--weight-semi);
   letter-spacing: -.015em; color: var(--foreground);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  /* Wraps rather than ellipsising: a momentum tile's name ("MACD histogram",
+     "MACD / signal") is the reading's subject and must stay whole — clipped to
+     "MACD…" it names nothing. The tile grows a line; it never hides the label. */
+  min-width: 0; overflow-wrap: anywhere;
 }
 .scan-tile .sub, .scan-fact {
   font-size: var(--text-xs); color: var(--muted-foreground);
@@ -4508,13 +4574,13 @@ body.two-columns .readout .row { display: none; }
    failure: those share the annotation amber rather than the candle red,
    because an unresolved wedge is not a bearish wedge. */
 .scan-badge {
-  align-self: flex-start; margin-bottom: 2px;
+  align-self: flex-start; margin-bottom: 2px; white-space: nowrap;
   font-size: var(--text-2xs); font-weight: var(--weight-medium);
   letter-spacing: .01em; border-radius: var(--radius-pill); padding: 2px 8px;
   background: var(--muted); color: var(--muted-foreground);
 }
-.scan-badge.ok { background: var(--up-soft); color: var(--up); }
-.scan-badge.bad { background: var(--down-soft); color: var(--down); }
+.scan-badge.ok { background: var(--pat-up-soft); color: var(--pat-up); }
+.scan-badge.bad { background: var(--pat-down-soft); color: var(--pat-down); }
 .scan-badge.open {
   background: color-mix(in srgb, var(--ann-res) 15%, transparent);
   color: var(--ann-res);
@@ -4543,6 +4609,120 @@ body.two-columns .readout .row { display: none; }
   color: var(--faint);
 }
 
+/* ── the formation glyph ──────────────────────────────────────────────────
+   A small schematic of the shape, drawn in the bias colour. The pole is the
+   loud stroke, the consolidation is a lighter pair, and the breakout tick is
+   the one that resumes the pole's direction — so the eye reads the story
+   (run, pause, resume) at a glance, not a logo. It carries no numbers; the
+   card prints those. On the folded inventory tiles it is small and quiet; on
+   the hero card it grows into its own tinted well. */
+.scan-glyph {
+  flex: none; display: grid; place-items: center;
+  width: 34px; height: 24px; color: var(--muted-foreground);
+}
+.scan-glyph svg { width: 100%; height: 100%; display: block; }
+.scan-glyph path {
+  stroke: currentColor; stroke-width: 2;
+  stroke-linecap: round; stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.scan-glyph .g-pole { stroke-width: 2.4; }
+.scan-glyph .g-chan { opacity: .5; stroke-width: 1.6; }
+.scan-glyph .g-brk  { stroke-width: 2.4; }
+.scan-glyph-up   { color: var(--pat-up); }
+.scan-glyph-down { color: var(--pat-down); }
+
+/* ── the formation list ───────────────────────────────────────────────────
+   A formation as one scannable line rather than a tile in a grid. The eye
+   cannot rank a grid; a ranked list reads top-down, and the confirmed
+   formation that answers the question sits first and loudest. Three columns,
+   closed into one card with hairline seams between the rows: the name with its
+   direction arrow and window on the left, the strength in the middle, and the
+   one measured level with its role against the right edge so every figure
+   stacks into a column. The whole row is a button — clicking it expands the
+   full detail card in place beneath it. */
+.pl-list {
+  display: block;
+  border: 1px solid var(--border-soft); border-radius: var(--radius-sm);
+  background: var(--background); overflow: hidden;
+}
+.pl-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) auto minmax(0, 1fr) 16px;
+  align-items: center; gap: 12px; width: 100%;
+  margin: 0; padding: 11px 13px; border: 0; border-top: 1px solid var(--border-soft);
+  background: none; font: inherit; text-align: left; cursor: pointer;
+  color: var(--foreground);
+  transition: background var(--dur) var(--ease-quartr);
+}
+.pl-row:first-child { border-top: 0; }
+.pl-row:hover { background: var(--accent); }
+.pl-name { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pl-nm {
+  font-size: var(--text-h3); font-weight: var(--weight-semi);
+  letter-spacing: -.015em; color: var(--foreground);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pl-arrow { font-size: .82em; margin-right: 6px; vertical-align: 1px; }
+.pl-arrow.up { color: var(--pat-up); }
+.pl-arrow.dn { color: var(--pat-down); }
+.pl-sub {
+  font-size: var(--text-md); color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pl-mid { justify-self: start; }
+/* Strength is a confidence axis, not a direction — one ink at three
+   intensities, the same ladder the tiles and the chart use (strong: filled and
+   dark; moderate: filled and mid; weak: outlined and faint). */
+.pl-str {
+  font-size: var(--text-md); color: var(--muted-foreground);
+  font-weight: var(--weight-medium);
+}
+.pl-str.s-strong { color: var(--foreground); font-weight: var(--weight-semi); }
+.pl-str.s-mid    { color: var(--muted-foreground); }
+.pl-str.s-weak   { color: var(--faint); font-weight: var(--weight-regular); }
+.pl-fact {
+  justify-self: end; text-align: right; min-width: 0; line-height: 1.25;
+}
+.pl-fact b {
+  display: block; font-family: var(--font-numeric);
+  font-size: var(--text-h3); font-weight: var(--weight-semi);
+  letter-spacing: -.02em; color: var(--foreground);
+  font-variant-numeric: tabular-nums;
+}
+.pl-fact span {
+  font-size: var(--text-xs); color: var(--muted-foreground);
+}
+.pl-caret {
+  justify-self: end; display: grid; place-items: center;
+  color: var(--faint);
+  transition: transform var(--dur) var(--ease-quartr),
+              color var(--dur) var(--ease-quartr);
+}
+.pl-caret svg { width: 15px; height: 15px; }
+.pl-row:hover .pl-caret { color: var(--muted-foreground); }
+/* An open row stays on the list's own white — the expanded card beneath it is
+   what signals the open state, so the row needs no fill of its own; only the
+   caret flips. */
+.pl-row.open .pl-caret { transform: rotate(180deg); color: var(--foreground); }
+/* The detail card the row expands into. It is moved to sit directly beneath
+   its row, so it reads as belonging to the line it came from; a hairline above
+   it keeps the seam while it is open. Inside the dropdown the card is FLAT —
+   the `.pw` left accent bar, the corner glow and the bias wash are all stripped
+   so it reads as the plain bordered card of the reference, not a tinted hero.
+   Separation here is the dropdown's own seam and fill, nothing more. */
+.pl-detail {
+  padding: 10px 11px 12px; border-top: 1px solid var(--border-soft);
+  background: var(--background);
+}
+.pl-detail .pw,
+.pl-detail .pw.up,
+.pl-detail .pw.down {
+  background: var(--background); box-shadow: none; border-radius: 0; padding: 4px 2px 2px;
+}
+.pl-detail .pw::before { display: none; }
+
 /* ── the hero card ───────────────────────────────────────────────────────
    The compact answer to "what is this": two or three formations at full
    presence rather than thirteen, and NOT a row of pills — a pill can carry
@@ -4560,8 +4740,144 @@ body.two-columns .readout .row { display: none; }
    the difference between the two states has to be visible or the fold is
    just a place things went. */
 .scan-tiles.hero { grid-template-columns: 1fr; gap: 7px; }
-.scan-tiles.hero .scan-tile { padding: 11px 13px 12px; }
-.scan-tiles.hero .scan-tile .nm { font-size: var(--text-h3); }
+
+/* The hero glyph tile (the non-flag formations: triangles, double tops …).
+   Borderless — a soft bias-tinted wash and a faint inset ring instead of the
+   hairline box the folded inventory wears. The tint follows the glyph's
+   direction via :has(), so the card and its drawing agree before a word is
+   read. Flags skip this entirely: they become the full `.pw` widget below. */
+.scan-tiles.hero .scan-tile {
+  border: 0; padding: 12px 14px; border-radius: var(--radius);
+  background: color-mix(in srgb, var(--muted-foreground) 4%, var(--card));
+}
+.scan-tiles.hero .scan-tile:has(.scan-glyph-up) {
+  background: color-mix(in srgb, var(--up) 7%, var(--card));
+}
+.scan-tiles.hero .scan-tile:has(.scan-glyph-down) {
+  background: color-mix(in srgb, var(--down) 7%, var(--card));
+}
+.scan-tiles.hero .scan-tile[data-ann] { cursor: pointer; }
+.scan-tiles.hero .scan-tile[data-ann]:has(.scan-glyph-up):hover {
+  background: color-mix(in srgb, var(--up) 12%, var(--card));
+}
+.scan-tiles.hero .scan-tile[data-ann]:has(.scan-glyph-down):hover {
+  background: color-mix(in srgb, var(--down) 12%, var(--card));
+}
+.scan-tiles.hero .scan-tile .nm {
+  font-size: var(--text-h3); letter-spacing: -.02em;
+}
+.scan-tiles.hero .scan-tile-main { gap: 4px; }
+.scan-tiles.hero .scan-glyph {
+  width: 50px; height: 38px; border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+/* ── the pattern widget ──────────────────────────────────────────────────
+   The full answer to "is there a flag": the shape drawn to scale, the
+   numbers it is made of, and the one line that keeps it a watch rather than a
+   signal. BORDERLESS throughout — no box fences the figure, the stat tiles or
+   the footer. Separation is by fill and space alone: the diagram floats on
+   the card, the stats sit in soft wells, the caution wears the annotation
+   amber. One tinted accent runs down the left edge in the bias colour, and a
+   faint corner glow places the direction without a coloured frame. */
+.pw {
+  position: relative; overflow: hidden;
+  border-radius: var(--radius-lg, 14px);
+  padding: 16px 18px 15px; background: var(--card);
+  box-shadow: var(--shadow);
+}
+.pw::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--muted-foreground);
+}
+.pw.up { background:
+  radial-gradient(130% 150% at 100% 0%,
+    color-mix(in srgb, var(--pat-up) 10%, transparent), transparent 55%),
+  var(--card); }
+.pw.down { background:
+  radial-gradient(130% 150% at 100% 0%,
+    color-mix(in srgb, var(--pat-down) 10%, transparent), transparent 55%),
+  var(--card); }
+.pw.up::before   { background: var(--pat-up); }
+.pw.down::before { background: var(--pat-down); }
+.pw[data-ann] { cursor: pointer; }
+
+/* header */
+.pw-head { display: flex; align-items: flex-start; gap: 11px; }
+.pw-ico {
+  flex: none; width: 34px; height: 34px; border-radius: 10px;
+  display: grid; place-items: center;
+  background: var(--pat-up-soft); color: var(--pat-up);
+}
+.pw-ico.down { background: var(--pat-down-soft); color: var(--pat-down); }
+.pw-ico svg { width: 18px; height: 18px; }
+.pw-htext { flex: 1; min-width: 0; }
+.pw-title {
+  font-size: var(--text-h3); font-weight: var(--weight-semi);
+  letter-spacing: -.02em; line-height: 1.2; color: var(--foreground);
+}
+.pw-sub {
+  font-size: var(--text-xs); color: var(--muted-foreground); margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+.pw-pills {
+  display: flex; gap: 5px; align-items: center; flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.pw-pill {
+  font-size: var(--text-2xs); font-weight: var(--weight-medium);
+  padding: 2px 8px; border-radius: var(--radius-pill); white-space: nowrap;
+  background: var(--muted); color: var(--muted-foreground);
+}
+.pw-pill.warn {
+  background: color-mix(in srgb, var(--ann-res) 15%, transparent);
+  color: var(--ann-res);
+}
+.pw-pill.up   { background: var(--pat-up-soft); color: var(--pat-up); }
+.pw-pill.down { background: var(--pat-down-soft); color: var(--pat-down); }
+.pw-pill.plain { background: transparent; color: var(--muted-foreground);
+  box-shadow: inset 0 0 0 1px var(--border-soft); }
+
+/* diagram */
+.pw-diagram { margin: 12px 0 2px; }
+.pw-svg { display: block; width: 100%; height: auto; }
+.pw-svg text { font-family: inherit; font-variant-numeric: tabular-nums; }
+.pw-note {
+  font-size: var(--text-2xs); color: var(--faint); margin-top: 0;
+}
+/* stat strip — borderless wells */
+.pw-stats {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px;
+  margin-top: 13px;
+}
+.pw-stat { background: var(--muted); border-radius: var(--radius-sm); padding: 10px 12px; }
+.pw-stat .k { font-size: var(--text-2xs); color: var(--muted-foreground); }
+.pw-stat .v {
+  font-size: var(--text-h2, 20px); font-weight: var(--weight-semi);
+  font-family: var(--font-numeric); letter-spacing: -.02em;
+  line-height: 1; margin-top: 4px; color: var(--foreground);
+}
+.pw-stat .s {
+  font-size: var(--text-2xs); color: var(--muted-foreground); margin-top: 5px;
+  font-variant-numeric: tabular-nums;
+}
+.pw-stat .s.up { color: var(--pat-up); }
+.pw-stat .s.down { color: var(--pat-down); }
+
+/* footer banner — borderless amber fill */
+.pw-foot {
+  display: flex; align-items: center; gap: 9px; margin-top: 11px;
+  padding: 10px 12px; border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--ann-res) 13%, transparent);
+  color: var(--ann-res); font-size: var(--text-xs); line-height: 1.35;
+}
+.pw-foot svg { flex: none; width: 15px; height: 15px; }
+.pw-foot b { font-weight: var(--weight-semi); }
+
+@media (max-width: 420px) {
+  .pw-stats { grid-template-columns: 1fr; }
+}
 
 /* ── bars: the panel's one chart primitive ───────────────────────────────
    Two numbers whose entire content is the comparison: 8.59 says nothing at
@@ -4594,8 +4910,8 @@ body.two-columns .readout .row { display: none; }
   font-variant-numeric: tabular-nums; color: var(--foreground);
   text-align: right; white-space: nowrap;
 }
-.scan-bar .num.tone-up { color: var(--up); }
-.scan-bar .num.tone-down { color: var(--down); }
+.scan-bar .num.tone-up { color: var(--pat-up); }
+.scan-bar .num.tone-down { color: var(--pat-down); }
 .scan-bar .track {
   position: relative; grid-column: 1 / -1; height: 5px;
   border-radius: var(--radius-pill); background: var(--muted);
@@ -4607,8 +4923,8 @@ body.two-columns .readout .row { display: none; }
   position: absolute; top: 0; bottom: 0; border-radius: inherit;
   background: var(--muted-foreground); min-width: 2px;
 }
-.scan-bar .fill.up { background: var(--up); }
-.scan-bar .fill.down { background: var(--down); }
+.scan-bar .fill.up { background: var(--pat-up); }
+.scan-bar .fill.down { background: var(--pat-down); }
 .scan-bar .fill.ann { background: var(--ann-res); }
 /* A comparison of SUBJECTS, not of directions: in a falling year both names
    are down, and two red bars under two labels is a chart the eye cannot
@@ -4748,8 +5064,8 @@ body.two-columns .readout .row { display: none; }
   background: var(--muted); font-variant-numeric: tabular-nums;
 }
 .scan-read + .scan-read { margin-top: 6px; }
-.scan-read.tone-up { background: var(--up-soft); }
-.scan-read.tone-down { background: var(--down-soft); }
+.scan-read.tone-up { background: var(--pat-up-soft); }
+.scan-read.tone-down { background: var(--pat-down-soft); }
 /* A COLUMN, not a word. `flex: none` sized this to its own text, so "5m" and
    "Weekly" left the readings starting at a different x on every row and the
    wrapped second line inherited that raggedness — four rows that should read
@@ -4761,8 +5077,8 @@ body.two-columns .readout .row { display: none; }
   font-size: var(--text-sm); font-weight: var(--weight-semi);
   letter-spacing: -.01em; color: var(--foreground);
 }
-.scan-read.tone-up .nm { color: var(--up); }
-.scan-read.tone-down .nm { color: var(--down); }
+.scan-read.tone-up .nm { color: var(--pat-up); }
+.scan-read.tone-down .nm { color: var(--pat-down); }
 /* Wraps rather than ellipsising. A timeframe rung's line is five readings
    long and the pane is resizable: clipped to "RSI 35.97 · MACD hist −0.12 ·
    ADX 29.47 · −D…" it has hidden the two that decide the row. A second line
@@ -4788,11 +5104,16 @@ body.two-columns .readout .row { display: none; }
    two-word stance takes two short right-aligned lines inside the height the
    readings already need, and every rung wraps the same way. */
 .scan-read .num {
-  flex: none; margin-left: auto; max-width: 3.4rem; text-align: right;
+  flex: none; margin-left: auto; text-align: right;
   font-family: var(--font-numeric);
   font-size: var(--text-sm); font-weight: var(--weight-medium);
   letter-spacing: -.02em; color: var(--foreground);
-  text-wrap: balance;
+  /* A price is one token and must never wrap — "₹1,325.21" split across two
+     lines reads as two numbers. The old max-width cap was tuned for a
+     timeframe stance word and clipped the overlay strip's prices into a second
+     line; prices have no spaces, so nowrap keeps them whole while a two-word
+     stance can still wrap between its words. */
+  white-space: nowrap;
 }
 
 /* ── the staged checklist ────────────────────────────────────────────────
@@ -4888,8 +5209,11 @@ body.two-columns .readout .row { display: none; }
 .scan-rung.sup .px { color: var(--ann-sup); }
 .scan-rung.crossed { color: var(--faint); }
 .scan-rung.crossed .px { color: var(--faint); text-decoration: line-through; }
+/* The current price's rung is marked by a soft fill alone — no boxed border.
+   An outline here fenced one row off from the ladder it belongs to; the fill
+   says "you are here" without breaking the column. */
 .scan-rung.current {
-  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  border-top-color: transparent; border-radius: var(--radius-xs);
   background: var(--accent);
 }
 .scan-rung.current + .scan-rung { border-top: 0; }
@@ -5837,8 +6161,7 @@ body.two-columns .readout .row { display: none; }
 /* The caption is set in the SAME face as the name above it. It carried the
    machine face, which made "Chart analysis · on RSI" read as a different kind
    of thing from "Falling wedge" one line up — two typefaces inside a chip
-   44px tall. --mono is for the three surfaces that are genuinely code (the
-   hex field, the JSON inspector, inline `code`); a caption is prose. */
+   44px tall. Everything in the chip now sets the UI face; a caption is prose. */
 .draw-tag-copy small {
   margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: var(--faint); font: var(--text-3xs) var(--font); letter-spacing: 0;
@@ -7252,6 +7575,25 @@ svg.icon.op {
   #symbolPill { cursor: pointer; }
   #symbolPill:hover { background: var(--accent); }
   #symbolMenu { width: 360px; }
+  #symbolMenu.open, .sym-picker.dropdown.floating.open {
+    position: fixed !important; top: min(12vh, 100px) !important;
+    left: 50% !important; right: auto !important; bottom: auto !important;
+    transform: translateX(-50%); width: min(760px, calc(100vw - 24px)) !important;
+    max-height: 76vh; z-index: 260 !important; padding: 0 !important;
+    border-radius: 10px; overflow: hidden;
+  }
+  .symbol-dialog-head { display: flex; justify-content: space-between; align-items: center; padding: 18px 22px 10px; }
+  .symbol-dialog-head strong { color: var(--foreground); font-size: 19px; letter-spacing: -.02em; }
+  .symbol-close { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--muted-foreground); cursor: pointer; }
+  .symbol-close:hover { background: var(--accent); color: var(--foreground); }
+  .symbol-close svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+  #symbolMenu .searchfield, .sym-picker .searchfield { margin: 0 22px 12px !important; }
+  .symbol-categories { display: flex; gap: 6px; padding: 0 22px 13px; overflow-x: auto; border-bottom: 1px solid var(--border); }
+  .symbol-categories button { flex: none; padding: 7px 12px; border: 0; border-radius: 999px; background: var(--accent); color: var(--muted-foreground); font-size: 12px; cursor: pointer; }
+  .symbol-categories button[aria-selected="true"] { background: var(--foreground); color: var(--background); }
+  .symbol-results-label { padding: 12px 22px 6px; color: var(--muted-foreground); font-size: 10px; font-weight: 700; letter-spacing: .08em; }
+  #symList, .sym-picker .pick-list { max-height: calc(76vh - 180px) !important; overflow-y: auto; padding: 0 10px 10px !important; }
+  @media (max-width: 600px) { #symbolMenu.open, .sym-picker.dropdown.floating.open { top: 5vh !important; max-height: 90vh; } #symList, .sym-picker .pick-list { max-height: calc(90vh - 180px) !important; } }
   /* ONE instrument-search look, both entry points — the header symbol
      dropdown's ORIGINAL plain field, used everywhere: the app's standard
      dropdown material (base .dropdown) and the plain flat search input (base
@@ -7519,9 +7861,8 @@ svg.icon.op {
   transition: color var(--dur) var(--ease-quartr);
 }
 .dk-tab .t { overflow: hidden; text-overflow: ellipsis; }
-.dk-tab svg.icon { flex: none; width: 15px; height: 15px; transition: transform var(--dur-slow) var(--ease-quartr); }
+.dk-tab svg.icon { flex: none; width: 15px; height: 15px; }
 .dk-tab:hover { color: var(--foreground); }
-.dk-tab:hover svg.icon { transform: translateY(-1px); }
 .dk-tab.on { color: var(--foreground); font-weight: var(--weight-semi); }
 .dk-tab .s {
   font-weight: var(--weight-medium); color: var(--foreground); opacity: .6;
@@ -7560,10 +7901,9 @@ svg.icon.op {
 .dk-tools .btn.icon svg.icon { width: 17px; height: 17px; }
 .dk-tools .vsep { height: 16px; margin: 0 4px; }
 /* the bar's buttons answer the pointer: a clear fill on hover, a press on click */
-.dk-tools .btn { transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr), transform var(--dur-fast); }
+.dk-tools .btn { transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr); }
 .dk-tools .btn:hover:not(:disabled), .dk-tools .btn.open, .dk-tools .menu-wrap:has(.dropdown.open) > .btn {
   background: color-mix(in srgb, var(--foreground) 10%, transparent); color: var(--foreground); }
-.dk-tools .btn:active:not(:disabled) { transform: scale(.96); }
 .dk-tools .btn:disabled { cursor: default; }
 .dk-tools .dropdown { z-index: 120; }
 .ct-docked #chartToolsSep { display: none; }
@@ -7581,7 +7921,6 @@ body:not(.ct-docked) .chart-tools .ct-gap { display: none; }
 .dk-group:hover .dk-act, .dk-act:focus-visible, .dk-act[data-pinned] { opacity: .75; }
 .dk-act svg.icon { width: 15px; height: 15px; stroke-width: 1.8; }
 .dk-act:hover { opacity: 1 !important; background: var(--hover-fill); }
-.dk-act:active { transform: scale(.92); }
 .dk-act[data-act="settings"]:hover svg.icon { transform: rotate(60deg); transition: transform .35s var(--ease-quartr); }
 .dk-act[data-act="close"]:hover svg.icon { transform: rotate(90deg); transition: transform .2s var(--ease-quartr); }
 .dk-act[data-pinned] { background: var(--hover-fill); }
@@ -7704,8 +8043,7 @@ body.dk-row-resize, body.dk-row-resize * { cursor: row-resize !important; }
 
 /* the header: "Widgets" is a labelled button, fullscreen an icon */
 .dk-addw { gap: 6px; padding: 0 11px 0 9px; font-weight: var(--weight-medium); }
-.dk-addw svg.icon { width: 15px; height: 15px; transition: transform var(--dur-slow) var(--ease-quartr); }
-.dk-addw:hover svg.icon { transform: rotate(90deg); }
+.dk-addw svg.icon { width: 15px; height: 15px; }
 .dk-hbtn.on { background: var(--foreground) !important; color: var(--background) !important; }
 /* Go to: a quiet search-shaped button that teaches its own shortcut */
 .gt-btn { gap: 7px; padding: 0 6px 0 9px; font-weight: var(--weight-medium); color: var(--foreground); }
@@ -7936,16 +8274,35 @@ body.dk-dragging .dk-pull { pointer-events: none; }
 }
 .hub-top { flex: none; display: flex; align-items: center; gap: 4px; padding: 5px; }
 .hub-find { flex: 1; min-width: 0; }
+/* the search box fills the top row, so its corners echo the glass container's
+   (14px outer − 5px padding ≈ 9px) instead of the default 4px */
 .hub-find .searchfield { height: 30px; background: transparent; border-color: transparent; }
-.hub-tabs { flex: none; display: flex; gap: 2px; padding: 4px; overflow-x: auto; scrollbar-width: none; }
-.hub-tabs::-webkit-scrollbar { display: none; }
-.hub-tabs button {
-  flex: none; height: 26px; padding: 0 10px; border: 0; border-radius: 9px; background: transparent; cursor: pointer;
+.hub-find .searchfield input { border-radius: 9px; }
+/* one line: a track that scrolls sideways between two end chevrons, each of
+   which appears only while there is more to reveal that way. Every label is
+   shown in full — none is squeezed or ellipsized. */
+.hub-tabs { flex: none; position: relative; display: flex; align-items: center; gap: 2px; padding: 4px; }
+.hub-track { flex: 1; min-width: 0; display: flex; gap: 2px; overflow-x: auto; scroll-behavior: smooth; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.hub-track::-webkit-scrollbar { display: none; }
+.hub-tabs button[data-hubg] {
+  flex: 0 0 auto; height: 26px; padding: 0 10px; border: 0; border-radius: 9px; background: transparent; cursor: pointer;
   color: var(--foreground); opacity: .62; font: inherit; font-size: var(--text-sm); font-weight: var(--weight-medium);
+  white-space: nowrap;
   transition: background var(--dur), opacity var(--dur), color var(--dur);
 }
-.hub-tabs button:hover { opacity: 1; }
-.hub-tabs button.on { opacity: 1; background: var(--foreground); color: var(--background); }
+/* the end navigators: hidden until the track overflows that side, then a
+   small glass chevron that nudges the strip along */
+.hub-tscroll {
+  flex: 0 0 auto; width: 22px; height: 26px; padding: 0; border: 0; border-radius: 8px; cursor: pointer;
+  display: none; align-items: center; justify-content: center; color: var(--foreground);
+  background: color-mix(in srgb, var(--foreground) 7%, transparent);
+  transition: background var(--dur), opacity var(--dur);
+}
+.hub-tscroll svg.icon { width: 15px; height: 15px; }
+.hub-tscroll:hover { background: color-mix(in srgb, var(--foreground) 14%, transparent); }
+.hub-tabs.has-l .hub-tscroll.l, .hub-tabs.has-r .hub-tscroll.r { display: inline-flex; }
+.hub-tabs button[data-hubg]:hover { opacity: 1; }
+.hub-tabs button[data-hubg].on { opacity: 1; background: var(--foreground); color: var(--background); }
 .hub-tools { flex: none; display: flex; align-items: center; gap: 2px; padding: 4px; }
 .hub-gap { flex: 1; }
 .hub-switch { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 8px 0 4px; border-radius: 9px; cursor: pointer;
@@ -7968,7 +8325,9 @@ body.dk-dragging .dk-pull { pointer-events: none; }
 /* the strip */
 .hub-rail { position: relative; flex: 1; min-height: 0; display: flex; }
 .hub-row {
-  flex: 1; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; overflow-x: hidden; padding: 2px 2px 6px;
+  /* left padding ≥ the hover translateX(-4px) so the card's left edge + its
+     inset border are not clipped by overflow-x: hidden — symmetric with right */
+  flex: 1; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; overflow-x: hidden; padding: 2px 6px 6px;
   scroll-snap-type: y proximity; scrollbar-width: none; overscroll-behavior: contain;
   -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 14px, #000 calc(100% - 18px), transparent);
           mask-image: linear-gradient(180deg, transparent 0, #000 14px, #000 calc(100% - 18px), transparent);
@@ -11162,12 +11521,15 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
         <span id="symbolName">RELIANCE</span> <span class="ex" id="symbolVenue">NSE</span>
       </div>
       <div class="dropdown" id="symbolMenu">
+        <div class="symbol-dialog-head"><strong>Symbol search</strong><button type="button" class="symbol-close" aria-label="Close symbol search"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
         <!-- the magnifier is put here by Icons.mountSearchFields(), so every
              search box in the app carries the same one -->
         <div class="searchfield">
-          <input id="symSearch" placeholder="Search instruments…"
+          <input id="symSearch" placeholder="Search symbol or company"
                  autocomplete="off" spellcheck="false" />
         </div>
+        <div id="symbolCategories" class="symbol-categories" role="tablist" aria-label="Instrument category"></div>
+        <div class="symbol-results-label">INSTRUMENTS</div>
         <div id="symList"></div>
       </div>
     </div>
@@ -11241,6 +11603,10 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
     <!-- Share: publish this desk as a read-only setup others can copy.
          js/setups.js. Beside the layout name because what it publishes is the
          desk that name stands for. -->
+    <a class="btn outline company-page-link" id="companyPageLink"
+       href="/stock/RELIANCE" title="Open the RELIANCE company page">
+      <span>Company</span>
+    </a>
     <button class="btn outline su-share-btn" id="shareBtn" type="button"
             title="Share this setup, read-only, with a link"></button>
     <div class="menu-wrap">
@@ -11481,11 +11847,11 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./vendor/liquid-glass.js"></script>
   <script src="./js/store.js?v=20"></script>
   <script src="./js/theme.js?v=12"></script>
-  <script src="./js/universe.js?v=10"></script>
+  <script src="./js/universe.js?v=16"></script>
   <script src="./js/icons.js?v=45"></script>
   <!-- after icons.js (every row is drawn with one) and before main.js, which
        builds the chart's three right-click menus out of it -->
-  <script src="./js/ctxmenu.js?v=12"></script>
+  <script src="./js/ctxmenu.js?v=13"></script>
   <!-- before anything that edits the chart: drawings.js and scene.js call
        Undo.touch() from their save paths, so the module has to exist by the
        time the first one runs -->
@@ -11494,7 +11860,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        shared set, and a classic script cannot reach a const declared by one
        that has not run yet -->
   <script src="./js/auth.js?v=6"></script>
-  <script src="./js/plan.js?v=2"></script>
+  <script src="./js/plan.js?v=4"></script>
   <script src="./js/indicators.js?v=37"></script>
   <!-- before both legends: each asks it whether the series runs behind a row
        or a chip, which is what puts the plate there -->
@@ -11513,31 +11879,31 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/chartsettings.js?v=5"></script>
   <script src="./js/geometry.js?v=25"></script>
   <script src="./js/tools.js?v=23"></script>
-  <script src="./js/drawings.js?v=42"></script>
+  <script src="./js/drawings.js?v=43"></script>
   <script src="./js/scene.js?v=51"></script>
   <script src="./js/panes.js?v=25"></script>
   <!-- The pricing / upgrade overlay. Before main.js so window.Pricing exists
        when the account menu's Upgrade row is wired. -->
   <script src="./js/pricing.js?v=1"></script>
-  <script src="./js/main.js?v=164"></script>
+  <script src="./js/main.js?v=165"></script>
   <!-- the floating drawing edit toolbar — listens for charto:draw-select and
        drives js/drawings.js's setStyle/clone/lock/remove. After main.js so
        __charto and ChartSettings exist by the first selection. -->
   <script src="./js/drawedit.js?v=7"></script>
   <script src="./js/wkit.js?v=1"></script>
   <script src="./js/hub-art.js?v=4"></script>
-  <script src="./js/dock.js?v=21"></script>
+  <script src="./js/dock.js?v=22"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=12"></script>
   <!-- shared setups: publish, view-only links, "Make it mine" -->
-  <script src="./js/setups.js?v=8"></script>
+  <script src="./js/setups.js?v=13"></script>
   <!-- Voice must load before chat.js, which wires it to the composer. -->
   <script src="./js/voice.js?v=2"></script>
   <!-- before chat.js, which asks it to render the panels a tool prints as the
        reply streams in. It reads Sym (store.js) for the instrument's currency
        and grouping, and nothing else — a renderer with no state of its own -->
-  <script src="./js/cards.js?v=61"></script>
+  <script src="./js/cards.js?v=68"></script>
   <script src="./js/layers-panel.js?v=11"></script>
   <script src="./js/model-logos.js?v=2"></script>
   <script src="./js/models.js?v=3"></script>

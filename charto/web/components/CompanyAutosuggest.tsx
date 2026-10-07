@@ -28,6 +28,7 @@ import { searchCompanies, type CompanySearchResult } from "@/lib/api";
 import { isError } from "@/lib/types";
 import { CompanyLogo } from "@/components/CompanyLogo";
 import { VoiceInputButton } from "@/components/VoiceInputButton";
+import { Search, X } from "lucide-react";
 
 interface CompanyAutosuggestProps {
   placeholder?: string;
@@ -37,6 +38,8 @@ interface CompanyAutosuggestProps {
   inputDataTestId?: string;
   /** Render a mic that dictates the query (browser recording → English). */
   enableVoice?: boolean;
+  onOpenChart?: (symbol: string) => void;
+  stockOnly?: boolean;
 }
 
 // Debounce interval in ms — short enough to feel live, long enough to
@@ -47,6 +50,18 @@ const DEBOUNCE_MS = 150;
 // away. Capped small so the dropdown stays a quick shortlist, not a history log.
 const RECENT_KEY = "pivot:recent-stock-searches";
 const RECENT_MAX = 6;
+type SearchCategory = "All" | "Stocks" | "Crypto" | "Indices" | "Commodities" | "Options";
+type SearchInstrument = CompanySearchResult & { searchCategory?: SearchCategory; exchange?: string | null; instrument_type?: string | null; price?: number | null; change_pct?: number | null; currency?: string | null; quote_source?: string | null; isHydrated?: boolean };
+const SEARCH_CATEGORIES: SearchCategory[] = ["All", "Stocks", "Crypto", "Indices", "Commodities", "Options"];
+
+function instrumentCategory(symbol: string, exchange?: string | null, kind?: string | null): SearchCategory {
+  const type = (kind || "").toLowerCase();
+  if (type.includes("crypto") || exchange === "BYBIT" || exchange === "COINBASE" || /(?:USDT|-USD)$/.test(symbol)) return "Crypto";
+  if (type.includes("option") || exchange === "NFO") return "Options";
+  if (type.includes("index") || type.includes("volatility")) return "Indices";
+  if (exchange === "MCX" || type.includes("commodity")) return "Commodities";
+  return "Stocks";
+}
 
 function loadRecent(): CompanySearchResult[] {
   try {
@@ -81,13 +96,21 @@ export function CompanyAutosuggest({
   autoFocus,
   inputDataTestId,
   enableVoice,
+  onOpenChart,
+  stockOnly = false,
 }: CompanyAutosuggestProps): React.ReactElement {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<CompanySearchResult[]>([]);
   const [recent, setRecent] = useState<CompanySearchResult[]>([]);
   const [open, setOpen] = useState(false);
-  const [highlighted, setHighlighted] = useState(0);
+  const [highlighted, setHighlighted] = useState(-1);
   const [loading, setLoading] = useState(false);
+  const [category, setCategory] = useState<SearchCategory>("All");
+  const [universe, setUniverse] = useState<SearchInstrument[]>([]);
+  const [universeLoading, setUniverseLoading] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(80);
+  const modalInputRef = useRef<HTMLInputElement>(null);
+  const universeAttempted = useRef(false);
 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -96,11 +119,49 @@ export function CompanyAutosuggest({
   // types quickly and an earlier slow response arrives after a later one.
   const cancelledRef = useRef(false);
 
-  // Empty query → show recent searches; typed query → show live results.
+  // Empty query shows the chart universe; typed query ranks live company results first.
   const trimmed = query.trim();
   const showingRecent = trimmed.length === 0;
-  const list = showingRecent ? recent : results;
-  const dropdownOpen = open && list.length > 0;
+  const source: SearchInstrument[] = showingRecent
+    ? (universe.length ? universe : recent)
+    : [...results, ...universe];
+  const seen = new Set<string>();
+  const filtered = source.filter((item) => {
+    const group = item.searchCategory || instrumentCategory(item.symbol, item.exchange, item.instrument_type);
+    if ((stockOnly || category === "Stocks") && group !== "Stocks") return false;
+    if (!stockOnly && category !== "All" && category !== "Stocks" && group !== category) return false;
+    if (!showingRecent && !`${item.symbol} ${item.name}`.toUpperCase().includes(trimmed.toUpperCase())) return false;
+    if (seen.has(item.symbol)) return false;
+    seen.add(item.symbol);
+    return true;
+  });
+  const list = filtered.slice(0, visibleCount);
+  const dropdownOpen = open;
+  useEffect(() => { setVisibleCount(80); }, [query, category]);
+
+  useEffect(() => {
+    if (!open || stockOnly || universeAttempted.current) return;
+    universeAttempted.current = true;
+    let active = true;
+    setUniverseLoading(true);
+    const host = ["localhost", "127.0.0.1"].includes(location.hostname) ? "http://127.0.0.1:5174" : "";
+    fetch(`${host}/symbols`).then((r) => r.json()).then((data: {
+      symbols?: string[]; names?: Record<string, string>; long?: Record<string, string>;
+      logos?: Record<string, string>; meta?: Record<string, [string, string, number?]>; hydrated?: string[];
+    }) => {
+      if (!active) return;
+      const hydrated = new Set(data.hydrated || []);
+      setUniverse((data.symbols || []).map((symbol): SearchInstrument => {
+        const [exchange, kind] = data.meta?.[symbol] || ["NSE", "equity"];
+        return { symbol, name: data.long?.[symbol] || data.names?.[symbol] || symbol,
+          sector: null, has_fundamentals: false, logo_url: data.logos?.[symbol] || null,
+          exchange, instrument_type: kind, searchCategory: instrumentCategory(symbol, exchange, kind), isHydrated: hydrated.has(symbol) };
+      }));
+    }).catch(() => { /* Stock search remains available. */ }).finally(() => { if (active) setUniverseLoading(false); });
+    return () => { active = false; };
+  }, [open, stockOnly]);
+
+  useEffect(() => { if (open) modalInputRef.current?.focus(); }, [open]);
 
   // ── Load persisted recent searches once on mount ─────────────────────
   useEffect(() => {
@@ -128,16 +189,16 @@ export function CompanyAutosuggest({
         if (cancelledRef.current) return;
         if (!isError(res)) {
           setResults(res.data.results);
-          setOpen(res.data.results.length > 0);
-          setHighlighted(0);
+          setOpen(true);
+          setHighlighted(-1);
         } else {
           setResults([]);
-          setOpen(false);
+          setOpen(true);
         }
       } catch {
         if (!cancelledRef.current) {
           setResults([]);
-          setOpen(false);
+          setOpen(true);
         }
       } finally {
         if (!cancelledRef.current) setLoading(false);
@@ -166,8 +227,11 @@ export function CompanyAutosuggest({
   }, [open]);
 
   const handleSelect = useCallback(
-    (result: CompanySearchResult): void => {
-      onSelect(result.symbol, result.name);
+    (result: SearchInstrument): void => {
+      const group = result.searchCategory || instrumentCategory(result.symbol, result.exchange, result.instrument_type);
+      if (group === "Stocks") onSelect(result.symbol, result.name);
+      else if (onOpenChart) onOpenChart(result.symbol);
+      else window.location.assign(`/?symbol=${encodeURIComponent(result.symbol)}`);
       // Remember this pick at the front of the recent list (dedup by symbol).
       setRecent((prev) => {
         const next = [
@@ -180,19 +244,13 @@ export function CompanyAutosuggest({
       setQuery("");
       setResults([]);
       setOpen(false);
-      setHighlighted(0);
+      setHighlighted(-1);
     },
-    [onSelect],
+    [onSelect, onOpenChart],
   );
 
-  const clearRecent = useCallback((): void => {
-    setRecent([]);
-    saveRecent([]);
-    setOpen(false);
-    inputRef.current?.focus();
-  }, []);
-
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+    if (e.key === "Escape") { e.preventDefault(); setOpen(false); return; }
     if (!open || list.length === 0) return;
 
     if (e.key === "ArrowDown") {
@@ -205,9 +263,6 @@ export function CompanyAutosuggest({
       e.preventDefault();
       const pick = list[highlighted] ?? list[0];
       if (pick) handleSelect(pick);
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      setOpen(false);
     }
   };
 
@@ -232,7 +287,7 @@ export function CompanyAutosuggest({
         onKeyDown={handleKeyDown}
         onFocus={() => {
           // Open whichever list has content: recent (empty query) or results.
-          if (list.length > 0) setOpen(true);
+          setOpen(true);
         }}
         placeholder={placeholder}
         autoFocus={autoFocus}
@@ -273,64 +328,30 @@ export function CompanyAutosuggest({
       )}
 
       {dropdownOpen && (
-        <ul
-          id="company-autosuggest-list"
-          role="listbox"
+        <div
           className="cas-scroll"
-          aria-label={showingRecent ? "Recent searches" : "Company suggestions"}
-          style={{
-            position: "absolute",
-            top: "calc(100% + 10px)",
-            left: -14,
-            right: -14,
-            zIndex: 200,
-            margin: 0,
-            padding: "4px 0",
-            listStyle: "none",
-            background: "var(--bg-primary)",
-            border: "1px solid var(--glass-border)",
-            borderRadius: "var(--radius-md)",
-            boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
-            maxHeight: 280,
-            overflowY: "auto",
-          }}
+          role="dialog"
+          aria-label="Symbol search"
         >
-          {showingRecent && (
-            <li
-              role="presentation"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "4px 14px 6px",
-                fontSize: 10,
-                letterSpacing: "0.06em",
-                textTransform: "uppercase",
-                color: "var(--text-tertiary)",
-              }}
-            >
-              <span>Recent</span>
-              <button
-                type="button"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  clearRecent();
-                }}
-                style={{
-                  background: "none",
-                  border: "none",
-                  padding: 0,
-                  cursor: "pointer",
-                  fontSize: 10,
-                  letterSpacing: "0.06em",
-                  textTransform: "uppercase",
-                  color: "var(--text-tertiary)",
-                }}
-              >
-                Clear
-              </button>
-            </li>
-          )}
+          <div className="cas-modal-head">
+            <strong>Symbol search</strong>
+            <button type="button" aria-label="Close symbol search" onMouseDown={(e) => { e.preventDefault(); setOpen(false); }}><X size={18} strokeWidth={1.8} aria-hidden="true" /></button>
+          </div>
+          <div className="cas-modal-query">
+            <Search size={17} aria-hidden="true" />
+            <input ref={modalInputRef} value={query} onChange={(e) => { setQuery(e.target.value); setHighlighted(-1); }} onKeyDown={handleKeyDown} placeholder="Search symbol or company" aria-label="Search symbols" autoComplete="off" />
+          </div>
+          {!stockOnly && <div className="cas-category-tabs" role="tablist" aria-label="Instrument category">
+            {SEARCH_CATEGORIES.map((item) => <button type="button" role="tab" key={item} aria-selected={category === item} className={category === item ? "active" : ""} onMouseDown={(e) => e.preventDefault()} onClick={() => { setCategory(item); setHighlighted(-1); }}>{item}</button>)}
+          </div>}
+          <div className="cas-results-caption">INSTRUMENTS</div>
+
+          <ul id="company-autosuggest-list" role="listbox" className="cas-result-list" aria-label="Instrument suggestions" onScroll={(e) => {
+            const el = e.currentTarget;
+            if (el.scrollTop + el.clientHeight >= el.scrollHeight - 120) {
+              setVisibleCount((count) => Math.min(filtered.length, count + 80));
+            }
+          }}>
 
           {list.map((r, i) => (
             <DropdownRow
@@ -343,7 +364,10 @@ export function CompanyAutosuggest({
             />
           ))}
 
-        </ul>
+          {list.length === 0 && <li role="presentation" className="cas-empty">{loading || universeLoading ? "Loading instruments…" : "No matching instruments in this category"}</li>}
+          </ul>
+          {list.some((item) => item.logo_url?.includes("img.logo.dev")) && <div className="cas-attribution">Logos by <a href="https://logo.dev" target="_blank" rel="noopener noreferrer">Logo.dev</a></div>}
+        </div>
       )}
 
       {/* Subtle loading indicator — tiny spinner-free dots beneath input */}
@@ -374,11 +398,11 @@ function DropdownRow({
   onMouseEnter,
   onSelect,
 }: {
-  result: CompanySearchResult;
+  result: SearchInstrument;
   index: number;
   highlighted: boolean;
   onMouseEnter: () => void;
-  onSelect: (r: CompanySearchResult) => void;
+  onSelect: (r: SearchInstrument) => void;
 }): React.ReactElement {
   return (
     <li
@@ -392,67 +416,21 @@ function DropdownRow({
         onSelect(result);
       }}
       onMouseEnter={onMouseEnter}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 10,
-        padding: "7px 14px",
-        cursor: "pointer",
-        background: highlighted ? "var(--surface-hover)" : "transparent",
-        transition: "background 0.1s",
-      }}
+      className={`cas-instrument-row${highlighted ? " active" : ""}`}
     >
-      {/* Company logo (monogram fallback when none / on load error) */}
-      <CompanyLogo
-        logoUrl={result.logo_url}
-        name={result.name}
-        symbol={result.symbol}
-        size={22}
-      />
-
-      {/* Symbol badge */}
-      <span
-        style={{
-          flexShrink: 0,
-          fontFamily: "var(--font-mono)",
-          fontSize: 11,
-          fontWeight: 700,
-          letterSpacing: "0.03em",
-          color: "var(--text-primary)",
-          minWidth: 60,
-        }}
-      >
-        {result.symbol}
-      </span>
-
-      {/* Company name (primary) */}
-      <span
-        style={{
-          flex: 1,
-          fontFamily: "var(--font-ui)",
-          fontSize: 12.5,
-          color: "var(--text-primary)",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-        }}
-      >
-        {result.name}
-      </span>
-
-      {/* Sector (muted) */}
-      {result.sector && (
-        <span
-          style={{
-            flexShrink: 0,
-            fontFamily: "var(--font-ui)",
-            fontSize: 11,
-            color: "var(--text-tertiary)",
-          }}
-        >
-          {result.sector}
+      <span className="cas-instrument-lead">
+        <CompanyLogo logoUrl={result.logo_url} name={result.name} symbol={result.symbol} size={34} />
+        <span className="cas-instrument-copy">
+          <span className="cas-instrument-symbol">{result.symbol}<small>{result.exchange || result.searchCategory || "Stocks"}</small></span>
+          {result.name !== result.symbol && <span className="cas-instrument-name">{result.name}</span>}
         </span>
-      )}
+      </span>
+      <span className="cas-instrument-quote">
+        {result.price != null ? <>
+          <span>{result.currency === "USD" ? "$" : "₹"}{result.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+          <small>{result.change_pct != null ? `${result.change_pct > 0 ? "+" : ""}${result.change_pct.toFixed(2)}%` : ""}{result.quote_source === "charto_relay" ? " · delayed" : ""}</small>
+        </> : <small>{result.isHydrated === false ? "~6s to load" : "—"}</small>}
+      </span>
     </li>
   );
 }

@@ -323,7 +323,7 @@ const Setups = (() => {
     const { dlg, close } = dialog(`
       <div class="sx">
         <aside class="sx-art">
-          <div class="sx-kick"><span class="sx-dot"></span>Your workspace, as it is now</div>
+          <div class="sx-kick">Your workspace</div>
           ${deskMini(shapeOf(live), thumb, sym)}
           ${idStrip(sym, iv, sp)}
           <div class="sx-chips" id="sxChips"></div>
@@ -416,20 +416,27 @@ const Setups = (() => {
   }
 
   // Share targets are plain links the reader's own apps open; nothing is
-  // sent from here. Marks drawn in the icon set's 24-unit, 2px-stroke style.
+  // sent from here. Each shows as a full-colour brand badge: the real mark in
+  // white, served as an image the same way the instrument logos are (a CDN by
+  // brand, not a hand-drawn path that distorts), on a disc of the brand colour.
+  const ICON = (slug) => `https://cdn.simpleicons.org/${slug}/white`;
+  // LinkedIn is not on Simple Icons (brand policy), so it carries its own white
+  // glyph inline rather than a slug. The others resolve to the CDN by slug.
+  const LINKEDIN = '<svg viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M20.45 20.45h-3.56v-5.57c0-1.33-.02-3.04-1.85-3.04-1.86 0-2.14 1.45-2.14 2.94v5.67H9.35V9h3.41v1.56h.05c.48-.9 1.64-1.85 3.37-1.85 3.6 0 4.27 2.37 4.27 5.46v6.28ZM5.34 7.43a2.07 2.07 0 1 1 0-4.14 2.07 2.07 0 0 1 0 4.14Zm1.78 13.02H3.56V9h3.56v11.45ZM22.22 0H1.77C.8 0 0 .78 0 1.73v20.54C0 23.22.8 24 1.77 24h20.45c.98 0 1.78-.78 1.78-1.73V1.73C24 .78 23.2 0 22.22 0Z"/></svg>';
   const TARGETS = [
-    ["WhatsApp", (u, t) => `https://wa.me/?text=${encodeURIComponent(`${t} ${u}`)}`,
-      '<path d="M3.5 20.5 5 16a8.5 8.5 0 1 1 3.2 3.1Z"/><path d="M9 8.5c0 3.3 3.2 6.5 6.5 6.5l1.2-1.6-2.2-1.1-.9.9a5 5 0 0 1-2.8-2.8l.9-.9-1.1-2.2Z"/>'],
-    ["X", (u, t) => `https://x.com/intent/post?text=${encodeURIComponent(t)}&url=${encodeURIComponent(u)}`,
-      '<path d="M4 4l16 16M20 4 4 20"/>'],
-    ["Telegram", (u, t) => `https://t.me/share/url?url=${encodeURIComponent(u)}&text=${encodeURIComponent(t)}`,
-      '<path d="M21 4 3 11l6 2.5L19 7l-8 8 6.5 5Z"/>'],
-    ["LinkedIn", (u) => `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(u)}`,
-      '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 10v7M8 7v.01M12 17v-4a2 2 0 0 1 4 0v4M12 10v7"/>'],
-    ["Email", (u, t) => `mailto:?subject=${encodeURIComponent(t)}&body=${encodeURIComponent(u)}`,
-      '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 6 8.5 7 8.5-7"/>'],
+    ["Facebook", (u) => `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(u)}`, "#1877F2", "facebook"],
+    ["X", (u, t) => `https://x.com/intent/post?text=${encodeURIComponent(t)}&url=${encodeURIComponent(u)}`, "#000000", "x"],
+    ["WhatsApp", (u, t) => `https://wa.me/?text=${encodeURIComponent(`${t} ${u}`)}`, "#25D366", "whatsapp"],
+    ["Telegram", (u, t) => `https://t.me/share/url?url=${encodeURIComponent(u)}&text=${encodeURIComponent(t)}`, "#229ED9", "telegram"],
+    ["LinkedIn", (u) => `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(u)}`, "#0A66C2", LINKEDIN],
   ];
-  const mark = (path) => `<svg class="icon icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
+  // A full-colour brand badge: a disc of the brand's colour (set per chip from
+  // --brand) carrying the real mark in white. The disc is the WRAPPER, so a
+  // dead CDN hides only the glyph and leaves the coloured disc — never a gap.
+  // An inline SVG (one starting with "<") is used as-is; a slug goes to the CDN.
+  const mark = (icon) => `<span class="sx-disc">${/^</.test(icon)
+    ? `<span class="sx-brand">${icon}</span>`
+    : `<img class="sx-brand" src="${ICON(icon)}" alt="" loading="lazy" onerror="this.style.display='none'"/>`}</span>`;
 
   function published(dlg, close, token, sym, title, updated, mini) {
     const url = linkFor(token, sym);
@@ -440,14 +447,12 @@ const Setups = (() => {
           <svg class="sx-check" viewBox="0 0 52 52" aria-hidden="true"><circle cx="26" cy="26" r="23"/><path d="m15 27 7.5 7.5L37.5 19"/></svg>
         </div>
         <h3>${updated ? "The link shows this version now" : "Your workspace is live"}</h3>
-        <p class="sx-lede">${updated
-          ? "Anyone opening the link sees what is on your screen now. Copies people already took are unchanged."
-          : `“${esc(title)}” opens read-only on a live chart, with every widget in place.`}</p>
+        ${updated ? `<p class="sx-lede">Anyone opening the link sees what is on your screen now. Copies people already took are unchanged.</p>` : ""}
         <div class="sx-link">${Icons.svg("lock", "xs")}<input readonly value="${esc(url)}" aria-label="Share link">
-          <button class="btn cta" data-copy>${Icons.svg("copy", "xs")}<span>Copy</span></button></div>
+          <button class="btn icon sx-copy" data-copy title="Copy link" aria-label="Copy link">${Icons.svg("copy", "sm")}</button></div>
+        <div class="sx-share-lab">Share to</div>
         <div class="sx-targets">
-          ${TARGETS.map(([n, , path], i) => `<button type="button" class="sx-target" data-t="${i}" title="Share on ${n}">${mark(path)}<span>${n}</span></button>`).join("")}
-          ${navigator.share ? `<button type="button" class="sx-target" data-t="more" title="More ways to share">${Icons.svg("more", "xs")}<span>More</span></button>` : ""}
+          ${TARGETS.map(([n, , brand, slug], i) => `<button type="button" class="sx-target" data-t="${i}" title="Share on ${n}" style="--brand:${brand}">${mark(slug)}<span>${n}</span></button>`).join("")}
         </div>
       </div>
       <div class="ly-actions">
@@ -598,7 +603,8 @@ const Setups = (() => {
     bar.id = "suBar";
     const canCopy = d.allow_copy || d.own;
     bar.innerHTML = `
-      <span class="su-badge su-mono"><i></i>VIEW ONLY</span>
+      <span class="su-badge">${Icons.svg("eye", "xs")}View only</span>
+      <span class="su-bar-sep"></span>
       <span class="su-bar-title" title="${esc(d.title)}">${esc(d.title)}</span>
       <span class="su-bar-by">by ${esc(d.by)}</span>
       <span class="su-bar-sep"></span>

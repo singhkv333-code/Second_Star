@@ -17307,7 +17307,6 @@ class Handler(BaseHTTPRequestHandler):
             if u.path.startswith("/api/workflows") or \
                     u.path == "/api/strategies" or \
                     u.path == "/api/portfolio/performance" or \
-                    u.path == "/portfolio/scores" or \
                     u.path == "/strategies/baskets" or \
                     u.path == "/users/option-strategies":
                 if _paper is None or _strategies is None:
@@ -17318,8 +17317,6 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(401, {"error": "sign in to open your "
                                                      "portfolio"})
                 q = parse_qs(u.query)
-                if u.path == "/portfolio/scores":
-                    return self._send(*_paper.api_scores(me[0]))
                 if u.path == "/api/portfolio/performance":
                     return self._send(*_paper.api_performance(
                         me[0], (q.get("period") or ["1Y"])[0]))

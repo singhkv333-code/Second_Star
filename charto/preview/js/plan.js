@@ -48,6 +48,13 @@ const Plan = (() => {
   }
 
   function allows(key, n) {
+    // Paywall OFF for now (by request): never pre-block a click, independently
+    // of the server flag. The server default is also off (entitlements.py),
+    // so nothing is refused there either. Restore gating by removing this early
+    // return — the plan-driven logic below is kept intact for that day.
+    return true;
+    // eslint-disable-next-line no-unreachable
+    if (me && me.paywall_enabled === false) return true;
     const v = value(key);
     if (v === undefined || v === null) return true;
     if (typeof v === "boolean") return v;

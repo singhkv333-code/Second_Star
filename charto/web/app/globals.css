@@ -1156,18 +1156,7 @@ body:has(.app-shell-root) {
   }
 }
 
-/* Portfolio meter rows (diversification score) — at <lg drop the 200px
-   label column so the bar fits on narrow viewports. */
-@media (max-width: 1023.98px) {
-  .portfolio-meter-row {
-    grid-template-columns: minmax(0, 1fr) 56px !important;
-    gap: 8px 12px !important;
-    row-gap: 4px;
-  }
-  .portfolio-meter-row > span:first-child {
-    grid-column: 1 / -1;
-  }
-}
+
 
 /* Screener — at <lg stack filter rail above results, tighten padding,
    keep table horizontally scrollable, and collapse the filter rail by
@@ -1742,4 +1731,61 @@ body:has(.app-shell-root) {
 }
 .driver-popover.pivot-tour .driver-popover-arrow-side-bottom {
   border-bottom-color: var(--bg-primary);
+}
+
+/* Website symbol picker mirrors the chart's instrument search surface. */
+.cas-scroll {
+  position: fixed !important; top: min(12vh, 100px) !important;
+  left: 50% !important; right: auto !important; z-index: 10001 !important;
+  transform: translateX(-50%); width: min(760px, calc(100vw - 24px)) !important;
+  max-height: 76vh !important; padding: 0 !important;
+  border-radius: 10px !important; box-shadow: 0 20px 48px rgba(0,0,0,.18) !important;
+  display: flex; flex-direction: column; overflow: hidden !important;
+  background: var(--bg-primary); border: 1px solid var(--glass-border);
+}
+.cas-scroll > :not(.cas-result-list) { flex-shrink: 0; }
+.cas-modal-head, .cas-modal-query, .cas-category-tabs, .cas-results-caption { list-style: none; }
+.cas-modal-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px 10px; }
+.cas-modal-head strong { font-size: 19px; font-weight: 600; letter-spacing: -.02em; color: var(--text-primary); }
+.cas-modal-head button { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.cas-modal-head button:hover { background: var(--bg-elevated); color: var(--text-primary); }
+.cas-modal-query { position: relative; margin: 0 22px 12px; }
+.cas-modal-query > svg { position: absolute; left: 9px; top: 50%; width: 15px; height: 15px; transform: translateY(-50%); color: var(--text-tertiary); pointer-events: none; }
+.cas-modal-query:focus-within > svg { color: var(--text-primary); }
+.cas-modal-query input {
+  display: block; width: 100%; padding: 8px 11px 8px 30px;
+  border: 0; border-radius: 4px;
+  background: hsl(var(--muted)); color: var(--text-primary); font: inherit; font-size: 14px; outline: none;
+}
+.cas-modal-query input::placeholder { color: var(--text-tertiary); }
+.cas-modal-query input:focus-visible { outline: none; }
+.cas-category-tabs { display: flex; gap: 6px; padding: 0 22px 13px; overflow-x: auto; border-bottom: 1px solid var(--glass-border); }
+.cas-category-tabs button { flex: none; border: 0; border-radius: 999px; padding: 7px 12px; background: var(--bg-elevated); color: var(--text-secondary); font-size: 12px; cursor: pointer; }
+.cas-category-tabs button.active { background: var(--text-primary); color: var(--bg-primary); }
+.cas-results-caption { padding: 12px 22px 6px; color: var(--text-tertiary); font-size: 10px; font-weight: 700; letter-spacing: .08em; }
+.cas-result-list { flex: 1 1 auto; min-height: 0; max-height: calc(76vh - 170px); overflow-y: auto; list-style: none; margin: 0; padding: 0 10px 10px; scrollbar-width: thin; }
+.cas-instrument-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center;
+  gap: 12px; min-height: 58px; margin: 0; padding: 9px 10px;
+  border-radius: 6px; cursor: pointer;
+}
+.cas-instrument-row:hover, .cas-instrument-row.active { background: var(--surface-hover); }
+.cas-instrument-lead { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.cas-instrument-lead > img, .cas-instrument-lead > div { flex: none; width: 34px !important; height: 34px !important; }
+.cas-instrument-lead > img { padding: 0 !important; border: 0 !important; border-radius: 0 !important; background: none !important; }
+.cas-instrument-lead > div { background: none !important; color: var(--text-tertiary) !important; font-size: 15px !important; }
+.cas-instrument-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.cas-instrument-symbol { display: flex; align-items: center; gap: 7px; font-size: 14px; font-weight: 600; letter-spacing: -.012em; color: var(--text-primary); }
+.cas-instrument-symbol small { flex: none; padding: 2px 5px; border-radius: 4px; background: var(--bg-elevated); color: var(--text-tertiary); font-size: 9.5px; font-weight: 600; letter-spacing: .04em; }
+.cas-instrument-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--text-secondary); }
+.cas-instrument-quote { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; min-width: 76px; color: var(--text-primary); font-size: 12px; font-variant-numeric: tabular-nums; }
+.cas-instrument-quote small { color: var(--text-tertiary); font-size: 10px; }
+.cas-empty { padding: 38px 22px; text-align: center; color: var(--text-secondary); font-size: 13px; }
+.cas-attribution { padding: 4px 22px 10px; color: var(--text-tertiary); font-size: 10px; }
+.cas-attribution a { color: inherit; text-underline-offset: 2px; }
+@media (max-width: 640px) {
+  .cas-scroll { top: 5vh !important; max-height: 90vh !important; }
+  .cas-result-list { max-height: calc(90vh - 170px); }
+  .cas-modal-head, .cas-category-tabs { padding-left: 16px; padding-right: 16px; }
+  .cas-modal-query { margin-left: 16px; margin-right: 16px; }
 }

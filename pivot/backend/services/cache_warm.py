@@ -14,7 +14,7 @@ fail the login response. Users with no holdings, no Kite session, or any
 other edge case still get a normal successful login.
 
 Warm targets (see task doc — this is the exact agreed scope):
-    a. Portfolio: summary, holdings, scores, performance(period="1Y").
+    a. Portfolio: summary, holdings, performance(period="1Y").
        Reuses the same cache keys / helper fns already in
        :mod:`services.portfolio_cache`, so warming populates the exact
        entries the endpoints read from.
@@ -83,11 +83,11 @@ def warm_user_cache(user_id: int) -> None:
         holdings: list[dict[str, Any]] = []
         try:
             from backend.routers.portfolio import (
-                compute_portfolio_scores, get_kite_token,
+                get_kite_token,
             )
             from backend.services.portfolio_cache import (
                 cache_aside, get_holdings_cached, get_summary_cached,
-                performance_cache_key, scores_cache_key,
+                performance_cache_key,
             )
 
             token = get_kite_token(user_id, db)
@@ -112,18 +112,6 @@ def warm_user_cache(user_id: int) -> None:
                     user_id, e,
                 )
                 holdings = []
-
-            # scores — populates portfolio:scores:{user_id}
-            try:
-                cache_aside(
-                    scores_cache_key(user_id),
-                    lambda: compute_portfolio_scores(db, user_id),
-                )
-            except Exception as e:  # noqa: BLE001
-                logger.warning(
-                    "cache_warm: portfolio scores failed for user %s: %s",
-                    user_id, e,
-                )
 
             # performance (period="1Y" — the FE default)
             # populates portfolio:performance:{user_id}:1Y

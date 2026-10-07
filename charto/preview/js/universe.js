@@ -98,6 +98,23 @@ const Universe = (() => {
     return MCX.has(s) ? "MCX" : "NSE";
   }
 
+  function category(sym) {
+    const s = String(sym || "").toUpperCase();
+    const m = data && data.meta[s];
+    const kind = String(m ? m[1] : "equity").toLowerCase();
+    const ex = venue(s);
+    if (kind.includes("crypto") || ex === "BYBIT" || ex === "COINBASE" || /(?:USDT|-USD)$/.test(s)) return "Crypto";
+    if (kind.includes("option") || ex === "NFO") return "Options";
+    if (kind.includes("index") || kind.includes("volatility")) return "Indices";
+    if (ex === "MCX" || kind.includes("commodity")) return "Commodities";
+    return "Stocks";
+  }
+  const categories = ["All", "Stocks", "Crypto", "Indices", "Commodities", "Options"];
+  function tabsHTML() {
+    return `<div class="symbol-categories" role="tablist" aria-label="Instrument category">${categories.map((c) =>
+      `<button type="button" role="tab" aria-selected="${c === "All"}" data-category="${c}">${c}</button>`).join("")}</div>`;
+  }
+
   /** Price decimals the instrument is quoted in (its tick size): 4 for an
    *  INR pair, 0 for gold quoted in whole rupees. null = not in the master. */
   function decimals(sym) {
@@ -254,8 +271,8 @@ const Universe = (() => {
   }
 
   /* ── the picker ─────────────────────────────────────────────────────────
-   * Anchored to whatever element was clicked and appended to <body>, so it
-   * can open from a legend sitting inside an overflow-hidden chart pane
+   * Appended to <body>, so it can open from a legend sitting inside an
+   * overflow-hidden chart pane
    * without being clipped. One instance at a time.
    */
   let popEl = null, popAnchor = null, offOutside = null;
@@ -285,8 +302,10 @@ const Universe = (() => {
     pop.className = "dropdown floating sym-picker open";
     pop.dataset.for = anchor.dataset.pickerId;
     pop.innerHTML =
-      Icons.field(`<input class="pick-search" placeholder="Search instruments…"
-              autocomplete="off" spellcheck="false" />`) +
+      `<div class="symbol-dialog-head"><strong>Symbol search</strong><button type="button" class="symbol-close" aria-label="Close symbol search"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>` +
+      Icons.field(`<input class="pick-search" placeholder="Search symbol or company"
+              autocomplete="off" spellcheck="false" />`) + tabsHTML() +
+      `<div class="symbol-results-label">INSTRUMENTS</div>` +
       `<div class="pick-list"></div>` +
       (note ? `<div class="pick-note">${note}</div>` : "");
     document.body.appendChild(pop);
@@ -294,22 +313,17 @@ const Universe = (() => {
     popAnchor = anchor;
     anchor.setAttribute("aria-expanded", "true");
 
-    // Fixed to the anchor's own rect, flipped up when the bottom half of the
-    // window has no room — a legend picker opening off-screen is a dead menu.
-    const r = anchor.getBoundingClientRect();
-    const W = 360;   // the instrument row's width — see .inst-row
+    // Center the picker regardless of which chart control opened it.
+    const W = Math.min(760, innerWidth - 24);
     pop.style.width = W + "px";
-    pop.style.left = Math.max(8, Math.min(r.left, innerWidth - W - 8)) + "px";
-    if (r.bottom + 380 > innerHeight && r.top > 380) {
-      pop.style.bottom = (innerHeight - r.top + 6) + "px";
-    } else {
-      pop.style.top = (r.bottom + 6) + "px";
-    }
+    pop.style.left = (innerWidth - W) / 2 + "px";
+    pop.style.top = "min(12vh, 100px)";
 
     const input = pop.querySelector(".pick-search");
     const list = pop.querySelector(".pick-list");
     const cur = String(current || "").toUpperCase();
 
+    let selectedCategory = "All";
     function render(query) {
       if (!data) {
         list.innerHTML = '<div class="item" style="color:var(--faint)">loading instruments…</div>';
@@ -317,12 +331,12 @@ const Universe = (() => {
       }
       const q = query.trim().toUpperCase();
       const hits = (q
-        ? data.symbols.filter((s) => s.includes(q)
+        ? data.symbols.filter((s) => (selectedCategory === "All" || category(s) === selectedCategory) && (s.includes(q)
             || (data.names[s] || "").toUpperCase().includes(q)
-            || (data.short[s] || "").toUpperCase().includes(q))
+            || (data.short[s] || "").toUpperCase().includes(q)))
           .sort((a, b) => (a.startsWith(q) ? 0 : 1) - (b.startsWith(q) ? 0 : 1)
                           || a.localeCompare(b))
-        : data.symbols);
+        : data.symbols.filter((s) => selectedCategory === "All" || category(s) === selectedCategory));
       list.innerHTML = hits.map((s) => rowHTML(s, {
         current: cur, cold: !data.hydrated.has(s),
       })).join("") || '<div class="item" style="color:var(--faint)">no match</div>';
@@ -336,6 +350,14 @@ const Universe = (() => {
     load().then(() => { if (popEl === pop) render(input.value); });
 
     input.addEventListener("input", () => render(input.value));
+    pop.querySelector(".symbol-close").addEventListener("click", close);
+    pop.querySelector(".symbol-categories").addEventListener("click", (e) => {
+      const tab = e.target.closest("[data-category]");
+      if (!tab) return;
+      selectedCategory = tab.dataset.category;
+      pop.querySelectorAll("[data-category]").forEach((b) => b.setAttribute("aria-selected", String(b === tab)));
+      render(input.value);
+    });
     input.addEventListener("keydown", (e) => {
       e.stopPropagation();                       // never reaches the drawing layer
       if (e.key === "Escape") close();
@@ -352,6 +374,7 @@ const Universe = (() => {
       onPick(s);
     });
     pop.addEventListener("mousedown", (e) => e.stopPropagation());
+    pop.addEventListener("click", (e) => e.stopPropagation());
 
     // capture phase, and it must not fire on the click that opened us
     offOutside = (e) => { if (!pop.contains(e.target) && !anchor.contains(e.target)) close(); };
@@ -360,5 +383,5 @@ const Universe = (() => {
   }
 
   return { load, peek, logo, label, logoHTML, open, close,
-           rowHTML, quoteWatch, venue, decimals, shown };
+           rowHTML, quoteWatch, venue, category, tabsHTML, decimals, shown };
 })();

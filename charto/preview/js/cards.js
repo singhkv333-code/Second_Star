@@ -119,6 +119,281 @@ const Cards = (() => {
   const STRENGTH = { Strong: "s-strong", Moderate: "s-mid", Weak: "s-weak" };
   const BADGE = { confirmed: "ok", broken: "bad" };
 
+  /* ── the formation glyph ──────────────────────────────────────────────────
+   *
+   * A small schematic drawing of the shape, carried on the tile so the name
+   * is not the only thing that says what was found. It is a DIAGRAM, not a
+   * reading of these bars: a bull flag is a pole and a down-drifting channel
+   * no matter which stock drew it, so the glyph is keyed on the pattern and
+   * its bias, never on the payload's prices — the card already prints those.
+   *
+   * Direction is the one live bit: a bull flag's pole runs up and a bear
+   * flag's runs down, so `.up`/`.down` flip the geometry and tint. Anything
+   * we don't have a purpose-drawn shape for falls back to a plain trend
+   * stroke in the bias colour rather than a wrong picture. */
+  const GLYPH_VB = "0 0 40 28";
+  function glyphBody(name, dir) {
+    const n = (name || "").toLowerCase();
+    // A flag: a steep pole, then a tight channel that drifts AGAINST the pole
+    // (the consolidation), then the breakout tick resuming the pole's way.
+    if (n.includes("flag") || n.includes("pennant")) {
+      return dir === "down"
+        ? `<path class="g-pole" d="M4 4 L13 20"/>`
+          + `<path class="g-chan" d="M13 20 L22 15 M17 24 L26 19"/>`
+          + `<path class="g-brk" d="M24 17 L32 25"/>`
+        : `<path class="g-pole" d="M4 24 L13 8"/>`
+          + `<path class="g-chan" d="M13 8 L22 13 M17 4 L26 9"/>`
+          + `<path class="g-brk" d="M24 11 L32 3"/>`;
+    }
+    // Triangles / wedges: two converging edges resolving toward the apex.
+    if (n.includes("triangle") || n.includes("wedge")) {
+      return dir === "down"
+        ? `<path class="g-chan" d="M4 8 L30 14 M4 20 L30 15"/>`
+          + `<path class="g-brk" d="M28 15 L36 22"/>`
+        : `<path class="g-chan" d="M4 20 L30 14 M4 8 L30 13"/>`
+          + `<path class="g-brk" d="M28 13 L36 6"/>`;
+    }
+    // Double tops / bottoms: the twin turn with the neckline it breaks.
+    if (n.includes("double") || n.includes("head")) {
+      return dir === "down"
+        ? `<path class="g-chan" d="M4 20 L11 6 L18 18 L25 6 L32 20"/>`
+          + `<path class="g-brk" d="M11 18 L32 18"/>`
+        : `<path class="g-chan" d="M4 8 L11 22 L18 10 L25 22 L32 8"/>`
+          + `<path class="g-brk" d="M11 10 L32 10"/>`;
+    }
+    // Channel / range: two parallels.
+    if (n.includes("channel") || n.includes("range") || n.includes("rectangle")) {
+      return `<path class="g-chan" d="M4 9 L34 9 M4 19 L34 19"/>`
+        + `<path class="g-brk" d="${dir === "down" ? "M30 19 L37 25" : "M30 9 L37 3"}"/>`;
+    }
+    // Fallback: a single directional stroke. Honest about saying little.
+    return dir === "down"
+      ? `<path class="g-brk" d="M4 6 L20 15 L36 24"/>`
+      : `<path class="g-brk" d="M4 24 L20 13 L36 4"/>`;
+  }
+  function patternGlyph(name, bias) {
+    const dir = bias === "bearish" ? "down" : "up";
+    return `<span class="scan-glyph scan-glyph-${dir}" aria-hidden="true">`
+      + `<svg viewBox="${GLYPH_VB}" fill="none" xmlns="http://www.w3.org/2000/svg">`
+      + glyphBody(name, dir) + `</svg></span>`;
+  }
+
+  /* ── the flag schematic ────────────────────────────────────────────────────
+   *
+   * The hero answer to "is there a flag": the shape drawn to scale from the
+   * detector's own coordinates — the pole's two ends, the consolidation box,
+   * and the measured-move target it projects to. It is a DIAGRAM of real
+   * numbers, not a reading invented here: every price comes off `geo`, which
+   * the backend fills only when all five are real (dataserver `_patterns_card`),
+   * and the "not to scale" line is honest because the X axis is schematic
+   * while the Y axis is true. No coordinate is guessed; a missing `geo` means
+   * no diagram, never a drawn placeholder. */
+  function flagDiagram(sym, g, up) {
+    // The schematic is drawn in the same green/red the chart paints the
+    // formation with (--pat-up / --pat-down), not the candle tones, so the
+    // diagram and the real drawing on the bars agree.
+    const col = up ? "var(--pat-up)" : "var(--pat-down)";
+    const fill = up ? "var(--pat-up-soft)" : "var(--pat-down-soft)";
+    const W = 520, H = 196, padT = 24, padB = 34, padL = 46, padR = 128;
+    const ps = [g.pole_from, g.pole_to, g.flag_high, g.flag_low, g.measured_move]
+      .filter((v) => Number.isFinite(Number(v))).map(Number);
+    let lo = Math.min(...ps), hi = Math.max(...ps);
+    const pad = (hi - lo) * 0.18 || 1; lo -= pad; hi += pad;
+    const Y = (v) => padT + (H - padT - padB) * (hi - v) / (hi - lo);
+    const x0 = padL, x1 = W - padR;
+    const xA = x0, xB = x0 + (x1 - x0) * 0.42,
+          xC = x0 + (x1 - x0) * 0.70, xD = x1;
+    const yHi = Y(g.flag_high), yLo = Y(g.flag_low);
+    const yTop = Math.min(yHi, yLo), hBox = Math.abs(yLo - yHi);
+    // price prints next to the detector's own figure, no re-rounding
+    const px = (v) => esc(money(sym, v));
+    const T = (x, y, s, anc, c, w) =>
+      `<text x="${x}" y="${y}" font-size="11" fill="${c}" text-anchor="${anc}"`
+      + `${w ? ` font-weight="${w}"` : ""}>${s}</text>`;
+    const midTop = yTop + Math.min(5, hBox * 0.25),
+          midBot = yTop + hBox - Math.min(5, hBox * 0.25);
+    const dx = xC - xB;
+    return `<svg viewBox="0 0 ${W} ${H}" fill="none" class="pw-svg" preserveAspectRatio="xMidYMid meet">`
+      // consolidation box
+      + `<rect x="${xB.toFixed(1)}" y="${yTop.toFixed(1)}" width="${dx.toFixed(1)}"`
+      + ` height="${hBox.toFixed(1)}" rx="2" fill="${fill}"/>`
+      + `<line x1="${xB}" y1="${yHi}" x2="${xC}" y2="${yHi}" stroke="${col}" stroke-width="1.25" stroke-opacity=".55"/>`
+      + `<line x1="${xB}" y1="${yLo}" x2="${xC}" y2="${yLo}" stroke="${col}" stroke-width="1.25" stroke-opacity=".55"/>`
+      // the pole
+      + `<path d="M${xA} ${Y(g.pole_from).toFixed(1)} L${xB} ${Y(g.pole_to).toFixed(1)}"`
+      + ` stroke="${col}" stroke-width="3" stroke-linecap="round"/>`
+      // the consolidation path (muted, inside the box)
+      + `<path d="M${xB} ${Y(g.pole_to).toFixed(1)}`
+      + ` L${(xB + dx * 0.20).toFixed(1)} ${midBot.toFixed(1)}`
+      + ` L${(xB + dx * 0.42).toFixed(1)} ${midTop.toFixed(1)}`
+      + ` L${(xB + dx * 0.62).toFixed(1)} ${midBot.toFixed(1)}`
+      + ` L${(xB + dx * 0.82).toFixed(1)} ${midTop.toFixed(1)}`
+      + ` L${xC} ${midBot.toFixed(1)}" fill="none" stroke="var(--muted-foreground)"`
+      + ` stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" opacity=".6"/>`
+      // breakout projection (dashed): leaves the box from the corner the
+      // move resumes through — top-right for a bull flag, bottom-right for a
+      // bear — so it never crosses the high/low labels sitting beside the box.
+      + `<path d="M${xC} ${(up ? yHi : yLo).toFixed(1)} L${xD} ${Y(g.measured_move).toFixed(1)}"`
+      + ` stroke="var(--faint)" stroke-width="1.5" stroke-dasharray="4 4" stroke-linecap="round"/>`
+      // faint guide ticks carrying the flag high / low out to their labels
+      + `<line x1="${xC}" y1="${yHi}" x2="${xC + 44}" y2="${yHi}" stroke="${col}" stroke-width="1" stroke-dasharray="2 3" stroke-opacity=".4"/>`
+      + `<line x1="${xC}" y1="${yLo}" x2="${xC + 44}" y2="${yLo}" stroke="${col}" stroke-width="1" stroke-dasharray="2 3" stroke-opacity=".4"/>`
+      // anchor dots
+      + `<circle cx="${xA}" cy="${Y(g.pole_from).toFixed(1)}" r="3.5" fill="${col}"/>`
+      + `<circle cx="${xB}" cy="${Y(g.pole_to).toFixed(1)}" r="3.5" fill="${col}"/>`
+      // labels
+      + T((xA + xB) / 2, Y((g.pole_from + g.pole_to) / 2) - 9, "Pole", "middle", col, 600)
+      + T(xA, Y(g.pole_from) + 17, px(g.pole_from), "start", "var(--muted-foreground)")
+      + T(xB, Y(g.pole_to) - 8, px(g.pole_to), "middle", "var(--muted-foreground)")
+      + T((xB + xC) / 2, yTop + hBox + 19, "Flag (consolidation)", "middle", "var(--muted-foreground)")
+      + T(xC + 48, yHi + 3.5, `${px(g.flag_high)} high`, "start", "var(--muted-foreground)")
+      + T(xC + 48, yLo + 3.5, `${px(g.flag_low)} low`, "start", "var(--muted-foreground)")
+      + T(xD, Y(g.measured_move) + (up ? -9 : 15), "Breakout?", "end", "var(--faint)")
+      + `</svg>`;
+  }
+
+  /* The full pattern widget — header, schematic (or a large glyph well when
+   * the formation has no scale geometry), a borderless stat strip and an
+   * honest-boundary footer. It is the view a condensed list row expands into,
+   * so it is built for EVERY formation, not only the flags: a flag carries its
+   * `geo` and draws to scale; a double top / triangle / channel has no scale
+   * coordinates from the backend, so it shows its directional glyph large and
+   * reports only the facts the detector actually gave — the window, the
+   * strength, and the one measured level where there is one. Nothing is
+   * invented to fill the card; a missing number is a stat that is not there. */
+  function patternHero(c, p) {
+    const sym = c.symbol;
+    const up = p.bias !== "bearish";
+    const g = p.geo;
+    const hasGeo = g && g.kind === "flag";
+    const dir = up ? "up" : "down";
+    const icon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"`
+      + ` stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">`
+      + `<path d="M3 17 L9 11 L13 15 L21 7"/><path d="M21 7 L15 7 M21 7 L21 13"/></svg>`;
+    const confirmed = p.status === "confirmed" || !!p.broke_at;
+    const pills = [
+      confirmed ? "" : `<span class="pw-pill warn">Unconfirmed</span>`,
+      p.bias && p.bias !== "neutral"
+        ? `<span class="pw-pill ${dir}">${esc(cap(p.bias))} bias</span>` : "",
+      p.strength ? `<span class="pw-pill plain">${esc(cap(p.strength))}</span>` : "",
+    ].filter(Boolean).join("");
+    const sub = [esc(sym), c.interval ? `${esc(c.interval)} chart` : "",
+                 span(p.from, p.to)].filter(Boolean).join(" · ");
+    const stat = (k, v, s, sc) =>
+      `<div class="pw-stat"><div class="k">${esc(k)}</div>`
+      + `<div class="v">${v}</div>`
+      + (s ? `<div class="s${sc ? " " + sc : ""}">${s}</div>` : "") + `</div>`;
+
+    let figure, stats;
+    if (hasGeo) {
+      // Flag: the shape drawn to scale from the detector's own coordinates, and
+      // a stat strip of the pole / rise / flag-range numbers it is made of.
+      // The pole's % move is derived HERE only as a presentation of two
+      // detector numbers (to − from over from) — a ratio of givens, not a new
+      // measurement — and is dropped if the base is unusable.
+      const base = Number(g.pole_from);
+      const pct = Number.isFinite(base) && base !== 0
+        ? ((Number(g.pole_to) - base) / Math.abs(base)) * 100 : null;
+      const wide = Number(g.flag_high) - Number(g.flag_low);
+      // The pole stat is the pole's LENGTH — its magnitude — with the signed %
+      // beside it carrying the direction. A bear flag's pole is a drop, so the
+      // length is a positive number falling at a negative rate; printing "₹-37"
+      // for a length reads as a typo.
+      const poleMag = Math.abs(g.pole_to - g.pole_from);
+      figure = `<div class="pw-diagram">${flagDiagram(sym, g, up)}</div>`
+        + `<div class="pw-note">Schematic — price true, spacing not to scale</div>`;
+      stats = `<div class="pw-stats">`
+        + stat("Pole", esc(money(sym, poleMag)),
+               pct != null ? `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%` : "",
+               pct != null ? (pct >= 0 ? "up" : "down") : "")
+        + stat(up ? "Rise" : "Decline", esc(money(sym, g.pole_from)),
+               `to ${esc(money(sym, g.pole_to))}`)
+        + stat("Flag range", esc(money(sym, g.flag_low)),
+               `to ${esc(money(sym, g.flag_high))}`
+               + (Number.isFinite(wide) ? ` · ${esc(money(sym, Math.abs(wide)))} wide` : ""))
+        + `</div>`;
+    } else {
+      // No scale geometry: NO diagram. A formation the backend did not give
+      // scale coordinates for (a double top, a triangle) cannot be drawn to the
+      // bars, and a stylised glyph standing in for a real schematic reads as a
+      // broken figure — a scribble in a tinted box — not as honesty about what
+      // is missing. So the card drops the picture entirely and shows only the
+      // facts the detector DID give: the measured level a reader acts on, with
+      // its verdict (broke / watching); the window; the strength. The header's
+      // own icon and bias pill still carry the direction. Nothing is invented.
+      figure = "";
+      const facts = [];
+      if (p.measure && p.measure.value != null)
+        facts.push(stat(cap(p.measure.label || "Level"),
+          esc(money(sym, p.measure.value)),
+          p.broke_at ? `broke ${esc(when(p.broke_at))}`
+                     : (confirmed ? "confirmed" : "not yet broken")));
+      const winText = span(p.from, p.to);
+      if (winText) facts.push(stat("Window", esc(winText), ""));
+      if (p.strength)
+        facts.push(stat("Strength", esc(cap(p.strength)),
+          p.bias && p.bias !== "neutral" ? `${esc(cap(p.bias))} reading` : ""));
+      stats = facts.length ? `<div class="pw-stats">${facts.join("")}</div>` : "";
+    }
+
+    const warn = confirmed ? "" :
+      `<div class="pw-foot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"`
+      + ` stroke-width="2" stroke-linecap="round" stroke-linejoin="round">`
+      + `<path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>`
+      + `<div><b>Pattern is drawn but not yet confirmed.</b> Treat as a watch, not a signal.</div></div>`;
+    return `<div class="pw ${dir}"${p.drawn && p.id ? ` data-ann="${esc(p.id)}"` : ""}>`
+      + `<div class="pw-head"><div class="pw-ico ${dir}">${icon}</div>`
+      + `<div class="pw-htext"><div class="pw-title">${esc(cap(p.name))}</div>`
+      + `<div class="pw-sub">${sub}</div></div>`
+      + `<div class="pw-pills">${pills}</div></div>`
+      + figure + stats + warn + `</div>`;
+  }
+
+  /* ── the condensed formation row ──────────────────────────────────────────
+   *
+   * One formation as a single scannable line rather than a tile: a direction
+   * arrow and the name, the window beneath it; the strength in the middle; and
+   * the measured level with its role closed against the right edge, so every
+   * figure in the list stacks into one column. The whole row is a button —
+   * clicking it expands the full detail card (schematic, stats, the watch-not-
+   * signal boundary) inline beneath, which is why the index is carried in
+   * `data-pat`: the panel it toggles is pre-built once and sits in the fold
+   * below, keyed by the same index. A row still carries `data-ann`, so hovering
+   * it lights the drawn shape on the chart exactly as the old tile did. */
+  function patternRow(sym, p, idx) {
+    const up = p.bias !== "bearish";
+    const arrow = p.bias === "bearish"
+      ? `<span class="pl-arrow dn" aria-hidden="true">▼</span>`
+      : (p.bias === "bullish" || up
+          ? `<span class="pl-arrow up" aria-hidden="true">▲</span>` : "");
+    const sub = span(p.from, p.to);
+    const strengthCls = STRENGTH[cap(p.strength || "")] || "";
+    const strength = p.strength
+      ? `<span class="pl-str ${strengthCls}">${esc(cap(p.strength))}</span>` : "";
+    // The measured level and its role (Neckline / Pole …), the one number a
+    // reader acts on. Printed only when the detector gave it; its tense — broke
+    // vs. still open — rides along so the figure never reads as settled when it
+    // is not.
+    // Always its own cell, empty or not, so the four-column grid stays aligned
+    // and the caret keeps the last column whether or not a level was measured.
+    const fact = (p.measure && p.measure.value != null)
+      ? `<span class="pl-fact"><b>${esc(money(sym, p.measure.value))}</b>`
+        + `<span>${esc(cap(p.measure.label || "Level"))}`
+        + (p.broke_at ? ` · broke` : "") + `</span></span>`
+      : `<span class="pl-fact"></span>`;
+    return `<button type="button" class="pl-row" data-pat="${idx}"`
+      + (p.drawn && p.id ? ` data-ann="${esc(p.id)}"` : "")
+      + ` aria-expanded="false">`
+      + `<span class="pl-name"><span class="pl-nm">${arrow}${esc(cap(p.name))}</span>`
+      + (sub ? `<span class="pl-sub">${esc(sub)}</span>` : "") + `</span>`
+      + `<span class="pl-mid">${strength}</span>`
+      + fact
+      + `<span class="pl-caret" aria-hidden="true">`
+      + `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"`
+      + ` stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>`
+      + `</span></button>`;
+  }
+
   /** One row of a list: when it happened, what it was, and — where there is
    *  one — the price it happened at, closed against the card's right edge so
    *  every figure in the panel stacks into one column. */
@@ -1571,58 +1846,45 @@ const Cards = (() => {
     const events = (c.events || []).map((e) =>
       row("", null, when(e.t), esc(e.what), money(sym, e.price))).join("");
 
-    /* A formation gets a tile rather than a row because it is four facts, not
-     * one: what it is, when it ran, which way the textbook reads it, and the
-     * single number that decides it. Stacked as rows those four would need
-     * four columns and the panel would become a spreadsheet. */
-    const allTiles = (c.chart_patterns || []).map((p) => {
-      const badge = p.strength
-        ? `<span class="scan-badge ${STRENGTH[cap(p.strength)] || "s-mid"}">`
-          + `${esc(cap(p.strength))}</span>`
-        : "";
-      const sub = [span(p.from, p.to), p.bias && p.bias !== "neutral"
-        ? `${p.bias} bias` : ""].filter(Boolean).join(" · ");
-      // The measurement and what became of it are one sentence: a neckline
-      // that broke is a different fact from a neckline that hasn't, and
-      // printing the level with no verdict beside it invites the reader to
-      // supply the optimistic one.
-      const fact = p.measure
-        ? `<span class="scan-fact">${esc(p.measure.label)} `
-          + `<b>${esc(money(sym, p.measure.value))}</b>`
-          + (p.broke_at ? `<span class="broke"> broke ${esc(when(p.broke_at))}</span>` : "")
-          + `</span>`
-        : "";
-      return `<div class="scan-tile${p.drawn ? " drawn" : ""}"`
-        + (p.drawn && p.id ? ` data-ann="${esc(p.id)}"` : "")
-        + `>${badge}<b class="nm">${esc(cap(p.name))}</b>`
-        + `<span class="sub">${esc(sub)}</span>${fact}</div>`;
-    });
-
-    /* Thirteen tiles is a gallery, not a panel — the eye cannot rank a grid,
-     * so the confirmed formation that answers the question carries the same
-     * weight as the ninth moderate nobody asked about. The backend orders
-     * them (drawn, then confirmed, then strongest) and says how many are
-     * worth showing; the rest fold.
+    /* A formation is four facts — what it is, when it ran, which way the
+     * textbook reads it, and the one number that decides it — carried as a
+     * clean, scannable ROW rather than a tile in a grid. The eye cannot rank a
+     * grid, so a gallery of tiles gave the confirmed formation that answers the
+     * question the same weight as the ninth moderate nobody asked about. A
+     * ranked list reads top-down, and each row expands IN PLACE into the full
+     * detail card (schematic, stats, the watch-not-signal boundary) — so the
+     * depth that used to live in the tiles is one click away on every row, not
+     * only on the flags. The backend orders them (drawn, then confirmed, then
+     * strongest) and says how many are worth showing; the rest fold.
      *
-     * In BRIEF the head of that list is already above the fold as hero cards,
-     * so the body inside the fold starts after them. Printing the same
-     * formation twice — once above and once inside — is the panel repeating
-     * itself, and it was doing exactly that while also arguing with its own
-     * "N more" count. */
-    const briefMode = c.density === "brief";
-    const heroN = briefMode
-      ? Math.min(allTiles.length, counts.chart_shown || 3) : 0;
-    const bodyTiles = allTiles.slice(heroN);
-    const nShow = briefMode
-      ? bodyTiles.length
-      : Math.min(allTiles.length, counts.chart_shown || allTiles.length);
-    const tiles = (briefMode ? bodyTiles : allTiles.slice(0, nShow)).join("");
-    const tilesRest = briefMode ? [] : allTiles.slice(nShow);
-    const tilesMore = tilesRest.length
-      ? `<button type="button" class="scan-more" data-more="[data-more-tiles]">`
-        + `${tilesRest.length} more</button>`
-        + `<div data-more-tiles hidden><div class="scan-tiles">`
-        + `${tilesRest.join("")}</div></div>`
+     * Rows and their pre-built detail panels are indexed in lockstep across the
+     * WHOLE formation list, so the "N more" fold can reveal later rows without
+     * their detail indices colliding with the head's. */
+    const srcPatterns = c.chart_patterns || [];
+    const nShow = Math.min(srcPatterns.length,
+      counts.chart_shown || srcPatterns.length);
+    const shownRows = srcPatterns.slice(0, nShow)
+      .map((p, i) => patternRow(sym, p, i)).join("");
+    const restRows = srcPatterns.slice(nShow)
+      .map((p, i) => patternRow(sym, p, nShow + i)).join("");
+    // Every formation's detail panel, keyed by its absolute index — built once
+    // and shared whether the row is in the head or behind the fold.
+    const detailPanels = srcPatterns.map((p, i) =>
+      `<div class="pl-detail" data-pat-detail="${i}" hidden>`
+      + patternHero(c, p) + `</div>`).join("");
+    // The overflow rows live INSIDE the same list card, hidden until revealed,
+    // so "N more" extends one connected table rather than opening a second
+    // bordered list beneath the first. The detail panels sit at the end of the
+    // same card, so expanding any row — head or revealed — drops its detail in
+    // place within the one list.
+    const restWrap = restRows
+      ? `<div class="pl-rest" data-more-rows hidden>${restRows}</div>` : "";
+    const rowsMore = restRows
+      ? `<button type="button" class="scan-more" data-more="[data-more-rows]">`
+        + `${srcPatterns.length - nShow} more</button>`
+      : "";
+    const patternBlock = shownRows
+      ? `<div class="pl-list">${shownRows}${restWrap}${detailPanels}</div>${rowsMore}`
       : "";
 
     /* A candle row closes on its BIAS where a structure row closes on its
@@ -1653,66 +1915,54 @@ const Cards = (() => {
     const foot = `<div class="scan-foot">${esc(c.bars_scanned)} ${esc(c.interval)} bars`
       + (c.window ? ` · ${esc(c.window)}` : "") + `</div>`;
 
-    /* The whole sweep, which is now a BODY rather than the return value. In
-     * brief mode it is still built and still shipped — folded behind a
-     * control, never dropped. A panel that discards what the sweep found
-     * would make "show me the rest" a second scan of the same bars. */
-    const full = `<div class="scan-stats">${stats}</div>`
-      + section("Structure events", "", events)
-      + section("Chart patterns",
-                drew(counts.chart_found, counts.chart_drawn, "found", "drawn"),
-                tiles && `<div class="scan-tiles">${tiles}</div>${tilesMore}`)
+    const briefMode = c.density === "brief";
+
+    /* The chart-patterns section: the clean formation list, with the "N more"
+     * fold and the detail panels its rows expand into. One block, used as the
+     * section body in the full sweep and as the brief head alike, so the two
+     * modes render the same list rather than two divergent ones. */
+    const patternSection = section("Chart patterns",
+      drew(counts.chart_found, counts.chart_drawn, "found", "drawn"), patternBlock);
+
+    /* The whole sweep, which is a BODY rather than the return value. In brief
+     * mode the formation list is the head (above the fold), so the folded body
+     * carries only what the head did not — a panel that repeated the list would
+     * also duplicate its detail-panel ids and break the expand wiring. */
+    const sweepRest = section("Structure events", "", events)
       + section("Candlestick patterns",
                 drew(counts.candle_bars, counts.candles_marked, "bars", "marked"),
                 candles && `<div class="scan-rows${more ? " capped" : ""}">${candles}</div>${more}`);
 
-    if (!briefMode) return full + foot;
+    if (!briefMode) {
+      return `<div class="scan-stats">${stats}</div>`
+        + section("Structure events", "", events)
+        + patternSection
+        + section("Candlestick patterns",
+                  drew(counts.candle_bars, counts.candles_marked, "bars", "marked"),
+                  candles && `<div class="scan-rows${more ? " capped" : ""}">${candles}</div>${more}`)
+        + foot;
+    }
 
     /* ── the brief head ───────────────────────────────────────────────
      *
-     * A sweep that marked nothing is EVIDENCE for the prose, not the answer
-     * to the question, and it used to render at the same weight either way:
-     * "whats this" over a screenshot came back as four lines of prose
-     * followed by a stat grid, a six-row events table and thirteen hero
-     * tiles. The reader met an inventory where they had asked a question.
-     *
-     * The first fix for that was to shrink the tiles into pills, and it was
-     * the wrong half of the problem to solve. Thirteen tiles is bad because
-     * of THIRTEEN, not because of tile: a formation is four facts — what it
-     * is, when it ran, which way it reads, and the number that decides it —
-     * and a pill can carry one and a half of them. Shrinking the card threw
-     * away the measurement, which is the fact a reader actually acts on, and
-     * left a row of chips that looked like filter controls rather than
-     * findings.
-     *
-     * So the compact form keeps the CARD and cuts the COUNT. Two or three,
-     * ranked, at full presence, with the neckline price and its verdict
-     * still on them. `.hero` stacks them one per row rather than tiling into
-     * a grid: at the chat column's width a two-up grid gives each card about
-     * 150px, which is where the name starts truncating and the measurement
-     * wraps to three lines. One per row is not decoration — it is the width
-     * the content needs.
-     *
-     * Everything else the sweep found is one click away, never dropped. */
-    const hero = allTiles.slice(0, heroN).join("");
-
-    /* The control says what is behind it, with the real number. "Show more"
-     * gives the reader no way to judge whether opening it is worth the
-     * scroll; "10 more formations · 17 candle bars" does. */
-    const restN = Math.max(0, (counts.chart_found || 0) - heroN);
+     * A sweep that marked nothing is EVIDENCE for the prose, not the answer to
+     * the question. The compact form is the ranked formation list at full
+     * presence — each row carrying the neckline price and its verdict, each one
+     * expanding in place into the schematic detail — and everything else the
+     * sweep found (the stat grid, the structure events, the candle bars) folded
+     * one click away, never dropped. */
     const restBars = counts.candle_bars || 0;
-    const rest = [restN ? `${restN} more formation${restN === 1 ? "" : "s"}` : "",
-                  restBars ? `${restBars} candle bar${restBars === 1 ? "" : "s"}` : "",
-                  "structure events"].filter(Boolean).join(" · ");
+    const rest = [restBars ? `${restBars} candle bar${restBars === 1 ? "" : "s"}` : "",
+                  "structure events", "scan stats"].filter(Boolean).join(" · ");
 
-    return (hero ? `<div class="scan-tiles hero">${hero}</div>` : "")
+    return patternSection
       + `<button type="button" class="scan-more" data-more="[data-more-full]">`
       + `${esc(rest)}</button>`
       /* `hidden` rather than a class: nothing styles this wrapper, so the UA
        * rule applies cleanly and the reveal needs no CSS of its own — which
        * matters because this panel's stylesheet lives in index.html and a
        * renderer should not need an edit there to ship a fold. */
-      + `<div data-more-full hidden>${full}</div>`
+      + `<div data-more-full hidden><div class="scan-stats">${stats}</div>${sweepRest}</div>`
       + foot;
   }
 
@@ -1850,12 +2100,18 @@ const Cards = (() => {
      * the figures it was read off, and the comparison that earned the state.
      * "Easing" on its own is an opinion; "−1.35 · less negative than the
      * prior bar" is the measurement the word is short for. */
+    // The contents STACK — badge, name, figures — so they wrap into a
+    // `.scan-tile-main` column. Without it the three sit on the flex ROW that
+    // `.scan-tile` is, which turned the badge into a left-hand circle and
+    // truncated the name to "RSI…"; the column is how the strength tiles above
+    // already lay out, so the two read the same.
     const tiles = (c.readings || []).map((r) => `<div class="scan-tile">`
+      + `<div class="scan-tile-main">`
       + (r.state ? `<span class="scan-badge ${r.tone === "up" ? "ok" : "bad"}">`
                    + `${esc(cap(r.state))}</span>` : "")
       + `<b class="nm">${esc(r.name)}</b>`
       + `<span class="scan-fact"><b>${esc(r.figures)}</b>`
-      + (r.why ? ` · ${esc(r.why)}` : "") + `</span></div>`).join("");
+      + (r.why ? ` · ${esc(r.why)}` : "") + `</span></div></div>`).join("");
 
     return `<div class="scan-stats">${stats}</div>`
       + section("On this chart", "applied studies",
@@ -2062,84 +2318,102 @@ const Cards = (() => {
     const sym = syms[0];
     const cols = c.intervals || [];
     const pair = syms.length === 2;
+    if (!syms.length || !cols.length) return "";
 
-    const stats = [];
-    for (const g of (c.gaps || [])) {
-      stats.push(stat(`${g.label} return gap`, signed(sym, g.gap_pp, " pp"),
-                      way(g.gap_pp), g.pair));
+    // The PRIMARY interval drives the table — one row per symbol, ranked by
+    // return, highest first — which is the same shape and visual language as a
+    // screen. A multi-interval comparison still measures every window, but the
+    // reading a table makes best is "who is ahead, and by how much", and that
+    // is one window's ordering.
+    //
+    // ONE table and nothing else: the gap / correlation that used to sit above
+    // as a separate stat strip now ride INSIDE the card as chips, the way a
+    // screen's filters do, so the response is a single card rather than a strip
+    // of tiles stacked on a table.
+    const primary = cols[0];
+    const g = (pick, s) => (primary[pick] ? primary[pick][s] : null);
+
+    // The gap and correlation, folded into the card's chips.
+    const chipBits = [];
+    for (const gap of (c.gaps || [])) {
+      const v = signed(sym, gap.gap_pp, " pp");
+      if (v) chipBits.push(`${gap.label} gap ${v}`);
     }
     for (const col of cols) {
       const corr = col.correlation && pair
         ? col.correlation[`${syms[0]}~${syms[1]}`] : null;
-      if (corr != null) {
-        stats.push(stat(`${col.label} correlation`, n2(sym, corr), "",
-                        "daily returns"));
-      }
+      if (corr != null) chipBits.push(`${col.label} corr ${n2(sym, corr)}`);
     }
-    if (!stats.length) {
-      for (const col of cols) {
-        stats.push(stat(`${col.label} bars`, col.bars ? col.bars[syms[0]] : ""));
-      }
-    }
+    const chips = chipBits.length
+      ? `<div class="sc-chips">`
+        + chipBits.map((t) => `<span class="sc-chip">${esc(t)}</span>`).join("")
+        + `</div>` : "";
 
-    /* One group per interval, one bar per symbol, and the benchmark as the
-     * last bar of the group where there is one. Grouped this way because the
-     * comparison inside a window is the reading and the comparison BETWEEN
-     * windows is the second one — a flat list of six bars would offer
-     * neither.
-     *
-     * Coloured by SYMBOL, not by sign, and the same symbol keeps its colour
-     * through every section. Sign colouring is the right choice on a single
-     * series and the wrong one here: in a year both names can be down, and
-     * two red bars under two labels is a chart the eye cannot follow across
-     * three sections. The sign is not lost — it is printed, and zero is
-     * drawn down the middle of the track. */
-    const series = (pick, opt) => cols.map((col) => {
-      const items = syms.map((s, i) => ({
-        label: s, value: col[pick] ? col[pick][s] : null,
-        text: signed(sym, col[pick] ? col[pick][s] : null, "%"),
-        tone: "s" + Math.min(i + 1, 4),
-      }));
-      if (pick === "ret" && col.benchmark) {
-        items.push({ label: col.benchmark.name, value: col.benchmark.ret,
-                     text: signed(sym, col.benchmark.ret, "%"), tone: "bench" });
-      }
-      return group(col.label, col.window || "",
-                   colChart(items.filter((x) => x.value != null),
-                            { signed: !!(opt && opt.signed) }));
-    }).join("");
+    // Rank the symbols by the primary interval's return, highest first. The
+    // benchmark rides in as a final, unranked row where the window carries one,
+    // because "both fell" and "both fell while the index fell too" are
+    // different answers.
+    const ranked = syms.slice().sort((a, b) => {
+      const ra = g("ret", a), rb = g("ret", b);
+      if (ra == null && rb == null) return 0;
+      if (ra == null) return 1;
+      if (rb == null) return -1;
+      return rb - ra;
+    }).map((s) => ({ sym: s }));
 
-    /* Turnover is the one quantity that is neither signed nor comparable
-     * across instruments by size alone, and it comes in two units. A table
-     * keeps the unit next to every figure; a bar row would have to pick one
-     * scale for rupees crore and millions of dollars at once. */
     const units = { cr: " cr", musd: " M$" };
-    const haveTurn = cols.some((col) => col.turnover);
-    const turnRows = haveTurn ? syms.map((s) => [
-      `<b>${esc(s)}</b>`,
-      ...cols.map((col) => {
-        const t = col.turnover && col.turnover[s];
-        return t ? esc(Sym.of(sym).num(t.value, { maximumFractionDigits: 1 })
-                       + (units[t.unit] || "")) : "—";
-      }),
-    ]) : [];
+    const turn = (s) => {
+      const t = primary.turnover && primary.turnover[s];
+      return t ? esc(Sym.of(sym).num(t.value, { maximumFractionDigits: 1 })
+                     + (units[t.unit] || "")) : "—";
+    };
+    const haveTurn = ranked.some((r) => primary.turnover && primary.turnover[r.sym]);
 
-    return `<div class="scan-stats">${stats.join("")}</div>`
-      // Return takes the centred zero because a return set really does hold
-      // both signs and which side of nothing a name landed on is the whole
-      // reading. Drawdown and ATR never do — a drawdown is a fall and an ATR
-      // is a width — so centring them would spend half the track drawing a
-      // side no value can ever be on. The figures keep their own signs.
-      + section("Return", "per bar window, against the index",
-                series("ret", { signed: true }))
-      + section("Maximum drawdown", "peak to trough, inside the window",
-                series("dd", {}))
-      + section("ATR volatility", "average true range as % of price",
-                series("atr", {}))
-      + section("Average turnover per bar", "",
-                haveTurn ? grid(["", ...cols.map((x) => x.label)], turnRows) : "")
+    const cols2 = [
+      { label: "Return", align: "num",
+        get: (r) => { const v = g("ret", r.sym);
+          return v == null ? "—"
+            : `<span class="sc-tone ${way(v)}">${signed(sym, v, "%")}</span>`; } },
+      { label: "Max DD", align: "num",
+        get: (r) => { const v = g("dd", r.sym); return v == null ? "—" : `${n2(sym, v)}%`; } },
+      { label: "ATR %", align: "num",
+        get: (r) => { const v = g("atr", r.sym); return v == null ? "—" : `${n2(sym, v)}%`; } },
+    ];
+    if (haveTurn) cols2.push({ label: "Turnover", align: "num", get: (r) => turn(r.sym) });
+
+    const windowLabel = primary.window
+      ? `${primary.label} · ${primary.window}` : primary.label;
+    const meta = `${ranked.length} symbols · ranked by ${primary.label} return`
+      + (c.intervals.length > 1
+          ? ` · also measured on ${c.intervals.slice(1).map((x) => x.label).join(", ")}` : "")
       + ((c.unavailable || []).length
-         ? callout(`Not measured: ${(c.unavailable || []).join(" · ")}`) : "");
+          ? ` · not measured: ${(c.unavailable || []).join(", ")}` : "");
+
+    // The index as a final, muted footer row inside the same table — its
+    // return next to the names it is the baseline for.
+    let extraFoot = "";
+    if (primary.benchmark && primary.benchmark.ret != null) {
+      const b = primary.benchmark;
+      extraFoot = `<tr class="sc-foot"><td></td>`
+        + `<td class="sc-foot-label">${esc(b.name)}</td>`
+        + `<td class="sc-num"><span class="sc-tone ${way(b.ret)}">${signed(sym, b.ret, "%")}</span></td>`
+        + `<td></td>`.repeat(cols2.length - 1)
+        + `</tr>`;
+    }
+
+    return screenTable({
+      title: "Peer comparison",
+      control: "",
+      chips,
+      criteria: windowLabel ? `Window: ${windowLabel}` : "",
+      meta,
+      firstCol: "Symbol",
+      rows: ranked,
+      cols: cols2,
+      rowSym: (r) => ({ sym: r.sym, name: null }),
+      page: ranked.length,   // a peer set is short; never fold it
+      extraFoot,
+    });
   }
 
   // ── why it moved ────────────────────────────────────────────────────
@@ -2358,6 +2632,101 @@ const Cards = (() => {
     });
   }
 
+  /* ── the one table design, shared by `screen` and `compare` ───────────
+   *
+   * A bordered, rounded card carrying a ranked table — the same shape the main
+   * chat's ScreenResultsCard renders, so a screen on the chart and a screen in
+   * the full chat read as one product. The caller supplies the title, the one
+   * head control, the chips/meta above the table, the columns, the rows, and
+   * an optional median footer; everything below here is presentation.
+   *
+   * `cols`: [{ label, align?: "num"|"text", get(row) -> cell html,
+   *            foot?(rows) -> cell html }]. A cell's html is trusted — callers
+   * build it through `esc`/`signed`/`num`. `rowSym(row)` gives the symbol and
+   * name for the company cell; `PAGE` rows show, the rest fold behind "Show
+   * all N" through the panel's own [data-more] handler.
+   */
+  const SCREEN_PAGE = 10;
+
+  function symCell(sym, name) {
+    const initials = esc(String(sym || "?").slice(0, 2));
+    return `<div class="sc-symcell">`
+      + `<span class="sc-logo" data-logo="${esc(sym)}">${initials}</span>`
+      + `<span class="sc-sym"><b>${esc(sym)}</b>`
+      + (name && name !== sym ? `<span>${esc(name)}</span>` : "")
+      + `</span></div>`;
+  }
+
+  function screenTable(opt) {
+    const rows = opt.rows || [];
+    const cols = opt.cols || [];
+    if (!rows.length) return "";
+
+    const head = `<tr><th class="sc-rank">#</th><th class="sc-sym">${esc(opt.firstCol || "Company")}</th>`
+      + cols.map((col) =>
+          `<th class="${col.align === "text" ? "" : "sc-num"}">${esc(col.label)}</th>`).join("")
+      + `</tr>`;
+
+    const rowHtml = (r, i) =>
+      `<tr><td class="sc-rank">${i + 1}</td>`
+      + `<td>${symCell(opt.rowSym(r).sym, opt.rowSym(r).name)}</td>`
+      + cols.map((col) =>
+          `<td class="${col.align === "text" ? "" : "sc-num"}">${col.get(r)}</td>`).join("")
+      + `</tr>`;
+
+    const page = Math.max(1, opt.page || SCREEN_PAGE);
+    const shown = rows.slice(0, page).map(rowHtml).join("");
+    const rest = rows.length > page
+      ? `<tbody data-more-rows hidden>`
+        + rows.slice(page).map((r, i) => rowHtml(r, page + i)).join("")
+        + `</tbody>` : "";
+
+    // The median / summary footer, drawn only when a column asks for one, plus
+    // any explicit extra footer rows the caller supplies (a benchmark row).
+    const medianRow = cols.some((col) => typeof col.foot === "function")
+      ? `<tr class="sc-foot">`
+        + `<td></td><td class="sc-foot-label">${esc(opt.footLabel || `Median of ${rows.length}`)}</td>`
+        + cols.map((col) => {
+            const f = typeof col.foot === "function" ? col.foot(rows) : "";
+            return `<td class="${col.align === "text" ? "" : "sc-num"}">${f || ""}</td>`;
+          }).join("")
+        + `</tr>` : "";
+    const footRows = medianRow + (opt.extraFoot || "");
+    const foot = footRows ? `<tfoot>${footRows}</tfoot>` : "";
+
+    const more = rows.length > page
+      ? `<button type="button" class="sc-more" data-more="[data-more-rows]">`
+        + `Show all ${rows.length}`
+        + `<svg class="icon" viewBox="0 0 24 24" width="14" height="14" fill="none" `
+        + `stroke="currentColor" stroke-width="2" stroke-linecap="round" `
+        + `stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>`
+        + `</button>` : "";
+
+    return `<div class="sc-card">`
+      + `<div class="sc-head"><div class="sc-title">${esc(opt.title)}</div>`
+      + (opt.control || "") + `</div>`
+      + (opt.chips || "")
+      + (opt.criteria ? `<div class="sc-crit">${esc(opt.criteria)}</div>` : "")
+      + (opt.rankLine ? `<div class="sc-rank-line">${esc(opt.rankLine)}</div>` : "")
+      + (opt.meta ? `<div class="sc-meta">${esc(opt.meta)}</div>` : "")
+      + `<div class="sc-tablewrap"><table class="sc-table">`
+      + `<thead>${head}</thead>`
+      + `<tbody>${shown}</tbody>${rest}${foot}</table></div>`
+      + more
+      + `</div>`;
+  }
+
+  /** The middle value of a numeric column — presentation arithmetic over what
+   *  the card already shows, drawn in the footer. Null below three numbers. */
+  function median(rows, get) {
+    const xs = rows.map(get)
+      .filter((v) => typeof v === "number" && Number.isFinite(v))
+      .sort((a, b) => a - b);
+    if (xs.length < 3) return null;
+    const m = xs.length >> 1;
+    return xs.length % 2 ? xs[m] : (xs[m - 1] + xs[m]) / 2;
+  }
+
   /** A universe screen: what it looked for, what matched, and a control that
    *  carries the membership to the Screener.
    *
@@ -2384,29 +2753,23 @@ const Cards = (() => {
     // rather than a fixed set that might be all nulls.
     const SKIP = new Set(["symbol", "name", "industry", "as_of", "pattern",
                           "universe_rate", "volume_profile"]);
-    const cols = [];
-    if (sortKey && rows.some((r) => r[sortKey] != null)) cols.push(sortKey);
+    const keys = [];
+    if (sortKey && rows.some((r) => r[sortKey] != null)) keys.push(sortKey);
     for (const k of Object.keys(rows[0] || {})) {
-      if (cols.length >= 3) break;
+      if (keys.length >= 3) break;
       if (SKIP.has(k) || k === sortKey) continue;
-      if (rows.some((r) => typeof r[k] === "number")) cols.push(k);
+      if (rows.some((r) => typeof r[k] === "number")) keys.push(k);
     }
-    const label = (k) => esc(k.replace(/_/g, " "));
-    const cell = (v) => (typeof v === "number"
+    const label = (k) => k.replace(/_/g, " ");
+    const fmt = (v) => (typeof v === "number"
       ? (Math.abs(v) >= 1000 ? v.toFixed(0) : v.toFixed(2))
       : (v == null ? "—" : esc(String(v))));
-
-    const head = `<tr><th class="sc-rank">#</th><th>Stock</th>`
-      + cols.map((k) => `<th class="sc-num">${label(k)}</th>`).join("")
-      + `</tr>`;
-    const body = rows.map((r, i) =>
-      `<tr><td class="sc-rank">${i + 1}</td>`
-      + `<td class="sc-sym"><b>${esc(r.symbol)}</b>`
-      + (r.name && r.name !== r.symbol
-          ? `<span>${esc(r.name)}</span>` : "")
-      + `</td>`
-      + cols.map((k) => `<td class="sc-num">${cell(r[k])}</td>`).join("")
-      + `</tr>`).join("");
+    const cols = keys.map((k) => ({
+      label: label(k),
+      align: rows.some((r) => typeof r[k] === "number") ? "num" : "text",
+      get: (r) => fmt(r[k]),
+      foot: (rr) => { const m = median(rr, (r) => r[k]); return m == null ? "" : fmt(m); },
+    }));
 
     const framed = (() => {
       try { return window.parent && window.parent !== window; }
@@ -2417,33 +2780,27 @@ const Cards = (() => {
     const matched = c.matched != null ? c.matched : rows.length;
     const meta = `${matched} of ${c.universe || "?"}`
       + (rows.length < matched ? ` · top ${rows.length}` : "")
-      + (c.as_of ? ` · ${esc(String(c.as_of))}` : "");
+      + (c.as_of ? ` · ${String(c.as_of)}` : "");
 
-    // Header is a two-column row: the screen on the left, its one control on
-    // the right. The button was full-width and directly under the text, which
-    // read as the panel's primary action when it is a side door — the table
-    // below it is what the user asked for.
-    return `<div class="sc-card">`
-      + `<div class="sc-head">`
-      + `<div class="sc-title">Screen</div>`
-      + (framed
-          ? `<button type="button" class="ui-btn ui-btn-sm" `
-            + `data-screen-open `
-            + `title="Open these ${syms.length} names in the Screener">`
-            + `Open`
-            + `<svg class="icon" viewBox="0 0 24 24" fill="none" `
-            + `stroke="currentColor" stroke-width="2.25" stroke-linecap="round" `
-            + `stroke-linejoin="round" aria-hidden="true">`
-            + `<path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>`
-            + `</button>`
-          : "")
-      + `</div>`
-      + (c.criteria ? `<div class="sc-crit">${esc(c.criteria)}</div>` : "")
-      + (c.ranking ? `<div class="sc-rank-line">${esc(c.ranking)}</div>` : "")
-      + `<div class="sc-meta">${meta}</div>`
-      + `<div class="sc-tablewrap"><table class="sc-table">`
-      + `<thead>${head}</thead><tbody>${body}</tbody></table></div>`
-      + `</div>`;
+    const control = framed
+      ? `<button type="button" class="ui-btn ui-btn-sm" data-screen-open `
+        + `title="Open these ${syms.length} names in the Screener">Open`
+        + `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" `
+        + `stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" `
+        + `aria-hidden="true"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg></button>`
+      : "";
+
+    return screenTable({
+      title: c.title || "Screen",
+      control,
+      criteria: c.criteria || "",
+      rankLine: c.ranking || "",
+      meta,
+      firstCol: "Company",
+      rows,
+      cols,
+      rowSym: (r) => ({ sym: r.symbol, name: r.name }),
+    });
   }
 
   /** Hand this screen to the shell's Screener tab.
@@ -2669,6 +3026,28 @@ const Cards = (() => {
           target.classList.remove("capped");
           target.hidden = false;
           btn.remove();
+        });
+      });
+      /* A formation row expands into its detail card IN PLACE. The panels were
+       * rendered once, after the list, keyed by the row's index; on first open
+       * the panel is moved to sit directly beneath its row so the detail reads
+       * as belonging to the line it came from, then toggled on every click.
+       * Moving rather than cloning keeps one panel per formation, so a row in
+       * the folded "N more" list opens the same card as one in the head. */
+      box.querySelectorAll(".pl-row[data-pat]").forEach((rowEl) => {
+        rowEl.addEventListener("click", () => {
+          const idx = rowEl.getAttribute("data-pat");
+          const panel = box.querySelector(`.pl-detail[data-pat-detail="${idx}"]`);
+          if (!panel) return;
+          // Land it under its row the first time; thereafter it already sits
+          // there (it belongs to this row and no other moves it).
+          if (panel.previousElementSibling !== rowEl) {
+            rowEl.after(panel);
+          }
+          const open = panel.hidden;
+          panel.hidden = !open;
+          rowEl.setAttribute("aria-expanded", open ? "true" : "false");
+          rowEl.classList.toggle("open", open);
         });
       });
       if (box.querySelector("[data-screen-open]")) wireScreen(box, card);
