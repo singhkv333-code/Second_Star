@@ -1539,6 +1539,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
                 query={chartQuery}
                 theme={resolvedTheme}
                 onOpenScreen={openScreenFromChart}
+                onOpenCompany={(symbol) => router.push(`/stock/${encodeURIComponent(symbol)}`)}
                 onChatVisibilityChange={setChartChatOpen}
               />
             </div>

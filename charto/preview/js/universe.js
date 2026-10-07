@@ -202,7 +202,7 @@ const Universe = (() => {
       (cold
         ? `<span class="ir-quote"><span class="ir-cold">~6s to load</span></span>`
         : `<span class="ir-quote" data-q="${sym}"></span>`) +
-      (link ? `<a class="open-co" href="${companyBase}/stock/${encodeURIComponent(sym)}?theme=${theme}"
+      (link ? `<a class="open-co" data-company-symbol="${sym}" href="${companyBase}/stock/${encodeURIComponent(sym)}?theme=${theme}"
             title="${sym} \u2014 open company page"
             aria-label="${sym} \u2014 open company page">${Icons.svg("externalLink", "sm")}</a>` : "") +
       "</div>";
@@ -216,7 +216,7 @@ const Universe = (() => {
   function companyLinkHTML(sym, companyBase = "") {
     const s = String(sym || "").toUpperCase();
     if (!s) return "";
-    return `<a class="company-page-icon" href="${companyBase}/stock/${encodeURIComponent(s)}"` +
+    return `<a class="company-page-icon" data-company-symbol="${s}" href="${companyBase}/stock/${encodeURIComponent(s)}"` +
       ` title="Open the ${shown(s)} company page" aria-label="Open the ${shown(s)} company page">` +
       `${Icons.svg("externalLink", "xs")}</a>`;
   }

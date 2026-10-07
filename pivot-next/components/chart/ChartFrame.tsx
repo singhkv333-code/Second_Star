@@ -61,13 +61,16 @@ type Props = {
    *  RELAYS it — it is the shell that owns the tab and the Pivot session that
    *  can save a screen. */
   onOpenScreen?: (screen: PendingScreen) => void;
+  /** A company-page affordance inside Charto must navigate the parent shell,
+   *  not load the X-Frame-Options-protected stock route inside the iframe. */
+  onOpenCompany?: (symbol: string) => void;
   /** The frame reports its own conversation opening and closing, so the
    *  shell can avoid showing its Quick Ask and the chart's chat at once. */
   onChatVisibilityChange?: (open: boolean) => void;
 };
 
 export function ChartFrame({
-  symbol, query, theme, onOpenScreen, onChatVisibilityChange,
+  symbol, query, theme, onOpenScreen, onOpenCompany, onChatVisibilityChange,
 }: Props): React.ReactElement {
   const ref = useRef<HTMLIFrameElement>(null);
   // The message listener is deliberately mounted ONCE (empty deps, so the
@@ -76,6 +79,8 @@ export function ChartFrame({
   // listener stable and the callback current.
   const onScreenRef = useRef(onOpenScreen);
   useEffect(() => { onScreenRef.current = onOpenScreen; }, [onOpenScreen]);
+  const onCompanyRef = useRef(onOpenCompany);
+  useEffect(() => { onCompanyRef.current = onOpenCompany; }, [onOpenCompany]);
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -112,7 +117,7 @@ export function ChartFrame({
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
       if (e.origin !== window.location.origin || e.source !== ref.current?.contentWindow) return;
-      const d = e.data as { type?: string; open?: boolean } | null;
+      const d = e.data as { type?: string; open?: boolean; symbol?: unknown } | null;
       if (d?.type === "chart:ready") { setReady(true); setFailed(false); }
       if (d?.type === "chart:error") { setReady(false); setFailed(true); }
       if (d?.type === "charto:open-screen") {
@@ -133,6 +138,10 @@ export function ChartFrame({
           matched: typeof raw?.matched === "number" ? raw.matched : symbols.length,
           universe: typeof raw?.universe === "number" ? raw.universe : 0,
         });
+      }
+      if (d?.type === "charto:open-company" && typeof d.symbol === "string") {
+        const companySymbol = d.symbol.trim().toUpperCase();
+        if (companySymbol && companySymbol.length <= 64) onCompanyRef.current?.(companySymbol);
       }
       if (d?.type === "chart:chat-visibility") onChatVisibilityChange?.(d.open === true);
       // A modal opened (or closed) inside the frame. `position: fixed` in the

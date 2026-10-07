@@ -57,6 +57,21 @@
     } catch { /* the parent went away mid-navigation; nothing to do */ }
   };
 
+  /* Company pages belong to the React shell, not inside this iframe. A plain
+   * anchor navigates the frame itself; the shell's stock route correctly
+   * refuses to be framed, so the click appears to do nothing. Relay the
+   * user's explicit click to the parent instead. Capture phase is deliberate:
+   * the symbol menu stops bubbling on its row-end link so a company-page click
+   * does not also select that symbol for the chart. */
+  document.addEventListener("click", (e) => {
+    const link = e.target.closest("[data-company-symbol]");
+    if (!link) return;
+    const symbol = String(link.dataset.companySymbol || "").trim().toUpperCase();
+    if (!symbol || symbol.length > 64) return;
+    e.preventDefault();
+    tell({ type: "charto:open-company", symbol });
+  }, true);
+
   // Inside the unified shell, the chart starts with its own conversation
   // collapsed. The shell's Quick Ask is the entry point; showing both it and
   // the full chart conversation at once duplicates the same presentation.
