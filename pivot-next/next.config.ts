@@ -22,6 +22,8 @@ const CHART = process.env.CHART_UPSTREAM || "http://127.0.0.1:5173";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Keep `next build` from overwriting a running development server's chunks.
+  distDir: process.env.NODE_ENV === "development" ? ".next-dev" : ".next",
   // Mounted under a prefix in production so it can sit beside Charto's chart,
   // which owns `/` on the same host. Set from the environment rather than
   // hardcoded: `next dev` and every test run leave it unset and keep serving
