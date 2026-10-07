@@ -1169,9 +1169,8 @@ select.is-dressed { display: none; }
    Hover is quiet and physical — an edge sharpens, a card lifts a pixel, the
    viewfinder corners open — never a colour flood. */
 .su-mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
-.su-share-btn, .company-page-link { gap: 6px; }
-.su-share-btn svg, .company-page-link svg { width: 14px; height: 14px; }
-.company-page-link { text-decoration: none; }
+.su-share-btn { gap: 6px; }
+.su-share-btn svg { width: 14px; height: 14px; }
 
 .su-dlg { width: min(840px, calc(100vw - 32px)); padding: 20px 22px 18px;
   max-height: calc(100vh - 48px); overflow-y: auto; }
@@ -2863,6 +2862,38 @@ header > .btn, header > .badge { flex: none; }
   transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr);
 }
 .readout .sym-btn:hover { background: var(--accent); color: var(--primary); }
+/* The company page is a second action on the instrument identity, disclosed
+   only when that identity is being inspected. The same tiny external-link
+   button is reused in symbol-aware widget headers below. */
+.company-affordance {
+  display: inline-flex; align-items: center; gap: 2px; min-width: 0;
+}
+.company-affordance--widget { margin-right: auto; }
+.company-affordance--widget .side-pick { margin-right: 0; }
+.company-page-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; flex: none; border-radius: var(--radius-xs);
+  color: var(--muted-foreground); text-decoration: none;
+  opacity: 0; pointer-events: none; transform: translateX(-3px);
+  transition: opacity var(--dur-fast) var(--ease-quartr),
+              transform var(--dur-fast) var(--ease-quartr),
+              color var(--dur) var(--ease-quartr),
+              background var(--dur) var(--ease-quartr);
+}
+.company-page-icon svg.icon { width: 13px; height: 13px; stroke-width: 1.7; }
+.company-affordance:hover .company-page-icon,
+.company-affordance:focus-within .company-page-icon {
+  opacity: 1; pointer-events: auto; transform: none;
+}
+.company-page-icon:hover { color: var(--foreground); background: var(--accent); }
+.company-page-icon:focus-visible { opacity: 1; pointer-events: auto; transform: none;
+  outline: 2px solid var(--ring); outline-offset: 1px; }
+.readout .company-page-icon { pointer-events: none; }
+.readout .company-affordance:hover .company-page-icon,
+.readout .company-affordance:focus-within .company-page-icon { pointer-events: auto; }
+@media (hover: none) {
+  .company-page-icon { opacity: 1; pointer-events: auto; transform: none; }
+}
 .readout .co-logo {
   width: 15px; height: 15px; border-radius: 3px; object-fit: contain; flex: none;
 }
@@ -11603,10 +11634,6 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
     <!-- Share: publish this desk as a read-only setup others can copy.
          js/setups.js. Beside the layout name because what it publishes is the
          desk that name stands for. -->
-    <a class="btn outline company-page-link" id="companyPageLink"
-       href="/stock/RELIANCE" title="Open the RELIANCE company page">
-      <span>Company</span>
-    </a>
     <button class="btn outline su-share-btn" id="shareBtn" type="button"
             title="Share this setup, read-only, with a link"></button>
     <div class="menu-wrap">
@@ -11847,7 +11874,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./vendor/liquid-glass.js"></script>
   <script src="./js/store.js?v=20"></script>
   <script src="./js/theme.js?v=12"></script>
-  <script src="./js/universe.js?v=16"></script>
+  <script src="./js/universe.js?v=17"></script>
   <script src="./js/icons.js?v=45"></script>
   <!-- after icons.js (every row is drawn with one) and before main.js, which
        builds the chart's three right-click menus out of it -->
@@ -11885,7 +11912,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- The pricing / upgrade overlay. Before main.js so window.Pricing exists
        when the account menu's Upgrade row is wired. -->
   <script src="./js/pricing.js?v=1"></script>
-  <script src="./js/main.js?v=165"></script>
+  <script src="./js/main.js?v=166"></script>
   <!-- the floating drawing edit toolbar — listens for charto:draw-select and
        drives js/drawings.js's setStyle/clone/lock/remove. After main.js so
        __charto and ChartSettings exist by the first selection. -->
@@ -11919,14 +11946,14 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        the conversation, and close it by clicking its real toggle -->
   <script src="./js/panels.js?v=20"></script>
   <script src="./js/screener.js?v=7"></script>
-  <script src="./js/depth.js?v=5"></script>
+  <script src="./js/depth.js?v=6"></script>
   <script src="./js/notes.js?v=6"></script>
   <script src="./js/w-sheet.js?v=7"></script>
-  <script src="./js/w-chart.js?v=3"></script>
-  <script src="./js/w-fin.js?v=5"></script>
+  <script src="./js/w-chart.js?v=4"></script>
+  <script src="./js/w-fin.js?v=6"></script>
   <script src="./js/w-news.js?v=3"></script>
   <script src="./js/w-portfolio.js?v=3"></script>
-  <script src="./js/w-strategy.js?v=1"></script>
+  <script src="./js/w-strategy.js?v=2"></script>
   <script src="./js/w-browser.js?v=9"></script>
   <script src="./js/w-code.js?v=6"></script>
   <script src="./js/w-docs.js?v=7"></script>

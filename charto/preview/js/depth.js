@@ -58,7 +58,7 @@
     let timer = 0, busy = false, last = null, prev = new Map(), sym = "";
     host.innerHTML =
       `<div class="side-head dp-head">` +
-        `<button type="button" class="side-pick" data-d="sym" title="Choose the instrument"></button>` +
+        `<span class="company-affordance company-affordance--widget"></span>` +
         `<div class="spacer"></div><span class="dp-live" aria-hidden="true"></span>` +
       `</div>` +
       `<div class="dp-imb" hidden><span class="b"></span><span class="a"></span>` +
@@ -71,8 +71,9 @@
     function paintHead() {
       sym = ctx.symbol();
       const pinned = !!ctx.cfg.pin;
-      $(".side-pick").innerHTML = `${esc(sym)}${Icons.svg("chevronDown")}`;
-      $(".side-pick").title = pinned ? `Pinned to ${sym}` : `Following the chart (${sym})`;
+      $(".company-affordance").innerHTML =
+        `<button type="button" class="side-pick" data-d="sym" title="${pinned ? `Pinned to ${esc(sym)}` : `Following the chart (${esc(sym)})`}">` +
+        `${esc(sym)}${Icons.svg("chevronDown")}</button>${Universe.companyLinkHTML(sym)}`;
       ctx.setTitle(sym);
     }
 

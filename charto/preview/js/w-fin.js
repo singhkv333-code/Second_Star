@@ -31,7 +31,7 @@
     let tab = ctx.cfg.tab || "overview", seq = 0, last = null;
     host.innerHTML =
       `<div class="fin-head">` +
-        `<button type="button" class="side-pick" data-fn="sym" title="Choose the company"></button>` +
+        `<span class="company-affordance company-affordance--widget"></span>` +
         `<span class="sh-gap"></span>` +
         `<button type="button" class="sh-btn i" data-fn="sheet" title="Open this table in a sheet">${ic("sheet")}</button>` +
       `</div>` +
@@ -42,7 +42,9 @@
     const sym = () => ctx.symbol();
 
     function paintHead() {
-      $(".side-pick").innerHTML = `${esc(sym())}${ic("chevronDown", "")}`;
+      $(".company-affordance").innerHTML =
+        `<button type="button" class="side-pick" data-fn="sym" title="Choose the company">` +
+        `${esc(sym())}${ic("chevronDown", "")}</button>${Universe.companyLinkHTML(sym())}`;
       for (const b of host.querySelectorAll("[data-tab]")) b.classList.toggle("on", b.dataset.tab === tab);
       ctx.setTitle(sym());
       $('[data-fn="sheet"]').hidden = tab === "overview";

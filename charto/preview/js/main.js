@@ -553,8 +553,9 @@
     // the legend is where a chart says what it is, so it is also where a
     // reader reaches to change it.
     el("roTitle").innerHTML =
-      `<span class="sym-btn" data-sym-btn title="Change instrument">`
+      `<span class="company-affordance"><span class="sym-btn" data-sym-btn title="Change instrument">`
       + `${Universe.logoHTML(SYMBOL, "co-logo lg")}${Universe.shown(SYMBOL)}</span>`
+      + `${Universe.companyLinkHTML(SYMBOL)}</span>`
       + `<span class="sep">·</span>${state.interval === "1d" ? "1D" : state.interval}`
       + `<span class="sep">·</span><span class="ex">${Sym.venue}</span>`;
   }
@@ -4976,12 +4977,6 @@
   (() => {
     el("symbolName").textContent = Universe.shown(SYMBOL);
     el("symbolVenue").textContent = Sym.venue;
-    const companyPageLink = el("companyPageLink");
-    if (companyPageLink) {
-      companyPageLink.href = `${COMPANY_PAGE}/stock/${encodeURIComponent(SYMBOL)}`;
-      companyPageLink.title = `Open the ${Universe.shown(SYMBOL)} company page`;
-      companyPageLink.innerHTML = `${Icons.svg("externalLink", "xs")}<span>Company</span>`;
-    }
     setText("srcLine", `local store · ${Sym.feed}`);
     paintTitle();
     // PIVOT, which is what the header lockup, the static <title> and the

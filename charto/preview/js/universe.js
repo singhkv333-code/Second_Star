@@ -208,6 +208,19 @@ const Universe = (() => {
       "</div>";
   }
 
+  /** One quiet route from an instrument label to its company page. The
+   *  surrounding `.company-affordance` owns disclosure: hidden at rest,
+   *  visible on hover/focus, and always present on touch screens. Keeping the
+   *  href here gives the main chart and every symbol-aware widget one exact
+   *  destination and one accessible name. */
+  function companyLinkHTML(sym, companyBase = "") {
+    const s = String(sym || "").toUpperCase();
+    if (!s) return "";
+    return `<a class="company-page-icon" href="${companyBase}/stock/${encodeURIComponent(s)}"` +
+      ` title="Open the ${shown(s)} company page" aria-label="Open the ${shown(s)} company page">` +
+      `${Icons.svg("externalLink", "xs")}</a>`;
+  }
+
   /* ── prices, for the rows you can actually see ──────────────────────────
    * There are 557 instruments in the list and /quotes caps a call at 120, so
    * pricing the whole universe on open would be five round trips for a list
@@ -383,5 +396,5 @@ const Universe = (() => {
   }
 
   return { load, peek, logo, label, logoHTML, open, close,
-           rowHTML, quoteWatch, venue, category, tabsHTML, decimals, shown };
+           rowHTML, companyLinkHTML, quoteWatch, venue, category, tabsHTML, decimals, shown };
 })();

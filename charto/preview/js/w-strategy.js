@@ -85,7 +85,7 @@
         `<button type="button" class="sh-btn i" data-st="run" title="Run again">${ic("rotateCw")}</button>` +
       `</div>` +
       `<div class="st-ctl">` +
-        `<button type="button" class="st-sym" data-st="sym"></button>` +
+        `<span class="company-affordance st-company"></span>` +
         `<div class="dk-seg st-iv"></div>` +
         `<div class="dk-seg st-per"></div>` +
       `</div>` +
@@ -163,8 +163,11 @@
       const t = tpl(), s = savedItem();
       $(".st-pick-t b").textContent = isSaved() ? (s ? s.name : "Saved strategy") : t ? t.name : "Strategy";
       $(".st-pick-t small").textContent = isSaved() ? (s ? `Yours · ${s.state}` : "") : t ? t.family : "";
+      $(".st-company").innerHTML =
+        `<button type="button" class="st-sym" data-st="sym">` +
+        `${esc(symbol() || "Symbol")}${isSaved() ? "" : ic("chevronDown")}</button>` +
+        `${symbol() ? Universe.companyLinkHTML(symbol()) : ""}`;
       const sb = $(".st-sym");
-      sb.innerHTML = `${esc(symbol() || "Symbol")}${isSaved() ? "" : ic("chevronDown")}`;
       sb.disabled = isSaved();
       sb.title = isSaved() ? "A saved strategy trades its own symbol" : "Symbol to test on";
       $(".st-iv").innerHTML = (cat ? cat.intervals : ["1d"]).map((v) =>

@@ -38,7 +38,7 @@
     let chart = null, series = null, vol = null, timer = 0, bars = [], busy = false;
     host.innerHTML =
       `<div class="mc-head">` +
-        `<button type="button" class="side-pick mc-sym" data-mc="sym" title="Change the instrument"></button>` +
+        `<span class="company-affordance company-affordance--widget mc-company"></span>` +
         `<span class="mc-px"><b></b><em></em></span>` +
         `<span class="sh-gap"></span>` +
         `<div class="dk-seg mc-iv">${IVS.map(([v, l]) => `<button type="button" data-iv="${v}">${l}</button>`).join("")}</div>` +
@@ -140,7 +140,9 @@
     }
 
     function paintHead() {
-      $(".mc-sym").innerHTML = `${esc(sym())}${ic("chevronDown", "")}`;
+      $(".mc-company").innerHTML =
+        `<button type="button" class="side-pick mc-sym" data-mc="sym" title="Change the instrument">` +
+        `${esc(sym())}${ic("chevronDown", "")}</button>${Universe.companyLinkHTML(sym())}`;
       for (const b of host.querySelectorAll("[data-iv]")) b.classList.toggle("on", b.dataset.iv === iv());
       ctx.setTitle(sym());
     }
