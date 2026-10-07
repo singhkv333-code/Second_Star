@@ -4960,6 +4960,9 @@
     document.title = `${Universe.shown(SYMBOL)} — Pivot`;
     const pill = el("symbolPill"), menu = el("symbolMenu");
     const input = el("symSearch"), list = el("symList");
+    const tabs = el("symbolCategories");
+    tabs.innerHTML = Universe.tabsHTML().replace(/^<div[^>]*>|<\/div>$/g, "");
+    let selectedCategory = "All";
     let all = null, hyd = new Set(), names = {}, shortNames = {};
     /** The instrument's own mark, on the pill. It sits BEFORE the ticker, the
      *  same order the search rows and the chat's tables use — one instrument,
@@ -4989,12 +4992,12 @@
       // the list look like it "couldn't load more" past the B's
       // a name search is how people actually look ("laurus", not LAURUSLABS)
       const hits = q
-        ? pool.filter((s) => s.includes(q)
+        ? pool.filter((s) => (selectedCategory === "All" || Universe.category(s) === selectedCategory) && (s.includes(q)
                           || (names[s] || "").toUpperCase().includes(q)
-                          || (shortNames[s] || "").toUpperCase().includes(q))
+                          || (shortNames[s] || "").toUpperCase().includes(q)))
             .sort((a, b) => (a.startsWith(q) ? 0 : 1) - (b.startsWith(q) ? 0 : 1)
                             || a.localeCompare(b))
-        : pool;
+        : pool.filter((s) => selectedCategory === "All" || Universe.category(s) === selectedCategory);
       // One row builder for both instrument lists — see Universe.rowHTML.
       // The company-page link is this menu's own affordance: the row opens
       // the CHART, and `/stock/X` is same-origin (serve.py in dev, nginx on
@@ -5035,6 +5038,17 @@
       }
     });
     input.addEventListener("input", () => render(input.value));
+    // The document-wide menu closer must not treat a category or field click
+    // inside this picker as an outside click.
+    menu.addEventListener("click", (e) => e.stopPropagation());
+    menu.querySelector(".symbol-close").addEventListener("click", () => menu.classList.remove("open"));
+    tabs.addEventListener("click", (e) => {
+      const tab = e.target.closest("[data-category]");
+      if (!tab) return;
+      selectedCategory = tab.dataset.category;
+      tabs.querySelectorAll("[data-category]").forEach((button) => button.setAttribute("aria-selected", String(button === tab)));
+      render(input.value);
+    });
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter") go(list.querySelector(".item[data-sym]")?.dataset.sym);
       if (e.key === "Escape") menu.classList.remove("open");

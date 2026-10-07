@@ -3,13 +3,33 @@
  * clicking in. Proves each result row renders the company logo <img> (not
  * just a monogram), and that the logo.dev attribution link is present.
  */
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { CompanyAutosuggest } from "@/components/CompanyAutosuggest";
 import * as api from "@/lib/api";
 
 describe("CompanyAutosuggest logos", () => {
   beforeEach(() => vi.restoreAllMocks());
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("filters the real instrument universe to crypto and opens its chart", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({
+      symbols: ["BTC-USD", "RELIANCE"],
+      names: { "BTC-USD": "Bitcoin / U.S. dollar", RELIANCE: "Reliance Industries" },
+      meta: { "BTC-USD": ["COINBASE", "crypto", 2] },
+    }) }));
+    vi.spyOn(api, "searchCompanies").mockResolvedValue({ data: { results: [] } });
+    const openChart = vi.fn();
+    render(<CompanyAutosuggest placeholder="Search instruments" onSelect={() => {}} onOpenChart={openChart} />);
+    fireEvent.focus(screen.getByLabelText("Search instruments"));
+    fireEvent.click(screen.getByRole("tab", { name: "Crypto" }));
+    expect(screen.getByRole("tab", { name: "Crypto" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByLabelText("Search symbols")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Search symbols"), { target: { value: "BTC" } });
+    expect(await screen.findByText("Bitcoin / U.S. dollar")).toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByRole("option", { name: /BTC-USD/ }));
+    expect(openChart).toHaveBeenCalledWith("BTC-USD");
+  });
 
   it("renders the company logo image in each result row", async () => {
     vi.spyOn(api, "searchCompanies").mockResolvedValue({

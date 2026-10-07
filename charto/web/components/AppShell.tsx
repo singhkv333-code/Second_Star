@@ -1263,7 +1263,7 @@ function TopHeader({
           padding: "0 16px",
           background: "hsl(var(--muted))",
           border: "none",
-          borderRadius: "var(--radius-pill)",
+          borderRadius: 10,
           position: "relative",
         }}
       >
@@ -1275,7 +1275,7 @@ function TopHeader({
           aria-hidden={true}
         />
         <CompanyAutosuggest
-          placeholder="Search about stocks"
+          placeholder="Search markets…"
           onSelect={(symbol) => router.push(`/stock/${symbol}`)}
           inputDataTestId="global-search"
           enableVoice

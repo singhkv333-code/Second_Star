@@ -28,7 +28,7 @@ Tags: **GATE** (must check an entitlement) · **METER** (consumes a quota) · **
 | Path | Auth | What it does | Spec row | Tag |
 |---|---|---|---|---|
 | `/health` (`?deep=1`) | no | health report | — | OPEN |
-| `/api/workflows[/…]`, `/api/strategies`, `/api/portfolio/performance`, `/portfolio/scores`, `/strategies/baskets`, `/users/option-strategies` | yes | Pivot-shaped reads of paper book / strategies | — | OPEN |
+| `/api/workflows[/…]`, `/api/strategies`, `/api/portfolio/performance`, `/strategies/baskets`, `/users/option-strategies` | yes | Pivot-shaped reads of paper book / strategies | — | OPEN |
 | `/api/*` (else) → `api_route()` L4545: `markets/quote`, `markets/…/sparkline`, `financials/*`, `markets/metric-series`, `stock/<sym>/{flows,deals,sections,patterns,peers,mix,scores,quarters}`, `companies/search`, `companies/logos` | no | company page data, cached | — | OPEN |
 | `/symbols` | no | universe + names + logos | — | OPEN |
 | `/bars?symbol&interval&to&limit` | **no** | OHLCV; `interval ∈ INTRADAY_MIN(1m,3m,5m,15m,30m,1h) ∪ 1d,1w,1mo`; `limit` default 3000, **hard cap 20000** (L16036); `to` = paging cursor so depth is unbounded by paging | Historical bars (Free 10K) | **GATE** (cap `limit` AND total depth reachable via `to`; needs auth or anon default) |

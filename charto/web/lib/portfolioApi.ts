@@ -1,84 +1,9 @@
 /**
- * portfolioApi — typed client for the NEW portfolio-scores endpoint.
- *
- * Lives in its own file (per task ownership) so it never collides with the
- * shared `lib/api.ts` client. It mirrors that client's conventions:
- *   - base URL from `NEXT_PUBLIC_PIVOT_API_BASE` (defaults to `/api`),
- *     with the trailing `/api` stripped because `/portfolio/*` is a LEGACY
- *     router mounted at the host root (same as getPortfolioSummary).
- *   - Bearer JWT read from `localStorage.pivot_jwt` (the same TOKEN_KEY
- *     AppBootstrap writes; matching liveQuoteManager.getToken()).
- *   - returns `Promise<ApiResult<T>>` so callers use the shared `isError`
- *     guard exactly like every other Pivot fetch.
- *
- * GET /portfolio/scores — three transparent, real-data-derived scores for the
- * current user's holdings. All three are `null` (with `reason: "no_holdings"`)
- * when the user has no holdings, so the UI must render an honest empty state.
+ * Portfolio performance API client.
  */
 
 import type { ApiResult, ErrorBody } from "@/lib/types";
 import { getAccessToken } from "@/lib/authToken";
-
-// ---------------------------------------------------------------------------
-// Response shapes (from the backend contract for GET /portfolio/scores)
-// ---------------------------------------------------------------------------
-
-export type DiversificationScoreComponents = {
-  n_holdings: number;
-  n_sectors: number;
-  top_holding_pct: number;
-  top_sector_pct: number;
-  hhi: number;
-};
-
-export type DiversificationScore = {
-  score: number;
-  components: DiversificationScoreComponents;
-  explainer: string;
-};
-
-export type PortfolioScoreSubscores = {
-  diversification: number;
-  concentration_penalty: number;
-  /** Present only when a real NAV series exists. */
-  performance?: number;
-};
-
-export type PortfolioScoreWeights = {
-  diversification: number;
-  concentration_penalty: number;
-  /** Present only when a real NAV series exists. */
-  performance?: number;
-};
-
-export type PortfolioScoreComponents = {
-  subscores: PortfolioScoreSubscores;
-  weights: PortfolioScoreWeights;
-  performance_available: boolean;
-  total_return_pct: number | null;
-};
-
-export type PortfolioScore = {
-  score: number;
-  components: PortfolioScoreComponents;
-  explainer: string;
-};
-
-export type CommunityScore = {
-  score: number;
-  percentile: number;
-  /** Honest description of the comparison basis (a benchmark, not live peers). */
-  basis: string;
-  explainer: string;
-};
-
-export type PortfolioScoresResponse = {
-  diversification_score: DiversificationScore | null;
-  portfolio_score: PortfolioScore | null;
-  community_score: CommunityScore | null;
-  /** `null` on success; `"no_holdings"` when the user has no holdings. */
-  reason: string | null;
-};
 
 // ---------------------------------------------------------------------------
 // Minimal fetch (legacy base + bearer token), additive — no shared client edits
@@ -141,13 +66,6 @@ async function getLegacy<T>(path: string): Promise<ApiResult<T>> {
   }
 
   return { data: parsed as T };
-}
-
-/** `GET /portfolio/scores` — diversification + portfolio + community scores. */
-export function getPortfolioScores(): Promise<
-  ApiResult<PortfolioScoresResponse>
-> {
-  return getLegacy<PortfolioScoresResponse>("/portfolio/scores");
 }
 
 // ---------------------------------------------------------------------------

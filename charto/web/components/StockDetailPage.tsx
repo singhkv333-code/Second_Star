@@ -1766,6 +1766,7 @@ function ChartCard({
               placeholder={tickers.length === 1 ? "Compare to…" : ""}
               onSelect={(sym) => onAddPeer(sym)}
               inputDataTestId="compare-search"
+              stockOnly
             />
           )}
         </div>

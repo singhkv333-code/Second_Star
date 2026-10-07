@@ -1,9 +1,9 @@
-"""Portfolio summary / holdings / scores / performance Redis cache.
+"""Portfolio summary / holdings / performance Redis cache.
 
 WHY: chat sessions and the FE dashboard burst-query the portfolio. A
 typical "show my portfolio → which sector am I most exposed to → what's
 the tax hit" sequence — or a dashboard mount that fires summary,
-holdings, scores, and the performance chart together — calls the
+holdings and the performance chart together — calls the
 underlying broker/compute path several times within a couple of
 seconds. Caching at the `user_id` (+ endpoint, + query params) boundary
 collapses the burst.
@@ -28,7 +28,6 @@ accumulate.
 Keys:
   portfolio:summary:{user_id}              → JSON  (TTL _TTL_S)
   portfolio:holdings:{user_id}             → JSON  (TTL _TTL_S)
-  portfolio:scores:{user_id}               → JSON  (TTL _TTL_S)
   portfolio:performance:{user_id}:{period} → JSON  (TTL _TTL_S)
 """
 from __future__ import annotations
@@ -95,7 +94,6 @@ def _kick_refresh(key: str, compute: Callable[[], Any]) -> None:
     threading.Thread(target=_run, name=f"swr:{key[:40]}", daemon=True).start()
 _SUMMARY_PREFIX = "portfolio:summary:"
 _HOLDINGS_PREFIX = "portfolio:holdings:"
-_SCORES_PREFIX = "portfolio:scores:"
 _PERFORMANCE_PREFIX = "portfolio:performance:"
 
 # All known /api/portfolio/performance periods — used only so `invalidate()`
@@ -228,7 +226,7 @@ def cache_aside(key: str, compute: Callable[[], Any], ttl_s: int = _TTL_S) -> An
     can't reconstruct on its own — unlike `get_summary_cached`/
     `get_holdings_cached`, which own their whole fetch.
 
-    Used by `/portfolio/scores` and `/api/portfolio/performance`: the
+    Used by `/api/portfolio/performance`: the
     caller builds a zero-arg closure over its request-scoped state and
     passes it in; this function only owns the read-through-cache/write
     mechanics. Errors in the cache layer are non-fatal — `compute()` is
@@ -249,10 +247,6 @@ def cache_aside(key: str, compute: Callable[[], Any], ttl_s: int = _TTL_S) -> An
     return fresh
 
 
-def scores_cache_key(user_id: int) -> str:
-    return f"{_SCORES_PREFIX}{user_id}"
-
-
 def performance_cache_key(user_id: int, period: str) -> str:
     return f"{_PERFORMANCE_PREFIX}{user_id}:{period}"
 
@@ -268,7 +262,6 @@ def invalidate(user_id: int) -> None:
     try:
         redis_client.delete(f"{_SUMMARY_PREFIX}{user_id}")
         redis_client.delete(f"{_HOLDINGS_PREFIX}{user_id}")
-        redis_client.delete(f"{_SCORES_PREFIX}{user_id}")
         for period in _PERFORMANCE_PERIODS:
             redis_client.delete(performance_cache_key(user_id, period))
     except Exception as e:

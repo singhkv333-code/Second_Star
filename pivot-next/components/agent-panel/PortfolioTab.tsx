@@ -16,7 +16,6 @@
  *      footer strip below it is per-user (real total return + concentration).
  *   3. Holdings table (sortable, ticker tag with sector subtext).
  *   4. Asset Allocation — donut + legend across Sectors / Stocks.
- *   5. Diversification Score — your score vs community median, narrative line.
  *
  * Theme tokens are pulled from globals.css so light + dark both work.
  */
@@ -57,9 +56,7 @@ import {
 import { toast } from "sonner";
 import { isError } from "@/lib/types";
 import {
-  getPortfolioScores,
   getPortfolioPerformance,
-  type PortfolioScoresResponse,
   type PortfolioPerformance,
   type PerformancePoint,
   type PerformancePeriod,
@@ -167,11 +164,11 @@ export function PortfolioTab(): React.ReactElement {
   // Fetched independently of the tab so the badge is visible from Overview.
   const [openOrderCount, setOpenOrderCount] = useState<number>(0);
   const [state, setState] = useState<FetchState>({ kind: "loading" });
-  // Bumped on mode-changes and retries so PerformanceChart + PortfolioScores
+  // Bumped on mode-changes and retries so PerformanceChart
   // re-fetch in lockstep with the summary + holdings. NOT bumped on initial
   // mount — children fire their own useEffect([reloadKey]) on mount, so
   // bumping here on mount caused a redundant second fetch (the 3x regression).
-  const [scoresReloadKey, setScoresReloadKey] = useState(0);
+  const [performanceReloadKey, setPerformanceReloadKey] = useState(0);
   // Re-fetch whenever the global trading mode flips: getPortfolioSummary /
   // getPortfolioHoldings are mode-aware, so this swaps the page between real
   // and paper data with no other change.
@@ -186,7 +183,7 @@ export function PortfolioTab(): React.ReactElement {
   // never remounts the component).
   const lastFetchAtRef = useRef(0);
 
-  // Fetches summary + holdings only; does NOT bump scoresReloadKey. Called by
+  // Fetches summary + holdings only; does NOT bump performanceReloadKey. Called by
   // the mode-change effect on every run (including initial mount) and indirectly
   // by `load()` below for full reloads (Retry button).
   const loadSummary = (): void => {
@@ -204,10 +201,10 @@ export function PortfolioTab(): React.ReactElement {
       });
   };
 
-  // Full reload: bumps scoresReloadKey so PerformanceChart + PortfolioScores
+  // Full reload: bumps performanceReloadKey so PerformanceChart
   // re-fetch in lockstep. Used by the Retry button only (not by the effect).
   const load = (): void => {
-    setScoresReloadKey((k) => k + 1);
+    setPerformanceReloadKey((k) => k + 1);
     loadSummary();
   };
 
@@ -221,7 +218,7 @@ export function PortfolioTab(): React.ReactElement {
     prevModeRef.current = mode;
     loadSummary();
     if (changed) {
-      setScoresReloadKey((k) => k + 1);
+      setPerformanceReloadKey((k) => k + 1);
     }
   }, [mode]);
 
@@ -260,7 +257,7 @@ export function PortfolioTab(): React.ReactElement {
 
   // Open-order count for the Orders pill badge. Kept separate from the tab's
   // own fetch so the badge shows from any tab. Re-runs on mode flips and on
-  // scoresReloadKey bumps (Retry / cancel-triggered reloads).
+  // performanceReloadKey bumps (Retry / cancel-triggered reloads).
   useEffect(() => {
     let alive = true;
     getOpenOrders().then((r) => {
@@ -270,7 +267,7 @@ export function PortfolioTab(): React.ReactElement {
     return () => {
       alive = false;
     };
-  }, [mode, scoresReloadKey]);
+  }, [mode, performanceReloadKey]);
 
   return (
     <div ref={rootRef} data-testid="portfolio-tab" style={{ background: "var(--bg-base)" }}>
@@ -367,7 +364,7 @@ export function PortfolioTab(): React.ReactElement {
       {view === "orders" && (
         <PendingOrders
           onCountChange={setOpenOrderCount}
-          onCancelled={() => setScoresReloadKey((k) => k + 1)}
+          onCancelled={() => setPerformanceReloadKey((k) => k + 1)}
         />
       )}
 
@@ -420,12 +417,11 @@ export function PortfolioTab(): React.ReactElement {
         </div>
       )}
 
-      {/* Performance + Scores are independent GETs (getPortfolioPerformance /
-          getPortfolioScores) — mount them unconditionally so their own fetch
+      {/* Performance is an independent GET (getPortfolioPerformance) — mount them unconditionally so their own fetch
           effects fire in the same tick as `load()`'s summary+holdings
           request, instead of waiting for `state` to become "ok" first. That
           conditional-mount gate was a frontend-side sequential dependency:
-          scores/performance only started once summary+holdings had already
+          performance only started once summary+holdings had already
           round-tripped. `summary`/`holdings` are only used for header/footer
           display here, so a null summary renders a lightweight skeleton in
           their place until the top-level fetch resolves. */}
@@ -433,7 +429,7 @@ export function PortfolioTab(): React.ReactElement {
         <PerformanceChart
           summary={state.kind === "ok" ? state.summary : null}
           holdings={state.kind === "ok" ? state.holdings : []}
-          reloadKey={scoresReloadKey}
+          reloadKey={performanceReloadKey}
         />
       )}
 
@@ -482,7 +478,6 @@ export function PortfolioTab(): React.ReactElement {
         </>
       )}
 
-      {view === "overview" && <PortfolioScores reloadKey={scoresReloadKey} />}
     </div>
   );
 }
@@ -2123,353 +2118,12 @@ function AssetAllocation({ holdings }: { holdings: Holding[] }): React.ReactElem
 }
 
 // ---------------------------------------------------------------------------
-// PortfolioScores — diversification + portfolio + community score panel.
-//
-// Driven entirely by GET /portfolio/scores (real, on-read math). Renders three
-// 0-100 gauge cards with the sub-components + explainers the endpoint returns.
-// All three scores are null (reason "no_holdings") when the book is empty →
-// honest empty state, never fabricated gauges.
-// ---------------------------------------------------------------------------
-
-type ScoresState =
-  | { kind: "loading" }
-  | { kind: "error"; message: string }
-  | { kind: "ok"; data: PortfolioScoresResponse };
-
-function PortfolioScores({ reloadKey }: { reloadKey: number }): React.ReactElement {
-  const [state, setState] = useState<ScoresState>({ kind: "loading" });
-
-  const load = (): void => {
-    setState({ kind: "loading" });
-    getPortfolioScores()
-      .then((res) => {
-        if (isError(res)) {
-          setState({ kind: "error", message: res.error.message });
-          return;
-        }
-        setState({ kind: "ok", data: res.data });
-      })
-      .catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : "Network error";
-        setState({ kind: "error", message: msg });
-      });
-  };
-
-  // Re-fetch when the trading mode / holdings change (reloadKey is driven by
-  // the same `mode` that re-loads the summary + holdings above).
-  useEffect(() => {
-    load();
-  }, [reloadKey]);
-
-  return (
-    <Section label="Portfolio Scores">
-      {state.kind === "loading" && (
-        <div
-          className="grid"
-          style={{
-            gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-            gap: 16,
-          }}
-          data-testid="portfolio-scores-loading"
-        >
-          {[0, 1, 2].map((i) => (
-            <Card key={i} padding="22px 24px">
-              <Bar w="55%" h={14} style={{ marginBottom: 16 }} />
-              <Bar w="40%" h={36} radius={6} style={{ marginBottom: 16 }} />
-              <Bar w="100%" h={8} radius={9999} style={{ marginBottom: 14 }} />
-              <Bar w="90%" h={12} />
-            </Card>
-          ))}
-        </div>
-      )}
-
-      {state.kind === "error" && (
-        <Card padding="22px 24px">
-          <div
-            className="flex flex-col items-center justify-center text-center"
-            role="alert"
-            data-testid="portfolio-scores-error"
-            style={{ gap: 8, padding: "12px 0" }}
-          >
-            <AlertCircle
-              size={20}
-              aria-hidden="true"
-              style={{ color: "var(--color-loss)" }}
-            />
-            <p style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>
-              Couldn&apos;t load your scores
-            </p>
-            <p style={{ fontSize: 12, color: "var(--text-tertiary)" }}>{state.message}</p>
-            <button
-              type="button"
-              onClick={load}
-              className="mt-2 inline-flex items-center"
-              style={{
-                gap: 6,
-                padding: "6px 12px",
-                background: "transparent",
-                border: "1px solid var(--glass-border-hover)",
-                borderRadius: "var(--radius-sm)",
-                color: "var(--text-primary)",
-                fontSize: 12,
-                fontWeight: 500,
-                cursor: "pointer",
-              }}
-            >
-              <RefreshCw size={13} aria-hidden="true" />
-              Retry
-            </button>
-          </div>
-        </Card>
-      )}
-
-      {state.kind === "ok" && <ScoresPanel data={state.data} />}
-    </Section>
-  );
-}
-
-function ScoresPanel({ data }: { data: PortfolioScoresResponse }): React.ReactElement {
-  const empty =
-    data.reason === "no_holdings" ||
-    (!data.diversification_score &&
-      !data.portfolio_score &&
-      !data.community_score);
-
-  if (empty) {
-    return (
-      <Card padding="22px 24px">
-        <div
-          className="flex flex-col items-center justify-center py-8 text-center"
-          data-testid="portfolio-scores-empty"
-        >
-          <Wallet
-            size={26}
-            aria-hidden="true"
-            style={{ color: "var(--text-tertiary)", marginBottom: 10 }}
-          />
-          <p style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>
-            Add holdings to see your scores
-          </p>
-          <p style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 4, maxWidth: 320 }}>
-            Once you hold positions, we&apos;ll score your diversification,
-            overall portfolio quality, and how it stacks up against a benchmark.
-          </p>
-        </div>
-      </Card>
-    );
-  }
-
-  const div = data.diversification_score;
-  const pf = data.portfolio_score;
-  const comm = data.community_score;
-
-  return (
-    <div
-      className="grid"
-      style={{
-        gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-        gap: 16,
-      }}
-      data-testid="portfolio-scores-panel"
-    >
-      {/* Diversification */}
-      {div && (
-        <ScoreCard
-          title="Diversification"
-          score={div.score}
-          color="var(--pivot-blue)"
-          rows={[
-            { label: "Holdings", value: String(div.components.n_holdings) },
-            { label: "Sectors", value: String(div.components.n_sectors) },
-            {
-              label: "Top sector",
-              value: `${div.components.top_sector_pct.toFixed(1)}%`,
-            },
-            {
-              label: "Top holding",
-              value: `${div.components.top_holding_pct.toFixed(1)}%`,
-            },
-            { label: "HHI", value: div.components.hhi.toFixed(3) },
-          ]}
-        />
-      )}
-
-      {/* Portfolio score */}
-      {pf && (
-        <ScoreCard
-          title="Portfolio Score"
-          score={pf.score}
-          color="var(--color-profit)"
-          rows={[
-            {
-              label: "Diversification",
-              value: pf.components.subscores.diversification.toFixed(0),
-            },
-            {
-              label: "Concentration",
-              value: pf.components.subscores.concentration_penalty.toFixed(0),
-            },
-            ...(pf.components.performance_available &&
-            pf.components.subscores.performance !== undefined
-              ? [
-                  {
-                    label: "Performance",
-                    value: pf.components.subscores.performance.toFixed(0),
-                  },
-                ]
-              : []),
-            ...(pf.components.total_return_pct !== null
-              ? [
-                  {
-                    label: "Total return",
-                    value: fmtPct(pf.components.total_return_pct),
-                    valueColor:
-                      pf.components.total_return_pct >= 0
-                        ? "var(--color-profit)"
-                        : "var(--color-loss)",
-                  },
-                ]
-              : [
-                  {
-                    label: "Total return",
-                    value: "no NAV history",
-                  },
-                ]),
-          ]}
-        />
-      )}
-
-      {/* Community score */}
-      {comm && (
-        <ScoreCard
-          title="Community Score"
-          score={comm.score}
-          color="var(--text-secondary)"
-          rows={[
-            {
-              label: "Percentile",
-              value: `${comm.percentile.toFixed(0)}th`,
-            },
-            { label: "Basis", value: comm.basis, wrap: true },
-          ]}
-        />
-      )}
-    </div>
-  );
-}
-
-type ScoreRow = {
-  label: string;
-  value: string;
-  valueColor?: string;
-  /** When true, allow the value to wrap onto multiple lines (e.g. "basis"). */
-  wrap?: boolean;
-};
-
-function ScoreCard({
-  title,
-  score,
-  color,
-  rows,
-}: {
-  title: string;
-  score: number;
-  color: string;
-  rows: ScoreRow[];
-}): React.ReactElement {
-  const clamped = Math.max(0, Math.min(100, score));
-  return (
-    <Card padding="22px 24px">
-      <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
-        <span
-          style={{
-            fontFamily: "var(--font-display)",
-            fontWeight: "var(--weight-display)" as unknown as number,
-            fontSize: 13,
-            letterSpacing: "-0.02em",
-            color: "var(--text-primary)",
-          }}
-        >
-          {title}
-        </span>
-        <span
-          style={{
-            fontFamily: "var(--font-serif)",
-            fontWeight: 500,
-            fontSize: 26,
-            lineHeight: 1,
-            letterSpacing: "-0.02em",
-            fontVariantNumeric: "tabular-nums",
-            color: "var(--text-primary)",
-          }}
-        >
-          {clamped}
-          <span style={{ fontSize: 13, color: "var(--text-tertiary)" }}>/100</span>
-        </span>
-      </div>
-
-      {/* 0-100 meter */}
-      <div
-        style={{
-          position: "relative",
-          height: 8,
-          background: "var(--bg-elevated)",
-          borderRadius: 999,
-          overflow: "hidden",
-          marginBottom: 16,
-        }}
-      >
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            width: `${clamped}%`,
-            background: color,
-            borderRadius: 999,
-            transition: "width 0.6s var(--ease-quartr)",
-          }}
-        />
-      </div>
-
-      {/* Sub-components */}
-      <div className="flex flex-col" style={{ gap: 7, marginBottom: 14 }}>
-        {rows.map((r) => (
-          <div
-            key={r.label}
-            className="flex items-baseline justify-between"
-            style={{ gap: 14 }}
-          >
-            <span
-              style={{ fontSize: 11.5, color: "var(--text-tertiary)", flexShrink: 0 }}
-            >
-              {r.label}
-            </span>
-            <span
-              style={{
-                fontFamily: r.wrap ? "var(--font-ui)" : "var(--font-mono)",
-                fontSize: 11.5,
-                fontWeight: 500,
-                color: r.valueColor ?? "var(--text-secondary)",
-                textAlign: "right",
-                whiteSpace: r.wrap ? "normal" : "nowrap",
-              }}
-            >
-              {r.value}
-            </span>
-          </div>
-        ))}
-      </div>
-    </Card>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Loading skeleton
 // ---------------------------------------------------------------------------
 
 // Covers only the Holdings + Asset Allocation sections — both are derived
 // from `state` (summary/holdings) with no independent fetch of their own, so
-// they still gate on `state.kind === "ok"`. Performance and Scores are no
+// they still gate on `state.kind === "ok"`. Performance are no
 // longer part of this skeleton: they mount unconditionally (in parallel with
 // this fetch, not after it) and render their own loading state.
 function PortfolioLoading(): React.ReactElement {
