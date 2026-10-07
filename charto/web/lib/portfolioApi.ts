@@ -5,77 +5,13 @@
 import type { ApiResult, ErrorBody } from "@/lib/types";
 import { getAccessToken } from "@/lib/authToken";
 
-// ---------------------------------------------------------------------------
-// Minimal fetch (legacy base + bearer token), additive — no shared client edits
-// ---------------------------------------------------------------------------
-
 const DEFAULT_BASE = "/api";
-
-/** Host root base (legacy routers like /portfolio live here, NOT under /api). */
-function getLegacyBase(): string {
-  const base =
-    (typeof process !== "undefined" &&
-      process.env.NEXT_PUBLIC_PIVOT_API_BASE) ||
-    DEFAULT_BASE;
-  return base.replace(/\/api\/?$/, "");
-}
-
-async function getLegacy<T>(path: string): Promise<ApiResult<T>> {
-  const base = getLegacyBase();
-  const sep = base.endsWith("/") || path.startsWith("/") ? "" : "/";
-  const url = `${base}${sep}${path}`;
-  const token = await getAccessToken();
-
-  const headers: Record<string, string> = { Accept: "application/json" };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-
-  const res = await fetch(url, { method: "GET", headers, cache: "no-store" });
-  const text = await res.text();
-  let parsed: unknown = null;
-  if (text.length > 0) {
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      return {
-        error: {
-          code: "internal_error",
-          message: `Unexpected non-JSON response (status ${res.status})`,
-        },
-      };
-    }
-  }
-
-  if (!res.ok) {
-    // Accept both the canonical envelope and FastAPI's { detail } shape.
-    const envelope = (parsed ?? {}) as {
-      error?: Partial<ErrorBody>;
-      detail?: unknown;
-    };
-    const err = envelope.error ?? {};
-    const legacyMessage =
-      typeof envelope.detail === "string" ? envelope.detail : undefined;
-    return {
-      error: {
-        code: err.code ?? `http_${res.status}`,
-        message:
-          err.message ??
-          legacyMessage ??
-          `Request failed with status ${res.status}`,
-      },
-    };
-  }
-
-  return { data: parsed as T };
-}
 
 // ---------------------------------------------------------------------------
 // Portfolio performance series — GET /api/portfolio/performance
 //
-// NOTE the base: unlike `/portfolio/*` (the legacy root router above), the
-// performance router is declared with `prefix="/api/portfolio"` in the backend
-// (`routers/portfolio_perf.py`) and mounted with no extra prefix — so its real
-// path lives UNDER `/api`. We therefore fetch it with the `/api` base (mirroring
-// lib/api.ts's getBaseUrl), NOT the legacy-root helper.
+// The performance router is declared with `prefix="/api/portfolio"` in the
+// backend (`routers/portfolio_perf.py`), so its path uses the `/api` base.
 // ---------------------------------------------------------------------------
 
 /** Backend supported periods (yfinance-backed). UI ranges map onto these. */
