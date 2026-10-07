@@ -2637,6 +2637,7 @@ body:has(.app-shell-root) {
   display: flex; flex-direction: column; overflow: hidden !important;
   background: var(--bg-primary); border: 1px solid var(--glass-border);
 }
+.cas-scroll > :not(.cas-result-list) { flex-shrink: 0; }
 .cas-modal-head, .cas-modal-query, .cas-category-tabs, .cas-results-caption { list-style: none; }
 .cas-modal-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px 10px; }
 .cas-modal-head strong { font-size: 19px; font-weight: 600; letter-spacing: -.02em; color: var(--text-primary); }
@@ -2650,14 +2651,14 @@ body:has(.app-shell-root) {
   background: hsl(var(--muted)); color: var(--text-primary); font: inherit; font-size: 14px; outline: none;
 }
 .cas-modal-query input::placeholder { color: var(--text-tertiary); }
-.cas-modal-query input:focus-visible { outline: 2px solid var(--glass-border-hover); outline-offset: 1px; }
+.cas-modal-query input:focus-visible { outline: none; }
 .cas-category-tabs { display: flex; gap: 6px; padding: 0 22px 13px; overflow-x: auto; border-bottom: 1px solid var(--glass-border); }
 .cas-category-tabs button { flex: none; border: 0; border-radius: 999px; padding: 7px 12px; background: var(--bg-elevated); color: var(--text-secondary); font-size: 12px; cursor: pointer; }
 .cas-category-tabs button.active { background: var(--text-primary); color: var(--bg-primary); }
 .cas-results-caption { padding: 12px 22px 6px; color: var(--text-tertiary); font-size: 10px; font-weight: 700; letter-spacing: .08em; }
-.cas-result-list { flex: 1; min-height: 0; max-height: calc(76vh - 170px); overflow-y: auto; list-style: none; margin: 0; padding: 0 10px 10px; scrollbar-width: thin; }
+.cas-result-list { flex: 1 1 auto; min-height: 0; max-height: calc(76vh - 170px); overflow-y: auto; list-style: none; margin: 0; padding: 0 10px 10px; scrollbar-width: thin; }
 .cas-instrument-row {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center;
   gap: 12px; min-height: 58px; margin: 0; padding: 9px 10px;
   border-radius: 6px; cursor: pointer;
 }

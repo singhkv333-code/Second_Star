@@ -28,7 +28,7 @@ import { searchCompanies, type CompanySearchResult } from "@/lib/api";
 import { isError } from "@/lib/types";
 import { CompanyLogo } from "@/components/CompanyLogo";
 import { VoiceInputButton } from "@/components/VoiceInputButton";
-import { ChartNoAxesCombined, Search } from "lucide-react";
+import { Search } from "lucide-react";
 
 interface CompanyAutosuggestProps {
   placeholder?: string;
@@ -103,7 +103,7 @@ export function CompanyAutosuggest({
   const [results, setResults] = useState<CompanySearchResult[]>([]);
   const [recent, setRecent] = useState<CompanySearchResult[]>([]);
   const [open, setOpen] = useState(false);
-  const [highlighted, setHighlighted] = useState(0);
+  const [highlighted, setHighlighted] = useState(-1);
   const [loading, setLoading] = useState(false);
   const [category, setCategory] = useState<SearchCategory>("All");
   const [universe, setUniverse] = useState<SearchInstrument[]>([]);
@@ -190,7 +190,7 @@ export function CompanyAutosuggest({
         if (!isError(res)) {
           setResults(res.data.results);
           setOpen(true);
-          setHighlighted(0);
+          setHighlighted(-1);
         } else {
           setResults([]);
           setOpen(true);
@@ -244,26 +244,9 @@ export function CompanyAutosuggest({
       setQuery("");
       setResults([]);
       setOpen(false);
-      setHighlighted(0);
+      setHighlighted(-1);
     },
     [onSelect, onOpenChart],
-  );
-
-  const handleOpenChart = useCallback(
-    (result: CompanySearchResult): void => {
-      if (!onOpenChart) return;
-      onOpenChart(result.symbol);
-      setRecent((prev) => {
-        const next = [result, ...prev.filter((x) => x.symbol !== result.symbol)].slice(0, RECENT_MAX);
-        saveRecent(next);
-        return next;
-      });
-      setQuery("");
-      setResults([]);
-      setOpen(false);
-      setHighlighted(0);
-    },
-    [onOpenChart],
   );
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
@@ -356,10 +339,10 @@ export function CompanyAutosuggest({
           </div>
           <div className="cas-modal-query">
             <Search size={17} aria-hidden="true" />
-            <input ref={modalInputRef} value={query} onChange={(e) => { setQuery(e.target.value); setHighlighted(0); }} onKeyDown={handleKeyDown} placeholder="Search symbol or company" aria-label="Search symbols" autoComplete="off" />
+            <input ref={modalInputRef} value={query} onChange={(e) => { setQuery(e.target.value); setHighlighted(-1); }} onKeyDown={handleKeyDown} placeholder="Search symbol or company" aria-label="Search symbols" autoComplete="off" />
           </div>
           {!stockOnly && <div className="cas-category-tabs" role="tablist" aria-label="Instrument category">
-            {SEARCH_CATEGORIES.map((item) => <button type="button" role="tab" key={item} aria-selected={category === item} className={category === item ? "active" : ""} onMouseDown={(e) => e.preventDefault()} onClick={() => { setCategory(item); setHighlighted(0); }}>{item}</button>)}
+            {SEARCH_CATEGORIES.map((item) => <button type="button" role="tab" key={item} aria-selected={category === item} className={category === item ? "active" : ""} onMouseDown={(e) => e.preventDefault()} onClick={() => { setCategory(item); setHighlighted(-1); }}>{item}</button>)}
           </div>}
           <div className="cas-results-caption">INSTRUMENTS</div>
 
@@ -378,7 +361,6 @@ export function CompanyAutosuggest({
               highlighted={highlighted === i}
               onMouseEnter={() => setHighlighted(i)}
               onSelect={handleSelect}
-              onOpenChart={onOpenChart ? handleOpenChart : undefined}
             />
           ))}
 
@@ -415,14 +397,12 @@ function DropdownRow({
   highlighted,
   onMouseEnter,
   onSelect,
-  onOpenChart,
 }: {
   result: SearchInstrument;
   index: number;
   highlighted: boolean;
   onMouseEnter: () => void;
   onSelect: (r: SearchInstrument) => void;
-  onOpenChart?: (result: SearchInstrument) => void;
 }): React.ReactElement {
   return (
     <li
@@ -451,31 +431,6 @@ function DropdownRow({
           <small>{result.change_pct != null ? `${result.change_pct > 0 ? "+" : ""}${result.change_pct.toFixed(2)}%` : ""}{result.quote_source === "charto_relay" ? " · delayed" : ""}</small>
         </> : <small>{result.isHydrated === false ? "~6s to load" : "—"}</small>}
       </span>
-      {onOpenChart && (
-        <button
-          type="button"
-          aria-label={`Open ${result.symbol} chart`}
-          title="Open chart"
-          onMouseDown={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            onOpenChart(result);
-          }}
-          className="inline-flex shrink-0 items-center justify-center"
-          style={{
-            width: 26,
-            height: 26,
-            padding: 0,
-            border: 0,
-            borderRadius: "var(--radius-sm)",
-            background: "transparent",
-            color: "var(--text-tertiary)",
-            cursor: "pointer",
-          }}
-        >
-          <ChartNoAxesCombined size={15} strokeWidth={1.9} aria-hidden="true" />
-        </button>
-      )}
     </li>
   );
 }
