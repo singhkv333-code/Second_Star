@@ -7436,7 +7436,9 @@ svg.icon.op {
   }
   .symbol-dialog-head { display: flex; justify-content: space-between; align-items: center; padding: 18px 22px 10px; }
   .symbol-dialog-head strong { color: var(--foreground); font-size: 19px; letter-spacing: -.02em; }
-  .symbol-close { border: 0; background: transparent; color: var(--muted-foreground); font-size: 26px; line-height: 1; cursor: pointer; }
+  .symbol-close { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--muted-foreground); cursor: pointer; }
+  .symbol-close:hover { background: var(--accent); color: var(--foreground); }
+  .symbol-close svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
   #symbolMenu .searchfield, .sym-picker .searchfield { margin: 0 22px 12px !important; }
   .symbol-categories { display: flex; gap: 6px; padding: 0 22px 13px; overflow-x: auto; border-bottom: 1px solid var(--border); }
   .symbol-categories button { flex: none; padding: 7px 12px; border: 0; border-radius: 999px; background: var(--accent); color: var(--muted-foreground); font-size: 12px; cursor: pointer; }
@@ -11073,7 +11075,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
         <span id="symbolName">RELIANCE</span> <span class="ex" id="symbolVenue">NSE</span>
       </div>
       <div class="dropdown" id="symbolMenu">
-        <div class="symbol-dialog-head"><strong>Symbol search</strong><button type="button" class="symbol-close" aria-label="Close symbol search">×</button></div>
+        <div class="symbol-dialog-head"><strong>Symbol search</strong><button type="button" class="symbol-close" aria-label="Close symbol search"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
         <!-- the magnifier is put here by Icons.mountSearchFields(), so every
              search box in the app carries the same one -->
         <div class="searchfield">
@@ -11395,7 +11397,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./vendor/liquid-glass.js"></script>
   <script src="./js/store.js?v=19"></script>
   <script src="./js/theme.js?v=12"></script>
-  <script src="./js/universe.js?v=15"></script>
+  <script src="./js/universe.js?v=16"></script>
   <script src="./js/icons.js?v=43"></script>
   <!-- after icons.js (every row is drawn with one) and before main.js, which
        builds the chart's three right-click menus out of it -->

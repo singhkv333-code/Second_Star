@@ -229,10 +229,12 @@ patch_vendor() {
 if [ "$local_" = "$remote" ]; then
   patch_vendor
   apply_nginx
-  if web_needs_build; then
-    rebuild_web
-  elif pn_needs_build; then
+  # The shell serves `/` and is the first page visitors see. Build it before
+  # the remaining charto/web routes when both source trees changed.
+  if pn_needs_build; then
     rebuild_pivot_next
+  elif web_needs_build; then
+    rebuild_web
   fi
   exit 0
 fi
@@ -268,10 +270,10 @@ find "$REPO/charto" -name '._*' -type f -delete 2>/dev/null || true
 patch_vendor
 apply_nginx
 
-if web_needs_build; then
-  rebuild_web
-elif pn_needs_build; then
+if pn_needs_build; then
   rebuild_pivot_next
+elif web_needs_build; then
+  rebuild_web
 fi
 
 # `pivot/` counts as backend too, now that it is IN the checkout.

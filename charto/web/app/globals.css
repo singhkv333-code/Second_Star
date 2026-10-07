@@ -1747,7 +1747,8 @@ body:has(.app-shell-root) {
 .cas-modal-head, .cas-modal-query, .cas-category-tabs, .cas-results-caption { list-style: none; }
 .cas-modal-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px 10px; }
 .cas-modal-head strong { font-size: 19px; font-weight: 600; letter-spacing: -.02em; color: var(--text-primary); }
-.cas-modal-head button { border: 0; background: transparent; color: var(--text-secondary); font-size: 26px; line-height: 1; cursor: pointer; }
+.cas-modal-head button { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.cas-modal-head button:hover { background: var(--bg-elevated); color: var(--text-primary); }
 .cas-modal-query { position: relative; margin: 0 22px 12px; }
 .cas-modal-query > svg { position: absolute; left: 9px; top: 50%; width: 15px; height: 15px; transform: translateY(-50%); color: var(--text-tertiary); pointer-events: none; }
 .cas-modal-query:focus-within > svg { color: var(--text-primary); }

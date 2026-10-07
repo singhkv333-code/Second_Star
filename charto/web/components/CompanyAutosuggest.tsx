@@ -28,7 +28,7 @@ import { searchCompanies, type CompanySearchResult } from "@/lib/api";
 import { isError } from "@/lib/types";
 import { CompanyLogo } from "@/components/CompanyLogo";
 import { VoiceInputButton } from "@/components/VoiceInputButton";
-import { Search } from "lucide-react";
+import { Search, X } from "lucide-react";
 
 interface CompanyAutosuggestProps {
   placeholder?: string;
@@ -335,7 +335,7 @@ export function CompanyAutosuggest({
         >
           <div className="cas-modal-head">
             <strong>Symbol search</strong>
-            <button type="button" aria-label="Close symbol search" onMouseDown={(e) => { e.preventDefault(); setOpen(false); }}>×</button>
+            <button type="button" aria-label="Close symbol search" onMouseDown={(e) => { e.preventDefault(); setOpen(false); }}><X size={18} strokeWidth={1.8} aria-hidden="true" /></button>
           </div>
           <div className="cas-modal-query">
             <Search size={17} aria-hidden="true" />

@@ -302,7 +302,7 @@ const Universe = (() => {
     pop.className = "dropdown floating sym-picker open";
     pop.dataset.for = anchor.dataset.pickerId;
     pop.innerHTML =
-      `<div class="symbol-dialog-head"><strong>Symbol search</strong><button type="button" class="symbol-close" aria-label="Close symbol search">×</button></div>` +
+      `<div class="symbol-dialog-head"><strong>Symbol search</strong><button type="button" class="symbol-close" aria-label="Close symbol search"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>` +
       Icons.field(`<input class="pick-search" placeholder="Search symbol or company"
               autocomplete="off" spellcheck="false" />`) + tabsHTML() +
       `<div class="symbol-results-label">INSTRUMENTS</div>` +
