@@ -1,7 +1,7 @@
 /* Newsreader carries the `ital` axis so display italics render as true
    italics (the landing-page "That's all" treatment), not synthetic
    obliques. */
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;550;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400;1,6..72,500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;550;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400;1,6..72,500&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -77,6 +77,7 @@
     --shell-sidebar-bg:   #ffffff;
     --glass-border-hover: rgba(15, 18, 22, 0.16);
     --glass-border-focus: rgba(15, 18, 22, 0.32);
+    --resize-line: #b8bcc1;
 
     /* Theme-aware active/hover tints. In dark mode this is the
        rgba(255,255,255,0.04) Quartr uses for active sidebar items;
@@ -127,9 +128,10 @@
     --font-mono:    'Inter', system-ui, sans-serif;
     --font-ui:      'Inter', system-ui, sans-serif;
     --font-serif:   'Newsreader', 'Times New Roman', Georgia, serif;
-    /* Numerals — prices, NAVs, P&L, levels all set in the machine face.
+    /* Numerals — prices, NAVs, P&L, levels all set in the UI face (Inter),
+       with `tabular-nums` giving column alignment instead of a second family.
        One token so the numeric voice can be swapped product-wide. */
-    --font-numeric: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+    --font-numeric: 'Inter', system-ui, sans-serif;
 
     /* Experiment slot — applied ONLY to the topbar Pivot wordmark and
        the chat greeting ("Good morning, …"). Swap this single value to
@@ -210,6 +212,7 @@
     --shell-sidebar-bg:   #1c1c1d;
     --glass-border-hover: rgba(255, 255, 255, 0.22);
     --glass-border-focus: rgba(255, 255, 255, 0.36);
+    --resize-line: #555d66;
 
     /* Theme-aware active/hover tints — mirrors the values defined in
        :root for light mode. In dark, these are the white-over-black
@@ -533,7 +536,7 @@ input[type="range"].payoff-slider::-moz-range-thumb {
   flex-direction: column;
   overflow: hidden;
   background: var(--bg-base);
-  border-left: 2px solid var(--shell-seam);
+  border-left: 1px solid var(--shell-seam);
   transform: translateX(14px);
   opacity: 0;
   visibility: hidden;
@@ -555,9 +558,7 @@ input[type="range"].payoff-slider::-moz-range-thumb {
     visibility 0s;
 }
 
-/* Drag handle on the panel's left seam. The hit area is 10px wide but the
-   visible line is the 2px border already there, so the seam does not thicken
-   on hover — it just lights up, the way the chart's handle does. */
+/* The invisible drag target reveals a thin grey line on hover. */
 .copilot-resize-handle {
   position: absolute;
   top: 0;
@@ -570,29 +571,8 @@ input[type="range"].payoff-slider::-moz-range-thumb {
   touch-action: none;
 }
 
-.copilot-resize-grip {
-  position: absolute;
-  top: 50%;
-  left: 3px;
-  width: 4px;
-  height: 36px;
-  border-radius: var(--radius-pill);
-  background: var(--glass-border-focus);
-  opacity: 0;
-  transform: translateY(-50%);
-  transition: opacity 140ms ease;
-}
-
-.copilot-resize-handle:hover .copilot-resize-grip,
-.copilot-resize-handle:focus-visible .copilot-resize-grip,
-.copilot-resize-handle:active .copilot-resize-grip {
-  opacity: 0.75;
-}
-
-.copilot-resize-handle:focus-visible {
-  outline: 2px solid hsl(var(--accent));
-  outline-offset: -2px;
-}
+.copilot-side-panel:has(.copilot-resize-handle:is(:hover, :focus-visible, :active)) { border-left-color: var(--resize-line); }
+.copilot-resize-handle:focus-visible { outline: none; }
 
 .copilot-panel-header {
   display: flex;
@@ -1679,6 +1659,10 @@ body:has(.app-shell-root) {
     grid-template-columns: 56px minmax(0, 1fr) !important;
     gap: 12px !important;
   }
+}
+
+.agent-panel-shell:has(.agent-panel-resize-handle:is(:hover, :active, :focus-visible)) {
+  border-left-color: var(--resize-line);
 }
 
 /* AgentPanel (right-side workflow editor) — full screen at <lg so it

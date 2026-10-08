@@ -1442,9 +1442,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
                     catch { /* storage unavailable */ }
                   }}
                   title="Drag to resize · double-click to reset"
-                >
-                  <span aria-hidden={true} className="copilot-resize-grip" />
-                </div>
+                />
               )}
               <AssistantPanel
                 page={assistPage}

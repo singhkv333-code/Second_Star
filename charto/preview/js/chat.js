@@ -2744,7 +2744,6 @@
 
   // ── resizable split: chart | chat ─────────────────────
   const splitter = el("splitter"), main = document.querySelector(".main");
-  const splitReadout = el("splitReadout");
   const WKEY = "charto_chat_width";
   const MIN_CHAT = 340, MIN_CHART = 420;
   /* The width a first visit opens at, and the one the reset gesture returns
@@ -2784,9 +2783,8 @@
 
   /** What the divider currently says about itself — the share of the row the
    *  conversation holds, which is the number that survives a window resize,
-   *  and the pixels the layout actually stores. Written into the readout the
-   *  drag shows AND into the separator's ARIA value, because a control you
-   *  can drive from the keyboard has to announce where it now is. Which axis
+   *  and the pixels the layout actually stores. Written into the separator's
+   *  ARIA value so keyboard users can hear where it now is. Which axis
    *  it measures follows the shell: stacked, this divider drags height. */
   function paintSplit() {
     const vert = !stacked();
@@ -2797,11 +2795,9 @@
     splitter.setAttribute("aria-valuenow", String(pct));
     splitter.setAttribute("aria-valuetext",
       `Chat ${pct}% of the ${vert ? "width" : "height"}, ${size} pixels`);
-    if (splitReadout) splitReadout.textContent = `${pct}% · ${size}px`;
   }
 
-  /* A keyboard nudge has no drag to show the readout during, so it borrows
-   * it for a moment. Same feedback, same element, no second design. */
+  /* Briefly highlight the grip after a keyboard nudge. */
   let peekT = null;
   function peekSplit() {
     splitter.classList.add("peek");
@@ -2933,7 +2929,7 @@
   splitter.addEventListener("dblclick", () => {
     if (stacked()) setChatHeight(main.clientHeight * 0.46);
     else setChatWidth(main.clientWidth * DEF_W);
-    peekSplit();   // the jump is instant; the number is what says it landed
+    peekSplit();
   });
 
   /* ── the same control, from the keyboard ──────────────────────────────

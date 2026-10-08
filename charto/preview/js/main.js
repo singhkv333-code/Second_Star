@@ -71,7 +71,7 @@
     return {
       layout: {
         background: { color: P.chartBg }, textColor: P.axisText,
-        panes: { separatorColor: P.separator, enableResize: true },
+        panes: { separatorColor: P.separator, separatorHoverColor: P.separatorHover, enableResize: true },
         // The chart library signs its own work bottom-left. Pivot's mark
         // stands there instead — see `.chart-mark` below. The library ships
         // this switch for exactly this; the credit to TradingView belongs in

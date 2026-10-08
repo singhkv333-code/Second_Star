@@ -160,9 +160,10 @@
      edge, and one place to change if the whole shell wants a heavier
      frame. --seam-strong is for the seam a POINTER can grab (the pane
      resize handle), which has to be findable rather than merely tidy. */
-  --seam-w: 2px;
+  --seam-w: 1px;
   --seam: var(--border);
   --seam-strong: var(--muted-foreground);
+  --resize-line: #b8bcc1;
 
   /* The header's height, as a number the rest of the app can read. Anything
      that hangs BELOW the header — the journal's editor drawer is the first —
@@ -198,6 +199,7 @@
 }
 
 :root[data-theme="dark"] {
+  --resize-line: #555d66;
   /* Pivot dark: --bg-base is true black, cards/popovers step up from it */
   --background: #000000;
   --foreground: #fbfcfc;
@@ -2474,14 +2476,16 @@ header > .btn, header > .badge { flex: none; }
 /* Pane splitters. One per internal grid line, laid over the seam already
    drawn there, so the edge you see and the edge you grab are the same one.
    The hit area is deliberately wider than the seam — a 2px drag target is
-   findable only by accident — but it stays transparent until hovered. */
+   findable only by accident. Hover reveals a continuous grey line. */
 .pane-split {
   position: absolute; z-index: 6; background: transparent;
   transition: background var(--dur-fast);
 }
 .pane-split.v { top: 0; bottom: 0; width: 9px; margin-left: -4.5px; cursor: col-resize; }
 .pane-split.h { left: 0; right: 0; height: 9px; margin-top: -4.5px; cursor: row-resize; }
-.pane-split:hover, .pane-split.dragging { background: var(--seam-strong); }
+.pane-split::before { content: ""; position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; transform: translateX(-50%); background: transparent; pointer-events: none; }
+.pane-split.h::before { top: 50%; bottom: auto; left: 0; right: 0; width: auto; height: 1px; transform: translateY(-50%); }
+.pane-split:hover::before, .pane-split.dragging::before { background: var(--resize-line); }
 
 /* Secondary chart. Same chrome as the primary — an in-chart legend and
    nothing else — so a split reads as one chart shown twice. */
@@ -3229,60 +3233,20 @@ body.two-columns .readout .row { display: none; }
    At rest this is the same 1px seam every other panel boundary is, because
    the shell has to read as two panes and not three. The problem with that
    is that a 1px line advertises nothing: the one resize gesture on this row
-   was invisible until you happened to drag it. So the line grows a GRIP —
-   TradingView's handle — the moment the pointer is near enough for the
-   handle to be the answer, and a readout while you drag saying what the
-   split now is. Ink only when it is useful, nothing the rest of the time. */
+   was invisible until you happened to drag it. The full grey line appears
+   on hover while the wider invisible target stays easy to grab. */
 .splitter {
-  width: 1px; flex: none; cursor: col-resize; background: var(--border);
+  width: 1px; flex: none; cursor: col-resize; background: var(--seam);
   position: relative; transition: background var(--dur) var(--ease-quartr);
-  /* Over BOTH neighbours. The grab area below reaches past the divider's own
-     pixel into each pane, and `.chatpanel` is a positioned element later in
-     source — it was painting over the half of the target that lies on its
-     side, so a press six pixels right of the line went to the conversation
-     and the divider only answered from the left. This also puts the grip and
-     the readout above the pane they overhang. */
+  /* Over both neighbours so the grab area reaches into each pane. */
   z-index: 9;
 }
 /* The grab TARGET, which is not the ink: a 1px line is a mouse trap, so the
    area that answers a press reaches 6px either side of what you can see. */
 .splitter::after { content: ""; position: absolute; inset: 0 -6px; }
-.splitter:hover, .splitter.dragging, .splitter:focus-visible { background: var(--primary); }
+.splitter:hover, .splitter.dragging, .splitter:focus-visible, .splitter.peek { background: var(--resize-line); }
 /* the lit seam IS the focus ring — a 2px halo around a 1px line is a smudge */
 .splitter:focus-visible { outline: none; }
-/* The grip. Faded out at rest so it costs the page nothing; it is the same
-   pill the phone divider and the sheets already wear, stood upright. */
-.splitter::before {
-  content: ""; position: absolute; top: 50%; left: 50%;
-  transform: translate(-50%, -50%);
-  width: 4px; height: 36px; border-radius: var(--radius-pill);
-  background: var(--border); opacity: 0; pointer-events: none;
-  transition: opacity var(--dur) var(--ease-quartr),
-              background var(--dur) var(--ease-quartr),
-              height var(--dur) var(--ease-quartr);
-}
-/* The grip takes the seam's OWN lit colour, not the resting border: the
-   hover rule above turns the line teal, and a grey pill laid over the middle
-   of a teal line reads as a gap in it rather than a handle on it. Lit, the
-   two are one shape — a line that thickens where you take hold of it. */
-.splitter:hover::before, .splitter:focus-visible::before,
-.splitter.peek::before { opacity: 1; background: var(--primary); }
-.splitter.dragging::before { opacity: 1; background: var(--primary); height: 52px; }
-/* What the drag is doing, in the unit the reader thinks in. Parked BELOW
-   the grip rather than on it — the two are the same gesture's feedback and
-   must not sit on top of each other — and only while the split is moving,
-   because a permanent number down the middle of the app is a second readout
-   competing with the chart's own. */
-.split-readout {
-  position: absolute; top: calc(50% + 42px); left: 50%; transform: translateX(-50%);
-  padding: 3px 8px; border-radius: var(--radius-pill);
-  background: var(--primary); color: var(--primary-foreground);
-  font-size: var(--text-2xs); font-weight: var(--weight-semi);
-  font-variant-numeric: tabular-nums; white-space: nowrap;
-  opacity: 0; pointer-events: none; z-index: 2;
-  transition: opacity var(--dur) var(--ease-quartr);
-}
-.splitter.dragging .split-readout, .splitter.peek .split-readout { opacity: 1; }
 .splitter.hidden { display: none; }
 
 /* provenance card — why a drawn level is on the chart.
@@ -3552,8 +3516,6 @@ body.two-columns .readout .row { display: none; }
 .chatpanel {
   width: 46%; min-width: 320px; flex: none; background: var(--background);
   display: flex; flex-direction: column; min-height: 0; position: relative;
-  /* the chart's price axis used to run straight into the reply text */
-  border-left: var(--seam-w) solid var(--seam);
 }
 .chatpanel.hidden { display: none; }
 
@@ -7661,22 +7623,14 @@ svg.icon.op {
 .dk-col > .dk-group, .dk-col > .dk-box { min-height: 130px; }
 .dk-canvas > .dk-group, .dk-canvas > .dk-box { min-width: 0; min-height: 0; }
 .dk-canvas { overflow: hidden; }
-/* the seams: 1px to see, 9px to grab, a short bar when you are on one */
+/* the seams: a quiet 1px boundary with a wider grab target */
 .dk-gut { position: relative; flex: none; background: var(--seam); z-index: 9; transition: background var(--dur) var(--ease-quartr); }
 .dk-gut.v { width: 1px; cursor: col-resize; }
 .dk-gut.h { height: 1px; cursor: row-resize; }
 .dk-gut::after { content: ""; position: absolute; }
 .dk-gut.v::after { inset: 0 -4px; }
 .dk-gut.h::after { inset: -4px 0; }
-.dk-gut::before {
-  content: ""; position: absolute; left: 50%; top: 50%; border-radius: 3px; z-index: 2;
-  background: var(--foreground); opacity: 0; transform: translate(-50%, -50%);
-  transition: opacity var(--dur) var(--ease-quartr);
-}
-.dk-gut.v::before { width: 3px; height: 28px; }
-.dk-gut.h::before { width: 28px; height: 3px; }
-.dk-gut:hover, .dk-gut.dragging { background: var(--seam-strong); }
-.dk-gut:hover::before, .dk-gut.dragging::before { opacity: .5; }
+.dk-gut:hover, .dk-gut.dragging { background: var(--resize-line); }
 
 .dk-group {
   position: relative; display: flex; flex-direction: column;
@@ -7806,12 +7760,6 @@ body.dk-compact .dk-act { opacity: .75; }
 .dk-floats > .dk-group.dk-moving > .dk-head { cursor: grabbing; }
 .dk-floats > .dk-group.dk-redock { outline: 2px solid var(--foreground); outline-offset: 2px; }
 .dk-floats .dk-rz { display: block; position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize; z-index: 3; }
-.dk-floats .dk-rz::after {
-  content: ""; position: absolute; right: 4px; bottom: 4px; width: 7px; height: 7px;
-  border-right: 1.5px solid var(--foreground); border-bottom: 1.5px solid var(--foreground);
-  border-bottom-right-radius: 3px; opacity: .3; transition: opacity var(--dur);
-}
-.dk-floats .dk-group:hover .dk-rz::after { opacity: .7; }
 
 .dk-group.dk-maxed { position: fixed !important; z-index: 60; box-shadow: 0 0 0 1px var(--border), var(--menu-shadow); }
 .dk-group.dk-flash::after {
@@ -8062,41 +8010,6 @@ label.ds-row { cursor: pointer; }
 .ds-links button:hover { background: color-mix(in srgb, var(--foreground) 6%, transparent); }
 .ds-links button.on { box-shadow: inset 0 0 0 2px var(--foreground); }
 .ds-links button.on[class*="g"] { box-shadow: inset 0 0 0 2px var(--lk); background: color-mix(in srgb, var(--lk) 12%, transparent); }
-
-/* ── the empty slot, and the handles that make one ── */
-.dk-slot {
-  position: relative; flex: 1; margin: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
-  border-radius: 14px; border: 1.5px dashed color-mix(in srgb, var(--foreground) 18%, transparent);
-  transition: border-color var(--dur), background var(--dur);
-}
-.dk-group:hover .dk-slot { border-color: color-mix(in srgb, var(--foreground) 32%, transparent); }
-.dk-slot-add {
-  display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 14px 0 11px; border-radius: 10px; border: 0; cursor: pointer;
-  background: var(--foreground); color: var(--background); font: inherit; font-size: var(--text-base); font-weight: var(--weight-semi);
-  transition: transform var(--dur-fast), opacity var(--dur);
-}
-.dk-slot-add:hover { opacity: .86; } .dk-slot-add:active { transform: scale(.97); }
-.dk-slot-add svg.icon { width: 15px; height: 15px; }
-.dk-slot em { font-style: normal; font-size: var(--text-sm); opacity: .55; }
-.dk-slot-x { position: absolute; top: 8px; right: 8px; width: 26px; height: 26px; border: 0; border-radius: 7px; padding: 0; cursor: pointer;
-  display: inline-flex; align-items: center; justify-content: center; background: transparent; color: var(--foreground); opacity: .5; }
-.dk-slot-x:hover { opacity: 1; background: var(--hover-fill); }
-.dk-slot-x svg.icon { width: 14px; height: 14px; }
-.dk-pull { position: absolute; z-index: 25; touch-action: none; }
-.dk-pull[hidden] { display: none; }
-.dk-pull[data-side="left"], .dk-pull[data-side="right"] { width: 5px; cursor: col-resize; }
-.dk-pull[data-side="top"], .dk-pull[data-side="bottom"] { height: 5px; cursor: row-resize; }
-/* a small grabber, like a split-view handle, shown when the pointer is near */
-.dk-pull::after {
-  content: ""; position: absolute; border-radius: 3px; background: var(--foreground); opacity: 0;
-  transition: opacity .18s var(--ease-quartr);
-}
-.dk-pull[data-side="left"]::after, .dk-pull[data-side="right"]::after { top: 50%; width: 4px; height: 40px; margin-top: -20px; }
-.dk-pull[data-side="left"]::after { left: 1px; } .dk-pull[data-side="right"]::after { right: 1px; }
-.dk-pull[data-side="top"]::after, .dk-pull[data-side="bottom"]::after { left: 50%; height: 4px; width: 40px; margin-left: -20px; }
-.dk-pull[data-side="top"]::after { top: 1px; } .dk-pull[data-side="bottom"]::after { bottom: 1px; }
-.dk-pull:hover::after, body.dk-resizing .dk-pull::after { opacity: .35; }
-body.dk-dragging .dk-pull { pointer-events: none; }
 
 /* ── the widget hub: a column of cards along the right of the canvas ──
    No panel behind it: each card is its own frosted tile, and the controls
@@ -9055,7 +8968,7 @@ i.mg { height: 3px !important; border-radius: 2px !important; background: var(--
   .chatpanel {
     width: 100%; min-width: 0; flex: none;
     height: 46vh; height: 46dvh; min-height: 210px;
-    border-left: 0; border-top: var(--seam-w) solid var(--seam);
+    border-left: 0; border-top: 0;
   }
   .chatpanel.hidden { display: none; }
   /* The side panel takes the conversation's slot rather than a third one:
@@ -9106,7 +9019,7 @@ i.mg { height: 3px !important; border-radius: 2px !important; background: var(--
   .charts { min-height: 0; }
   .chatpanel {
     width: 42%; min-width: 260px; height: auto;
-    border-left: var(--seam-w) solid var(--seam); border-top: 0;
+    border-left: 0; border-top: 0;
   }
   .splitter { width: 1px; height: auto; cursor: col-resize; }
   .splitter::after { inset: 0 -7px; }
@@ -9536,16 +9449,6 @@ i.mg { height: 3px !important; border-radius: 2px !important; background: var(--
     width: auto; height: 1px; cursor: row-resize;
   }
   .splitter::after { inset: -7px 0; }
-  /* the grip turns with the divider — a 36px-tall pill on a horizontal line
-     is a tick mark, not a handle */
-  .splitter::before { width: 36px; height: 4px; }
-  .splitter.dragging::before { height: 4px; width: 52px; }
-  /* and the readout stands ABOVE the bar, over the chart: stacked, the pane
-     under the divider is the chat, which paints later than this element and
-     would eat a label hung below it */
-  .split-readout {
-    top: auto; bottom: calc(100% + 8px); left: auto; right: 12px; transform: none;
-  }
 }
 
 /* ── LAST IN THE SHEET, deliberately ──────────────────────────────────────
@@ -9565,10 +9468,9 @@ i.mg { height: 3px !important; border-radius: 2px !important; background: var(--
   /* ── the chart / chat divider, for a thumb ────────────────────────────
      Stacked, this is a 1px line with 7px of invisible margin either side —
      a mouse target. On a phone it is both undiscoverable and unhittable, so
-     it becomes a real bar wearing a grab pill: the same handle the sheets
-     put on themselves, and the one gesture a reader will try unprompted.
-     The pill is the only ink; the bar behind it is the page, so the shell
-     still reads as chart-then-conversation rather than three panels. */
+     it becomes a taller touch target with the same thin divider line.
+     The bar behind the line is the page, so the shell still reads as two
+     panels rather than three. */
   .splitter {
     width: auto; height: 20px; flex: none; cursor: row-resize;
     background: var(--background);
@@ -9577,25 +9479,18 @@ i.mg { height: 3px !important; border-radius: 2px !important; background: var(--
        reason the chart canvas declines one */
     touch-action: none;
   }
-  /* The pill is PERMANENT here, not a hover reveal: a phone has no pointer
-     to reveal it with, and the bar exists precisely so the handle can be
-     seen without one. Flow-laid inside the flex bar, so the absolute
-     centring the desktop grip needs is undone. */
+  /* A full-width hairline sits in the larger touch target. */
   .splitter::before {
-    content: ""; position: static; transform: none; opacity: 1;
-    width: 46px; height: 4px; border-radius: var(--radius-pill);
-    background: var(--border);
-    transition: background var(--dur) var(--ease-quartr),
-                width var(--dur) var(--ease-quartr);
+    content: ""; position: absolute; top: 50%; left: 0; right: 0;
+    height: 1px; background: var(--seam);
+    transform: translateY(-50%);
   }
   /* the bar IS the target now — the phantom margin was the 1px line's */
   .splitter::after { inset: 0; }
-  /* colour the PILL, never the bar: the hover rule higher up paints the
-     whole element, which at 20px tall is a teal band across the app —
-     focus included, which lights the same seam on a desktop */
+  /* Keep the mobile hit area neutral while the line responds to dragging. */
   .splitter:hover, .splitter.dragging,
   .splitter:focus-visible { background: var(--background); }
-  .splitter.dragging::before { background: var(--primary); width: 58px; height: 4px; }
+  .splitter:hover::before, .splitter.dragging::before, .splitter:focus-visible::before { background: var(--resize-line); }
 
   /* The chart's floor was 44vh, which is most of the travel the divider
      has: dragging the conversation up would stop dead less than halfway.
@@ -10167,11 +10062,12 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   position: absolute; z-index: 42; left: 0; right: 0; bottom: 0;
   height: var(--journal-pane-h, 260px); min-height: 150px; max-height: 72%;
   display: none; flex-direction: column; background: var(--background);
-  border-top: var(--seam-w) solid var(--seam-strong); overflow: hidden;
+  border-top: 1px solid var(--seam); overflow: hidden;
 }
 .jq.open { display: flex; }
 .jq-grip { position: absolute; z-index: 3; left: 0; right: 0; top: -5px; height: 10px; cursor: row-resize; background: transparent; }
-.jq-grip:hover, .jq-grip.dragging { background: color-mix(in srgb, var(--primary) 45%, transparent); }
+.jq-grip::after { content: ""; position: absolute; top: 4px; left: 0; right: 0; height: 1px; background: transparent; pointer-events: none; }
+.jq-grip:hover::after, .jq-grip.dragging::after { background: var(--resize-line); }
 .jq-head {
   flex: none; height: 44px; padding: 0 10px 0 14px;
   display: flex; align-items: center; gap: 16px;
@@ -11260,12 +11156,11 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
     <!-- The one control that sizes the conversation. A real separator rather
          than a decorated line: it takes focus and it takes the arrow keys, so
          the split is reachable without holding a drag. js/chat.js owns the
-         geometry, the persistence and the number in the readout. -->
+         geometry and persistence. -->
     <div class="splitter" id="splitter" role="separator" tabindex="0"
          aria-label="Chat width" aria-orientation="vertical"
          aria-valuemin="0" aria-valuemax="100"
          title="Drag to resize · ← → to nudge · double-click to reset">
-      <span class="split-readout" id="splitReadout" aria-hidden="true"></span>
     </div>
 
     <aside class="chatpanel" id="chatPanel">
@@ -11396,7 +11291,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        in CSS below. -->
   <script src="./vendor/liquid-glass.js"></script>
   <script src="./js/store.js?v=19"></script>
-  <script src="./js/theme.js?v=12"></script>
+  <script src="./js/theme.js?v=14"></script>
   <script src="./js/universe.js?v=16"></script>
   <script src="./js/icons.js?v=43"></script>
   <!-- after icons.js (every row is drawn with one) and before main.js, which
@@ -11426,23 +11321,23 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/shortcuts.js?v=5"></script>
   <!-- before panes.js and main.js: both register their charts with it as
        they build them, and read their series colours out of it -->
-  <script src="./js/chartsettings.js?v=5"></script>
+  <script src="./js/chartsettings.js?v=6"></script>
   <script src="./js/geometry.js?v=25"></script>
   <script src="./js/tools.js?v=23"></script>
   <script src="./js/drawings.js?v=43"></script>
   <script src="./js/scene.js?v=51"></script>
-  <script src="./js/panes.js?v=25"></script>
+  <script src="./js/panes.js?v=26"></script>
   <!-- The pricing / upgrade overlay. Before main.js so window.Pricing exists
        when the account menu's Upgrade row is wired. -->
   <script src="./js/pricing.js?v=1"></script>
-  <script src="./js/main.js?v=164"></script>
+  <script src="./js/main.js?v=165"></script>
   <!-- the floating drawing edit toolbar — listens for charto:draw-select and
        drives js/drawings.js's setStyle/clone/lock/remove. After main.js so
        __charto and ChartSettings exist by the first selection. -->
   <script src="./js/drawedit.js?v=7"></script>
   <script src="./js/wkit.js?v=1"></script>
   <script src="./js/hub-art.js?v=3"></script>
-  <script src="./js/dock.js?v=19"></script>
+  <script src="./js/dock.js?v=21"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=12"></script>
@@ -11455,7 +11350,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        and grouping, and nothing else — a renderer with no state of its own -->
   <script src="./js/cards.js?v=67"></script>
   <script src="./js/layers-panel.js?v=11"></script>
-  <script src="./js/chat.js?v=176"></script>
+  <script src="./js/chat.js?v=177"></script>
   <script src="./js/codeview.js?v=5"></script>
   <script src="./js/journal.js?v=7"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it

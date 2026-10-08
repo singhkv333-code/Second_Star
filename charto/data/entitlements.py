@@ -47,6 +47,7 @@ from __future__ import annotations
 import datetime as _dt
 import hashlib
 import json
+import os
 import threading
 import time
 from pathlib import Path
@@ -54,6 +55,24 @@ from pathlib import Path
 CATALOG_PATH = Path(__file__).with_name("plans_catalog.json")
 IST = _dt.timezone(_dt.timedelta(hours=5, minutes=30))
 GRACE_DAYS = 3                  # past_due keeps the paid plan this long
+
+# ── paywall master switch ──────────────────────────────────────────────────
+# OFF for now by request: no code is removed, every plan check is simply
+# waved through. The four enforcement entry points (require_flag, check_limit,
+# check_count, consume) short-circuit when this is False, so nothing is ever
+# refused and nothing is metered. Everything else — plan_of, value, summary,
+# the pricing catalog, subscription writes, grants — is untouched, so the UI
+# still reads and displays plans correctly. Turn it back on by setting the env
+# var PAYWALL_ENABLED to a truthy value (1/true/yes/on), or by flipping the
+# default below back to True.
+_TRUE = {"1", "true", "yes", "on"}
+
+
+def paywall_enabled() -> bool:
+    env = os.environ.get("PAYWALL_ENABLED")
+    if env is None:
+        return False            # default OFF until re-enabled
+    return env.strip().lower() in _TRUE
 
 # Statuses that keep the paid plan. `cancelled` keeps it too, until the period
 # it already paid for ends — that check is in `_effective`, not here.
@@ -289,6 +308,8 @@ def value(uid: int | None, feature: str, plan: str | None = None):
 # ══ flags and limits ══════════════════════════════════════════════════════
 
 def require_flag(uid: int | None, feature: str) -> None:
+    if not paywall_enabled():
+        return
     plan = plan_of(uid)
     if not value(uid, feature, plan):
         raise PlanLimit(feature, plan, code="feature_locked")
@@ -296,6 +317,8 @@ def require_flag(uid: int | None, feature: str) -> None:
 
 def check_limit(uid: int | None, feature: str, current: int, adding: int = 1) -> None:
     """Refuse if `current` live objects plus `adding` would pass the cap."""
+    if not paywall_enabled():
+        return
     plan = plan_of(uid)
     lim = value(uid, feature, plan)
     if lim is None:
@@ -307,6 +330,8 @@ def check_limit(uid: int | None, feature: str, current: int, adding: int = 1) ->
 def check_count(uid: int | None, feature: str, n: int) -> None:
     """Refuse a single object that carries `n` of something (a layout with n
     charts) when n is over the cap."""
+    if not paywall_enabled():
+        return
     plan = plan_of(uid)
     lim = value(uid, feature, plan)
     if lim is not None and n > lim:
@@ -360,6 +385,11 @@ def consume(uid: int | None, feature: str, idem_key: str, amount: int = 1, *,
     q = value(uid, feature, plan)
     now = _now()
     win, resets = _window(uid, q["window"], now)
+    if not paywall_enabled():
+        # Paywall off: never charge, never refuse. Report an uncapped pool so
+        # any client reading the result sees headroom.
+        return {"charged": 0, "replay": False, "used": 0,
+                "limit": None, "resets_at": resets}
     subject = subject_for(uid, client)
     idem_key = str(idem_key)[:120] or f"t{now}"
     with _lock:
@@ -448,7 +478,8 @@ def summary(uid: int | None, counts: dict | None = None, client: str = "") -> di
                    "cancel_at_period_end": bool(row[5]),
                    "grace_until": row[6], "provider": row[7]}
     return {"plan": plan, "plan_name": CATALOG["plans"][plan]["name"],
-            "subscription": sub, "features": feats}
+            "subscription": sub, "features": feats,
+            "paywall_enabled": paywall_enabled()}
 
 
 def public_catalog() -> dict:

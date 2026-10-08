@@ -199,7 +199,7 @@ const ChartSettings = (() => {
       background: cfg.canvas.gradient
         ? { type: "gradient", topColor: E.bg, bottomColor: E.bgBottom }
         : { type: "solid", color: E.bg },
-      panes: { separatorColor: E.sep },
+      panes: { separatorColor: E.sep, separatorHoverColor: Theme.c("separatorHover") },
       fontSize: s.textSize || own.fontSize,
     };
     const timeScale = {

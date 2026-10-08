@@ -6566,10 +6566,37 @@ def _patterns_card(interval: str, bars: int, window: str, struct: dict | None,
             if isinstance(v, (int, float)) and not isinstance(v, bool):
                 measure = {"label": label, "value": round(float(v), 2)}
                 break
+        # A flag/pennant carries enough geometry to draw the shape to scale —
+        # the pole's two ends, the consolidation box, and the measured-move
+        # target — and the hero card renders that as a schematic rather than a
+        # single glyph. Forwarded ONLY when every value is real; a diagram with
+        # a guessed coordinate would violate the same rule prose does. Every
+        # number here is the detector's; nothing is derived in this card.
+        #
+        # The flag's pole/box facts are the detector's `points` payload
+        # (patterns.py `add(..., facts, ...)` lands them under "points"); the
+        # measured-move target is a top-level key. Read each from where the
+        # detector actually put it.
+        geo = None
+        _pat = str(p.get("pattern") or "")
+        if "flag" in _pat or "pennant" in _pat:
+            _pts = p.get("points") if isinstance(p.get("points"), dict) else {}
+            _g = {
+                "pole_from": _pts.get("pole_from"),
+                "pole_to": _pts.get("pole_to"),
+                "flag_high": _pts.get("flag_high"),
+                "flag_low": _pts.get("flag_low"),
+                "measured_move": p.get("measured_move"),
+            }
+            if all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                   for v in _g.values()):
+                _g["kind"] = "flag"
+                geo = _g
+
         tiles.append({
             "id": p.get("id"), "name": _pattern_title(p.get("pattern", "")),
             "from": p.get("from"), "to": p.get("to"),
-            "bias": p.get("direction"), "measure": measure,
+            "bias": p.get("direction"), "measure": measure, "geo": geo,
             "strength": _pattern_strength(p, edges),
             "status": _STATUS_WORD.get(str(p.get("status") or ""), "unresolved"),
             "broke_at": p.get("broke_at"),
@@ -11192,7 +11219,7 @@ def _cx_series(q: dict, headers) -> tuple[int, dict]:
     except ValueError:
         return 400, {"error": "bad limit"}
     if interval in INTRADAY_MIN:
-        depth = _ent.value(me[0], "chart.history_bars")
+        depth = _ent.value(me[0], "chart.history_bars") if _ent.paywall_enabled() else None
         if depth is not None:
             limit = min(limit, depth)
     rows = _rows(interval, limit)
@@ -15021,7 +15048,8 @@ def _chart_lease(uid: int | None, client: str, body: dict) -> tuple[int, dict]:
     if not tab:
         return 400, {"error": "tab_id is required"}
     subject = _ent.subject_for(uid, client)
-    lim = _ent.value(uid, "chart.parallel")
+    # Paywall off: no cap, so no chart is ever evicted.
+    lim = _ent.value(uid, "chart.parallel") if _ent.paywall_enabled() else None
     now = time.time()
     with _leases_lock:
         held = {t: ts for t, ts in _leases.get(subject, {}).items()
@@ -15117,7 +15145,7 @@ def _bars_for_plan(uid: int | None, symbol: str, interval: str,
                    to: int | None, limit: int) -> dict:
     # Intraday only, as on TradingView: a daily chart shows the whole listed
     # history on every plan, and depth is what minute data costs to serve.
-    depth = _ent.value(uid, "chart.history_bars")
+    depth = _ent.value(uid, "chart.history_bars") if _ent.paywall_enabled() else None
     if depth is None or interval not in INTRADAY_MIN:
         return get_bars(symbol, interval, to, limit)
     if to is None:
@@ -17433,7 +17461,8 @@ class Handler(BaseHTTPRequestHandler):
                 if interval in INTRADAY_MIN:
                     me = _auth_user(self.headers) if self.headers.get(
                         "Authorization") else None
-                    depth = _ent.value(me[0] if me else None, "chart.history_bars")
+                    depth = (_ent.value(me[0] if me else None, "chart.history_bars")
+                             if _ent.paywall_enabled() else None)
                     if depth is not None:
                         limit = min(limit, depth)
                 rows = _rows(interval, limit)

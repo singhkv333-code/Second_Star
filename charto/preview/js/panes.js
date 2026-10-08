@@ -266,7 +266,7 @@ const Panes = (() => {
       layout: {
         background: { color: P.chartBg }, textColor: P.axisText,
         fontFamily: CHART_FONT, fontSize: 11,
-        panes: { separatorColor: P.separator },
+        panes: { separatorColor: P.separator, separatorHoverColor: P.separatorHover },
         // As the primary chart — one mark on the surface, on the primary, and
         // not a row of library logos once a layout splits into four.
         attributionLogo: false,

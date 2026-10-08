@@ -74,6 +74,7 @@
     --glass-border:       rgba(15, 18, 22, 0.08);
     --glass-border-hover: rgba(15, 18, 22, 0.16);
     --glass-border-focus: rgba(15, 18, 22, 0.32);
+    --resize-line: #b8bcc1;
 
     /* Theme-aware active/hover tints. In dark mode this is the
        rgba(255,255,255,0.04) Quartr uses for active sidebar items;
@@ -208,6 +209,7 @@
     --glass-border:       rgba(255, 255, 255, 0.14);
     --glass-border-hover: rgba(255, 255, 255, 0.22);
     --glass-border-focus: rgba(255, 255, 255, 0.36);
+    --resize-line: #555d66;
 
     /* Theme-aware active/hover tints — mirrors the values defined in
        :root for light mode. In dark, these are the white-over-black
@@ -1087,6 +1089,10 @@ body:has(.app-shell-root) {
     grid-template-columns: 56px minmax(0, 1fr) !important;
     gap: 12px !important;
   }
+}
+
+.agent-panel-shell:has(.agent-panel-resize-handle:is(:hover, :active, :focus-visible)) {
+  border-left-color: var(--resize-line);
 }
 
 /* AgentPanel (right-side workflow editor) — full screen at <lg so it
