@@ -62,3 +62,17 @@ test('retains historical pages longer, but bounds the cache by entry count', asy
   for (let i = 0; i < 64; i++) await net.get(`/bars?symbol=S${i}`);
   await net.get('/bars?symbol=TCS&to=100'); assert.equal(calls, 66);
 });
+
+test('does not retain oversized bodies or share abortable requests', async () => {
+  let calls = 0;
+  const { net } = client(async () => {
+    calls++;
+    return new Response('x'.repeat(5 * 1024 * 1024));
+  });
+  await net.get('/bars?symbol=TCS'); await net.get('/bars?symbol=TCS');
+  assert.equal(calls, 2);
+  const signal = new AbortController().signal;
+  await Promise.all([net.get('/bars?symbol=TCS', { signal }),
+    net.get('/bars?symbol=TCS', { signal })]);
+  assert.equal(calls, 4);
+});

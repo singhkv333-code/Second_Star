@@ -44,7 +44,7 @@ indicator: [IaaS security guidance](https://learn.microsoft.com/en-us/azure/secu
 
 ## Verification and boundaries
 
-`node --test charto/preview/tests/net-cache.test.cjs`: four passing tests,
+`node --test charto/preview/tests/net-cache.test.cjs`: five passing tests,
 including a twelve-consumer burst producing exactly one network request,
 session isolation, TTL expiry, eviction and recovery after failure.
 Syntax and diff checks passed. Local workspace HTTP path returned 200 in
@@ -58,3 +58,26 @@ versions were bumped. Local changes are not pushed or deployed by this patch.
 The user separately authorized containment of the verified suspicious
 workload, preserving evidence. Containment is not proof of eradication:
 assess persistence, credentials and entry point before trusting the host.
+
+## Authorized containment result
+
+Preserved process metadata, file hashes, a workload archive and crontab
+backups in root-only directory `/root/pivot-incident-antw97ej` on the VM.
+Suspended fourteen exact-path workers first. Removed two confirmed
+`azureuser` cron entries referencing the workload, then terminated those
+same verified workers. No application service, database or workload file
+was deleted. Cron configuration can be recovered from the evidence backup;
+do not restore the malicious entries during ordinary recovery.
+
+Immediate follow-up found zero matching workers. Available RAM was 1,316 MB.
+Symbols measured 493 ms, two quotes 57 ms, and the same bar request 220 ms.
+These before/after observations do not prove complete eradication or establish
+a production latency SLA. A further respawn/service check is required.
+
+The subsequent check at VM time 15:16:23 UTC found no matching workers and
+one-minute load 0.28 (down from 20.22). All six application services were
+active. Loopback nginx page probes returned HTTP errors (status not captured);
+they did not use the public hostname or HTTPS. Public HTTPS verification
+succeeded: homepage 200 / 195 ms,
+company page 200 / 2.11 s, symbols 200 / 385 ms. No interactive visual check
+or proof of complete security recovery is implied by these HTTP checks.
