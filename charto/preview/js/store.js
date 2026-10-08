@@ -266,11 +266,38 @@ const Net = (() => {
   "use strict";
   const MAX_RETRIES = 2;
   const CAP_S = 5;                     // never sit longer than this per attempt
+  const pending = new Map(), cache = new Map();
+  const MAX_BYTES = 8 * 1024 * 1024, MAX_ENTRIES = 64;
+  let bytes = 0;
+
+  // Only derived market data is reusable. Never cache user state, auth,
+  // orders or alerts. The full headers isolate plan-dependent responses.
+  function policy(url, init) {
+    if (init?.signal || (init?.method && init.method !== "GET")) return null;
+    const u = new URL(url, location.href);
+    const ttl = ["/bars", "/indicator"].includes(u.pathname)
+      ? (u.searchParams.has("to") ? 30_000 : 1_000)
+      : u.pathname === "/symbols" ? 60_000 : 0;
+    if (!ttl) return null;
+    const headers = [...new Headers(init?.headers).entries()].sort();
+    return { key: JSON.stringify([u.href, headers, init?.credentials || "same-origin"]), ttl };
+  }
+  function response(entry) {
+    return new Response(entry.body, { status: entry.status, headers: entry.headers });
+  }
+  function remember(key, entry) {
+    if (entry.size > MAX_BYTES) return;
+    if (cache.has(key)) { bytes -= cache.get(key).size; cache.delete(key); }
+    cache.set(key, entry); bytes += entry.size;
+    while (bytes > MAX_BYTES || cache.size > MAX_ENTRIES) {
+      const first = cache.keys().next().value;
+      bytes -= cache.get(first).size; cache.delete(first);
+    }
+  }
 
   const sleep = (s) => new Promise((r) => setTimeout(r, s * 1000));
 
-  return {
-    async get(url, init) {
+  async function request(url, init) {
       let last;
       for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
         const res = await fetch(url, init);
@@ -288,6 +315,31 @@ const Net = (() => {
         await sleep(Math.min(CAP_S, Math.max(0.25, wait || 1)));
       }
       return last;                     // caller sees the 503 and can say so
+  }
+  return {
+    clear() { cache.clear(); bytes = 0; },
+    async get(url, init) {
+      const p = policy(url, init);
+      if (!p) return request(url, init);
+      const hit = cache.get(p.key);
+      if (hit && hit.expires > Date.now()) {
+        cache.delete(p.key); cache.set(p.key, hit);
+        return response(hit);
+      }
+      if (!pending.has(p.key)) {
+        const task = (async () => {
+          const res = await request(url, init);
+          // Materialise once: every consumer gets an independent body.
+          const body = await res.text();
+          const entry = { body, status: res.status, headers: [...res.headers.entries()],
+            size: body.length * 2, expires: Date.now() + p.ttl };
+          if (res.status === 200) remember(p.key, entry);
+          return entry;
+        })();
+        pending.set(p.key, task);
+        task.finally(() => pending.delete(p.key)).catch(() => {});
+      }
+      return response(await pending.get(p.key));
     },
   };
 })();

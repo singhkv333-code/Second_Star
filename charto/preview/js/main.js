@@ -350,10 +350,13 @@
                                   close: s.c[i], volume: s.v[i] }));
     } catch { return null; }
   }
+  let warmBusy = false;
   window.__chartoWarm = async (sym) => {
+    if (warmBusy || state.switching || document.visibilityState !== "visible") return;
     const iv = state.interval || Store.get("interval", "5m");
     try {
       if (snapGet(sym, iv)) return;
+      warmBusy = true;
       const qs = new URLSearchParams({ symbol: sym, interval: iv, limit: String(SNAP_BARS) });
       const res = await Net.get(`${API}/bars?${qs}`,
         typeof Auth !== "undefined" ? { headers: Auth.headers() } : undefined);
@@ -361,13 +364,16 @@
       const d = await res.json();
       if (d.bars && d.bars.length) snapPut(sym, iv, d.bars);
     } catch { /* a warm-up that fails costs nothing; the click just loads */ }
+    finally { warmBusy = false; }
   };
   /** What the notes widget stamps: the instrument, interval and last price. */
   window.__chartoLast = () => ({ symbol: SYMBOL, interval: state.interval,
                                  close: lastBar ? lastBar.close : null });
   let snapShown = null;      // the interval a boot snapshot was painted for
+  let intervalGeneration = 0;
 
   async function loadInterval(interval) {
+    const generation = ++intervalGeneration;
     state.interval = interval;
     // a boot snapshot is already on screen: load behind it, no curtain
     if (snapShown !== interval) setOverlay(true, "Loading…");
@@ -376,6 +382,7 @@
     state.switching = true;   // latch: stream events must not touch the old series mid-switch
     try {
       const { bars, hasMore } = await fetchBars(interval, null, PAGE[interval]);
+      if (generation !== intervalGeneration) return;
       state.bars = bars; state.hasMore = hasMore;
       snapPut(SYMBOL, interval, bars.map((b) => ({ t: b.time - IST, o: b.open, h: b.high,
                                                    l: b.low, c: b.close, v: b.volume })));
@@ -400,9 +407,9 @@
       // interval's data actually reaches back to what is on the chart
       coverScene();
     } catch (e) {
-      setOverlay(true, String(e.message || e), true);
+      if (generation === intervalGeneration) setOverlay(true, String(e.message || e), true);
     } finally {
-      state.switching = false;
+      if (generation === intervalGeneration) state.switching = false;
     }
   }
 

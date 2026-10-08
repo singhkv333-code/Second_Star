@@ -1,0 +1,60 @@
+# Workspace performance investigation — 2026-10-08
+
+## Measured causes
+
+Read-only Azure diagnostics on `Claudecodeforpivot` found load averages
+20.22 / 15.17 / 15.41 on a two-vCPU VM, 239 MB available memory and 1,231 MB
+swap in use. Multiple `wp2s-worker` executables and `wp2s_crack.py` Python
+processes ran from `/tmp/.tiktouk`, outside the application checkout. Treat
+this as a suspected compromise, not a normal chart capacity problem.
+An application `npm ci` was also using about 831 MB RSS during deployment.
+
+The market database WAL was 47.26 GB. This is a separate investigation item,
+not permission to delete it or run a blocking checkpoint on the live service.
+
+Loopback requests during that pressure:
+
+| Request | Duration |
+| --- | ---: |
+| Symbols | 2.098 s |
+| Two quotes | 4.667 s |
+| TCS 15m, 300 bars | 1.669 s |
+| Same bars immediately repeated | 0.017 s |
+
+Existing backend caching works on repeat requests. Host contention remains
+the priority. Increasing capacity on an untrusted machine is not remediation.
+Microsoft documents abnormal resource use as a possible compromised-process
+indicator: [IaaS security guidance](https://learn.microsoft.com/en-us/azure/security/fundamentals/iaas).
+
+## Local fixes
+
+- Share simultaneous identical bar, indicator and symbol requests. Consumers
+  receive independent response bodies; failures are not retained.
+- Cache bar/indicator head requests for one second, older `to` pages for
+  thirty seconds, symbols for sixty seconds. Cap at 64 entries / 8 MiB of
+  estimated response-body storage; use access-order eviction.
+- Separate request keys by full URL, request headers and credentials mode.
+  No persistent response cache. Abortable requests bypass sharing/caching.
+- Do not cache quotes, user state, sessions, paper actions or alerts. Existing
+  live stream remains unchanged; no new model selection rules or geometry.
+- Allow only one hover prefetch at a time, and none while changing interval
+  or when the document is hidden.
+- Reject superseded interval responses so they cannot overwrite the current
+  chart or release its loading latch.
+
+## Verification and boundaries
+
+`node --test charto/preview/tests/net-cache.test.cjs`: four passing tests,
+including a twelve-consumer burst producing exactly one network request,
+session isolation, TTL expiry, eviction and recovery after failure.
+Syntax and diff checks passed. Local workspace HTTP path returned 200 in
+0.027 seconds and served the modified cache code; local bars measured 39 ms,
+then 1.7 ms on repeat. These are single diagnostic samples, not a load test.
+
+Interactive visual verification remains unavailable because the browser tool
+denied access. No alternate browser bypass was attempted. Preview script
+versions were bumped. Local changes are not pushed or deployed by this patch.
+
+The user separately authorized containment of the verified suspicious
+workload, preserving evidence. Containment is not proof of eradication:
+assess persistence, credentials and entry point before trusting the host.
