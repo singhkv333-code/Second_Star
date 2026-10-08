@@ -1064,6 +1064,32 @@ const Dock = (() => {
    * watchlist's columns live with its lists, not in the dock). Every change
    * is applied as it is made; Reset puts back the defaults, and Apply to all
    * copies them to every other widget of the same kind. */
+  const FEATURED_SETTINGS = {
+    watch: ["cols", "sort"], alerts: ["show", "notify"],
+    depth: ["levels", "group"], chart: ["iv", "kind"],
+    screener: ["rows", "click"], news: ["sources", "refresh"],
+    financials: ["years", "quarters"], portfolio: ["by", "refresh"],
+    strategy: ["capital"], calendar: ["scope", "days"], tv: ["ch", "muted"],
+    browser: ["source", "openAs"], docs: ["pdfZoom", "sort"],
+    notes: ["textSize", "stampTime"], sheet: ["refresh", "fxBar"],
+    code: ["fontSize", "theme"], journal: ["tab", "sort"],
+  };
+  const SETTING_ICONS = {
+    cols: "columns", sort: "sort", show: "eye", notify: "bell",
+    levels: "levels", group: "layers", iv: "clock", kind: "candles",
+    rows: "list", click: "arrowUpRight", sources: "news", refresh: "rotateCw",
+    years: "calendar", quarters: "barChart", by: "pie", capital: "paperBook",
+    scope: "funnel", days: "calendar", ch: "tv", muted: "volumeProfile",
+    source: "search", openAs: "globe", pdfZoom: "expand", textSize: "text",
+    stampTime: "stamp", fxBar: "sigma", fontSize: "code", theme: "paintBucket",
+    tab: "fileText",
+  };
+  const SETTINGS_HUES = {
+    amber: "#d69e2e", coral: "#e05d4f", blue: "#3e63dd", orange: "#dc7b24",
+    copper: "#b66a3c", azure: "#2388d1", violet: "#7c5ce7", cyan: "#1b9aaa",
+    rose: "#c45b7c", green: "#2d9d64", lime: "#76a62b", red: "#d94c4c",
+    sand: "#a7834f",
+  };
   let setsOpen = null;
   function closeSettings() {
     if (!setsOpen) return;
@@ -1105,42 +1131,50 @@ const Dock = (() => {
     const { id, el: p } = setsOpen;
     if (!S.inst[id]) return closeSettings();
     const spec = TYPES.get(S.inst[id].type), cfg = S.inst[id].cfg;
+    p.dataset.widget = spec.type;
+    p.style.setProperty("--ds-accent", SETTINGS_HUES[spec.hue] || "#68727f");
     const keep = p.querySelector(".ds-body") ? p.querySelector(".ds-body").scrollTop : 0;
-    const row = (s, i) => {
+    const preferred = FEATURED_SETTINGS[spec.type] || [];
+    const featured = preferred.map((key) => (spec.settings || []).findIndex((s) => s.key === key))
+      .filter((i) => i >= 0 && (!spec.settings[i].when || spec.settings[i].when(cfg)));
+    const featuredSet = new Set(featured);
+    const row = (s, i, lead = false) => {
       if (s.section) return `<div class="ds-sec">${esc(s.section)}</div>`;
       if (s.when && !s.when(cfg)) return "";
       const v = valOf(s, cfg);
       const kind = s.kind || (s.options ? "seg" : "toggle");
-      const lab = `<span class="ds-l">${esc(s.label || "")}${s.hint ? `<em>${esc(s.hint)}</em>` : ""}</span>`;
+      const glyph = lead ? `<i class="ds-feature-ic">${icon(SETTING_ICONS[s.key] || spec.icon)}</i>` : "";
+      const lab = `<span class="ds-l">${lead ? `<span class="ds-l-main">${glyph}<span>${esc(s.label || "")}</span></span>` : esc(s.label || "")}` +
+        `${s.hint && !lead ? `<em>${esc(s.hint)}</em>` : ""}</span>`;
       const at = `data-i="${i}"`;
       if (kind === "note") return `<p class="ds-note">${esc(s.label)}</p>`;
       if (kind === "toggle") {
-        return `<label class="ds-row">${lab}<input type="checkbox" class="dk-switch" ${at} ${v ? "checked" : ""}></label>`;
+        return `<label class="ds-row${lead ? " ds-feature" : ""}">${lab}<input type="checkbox" class="dk-switch" ${at} ${v ? "checked" : ""}></label>`;
       }
       if (kind === "action") {
-        return `<div class="ds-row">${lab}<button type="button" class="ds-btn" ${at}>${esc(s.button || "Do it")}</button></div>`;
+        return `<div class="ds-row${lead ? " ds-feature" : ""}">${lab}<button type="button" class="ds-btn" ${at}>${esc(s.button || "Do it")}</button></div>`;
       }
       if (kind === "select") {
-        return `<label class="ds-row">${lab}<select class="ds-select" ${at}>` +
+        return `<label class="ds-row${lead ? " ds-feature" : ""}">${lab}<select class="ds-select" ${at}>` +
           optsOf(s, cfg).map((o) => `<option value="${esc(o.v)}" ${String(o.v) === String(v) ? "selected" : ""}>${esc(o.label)}</option>`).join("") +
           `</select></label>`;
       }
       if (kind === "range") {
-        return `<label class="ds-row ds-col">${lab}<span class="ds-range"><input type="range" ${at} min="${s.min}" max="${s.max}" step="${s.step || 1}" value="${esc(v)}">` +
+        return `<label class="ds-row ds-col${lead ? " ds-feature" : ""}">${lab}<span class="ds-range"><input type="range" ${at} min="${s.min}" max="${s.max}" step="${s.step || 1}" value="${esc(v)}">` +
           `<output>${esc(v)}${esc(s.unit || "")}</output></span></label>`;
       }
       if (kind === "text") {
-        return `<label class="ds-row ds-col">${lab}<input type="text" class="ds-text" ${at} value="${esc(v || "")}" ` +
+        return `<label class="ds-row ds-col${lead ? " ds-feature" : ""}">${lab}<input type="text" class="ds-text" ${at} value="${esc(v || "")}" ` +
           `placeholder="${esc(s.placeholder || "")}" spellcheck="false" autocomplete="off"></label>`;
       }
       if (kind === "chips") {
         const on = new Set((v || []).map(String));
-        return `<div class="ds-row ds-col">${lab}<div class="ds-chips" ${at}>` +
+        return `<div class="ds-row ds-col${lead ? " ds-feature" : ""}">${lab}<div class="ds-chips" ${at}>` +
           optsOf(s, cfg).map((o) => `<button type="button" class="${on.has(String(o.v)) ? "on" : ""}" data-v="${esc(o.v)}">${esc(o.label)}</button>`).join("") +
           `</div></div>`;
       }
       const opts = optsOf(s, cfg);
-      return `<div class="ds-row${opts.length > 3 ? " ds-col" : ""}">${lab}<div class="ds-seg" ${at}>` +
+      return `<div class="ds-row${opts.length > 3 ? " ds-col" : ""}${lead ? " ds-feature" : ""}">${lab}<div class="ds-seg" ${at}>` +
         opts.map((o) => `<button type="button" class="${String(o.v) === String(v) ? "on" : ""}" data-v="${esc(o.v)}">${esc(o.label)}</button>`).join("") +
         `</div></div>`;
     };
@@ -1151,17 +1185,31 @@ const Dock = (() => {
         LINK_IDS.map((g) => `<button type="button" class="g${g}${l === g ? " on" : ""}" data-link="${g}" ` +
           `title="Group ${g}${S.links[g] && S.links[g].sym ? " · " + esc(S.links[g].sym) : ""}"><i>${g}</i></button>`).join("") +
         `<button type="button" class="${l === "pin" ? "on" : ""}" data-link="pin" title="Pin a symbol">${icon("pin")}<span>${l === "pin" ? esc(symbolOf(id)) : "Pin"}</span></button>` +
-        `</div><p class="ds-note">${l === "chart" ? `Follows the chart: ${esc(pageSymbol())}.`
-          : l === "pin" ? `Stays on ${esc(symbolOf(id))} whatever the chart shows.`
-          : `Shares a symbol${spec.type === "chart" ? " and an interval" : ""} with every group-${l} widget · now ${esc(symbolOf(id))}.`}</p>`
+        `</div><p class="ds-link-status">${l === "chart" ? `Following · ${esc(pageSymbol())}`
+          : l === "pin" ? `Pinned · ${esc(symbolOf(id))}`
+          : `Group ${l} · ${esc(symbolOf(id))}`}</p>`
       : "";
+    const featureRows = featured.map((i) => row(spec.settings[i], i, true)).join("");
+    const regularRows = (spec.settings || []).map((s, i, all) => {
+      if (featuredSet.has(i)) return "";
+      if (s.section) {
+        let hasRows = false;
+        for (let at = i + 1; at < all.length && !all[at].section; at++) {
+          const n = all[at];
+          if (!featuredSet.has(at) && (!n.when || n.when(cfg))) { hasRows = true; break; }
+        }
+        if (!hasRows) return "";
+      }
+      return row(s, i);
+    }).join("");
     const others = placedOf(spec.type).filter((x) => x !== id).length;
     p.innerHTML =
       `<div class="ds-head"><span class="ds-ic">${icon(spec.icon)}</span><b>${esc(label(id).title)}</b>` +
         `<button type="button" class="ds-x" data-ds="close" title="Close (Esc)" aria-label="Close settings">${icon("x")}</button></div>` +
       `<div class="ds-body">` +
+        (featureRows ? `<div class="ds-feature-stack">${featureRows}</div>` : "") +
         linkRow +
-        (spec.settings || []).map(row).join("") +
+        regularRows +
         `<div class="ds-sec">Widget</div>` +
         `<label class="ds-row ds-col"><span class="ds-l">Name</span><input type="text" class="ds-text" data-name="1" ` +
           `value="${esc(cfg.title || "")}" placeholder="${esc(spec.title)}" maxlength="40" spellcheck="false" autocomplete="off"></label>` +

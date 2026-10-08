@@ -895,17 +895,17 @@ const Panels = (() => {
 
   const widget = (id, extra) => Dock.register({
     type: id, single: true, zone: "right", host: () => el(extra.panel),
-    mount: () => ({
+    mount: (host, ctx) => ({
       show() {
         showing.add(id);
         // rendered on show rather than up front, so a panel is never
         // showing a state older than the moment you asked for it
-        extra.render(el(extra.panel));
+        extra.render(el(extra.panel), ctx.cfg);
         if (extra.onShow) extra.onShow();
       },
       hide() { showing.delete(id); if (extra.onHide) extra.onHide(); },
       // a setting changed (or the link group's symbol): the panel redraws
-      config(cfg, patch) { if (extra.onConfig) extra.onConfig(cfg, patch); else if (on(id)) extra.render(el(extra.panel)); },
+      config(cfg, patch) { if (extra.onConfig) extra.onConfig(cfg, patch); else if (on(id)) extra.render(el(extra.panel), cfg); },
       ask: extra.ask,
     }),
     ...extra,
@@ -993,7 +993,15 @@ const Panels = (() => {
   widget("journal", {
     panel: "journalPanel", icon: "fileText", title: "Journal", hue: "sand", group: "Tools",
     desc: "Your trades and their outcomes",
-    render: (host) => Journal.renderSidebar(host),
+    render: (host, cfg) => Journal.renderSidebar(host, cfg),
+    settings: [
+      { section: "Trade log" },
+      { key: "tab", label: "Open with", def: "summary",
+        options: [{ v: "summary", label: "Trade log" }, { v: "new", label: "New trade" }] },
+      { key: "sort", label: "First", def: "recent",
+        options: [{ v: "recent", label: "Recent" }, { v: "pnl", label: "P&L" }, { v: "symbol", label: "Symbol" }] },
+      { kind: "note", label: "Filters and review details stay in the full journal." },
+    ],
   });
   bar.innerHTML = "";
 

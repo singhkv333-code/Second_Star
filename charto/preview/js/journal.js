@@ -262,7 +262,11 @@ const Journal = (() => {
   const savedPane=Number(Store.get("journal_pane_h",260));if(savedPane>=150)el("stage").style.setProperty("--journal-pane-h",`${savedPane}px`);
   Auth.onChange(()=>{if(document.body.classList.contains("journal-open"))load();if(el("journalQuick").classList.contains("open"))loadQuick()});
   nav();
-  function renderSidebar(host) {
+  function renderSidebar(host, cfg = {}) {
+    quickTab = cfg.tab === "new" ? "new" : "summary";
+    quickSort = cfg.sort === "pnl" ? {key:"net_pnl",dir:-1}
+      : cfg.sort === "symbol" ? {key:"symbol",dir:1}
+      : {key:"opened_at",dir:-1};
     loadQuick(host);
   }
   return {open,close,load,toggleQuick,renderSidebar,getTrade:(id)=>data.trades.find(t=>t.id===Number(id))};
