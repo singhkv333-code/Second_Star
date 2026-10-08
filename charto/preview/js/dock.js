@@ -118,7 +118,7 @@ const Dock = (() => {
   function parse(raw) {
     if (!raw || typeof raw !== "object") return blank();
     const s = blank();
-    s.focus = !!raw.focus; s.lock = !!raw.lock;
+    s.focus = !!raw.focus; // Retired chart lock is not restored from saved layouts.
     for (const [id, i] of Object.entries(raw.inst || {})) {
       if (i && typeof i.type === "string") s.inst[id] = { type: i.type, cfg: i.cfg || {} };
     }
@@ -472,8 +472,8 @@ const Dock = (() => {
       const dot = badges.has(S.inst[id].type) ? `<i class="dk-dot" aria-label="New"></i>` : "";
       return `<button type="button" class="dk-tab${on ? " on" : ""}" role="tab" ` +
         `aria-selected="${on}" data-inst="${id}" title="${esc(l.title + (l.sub ? " · " + l.sub : ""))}">` +
-        `${icon(s.icon)}<span class="t">${esc(l.title)}</span>${dot}` +
-        (l.sub ? `<span class="s">${esc(l.sub)}</span>` : "") +
+        `${id === CHART ? "" : icon(s.icon)}<span class="t">${esc(l.title)}</span>${dot}` +
+        (id !== CHART && l.sub ? `<span class="s">${esc(l.sub)}</span>` : "") +
         (g.tabs.length > 1 && id !== CHART ? `<span class="x" data-act="close-tab" role="button" ` +
           `aria-label="Close ${esc(l.title)}">${icon("x")}</span>` : "") +
         `</button>`;
@@ -865,21 +865,6 @@ const Dock = (() => {
     layout(true);
   }
 
-  function setLock(on) {
-    S.lock = on == null ? !S.lock : !!on;
-    if (S.lock) {
-      // locked, the chart is a tile of its own
-      const gid = groupOf(CHART);
-      if (!gid || S.groups[gid].tabs.length > 1 || floatOf(gid)) {
-        detach(CHART);
-        const g = newGroup([CHART]);
-        S.tree = S.tree ? box("row", [leaf(g), S.tree], [1, .5]) : leaf(g);
-      }
-    }
-    layout(true);
-    toast(S.lock ? "The chart is locked in place." : "The chart can be moved by its handle, like any widget.");
-  }
-
   /* ── the phone: a widget takes the conversation's slot ─────────────────── */
   let restoreChat = false;
   const chatOpen = () => el("chatPanel") && !el("chatPanel").classList.contains("hidden");
@@ -1021,9 +1006,7 @@ const Dock = (() => {
         { id: "mv:top", label: "Top", icon: "panelTop" },
         { id: "mv:bottom", label: "Bottom", icon: "panelBottom" },
         { id: "mv:float", label: "Floating window", icon: "float", on: fl }]),
-      ...(chart ? [{ sep: true }, { id: "lock", label: S.lock ? "Unlock chart" : "Lock chart in place",
-                                    icon: S.lock ? "unlock" : "lock" }]
-                : [{ sep: true }, { id: "close", label: "Close", icon: "x" }]),
+      ...(!chart ? [{ sep: true }, { id: "close", label: "Close", icon: "x" }] : []),
     ], (pick) => {
       if (pick.startsWith("widget:")) {
         const action = (api.actions || [])[Number(pick.slice(7))];
@@ -1035,7 +1018,6 @@ const Dock = (() => {
       if (pick === "settings") return setTimeout(() => settingsPanel(id), 0);
       if (pick === "close") return close(id);
       if (pick === "max") return max(groupOf(id));
-      if (pick === "lock") return setLock();
       if (pick.startsWith("mv:")) return moveTo(id, pick.slice(3));
     });
   }
@@ -2034,8 +2016,6 @@ const Dock = (() => {
         `<button type="button" class="hub-arrow r" data-scroll="1" aria-label="Scroll down" tabindex="-1">${icon("chevronDown")}</button>` +
       `</div>` +
       `<div class="hub-tools hub-glass">` +
-        `<label class="hub-switch" title="Let the chart be dragged and resized like any widget">` +
-          `<input type="checkbox" class="dk-switch" data-hub="lock"><span>Movable chart</span></label>` +
         `<span class="hub-gap"></span>` +
         `<button type="button" class="hub-ico" data-hub="focus" title="Focus on the chart (Alt Z)" aria-label="Focus">${icon("focus")}</button>` +
         `<button type="button" class="hub-ico" data-hub="full" title="Fullscreen (Alt Shift F)" aria-label="Fullscreen">${icon("fullscreen")}</button>` +
@@ -2107,7 +2087,6 @@ const Dock = (() => {
       if (h) {
         const a = h.dataset.hub;
         if (a === "close") return hub(false);
-        if (a === "lock") return setLock(!h.checked);
         if (a === "focus") { hub(false); return setFocus(); }
         if (a === "full") return fullscreen();
         if (a === "reset") return resetWorkspace();
@@ -2147,8 +2126,6 @@ const Dock = (() => {
 
   function paintHubState() {
     if (!hubEl) return;
-    const lock = hubEl.querySelector('[data-hub="lock"]');
-    if (lock) lock.checked = !S.lock;
     const f = hubEl.querySelector('[data-hub="focus"]');
     if (f) f.classList.toggle("on", !!S.focus);
     if (hubEl.__arrows) requestAnimationFrame(hubEl.__arrows);
@@ -2355,7 +2332,7 @@ const Dock = (() => {
   else queueMicrotask(start);
 
   return {
-    register, start, open, close, toggle, openSymbol, warm, setFocus, fullscreen, setLock, hub,
+    register, start, open, close, toggle, openSymbol, warm, setFocus, fullscreen, hub,
     visible: (type) => placedOf(type).some((id) => lastVisible.has(id)),
     instances: (type) => placedOf(type),
     /** Every widget the hub offers: what Go to and the phone bar list. */

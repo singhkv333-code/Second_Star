@@ -8544,13 +8544,13 @@ body.dk-dragging .dk-pull { pointer-events: none; }
 .dk-w-sheet .jtabs-headers { padding: 0 6px; gap: 2px; }
 .dk-w-sheet .jtabs-headers > div {
   padding: 6px 12px; border: 0 !important; border-radius: 0 0 7px 7px; background: transparent !important;
-  color: var(--foreground); opacity: .65; font-size: var(--text-sm); font-weight: var(--weight-medium); cursor: pointer;
+  color: var(--foreground) !important; opacity: .65; font-size: var(--text-sm); font-weight: var(--weight-medium); cursor: pointer;
 }
 .dk-w-sheet .jtabs-headers > div.jtabs-selected { opacity: 1; background: var(--hover-fill) !important; box-shadow: inset 0 2px 0 var(--foreground); }
 .dk-w-sheet .jtabs-headers > div:hover { opacity: 1; }
 .dk-w-sheet .jtabs-add { opacity: .7 !important; }
 .dk-w-sheet .jtabs-content { padding: 0; }
-.dk-w-sheet .jss_worksheet { border-collapse: separate; font-size: 12.5px; user-select: none; }
+.dk-w-sheet .jss_worksheet { border-collapse: separate; font-size: 12.5px; user-select: none; background: var(--background); }
 .dk-w-sheet .jss_worksheet > thead > tr > td, .dk-w-sheet .jss_worksheet > tbody > tr > td:first-child {
   background: color-mix(in srgb, var(--foreground) 3.5%, var(--background)) !important; color: var(--foreground);
   font-weight: var(--weight-medium); font-size: 11.5px; border-color: var(--border-soft) !important;
@@ -8559,13 +8559,14 @@ body.dk-dragging .dk-pull { pointer-events: none; }
   background: color-mix(in srgb, var(--foreground) 10%, var(--background)) !important;
 }
 .dk-w-sheet .jss_worksheet > tbody > tr > td { border-color: var(--border-soft) !important; color: var(--foreground); background: var(--background); padding: 4px 6px; }
-.dk-w-sheet .jss_worksheet .highlight { background: color-mix(in srgb, var(--foreground) 6%, transparent) !important; }
+.dk-w-sheet .jss_worksheet .highlight { background: color-mix(in srgb, var(--foreground) 8%, var(--background)) !important; color: var(--foreground); }
+.dk-w-sheet .jss_worksheet .highlight-selected { background: color-mix(in srgb, var(--foreground) 13%, var(--background)) !important; color: var(--foreground); }
 .dk-w-sheet .jss_worksheet .highlight-top { border-top: 1.5px solid var(--foreground) !important; }
 .dk-w-sheet .jss_worksheet .highlight-bottom { border-bottom: 1.5px solid var(--foreground) !important; }
 .dk-w-sheet .jss_worksheet .highlight-left { border-left: 1.5px solid var(--foreground) !important; }
 .dk-w-sheet .jss_worksheet .highlight-right { border-right: 1.5px solid var(--foreground) !important; }
 .dk-w-sheet .jss_corner { background: var(--foreground) !important; border: 1px solid var(--background) !important; }
-.dk-w-sheet .jss_worksheet .editor input, .dk-w-sheet .jss_worksheet td.editor { color: var(--foreground); background: var(--background); font: inherit; user-select: text; }
+.dk-w-sheet .jss_worksheet .editor input, .dk-w-sheet .jss_worksheet .editor textarea, .dk-w-sheet .jss_worksheet td.editor { color: var(--foreground); background: var(--background); font: inherit; user-select: text; }
 .dk-w-sheet .jss_container { padding: 0; }
 .jcontextmenu { font-family: var(--font) !important; border-radius: 10px !important; box-shadow: var(--menu-shadow) !important; border: 1px solid var(--border) !important; background: var(--surface-plain) !important; z-index: 320 !important; }
 .jcontextmenu > div { color: var(--foreground) !important; font-size: var(--text-base) !important; }
@@ -11957,7 +11958,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/drawedit.js?v=7"></script>
   <script src="./js/wkit.js?v=1"></script>
   <script src="./js/hub-art.js?v=4"></script>
-  <script src="./js/dock.js?v=24"></script>
+  <script src="./js/dock.js?v=25"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=12"></script>
@@ -11999,7 +12000,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- every widget is registered by now; build the rail before js/mobile.js
        reads it for the phone toolbar -->
   <script>Dock.start();</script>
-  <script src="./js/goto.js?v=2"></script>
+  <script src="./js/goto.js?v=3"></script>
   <!-- last: every control it proxies has to exist and be wired first -->
   <script src="./js/mobile.js?v=15"></script>
   <script src="./js/embed.js?v=9"></script>
