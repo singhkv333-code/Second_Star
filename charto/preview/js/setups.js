@@ -396,10 +396,18 @@ const Setups = (() => {
       ok.querySelector("span").textContent = "Publishing…";
       try {
         const desk = await deskOf(state.include_data, [...new Set((spec.charts || []).map((x) => x.symbol))]);
+        let ogImage = "";
+        try {
+          ogImage = await SharePreview.render({
+            title, note: note.value, thumb, symbol: sym, interval: iv,
+            chatTurns: state.include_chat ? chat.length : 0,
+          });
+        } catch (e) { console.warn("Share preview unavailable", e); }
         const d = await Layouts.call("/setups", {
           ...(state.mode === "update" && existing ? { token: existing.token } : {}),
           layout_id: cur && cur.id ? cur.id : undefined,
           title, note: note.value, spec: desk ? { ...spec, dock: desk } : spec, thumb,
+          og_image: ogImage,
           include_chat: !!(state.include_chat && chat.length), chat,
           allow_copy: state.allow_copy,
         });

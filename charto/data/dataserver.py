@@ -16767,8 +16767,8 @@ class Handler(BaseHTTPRequestHandler):
                        if meta["note"] else
                        f"{meta['by']} shared a {meta['symbol']} chart on Pivot" +
                        (" with the conversation behind it." if meta["has_chat"] else "."))
-        image_path = ("share-preview.png" if meta["has_chat"] else "pivot-mark.png")
-        image_size = ("1200", "630") if meta["has_chat"] else ("128", "128")
+        image_url = (f"{share_url}/image.jpg?v={meta['updated']}" if meta["has_image"]
+                     else f"{origin}/assets/share-preview.jpg")
         esc = lambda value: html.escape(value, quote=True)
         body = f'''<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -16778,13 +16778,14 @@ class Handler(BaseHTTPRequestHandler):
 <meta property="og:title" content="{esc(title)}">
 <meta property="og:description" content="{esc(description)}">
 <meta property="og:url" content="{esc(share_url)}">
-<meta property="og:image" content="{esc(origin)}/assets/{image_path}">
-<meta property="og:image:width" content="{image_size[0]}"><meta property="og:image:height" content="{image_size[1]}">
+<meta property="og:image" content="{esc(image_url)}">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="Pivot shared research preview">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="{esc(title)}">
 <meta name="twitter:description" content="{esc(description)}">
-<meta name="twitter:image" content="{esc(origin)}/assets/{image_path}">
+<meta name="twitter:image" content="{esc(image_url)}">
 <script>location.replace({json.dumps(target)});</script></head>
 <body style="margin:0;background:#0d0d0e;color:#f7f6f1;font:16px Arial,sans-serif;display:grid;place-items:center;min-height:100vh">
 <main style="max-width:32rem;padding:2rem"><strong style="font-size:1.5rem">Pivot</strong>
@@ -16793,6 +16794,18 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _share_image(self, token: str) -> None:
+        body = _shares.preview_image(token) if _shares is not None else None
+        if body is None:
+            return self._send(404, {"error": "this preview is no longer shared"},
+                              headers={"Cache-Control": "no-store"})
+        self.send_response(200)
+        self.send_header("Content-Type", "image/jpeg")
+        self.send_header("Cache-Control", "public, max-age=86400")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -17179,6 +17192,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         u = urlparse(self.path)
         u = _strip_api_auth(u)
+        if u.path.startswith("/share/") and u.path.endswith("/image.jpg"):
+            return self._share_image(u.path[len("/share/"):-len("/image.jpg")])
         if u.path.startswith("/share/"):
             return self._share_page(u.path[len("/share/"):])
         q = {k: v[0] for k, v in parse_qs(u.query).items()}

@@ -1,5 +1,6 @@
 """Shared setups: snapshot, view-only reads, copies, credit and scrubbing."""
 import importlib.util
+import base64
 import json
 import sqlite3
 import threading
@@ -94,6 +95,17 @@ class SharesTest(unittest.TestCase):
         self.assertNotIn("email", json.dumps(preview))
         self.assertEqual(self.sh.mine(1)[0]["views"], 0)
         self.assertIsNone(self.sh.preview("missing"))
+
+    def test_published_preview_image_tracks_current_version(self):
+        image = b"\xff\xd8\xffexample\xff\xd9"
+        encoded = "data:image/jpeg;base64," + base64.b64encode(image).decode()
+        _, out = self.publish(og_image=encoded)
+        self.assertTrue(self.sh.preview(out["token"])["has_image"])
+        self.assertEqual(self.sh.preview_image(out["token"]), image)
+        self.assertEqual(self.sh.mine(1)[0]["views"], 0)
+        self.publish(token=out["token"], title="Updated read", og_image="bad")
+        self.assertFalse(self.sh.preview(out["token"])["has_image"])
+        self.assertIsNone(self.sh.preview_image(out["token"]))
 
     def test_views_count_once_per_viewer_and_never_the_author(self):
         _, out = self.publish()
