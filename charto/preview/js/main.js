@@ -247,7 +247,7 @@
    * refetch and never touches the indicators. The theme still supplies every
    * default; see js/chartsettings.js. */
   ChartSettings.register({
-    chart, candle,
+    chart, candle, root: stageEl, slot: 0,
     // what "Default" means for this chart's two sized knobs — the values it
     // was built with, twelve lines up
     defaults: { fontSize: 12, rightOffset: 5 },
@@ -279,7 +279,8 @@
       if (!state.bars.length) return;
       // pricePoints, not candlePoints: it hands the active shape the data it
       // wants — OHLC for candles/bars, close for line/area.
-      candle.setData(ChartSettings.pricePoints(state.bars));
+      candle.setData(ChartSettings.withTarget({ slot: 0 },
+        () => ChartSettings.pricePoints(state.bars)));
       // The volume strip's colours belong to the indicator now, but the
       // DIRECTION rule is still this dialog's — so a change to "colour bars
       // based on previous close" has to reach the study too.
@@ -309,7 +310,8 @@
     // colours are a setting (and, with "colour bars based on previous
     // close", a per-POINT one), and a second place deciding what green means
     // is a second place to get it wrong.
-    candle.setData(ChartSettings.pricePoints(state.bars));
+    candle.setData(ChartSettings.withTarget({ slot: 0 },
+      () => ChartSettings.pricePoints(state.bars)));
     // A new interval can move an indicator in or out of the timeframes its
     // Visibility tab allows, and the legend row is where that is legible —
     // without this the plot vanishes on 1h while its row still reads as live.
@@ -492,7 +494,8 @@
       // the bar BEFORE the forming one — the previous-close colouring rule
       // needs it, and on a replaced last bar that is two back
       const prev = state.bars[state.bars.length - 2] || null;
-      candle.update(ChartSettings.pricePoint(bar, prev));
+      candle.update(ChartSettings.withTarget({ slot: 0 },
+        () => ChartSettings.pricePoint(bar, prev)));
       // volume is a study now, so the strip is patched through the manager —
       // see Indicators updateEdge(). A no-op when the user has it switched off.
       ind.updateEdge(state.bars);
@@ -1040,8 +1043,8 @@
 
   // ── chart type ────────────────────────────────────────
   /* Candles / bars / line / area, TradingView's switcher beside the interval.
-   * The series itself is rebuilt by ChartSettings.setType — which swaps it on
-   * EVERY chart on screen and persists the choice — so this is only the pill
+   * The series itself is rebuilt by ChartSettings.setType on the selected
+   * chart and persists the choice, so this is only the pill
    * and its list. The list is built from the one catalogue the dialog's Type
    * select reads too, so the two can never fall out of step. */
   const ctBtn = el("chartTypeBtn"), ctMenu = el("chartTypeMenu");
@@ -3702,6 +3705,8 @@
     icon: "camera", label: "Screenshot", sub: [
       { label: "Whole chart", hint: "⌥ S", on: () => captureChart(null) },
       { label: "Select region", on: () => selectRegionCapture() },
+      { label: "Download image", on: () => captureChart(null, "download") },
+      { label: "Copy image", on: () => captureChart(null, "copy") },
     ],
   });
 
@@ -4417,6 +4422,7 @@
   // is told too — `charto:pane-active` is what moves its subject to the chart
   // you just clicked (unless you have pinned one yourself).
   Panes.onActive((i, iv, sym) => {
+    ChartSettings.selectPane(i);
     markInterval(iv || state.interval);
     // A tool armed on the pane you just left follows you to the one you
     // selected — selectTool routes by which pane is now active, so re-arming
@@ -4486,14 +4492,12 @@
   reparentMarks();
 
   // ── chart settings ────────────────────────────────────
-  // One button, one dialog, every chart on screen: js/chartsettings.js holds
-  // the model and applies each edit to whatever is registered, so the gear
-  // is not aimed at the selected pane the way the indicator toolbar is.
+  // One dialog, aimed at the selected chart. Each pane keeps its own settings.
   el("settingsBtn").innerHTML = Icons.svg("settings", "sm");
   el("settingsBtn").addEventListener("click", (e) => {
     e.stopPropagation();
     closeMenus();
-    ChartSettings.open();
+    ChartSettings.open(Panes.primaryActive ? 0 : Panes.all().indexOf(Panes.activeSub()) + 1);
   });
 
   /* The snapshot is a rail tool with a flyout: what to capture (the whole

@@ -251,10 +251,7 @@ const Setups = (() => {
   }
 
   function linkFor(token, symbol) {
-    const u = new URL(location.origin + location.pathname);
-    u.searchParams.set("symbol", symbol);
-    u.searchParams.set("view", token);
-    return u.toString();
+    return `${location.origin}/share/${encodeURIComponent(token)}`;
   }
 
   async function copyText(text, done) {

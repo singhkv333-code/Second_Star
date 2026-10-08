@@ -373,6 +373,23 @@ def view(token: str, viewer_uid: int | None, viewer_key: str,
     return 200, out
 
 
+def preview(token: str) -> dict | None:
+    """Public metadata for link unfurlers. Does not count a view or expose chat."""
+    tok = (token or "").strip()
+    if len(tok) < 16 or _con is None or _lock is None:
+        return None
+    with _lock:
+        row = _con.execute(
+            "SELECT s.title, s.note, s.symbol, s.interval, s.chat IS NOT NULL, "
+            "u.name FROM shared_setups s JOIN users u ON u.id=s.user_id "
+            "WHERE s.token=?", (tok,)).fetchone()
+    if not row:
+        return None
+    return {"title": row[0], "note": row[1], "symbol": row[2],
+            "interval": row[3], "has_chat": bool(row[4]),
+            "by": (row[5] or "").strip() or "A Pivot trader"}
+
+
 def copy(uid: int, token: str) -> tuple[int, dict]:
     """Make it mine: the setup becomes a new, editable layout of the caller's.
 

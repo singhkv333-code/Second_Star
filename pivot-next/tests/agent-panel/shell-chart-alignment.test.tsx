@@ -42,6 +42,33 @@ beforeEach(() => {
 const rail = () => screen.getByTestId("sidebar-nav");
 
 describe("shared chart shell alignment", () => {
+  it("collapses and restores the desktop sidebar from the account menu", async () => {
+    const originalMatchMedia = window.matchMedia;
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
+      matches: query === "(min-width: 1024px)",
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    try {
+      render(<AppShell />);
+      expect(screen.queryByTestId("collapse-sidebar")).toBeNull();
+      fireEvent.click(screen.getByTestId("account-menu-trigger"));
+      fireEvent.click(screen.getByTestId("menu-toggle-sidebar"));
+      await waitFor(() => expect(screen.queryByTestId("sidebar-nav")).toBeNull());
+      fireEvent.click(screen.getByTestId("account-menu-trigger"));
+      expect(screen.getByTestId("menu-toggle-sidebar")).toHaveTextContent("Expand sidebar");
+      fireEvent.click(screen.getByTestId("menu-toggle-sidebar"));
+      expect(screen.getByTestId("sidebar-nav")).toBeInTheDocument();
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
   it("shows the shared shell bar on a normal surface", () => {
     const { container } = render(<AppShell />);
     expect(container.querySelector(".top-header")).not.toBeNull();

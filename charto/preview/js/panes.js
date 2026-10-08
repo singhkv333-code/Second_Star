@@ -234,8 +234,10 @@ const Panes = (() => {
    * stop meaning the same thing the moment the browser is resized.
    */
   const FR_KEY = "pane_fr";
-  const FR_MIN = 0.12;    // a pane can be squeezed, never collapsed to nothing
   let frAll = Store.get(FR_KEY, {}) || {};
+  const RECT_KEY = "pane_rects";
+  let rectAll = Store.get(RECT_KEY, {}) || {};
+  let rects = [];
 
   function frOf(L) {
     const saved = frAll[L.id] || {};
@@ -245,10 +247,6 @@ const Panes = (() => {
     return { cols: fix(saved.cols, L.cols), rows: fix(saved.rows, L.rows) };
   }
 
-  function saveFr(id, fr) {
-    frAll = { ...frAll, [id]: fr };
-    Store.set(FR_KEY, frAll);
-  }
   let active = 0;         // 0 = primary, 1..n = subs — the pane the toolbar drives
   const subs = [];        // active secondary charts
   let subSeq = 0;         // monotonic id for a sub's drawing runtime (never reused)
@@ -302,7 +300,7 @@ const Panes = (() => {
 
   /** One secondary chart: its own element, instance, interval, symbol, data
    *  and indicators. */
-  function makeSub(interval, symbol) {
+  function makeSub(interval, symbol, slot) {
     const root = document.createElement("div");
     root.className = "subchart";
     // No per-pane toolbar. Every pane wears the same in-chart legend and the
@@ -322,22 +320,19 @@ const Panes = (() => {
     const legendEl = root.querySelector(".sub-legend .ind-legend");
 
     const chart = LWC.createChart(canvas, chartOpts());
-    // Built through ChartSettings so this pane wears the same chart type the
-    // primary does — a split showing one instrument twice must show it the same
-    // way. `let`, because the type switcher rebuilds the series (see rebind in
+    // Built through ChartSettings with this pane's own type. `let`, because
+    // the type switcher rebuilds the series (see rebind in
     // sub.settings below). See js/chartsettings.js makeSeries / setType.
-    let candle = ChartSettings.makeSeries(chart);
+    let candle = ChartSettings.withTarget({ slot }, () => ChartSettings.makeSeries(chart));
     // No volume series here either — it is an indicator now, added below
     // through this pane's OWN manager so it wears the same eye, gear and ×
     // as every other study on the pane. See js/indicators.js seriesFor().
     const sub = { root, chart, candle, interval, destroyed: false,
                   bars: [], symbol: (symbol || Sym.name).toUpperCase() };
-    /* A secondary pane is a chart like any other, so the gear reaches it too:
-     * one edit lands on every chart on screen, which is the whole point of a
-     * split showing the same instrument twice. `label` is read at paint time
+    /* A secondary pane owns its settings. `label` is read at paint time
      * because this pane's symbol can change under it. */
     sub.settings = {
-      chart, candle,
+      chart, candle, root, slot,
       // a secondary pane is built smaller than the primary on purpose, and
       // "Default" in the dialog has to mean THESE, not the primary's
       defaults: { fontSize: 11, rightOffset: 4 },
@@ -554,7 +549,8 @@ const Panes = (() => {
         // the settings module builds the series — see the note beside
         // main.js's paint(): one place decides what a green bar is, and
         // pricePoints hands the active shape (candles/bars/line/area) its data
-        candle.setData(ChartSettings.pricePoints(bars));
+        candle.setData(ChartSettings.withTarget(sub.settings,
+          () => ChartSettings.pricePoints(bars)));
         chart.applyOptions({
           timeScale: { timeVisible: !["D", "W", "M"].includes(iv) },
         });
@@ -643,6 +639,197 @@ const Panes = (() => {
       return load(sub.interval);
     };
 
+    // A secondary chart owns its own price scale and bars. Resolve the point
+    // against this chart before building actions; the primary menu's captured
+    // series and symbol would otherwise target the wrong instrument.
+    canvas.addEventListener("contextmenu", (e) => {
+      if (sub.destroyed || (sub.draw && sub.draw.state.tool !== "cursor")) return;
+      const pricePane = candle.getPane().getHTMLElement();
+      const pr = pricePane.getBoundingClientRect();
+      if (e.clientY < pr.top || e.clientY > pr.bottom) return;
+      const cr = canvas.getBoundingClientRect();
+      const px = candle.coordinateToPrice(e.clientY - pr.top);
+      if (!Number.isFinite(px)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setActive(subs.indexOf(sub) + 1);
+      if (window.__chartoCloseMenus) window.__chartoCloseMenus(null);
+      const drawing = sub.draw.state.hoverId &&
+        sub.draw.state.drawings.find((d) => d.id === sub.draw.state.hoverId);
+      if (drawing) {
+        Ctx.open(e.clientX, e.clientY, [
+          { head: drawing.ref || "Drawing", note: sub.symbol },
+          { icon: "chat", label: "Chat about drawing",
+            on: () => {
+              document.dispatchEvent(new CustomEvent("charto:draw-tag",
+                { detail: sub.draw.tagOf(drawing.id) }));
+              Chat.ask(`Analyse drawing ${drawing.ref || drawing.id} on ${sub.symbol} ${sub.interval}.`);
+            } },
+          { icon: "copy", label: "Duplicate", on: () => sub.draw.clone(drawing.id) },
+          { icon: "lock", label: drawing.locked ? "Unlock" : "Lock",
+            on: () => sub.draw.setLocked(drawing.id, !drawing.locked) },
+          { sep: true },
+          { icon: "trash", label: "Remove", danger: true,
+            on: () => sub.draw.remove(drawing.id) },
+        ]);
+        return;
+      }
+      const time = chart.timeScale().coordinateToTime(e.clientX - cr.left);
+      const bar = sub.bars.find((b) => b.time === time);
+      const digits = Math.abs(px) >= 100 ? 2 : 4;
+      const level = Number(px.toFixed(digits));
+      const price = Sym.of(sub.symbol).price(px, {
+        minimumFractionDigits: digits, maximumFractionDigits: digits,
+      });
+      const when = (t) => {
+        const d = new Date(t * 1000);
+        const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+          "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        const date = `${d.getUTCDate()} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+        return ["D", "W", "M"].includes(sub.interval) ? date :
+          `${date} ${String(d.getUTCHours()).padStart(2, "0")}:` +
+          String(d.getUTCMinutes()).padStart(2, "0");
+      };
+      const address = bar ? `${when(bar.time)} @ ${price}` : null;
+      const toast = (message) => {
+        if (typeof Layouts !== "undefined" && Layouts.toast) Layouts.toast(message);
+      };
+      const copy = (value) => navigator.clipboard.writeText(String(value))
+        .then(() => toast("Copied to clipboard"))
+        .catch(() => toast("Clipboard access was denied"));
+      const screenshot = (dest, rect) => {
+        let shot = chart.takeScreenshot(true);
+        if (rect) {
+          const crop = document.createElement("canvas");
+          const sx = shot.width / Math.max(1, canvas.clientWidth);
+          const sy = shot.height / Math.max(1, canvas.clientHeight);
+          crop.width = Math.max(1, Math.round(rect.w * sx));
+          crop.height = Math.max(1, Math.round(rect.h * sy));
+          crop.getContext("2d").drawImage(shot, rect.x * sx, rect.y * sy,
+            rect.w * sx, rect.h * sy, 0, 0, crop.width, crop.height);
+          shot = crop;
+        }
+        if (dest === "chat") {
+          const panel = document.getElementById("chatPanel");
+          if (panel && panel.classList.contains("hidden"))
+            document.getElementById("chatToggle").click();
+          document.dispatchEvent(new CustomEvent("charto:screenshot",
+            { detail: { uri: shot.toDataURL("image/png") } }));
+          toast("Snapshot attached to the chat");
+          return;
+        }
+        if (dest === "copy") {
+          shot.toBlob(async (blob) => {
+            if (!blob) return toast("The snapshot could not be made");
+            try {
+              await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+              toast("Snapshot copied");
+            } catch { toast("Clipboard access was denied"); }
+          }, "image/png");
+          return;
+        }
+        const link = document.createElement("a");
+        link.href = shot.toDataURL("image/png");
+        link.download = `${sub.symbol}-${sub.interval}-chart.png`;
+        link.click();
+      };
+      const selectRegion = () => {
+        const overlay = document.createElement("div");
+        overlay.className = "shot-overlay";
+        overlay.innerHTML = '<div class="shot-hint">drag to capture · Esc to cancel</div>';
+        canvas.appendChild(overlay);
+        let x0 = 0, y0 = 0, selection = null;
+        const off = () => {
+          overlay.remove();
+          document.removeEventListener("keydown", key, true);
+        };
+        const key = (event) => {
+          if (event.key === "Escape") { event.stopPropagation(); off(); }
+        };
+        document.addEventListener("keydown", key, true);
+        overlay.addEventListener("pointerdown", (event) => {
+          const r = overlay.getBoundingClientRect();
+          x0 = event.clientX - r.left; y0 = event.clientY - r.top;
+          selection = document.createElement("div");
+          selection.className = "shot-marquee";
+          overlay.appendChild(selection);
+          overlay.setPointerCapture(event.pointerId);
+        });
+        overlay.addEventListener("pointermove", (event) => {
+          if (!selection) return;
+          const r = overlay.getBoundingClientRect();
+          const x = event.clientX - r.left, y = event.clientY - r.top;
+          Object.assign(selection.style, {
+            left: `${Math.min(x0, x)}px`, top: `${Math.min(y0, y)}px`,
+            width: `${Math.abs(x - x0)}px`, height: `${Math.abs(y - y0)}px`,
+          });
+        });
+        overlay.addEventListener("pointerup", (event) => {
+          if (!selection) return;
+          const r = overlay.getBoundingClientRect();
+          const x = event.clientX - r.left, y = event.clientY - r.top;
+          const rect = { x: Math.min(x0, x), y: Math.min(y0, y),
+            w: Math.abs(x - x0), h: Math.abs(y - y0) };
+          off();
+          if (rect.w >= 24 && rect.h >= 24) screenshot("chat", rect);
+        });
+      };
+      const drawings = sub.draw.state.drawings.length;
+      const annotations = sub.scene.state.items.length;
+      Ctx.open(e.clientX, e.clientY, [
+        { head: sub.symbol, note: `${price}${bar ? ` · ${when(bar.time)}` : ""}` },
+        { icon: "alertPlus", label: "Alert here", hint: price,
+          on: () => Alerts.open({ symbol: sub.symbol, level,
+            last: sub.bars.at(-1)?.close ?? null, interval: sub.interval }) },
+        { icon: "position", label: "Plan a position",
+          on: () => Chat.ask(`Plan a position on ${sub.symbol} with entry at ${price}.`) },
+        { sep: true },
+        { icon: "chat", label: "Chat", sub: [
+          { label: `Is ${price} a real level on ${sub.symbol}?`, wrap: true,
+            on: () => Chat.ask(`Is ${price} a real level on ${sub.symbol}?`) },
+          bar && { label: `Why did ${sub.symbol} move on ${when(bar.time)}?`, wrap: true,
+            on: () => Chat.ask(`Why did ${sub.symbol} move on ${when(bar.time)}?`) },
+          { label: `Analyse ${sub.symbol} on the ${sub.interval} chart.`, wrap: true,
+            on: () => Chat.ask(`Analyse ${sub.symbol} on the ${sub.interval} chart.`) },
+        ].filter(Boolean) },
+        { icon: "tag", label: "Tag point",
+          on: () => document.dispatchEvent(new CustomEvent("charto:compose",
+            { detail: address || String(level) })) },
+        { sep: true },
+        { icon: "camera", label: "Screenshot", sub: [
+          { label: "Whole chart", on: () => screenshot("chat") },
+          { label: "Select region", on: selectRegion },
+          { label: "Download image", on: () => screenshot("download") },
+          { label: "Copy image", on: () => screenshot("copy") },
+        ] },
+        { icon: "listPlus", label: "Add to watchlist",
+          sub: () => Panels.lists().map((list) => ({
+            label: list.name, tick: list.syms.includes(sub.symbol),
+            disabled: list.syms.includes(sub.symbol),
+            on: () => { Panels.watch(sub.symbol, list.id);
+              toast(`${sub.symbol} added to ${list.name}`); },
+          })) },
+        bar && { icon: "pen", label: "Add note",
+          on: () => sub.draw.noteAt("price", bar.time, px) },
+        { sep: true },
+        { icon: "copy", label: "Copy", sub: [
+          { label: "Price", hint: price, on: () => copy(level) },
+          address && { label: "Address", on: () => copy(address) },
+        ].filter(Boolean) },
+        { sep: true },
+        { icon: "rotateCw", label: "Reset view",
+          on: () => chart.timeScale().fitContent() },
+        (drawings || annotations) && { icon: "trash", label: "Remove",
+          sub: [
+            drawings && { label: `Drawings (${drawings})`, danger: true,
+              on: () => sub.draw.clearAll() },
+            annotations && { label: `Annotations (${annotations})`, danger: true,
+              on: () => sub.scene.setItems([]) },
+          ].filter(Boolean) },
+        { icon: "bell", label: "Alerts", on: () => Panels.show("alerts") },
+      ]);
+    });
+
     // the ticker in the legend IS the instrument switch
     titleEl.addEventListener("click", (e) => {
       const btn = e.target.closest("[data-sym-btn]");
@@ -729,15 +916,52 @@ const Panes = (() => {
    * with the same hour candles. */
   const SUB_LADDER = ["1h", "D", "15m", "W", "30m", "M", "5m"];
 
-  /** Write the fractions onto the grid. minmax(0,…) so a chart's own minimum
-   *  width can never push a track wider than the fraction asked for. */
+  /** Start from the catalogue's rectangular areas, then keep each pane's
+   *  bounds independently. A CSS grid track moves every pane in its column;
+   *  these bounds let the top divider of a 2×2 move on its own. */
   function sizeTracks(L, fr) {
-    gridEl.style.gridTemplateColumns =
-      fr.cols.map((f) => `minmax(0, ${f}fr)`).join(" ");
-    gridEl.style.gridTemplateRows =
-      fr.rows.map((f) => `minmax(0, ${f}fr)`).join(" ");
-    gridEl._fr = fr;
-    requestAnimationFrame(mountSplitters);
+    const valid = rectAll[L.id];
+    if (Array.isArray(valid) && valid.length === L.panes && valid.every((r) =>
+      r && [r.x, r.y, r.w, r.h].every(Number.isFinite) &&
+      r.x >= 0 && r.y >= 0 && r.w > 0 && r.h > 0 &&
+      r.x + r.w <= 1.001 && r.y + r.h <= 1.001)) {
+      rects = valid.map((r) => ({ ...r }));
+    } else {
+      const fractions = (values) => {
+        const sum = values.reduce((a, b) => a + b, 0);
+        const cuts = [0];
+        for (const v of values) cuts.push(cuts.at(-1) + v / sum);
+        cuts[cuts.length - 1] = 1;
+        return cuts;
+      };
+      const xs = fractions(fr.cols), ys = fractions(fr.rows);
+      rects = L.areas.map((area) => {
+        const cells = [];
+        L.spec.forEach((row, y) => [...row].forEach((ch, x) => {
+          if (ch === area) cells.push([x, y]);
+        }));
+        const left = Math.min(...cells.map((c) => c[0]));
+        const top = Math.min(...cells.map((c) => c[1]));
+        const right = Math.max(...cells.map((c) => c[0])) + 1;
+        const bottom = Math.max(...cells.map((c) => c[1])) + 1;
+        return { x: xs[left], y: ys[top], w: xs[right] - xs[left],
+                 h: ys[bottom] - ys[top] };
+      });
+    }
+    gridEl.classList.add("pane-free");
+    requestAnimationFrame(() => { paintRects(); mountSplitters(); });
+  }
+
+  function paintRects() {
+    const nodes = [stage, ...subs.map((s) => s.root)];
+    nodes.forEach((node, i) => {
+      if (!node || !rects[i]) return;
+      const r = rects[i];
+      node.style.left = `calc(${r.x * 100}% + ${r.x ? 0.5 : 0}px)`;
+      node.style.top = `calc(${r.y * 100}% + ${r.y ? 0.5 : 0}px)`;
+      node.style.width = `calc(${r.w * 100}% - ${r.x + r.w < 0.999 ? 0.5 : 0}px - ${r.x ? 0.5 : 0}px)`;
+      node.style.height = `calc(${r.h * 100}% - ${r.y + r.h < 0.999 ? 0.5 : 0}px - ${r.y ? 0.5 : 0}px)`;
+    });
   }
 
   /** A handle per INTERNAL grid line, laid over the seam that is already
@@ -749,31 +973,52 @@ const Panes = (() => {
     for (const el of [...gridEl.querySelectorAll(".pane-split")]) el.remove();
     const L = LAYOUTS[layout];
     if (!L || (L.cols < 2 && L.rows < 2)) return;
-    const cs = getComputedStyle(gridEl);
-    const px = (s) => s.split(" ").map(parseFloat);
-    const cols = px(cs.gridTemplateColumns);
-    const rows = px(cs.gridTemplateRows);
-    const gapX = parseFloat(cs.columnGap) || 0;
-    const gapY = parseFloat(cs.rowGap) || 0;
-    const add = (cls, style, axis, i) => {
-      const d = document.createElement("div");
-      d.className = `pane-split ${cls}`;
-      Object.assign(d.style, style);
-      d.dataset.axis = axis;
-      d.dataset.i = String(i);
-      gridEl.appendChild(d);
-    };
-    let x = 0;
-    for (let i = 0; i < cols.length - 1; i++) {
-      x += cols[i];
-      add("v", { left: `${x + gapX / 2}px` }, "c", i);
-      x += gapX;
-    }
-    let y = 0;
-    for (let i = 0; i < rows.length - 1; i++) {
-      y += rows[i];
-      add("h", { top: `${y + gapY / 2}px` }, "r", i);
-      y += gapY;
+    const near = (a, b) => Math.abs(a - b) < 0.00001;
+    // A pane spanning two rows ties their vertical edges together. Where no
+    // pane spans, each row gets its own vertical handle. The perpendicular
+    // axis remains continuous, so independent drags cannot overlap panes.
+    const hasWide = L.areas.some((a) => L.spec.some((row) => row.includes(a) && row.indexOf(a) !== row.lastIndexOf(a)));
+    const segmented = hasWide ? "c" : L.areas.some((a) => L.spec.filter((row) => row.includes(a)).length > 1) ? "r" : "c";
+    for (const axis of ["c", "r"]) {
+      const edges = [];
+      rects.forEach((a, i) => rects.forEach((b, j) => {
+        if (i === j) return;
+        const pos = axis === "c" ? a.x + a.w : a.y + a.h;
+        const other = axis === "c" ? b.x : b.y;
+        const lo = Math.max(axis === "c" ? a.y : a.x, axis === "c" ? b.y : b.x);
+        const hi = Math.min(axis === "c" ? a.y + a.h : a.x + a.w,
+                            axis === "c" ? b.y + b.h : b.x + b.w);
+        if (near(pos, other) && hi - lo > 0.00001) edges.push({ i, j, pos, lo, hi });
+      }));
+      while (edges.length) {
+        const group = [edges.shift()];
+        for (let k = 0; k < edges.length;) {
+          const edge = edges[k];
+          if (near(edge.pos, group[0].pos) && (axis !== segmented ||
+              group.some((g) => g.i === edge.i || g.j === edge.j ||
+                                  g.i === edge.j || g.j === edge.i))) {
+            group.push(...edges.splice(k, 1));
+            k = 0;
+          } else k++;
+        }
+        const d = document.createElement("div");
+        const lo = Math.min(...group.map((g) => g.lo));
+        const hi = Math.max(...group.map((g) => g.hi));
+        d.className = `pane-split ${axis === "c" ? "v" : "h"}`;
+        if (axis === "c") {
+          d.style.left = `${group[0].pos * 100}%`;
+          d.style.top = `${lo * 100}%`;
+          d.style.height = `${(hi - lo) * 100}%`;
+        } else {
+          d.style.top = `${group[0].pos * 100}%`;
+          d.style.left = `${lo * 100}%`;
+          d.style.width = `${(hi - lo) * 100}%`;
+        }
+        d._edge = { axis, pos: group[0].pos,
+                    left: [...new Set(group.map((g) => g.i))],
+                    right: [...new Set(group.map((g) => g.j))] };
+        gridEl.appendChild(d);
+      }
     }
   }
 
@@ -781,37 +1026,41 @@ const Panes = (() => {
    *  rest of the layout holds still instead of every pane shifting. */
   function beginDrag(e) {
     const h = e.target.closest(".pane-split");
-    if (!h || !gridEl._fr) return;
+    if (!h || !h._edge) return;
     e.preventDefault();
-    const axis = h.dataset.axis;
-    const i = Number(h.dataset.i);
+    e.stopPropagation();
+    const { axis, pos, left, right } = h._edge;
     const vert = axis === "c";
-    const cs = getComputedStyle(gridEl);
-    const sizes = (vert ? cs.gridTemplateColumns : cs.gridTemplateRows)
-      .split(" ").map(parseFloat);
-    const fr = vert ? gridEl._fr.cols : gridEl._fr.rows;
-    const a0 = sizes[i], b0 = sizes[i + 1];
-    const fa = fr[i], fb = fr[i + 1];
-    const span = a0 + b0, sumFr = fa + fb;
+    const before = rects.map((r) => ({ ...r }));
     const start = vert ? e.clientX : e.clientY;
     h.classList.add("dragging");
     document.body.style.cursor = vert ? "col-resize" : "row-resize";
 
     const move = (ev) => {
-      const d = (vert ? ev.clientX : ev.clientY) - start;
-      let a = a0 + d;
-      const min = span * FR_MIN;
-      a = Math.max(min, Math.min(span - min, a));
-      fr[i] = sumFr * (a / span);
-      fr[i + 1] = sumFr - fr[i];
-      sizeTracks(LAYOUTS[layout], gridEl._fr);
+      const delta = ((vert ? ev.clientX : ev.clientY) - start) /
+        (vert ? gridEl.clientWidth : gridEl.clientHeight);
+      const min = 0.06;
+      const low = Math.max(...left.map((i) => min - (vert ? before[i].w : before[i].h)));
+      const high = Math.min(...right.map((i) => (vert ? before[i].w : before[i].h) - min));
+      const d = Math.max(low, Math.min(high, delta));
+      left.forEach((i) => { rects[i] = { ...before[i] };
+        if (vert) rects[i].w += d; else rects[i].h += d; });
+      right.forEach((i) => { rects[i] = { ...before[i] };
+        if (vert) { rects[i].x += d; rects[i].w -= d; }
+        else { rects[i].y += d; rects[i].h -= d; } });
+      paintRects();
+      // The hover/drag stroke belongs to the seam. Without moving its handle,
+      // the panes follow the pointer while a grey line is left behind.
+      h.style[vert ? "left" : "top"] = `${(pos + d) * 100}%`;
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       h.classList.remove("dragging");
       document.body.style.cursor = "";
-      saveFr(layout, gridEl._fr);
+      rectAll = { ...rectAll, [layout]: rects.map((r) => ({ ...r })) };
+      Store.set(RECT_KEY, rectAll);
+      mountSplitters();
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
@@ -855,7 +1104,7 @@ const Panes = (() => {
     // the primary always holds the first area a reader meets
     if (stage) stage.style.gridArea = L.areas[0];
     for (let i = 1; i < L.panes; i++) {
-      const s = makeSub(SUB_LADDER[(i - 1) % SUB_LADDER.length], Sym.name);
+      const s = makeSub(SUB_LADDER[(i - 1) % SUB_LADDER.length], Sym.name, i);
       s.root.style.gridArea = L.areas[i];
       subs.push(s);
       gridEl.appendChild(s.root);
@@ -867,7 +1116,9 @@ const Panes = (() => {
         setTimeout(() => s.start(), (i - 1) * 60);
       }));
     }
+    const wasPrimary = active === 0;
     setActive(0);   // a new layout always hands the toolbar back to the primary
+    if (wasPrimary) emitActive();
     for (const fn of onChangeSubs) { try { fn(id); } catch (e) { console.error(e); } }
   }
 

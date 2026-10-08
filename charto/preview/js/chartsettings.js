@@ -31,10 +31,8 @@
  *    The moment a colour is picked it becomes explicit and survives the
  *    toggle — the same contract indicator plots have (`custom: true`).
  *
- * The chart owners register themselves (main.js's primary chart, and every
- * secondary pane js/panes.js builds), so one edit lands on every chart on
- * screen — a split showing the same instrument twice must not show it in two
- * different colours.
+ * Every chart has its own stored settings. The header controls follow the
+ * selected pane, so an edit changes that chart alone.
  */
 "use strict";
 
@@ -136,7 +134,26 @@ const ChartSettings = (() => {
   }
 
   let cfg = load();
-  const targets = new Set();     // every chart on screen
+  const PANE_KEY = "chart_settings_panes";
+  const paneSaved = Store.get(PANE_KEY, {}) || {};
+  const paneCfg = new Map([[0, cfg]]);
+  let selected = 0;
+  function configFor(slot) {
+    if (slot === 0) return paneCfg.get(0);
+    if (!paneCfg.has(slot)) {
+      const next = clone(FACTORY);
+      const saved = paneSaved[slot] || {};
+      for (const g of Object.keys(next)) Object.assign(next[g], saved[g] || {});
+      paneCfg.set(slot, next);
+    }
+    return paneCfg.get(slot);
+  }
+  function withTarget(t, fn) {
+    const before = cfg;
+    cfg = configFor(t.slot || 0);
+    try { return fn(); } finally { cfg = before; }
+  }
+  const targets = new Set();     // registered charts on screen
   const subs = [];               // things that repaint when settings change
 
   // ── the effective values ────────────────────────────────
@@ -370,10 +387,7 @@ const ChartSettings = (() => {
 
 
   // ── the status line ─────────────────────────────────────
-  /* The legend written ON the chart is HTML, not canvas, so what it shows is
-   * a stylesheet question. One class per thing that can be hidden, set on
-   * <html>, so the primary readout and every pane legend obey the same
-   * switch — see the `sl-` rules in index.html. */
+  /* Legend visibility is scoped to each pane root. */
   const SL = [
     ["symbol", "sl-no-symbol"], ["ohlc", "sl-no-ohlc"],
     ["change", "sl-no-change"], ["volume", "sl-no-volume"],
@@ -381,8 +395,9 @@ const ChartSettings = (() => {
     ["indButtons", "sl-no-indbtns"],
   ];
 
-  function applyStatus() {
-    const root = document.documentElement;
+  function applyStatus(t) {
+    const root = t.root;
+    if (!root) return;
     for (const [key, cls] of SL) root.classList.toggle(cls, !cfg.status[key]);
     // The OHLC figures are coloured by direction, and TradingView colours
     // them with the CANDLE's colours — so a blue/orange chart does not keep
@@ -404,6 +419,7 @@ const ChartSettings = (() => {
    * move a per-point colour, because setData on four thousand bars for a
    * grid-colour edit would be work nobody asked for. */
   function applyOne(t, repaint) {
+    return withTarget(t, () => {
     try {
       t.chart.applyOptions(chartOptions(t));
       // The ACTIVE shape's options, not the candle's — applyOptions on a line
@@ -418,12 +434,14 @@ const ChartSettings = (() => {
       console.error("chart settings:", e);
     }
     applyWatermark(t);
+    applyStatus(t);
+    });
   }
 
   /* ── switching the shape ───────────────────────────────────────────────────
    * The series TYPE is fixed when a series is created, so changing it means
-   * tearing the old series down and building a new one — on every chart on
-   * screen, so a split stays one chart shown twice. Drawings, the scene and the
+   * tearing the old series down and building a new one on that chart.
+   * Drawings, the scene and the
    * pins read the price series LIVE through the owner's panesList(), so the only
    * refs that must be re-pointed are the owner's own `candle` and anything it
    * bound directly to the series (scene's marker layer). Each owner states how
@@ -441,13 +459,13 @@ const ChartSettings = (() => {
     if (t.repaint) t.repaint();          // fill the fresh series with its data
   }
 
-  /** Change the chart type for every chart on screen and persist it. A no-op
+  /** Change the selected chart's type and persist it. A no-op
    *  when the type is already current, so the switcher can call it freely. */
   function setType(type) {
     if (!TYPE(type) || type === cfg.candles.type) return;
     cfg.candles.type = type;
     save();
-    for (const t of [...targets]) {
+    for (const t of [...targets].filter((t) => (t.slot || 0) === selected)) {
       try { swapSeriesOn(t, type); } catch (e) { console.error("chart type:", e); }
     }
     // A colour-only sub won't have moved, but the type select in the dialog and
@@ -491,14 +509,12 @@ const ChartSettings = (() => {
   function apply(opts = {}) {
     const repaint = opts.repaint !== false;
     for (const t of [...targets]) applyOne(t, repaint);
-    applyStatus();
     for (const fn of subs) { try { fn(cfg); } catch (e) { console.error(e); } }
   }
 
   function register(t) {
     targets.add(t);
     applyOne(t, true);
-    applyStatus();
     return () => unregister(t);
   }
   function unregister(t) {
@@ -506,7 +522,20 @@ const ChartSettings = (() => {
     targets.delete(t);
   }
 
-  function save() { Store.set(KEY, cfg); }
+  function save() {
+    if (selected === 0) Store.set(KEY, cfg);
+    else {
+      paneSaved[selected] = cfg;
+      Store.set(PANE_KEY, paneSaved);
+    }
+  }
+
+
+  function selectPane(slot) {
+    selected = Math.max(0, Number(slot) || 0);
+    cfg = configFor(selected);
+    for (const fn of subs) { try { fn(cfg); } catch (e) { console.error(e); } }
+  }
 
   // ══ the dialog ═══════════════════════════════════════════
   let wrap = null, dlg = null, card = null;
@@ -592,9 +621,8 @@ const ChartSettings = (() => {
   }
 
   function statusHTML() {
-    return `<p class="dlg-note">What the legend written on the chart says.
-      It is the same row on every pane, so a split shows the same fields
-      twice rather than two differently-dressed charts.</p>` +
+    return `<p class="dlg-note">Choose what this chart's legend shows.
+      Other charts keep their own settings.</p>` +
       group("Symbol") +
       checkRow("status.symbol", "Ticker, interval and exchange") +
       checkRow("status.ohlc", "OHLC values") +
@@ -746,7 +774,7 @@ const ChartSettings = (() => {
     else close();                      // ok / ×: the edits are already live
   }
 
-  /* Swap `cfg` wholesale and bring every chart back in line with it. The chart
+  /* Swap this pane's config and bring its chart back in line with it. The chart
    * TYPE is not an option — it is the series object — so a restore that changes
    * it has to rebuild the series, which apply() does not do. Rebuild first (off
    * the new type), then apply the rest of the options onto the fresh series. */
@@ -754,9 +782,10 @@ const ChartSettings = (() => {
     const wantType = next.candles.type;
     const typeChanged = wantType !== cfg.candles.type;
     cfg = next;
+    paneCfg.set(selected, next);
     save();
     if (typeChanged) {
-      for (const t of [...targets]) {
+      for (const t of [...targets].filter((t) => (t.slot || 0) === selected)) {
         try { swapSeriesOn(t, wantType); } catch (e) { console.error("chart type:", e); }
       }
     }
@@ -806,8 +835,11 @@ const ChartSettings = (() => {
     }, true);
   }
 
-  function open() {
+  function open(slot = selected) {
+    selectPane(slot);
     if (!wrap) build();
+    dlg.querySelector(".dlg-title").textContent =
+      selected === 0 ? "Chart settings · Main chart" : `Chart settings · Chart ${selected + 1}`;
     snapshot = clone(cfg);
     section = "symbol";
     card.centre();
@@ -823,6 +855,8 @@ const ChartSettings = (() => {
 
   return {
     register, unregister, apply,
+    selectPane(slot) { selectPane(slot); },
+    withTarget,
     /** The chart's instrument quotes to `n` decimals; re-applies the candles
      *  only when that changes what "default" precision means. */
     setSymbolDecimals(n) {

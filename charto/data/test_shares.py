@@ -84,6 +84,17 @@ class SharesTest(unittest.TestCase):
         _, out = self.publish(include_chat=False)
         self.assertIsNone(self.sh.view(out["token"], None, "k")[1]["chat"])
 
+    def test_preview_is_public_minimal_and_does_not_count_a_view(self):
+        _, out = self.publish()
+        preview = self.sh.preview(out["token"])
+        self.assertEqual(preview["title"], "TCS base")
+        self.assertEqual(preview["symbol"], "TCS")
+        self.assertTrue(preview["has_chat"])
+        self.assertNotIn("chat", preview)
+        self.assertNotIn("email", json.dumps(preview))
+        self.assertEqual(self.sh.mine(1)[0]["views"], 0)
+        self.assertIsNone(self.sh.preview("missing"))
+
     def test_views_count_once_per_viewer_and_never_the_author(self):
         _, out = self.publish()
         tok = out["token"]

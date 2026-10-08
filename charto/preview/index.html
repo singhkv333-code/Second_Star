@@ -2472,6 +2472,9 @@ header > .btn, header > .badge { flex: none; }
   grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr);
 }
 .stage { position: relative; min-width: 0; min-height: 0; background: var(--chart-bg); }
+.charts.pane-free { display: block; }
+.charts.pane-free > .stage,
+.charts.pane-free > .subchart { position: absolute; min-width: 0; min-height: 0; }
 
 /* Pane splitters. One per internal grid line, laid over the seam already
    drawn there, so the edge you see and the edge you grab are the same one.
@@ -2483,6 +2486,8 @@ header > .btn, header > .badge { flex: none; }
 }
 .pane-split.v { top: 0; bottom: 0; width: 9px; margin-left: -4.5px; cursor: col-resize; }
 .pane-split.h { left: 0; right: 0; height: 9px; margin-top: -4.5px; cursor: row-resize; }
+.charts.pane-free .pane-split.v { bottom: auto; }
+.charts.pane-free .pane-split.h { right: auto; }
 .pane-split::before { content: ""; position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; transform: translateX(-50%); background: transparent; pointer-events: none; }
 .pane-split.h::before { top: 50%; bottom: auto; left: 0; right: 0; width: auto; height: 1px; transform: translateY(-50%); }
 .pane-split:hover::before, .pane-split.dragging::before { background: var(--resize-line); }
@@ -2753,18 +2758,18 @@ header > .btn, header > .badge { flex: none; }
    primary readout and every pane legend are the SAME row — a split must not
    be able to show two differently-dressed charts. Hiding only; nothing here
    re-lays the legend out, so a field coming back needs no repaint. */
-:root.sl-no-symbol .readout .title { display: none; }
-:root.sl-no-ohlc .readout .row .ro-o,
-:root.sl-no-ohlc .readout .row .ro-h,
-:root.sl-no-ohlc .readout .row .ro-l,
-:root.sl-no-ohlc .readout .row .ro-c { display: none; }
-:root.sl-no-volume .readout .row .ro-v { display: none; }
-:root.sl-no-change .readout .chg { display: none; }
-:root.sl-no-indname .ind-name { display: none; }
+:is(.stage,.subchart).sl-no-symbol .readout .title { display: none; }
+:is(.stage,.subchart).sl-no-ohlc .readout .row .ro-o,
+:is(.stage,.subchart).sl-no-ohlc .readout .row .ro-h,
+:is(.stage,.subchart).sl-no-ohlc .readout .row .ro-l,
+:is(.stage,.subchart).sl-no-ohlc .readout .row .ro-c { display: none; }
+:is(.stage,.subchart).sl-no-volume .readout .row .ro-v { display: none; }
+:is(.stage,.subchart).sl-no-change .readout .chg { display: none; }
+:is(.stage,.subchart).sl-no-indname .ind-name { display: none; }
 /* the reading leads with a middle dot that separates it FROM the name */
-:root.sl-no-indname .ind-vals .sep { display: none; }
-:root.sl-no-indvals .ind-vals { display: none; }
-:root.sl-no-indbtns .ind-acts { display: none; }
+:is(.stage,.subchart).sl-no-indname .ind-vals .sep { display: none; }
+:is(.stage,.subchart).sl-no-indvals .ind-vals { display: none; }
+:is(.stage,.subchart).sl-no-indbtns .ind-acts { display: none; }
 
 /* ── two sidebars: the figures stand down ─────────────────────────────────
    `.two-columns` is set on <body> by js/dock.js whenever the chart is too narrow
@@ -11321,16 +11326,16 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/shortcuts.js?v=5"></script>
   <!-- before panes.js and main.js: both register their charts with it as
        they build them, and read their series colours out of it -->
-  <script src="./js/chartsettings.js?v=6"></script>
+  <script src="./js/chartsettings.js?v=8"></script>
   <script src="./js/geometry.js?v=25"></script>
   <script src="./js/tools.js?v=23"></script>
   <script src="./js/drawings.js?v=43"></script>
   <script src="./js/scene.js?v=51"></script>
-  <script src="./js/panes.js?v=26"></script>
+  <script src="./js/panes.js?v=30"></script>
   <!-- The pricing / upgrade overlay. Before main.js so window.Pricing exists
        when the account menu's Upgrade row is wired. -->
   <script src="./js/pricing.js?v=1"></script>
-  <script src="./js/main.js?v=165"></script>
+  <script src="./js/main.js?v=168"></script>
   <!-- the floating drawing edit toolbar — listens for charto:draw-select and
        drives js/drawings.js's setStyle/clone/lock/remove. After main.js so
        __charto and ChartSettings exist by the first selection. -->
@@ -11342,7 +11347,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=12"></script>
   <!-- shared setups: publish, view-only links, "Make it mine" -->
-  <script src="./js/setups.js?v=12"></script>
+  <script src="./js/setups.js?v=13"></script>
   <!-- Voice must load before chat.js, which wires it to the composer. -->
   <script src="./js/voice.js?v=2"></script>
   <!-- before chat.js, which asks it to render the panels a tool prints as the
