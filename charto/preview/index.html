@@ -2835,6 +2835,13 @@ header > .btn, header > .badge { flex: none; }
   font-size: var(--text-sm); color: var(--muted-foreground);
   pointer-events: none; line-height: 1.55; font-variant-numeric: tabular-nums;
 }
+/* Keep the hover target as tight as the two visible quote lines. This lets the
+   company shortcut respond anywhere across the logo/name/interval/OHLC block
+   without laying an invisible hit area over the rest of the chart. */
+.readout-hover {
+  display: inline-flex; flex-direction: column; align-items: flex-start;
+  max-width: 100%; pointer-events: auto;
+}
 /* A ROW, not a line of text. The ticker is an inline-flex box (it holds the
    mark beside the word), and an inline-flex box in a text line aligns on the
    baseline its own contents produce — which sat a pixel or two above the
@@ -2882,15 +2889,17 @@ header > .btn, header > .badge { flex: none; }
 }
 .company-page-icon svg.icon { width: 13px; height: 13px; stroke-width: 1.7; }
 .company-affordance:hover .company-page-icon,
-.company-affordance:focus-within .company-page-icon {
+.company-affordance:focus-within .company-page-icon,
+.readout-hover:hover .company-page-icon,
+.readout-hover:focus-within .company-page-icon {
   opacity: 1; pointer-events: auto; transform: none;
 }
 .company-page-icon:hover { color: var(--foreground); background: var(--accent); }
 .company-page-icon:focus-visible { opacity: 1; pointer-events: auto; transform: none;
   outline: 2px solid var(--ring); outline-offset: 1px; }
 .readout .company-page-icon { pointer-events: none; }
-.readout .company-affordance:hover .company-page-icon,
-.readout .company-affordance:focus-within .company-page-icon { pointer-events: auto; }
+.readout .readout-hover:hover .company-page-icon,
+.readout .readout-hover:focus-within .company-page-icon { pointer-events: auto; }
 @media (hover: none) {
   .company-page-icon { opacity: 1; pointer-events: auto; transform: none; }
 }
@@ -11680,8 +11689,10 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
     <div class="stage" id="stage">
       <div id="chart"></div>
       <div class="readout">
-        <div class="title" id="roTitle">RELIANCE</div>
-        <div class="row" id="roOhlc"></div>
+        <div class="readout-hover">
+          <div class="title" id="roTitle">RELIANCE</div>
+          <div class="row" id="roOhlc"></div>
+        </div>
         <!-- Indicators live HERE, under the OHLC, not in the header: one row
              per study with its own reading and its own eye/gear/×/⋯, plus the
              collapse toggle that folds the lot into a count. Filled by
