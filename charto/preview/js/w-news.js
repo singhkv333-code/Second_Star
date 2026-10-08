@@ -116,6 +116,7 @@
     input.addEventListener("keydown", (e) => e.stopPropagation());
 
     return {
+      actions: [{ icon: "rotateCw", label: "Refresh headlines", run: () => load(true) }],
       show() {
         load(!data);
         clearInterval(timer);

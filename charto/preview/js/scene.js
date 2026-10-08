@@ -228,6 +228,10 @@ const Scene = (() => {
     function tToX(t) {
       const ts = chart.timeScale();
       const ct = env.toChartTime ? env.toChartTime(t) : t;
+      const bars = env.getBars();
+      // Past anchors require actual trading bars. Wall-clock extrapolation
+      // across closed sessions invents the slope; coverage loads these bars.
+      if (!Number.isFinite(ct) || !bars.length || ct < bars[0].time) return null;
       const direct = ts.timeToCoordinate(ct);
       if (direct !== null) return direct;
       const l = tToLogical(t);

@@ -284,6 +284,13 @@
     });
 
     return {
+      actions: [
+        { icon: "rotateCw", label: "Refresh financials", run: () => { cache.clear(); return paint(); } },
+        { icon: "sheet", label: "Open statement in a sheet", run: async () => {
+          if (tab === "overview") { tab = "quarters"; ctx.setCfg({ tab }); await paint(); }
+          $('[data-fn="sheet"]').click();
+        } },
+      ],
       show: paint,
       config(cfg, patch) { if (Object.keys(patch).some((k) => k !== "title")) paint(); },
       ask: () => ({ sub: `${sym()} · financials`, context: `The financials widget is open on ${sym()}.`,

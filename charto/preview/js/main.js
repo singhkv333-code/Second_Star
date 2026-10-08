@@ -409,12 +409,22 @@
   /** Prepend one older page; returns how many bars arrived. Shared by the
    *  scroll handler and the scene coverage loader so the two can never
    *  disagree about paging state. */
-  async function loadOlderPage() {
-    if (state.loadingOlder || !state.hasMore || !state.bars.length) return 0;
+  let olderPageTask = null;
+  function loadOlderPage() {
+    // Coverage and scroll paging must await the SAME in-flight page. Returning
+    // zero to the coverage caller made it abandon anchors outside the window.
+    if (olderPageTask) return olderPageTask;
+    olderPageTask = fetchOlderPage().finally(() => { olderPageTask = null; });
+    return olderPageTask;
+  }
+  async function fetchOlderPage() {
+    if (!state.hasMore || !state.bars.length) return 0;
     state.loadingOlder = true;
     try {
       const earliestRaw = state.bars[0].time - IST;
-      const { bars: older, hasMore } = await fetchBars(state.interval, earliestRaw, PAGE[state.interval]);
+      const interval = state.interval;
+      const { bars: older, hasMore } = await fetchBars(interval, earliestRaw, PAGE[interval]);
+      if (state.interval !== interval) return 0;
       if (!older.length) { state.hasMore = false; return 0; }
       const keep = chart.timeScale().getVisibleLogicalRange();
       state.bars = older.concat(state.bars);
@@ -438,9 +448,12 @@
   function sceneEarliest() {
     let t = Infinity;
     for (const a of scene.state.items) {
-      const anchors = [].concat(a.pts || [], [a.p1, a.p2, a.a, a.b].filter(Boolean));
+      const anchors = [].concat(a.pts || [], [a.p1, a.p2, a.a, a.b, a.entry, a.exit].filter(Boolean),
+        (a.spans || []).flatMap((s) => [{ t: s[0] }, { t: s[1] }]));
       for (const p of anchors) if (p && p.t) t = Math.min(t, p.t);
-      if (a.t) t = Math.min(t, a.t);
+      for (const value of [a.t, a.t0, a.t1, a.t2]) {
+        if (Number.isFinite(value) && value > 0) t = Math.min(t, value);
+      }
     }
     return t;
   }
@@ -450,12 +463,19 @@
    *  and shapes projected outside the data are only approximately placed.
    *  Page in real bars until the drawings are covered (bounded, so a
    *  years-old anchor cannot trigger a fetch storm). */
-  async function coverScene() {
+  let sceneCoverageTask = null;
+  function coverScene() {
+    if (!sceneCoverageTask) {
+      sceneCoverageTask = loadSceneCoverage().finally(() => { sceneCoverageTask = null; });
+    }
+    return sceneCoverageTask;
+  }
+  async function loadSceneCoverage() {
     const need = sceneEarliest();
     if (!isFinite(need)) return;
     let guard = 0;
     while (state.hasMore && state.bars.length
-           && state.bars[0].time - IST > need && guard++ < 6) {
+           && state.bars[0].time - IST > Math.min(need, sceneEarliest()) && guard++ < 6) {
       if (!await loadOlderPage()) break;
     }
     scene.requestUpdate();
@@ -2279,6 +2299,9 @@
       // already on the chart, on the .chips-btn that syncChipsBtn drives.
       clear.style.display = n ? "" : "none";
       Store.set("scene", scene.state.items);
+      // Fresh chat drawings need the same history coverage as restored ones.
+      // Defer until the scene apply has finished batching its annotations.
+      queueMicrotask(() => coverScene());
       document.dispatchEvent(new CustomEvent("charto:scene-changed"));
       ind.rescalePanes();     // marks feed pane autoscale — recompute now
       indexChatRefs();        // new annotations → new mentions to link

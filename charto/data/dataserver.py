@@ -1320,8 +1320,11 @@ def _trendlines(rows: list[tuple], window: int = 5, want: int = 6,
                     continue
                 # does it still matter? project to the last bar
                 now = at(n - 1)
-                broken = (closes[-1] > now + tol) if role == "resistance" \
-                    else (closes[-1] < now - tol)
+                # A fitted line does not become intact again just because
+                # price returned to its original side after breaking it.
+                broken = any((closes[k] > at(k) + tol) if up
+                             else (closes[k] < at(k) - tol)
+                             for k in range(i2 + 1, n))
                 cands.append({
                     "role": role, "i1": i1, "p1": round(p1, 2),
                     "i2": i2, "p2": round(p2, 2),
@@ -1333,7 +1336,7 @@ def _trendlines(rows: list[tuple], window: int = 5, want: int = 6,
                     "last_touch_bars_ago": n - 1 - max(touches),
                 })
         # keep the best few per side, and drop near-duplicates of one another
-        cands.sort(key=lambda c: (-c["touches"], -c["span_bars"]))
+        cands.sort(key=lambda c: (c["status"] != "intact", -c["touches"], -c["span_bars"]))
         kept: list[dict] = []
         for c in cands:
             if any(abs(c["projects_to"] - k["projects_to"]) <= tol
@@ -1798,7 +1801,7 @@ def tool_get_trendlines(interval: str = "1d", lookback_bars: int | None = None,
         picked = [x for x in tl if x["id"].upper() in wanted]
         missing = sorted(wanted - {x["id"].upper() for x in picked})
     elif draw and pool:
-        picked = sorted(pool, key=lambda c: (-c["touches"], -c["span_bars"])
+        picked = sorted(pool, key=lambda c: (c["status"] != "intact", -c["touches"], -c["span_bars"])
                         )[:max(1, min(int(max_draw or 2), 4))]
     if picked and mode == "replace":
         _scene_add({"kind": "clear", "scope": "segment", "owner": "get_trendlines"})

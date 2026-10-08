@@ -7976,6 +7976,12 @@ body:not(.ct-docked) .chart-tools .ct-gap { display: none; }
   .dk-tab:not(.on) .x { display: none; }
 }
 @container (max-width: 250px) { .dk-tab:not(.on) .t { display: none; } }
+@container (max-width: 480px) {
+  .dk-act[data-act="widget-action"][data-action-index="2"],
+  .dk-act[data-act="widget-action"][data-action-index="3"],
+  .dk-act[data-act="ask"] { display: none; }
+}
+@container (max-width: 320px) { .dk-act[data-act="widget-action"] { display: none; } }
 body.dk-compact .dk-tab:not(.on) .t, body.dk-compact .dk-tab .s,
 body.dk-compact .dk-tab:not(.on) .x { display: none; }
 body.dk-compact .dk-tab:not(.on) { padding: 0 11px; }
@@ -8199,31 +8205,26 @@ body.dk-row-resize, body.dk-row-resize * { cursor: row-resize !important; }
 .ds-x:hover { background: color-mix(in srgb, var(--foreground) 8%, transparent); }
 .ds-x svg.icon { width: 15px; height: 15px; }
 .ds-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 14px 12px; scrollbar-width: thin; }
-.ds-feature-stack { display: grid; gap: 7px; margin: 4px 0 14px; }
-.ds-row.ds-feature {
-  position: relative; min-height: 54px; padding: 9px 10px 9px 11px; border-radius: 11px; overflow: hidden;
-  background: color-mix(in srgb, var(--surface-plain) 82%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 9%, transparent);
-  transition: background var(--dur), box-shadow var(--dur), transform var(--dur-fast);
-}
-.ds-row.ds-feature::before {
-  content: ""; position: absolute; inset: 9px auto 9px 0; width: 2px; border-radius: 2px;
-  background: var(--ds-accent); opacity: .72;
-}
-.ds-row.ds-feature:hover {
-  background: color-mix(in srgb, var(--ds-accent) 7%, var(--surface-plain));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ds-accent) 24%, transparent);
-}
-.ds-row.ds-feature:active { transform: scale(.995); }
-.ds-l-main { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.ds-feature-ic {
-  width: 25px; height: 25px; flex: none; display: inline-flex; align-items: center; justify-content: center;
-  border-radius: 7px; color: var(--ds-accent); background: color-mix(in srgb, var(--ds-accent) 11%, transparent);
-}
-.ds-feature-ic svg.icon { width: 13px; height: 13px; }
-.ds-feature .ds-seg { margin-top: 1px; }
-.ds-feature .ds-select { background: color-mix(in srgb, var(--surface-plain) 88%, transparent); }
 .ds-link-status { margin: 6px 0 0 2px; font-size: var(--text-xs); color: var(--muted-foreground); }
+.ds-row > .ds-l { min-width: 0; }
+.ds-row > .ds-seg { flex: 0 1 auto; min-width: 0; max-width: 100%; }
+.ds-seg button { min-width: 0; }
+.ds-body { overflow-x: hidden; }
+/* Watchlist actions share the dock toolbar; the list keeps its name picker. */
+.dk-w-watch [data-wl="add"].side-act,
+.dk-w-watch [data-wl="cols"].side-act { display: none; }
+.wl-heatmap .side-body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; gap: 5px; padding: 8px; }
+.wl-heatmap .wl-head { display: none; }
+.wl-heatmap .wl-sec { grid-column: 1 / -1; }
+.wl-heatmap .wl-row {
+  position: relative; display: flex; flex-direction: column; align-items: stretch; gap: 4px;
+  min-width: 0; height: auto; padding: 10px; border-radius: var(--radius-xs); background: var(--wl-heat);
+}
+.wl-heatmap .wl-row:hover { box-shadow: inset 0 0 0 1px var(--muted-foreground); }
+.wl-heatmap .wl-row > span:not(.wl-name):not(.wl-last):not(.wl-pct):not(.wl-acts) { display: none; }
+.wl-heatmap .wl-last, .wl-heatmap .wl-pct { text-align: left; }
+.wl-heatmap .wl-row:hover .wl-last, .wl-heatmap .wl-row:hover .wl-pct { display: block; }
+.wl-heatmap .wl-acts { position: absolute; right: 6px; top: 6px; }
 .ds-sec { margin: 16px 0 6px; font-size: var(--text-2xs); font-weight: var(--weight-semi); letter-spacing: .07em; text-transform: uppercase; opacity: .5; }
 .ds-sec:first-child { margin-top: 4px; }
 .ds-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 34px; padding: 3px 0; cursor: default; }
@@ -11944,19 +11945,19 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/geometry.js?v=25"></script>
   <script src="./js/tools.js?v=23"></script>
   <script src="./js/drawings.js?v=43"></script>
-  <script src="./js/scene.js?v=51"></script>
+  <script src="./js/scene.js?v=52"></script>
   <script src="./js/panes.js?v=25"></script>
   <!-- The pricing / upgrade overlay. Before main.js so window.Pricing exists
        when the account menu's Upgrade row is wired. -->
   <script src="./js/pricing.js?v=1"></script>
-  <script src="./js/main.js?v=166"></script>
+  <script src="./js/main.js?v=167"></script>
   <!-- the floating drawing edit toolbar — listens for charto:draw-select and
        drives js/drawings.js's setStyle/clone/lock/remove. After main.js so
        __charto and ChartSettings exist by the first selection. -->
   <script src="./js/drawedit.js?v=7"></script>
   <script src="./js/wkit.js?v=1"></script>
   <script src="./js/hub-art.js?v=4"></script>
-  <script src="./js/dock.js?v=23"></script>
+  <script src="./js/dock.js?v=24"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=12"></script>
@@ -11981,15 +11982,15 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/alerts.js?v=20"></script>
   <!-- after chat.js: the widget panels share the phone's one panel slot with
        the conversation, and close it by clicking its real toggle -->
-  <script src="./js/panels.js?v=21"></script>
+  <script src="./js/panels.js?v=22"></script>
   <script src="./js/screener.js?v=7"></script>
-  <script src="./js/depth.js?v=6"></script>
+  <script src="./js/depth.js?v=7"></script>
   <script src="./js/notes.js?v=6"></script>
   <script src="./js/w-sheet.js?v=7"></script>
-  <script src="./js/w-chart.js?v=4"></script>
-  <script src="./js/w-fin.js?v=6"></script>
-  <script src="./js/w-news.js?v=3"></script>
-  <script src="./js/w-portfolio.js?v=3"></script>
+  <script src="./js/w-chart.js?v=5"></script>
+  <script src="./js/w-fin.js?v=7"></script>
+  <script src="./js/w-news.js?v=4"></script>
+  <script src="./js/w-portfolio.js?v=4"></script>
   <script src="./js/w-strategy.js?v=2"></script>
   <script src="./js/w-browser.js?v=9"></script>
   <script src="./js/w-code.js?v=6"></script>

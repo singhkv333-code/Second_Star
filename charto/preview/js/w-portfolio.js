@@ -236,6 +236,7 @@
     if (typeof Auth !== "undefined" && Auth.onChange) Auth.onChange(() => load(true));
 
     return {
+      actions: [{ icon: "rotateCw", label: "Refresh holdings", run: () => load(true) }],
       show() {
         load(!rows);
         clearInterval(timer);

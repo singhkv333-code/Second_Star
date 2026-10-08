@@ -195,6 +195,7 @@
     });
 
     return {
+      actions: [{ icon: "rotateCw", label: "Refresh order book", run: poll }],
       show: start, hide: stop,
       config(cfg, patch) {
         if ("pin" in patch || "symbol" in patch || "link" in patch) { last = null; prev = new Map(); paint(); }

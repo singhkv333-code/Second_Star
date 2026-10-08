@@ -346,6 +346,10 @@ const Panels = (() => {
   function paintQuotes(panel) {
     for (const row of panel.querySelectorAll(".wl-row[data-sym]")) {
       const sym = row.dataset.sym, q = quotes.get(sym) || {};
+      const change = q.change_pct == null ? NaN : Number(q.change_pct);
+      row.style.setProperty("--wl-heat", Number.isFinite(change)
+        ? `color-mix(in srgb, var(--${change < 0 ? "down" : "up"}) ${Math.min(28, 5 + Math.abs(change) * 5)}%, var(--surface-plain))`
+        : "var(--surface-plain)");
       const put = (cls, text, dir) => {
         const n = row.querySelector("." + cls);
         if (!n) return;
@@ -389,10 +393,12 @@ const Panels = (() => {
     const secs = plan();
     const cfg = wcfg();
     planKey = keyOf(secs);
-    shownCols = fitCols(panel.clientWidth || 320);
+    shownCols = cfg.view === "heatmap" ? COLS.filter((c) => ["last", "pct"].includes(c.k))
+      : fitCols(panel.clientWidth || 320);
     panel.dataset.colw = String(panel.clientWidth || 0);
     panel.classList.toggle("wl-compact", cfg.density === "compact");
     panel.classList.toggle("wl-two", !!cfg.names);
+    panel.classList.toggle("wl-heatmap", cfg.view === "heatmap");
     // the numeric columns are fixed-width so a hundred rows form straight
     // edges; hiding one has to change the track list, not just the cells
     panel.style.setProperty("--wl-cols", "minmax(0, 1fr)" + shownCols.map((c) => ` ${c.w}px`).join(""));
@@ -907,6 +913,7 @@ const Panels = (() => {
       // a setting changed (or the link group's symbol): the panel redraws
       config(cfg, patch) { if (extra.onConfig) extra.onConfig(cfg, patch); else if (on(id)) extra.render(el(extra.panel), cfg); },
       ask: extra.ask,
+      actions: extra.actions ? extra.actions(ctx) : [],
     }),
     ...extra,
   });
@@ -917,7 +924,8 @@ const Panels = (() => {
     new ResizeObserver(() => {
       const p = el("watchPanel");
       if (!on("watch") || !p.clientWidth) return;
-      if (fitCols(p.clientWidth).length !== shownCols.length) repaint(true);
+      const count = wcfg().view === "heatmap" ? 2 : fitCols(p.clientWidth).length;
+      if (count !== shownCols.length) repaint(true);
     }).observe(el("watchPanel"));
   }
   const colGet = () => COLS.filter((c) => wl.cols[c.k]).map((c) => c.k);
@@ -926,8 +934,22 @@ const Panels = (() => {
   widget("watch", {
     panel: "watchPanel", icon: "star", title: "Watchlist", shortcut: "watchlist",
     hue: "amber", group: "Market", anim: "spin", minW: 290, linkable: true,
+    actions: (ctx) => [
+      { icon: "plus", label: "Add symbol", run: (button) => openPicker(button) },
+      { icon: "alertPlus", label: "Add alert", run: () => Alerts.open({ symbol: ctx.symbol() }) },
+      { icon: "widgets", label: "Watchlist view", run: (button) => ctx.menu(button,
+        [{ id: "table", label: "Table", icon: "list", on: ctx.cfg.view !== "heatmap" },
+         { id: "heatmap", label: "Heatmap", icon: "widgets", on: ctx.cfg.view === "heatmap" }],
+        (view) => ctx.setCfg({ view })) },
+      { icon: "sort", label: "Sort watchlist", run: (button) => ctx.menu(button,
+        [{ id: "manual", label: "As added", icon: "list", on: wl.sort === "manual" },
+         { id: "az", label: "A → Z", icon: "sort", on: wl.sort === "az" },
+         { id: "pct", label: "Change %", icon: "opRise", on: wl.sort === "pct" }],
+        (sort) => { wl.sort = sort; saveWL(); repaint(true); }) },
+    ],
     settings: [
       { section: "Columns" },
+      { key: "view", label: "View", def: "table", options: [{ v: "table", label: "Table" }, { v: "heatmap", label: "Heatmap" }] },
       { key: "cols", label: "Shown", kind: "chips", min: 1, def: ["last", "chg", "pct"], get: colGet, set: colSet,
         hint: "A narrow tile drops the extra ones first",
         options: COLS.map((c) => ({ v: c.k, label: c.k === "range" ? "Day range" : c.k === "prev" ? "Prev close" : c.label })) },

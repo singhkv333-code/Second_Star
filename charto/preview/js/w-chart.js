@@ -178,6 +178,10 @@
       timer = setInterval(() => { if (document.visibilityState === "visible") load(false); }, Number(ctx.cfg.refresh) || POLL_MS);
     };
     return {
+      actions: [
+        { icon: "focus", label: "Fit chart to data", run: () => chart && chart.timeScale().fitContent() },
+        { icon: "rotateCw", label: "Refresh chart", run: () => load(false) },
+      ],
       show() { if (!chart) reload(); poll(); },
       hide() { clearInterval(timer); },
       config(cfg, patch) {
