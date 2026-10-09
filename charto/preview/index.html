@@ -10599,6 +10599,102 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
 /* A saved layout is a quiet thumbnail, not an outlined hover target. */
 .ly-card { border-radius: 6px; }
 .ly-card:hover { border-color: var(--border); background: var(--accent); }
+
+/* ═══ Paywall (js/paywall.js) ══════════════════════════════════════════════
+   The upgrade prompt, the evicted-tab banner, the credits line under the
+   composer, Plan & billing, and the lock markers on the layout and
+   indicator menus. Same ink-on-paper language as pivot-next's billing
+   system (pivot-next/app/billing.css), on this app's own tokens. */
+.pw-scrim {
+  position: fixed; inset: 0; z-index: 9000; display: grid; place-items: center; padding: 16px;
+  background: var(--scrim, rgba(0, 0, 0, .42)); animation: pw-in .14s ease-out;
+}
+@keyframes pw-in { from { opacity: 0; } }
+.pw-modal {
+  position: relative; width: min(460px, 100%); max-height: calc(100dvh - 32px); overflow-y: auto;
+  display: flex; flex-direction: column; gap: 14px; padding: 26px 24px 20px;
+  background: var(--popover); color: var(--foreground); border-radius: 14px;
+  box-shadow: var(--menu-shadow, 0 24px 60px rgba(0, 0, 0, .3)), 0 0 0 1px var(--border);
+}
+.pw-wide { width: min(520px, 100%); }
+.pw-x { position: absolute; top: 10px; right: 10px; width: 32px; height: 32px; display: grid; place-items: center;
+  border: 0; border-radius: 50%; background: transparent; color: var(--muted-foreground); cursor: pointer; }
+.pw-x:hover { background: var(--accent); color: var(--foreground); }
+.pw-kicker { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--faint, var(--muted-foreground)); }
+.pw-title { margin: 0; font-family: "Newsreader", Georgia, serif; font-weight: 400; font-size: 26px; line-height: 1.15; letter-spacing: -.01em; }
+.pw-msg { margin: 0; font-size: 14px; line-height: 1.55; color: var(--muted-foreground); }
+.pw-fine { font-size: 12px; color: var(--faint, var(--muted-foreground)); margin: 0; }
+.pw-meter { display: flex; flex-direction: column; gap: 6px; }
+.pw-meter-head { display: flex; justify-content: space-between; font-size: 13px; font-variant-numeric: tabular-nums; }
+.pw-meter-head span:last-child { color: var(--muted-foreground); }
+.pw-meter-head b { color: var(--foreground); }
+.pw-track { height: 6px; border-radius: 99px; background: var(--muted); overflow: hidden; }
+.pw-fill { height: 100%; border-radius: inherit; background: var(--foreground); }
+.pw-meter.low .pw-fill { background: var(--ann-res); }
+.pw-meter.out .pw-fill { background: var(--down); }
+.pw-opts { list-style: none; margin: 0; padding: 0; font-size: 13.5px; line-height: 1.5; color: var(--muted-foreground); }
+.pw-opts li { padding: 9px 0; border-top: 1px solid var(--border); }
+.pw-opts li:first-child { border-top: 0; }
+.pw-opts b { color: var(--foreground); font-weight: 600; }
+.pw-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.pw-actions .btn { height: 36px; }
+.pw-cta { flex: 1; justify-content: center; }
+.pw-ghost { background: transparent; border-color: transparent; color: var(--muted-foreground); }
+.pw-split { display: grid; grid-template-columns: 1fr 1fr; }
+.pw-split .btn { justify-content: center; }
+.pw-danger { background: var(--down); color: #fff; border-color: transparent; }
+.pw-plan { display: flex; align-items: center; gap: 10px; }
+.pw-badge { display: inline-flex; align-items: center; height: 22px; padding: 0 9px; border-radius: 99px; font-size: 11.5px; font-weight: 600;
+  background: var(--muted); color: var(--muted-foreground); }
+.pw-badge.good { background: var(--up-soft); color: var(--up); }
+.pw-badge.bad { background: var(--down-soft); color: var(--down); }
+.pw-badge.warn { background: color-mix(in srgb, var(--ann-res) 14%, transparent); color: var(--ann-res); }
+.pw-rows { display: flex; flex-direction: column; }
+.pw-kv { display: flex; justify-content: space-between; gap: 16px; padding: 9px 0; border-top: 1px solid var(--border); font-size: 13.5px; }
+.pw-kv:first-child { border-top: 0; }
+.pw-kv span { color: var(--muted-foreground); }
+.pw-kv b { font-weight: 500; text-align: right; font-variant-numeric: tabular-nums; }
+.pw-section { margin-top: 4px; font-size: 13px; font-weight: 600; }
+.pw-note { padding: 10px 12px; border-radius: 10px; font-size: 13px; line-height: 1.5; color: var(--muted-foreground); background: var(--muted); }
+.pw-note b { color: var(--foreground); }
+.pw-note.bad { background: var(--down-soft); }
+.pw-skel { height: 14px; border-radius: 6px; background: var(--muted); animation: pw-pulse 1.2s ease-in-out infinite; }
+.pw-skel + .pw-skel { width: 70%; }
+@keyframes pw-pulse { 50% { opacity: .5; } }
+
+.pw-banner {
+  position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 60;
+  display: flex; align-items: center; gap: 12px; width: min(680px, calc(100% - 24px)); padding: 10px 12px 10px 14px;
+  border-radius: 12px; background: var(--popover); color: var(--foreground);
+  box-shadow: var(--menu-shadow, 0 12px 32px rgba(0, 0, 0, .25)), 0 0 0 1px var(--border);
+}
+.pw-banner-icon { flex: none; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%;
+  background: color-mix(in srgb, var(--ann-res) 16%, transparent); color: var(--ann-res); }
+.pw-banner-body { flex: 1; min-width: 0; font-size: 13px; line-height: 1.45; color: var(--muted-foreground); }
+.pw-banner-body b { display: block; color: var(--foreground); font-weight: 600; }
+.pw-banner-acts { display: flex; gap: 6px; flex: none; }
+@media (max-width: 640px) { .pw-banner { flex-wrap: wrap; } .pw-banner-acts { width: 100%; } .pw-banner-acts .btn { flex: 1; justify-content: center; } }
+
+.pw-credits { margin: 6px 4px 0; text-align: center; font-size: 11.5px; color: var(--faint, var(--muted-foreground)); font-variant-numeric: tabular-nums; }
+.pw-credits.low { color: var(--ann-res); }
+.pw-credits.out { color: var(--down); }
+.pw-link { padding: 0; border: 0; background: none; font: inherit; font-weight: 600; color: var(--foreground);
+  text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+
+.pw-lock { display: inline-flex; align-items: center; gap: 3px; margin-left: auto; padding: 1px 6px; border-radius: 99px;
+  background: var(--muted); color: var(--muted-foreground); font-size: 10.5px; font-weight: 600; }
+.pw-lock svg { width: 10px; height: 10px; }
+.pw-tag { display: inline-block; padding: 0 6px; border-radius: 99px; background: color-mix(in srgb, var(--ann-res) 15%, transparent);
+  color: var(--ann-res); font-size: 10.5px; font-weight: 600; }
+.lay-opt.pw-locked { position: relative; opacity: .45; }
+.lay-opt.pw-locked::after {
+  content: ""; position: absolute; right: 1px; bottom: 1px; width: 9px; height: 9px;
+  background: var(--foreground);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3'%3E%3Crect x='4' y='11' width='16' height='10' rx='2'/%3E%3Cpath d='M8 11V7a4 4 0 0 1 8 0v4'/%3E%3C/svg%3E") center / contain no-repeat;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3'%3E%3Crect x='4' y='11' width='16' height='10' rx='2'/%3E%3Cpath d='M8 11V7a4 4 0 0 1 8 0v4'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.lay-cell.pw-locked { background-image: repeating-linear-gradient(135deg, transparent 0 3px, var(--border) 3px 4px); }
+@media (prefers-reduced-motion: reduce) { .pw-scrim, .pw-skel { animation: none; } }
 </style>
 </head>
 <body>
@@ -11062,7 +11158,8 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        shared set, and a classic script cannot reach a const declared by one
        that has not run yet -->
   <script src="./js/auth.js?v=6"></script>
-  <script src="./js/plan.js?v=4"></script>
+  <script src="./js/plan.js?v=5"></script>
+  <script src="./js/paywall.js?v=1"></script>
   <script src="./js/indicators.js?v=37"></script>
   <!-- before both legends: each asks it whether the series runs behind a row
        or a chip, which is what puts the plate there -->
@@ -11084,7 +11181,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/drawings.js?v=43"></script>
   <script src="./js/scene.js?v=51"></script>
   <script src="./js/panes.js?v=30"></script>
-  <script src="./js/main.js?v=169"></script>
+  <script src="./js/main.js?v=170"></script>
   <!-- the floating drawing edit toolbar — listens for charto:draw-select and
        drives js/drawings.js's setStyle/clone/lock/remove. After main.js so
        __charto and ChartSettings exist by the first selection. -->
@@ -11105,7 +11202,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        and grouping, and nothing else — a renderer with no state of its own -->
   <script src="./js/cards.js?v=67"></script>
   <script src="./js/layers-panel.js?v=11"></script>
-  <script src="./js/chat.js?v=177"></script>
+  <script src="./js/chat.js?v=178"></script>
   <script src="./js/codeview.js?v=5"></script>
   <script src="./js/journal.js?v=7"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
@@ -11115,7 +11212,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/alerts.js?v=20"></script>
   <!-- after chat.js: the widget panels share the phone's one panel slot with
        the conversation, and close it by clicking its real toggle -->
-  <script src="./js/panels.js?v=19"></script>
+  <script src="./js/panels.js?v=20"></script>
   <script src="./js/screener.js?v=5"></script>
   <script src="./js/depth.js?v=4"></script>
   <script src="./js/notes.js?v=5"></script>

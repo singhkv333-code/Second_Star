@@ -726,9 +726,16 @@ const Panels = (() => {
     // A rule the engine paused because an address stopped resolving carries
     // the reason in its note. That belongs on the row: a paused alert with no
     // stated reason reads as one the user paused.
-    const why = /\[paused: /.test(a.note || "")
-      ? `<div class="al-meta warn">${esc((a.note.match(/\[paused: ([^\]]+)\]/)
-                                          || [, ""])[1])}</div>` : "";
+    const reason = /\[paused: /.test(a.note || "")
+      ? (a.note.match(/\[paused: ([^\]]+)\]/) || [, ""])[1] : "";
+    // Paused by a plan downgrade is its own case: it is not broken and the
+    // user did not pause it, so it says which, and how to get it back.
+    const why = !reason || a.state !== "paused" ? ""
+      : reason === "over plan limit"
+        ? `<div class="al-meta warn"><span class="pw-tag">Over plan limit</span> ` +
+          `Saved, not armed. Re-arm it when a slot frees up, or ` +
+          `<button type="button" class="pw-link" data-al="plans">see plans</button>.</div>`
+        : `<div class="al-meta warn">${esc(reason)}</div>`;
     return `<div class="al-row" data-state="${esc(a.state)}" ` +
       `data-id="${a.id}" data-sym="${esc(a.symbol)}">` +
       `<span class="al-dot"></span>` +
@@ -1106,6 +1113,11 @@ const Panels = (() => {
       const row = btn.closest(".al-row");
       const id = row ? Number(row.dataset.id) : 0;
       if (what === "new") return Alerts.open({ symbol: currentSymbol() });
+      if (what === "plans") {
+        e.stopPropagation();
+        if (typeof Paywall !== "undefined") Paywall.openBilling();
+        return;
+      }
       if (what === "signin") {
         e.stopPropagation();
         const b = el("authBtn") || el("signInBtn");

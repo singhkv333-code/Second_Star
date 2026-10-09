@@ -1107,6 +1107,9 @@
           // the streamed text is the source of truth; `done.text` is the same string
           done = ev;
           done.text = done.text || text;
+          // Every answer reports the credits left; the composer shows them
+          // (js/paywall.js). Absent when the turn is unmetered.
+          if (ev.credits) document.dispatchEvent(new CustomEvent("charto:credits", { detail: ev.credits }));
           settled = true;
           settle(done);          // the turn is answered; the tail is follow-ups
         } else if (ev.type === "suggest_delta") {
