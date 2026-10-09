@@ -6,8 +6,8 @@
  * close button and Esc to dismiss. The layout follows Typeform's pricing page:
  * a large serif headline, the billing toggle above the cards, three centred
  * plan cards (name, line, serif price, saving, CTA, then a hairline-ruled
- * checklist), a full "Compare all plans" matrix with a sticky price header,
- * and an FAQ accordion. Every colour, radius and easing comes from the app's
+ * checklist) and a full "Compare all plans" matrix with a sticky price
+ * header. Every colour, radius and easing comes from the app's
  * tokens (globals.css), so it reads as a room in this product.
  *
  * ONE source of truth: MATRIX holds every limit. The cards reference its rows
@@ -17,7 +17,7 @@
 import * as React from "react";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, ChevronDown, Minus, X } from "lucide-react";
+import { Check, Minus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type PlanId = "free" | "pro" | "proplus";
@@ -130,33 +130,6 @@ const PLANS: Plan[] = [
   },
 ];
 
-const FAQ: { q: string; a: string }[] = [
-  {
-    q: "What's included in the free plan?",
-    a: "150 AI credits a month, 10 AI chart summaries, 5 indicators, 20 price and 20 technical alerts, multi-condition alerts, unlimited watchlists and 5 saved screens. It is free forever.",
-  },
-  {
-    q: "What is the difference between Pro and Pro+?",
-    a: "Both include unlimited AI chart summaries, watchlist alerts, custom time frames and an ad-free experience. Pro+ raises every ceiling: 500 AI credits, every indicator, 500 fundamental alerts, 1,000 technical and price alerts, 50 parallel charts, and alerts that never expire.",
-  },
-  {
-    q: "Can I upgrade, downgrade or cancel?",
-    a: "Yes. You can change or cancel your plan at any time.",
-  },
-  {
-    q: "Do I save by paying yearly?",
-    a: "Yes. Yearly billing is about 10% cheaper: ₹449 a month for Pro (₹600 saved over a year) and ₹899 a month for Pro+ (₹1,200 saved over a year).",
-  },
-  {
-    q: "Are prices inclusive of taxes?",
-    a: "Yes. All prices are in INR and include applicable taxes.",
-  },
-  {
-    q: "Does Pivot place real trades?",
-    a: "No. Pivot builds, backtests and simulates strategies in a paper book. It does not place live broker orders, and nothing on Pivot is financial advice.",
-  },
-];
-
 const inr = (v: number): string => "₹" + v.toLocaleString("en-IN");
 
 function BillingToggle({
@@ -214,7 +187,6 @@ function CellValue({ v }: { v: Cell }): React.ReactElement {
 export function PricingPage(): React.ReactElement {
   const router = useRouter();
   const [annual, setAnnual] = useState(true);
-  const [openFaq, setOpenFaq] = useState<number | null>(0);
   const compareRef = React.useRef<HTMLElement>(null);
 
   // Close the overlay → go back to wherever the user opened it from, falling
@@ -254,16 +226,11 @@ export function PricingPage(): React.ReactElement {
       </button>
       <div className="pricing-overlay-scroll">
         <div className="pricing-page">
-          <h1 className="pricing-title">Chart it, test it, run it</h1>
+          <h1 className="pricing-title">Choose the plan that fits your workflow</h1>
 
-          {/* the bar above the cards: billing on the left, the boundary on the right */}
+          {/* the bar above the cards: billing on the left */}
           <div className="pricing-bar">
             <BillingToggle annual={annual} onChange={setAnnual} />
-            <div className="pricing-strip">
-              <span className="pricing-strip-name">Paper trading</span>
-              <span className="pricing-strip-sep" aria-hidden="true" />
-              <span className="pricing-strip-text">Every plan simulates. Pivot never places live orders.</span>
-            </div>
           </div>
 
           {/* the three plan cards */}
@@ -364,30 +331,6 @@ export function PricingPage(): React.ReactElement {
                   ))}
                 </div>
               ))}
-            </div>
-          </section>
-
-          {/* ── FAQ ───────────────────────────────────────────── */}
-          <section className="pricing-faq" aria-labelledby="pricing-faq-title">
-            <h2 id="pricing-faq-title" className="pricing-h2">Frequently asked questions</h2>
-            <div className="pricing-faq-list">
-              {FAQ.map((item, i) => {
-                const open = openFaq === i;
-                return (
-                  <div key={item.q} className={cn("pricing-faq-item", open && "pricing-faq-item--open")}>
-                    <button
-                      type="button"
-                      className="pricing-faq-q"
-                      aria-expanded={open}
-                      onClick={() => setOpenFaq(open ? null : i)}
-                    >
-                      <span>{item.q}</span>
-                      <ChevronDown size={20} strokeWidth={2} className="pricing-faq-chev" />
-                    </button>
-                    {open ? <p className="pricing-faq-a">{item.a}</p> : null}
-                  </div>
-                );
-              })}
             </div>
           </section>
 
