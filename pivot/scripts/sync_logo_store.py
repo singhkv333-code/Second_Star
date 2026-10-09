@@ -2,6 +2,8 @@
 
     PYTHONPATH=. .venv/bin/python scripts/sync_logo_store.py [--only SYM,SYM] [--refresh]
     PYTHONPATH=. .venv/bin/python scripts/sync_logo_store.py --from-master /srv/pivot-data/charto_bars.db
+    PYTHONPATH=. .venv/bin/python scripts/sync_logo_store.py --nse-csv EQUITY_L.csv --nse-csv SME_EQUITY_L.csv --processes 8
+    PYTHONPATH=. .venv/bin/python scripts/sync_logo_store.py --from-master DB --link-only
 
 Sources, in the resolver's order: SharePerks (by ISIN), curated overrides, the
 company's own website via logo.dev (fallback=404, so no generated letter
@@ -20,6 +22,8 @@ learned by probing an ISIN that cannot exist, and never stored.
 from __future__ import annotations
 
 import argparse
+import csv
+import re
 import hashlib
 import sqlite3
 import ssl
@@ -27,7 +31,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -40,6 +44,7 @@ from backend.market import company_logos as cl, logo_store  # noqa: E402
 
 _CTX = ssl.create_default_context(cafile=certifi.where())
 _MAX_BYTES = 512 * 1024
+_ISIN_IN_URL = re.compile(r"/logo/([A-Z]{2}[A-Z0-9]{9}\d)/")
 
 
 def universe(db) -> list[str]:
@@ -108,24 +113,65 @@ def master_equities(path: str) -> dict[str, str]:
 
 
 def link_to_chart(path: str, ids: list[str]) -> int:
-    """Point charto's logo map at our stored copy for each id. A row already
-    in company_profile wins the chart's map, so only the rest are written."""
+    """Point charto's logo map at our stored copy for each master id: by id,
+    else by ISIN (read back from the stored SharePerks URL), so a company's
+    NSE and BSE listings share one image. A row already in company_profile
+    wins the chart's map, so only the rest are written."""
+    master = master_equities(path)
     with SessionLocal() as db:
-        ver = {s: (sha, tile) for s, sha, tile in db.execute(text(
-            "SELECT symbol, left(sha, 10), tile FROM company_logo_images "
-            "WHERE symbol = ANY(:s)"), {"s": ids}).fetchall()}
+        rows = db.execute(text(
+            "SELECT symbol, left(sha, 10), tile, source_url FROM company_logo_images")).fetchall()
+    ver = {s: (v, t) for s, v, t, _u in rows}
+    by_isin = {}
+    for s, _v, _t, u in rows:
+        m = _ISIN_IN_URL.search(u or "")
+        if m:
+            by_isin.setdefault(m.group(1), s)
     con = sqlite3.connect(path, timeout=30)
     try:
         profiled = {s for (s,) in con.execute(
             "SELECT symbol FROM company_profile WHERE logo_url<>''")}
-        rows = [(s, logo_store.PUBLIC_PATH.format(symbol=s, ver=v, tile="&tile=1" if t else ""),
-                 "equity", "store:shareperks")
-                for s, (v, t) in ver.items() if s not in profiled]
-        con.executemany("INSERT OR REPLACE INTO instrument_logo VALUES (?,?,?,?)", rows)
+        out = []
+        for i in ids:
+            src = i if i in ver else by_isin.get(master.get(i, ""))
+            if not src or i in profiled:
+                continue
+            v, t = ver[src]
+            out.append((i, logo_store.PUBLIC_PATH.format(symbol=src, ver=v, tile="&tile=1" if t else ""),
+                        "equity", "store:shareperks"))
+        con.executemany("INSERT OR REPLACE INTO instrument_logo VALUES (?,?,?,?)", out)
         con.commit()
     finally:
         con.close()
-    return len(rows)
+    return len(out)
+
+
+def listed_isins(nse_csvs: list[str]) -> dict[str, str]:
+    """Store id -> ISIN for every listed equity we can name without the
+    charto master: NSE's own lists (main board + SME) by symbol, then the
+    BSE-only companies in company_identity as BSE:<scrip id>. Each ISIN is
+    taken once — a dual-listed company is fetched under its NSE symbol."""
+    out: dict[str, str] = {}
+    for path in nse_csvs:
+        with open(path, newline="") as f:
+            for r in csv.DictReader(f):
+                r = {k.strip().upper(): (v or "").strip() for k, v in r.items()}
+                if r.get("SYMBOL") and r.get("ISIN NUMBER"):
+                    out[r["SYMBOL"].upper()] = r["ISIN NUMBER"]
+    seen = set(out.values())
+    with SessionLocal() as db:
+        for sym, isin in db.execute(text(
+                "SELECT upper(verified_symbol), isin FROM company_identity "
+                "WHERE verified_exchange='BSE' AND isin<>'' AND verified_symbol<>''")):
+            if isin not in seen:
+                out[f"BSE:{sym}"] = isin
+                seen.add(isin)
+    return out
+
+
+def _fetch_one(item: tuple[str, str]) -> tuple[str, str, tuple[bytes, str] | None]:
+    sym, url = item
+    return sym, url, fetch(url)
 
 
 def main() -> None:
@@ -134,9 +180,20 @@ def main() -> None:
     ap.add_argument("--refresh", action="store_true")
     ap.add_argument("--workers", type=int, default=12)
     ap.add_argument("--from-master", default="", help="charto_bars.db holding instrument_master")
+    ap.add_argument("--nse-csv", action="append", default=[],
+                    help="NSE EQUITY_L / SME_EQUITY_L csv; fetch by ISIN without the master")
+    ap.add_argument("--link-only", action="store_true",
+                    help="with --from-master: only link stored logos into the chart's map")
+    ap.add_argument("--processes", type=int, default=0,
+                    help="fetch in this many processes instead of threads")
     args = ap.parse_args()
 
-    master = master_equities(args.from_master) if args.from_master else {}
+    if args.link_only:
+        ids = sorted(master_equities(args.from_master))
+        print(f"linked into the chart's logo map: {link_to_chart(args.from_master, ids)}", flush=True)
+        return
+    master = master_equities(args.from_master) if args.from_master else (
+        listed_isins(args.nse_csv) if args.nse_csv else {})
     with SessionLocal() as db:
         # Only when missing: a least-privilege role (the clean host's) may
         # write rows but not issue DDL, even an IF NOT EXISTS one.
@@ -177,9 +234,11 @@ def main() -> None:
             db.commit()
         batch = []
 
-    with ThreadPoolExecutor(args.workers) as ex:
+    pool = ProcessPoolExecutor(args.processes) if args.processes else ThreadPoolExecutor(args.workers)
+    with pool as ex:
         items = list(src.items())
-        for (sym, (url, tile)), got in zip(items, ex.map(lambda kv: fetch(kv[1][0]), items)):
+        work = [(sym, url) for sym, (url, _t) in items]
+        for (sym, (url, tile)), (_s, _u, got) in zip(items, ex.map(_fetch_one, work, chunksize=8)):
             done += 1
             if got and hashlib.sha256(got[0]).hexdigest() == placeholder:
                 got = None          # SharePerks' default mark, not this company's
@@ -195,7 +254,7 @@ def main() -> None:
                 print(f"  {done}/{len(items)} fetched, {stored} stored, {time.time() - t0:.0f}s", flush=True)
     flush()
     print(f"done: {stored} stored of {len(src)} sources in {time.time() - t0:.0f}s", flush=True)
-    if master:
+    if args.from_master:
         print(f"linked into the chart's logo map: {link_to_chart(args.from_master, syms)}", flush=True)
 
 
