@@ -229,10 +229,6 @@ export function PricingPage(): React.ReactElement {
           <header className="pricing-hero">
             <span className="pricing-eyebrow">Plans &amp; pricing</span>
             <h1 className="pricing-title">Choose the plan that fits your workflow</h1>
-            <p className="pricing-sub">
-              Start free and upgrade when you need more alerts, AI and room on the chart. This is
-              plan information, not financial advice.
-            </p>
           </header>
 
           {/* the bar above the cards: billing on the left */}

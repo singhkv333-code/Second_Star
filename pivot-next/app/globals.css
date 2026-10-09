@@ -2427,27 +2427,20 @@ body:has(.app-shell-root) {
 }
 
 /* ── hero ─────────────────────────────────────────────────── */
-.pricing-hero { text-align: center; max-width: 640px; margin: 0 auto 48px; }
+.pricing-hero { text-align: center; margin: 0 auto 48px; }
 .pricing-eyebrow {
   display: inline-block;
   font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
   text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 14px;
 }
-.pricing-title {
-  margin: 0 0 12px;
-  font-size: clamp(24px, 3.4vw, 34px); line-height: 1.12;
-  font-weight: 700; letter-spacing: -0.01em; color: var(--text-primary);
-}
-.pricing-sub {
-  margin: 0 auto; max-width: 500px;
-  font-size: 14px; line-height: 1.6; color: var(--text-secondary);
-}
-.pricing-h2 {
-  margin: 0 0 48px; text-align: center;
+/* the page title wears the same type as the section heads (.pricing-h2) */
+.pricing-title, .pricing-h2 {
+  margin: 0; text-align: center;
   font-family: var(--font-serif); font-weight: 400;
   font-size: clamp(34px, 4.6vw, 60px); line-height: 1.05;
   letter-spacing: -0.02em; color: var(--text-primary);
 }
+.pricing-h2 { margin-bottom: 48px; }
 
 /* ── the bar above the cards ──────────────────────────────── */
 .pricing-bar {
