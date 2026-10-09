@@ -7334,6 +7334,7 @@ body.two-columns .readout .row { display: none; }
    of a box that is no longer there. */
 .al-condrow > label { align-self: start; padding-top: 7px; }
 .al-stack { display: flex; flex-direction: column; gap: 6px; min-width: 0; width: 100%; }
+.al-email-note { color: var(--muted-foreground); font-size: var(--text-sm); overflow-wrap: anywhere; }
 .al-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .al-line .al-combo, .al-line .dlg-select, .al-line .select-btn { flex: 1 1 auto; }
 .dlg-row > .dlg-input.wide { width: 100%; }
@@ -7879,22 +7880,22 @@ svg.icon.op {
 .dk-grip:hover { opacity: 1 !important; background: var(--hover-fill); }
 .dk-grip:active { cursor: grabbing; }
 .dk-tabs {
-  position: relative; flex: 1; min-width: 0; display: flex; align-items: stretch;
+  position: relative; flex: 1; min-width: 0; display: flex; align-items: center; gap: 2px;
   height: 100%; overflow-x: auto; scrollbar-width: none;
 }
 .dk-tabs::-webkit-scrollbar { display: none; }
 .dk-tab {
   position: relative; flex: 0 1 auto; min-width: 44px; display: inline-flex; align-items: center; gap: 7px;
-  height: 100%; padding: 0 10px; border: 0; background: transparent; cursor: pointer;
+  height: 28px; padding: 0 10px; border: 0; border-radius: var(--radius-sm); background: transparent; cursor: pointer;
   color: color-mix(in srgb, var(--foreground) 62%, transparent);
   font: inherit; font-size: var(--text-base); font-weight: var(--weight-medium);
   white-space: nowrap; touch-action: none;
-  transition: color var(--dur) var(--ease-quartr);
+  transition: color var(--dur) var(--ease-quartr), background var(--dur) var(--ease-quartr);
 }
 .dk-tab .t { overflow: hidden; text-overflow: ellipsis; }
 .dk-tab svg.icon { flex: none; width: 15px; height: 15px; }
-.dk-tab:hover { color: var(--foreground); }
-.dk-tab.on { color: var(--foreground); font-weight: var(--weight-semi); }
+.dk-tab:hover { color: var(--foreground); background: var(--hover-fill); }
+.dk-tab.on { color: var(--foreground); font-weight: var(--weight-semi); background: var(--hover-fill); }
 .dk-tab .s {
   font-weight: var(--weight-medium); color: var(--foreground); opacity: .6;
   max-width: 120px; overflow: hidden; text-overflow: ellipsis;
@@ -7912,9 +7913,7 @@ svg.icon.op {
 .dk-tab.dk-src { opacity: .35; }
 :root[data-nav="kbd"] .dk-tab:focus-visible { outline: 2px solid var(--ring); outline-offset: -4px; border-radius: 6px; }
 .dk-ink {
-  position: absolute; left: 0; bottom: 0; height: 2px; width: 0;
-  border-radius: 2px 2px 0 0; background: var(--foreground); pointer-events: none;
-  transition: transform var(--dur-slow) var(--ease-quartr), width var(--dur-slow) var(--ease-quartr);
+  display: none;
 }
 .dk-acts { flex: none; display: flex; align-items: center; gap: 1px; }
 /* the chart's controls, carried in its tile's tab bar (dock.js syncChartTools) */
@@ -11912,10 +11911,10 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it
        uses. Everything it needs from main.js (SYMBOL) and panels.js
        (openWidget) is read inside handlers, so those may come later. -->
-  <script src="./js/alerts.js?v=20"></script>
+  <script src="./js/alerts.js?v=21"></script>
   <!-- after chat.js: the widget panels share the phone's one panel slot with
        the conversation, and close it by clicking its real toggle -->
-  <script src="./js/panels.js?v=22"></script>
+  <script src="./js/panels.js?v=23"></script>
   <script src="./js/screener.js?v=7"></script>
   <script src="./js/depth.js?v=7"></script>
   <script src="./js/notes.js?v=6"></script>

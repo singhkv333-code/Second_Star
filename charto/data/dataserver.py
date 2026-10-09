@@ -409,24 +409,35 @@ def _symbols_with_bars() -> set[str]:
     on every page load. It was survivable at 118M rows locally and is not at
     413M, which is exactly the kind of thing only deploying finds.
 
-    Ask a small table instead: sync_state carries one row per symbol (0.00s),
-    bars_1d GROUP BY is 0.06s over 1.1M rows. The scan stays as a last resort
-    so a store with neither table still answers, slowly, rather than failing.
+    Union the small master, sync-state and daily inventories, then confirm
+    minute coverage with indexed seeks. A partial sync inventory must never
+    hide the remaining imported universe; daily-only names aren't advertised.
     """
     global _bar_symbols_cache
     now = time.monotonic()
     if _bar_symbols_cache and now - _bar_symbols_cache[0] < _BAR_SYMBOLS_TTL:
         return _bar_symbols_cache[1]
-    out: set[str] = set()
-    for sql in ("SELECT symbol FROM sync_state",
-                "SELECT symbol FROM bars_1d GROUP BY symbol",
-                "SELECT symbol FROM bars GROUP BY symbol"):
+    try:
+        # Written only after real minute coverage is verified during landing
+        # and retention. Avoid rescanning millions of daily rows at startup.
+        out = {r[0] for r in _con.execute('SELECT symbol FROM serving_inventory')}
+    except sqlite3.OperationalError as exc:
+        if 'no such table' not in str(exc):
+            raise
+    else:
+        _bar_symbols_cache = (now, out)
+        return out
+    candidates: set[str] = set()
+    for sql in ("SELECT id FROM instrument_master",
+                "SELECT symbol FROM sync_state",
+                "SELECT symbol FROM bars_1d GROUP BY symbol"):
         try:
-            out = {r[0] for r in _con.execute(sql)}
+            candidates.update(r[0] for r in _con.execute(sql))
         except sqlite3.Error:
             continue
-        if out:
-            break
+    # The master includes daily-only/expired contracts. Advertise actual
+    # minute coverage, using one primary-key seek per candidate, not a scan.
+    out = {sym for sym in candidates if _symbol_ready(sym)}
     _bar_symbols_cache = (now, out)
     return out
 
@@ -11388,6 +11399,7 @@ TOOLS = [
          "interval": {"type": "string",
                       "enum": ["1m", "3m", "5m", "15m", "30m", "1h", "1d"],
                       "description": "the bars the rule is evaluated on; also what 'per bar' means"},
+         "email": {"type": "boolean", "description": "default true: email the account owner when triggered; false disables email. Sender availability is reported by the tool. Never supply a recipient."},
          "when": {"type": "array", "description": "1-4 conditions",
                   "items": {"type": "object", "properties": {
                       "left": {"type": "string", "description": "an address, e.g. 'close' or 'rsi(14)'"},
@@ -11465,6 +11477,7 @@ TOOLS = [
          "cancelling when the user may want it back: a delete is final."),
      "parameters": {"type": "object", "properties": {
          "alert_id": {"type": "integer"},
+         "email": {"type": "boolean", "description": "enable or disable email to the owner's account; omit to preserve"},
          "state": {"type": "string", "enum": ["armed", "paused"],
                    "description": "'fired' is a state the engine sets, never you"},
          "freq": {"type": "string",
@@ -14930,6 +14943,8 @@ except sqlite3.Error as exc:  # noqa: BLE001 — absent sweep degrades, never ki
 _con = _ThreadDB(DB_PATH, _BARS_PRAGMAS,
                  attach=(("mkt", str(_MKT_PATH)),) if _HAVE_MKT else ())
 _daily_cache: dict[str, list[list]] = {}   # symbol -> daily bars (ascending)
+_DAILY_CACHE_MAX = max(1, int(environ.get('CHARTO_DAILY_CACHE') or 256))
+_daily_cache_lock = threading.Lock()
 
 # Resampled INTRADAY series, the same idea one interval down.
 #
@@ -16027,7 +16042,13 @@ def _daily(symbol: str) -> list[list]:
         out = _fold_daily(_con.execute(
             "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? ORDER BY ts",
             (symbol,)).fetchall(), session)
-    _daily_cache[symbol] = out
+    with _daily_cache_lock:
+        _daily_cache[symbol] = out
+        while len(_daily_cache) > _DAILY_CACHE_MAX:
+            oldest = next(iter(_daily_cache), None)
+            if oldest is None:
+                break
+            _daily_cache.pop(oldest, None)
     return out
 
 
@@ -16536,6 +16557,7 @@ def _live_status() -> dict:
 # rows fold into a 30m or 1h bucket identically, so the seam is invisible.
 _ROLLUP_TTL = 300.0
 _rollup_cache: tuple[float, int | None] | None = None
+_symbol_rollup_cache: dict[str, tuple[float, int | None]] = {}
 
 
 def _rollup_through() -> int | None:
@@ -16553,12 +16575,39 @@ def _rollup_through() -> int | None:
     return thr
 
 
+def _rollup_for_symbol(symbol: str) -> int | None:
+    """A newly landed series carries its own verified rollup cutoff."""
+    now = time.monotonic()
+    hit = _symbol_rollup_cache.get(symbol)
+    if hit and now - hit[0] < _ROLLUP_TTL:
+        return hit[1]
+    try:
+        row = _con.execute('SELECT through_ts FROM rollup_symbols WHERE symbol=?', (symbol,)).fetchone()
+        through = int(row[0]) if row else None
+    except sqlite3.OperationalError as exc:
+        if 'no such table' not in str(exc):
+            raise
+        through = _rollup_through()  # compatibility with the pre-universe store
+    _symbol_rollup_cache[symbol] = (now, through)
+    return through
+
+
 def _intraday_rows(symbol: str, upper: int | None, raw_needed: int,
                    mins: int) -> list[tuple]:
     """Ascending rows for _resample_intraday: minutes, with stored 15m bars
     standing in for minutes older than the rollup watermark when the interval
     is a multiple of 15."""
-    thr = _rollup_through() if mins % 15 == 0 else None
+    thr = _rollup_for_symbol(symbol) if mins % 15 == 0 else None
+    if thr is not None:
+        # Imported rollups must not hide a retained crypto/legacy history
+        # with no rollup, or only a recently materialised suffix.
+        first_minute = _con.execute(
+            "SELECT ts FROM bars WHERE symbol=? ORDER BY ts LIMIT 1", (symbol,)).fetchone()
+        first_rolled = _con.execute(
+            "SELECT ts FROM bars_15m WHERE symbol=? ORDER BY ts LIMIT 1", (symbol,)).fetchone()
+        if (not first_minute or not first_rolled or
+                first_rolled[0] != _bucket_stamp(first_minute[0], 15, session_for(symbol))[1]):
+            thr = None
     if thr is None:
         if upper:
             rows = _con.execute(
@@ -17521,8 +17570,8 @@ class Handler(BaseHTTPRequestHandler):
                     if not (m["exchange"] == "NSE" and m["kind"] == "equity"):
                         meta[sid] = [m["exchange"], m["kind"], m["decimals"],
                                      quote_ccy(sid)]
-                have = have | set(master)
-                return self._send(200, {"symbols": sorted(set(_known_symbols()) | have),
+                listed = have | set(master)
+                return self._send(200, {"symbols": sorted(set(_known_symbols()) | listed),
                                         "meta": meta,
                                         "hydrated": sorted(have),
                                         "names": names, "long": longs,

@@ -135,8 +135,10 @@ MAX_FILL_MIN = 1440
 # streaming gate, because a hole under the gate is still a hole the chart draws
 # over.
 FILL_TOLERANCE_MIN = 3
-FILL_WORKERS = 3                       # Kite historical is ~3 req/s
-FILL_PACE = 0.35                       # per-thread pacing -> ~3 req/s over 3
+FILL_WORKERS = 3                       # overlap network latency, not rate quota
+FILL_PACE = 0.35                       # process-wide spacing: <3 requests/s
+_FILL_RATE_LOCK = threading.Lock()
+_FILL_NEXT_REQUEST = 0.0
 _FILL_WINDOW_DAYS = 55                 # measured per-request cap is 60
 # The day walk in expected_minutes() is O(days). A symbol years behind is
 # backfill's problem anyway, so the walk stops here and reports a LOWER BOUND
@@ -738,7 +740,13 @@ def _kite_client(access_token: str) -> Any:
 
 
 def _fetch_window(job: tuple) -> tuple[str, list[tuple], str]:
+    global _FILL_NEXT_REQUEST
     symbol, token, frm, to, access_token = job
+    with _FILL_RATE_LOCK:
+        delay = max(0.0, _FILL_NEXT_REQUEST - time.monotonic())
+        if delay:
+            time.sleep(delay)
+        _FILL_NEXT_REQUEST = time.monotonic() + FILL_PACE
     try:
         candles = _kite_client(access_token).historical_data(
             instrument_token=token, from_date=frm, to_date=to,
@@ -760,7 +768,6 @@ def _fetch_window(job: tuple) -> tuple[str, list[tuple], str]:
          ds._exact_vol(c.get("volume", 0) or 0))
         for c in (candles or [])
     ]
-    time.sleep(FILL_PACE)
     return symbol, rows, ""
 
 
@@ -783,8 +790,48 @@ def resolve_tokens(symbols: Sequence[str], access_token: str,
     tokens: dict[str, int] = {}
     failed: dict[str, str] = {}
     wanted = [s for s in symbols]
+    # The serving master already holds authoritative exchange-qualified IDs.
+    # Resolving BSE:<ticker> or NFO:<contract> as an NSE equity drops them.
+    master, aliases = ds._master()
+    try:
+        stored_tokens = {sid: (ex, spelling, tok) for sid, ex, spelling, tok in ds._con.execute(
+            "SELECT id,exchange,tradingsymbol,instrument_token FROM instrument_master")}
+    except sqlite3.Error:
+        stored_tokens = {}
+    live_tokens = {}
+    if stored_tokens:
+        # Tokens can recycle after expiry. Match BOTH exchange and spelling
+        # against today's authoritative dump, never trust the old number alone.
+        live_tokens = {int(r["instrument_token"]): r for r in _kite_client(access_token).instruments()}
+    for sym in wanted:
+        meta = master.get(aliases.get(sym, sym))
+        sid = aliases.get(sym, sym)
+        if meta and meta.get("kind") != "continuous" and sid in stored_tokens:
+            ex, spelling, tok = stored_tokens[sid]
+            current = live_tokens.get(int(tok or 0), {})
+            if tok and current.get("exchange") == ex and current.get("tradingsymbol") == spelling:
+                tokens[sym] = int(tok)
+            else:
+                failed[sym] = "not present in the current Kite instrument dump"
+        elif meta and meta.get("kind") == "continuous":
+            # Continue the verified held contract, not a guessed NSE equity
+            # or a new front pasted retrospectively across a roll boundary.
+            row = ds._con.execute(
+                "SELECT m.exchange,m.tradingsymbol,m.instrument_token FROM rolls r "
+                "JOIN instrument_master m ON m.id=r.contract WHERE r.root=? "
+                "ORDER BY r.from_ts DESC LIMIT 1", (sid,)).fetchone()
+            if row:
+                ex, spelling, tok = row
+                current = live_tokens.get(int(tok or 0), {})
+                if tok and current.get('exchange') == ex and current.get('tradingsymbol') == spelling:
+                    tokens[sym] = int(tok)
+                else:
+                    failed[sym] = 'held continuous contract expired; roll reconciliation required'
+            else:
+                failed[sym] = 'no verified held contract segment for this continuous series'
     macro = {s for s in wanted
-             if s in bm.INDICES or s in bm.METALS or s in bm.CURRENCY}
+             if s not in tokens and s not in failed and
+             (s in bm.INDICES or s in bm.METALS or s in bm.CURRENCY)}
     if macro:
         from backend.kite.auth import get_authenticated_kite
         try:
@@ -794,7 +841,7 @@ def resolve_tokens(symbols: Sequence[str], access_token: str,
         except Exception as exc:                      # noqa: BLE001
             log.warning("macro instrument resolve failed: %s", exc)
     for sym in wanted:
-        if sym in tokens:
+        if sym in tokens or sym in failed:
             continue
         try:
             tok = _resolve_instrument_token(sym, "NSE", access_token)
@@ -889,6 +936,17 @@ def fill_gaps(symbols: Sequence[str], access_token: str, *,
             for sym, rows in got.items():
                 con.executemany(
                     "INSERT OR REPLACE INTO bars VALUES (?,?,?,?,?,?,?)", rows)
+                # The daily series is the stream's freshness yardstick. Leaving
+                # it at the import date would refuse freshly repaired minutes.
+                # Re-fold the whole affected first session, not just fetched
+                # suffix rows, using the chart's authoritative arithmetic.
+                session = ds.session_for(sym)
+                cut = ds._ist_day(min(r[1] for r in rows), session[1]) * 86400 - session[1]
+                tail = con.execute(
+                    "SELECT ts,o,h,l,c,v FROM bars WHERE symbol=? AND ts>=? ORDER BY ts", (sym, cut)).fetchall()
+                daily = ds._fold_daily(tail, session)
+                con.executemany('INSERT OR REPLACE INTO bars_1d VALUES (?,?,?,?,?,?,?)',
+                                [(sym, *r) for r in daily])
                 con.commit()
                 out["symbols"][sym] = len(rows)
                 out["filled"] += len(rows)
@@ -940,7 +998,10 @@ class KiteStream:
         self.refused: dict[str, str] = {}
         self._access_token: str | None = None
         self._ticker: Any = None
+        self._tickers: list[Any] = []
+        self._connected_tickers: set[int] = set()
         self._tok_to_sym: dict[int, str] = {}
+        self._tok_to_syms: dict[int, list[str]] = {}
         self._sym_to_tok: dict[str, int] = {}
         self._connected = False
         self._reconnects = 0
@@ -1034,18 +1095,54 @@ class KiteStream:
         if not self._tok_to_sym:
             print("no instrument tokens resolved — refusing to open a socket")
             return
-        self._ticker = self._build_ticker(token)
-        self._wire(self._ticker)
+        toks = list(self._tok_to_sym)
+        # Kite's documented per-key ceiling: three sockets, 3000 tokens each.
+        # Refuse excess explicitly, rather than let one oversized subscribe
+        # disconnect every chart. Canonical aliases share a token/socket.
+        for tok in toks[9000:]:
+            for sym in self._tok_to_syms.pop(tok, []):
+                self.refused[sym] = "Kite per-key streaming capacity exceeded (9000 instruments)"
+                self.symbols.remove(sym)
+                self._sym_to_tok.pop(sym, None)
+            self._tok_to_sym.pop(tok, None)
+        toks = toks[:9000]
+        self._tickers = [self._build_ticker(token) for offset in range(0, len(toks), 3000)]
+        self._ticker = self._tickers[0]
+        for offset, ticker in zip(range(0, len(toks), 3000), self._tickers):
+            ticker._pivot_tokens = toks[offset:offset + 3000]
+            ticker._pivot_symbols = [s for tok in ticker._pivot_tokens for s in self._tok_to_syms[tok]]
+            self._wire(ticker)
         self._started_at = time.time()
         # connect(threaded=True) returns immediately; kiteconnect owns the
         # reader thread and the reconnect loop.
-        self._ticker.connect(threaded=True, disable_ssl_verification=False)
-        print(f"connected: {len(self._tok_to_sym)} symbol(s) in MODE_FULL")
+        self._connect_tickers()
+        print(f"connecting: {len(self._tok_to_sym)} token(s), {len(self._tickers)} socket(s) in MODE_FULL")
+
+    def _connect_tickers(self) -> None:
+        # Every KiteTicker shares Twisted's process-wide reactor. Starting
+        # several threaded clients back-to-back can start that reactor twice;
+        # connecting later shards from the caller thread is also unsafe.
+        from twisted.internet import reactor
+        pending = self._tickers
+        if not reactor.running:
+            ready = threading.Event()
+            reactor.callWhenRunning(ready.set)
+            pending[0].connect(threaded=True, disable_ssl_verification=False)
+            if not ready.wait(10):
+                raise RuntimeError('Kite reactor did not start; no remaining shards opened')
+            pending = pending[1:]
+        for ticker in pending:
+            reactor.callFromThread(ticker.connect, threaded=True,
+                                   disable_ssl_verification=False)
 
     def stop(self) -> None:
         with self._lock:
-            t, self._ticker = self._ticker, None
-        if t is not None:
+            tickers, self._tickers = self._tickers, []
+            if not tickers and self._ticker is not None:
+                tickers = [self._ticker]
+            self._ticker = None
+            self._connected_tickers.clear()
+        for t in tickers:
             try:
                 t.close(code=1000, reason="shutdown")
             except Exception:           # noqa: BLE001
@@ -1075,6 +1172,8 @@ class KiteStream:
         last_ts = max((c.last_ts for c in cs.values()), default=0)
         return {
             "connected": self._connected,
+            "connections": len(self._tickers),
+            "connected_connections": len(self._connected_tickers),
             "symbols": list(self.symbols),
             "refused": dict(self.refused),
             "ticks_in": sum(c.ticks for c in cs.values()),
@@ -1098,6 +1197,7 @@ class KiteStream:
         tokens, failed = resolve_tokens(self.symbols, access_token)
         for sym, tok in tokens.items():
             self._tok_to_sym[tok] = sym
+            self._tok_to_syms.setdefault(tok, []).append(sym)
             self._sym_to_tok[sym] = tok
         for sym, why in failed.items():
             self.refused[sym] = why
@@ -1129,18 +1229,17 @@ class KiteStream:
     def _on_ticks(self, _ws: Any, ticks: list[dict]) -> None:
         for tick in ticks or ():
             tok = _as_int(tick.get("instrument_token"))
-            sym = self._tok_to_sym.get(tok) if tok is not None else None
-            if sym is None:
+            syms = self._tok_to_syms.get(tok, []) if tok is not None else []
+            if not syms:
                 continue
-            try:
-                on_tick(sym, tick)
-            except Exception:           # noqa: BLE001
-                # One malformed tick must not kill the reader thread and take
-                # every other symbol's candles down with it.
-                log.exception("tick dropped for %s", sym)
+            for sym in syms:
+                try:
+                    on_tick(sym, tick)
+                except Exception:           # noqa: BLE001
+                    log.exception("tick dropped for %s", sym)
 
     def _on_connect(self, ws: Any, _response: Any) -> None:
-        toks = list(self._tok_to_sym)
+        toks = getattr(ws, "_pivot_tokens", list(self._tok_to_sym))
         # MODE_FULL, not MODE_QUOTE. The depth half of FULL is indeed useless
         # to a 1-min candle, but FULL is the ONLY mode that carries
         # exchange_timestamp and last_trade_time, and both are load-bearing
@@ -1157,8 +1256,9 @@ class KiteStream:
         except Exception:               # noqa: BLE001
             log.exception("subscribe failed on connect")
             return
-        n = reset_cursors(self.symbols)
-        self._connected = True
+        n = reset_cursors(getattr(ws, "_pivot_symbols", self.symbols))
+        self._connected_tickers.add(id(ws))
+        self._connected = len(self._connected_tickers) == len(self._tickers)
         log.info("connected; %d symbols, %d cursor(s) re-seeded", len(toks), n)
 
     def _on_reconnect(self, _ws: Any, attempts: int) -> None:
@@ -1166,11 +1266,14 @@ class KiteStream:
         # The gap swallowed an unknown number of ticks, so every cumulative
         # reading we hold is stale. Keeping them would attribute the whole
         # outage's volume to whichever minute the socket comes back in.
-        reset_cursors(self.symbols)
+        self._connected_tickers.discard(id(_ws))
+        self._connected = False
+        reset_cursors(getattr(_ws, "_pivot_symbols", self.symbols))
         log.warning("reconnecting (attempt %s); cursors re-seeded", attempts)
 
     def _on_close(self, _ws: Any, code: Any, reason: Any) -> None:
         self._connected = False
+        self._connected_tickers.discard(id(_ws))
         log.info("closed: code=%s reason=%s", code, reason)
 
     def _on_error(self, _ws: Any, code: Any, reason: Any) -> None:
@@ -1178,6 +1281,7 @@ class KiteStream:
 
     def _on_noreconnect(self, _ws: Any) -> None:
         self._connected = False
+        self._connected_tickers.discard(id(_ws))
         log.error("ticker gave up reconnecting")
 
 

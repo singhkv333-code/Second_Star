@@ -88,9 +88,8 @@ THE FOUR THINGS THAT MAKE IT TRUSTWORTHY
    A watcher that stalls the tick loop costs stored minutes, and minutes are
    the asset.
 
-Delivery is in-app: an SSE event per fire on /alerts/stream, plus the durable
-log and an unseen count for the bell. With every tab shut nothing is pushed
-anywhere — the log is waiting when you come back, and no copy may imply more.
+Delivery includes in-app SSE and a transactional email outbox. SMTP runs on
+its own worker; mail is unavailable until the sender is securely configured.
 """
 from __future__ import annotations
 
@@ -105,6 +104,7 @@ import time
 import dataserver as ds
 import entitlements as ent
 import indicators
+import alert_email
 
 log = logging.getLogger("charto.alerts")
 
@@ -286,10 +286,15 @@ def _db():
     return ds._users
 
 
+_MAIL = None
+
+
 def _init_db() -> None:
+    global _MAIL
     with ds._users_lock:
-        _db().executescript(_SCHEMA)
+        _db().executescript(_SCHEMA + alert_email.SCHEMA)
         _db().commit()
+    _MAIL = alert_email.Outbox(_db(), ds._users_lock, push)
 
 
 # ══ the rule ═══════════════════════════════════════════════════════════════
@@ -1311,23 +1316,17 @@ def _persist_eval(r: Rule) -> None:
 def _fire(r: Rule, hit: dict) -> None:
     lab = r.label()
     with ds._users_lock:
-        cur = _db().execute(
-            "INSERT INTO alert_log (alert_id,user_id,ts,symbol,interval,verb,"
-            "level,value,meta,late,seen) VALUES (?,?,?,?,?,?,?,?,?,?,0)",
-            (r.id, r.user_id, hit["ts"], r.symbol, r.interval, hit["verb"],
-             hit["level"], hit["value"], hit["meta"], hit["late"]))
-        log_id = cur.lastrowid
-        # `once` stops itself — the row stays and wears the Fired pill, which
-        # is what the widget already draws. Every other frequency stays armed.
-        new_state = "fired" if r.freq == "once" else "armed"
-        _db().execute(
-            "UPDATE alerts SET state=?, fired_at=?, fired_value=?, "
-            "fire_count=fire_count+1, cstate=?, all_ok=?, last_eval_ts=?, "
-            "last_fired_bkt=? WHERE id=?",
-            (new_state, hit["ts"], hit["value"], json.dumps(r.cstate),
-             r.all_ok, r.last_eval_ts, r.last_fired_bkt, r.id))
-        _trim_log(r.user_id)
+        _db().execute("SAVEPOINT alert_fire")
+        try:
+            log_id, new_state, email_status = _fire_write(r, hit)
+        except Exception:
+            _db().execute("ROLLBACK TO alert_fire")
+            _db().execute("RELEASE alert_fire")
+            raise
+        _db().execute("RELEASE alert_fire")
         _db().commit()
+    if _MAIL is not None:
+        _MAIL.wake.set()
     r.state = new_state
     STATS["fires"] += 1
     if hit["late"]:
@@ -1343,8 +1342,29 @@ def _fire(r: Rule, hit: dict) -> None:
         "log": {"id": log_id, "ts": hit["ts"], "symbol": r.symbol,
                 "interval": r.interval, "verb": hit["verb"],
                 "level": hit["level"], "value": hit["value"],
-                "meta": hit["meta"], "late": bool(hit["late"]), "seen": False},
+                "meta": hit["meta"], "late": bool(hit["late"]), "seen": False,
+                "email_status": email_status},
     })
+
+
+def _fire_write(r: Rule, hit: dict) -> tuple:
+    cur = _db().execute(
+        "INSERT INTO alert_log (alert_id,user_id,ts,symbol,interval,verb,"
+        "level,value,meta,late,seen) VALUES (?,?,?,?,?,?,?,?,?,?,0)",
+        (r.id, r.user_id, hit["ts"], r.symbol, r.interval, hit["verb"],
+         hit["level"], hit["value"], hit["meta"], hit["late"]))
+    log_id = cur.lastrowid
+    email_status = (_MAIL.enqueue_locked(log_id, r, hit) if _MAIL else "unavailable")
+    # `once` stops itself; every other frequency stays armed.
+    new_state = "fired" if r.freq == "once" else "armed"
+    _db().execute(
+        "UPDATE alerts SET state=?, fired_at=?, fired_value=?, "
+        "fire_count=fire_count+1, cstate=?, all_ok=?, last_eval_ts=?, "
+        "last_fired_bkt=? WHERE id=?",
+        (new_state, hit["ts"], hit["value"], json.dumps(r.cstate),
+         r.all_ok, r.last_eval_ts, r.last_fired_bkt, r.id))
+    _trim_log(r.user_id)
+    return log_id, new_state, email_status
 
 
 def _trim_log(uid: int) -> None:
@@ -1559,7 +1579,10 @@ def _validate(body: dict, uid: int) -> tuple[dict, str, str, str, int | None]:
         if op in _MOVE_OPS and "within" not in out:
             out["within"] = 1
         clean.append(out)
-    spec = {"when": clean, "all": bool(body.get("all", True))}
+    if "email" in body and not isinstance(body["email"], bool):
+        raise Unspeakable("email must be true or false")
+    spec = {"when": clean, "all": bool(body.get("all", True)),
+            "email": body.get("email", True)}
     if body.get("vp_sessions"):
         try:
             vp_sessions = int(body["vp_sessions"])
@@ -1704,7 +1727,7 @@ def _row_public(row: tuple) -> dict:
     out = {"id": r.id, "symbol": r.symbol, "interval": r.interval,
            "state": r.state, "freq": r.freq, "note": r.note,
            "created": r.created, "expires": r.expires,
-           "when": r.when, "all": r.all,
+           "when": r.when, "all": r.all, "email": r.spec.get("email", True),
            "fired_at": row[14], "fired_value": row[15],
            "fire_count": row[16], **r.label()}
     return out
@@ -1724,6 +1747,10 @@ def api_list(uid: int) -> tuple[int, dict]:
             "SELECT id,ts,symbol,interval,verb,level,value,meta,late,seen,"
             "alert_id FROM alert_log WHERE user_id=? ORDER BY ts DESC "
             "LIMIT ?", (uid, MAX_LOG_ROWS)).fetchall()
+        deliveries = dict(_db().execute(
+            "SELECT log_id,status FROM alert_email_outbox WHERE user_id=? "
+            "AND log_id IN (SELECT id FROM alert_log WHERE user_id=?)",
+            (uid, uid)).fetchall())
     out_alerts = []
     for row in rows:
         try:
@@ -1734,10 +1761,12 @@ def api_list(uid: int) -> tuple[int, dict]:
         "alerts": out_alerts,
         "log": [{"id": l[0], "ts": l[1], "symbol": l[2], "interval": l[3],
                  "verb": l[4], "level": l[5], "value": l[6], "meta": l[7],
-                 "late": bool(l[8]), "seen": bool(l[9]), "alert_id": l[10]}
+                 "late": bool(l[8]), "seen": bool(l[9]), "alert_id": l[10],
+                 "email_status": deliveries.get(l[0], "not_queued")}
                 for l in logs],
         "unseen": sum(1 for l in logs if not l[9]),
         "feed": feed_health(),
+        "email_delivery": _MAIL.status() if _MAIL else {"configured": False},
         "vocab": {"operands": OPERANDS, "ops": list(OPS),
                   "intervals": list(INTERVALS), "frequencies": list(FREQS)},
     }
@@ -1802,6 +1831,9 @@ def api_patch(uid: int, aid: int, body: dict) -> tuple[int, dict]:
         return 404, {"error": "no such alert"}
     if body.get("delete"):
         with ds._users_lock:
+            _db().execute("UPDATE alert_email_outbox SET status='cancelled',"
+                          "updated=? WHERE user_id=? AND alert_id=? AND status='pending'",
+                          (int(time.time()), uid, aid))
             _db().execute("DELETE FROM alerts WHERE id=? AND user_id=?",
                           (aid, uid))
             _db().commit()
@@ -1855,19 +1887,22 @@ def api_patch(uid: int, aid: int, body: dict) -> tuple[int, dict]:
             return 400, {"error": f"freq — one of {', '.join(FREQS)}"}
         sets.append("freq=?")
         args.append(str(body["freq"]).lower())
-    if "when" in body or "interval" in body or "all" in body:
+    if any(key in body for key in ("when", "interval", "all", "email")):
         merged = {"symbol": cur.symbol,
                   "interval": body.get("interval") or cur.interval,
                   "freq": body.get("freq") or cur.freq,
                   "when": body.get("when") or cur.when,
-                  "all": body.get("all", cur.all)}
+                  "all": body.get("all", cur.all),
+                  "email": body.get("email", cur.spec.get("email", True))}
         try:
             spec, _sym, interval, _f, _e = _validate(merged, uid)
         except Unspeakable as exc:
             return 400, vocab(str(exc))
-        sets += ["spec=?", "interval=?", "cstate=?", "all_ok=?",
-                 "last_eval_ts=?"]
-        args += [json.dumps(spec), interval, "[]", 0, 0]
+        sets += ["spec=?", "interval=?"]
+        args += [json.dumps(spec), interval]
+        if any(key in body for key in ("when", "interval", "all")):
+            sets += ["cstate=?", "all_ok=?", "last_eval_ts=?"]
+            args += ["[]", 0, 0]
     # The plan, on the rule as it will be AFTER this patch. Re-arming or
     # re-writing an armed rule takes a slot (its own is excluded, so editing
     # an alert already inside the cap never refuses); extending an armed
@@ -1876,7 +1911,7 @@ def api_patch(uid: int, aid: int, body: dict) -> tuple[int, dict]:
     final_spec = json.loads(args[sets.index("spec=?")]) if "spec=?" in sets \
         else cur.spec
     retaking = final_state == "armed" and (
-        cur.state != "armed" or "spec=?" in sets)
+        cur.state != "armed" or any(k in body for k in ("when", "interval", "all")))
     _PLAN_LOCK.acquire()
     try:
         return _patch_write(uid, aid, cur, body, sets, args, final_state,
@@ -1906,6 +1941,10 @@ def _patch_write(uid, aid, cur, body, sets, args, final_state, final_spec,
     with ds._users_lock:
         _db().execute(f"UPDATE alerts SET {', '.join(sets)} WHERE id=? AND "
                       "user_id=?", (*args, aid, uid))
+        if body.get("email") is False:
+            _db().execute("UPDATE alert_email_outbox SET status='cancelled',"
+                          "updated=? WHERE user_id=? AND alert_id=? AND status='pending'",
+                          (int(time.time()), uid, aid))
         _db().commit()
     with ds._users_lock:
         row = _db().execute(f"SELECT {_LIST_COLS} FROM alerts WHERE id=?",
@@ -2076,6 +2115,7 @@ def start(catchup: bool = True) -> dict:
     """Called once, from dataserver's boot block, after the module alias."""
     global _WORKER
     _init_db()
+    _MAIL.start()
     _load_index()
     if _WORKER is None or not _WORKER.is_alive():
         _STOP.clear()
@@ -2096,6 +2136,8 @@ def start(catchup: bool = True) -> dict:
 
 def stop() -> None:
     _STOP.set()
+    if _MAIL:
+        _MAIL.stop()
 
 
 # ══ the chat surface ═══════════════════════════════════════════════════════
@@ -2135,19 +2177,22 @@ def _touch_chart() -> None:
         log.debug("alerts: no view channel on this request", exc_info=True)
 
 
-# Delivery is in-app and only in-app. Said on every armed rule because the one
-# thing a user cannot check for themselves is whether closing the tab still
-# gets them the alert — and an alert believed to be an SMS is worse than none.
-_DELIVERY = ("Delivery is in-app: the fire lands in the alert log and the "
-             "bell, and is pushed live to an open tab. There is no email, SMS "
-             "or phone push — say so rather than implying the user will be "
-             "reached away from Charto.")
+def _delivery_note(alert: dict) -> str:
+    base = "Fires are recorded in the alert log and pushed to an open tab. "
+    if alert.get("email") is False:
+        return base + "Email is disabled for this alert. No SMS or phone push."
+    status = _MAIL.status() if _MAIL else {}
+    if status.get("configured") and not status.get("error"):
+        return base + ("Email is enabled to the owner's account email, from "
+                       "info@pivotnow.in, even with the browser closed. "
+                       "Delivery can be delayed or fail; no SMS or phone push.")
+    return base + "Email delivery is unavailable until the sender is configured. No SMS or phone push."
 
 
 def tool_set_alert(symbol: str = "", interval: str = "5m",
                    when: list | None = None, all: bool = True,
                    freq: str = "once", expires_in_days: int = 0,
-                   note: str = "", user_id: int = 0) -> dict:
+                   note: str = "", user_id: int = 0, email: bool = True) -> dict:
     if not user_id:
         return {"error": "alerts need an account",
                 "_note": ("Say the user must sign in to create alerts — they "
@@ -2157,7 +2202,7 @@ def tool_set_alert(symbol: str = "", interval: str = "5m",
                if expires_in_days else None)
     code, out = api_create(user_id, {
         "symbol": symbol or ds._sym(), "interval": interval, "when": when or [],
-        "all": all, "freq": freq, "expires": expires, "note": note})
+        "all": all, "freq": freq, "expires": expires, "note": note, "email": email})
     if code == 402:
         return {**out, "_note": (
             "Nothing was armed: the user's plan does not cover this alert. Say "
@@ -2190,7 +2235,7 @@ def tool_set_alert(symbol: str = "", interval: str = "5m",
                       f"the user's screen already — the widget lists it and, "
                       f"for a plain price level on the chart's own symbol, the "
                       f"price axis carries a draggable line. Do not tell them "
-                      f"to add it anywhere. {exp} " + _DELIVERY + " "
+                      f"to add it anywhere. {exp} " + _delivery_note(a) + " "
                       + (out.get("feed", {}).get("symbol", {}).get("note") or ""))}
 
 
@@ -2255,6 +2300,7 @@ def tool_list_alerts(user_id: int = 0, symbol: str = "", state: str = "",
                      f"read and the bell is clear.")
         _touch_chart()
     return {"alerts": alerts, "log": logs[:20], "unseen": out["unseen"],
+            "email_delivery": out["email_delivery"],
             "showing": {"symbol": sym or "all", "state": st or "all",
                         "of_total": len(out["alerts"])},
             "_note": ("Each alert's `id` is what update_alert and cancel_alert "
@@ -2270,7 +2316,7 @@ def tool_update_alert(alert_id: int = 0, state: str = "", freq: str = "",
                       note: str | None = None, when: list | None = None,
                       interval: str = "", all: bool | None = None,
                       expires_in_days: int | None = None,
-                      user_id: int = 0) -> dict:
+                      user_id: int = 0, email: bool | None = None) -> dict:
     """Change a live rule: pause it, re-arm it, or rewrite what it watches.
 
     One tool rather than four verbs, because the engine has one patch path
@@ -2283,6 +2329,8 @@ def tool_update_alert(alert_id: int = 0, state: str = "", freq: str = "",
     if not alert_id:
         return {"error": "which alert? call list_alerts for the ids"}
     body: dict = {}
+    if email is not None:
+        body["email"] = email
     if state:
         body["state"] = str(state).lower().strip()
     if freq:
@@ -2317,7 +2365,8 @@ def tool_update_alert(alert_id: int = 0, state: str = "", freq: str = "",
            "it watches from here rather than firing on a move it already "
            "missed. " if re_armed else "")
         + ("The conditions were replaced, not merged — this rule now watches "
-           "exactly what was passed. " if when else ""))}
+           "exactly what was passed. " if when else "")
+        + _delivery_note(a))}
 
 
 def tool_cancel_alert(alert_id: int = 0, user_id: int = 0) -> dict:
