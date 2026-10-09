@@ -16864,6 +16864,10 @@ class Handler(BaseHTTPRequestHandler):
                          "checkout": _billing.configured()}
         me = _auth_user(self.headers)
         uid = me[0] if me else None
+        if path == "/billing/invoices":
+            if not uid:
+                return 401, {"error": "sign in to see your invoices"}
+            return _billing.api_invoices(uid)
         counts = {}
         if uid and _alerts is not None:
             counts = {f"alerts.{k}": v
@@ -16896,6 +16900,13 @@ class Handler(BaseHTTPRequestHandler):
             return _billing.api_verify(me[0], body)
         if path == "/billing/cancel":
             return _billing.api_cancel(me[0])
+        if path == "/billing/change":
+            out = _billing.api_change(me[0], body)
+            # A downgrade that lands now (rare: a change the provider applied
+            # at once) is brought inside the new plan like any other drop.
+            if out[0] == 200 and out[1].get("effective") == "now":
+                _plan_downgraded(me[0])
+            return out
         if path == "/admin/billing/grant":
             if str(me[1]).lower() not in _ADMIN_EMAILS:
                 return 403, {"error": "not an admin"}
@@ -17214,7 +17225,7 @@ class Handler(BaseHTTPRequestHandler):
                 deep = q.get("deep", "").lower() in ("1", "true", "yes")
                 return self._send(*_health_report(deep=deep),
                                   headers={"Cache-Control": "no-store"})
-            if u.path in ("/billing/plans", "/billing/me"):
+            if u.path in ("/billing/plans", "/billing/me", "/billing/invoices"):
                 return self._send(*self._billing_get(u.path),
                                   headers={"Cache-Control": "no-store"})
             # The Portfolio and Strategies pages, which are Pivot's own

@@ -28,6 +28,16 @@ THE FLOW
                  renewals, failures and cancellations.
     cancel     POST /billing/cancel → cancel at cycle end. The user keeps what
                they paid for until period_end; entitlements handles that.
+    change     POST /billing/change {plan, cycle} | {undo: true}
+               → PATCH the subscription to another Razorpay plan id. An
+                 UPGRADE applies now (Razorpay charges the difference); a
+                 downgrade or a cycle switch is scheduled for the cycle end,
+                 so nobody loses days they paid for. The scheduled change is
+                 kept on our row (`pending_change`) until the provider says it
+                 happened, and `undo` withdraws it.
+    invoices   GET /billing/invoices → the subscription's invoices as Razorpay
+               lists them, the payment method on the mandate, and the hosted
+               link where the customer manages it. Read-only.
 
 WITHOUT KEYS
 ------------
@@ -177,6 +187,12 @@ def _apply(uid: int, entity: dict) -> dict:
         uid, plan=plan, status=status, cycle=cycle, provider=PROVIDER,
         provider_sub_id=str(entity.get("id")), period_start=ps, period_end=pe,
         cancel_at_period_end=None, grace_until=grace)
+    # A scheduled change is done once the provider reports the plan it named,
+    # or reports that nothing is scheduled any more.
+    pend = ent.pending_change(uid)
+    if pend and ((pend["plan"], pend["cycle"]) == (plan, cycle)
+                 or entity.get("has_scheduled_changes") is False):
+        ent.set_pending_change(uid, None)
     return {"plan": plan, "cycle": cycle, "status": status,
             "period_end": pe}
 
@@ -256,8 +272,117 @@ def api_cancel(uid: int) -> tuple[int, dict]:
                          cycle=cur["cycle"], provider=PROVIDER,
                          cancel_at_period_end=True,
                          grace_until=cur.get("grace_until"))
+    # A cancelled subscription has nothing left to change into.
+    ent.set_pending_change(uid, None)
     return 200, {"ok": True, "active_until": cur["period_end"],
                  "billing": ent.summary(uid)}
+
+
+def _provider_sub_id(uid: int) -> str | None:
+    with ent._lock:
+        row = ent._con.execute("SELECT provider_sub_id FROM subscriptions WHERE "
+                               "user_id=? AND provider=?", (uid, PROVIDER)).fetchone()
+    return row[0] if row and row[0] else None
+
+
+def api_change(uid: int, body: dict) -> tuple[int, dict]:
+    """Move a live subscription to another paid plan or billing cycle.
+
+    Free is not a plan you change TO: that is a cancellation, and it has its
+    own route so the user sees what they keep and until when."""
+    if not configured():
+        return _NOT_CONFIGURED
+    cur = ent.summary(uid)["subscription"]
+    sid = _provider_sub_id(uid)
+    if not cur or not sid or cur["status"] not in ("active", "past_due"):
+        return 404, {"error": "You have no active subscription to change.",
+                     "code": "no_subscription"}
+    if body.get("undo"):
+        if not ent.pending_change(uid):
+            return 404, {"error": "There is no scheduled change to undo."}
+        try:
+            http("POST", f"/subscriptions/{sid}/cancel_scheduled_changes", {})
+        except BillingError as exc:
+            log.warning("undo change failed for %s: %s", uid, exc)
+            return 502, {"error": "The payment provider did not answer. The "
+                                  "scheduled change still stands.",
+                         "code": "provider_error"}
+        ent.set_pending_change(uid, None)
+        return 200, {"ok": True, "billing": ent.summary(uid)}
+    if cur["cancel_at_period_end"]:
+        return 409, {"error": "This subscription is set to end. Once it does, "
+                              "subscribe again on the plan you want.",
+                     "code": "cancelling"}
+    plan = str(body.get("plan") or "")
+    cycle = str(body.get("cycle") or cur["cycle"])
+    if plan == "free":
+        return 400, {"error": "To move to Free, cancel the subscription. You "
+                              "keep your plan until the period ends.",
+                     "code": "use_cancel"}
+    if cycle not in CYCLES:
+        return 400, {"error": f"cycle must be one of {', '.join(CYCLES)}"}
+    pid = plan_ids().get((plan, cycle))
+    if not pid:
+        return 400, {"error": f"no {cycle} price is configured for plan '{plan}'"}
+    if (plan, cycle) == (cur["plan"], cur["cycle"]):
+        return 409, {"error": "You are already on this plan.",
+                     "code": "already_subscribed"}
+    ranks = ent.CATALOG["plans"]
+    upgrade = ranks[plan]["rank"] > ranks[cur["plan"]]["rank"]
+    when = "now" if upgrade else "cycle_end"
+    try:
+        entity = http("PATCH", f"/subscriptions/{sid}", {
+            "plan_id": pid, "schedule_change_at": when, "customer_notify": 1})
+    except BillingError as exc:
+        log.warning("change failed for %s: %s", uid, exc)
+        return 502, {"error": "The payment provider did not accept the change. "
+                              "Your plan was not changed.", "code": "provider_error"}
+    if when == "now":
+        ent.set_pending_change(uid, None)
+        try:
+            out = _apply(uid, entity)
+        except BillingError:
+            # The provider took it; its webhook will land the new plan.
+            out = {"pending": True}
+        return 200, {"ok": True, "effective": "now", **out,
+                     "billing": ent.summary(uid)}
+    ent.set_pending_change(uid, {"plan": plan, "cycle": cycle,
+                                 "at": cur["period_end"]})
+    return 200, {"ok": True, "effective": "cycle_end", "at": cur["period_end"],
+                 "billing": ent.summary(uid)}
+
+
+def api_invoices(uid: int) -> tuple[int, dict]:
+    """The subscription's invoices, newest first, exactly as Razorpay issued
+    them. Amounts stay in paise; the client formats them."""
+    if not configured():
+        return _NOT_CONFIGURED
+    sid = _provider_sub_id(uid)
+    if not sid:
+        return 200, {"invoices": [], "payment_method": None, "manage_url": None}
+    try:
+        listed = http("GET", f"/invoices?subscription_id={sid}&count=50")
+        entity = http("GET", f"/subscriptions/{sid}")
+    except BillingError as exc:
+        log.warning("invoices failed for %s: %s", uid, exc)
+        return 502, {"error": "The payment provider did not answer. Try again "
+                              "in a moment.", "code": "provider_error"}
+    items = []
+    for inv in listed.get("items") or []:
+        items.append({
+            "id": inv.get("id"),
+            "date": inv.get("issued_at") or inv.get("date") or inv.get("created_at"),
+            "amount": inv.get("amount_paid") or inv.get("amount"),
+            "currency": inv.get("currency") or "INR",
+            "status": inv.get("status"),
+            "period_start": inv.get("billing_start"),
+            "period_end": inv.get("billing_end"),
+            "url": inv.get("short_url"),
+        })
+    items.sort(key=lambda i: i["date"] or 0, reverse=True)
+    return 200, {"invoices": items,
+                 "payment_method": entity.get("payment_method"),
+                 "manage_url": entity.get("short_url")}
 
 
 def api_webhook(raw: bytes, headers) -> tuple[int, dict]:

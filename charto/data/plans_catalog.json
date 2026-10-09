@@ -2,6 +2,10 @@
   "version": 1,
   "currency": "INR",
   "_doc": "The plan catalog. Code checks FEATURE KEYS, never plan ids. null = unlimited. A feature marked pending has an agreed key but either no product surface yet or an unsettled number; it is enforced as written here and listed in docs/paywall/OPEN_QUESTIONS.md. Prices are in paise and GST-inclusive.",
+  "trial": {
+    "days": null,
+    "_doc": "No trial is offered. A whole number of days here switches on the trial wording in every client; granting the trial itself (Razorpay start_at) is not built."
+  },
   "plans": {
     "anonymous": {
       "name": "Signed out",
