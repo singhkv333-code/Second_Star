@@ -180,6 +180,9 @@ const Icons = (() => {
     ctBars: '<path d="M7 4v16"/><path d="M3.5 8H7"/><path d="M7 14h3.5"/>'
       + '<path d="M17 5v14"/><path d="M13.5 10H17"/><path d="M17 17h3.5"/>',
     ctLine: '<path d="M3 16l5-5.5 4 3 5-7.5"/>',
+    // a bar split into bid × ask cells, with the point-of-control row boxed
+    ctFootprint: '<path d="M5 3v18"/><rect x="8" y="5" width="11" height="14" rx="1.5"/>'
+      + '<path d="M13.5 5v14"/><path d="M8 9.7h11"/><path d="M8 14.3h11"/>',
     ctArea: '<path d="M3 16l5-5.5 4 3 5-7.5V20H3z" fill="currentColor" fill-opacity="0.2" stroke="none"/>'
       + '<path d="M3 16l5-5.5 4 3 5-7.5"/>'
       + '<path d="M3 20h18"/>',

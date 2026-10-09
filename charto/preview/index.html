@@ -9387,6 +9387,60 @@ i.mg { height: 3px !important; border-radius: 2px !important; background: var(--
 .scr-form .btn.cta { height: 32px; justify-content: center; }
 .scr-form .scr-help:empty { display: none; }
 
+/* ── footprint chart type (js/footprint.js) ──
+   A slim control strip on the chart, and the crosshair card. Glass like every
+   other sheet, figures in the mono face so columns of numbers line up. */
+.fp-bar {
+  position: absolute; top: 8px; right: 84px; z-index: 6;
+  display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 8px; max-width: calc(100% - 140px);
+  border-radius: 12px; background: var(--ctx-paper, var(--popover)); border: 1px solid var(--ctx-rim, var(--border));
+  backdrop-filter: blur(18px) saturate(1.4); -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  box-shadow: 0 6px 24px rgba(0,0,0,.28); font-size: var(--text-sm); color: var(--foreground);
+  white-space: nowrap; overflow-x: auto; scrollbar-width: none;
+}
+.fp-bar[hidden] { display: none; }
+.fp-bar::-webkit-scrollbar { display: none; }
+.fp-title { font-weight: var(--weight-semi); letter-spacing: .01em; margin-right: 2px; }
+.fp-seg { display: inline-flex; padding: 2px; gap: 1px; border-radius: 8px; background: color-mix(in srgb, var(--foreground) 6%, transparent); }
+.fp-seg button, .fp-tog, .fp-link {
+  height: 22px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; cursor: pointer;
+  color: color-mix(in srgb, var(--foreground) 70%, transparent); font: inherit; font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums; transition: background var(--dur) var(--ease-quartr), color var(--dur) var(--ease-quartr);
+}
+.fp-seg button:hover, .fp-tog:hover, .fp-link:hover { color: var(--foreground); background: var(--hover-fill); }
+.fp-seg button.on, .fp-tog.on { color: var(--foreground); background: color-mix(in srgb, var(--foreground) 14%, transparent); font-weight: var(--weight-medium); }
+.fp-link { color: var(--foreground); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, var(--foreground) 35%, transparent); }
+.fp-bar.moved { right: auto; }
+.fp-bar.dragging { cursor: grabbing; box-shadow: 0 10px 34px rgba(0,0,0,.4); }
+.fp-bar.collapsed { padding: 3px 4px; gap: 2px; }
+.fp-grip { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 22px; margin-left: -4px;
+  color: var(--muted-foreground); cursor: grab; border-radius: 5px; touch-action: none; }
+.fp-grip:hover { color: var(--foreground); background: var(--hover-fill); }
+.fp-bar.dragging .fp-grip { cursor: grabbing; }
+.fp-icon, .fp-pill { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 6px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--muted-foreground); font: inherit; font-size: var(--text-sm); cursor: pointer; }
+.fp-pill { color: var(--foreground); font-weight: var(--weight-semi); padding: 0 8px 0 4px; }
+.fp-icon:hover, .fp-pill:hover { color: var(--foreground); background: var(--hover-fill); }
+.fp-row .fp-rowv { min-width: 44px; font-family: var(--mono); font-size: var(--text-xs); }
+.fp-muted { color: var(--muted-foreground); padding: 0 2px; }
+.fp-tip {
+  position: absolute; z-index: 7; min-width: 196px; padding: 9px 11px; pointer-events: none;
+  border-radius: 12px; background: var(--ctx-paper, var(--popover)); border: 1px solid var(--ctx-rim, var(--border));
+  backdrop-filter: blur(18px) saturate(1.4); -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  box-shadow: 0 10px 30px rgba(0,0,0,.32); font-size: var(--text-xs); color: var(--foreground);
+}
+.fp-tip[hidden] { display: none; }
+.fp-th { display: flex; justify-content: space-between; gap: 12px; font-weight: var(--weight-semi); font-size: var(--text-sm); margin-bottom: 6px; }
+.fp-th span { color: var(--muted-foreground); font-weight: var(--weight-medium); }
+.fp-row { font-family: var(--mono); color: var(--muted-foreground); margin-bottom: 4px; }
+.fp-tl { display: flex; justify-content: space-between; gap: 16px; line-height: 18px; }
+.fp-tl span { color: var(--muted-foreground); }
+.fp-tl b { font-family: var(--mono); font-weight: var(--weight-medium); font-variant-numeric: tabular-nums; }
+.fp-tl b.up, .fp-note.up { color: var(--up); }
+.fp-tl b.dn, .fp-note.dn { color: var(--down); }
+.fp-note { margin-top: 4px; color: var(--muted-foreground); line-height: 1.35; white-space: normal; }
+.fp-sep { height: 1px; margin: 6px 0; background: var(--ctx-seam, var(--border)); }
+
 /* ── market depth ── */
 .dp-head .dp-live {
   width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: var(--up);
@@ -11844,7 +11898,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/store.js?v=22"></script>
   <script src="./js/theme.js?v=15"></script>
   <script src="./js/universe.js?v=19"></script>
-  <script src="./js/icons.js?v=46"></script>
+  <script src="./js/icons.js?v=47"></script>
   <!-- after icons.js (every row is drawn with one) and before main.js, which
        builds the chart's three right-click menus out of it -->
   <script src="./js/ctxmenu.js?v=13"></script>
@@ -11872,7 +11926,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/shortcuts.js?v=5"></script>
   <!-- before panes.js and main.js: both register their charts with it as
        they build them, and read their series colours out of it -->
-  <script src="./js/chartsettings.js?v=8"></script>
+  <script src="./js/chartsettings.js?v=9"></script>
   <script src="./js/geometry.js?v=25"></script>
   <script src="./js/tools.js?v=23"></script>
   <script src="./js/drawings.js?v=45"></script>
@@ -11881,7 +11935,9 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- The pricing / upgrade overlay. Before main.js so window.Pricing exists
        when the account menu's Upgrade row is wired. -->
   <script src="./js/pricing.js?v=1"></script>
-  <script src="./js/main.js?v=171"></script>
+  <!-- the Footprint chart type: a primitive on the price series, mounted by main.js -->
+  <script src="./js/footprint.js?v=8"></script>
+  <script src="./js/main.js?v=172"></script>
   <!-- the floating drawing edit toolbar — listens for charto:draw-select and
        drives js/drawings.js's setStyle/clone/lock/remove. After main.js so
        __charto and ChartSettings exist by the first selection. -->

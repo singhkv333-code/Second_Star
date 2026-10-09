@@ -129,6 +129,7 @@ from typing import Any, Callable, Sequence
 from urllib.parse import urlsplit
 
 import dataserver as ds
+import footprint as _fp
 import kite_stream as ks                # freshness(), and the sync_state guards
 
 log = logging.getLogger("charto.crypto_stream")
@@ -490,6 +491,9 @@ def on_trade(symbol: str, trade: dict,
     ts, px, sz = out
     _, bts = ds._bucket_stamp(ts, 1, ds.session_for(symbol))
     ds._live_on_tick(symbol, ts, px, sz)
+    # The footprint keeps what `bars` drops: the aggressor side. Its own
+    # store and its own never-raising write, after the candle is safe.
+    _fp.record(symbol, ts, px, sz, trade.get("venue"), trade.get("side"))
     if cur.last_bucket is not None and bts != cur.last_bucket:
         # The engine just wrote cur.last_bucket to `bars`.
         cur.closes += 1
@@ -1135,6 +1139,12 @@ class CryptoStream:
             # as a connect failure — which run() retries with backoff, forever.
             # Failing at start() makes it a one-line fatal instead.
             _ssl_context()
+            # The footprint store beside the bar store, open before the first
+            # trade so the tape is kept from the first full minute.
+            try:
+                _fp.bind(ds.DB_PATH.with_name("footprint.db"))
+            except Exception as exc:          # noqa: BLE001 — candles first
+                print(f"  footprint store unavailable: {exc}")
         if self.fill_first and not self.dry_run:
             got = self.fill_gap()
             if got.get("error"):

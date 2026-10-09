@@ -88,6 +88,10 @@ const ChartSettings = (() => {
     { id: "bars",    label: "Bars",    icon: "ctBars",    ctor: "BarSeries" },
     { id: "line",    label: "Line",    icon: "ctLine",    ctor: "LineSeries" },
     { id: "area",    label: "Area",    icon: "ctArea",    ctor: "AreaSeries" },
+    // A candlestick series painted transparent: js/footprint.js draws the
+    // bars and their order flow on it as a primitive, so the scale, crosshair,
+    // drawings and indicators all keep their one price series.
+    { id: "footprint", label: "Footprint", icon: "ctFootprint", ctor: "CandlestickSeries" },
   ];
   const TYPE = (id) => CHART_TYPES.find((t) => t.id === id) || CHART_TYPES[0];
 
@@ -316,6 +320,10 @@ const ChartSettings = (() => {
     if (type === "bars") return barOptions();
     if (type === "line") return lineOptions();
     if (type === "area") return areaOptions();
+    if (type === "footprint") {
+      return { ...candleOptions(), upColor: clear, downColor: clear,
+               borderVisible: false, wickVisible: false };
+    }
     return candleOptions();
   }
 
@@ -375,12 +383,18 @@ const ChartSettings = (() => {
     if (type === "line" || type === "area") {
       return bars.map((b) => ({ time: b.time, value: b.close }));
     }
+    if (type === "footprint") {          // plain OHLC: per-point colours would paint over it
+      return bars.map((b) => ({ time: b.time, open: b.open, high: b.high, low: b.low, close: b.close }));
+    }
     return candlePoints(bars);           // candles + bars are both OHLC
   }
 
   function pricePoint(bar, prev, type = cfg.candles.type) {
     if (type === "line" || type === "area") {
       return { time: bar.time, value: bar.close };
+    }
+    if (type === "footprint") {
+      return { time: bar.time, open: bar.open, high: bar.high, low: bar.low, close: bar.close };
     }
     return candlePoint(bar, prev);
   }

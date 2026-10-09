@@ -61,6 +61,7 @@ sys.modules.setdefault("dataserver", sys.modules[__name__])
 
 import company_scores   # sibling module: Altman / Ohlson / Graham / DuPont
 import depth as _depth   # sibling module: order-book snapshots for the depth widget
+import footprint as _fp   # sibling module: buy/sell volume at price per bar (crypto tape)
 import calfeed as _calfeed     # sibling module: the Calendar widget's NSE + macro feeds
 import webfeeds as _webfeeds   # sibling module: news feeds + frame checks for widgets
 import websearch as _websearch  # sibling module: the Browser's search engine APIs
@@ -16637,6 +16638,45 @@ def _intraday_rows(symbol: str, upper: int | None, raw_needed: int,
     return rolled + minute_rows
 
 
+
+def _footprint_answer(q: dict) -> dict:
+    """Bars plus their footprint, on the chart's own bucket arithmetic."""
+    sym = (q.get("symbol") or "").strip().upper()
+    interval = q.get("interval") or "5m"
+    if not sym:
+        return {"available": False, "reason": "symbol is required"}
+    if interval not in INTRADAY_MIN:
+        return {"available": False, "symbol": sym,
+                "reason": "Footprints are built for intraday intervals (1m to 1h)."}
+    if not _fp.is_crypto(sym):
+        return {"available": False, "symbol": sym, "reason": _fp.BOUNDARY,
+                "nearest": "volume_profile"}
+    _fp.bind(DB_PATH.with_name("footprint.db"))
+    try:
+        limit = max(1, min(int(q.get("bars") or 60), 300))
+        to = int(q["to"]) if q.get("to") else None
+        row = float(q.get("row") or 0)
+        ratio = max(1.5, min(float(q.get("ratio") or 3), 10.0))
+        stack = max(2, min(int(q.get("stack") or 3), 10))
+    except ValueError:
+        return {"available": False, "symbol": sym, "reason": "bad parameter"}
+    d = get_bars(sym, interval, to, limit)
+    bars = d.get("bars") or []
+    if not bars:
+        return {"available": False, "symbol": sym, "reason": f"No {interval} bars stored for {sym}."}
+    mins = INTRADAY_MIN[interval]
+    sess = session_for(sym)
+    cells = _fp.minutes(sym, bars[0]["t"], bars[-1]["t"] + mins * 60)
+    step = _fp.step_for(sym, bars[-1]["c"])
+    row = _fp.auto_row(bars, step) if row <= 0 else max(step, round(row / step) * step)
+    out = _fp.fold(bars, cells, lambda m: _bucket_stamp(m, mins, sess)[1], row, ratio, stack)
+    covered = [b for b in out if b.get("rows")]
+    return {"available": True, "symbol": sym, "interval": interval,
+            "row": row, "step": step, "ratio": ratio, "stack": stack,
+            "source": "coinbase" if sym.endswith("-USD") else "bybit",
+            "has_more": d.get("has_more", False), "bars": out,
+            "first": covered[0]["t"] if covered else None}
+
 def get_bars(symbol: str, interval: str, to: int | None, limit: int) -> dict:
     live = _live_view(symbol)
     form, horizon = live if live else (None, None)
@@ -17602,6 +17642,10 @@ class Handler(BaseHTTPRequestHandler):
                 except ValueError:
                     lv = 20
                 return self._send(200, _depth.book(sym, lv, scope_for(sym)))
+            if u.path == "/footprint":
+                # The Footprint widget: buy/sell volume at each price inside
+                # each bar, folded from the crypto trade tape (footprint.py).
+                return self._send(200, _footprint_answer(q))
             if u.path == "/feeds":
                 # The News widget: headlines from a fixed list of public
                 # market feeds, chosen by id — never by URL (webfeeds.py).

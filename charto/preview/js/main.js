@@ -4855,6 +4855,16 @@
     const iv = IV_SEC[saved] ? saved : "5m";
     selectInterval(iv);
     await loadInterval(iv);
+    // The Footprint chart type draws on the price series once the chart is
+    // readable, and re-attaches itself on every type swap (js/footprint.js).
+    if (typeof Footprint !== "undefined") Footprint.mount({
+      chart, host: stageEl, series: () => candle,
+      symbol: () => SYMBOL, interval: () => state.interval,
+      lastClose: () => (lastBar ? lastBar.close : null),
+      fromChart: (t) => t - IST, tzOffset: IST,
+      setInterval: (v) => { selectInterval(v); loadInterval(v); },
+      notify: (m) => notify(m),
+    });
 
     for (const id of wanted) {
       // dynamic defs (rsi26) don't survive a reload — re-mint from the id
