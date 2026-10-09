@@ -132,8 +132,8 @@ def fake_bars(n_total: int = 30_000):
 @pytest.fixture(autouse=True)
 def _charto_gates_on(monkeypatch):
     """These tests are charto's enforcement. Pivot is the one paywall now, so
-    the gates are off by default (entitlements.CHARTO_GATES); test them on."""
-    monkeypatch.setattr(ent, "CHARTO_GATES", True)
+    the gates are off by default (entitlements.paywall_enabled); test them on."""
+    monkeypatch.setattr(ent, "paywall_enabled", lambda: True)
 
 
 @pytest.fixture()

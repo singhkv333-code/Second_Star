@@ -9,7 +9,7 @@
  *   display  — Newsreader serif, weight 400–550, letter-spacing −0.04em,
  *              italic spans render in muted grey (--text-secondary side)
  *   ui       — Inter, −0.025em on titles, 13–15px body
- *   labels   — JetBrains Mono, 10.5–11px, uppercase, +0.08em tracking
+ *   labels   — Inter, 10.5–11px, uppercase, +0.08em tracking
  *   color    — monochrome ink/paper; the ONLY hue on the surface is the
  *              profit/loss/warn semantic set
  *   geometry — pill (9999px) for actions & tags, 16px for cards
@@ -181,7 +181,7 @@ export function Eyebrow({
 export type MonoTagTone = "outline" | "fill" | "ink";
 
 /**
- * The signature Pivot microlabel — JetBrains Mono, uppercase, pill.
+ * The signature Pivot microlabel — Inter, uppercase, pill.
  * Used for intent tags (ALERT / BACKTEST / AGENT), card categories,
  * trigger kinds on agent cards.
  */

@@ -9,7 +9,7 @@
  *   display  — Newsreader serif, weight 400–550, letter-spacing −0.04em,
  *              italic spans render in muted grey (--text-secondary side)
  *   ui       — Inter, −0.025em on titles, 13–15px body
- *   labels   — JetBrains Mono, 10.5–11px, uppercase, +0.08em tracking
+ *   labels   — Inter, 10.5–11px, uppercase, +0.08em tracking
  *   color    — monochrome ink/paper; the ONLY hue on the surface is the
  *              profit/loss/warn semantic set
  *   geometry — pill (9999px) for actions & tags, 16px for cards
@@ -181,7 +181,7 @@ export function Eyebrow({
 export type MonoTagTone = "outline" | "fill" | "ink";
 
 /**
- * The signature Pivot microlabel — JetBrains Mono, uppercase, pill.
+ * The signature Pivot microlabel — Inter, uppercase, pill.
  * Used for intent tags (ALERT / BACKTEST / AGENT), card categories,
  * trigger kinds on agent cards.
  */
@@ -434,9 +434,9 @@ export function Delta({
 }
 
 /**
- * Numeric figure — prices, NAVs, levels. Set in the machine face
- * (--font-numeric → JetBrains Mono): inherently tabular, and it gives
- * every number on the surface the terminal voice.
+ * Numeric figure — prices, NAVs, levels. Set in the UI face
+ * (--font-numeric → Inter) with `tabular-nums` for column alignment,
+ * so figures share the interface voice instead of a second family.
  */
 export function Figure({
   size = 15,
@@ -456,6 +456,7 @@ export function Figure({
       className={className}
       style={{
         fontFamily: "var(--font-numeric)",
+        fontVariantNumeric: "tabular-nums",
         fontWeight: weight,
         fontSize: size,
         letterSpacing: "-0.03em",

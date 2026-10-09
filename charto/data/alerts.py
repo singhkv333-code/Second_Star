@@ -1660,6 +1660,9 @@ def enforce_caps(uid: int) -> dict:
     Pauses, never deletes: the newest alerts over each cap are paused with a
     note saying why, and expiries past the plan's horizon are brought in. An
     upgrade later lets the user re-arm every one of them unchanged."""
+    if not ent.paywall_enabled():
+        # Paywall off: no caps to enforce, so nothing is paused or clamped.
+        return {"paused": [], "expiry_clamped": 0}
     paused, clamped = [], 0
     with ds._users_lock:
         rows = _db().execute("SELECT id, spec, expires FROM alerts WHERE "

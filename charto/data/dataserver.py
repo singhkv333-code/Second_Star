@@ -22,6 +22,7 @@ Run:  python3 charto/data/dataserver.py   (from repo root; port 5174)
 from __future__ import annotations
 
 import hashlib
+import html
 from collections import OrderedDict
 import hmac
 import http.client
@@ -6590,10 +6591,37 @@ def _patterns_card(interval: str, bars: int, window: str, struct: dict | None,
             if isinstance(v, (int, float)) and not isinstance(v, bool):
                 measure = {"label": label, "value": round(float(v), 2)}
                 break
+        # A flag/pennant carries enough geometry to draw the shape to scale —
+        # the pole's two ends, the consolidation box, and the measured-move
+        # target — and the hero card renders that as a schematic rather than a
+        # single glyph. Forwarded ONLY when every value is real; a diagram with
+        # a guessed coordinate would violate the same rule prose does. Every
+        # number here is the detector's; nothing is derived in this card.
+        #
+        # The flag's pole/box facts are the detector's `points` payload
+        # (patterns.py `add(..., facts, ...)` lands them under "points"); the
+        # measured-move target is a top-level key. Read each from where the
+        # detector actually put it.
+        geo = None
+        _pat = str(p.get("pattern") or "")
+        if "flag" in _pat or "pennant" in _pat:
+            _pts = p.get("points") if isinstance(p.get("points"), dict) else {}
+            _g = {
+                "pole_from": _pts.get("pole_from"),
+                "pole_to": _pts.get("pole_to"),
+                "flag_high": _pts.get("flag_high"),
+                "flag_low": _pts.get("flag_low"),
+                "measured_move": p.get("measured_move"),
+            }
+            if all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                   for v in _g.values()):
+                _g["kind"] = "flag"
+                geo = _g
+
         tiles.append({
             "id": p.get("id"), "name": _pattern_title(p.get("pattern", "")),
             "from": p.get("from"), "to": p.get("to"),
-            "bias": p.get("direction"), "measure": measure,
+            "bias": p.get("direction"), "measure": measure, "geo": geo,
             "strength": _pattern_strength(p, edges),
             "status": _STATUS_WORD.get(str(p.get("status") or ""), "unresolved"),
             "broke_at": p.get("broke_at"),
@@ -11216,7 +11244,7 @@ def _cx_series(q: dict, headers) -> tuple[int, dict]:
     except ValueError:
         return 400, {"error": "bad limit"}
     if interval in INTRADAY_MIN:
-        depth = _ent.value(me[0], "chart.history_bars")
+        depth = _ent.value(me[0], "chart.history_bars") if _ent.paywall_enabled() else None
         if depth is not None:
             limit = min(limit, depth)
     rows = _rows(interval, limit)
@@ -15140,7 +15168,8 @@ def _chart_lease(uid: int | None, client: str, body: dict) -> tuple[int, dict]:
     if not tab:
         return 400, {"error": "tab_id is required"}
     subject = _ent.subject_for(uid, client)
-    lim = _ent.value(uid, "chart.parallel")
+    # Paywall off: no cap, so no chart is ever evicted.
+    lim = _ent.value(uid, "chart.parallel") if _ent.paywall_enabled() else None
     now = time.time()
     with _leases_lock:
         held = {t: ts for t, ts in _leases.get(subject, {}).items()
@@ -15236,7 +15265,7 @@ def _bars_for_plan(uid: int | None, symbol: str, interval: str,
                    to: int | None, limit: int) -> dict:
     # Intraday only, as on TradingView: a daily chart shows the whole listed
     # history on every plan, and depth is what minute data costs to serve.
-    depth = _ent.value(uid, "chart.history_bars")
+    depth = _ent.value(uid, "chart.history_bars") if _ent.paywall_enabled() else None
     if depth is None or interval not in INTRADAY_MIN:
         return get_bars(symbol, interval, to, limit)
     if to is None:
@@ -16904,6 +16933,67 @@ class Handler(BaseHTTPRequestHandler):
         except _byok.Refused as exc:
             return self._send(exc.status, {"error": str(exc)}, headers=hdr)
 
+    def _share_page(self, token: str) -> None:
+        meta = _shares.preview(token) if _shares is not None else None
+        if not meta:
+            return self._send(404, {"error": "this setup is no longer shared"},
+                              headers={"Cache-Control": "no-store"})
+        host = self.headers.get("Host", "pivot-india.centralindia.cloudapp.azure.com")
+        # Host is client supplied; never let it inject markup or another domain.
+        if host != "pivot-india.centralindia.cloudapp.azure.com" and not re.fullmatch(r"(?:localhost|127\.0\.0\.1):\d{1,5}", host):
+            host = "pivot-india.centralindia.cloudapp.azure.com"
+        scheme = "https" if host == "pivot-india.centralindia.cloudapp.azure.com" else "http"
+        origin = f"{scheme}://{host}"
+        share_url = f"{origin}/share/{quote(token, safe='')}"
+        target = f"{origin}/chart-app/?{urlencode({'symbol': meta['symbol'], 'view': token})}"
+        title = f"{meta['title']} · Pivot"
+        description = (f"Shared by {meta['by']}. {meta['note'][:160].rstrip()}"
+                       if meta["note"] else
+                       f"{meta['by']} shared a {meta['symbol']} chart on Pivot" +
+                       (" with the conversation behind it." if meta["has_chat"] else "."))
+        image_url = (f"{share_url}/image.jpg?v={meta['updated']}" if meta["has_image"]
+                     else f"{origin}/assets/share-preview.jpg")
+        esc = lambda value: html.escape(value, quote=True)
+        body = f'''<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{esc(title)}</title><meta name="description" content="{esc(description)}">
+<link rel="canonical" href="{esc(share_url)}">
+<meta property="og:type" content="article"><meta property="og:site_name" content="Pivot">
+<meta property="og:title" content="{esc(title)}">
+<meta property="og:description" content="{esc(description)}">
+<meta property="og:url" content="{esc(share_url)}">
+<meta property="og:image" content="{esc(image_url)}">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Pivot shared research preview">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{esc(title)}">
+<meta name="twitter:description" content="{esc(description)}">
+<meta name="twitter:image" content="{esc(image_url)}">
+<script>location.replace({json.dumps(target)});</script></head>
+<body style="margin:0;background:#0d0d0e;color:#f7f6f1;font:16px Arial,sans-serif;display:grid;place-items:center;min-height:100vh">
+<main style="max-width:32rem;padding:2rem"><strong style="font-size:1.5rem">Pivot</strong>
+<h1>{esc(meta['title'])}</h1><p>{esc(description)}</p>
+<a style="color:#f7f6f1" href="{esc(target)}">Open the shared setup</a></main></body></html>'''.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _share_image(self, token: str) -> None:
+        body = _shares.preview_image(token) if _shares is not None else None
+        if body is None:
+            return self._send(404, {"error": "this preview is no longer shared"},
+                              headers={"Cache-Control": "no-store"})
+        self.send_response(200)
+        self.send_header("Content-Type", "image/jpeg")
+        self.send_header("Cache-Control", "public, max-age=86400")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def _send(self, code: int, payload: dict, *, max_age: int = 0,
               headers: dict[str, str] | None = None) -> None:
         body = json.dumps(payload).encode()
@@ -17286,6 +17376,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         u = urlparse(self.path)
         u = _strip_api_auth(u)
+        if u.path.startswith("/share/") and u.path.endswith("/image.jpg"):
+            return self._share_image(u.path[len("/share/"):-len("/image.jpg")])
+        if u.path.startswith("/share/"):
+            return self._share_page(u.path[len("/share/"):])
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
         symbol = canon_symbol(q.get("symbol", "RELIANCE"))
         _req.symbol = symbol
@@ -17619,7 +17713,8 @@ class Handler(BaseHTTPRequestHandler):
                 if interval in INTRADAY_MIN:
                     me = _auth_user(self.headers) if self.headers.get(
                         "Authorization") else None
-                    depth = _ent.value(me[0] if me else None, "chart.history_bars")
+                    depth = (_ent.value(me[0] if me else None, "chart.history_bars")
+                             if _ent.paywall_enabled() else None)
                     if depth is not None:
                         limit = min(limit, depth)
                 rows = _rows(interval, limit)
@@ -18579,7 +18674,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send_stream(messages, ctx, None)
                 finally:
                     _req.engine = None
-            if not _ent.CHARTO_GATES:
+            if not _ent.paywall_enabled():
                 # Pivot is the one paywall: its chat meters credits through
                 # /billing/consume, and the chart's chat is not a second meter.
                 if body.get("stream"):

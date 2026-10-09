@@ -39,6 +39,8 @@ import {
   Monitor,
   Moon,
   PieChart,
+  PanelLeftClose,
+  PanelLeftOpen,
   Pin,
   Plug,
   Plus,
@@ -814,7 +816,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
         }
         if (k === "b") {
           e.preventDefault();
-          setSidebarCollapsed((c) => !c);
+          if (isDesktop) setSidebarCollapsed((c) => !c);
           return;
         }
         if (e.shiftKey && k === "o") {
@@ -862,7 +864,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
       window.removeEventListener("keydown", onKey);
       clearChord();
     };
-  }, [goTab, startNewChat]);
+  }, [goTab, isDesktop, startNewChat]);
 
   return (
     <ActiveDraftContext.Provider value={activeDraftCtx}>
@@ -908,6 +910,9 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
           onOpenBroker={() => setBrokerPanelOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
           onOpenMobileNav={() => setMobileNavOpen(true)}
+          sidebarCollapsed={sidebarCollapsed}
+          isDesktop={isDesktop}
+          onToggleSidebar={() => setSidebarCollapsed((collapsed) => !collapsed)}
           onBrandClick={() => goTab("home")}
           onLogout={async () => {
             await logoutUser();
@@ -1174,6 +1179,9 @@ function TopHeader({
   onOpenBroker,
   onOpenSettings,
   onOpenMobileNav,
+  sidebarCollapsed,
+  isDesktop,
+  onToggleSidebar,
   onBrandClick,
   onLogout,
   onOpenShortcuts,
@@ -1188,6 +1196,9 @@ function TopHeader({
   onOpenBroker: () => void;
   onOpenSettings: () => void;
   onOpenMobileNav: () => void;
+  sidebarCollapsed: boolean;
+  isDesktop: boolean;
+  onToggleSidebar: () => void;
   onBrandClick: () => void;
   onLogout: () => void;
   onOpenShortcuts: () => void;
@@ -1296,6 +1307,9 @@ function TopHeader({
           onLogout={onLogout}
           onOpenShortcuts={onOpenShortcuts}
           onReportBug={onReportBug}
+          sidebarCollapsed={sidebarCollapsed}
+          isDesktop={isDesktop}
+          onToggleSidebar={onToggleSidebar}
         />
       </div>
     </header>
@@ -1321,6 +1335,9 @@ function AccountMenu({
   onLogout,
   onOpenShortcuts,
   onReportBug,
+  sidebarCollapsed,
+  isDesktop,
+  onToggleSidebar,
 }: {
   theme: Theme;
   onChooseTheme: (t: Theme) => void;
@@ -1332,6 +1349,9 @@ function AccountMenu({
   onLogout: () => void;
   onOpenShortcuts: () => void;
   onReportBug: () => void;
+  sidebarCollapsed: boolean;
+  isDesktop: boolean;
+  onToggleSidebar: () => void;
 }): React.ReactElement {
   const [open, setOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -1476,6 +1496,14 @@ function AccountMenu({
               onOpenSettings();
             }}
           />
+          {isDesktop && (
+            <MenuItem
+              icon={sidebarCollapsed ? PanelLeftOpen : PanelLeftClose}
+              label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              testId="menu-toggle-sidebar"
+              onClick={() => { setOpen(false); onToggleSidebar(); }}
+            />
+          )}
           <div
             style={{ position: "relative" }}
             onMouseEnter={() => {

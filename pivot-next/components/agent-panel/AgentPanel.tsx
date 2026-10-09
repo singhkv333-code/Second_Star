@@ -229,7 +229,7 @@ export function AgentPanel({
         className={cn(
           // Covers full height and sits above content. The mobile/tablet
           // overrides (100vw / 50vw) live in globals.css.
-          "agent-panel-shell fixed bottom-0 right-0 z-50 flex border-l bg-background shadow-xl",
+          "agent-panel-shell fixed bottom-0 right-0 z-50 flex border-l border-border bg-background shadow-xl",
         )}
         data-testid="agent-panel"
       >
@@ -240,25 +240,9 @@ export function AgentPanel({
             aria-label="Resize agent panel"
             aria-orientation="vertical"
             onMouseDown={onHandleMouseDown}
-            className={cn(
-              "agent-panel-resize-handle",
-              "absolute left-0 top-0 z-10 flex h-full w-1.5 cursor-col-resize items-center justify-center",
-              "bg-transparent transition-colors hover:bg-primary/10 active:bg-primary/20",
-              // Subtle grip dots visible on hover
-              "group",
-            )}
+            className="agent-panel-resize-handle absolute left-0 top-0 z-10 h-full w-1.5 cursor-col-resize bg-transparent"
             data-testid="agent-panel-resize-handle"
-          >
-            {/* Three faint dots as a grip affordance */}
-            <span
-              aria-hidden="true"
-              className="flex flex-col gap-[3px] opacity-0 transition-opacity group-hover:opacity-60"
-            >
-              <span className="h-[3px] w-[3px] rounded-full bg-muted-foreground" />
-              <span className="h-[3px] w-[3px] rounded-full bg-muted-foreground" />
-              <span className="h-[3px] w-[3px] rounded-full bg-muted-foreground" />
-            </span>
-          </div>
+          />
         )}
 
         <div className="flex h-full w-full flex-col">
