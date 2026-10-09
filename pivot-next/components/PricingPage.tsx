@@ -2,212 +2,220 @@
 
 /* The pricing / upgrade page for pivot-next.
  *
- * A real route (/pricing) that renders inside the app's own AppShell — the
- * topbar and sidebar stay, the content scrolls in the main pane. NOT an
- * overlay. The layout follows the ChatGPT model: each plan is a tall card that
- * carries its OWN full feature list, one icon per row, under a short group
- * label — no separate comparison table. Every colour, radius and easing comes
- * from the app's tokens (globals.css), so it reads as a room in this product.
+ * A full-screen overlay (/pricing) on its own backdrop, OVER the app, with a
+ * close button and Esc to dismiss. The layout follows Typeform's pricing page:
+ * a large serif headline, the billing toggle above the cards, three centred
+ * plan cards (name, line, serif price, saving, CTA, then a hairline-ruled
+ * checklist), a full "Compare all plans" matrix with a sticky price header,
+ * and an FAQ accordion. Every colour, radius and easing comes from the app's
+ * tokens (globals.css), so it reads as a room in this product.
  *
- * ONE source of truth: PLANS holds the prices and the per-card feature lists.
- * Change a limit here and the card moves with it; nothing is written twice.
+ * ONE source of truth: MATRIX holds every limit. The cards reference its rows
+ * by id, so a limit changed there moves the card and the comparison together.
  */
 
 import * as React from "react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  Check,
-  Sparkles,
-  Zap,
-  Crown,
-  ArrowUpRight,
-  Brain,
-  Sparkle,
-  Bell,
-  BellRing,
-  TrendingUp,
-  LineChart,
-  Layers,
-  Columns3,
-  Clock,
-  ShieldOff,
-  Infinity as InfinityIcon,
-  Filter,
-  Database,
-  ListChecks,
-  Star,
-  X,
-} from "lucide-react";
+import { Check, ChevronDown, Minus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-type IconType = React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
+type PlanId = "free" | "pro" | "proplus";
+type Cell = number | string | boolean; // true = included, false = not included
 
-// A feature line inside a card: an icon, a label, and the value this plan gets
-// (a string shown after the label, or a plain included-tick when there is no
-// number to show).
-type Feature = { icon: IconType; label: string; value?: string };
-type FeatureGroup = { heading: string; items: Feature[] };
+type Row = {
+  id: string;
+  label: string;
+  values: [Cell, Cell, Cell]; // free, pro, pro+
+  // How a card states this row, e.g. "150 monthly AI credits". Rows a card
+  // never quotes can leave it out.
+  phrase?: (v: Cell) => string;
+};
+type Group = { group: string; rows: Row[] };
+
+const n = (v: Cell): string => (typeof v === "number" ? v.toLocaleString("en-IN") : String(v));
+
+// ── the feature matrix ───────────────────────────────────────
+// Transcribed from the source table, in the order the product groups them.
+const MATRIX: Group[] = [
+  {
+    group: "AI",
+    rows: [
+      { id: "credits", label: "Monthly AI credits", values: [150, 200, 500], phrase: (v) => `${n(v)} AI credits / month` },
+      { id: "summaries", label: "AI chart summaries", values: [10, "Unlimited", "Unlimited"], phrase: (v) => `${n(v)} AI chart summaries` },
+    ],
+  },
+  {
+    group: "Alerts",
+    rows: [
+      { id: "fundamental", label: "Fundamental alerts", values: [false, false, 500], phrase: (v) => `${n(v)} fundamental alerts` },
+      { id: "technical", label: "Technical alerts", values: [20, 100, 1000], phrase: (v) => `${n(v)} technical alerts` },
+      { id: "price", label: "Price alerts", values: [20, 400, 1000], phrase: (v) => `${n(v)} price alerts` },
+      { id: "watchlistAlerts", label: "Watchlist alerts", values: [false, true, true], phrase: () => "Watchlist alerts" },
+      { id: "multi", label: "Multi-condition alerts", values: [true, true, true], phrase: () => "Multi-condition alerts" },
+      { id: "expiry", label: "Alert expiry", values: ["2 months", "6 months", "Never"], phrase: (v) => (v === "Never" ? "Alerts never expire" : `Alerts last ${n(v)}`) },
+      { id: "screenAlerts", label: "Screen alerts", values: [3, 50, 75], phrase: (v) => `${n(v)} screen alerts` },
+    ],
+  },
+  {
+    group: "Charting",
+    rows: [
+      { id: "indicators", label: "Indicators", values: [5, 10, "All"], phrase: (v) => (v === "All" ? "Every indicator unlocked" : `${n(v)} indicators`) },
+      { id: "perTab", label: "Charts per tab", values: [4, 8, 8], phrase: (v) => `${n(v)} charts per tab` },
+      { id: "parallel", label: "Parallel charts", values: [10, 20, 50], phrase: (v) => `${n(v)} parallel charts` },
+      { id: "timeframes", label: "Custom time frames", values: [false, true, true], phrase: () => "Custom time frames" },
+      { id: "adFree", label: "Ad-free experience", values: [false, true, true], phrase: () => "Ad-free experience" },
+    ],
+  },
+  {
+    group: "Watchlists & screening",
+    rows: [
+      { id: "watchlists", label: "Watchlists", values: ["Unlimited", "Unlimited", "Unlimited"], phrase: () => "Unlimited watchlists" },
+      { id: "screens", label: "Saved screens", values: [5, 50, 50], phrase: (v) => `${n(v)} saved screens` },
+    ],
+  },
+];
+
+const ROWS: Record<string, Row> = Object.fromEntries(
+  MATRIX.flatMap((g) => g.rows).map((r) => [r.id, r]),
+);
 
 type Plan = {
-  id: "free" | "pro" | "proplus";
+  id: PlanId;
+  col: 0 | 1 | 2; // this plan's column in MATRIX
   name: string;
-  icon: IconType;
-  headline: string; // the big in-card line, e.g. "Try Pivot"
   tagline: string;
   monthly: number; // ₹ per month, billed monthly
   annual: number; // ₹ per month, billed annually
   cta: string;
   featured?: boolean;
-  groups: FeatureGroup[];
+  limits: string[]; // MATRIX row ids — the headline numbers
+  features: string[]; // MATRIX row ids, or a literal line ("Everything in Free")
 };
 
-// ── the three plans, each with its own feature list ──────────
-// Transcribed from the source table. A value of undefined = a plain tick
-// ("included"); a string = the limit shown after the label.
 const PLANS: Plan[] = [
   {
     id: "free",
+    col: 0,
     name: "Free",
-    icon: Sparkles,
-    headline: "Try Pivot",
     tagline: "Everything you need to chart, screen and learn the markets.",
     monthly: 0,
     annual: 0,
     cta: "Your current plan",
-    groups: [
-      {
-        heading: "Start with the basics",
-        items: [
-          { icon: Brain, label: "Monthly AI credits", value: "150" },
-          { icon: Sparkle, label: "AI chart summaries", value: "10" },
-          { icon: LineChart, label: "Indicators", value: "5" },
-          { icon: Bell, label: "Price & technical alerts", value: "20 each" },
-          { icon: ListChecks, label: "Multi-condition alerts" },
-          { icon: Clock, label: "Alert expiry", value: "2 months" },
-        ],
-      },
-      {
-        heading: "Charting & screening",
-        items: [
-          { icon: Columns3, label: "Charts per tab", value: "4" },
-          { icon: Layers, label: "Parallel charts", value: "10" },
-          { icon: Database, label: "Historical bars", value: "10K" },
-          { icon: Filter, label: "Screen alerts", value: "3" },
-          { icon: Star, label: "Saved screens", value: "5" },
-          { icon: InfinityIcon, label: "Unlimited watchlists" },
-        ],
-      },
-    ],
+    limits: ["credits", "summaries"],
+    features: ["indicators", "technical", "price", "multi", "watchlists", "screens"],
   },
   {
     id: "pro",
+    col: 1,
     name: "Pro",
-    icon: Zap,
-    headline: "Your edge, upgraded",
-    tagline: "Deeper alerts, unlimited AI summaries and the full indicator set.",
+    tagline: "Deeper alerts, unlimited AI summaries and more room on the chart.",
     monthly: 499,
     annual: 449,
-    cta: "Upgrade to Pro",
+    cta: "Get Pro",
     featured: true,
-    groups: [
-      {
-        heading: "Everything in Free, plus",
-        items: [
-          { icon: Brain, label: "Monthly AI credits", value: "200" },
-          { icon: Sparkle, label: "AI chart summaries", value: "Unlimited" },
-          { icon: LineChart, label: "Indicators", value: "10" },
-          { icon: BellRing, label: "Technical alerts", value: "100" },
-          { icon: Bell, label: "Price alerts", value: "400" },
-          { icon: Clock, label: "Alert expiry", value: "6 months" },
-        ],
-      },
-      {
-        heading: "More power",
-        items: [
-          { icon: Columns3, label: "Charts per tab", value: "8" },
-          { icon: Layers, label: "Parallel charts", value: "20" },
-          { icon: Filter, label: "Screen alerts", value: "50" },
-          { icon: Star, label: "Saved screens", value: "50" },
-          { icon: Check, label: "Watchlist alerts" },
-          { icon: ShieldOff, label: "Ad-free experience" },
-        ],
-      },
-    ],
+    limits: ["credits", "summaries"],
+    features: ["Everything in Free", "indicators", "price", "watchlistAlerts", "timeframes", "adFree"],
   },
   {
     id: "proplus",
+    col: 2,
     name: "Pro+",
-    icon: Crown,
-    headline: "Maximum limits",
     tagline: "The highest limits across alerts, screening and parallel charts.",
     monthly: 999,
     annual: 899,
-    cta: "Upgrade to Pro+",
-    groups: [
-      {
-        heading: "Everything in Pro, plus",
-        items: [
-          { icon: Brain, label: "Monthly AI credits", value: "500" },
-          { icon: LineChart, label: "All indicators", value: "Unlocked" },
-          { icon: TrendingUp, label: "Fundamental alerts", value: "500" },
-          { icon: BellRing, label: "Technical alerts", value: "1,000" },
-          { icon: Bell, label: "Price alerts", value: "1,000" },
-          { icon: Clock, label: "Alerts never expire" },
-        ],
-      },
-      {
-        heading: "The ceiling, raised",
-        items: [
-          { icon: Columns3, label: "Charts per tab", value: "8" },
-          { icon: Layers, label: "Parallel charts", value: "50" },
-          { icon: Filter, label: "Screen alerts", value: "75" },
-          { icon: Star, label: "Saved screens", value: "50" },
-          { icon: Check, label: "Watchlist alerts" },
-          { icon: ShieldOff, label: "Ad-free experience" },
-        ],
-      },
-    ],
+    cta: "Get Pro+",
+    limits: ["credits", "summaries"],
+    features: ["Everything in Pro", "indicators", "fundamental", "technical", "parallel", "expiry"],
   },
 ];
 
-const inr = (n: number): string => "₹" + n.toLocaleString("en-IN");
-const savePct = (p: Plan): number =>
-  p.monthly > 0 ? Math.round((1 - p.annual / p.monthly) * 100) : 0;
+const FAQ: { q: string; a: string }[] = [
+  {
+    q: "What's included in the free plan?",
+    a: "150 AI credits a month, 10 AI chart summaries, 5 indicators, 20 price and 20 technical alerts, multi-condition alerts, unlimited watchlists and 5 saved screens. It is free forever.",
+  },
+  {
+    q: "What is the difference between Pro and Pro+?",
+    a: "Both include unlimited AI chart summaries, watchlist alerts, custom time frames and an ad-free experience. Pro+ raises every ceiling: 500 AI credits, every indicator, 500 fundamental alerts, 1,000 technical and price alerts, 50 parallel charts, and alerts that never expire.",
+  },
+  {
+    q: "Can I upgrade, downgrade or cancel?",
+    a: "Yes. You can change or cancel your plan at any time.",
+  },
+  {
+    q: "Do I save by paying yearly?",
+    a: "Yes. Yearly billing is about 10% cheaper: ₹449 a month for Pro (₹600 saved over a year) and ₹899 a month for Pro+ (₹1,200 saved over a year).",
+  },
+  {
+    q: "Are prices inclusive of taxes?",
+    a: "Yes. All prices are in INR and include applicable taxes.",
+  },
+  {
+    q: "Does Pivot place real trades?",
+    a: "No. Pivot builds, backtests and simulates strategies in a paper book. It does not place live broker orders, and nothing on Pivot is financial advice.",
+  },
+];
 
-function PriceBlock({ plan, annual }: { plan: Plan; annual: boolean }): React.ReactElement {
-  if (plan.monthly === 0) {
-    return (
-      <div key="free" className="pricing-price">
-        <div className="pricing-amount">
-          <span className="pricing-cur">₹</span>
-          <span className="pricing-num">0</span>
-          <span className="pricing-per">/ month</span>
-        </div>
-        <div className="pricing-period">Free forever</div>
-      </div>
-    );
-  }
-  const perMonth = annual ? plan.annual : plan.monthly;
-  const sub = annual
-    ? `${inr(plan.annual * 12)} billed yearly`
-    : `Billed monthly · ${inr(plan.annual)}/mo annually`;
+const inr = (v: number): string => "₹" + v.toLocaleString("en-IN");
+
+function BillingToggle({
+  annual,
+  onChange,
+}: {
+  annual: boolean;
+  onChange: (annual: boolean) => void;
+}): React.ReactElement {
   return (
-    // key on the period so React remounts → the CSS fade-in restarts on switch
-    <div key={annual ? "annual" : "monthly"} className="pricing-price pricing-fade">
-      <div className="pricing-amount">
-        <span className="pricing-cur">₹</span>
-        <span className="pricing-num">{perMonth.toLocaleString("en-IN")}</span>
-        <span className="pricing-per">/ month</span>
-      </div>
-      <div className="pricing-period">{sub}</div>
+    <div className="pricing-toggle" role="group" aria-label="Billing period">
+      <button
+        type="button"
+        className={cn("pricing-seg", !annual && "pricing-seg--active")}
+        aria-pressed={!annual}
+        onClick={() => onChange(false)}
+      >
+        Monthly
+      </button>
+      <button
+        type="button"
+        className={cn("pricing-seg", annual && "pricing-seg--active")}
+        aria-pressed={annual}
+        onClick={() => onChange(true)}
+      >
+        Yearly (Save 10%)
+      </button>
     </div>
   );
 }
 
+// The serif price figure: "₹449/mo". Keyed on the period so the fade restarts.
+function Price({ plan, annual, size }: { plan: Plan; annual: boolean; size: "lg" | "sm" }): React.ReactElement {
+  const perMonth = annual ? plan.annual : plan.monthly;
+  return (
+    <span key={annual ? "y" : "m"} className={cn("pricing-price", `pricing-price--${size}`, "pricing-fade")}>
+      {inr(perMonth)}
+      {size === "lg" ? <span className="pricing-per">/mo</span> : null}
+    </span>
+  );
+}
+
+function priceNote(plan: Plan, annual: boolean): { text: string; save: boolean } {
+  if (plan.monthly === 0) return { text: "Free forever", save: false };
+  if (annual) return { text: `Save ${inr((plan.monthly - plan.annual) * 12)} /yr`, save: true };
+  return { text: "Billed monthly", save: false };
+}
+
+function CellValue({ v }: { v: Cell }): React.ReactElement {
+  if (v === true) return <Check size={17} strokeWidth={2} aria-label="Included" />;
+  if (v === false) return <Minus size={16} strokeWidth={1.8} className="pricing-cell-no" aria-label="Not included" />;
+  return <>{n(v)}</>;
+}
+
 export function PricingPage(): React.ReactElement {
   const router = useRouter();
-  const [annual, setAnnual] = useState(false);
+  const [annual, setAnnual] = useState(true);
+  const [openFaq, setOpenFaq] = useState<number | null>(0);
+  const compareRef = React.useRef<HTMLElement>(null);
 
   // Close the overlay → go back to wherever the user opened it from, falling
   // back to home if /pricing was opened directly.
@@ -218,13 +226,10 @@ export function PricingPage(): React.ReactElement {
 
   // The checkout gateway is a business decision; this is the single hook for
   // wiring it later. The Free plan simply returns to the app.
-  const onUpgrade = React.useCallback(
-    (planId: Plan["id"]): void => {
-      if (planId === "free") close();
-      // else: open the payment gateway here.
-    },
-    [close],
-  );
+  const onUpgrade = (planId: PlanId): void => {
+    if (planId === "free") close();
+    // else: open the payment gateway here.
+  };
 
   // Esc closes, like any full-screen modal.
   React.useEffect(() => {
@@ -235,81 +240,12 @@ export function PricingPage(): React.ReactElement {
     return () => document.removeEventListener("keydown", onKey);
   }, [close]);
 
-  const cards = useMemo(
-    () =>
-      PLANS.map((plan) => {
-        const Icon = plan.icon;
-        const pct = savePct(plan);
-        return (
-          <article
-            key={plan.id}
-            className={cn("pricing-card", plan.featured && "pricing-card--featured")}
-          >
-            {/* head: name + optional "recommended" flag */}
-            <div className="pricing-card-top">
-              <span className="pricing-mark" data-plan={plan.id}>
-                <Icon size={16} strokeWidth={2} />
-              </span>
-              <span className="pricing-name">{plan.name}</span>
-              {plan.featured ? <span className="pricing-reco">Recommended</span> : null}
-            </div>
+  const seeAll = (): void => compareRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
 
-            <h2 className="pricing-headline">{plan.headline}</h2>
-            <p className="pricing-tag">{plan.tagline}</p>
-
-            <PriceBlock plan={plan} annual={annual} />
-            {annual && pct > 0 ? (
-              <span className="pricing-save">Save {pct}% billed annually</span>
-            ) : (
-              <span className="pricing-save pricing-save--ghost" aria-hidden="true" />
-            )}
-
-            <button
-              type="button"
-              onClick={() => onUpgrade(plan.id)}
-              className={cn(
-                "pricing-cta",
-                plan.id === "free"
-                  ? "pricing-cta--ghost"
-                  : plan.featured
-                    ? "pricing-cta--primary"
-                    : "pricing-cta--dark",
-              )}
-              disabled={plan.id === "free"}
-            >
-              {plan.cta}
-              {plan.id !== "free" ? <ArrowUpRight size={15} strokeWidth={2.2} /> : null}
-            </button>
-
-            {/* the feature list, grouped, one icon per row */}
-            <div className="pricing-features">
-              {plan.groups.map((grp) => (
-                <React.Fragment key={grp.heading}>
-                  <div className="pricing-group-heading">{grp.heading}</div>
-                  <ul className="pricing-feature-list">
-                    {grp.items.map((f) => {
-                      const FI = f.icon;
-                      return (
-                        <li key={f.label}>
-                          <span className="pricing-feature-icon">
-                            <FI size={17} strokeWidth={1.9} />
-                          </span>
-                          <span className="pricing-feature-label">{f.label}</span>
-                          {f.value ? (
-                            <span className="pricing-feature-value">{f.value}</span>
-                          ) : null}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </React.Fragment>
-              ))}
-            </div>
-          </article>
-        );
-      }),
-    [annual, onUpgrade],
-  );
+  const line = (plan: Plan, key: string): string => {
+    const row = ROWS[key];
+    return row?.phrase ? row.phrase(row.values[plan.col]) : key;
+  };
 
   return (
     <div className="pricing-overlay" role="dialog" aria-modal="true" aria-label="Plans and pricing">
@@ -318,41 +254,146 @@ export function PricingPage(): React.ReactElement {
       </button>
       <div className="pricing-overlay-scroll">
         <div className="pricing-page">
-          {/* hero */}
-          <header className="pricing-hero">
-        <span className="pricing-eyebrow">Plans &amp; pricing</span>
-        <h1 className="pricing-title">Choose the plan that fits your workflow</h1>
-        <p className="pricing-sub">
-          Start free and upgrade when you need more alerts, AI and room on the chart. This is plan
-          information, not financial advice.
-        </p>
-        <div className="pricing-toggle" role="group" aria-label="Billing period">
-          <button
-            type="button"
-            className={cn("pricing-seg", !annual && "pricing-seg--active")}
-            aria-pressed={!annual}
-            onClick={() => setAnnual(false)}
-          >
-            Monthly
-          </button>
-          <button
-            type="button"
-            className={cn("pricing-seg", annual && "pricing-seg--active")}
-            aria-pressed={annual}
-            onClick={() => setAnnual(true)}
-          >
-            Annual
-            <span className="pricing-seg-badge">Save 10%</span>
-          </button>
-        </div>
-      </header>
+          <h1 className="pricing-title">Chart it, test it, run it</h1>
 
-          {/* the three cards, each carrying its own feature list */}
-          <div className="pricing-grid">{cards}</div>
+          {/* the bar above the cards: billing on the left, the boundary on the right */}
+          <div className="pricing-bar">
+            <BillingToggle annual={annual} onChange={setAnnual} />
+            <div className="pricing-strip">
+              <span className="pricing-strip-name">Paper trading</span>
+              <span className="pricing-strip-sep" aria-hidden="true" />
+              <span className="pricing-strip-text">Every plan simulates. Pivot never places live orders.</span>
+            </div>
+          </div>
+
+          {/* the three plan cards */}
+          <div className="pricing-grid">
+            {PLANS.map((plan) => {
+              const note = priceNote(plan, annual);
+              return (
+                <article
+                  key={plan.id}
+                  className={cn("pricing-card", plan.featured && "pricing-card--featured")}
+                >
+                  {plan.featured ? <span className="pricing-flag">Recommended</span> : null}
+                  <div className="pricing-card-head">
+                    <h2 className="pricing-name">{plan.name}</h2>
+                    <p className="pricing-tag">{plan.tagline}</p>
+                    <Price plan={plan} annual={annual} size="lg" />
+                    <span className={cn("pricing-note", note.save && "pricing-note--save")}>{note.text}</span>
+                    <button
+                      type="button"
+                      onClick={() => onUpgrade(plan.id)}
+                      className={cn("pricing-cta", plan.id === "free" && "pricing-cta--current")}
+                      disabled={plan.id === "free"}
+                    >
+                      {plan.cta}
+                    </button>
+                  </div>
+
+                  <ul className="pricing-list">
+                    {plan.limits.map((k) => (
+                      <li key={k}>
+                        <Check size={16} strokeWidth={2} />
+                        {line(plan, k)}
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="pricing-list-heading">Features you&apos;ll love:</div>
+                  <ul className="pricing-list">
+                    {plan.features.map((k) => (
+                      <li key={k}>
+                        <Check size={16} strokeWidth={2} />
+                        {line(plan, k)}
+                      </li>
+                    ))}
+                  </ul>
+
+                  <button type="button" className="pricing-seeall" onClick={seeAll}>
+                    See all features
+                  </button>
+                </article>
+              );
+            })}
+          </div>
+
+          <p className="pricing-aside">
+            Prices in INR, inclusive of applicable taxes. Cancel or change your plan anytime.
+          </p>
+
+          {/* ── compare all plans ─────────────────────────────── */}
+          <section ref={compareRef} className="pricing-compare" aria-labelledby="pricing-compare-title">
+            <h2 id="pricing-compare-title" className="pricing-h2">Compare all plans</h2>
+
+            <div className="pricing-matrix">
+              <div className="pricing-matrix-head">
+                <div className="pricing-matrix-toggle">
+                  <BillingToggle annual={annual} onChange={setAnnual} />
+                </div>
+                {PLANS.map((plan) => (
+                  <div key={plan.id} className="pricing-matrix-plan">
+                    <span className="pricing-matrix-name">{plan.name}</span>
+                    <Price plan={plan} annual={annual} size="sm" />
+                    <span className="pricing-matrix-per">
+                      {plan.monthly === 0 ? "free forever" : "per month"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onUpgrade(plan.id)}
+                      className="pricing-cta-sm"
+                      disabled={plan.id === "free"}
+                    >
+                      {plan.id === "free" ? "Current plan" : plan.cta}
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              {MATRIX.map((g) => (
+                <div key={g.group} className="pricing-matrix-group">
+                  <h3 className="pricing-matrix-group-title">{g.group}</h3>
+                  {g.rows.map((r) => (
+                    <div key={r.id} className="pricing-matrix-row">
+                      <div className="pricing-matrix-label">{r.label}</div>
+                      {r.values.map((v, i) => (
+                        <div key={i} className="pricing-matrix-cell">
+                          <CellValue v={v} />
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* ── FAQ ───────────────────────────────────────────── */}
+          <section className="pricing-faq" aria-labelledby="pricing-faq-title">
+            <h2 id="pricing-faq-title" className="pricing-h2">Frequently asked questions</h2>
+            <div className="pricing-faq-list">
+              {FAQ.map((item, i) => {
+                const open = openFaq === i;
+                return (
+                  <div key={item.q} className={cn("pricing-faq-item", open && "pricing-faq-item--open")}>
+                    <button
+                      type="button"
+                      className="pricing-faq-q"
+                      aria-expanded={open}
+                      onClick={() => setOpenFaq(open ? null : i)}
+                    >
+                      <span>{item.q}</span>
+                      <ChevronDown size={20} strokeWidth={2} className="pricing-faq-chev" />
+                    </button>
+                    {open ? <p className="pricing-faq-a">{item.a}</p> : null}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
 
           <p className="pricing-foot">
-            Prices in INR, inclusive of applicable taxes. Cancel or change your plan anytime. Pivot
-            builds and simulates — it does not place live broker orders.
+            This is plan information, not financial advice. Pivot builds and simulates strategies; it
+            does not place live broker orders.
           </p>
         </div>
       </div>
