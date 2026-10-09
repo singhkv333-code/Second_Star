@@ -1,0 +1,14 @@
+[Unit]
+Description=Poll the production-live branch every minute
+
+[Timer]
+OnBootSec=2min
+# Counted from the END of the previous run, so a 10-minute build is never
+# overlapped by the next poll.
+OnUnitInactiveSec=60
+RandomizedDelaySec=10
+AccuracySec=1s
+Unit=pivot-release.service
+
+[Install]
+WantedBy=timers.target

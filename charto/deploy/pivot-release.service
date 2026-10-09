@@ -1,0 +1,18 @@
+[Unit]
+Description=Pivot: deploy the production-live branch if it moved
+Documentation=file:///usr/local/lib/pivot-release/pivot_release.py
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Installed deliberately, never pulled from the branch it deploys: a bad
+# commit can break the site (and roll itself back), but not the deployer.
+ExecStart=/usr/bin/python3 /usr/local/lib/pivot-release/pivot_release.py
+# A Next build is the long pole (~5-10 min each, two apps).
+TimeoutStartSec=3600
+Nice=5
+# Journal only: the idle poll prints nothing, so `journalctl -u pivot-release`
+# reads as a list of real deploys and their rollbacks.
+StandardOutput=journal
+StandardError=journal
