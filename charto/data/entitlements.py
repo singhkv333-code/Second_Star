@@ -47,9 +47,17 @@ from __future__ import annotations
 import datetime as _dt
 import hashlib
 import json
+import os
 import threading
 import time
 from pathlib import Path
+
+# Pivot is the one paywall (2026-10-09). Pivot's chat meters AI credits through
+# POST /billing/consume, so `ai.credits` stays on the ledger. Charto's own gates
+# were a second paywall in the same shell — its chart-chat debit and its chart,
+# alert, screen and summary caps — and stay lifted unless CHARTO_PAYWALL=on.
+CHARTO_GATES = os.getenv("CHARTO_PAYWALL", "").strip().lower() == "on"
+PIVOT_METERED = frozenset({"ai.credits"})
 
 CATALOG_PATH = Path(__file__).with_name("plans_catalog.json")
 IST = _dt.timezone(_dt.timedelta(hours=5, minutes=30))
@@ -269,6 +277,10 @@ def value(uid: int | None, feature: str, plan: str | None = None):
     """What `feature` is worth for this user: bool, int, None (unlimited), or
     for a quota the {limit, window} it is metered on."""
     f = CATALOG["features"][feature]
+    if not CHARTO_GATES and feature not in PIVOT_METERED:
+        if f["kind"] == "quota":
+            return {"limit": None, "window": f["window"]}
+        return True if f["kind"] == "flag" else None
     plan = plan or plan_of(uid)
     v = _raw(f, plan)
     if uid:

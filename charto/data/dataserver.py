@@ -18579,6 +18579,12 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send_stream(messages, ctx, None)
                 finally:
                     _req.engine = None
+            if not _ent.CHARTO_GATES:
+                # Pivot is the one paywall: its chat meters credits through
+                # /billing/consume, and the chart's chat is not a second meter.
+                if body.get("stream"):
+                    return self._send_stream(messages, ctx, None)
+                return self._send(200, llm_chat(messages, ctx))
             try:
                 credit = _ent.consume(uid, "ai.credits", turn, 1, client=client,
                                       meta=_req.chat_mode)
