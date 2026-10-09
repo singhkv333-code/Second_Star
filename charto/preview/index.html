@@ -962,6 +962,33 @@ select.is-dressed { display: none; }
   .ctx, .dropdown { background: var(--menu-bg); }
 }
 
+/* ── the liquid sheet ────────────────────────────────────────────────────
+   One look for every menu and popover (.dropdown and .ctx both): a lighter
+   frosted grey, a soft rim, 16px corners, rounded hover rows and separators
+   inset to the text. In dark every word on the sheet is white — titles,
+   section heads and hints included — so the muted/faint inks are re-pointed
+   at white INSIDE the sheet, and every component inherits it unedited.
+   Light keeps its dark ink: white text on white glass would not read. */
+:root[data-theme="dark"] {
+  --ctx-paper: rgba(54, 54, 57, .80);
+  --ctx-rim: rgba(255, 255, 255, .10);
+  --ctx-sheen: rgba(255, 255, 255, .09);
+  --ctx-sheen-low: rgba(255, 255, 255, .03);
+  --ctx-ink-2: #fff;
+  --ctx-ink-3: #fff;
+  --ctx-seam: rgba(255, 255, 255, .11);
+  --ctx-hover: rgba(255, 255, 255, .09);
+}
+:root[data-theme="dark"] :is(.dropdown, .ctx) {
+  --muted-foreground: #fff; --faint: #fff; --foreground: #fff; color: #fff;
+}
+.dropdown, .ctx { border-radius: 16px; }
+.dropdown .item, .ctx-row { border-radius: 10px; }
+.dropdown .item:hover { background: var(--ctx-hover); }
+.dropdown .sep { background: var(--ctx-seam); margin: var(--menu-pad) var(--menu-inset); }
+.ctx-sep { margin: 5px 11px; }
+.dropdown .head { border-bottom-color: var(--ctx-seam); }
+
 /* ─── SAVED LAYOUTS ──────────────────────────────────────────────────────
    The named desk in the header, its menu, its dialogs. Built from the
    controls already in this file — .dropdown/.item for the menu, .dlg-input
@@ -7617,11 +7644,15 @@ svg.icon.op {
   #symbolPill:hover { background: var(--accent); }
   #symbolMenu { width: 360px; }
   #symbolMenu.open, .sym-picker.dropdown.floating.open {
+    /* Centred by margins, NOT translateX(-50%): every .dropdown.open runs
+       the drop-down keyframes, which animate `transform` and so replaced
+       the centring for their 0.2s — the picker opened with its left edge
+       at mid-screen and then jumped to the middle. */
     position: fixed !important; top: min(12vh, 100px) !important;
-    left: 50% !important; right: auto !important; bottom: auto !important;
-    transform: translateX(-50%); width: min(760px, calc(100vw - 24px)) !important;
+    left: 0 !important; right: 0 !important; bottom: auto !important;
+    margin-inline: auto; width: min(760px, calc(100vw - 24px)) !important;
     max-height: 76vh; z-index: 260 !important; padding: 0 !important;
-    border-radius: 10px; overflow: hidden;
+    border-radius: 16px; overflow: hidden;
   }
   .symbol-dialog-head { display: flex; justify-content: space-between; align-items: center; padding: 18px 22px 10px; }
   .symbol-dialog-head strong { color: var(--foreground); font-size: 19px; letter-spacing: -.02em; }
