@@ -2458,7 +2458,11 @@
     const alive = new Set();
     for (const id of ind.active.keys()) {
       const d = ind.CATALOG.find((c) => c.id === id);
-      if (d) alive.add(`${d.name}@${d.period}`);
+      // A detector may name the pane bare — get_divergences puts its
+      // oscillator leg on "rsi" — and a bare name means any period, as the
+      // autoscale reader below already treats it. Without it the leg was
+      // purged the moment its own pane opened.
+      if (d) { alive.add(`${d.name}@${d.period}`); alive.add(d.name); }
     }
     const dead = [...new Set(scene.state.items
       .map((a) => a.pane)
@@ -5214,67 +5218,32 @@
    * main chart otherwise (and for anything unstamped). */
   const wireIv = (iv) => ({ D: "1d", W: "1w", M: "1mo" })[iv] || String(iv || "");
 
-  /* A chat line the user can OWN.
-   *
-   * mark.py resolves a trendline's two addresses into real (t, v) anchors and
-   * emits it as a `segment` annotation. Left in the scene it is a read-only
-   * fact the chat drew; but a trendline is also exactly the geometry the rail's
-   * own `trend`/`ray`/`extended` tools produce. So when the shape has a manual
-   * twin, we hand it to the DRAWINGS layer instead — it gets a D-ref, saves to
-   * the user's store, shows in the layers panel and takes the full edit
-   * toolbar and undo, the same as a line dragged by hand. The only promotable
-   * kind today is the segment family; everything else stays a scene annotation,
-   * because it has no editable manual equivalent (a computed profile, markers)
-   * or is already a catalogued `drawing`. `extend` is mark.py's own field:
-   * "right" is a ray, "both" an extended line, anything else a plain trend. */
-  function promoteToDrawing(a) {
-    if (!a || a.kind !== "segment" || !a.p1 || !a.p2) return null;
-    const type = a.extend === "right" ? "ray"
-      : a.extend === "both" ? "extended"
-        : "trend";
-    return {
-      type,
-      pane: a.pane || "price",
-      pts: [{ t: a.p1.t, v: a.p1.v }, { t: a.p2.t, v: a.p2.v }],
-      ...(a.dashed ? { dash: [4, 4] } : {}),
-      origin: "chat",
-    };
-  }
-
   function applyScenePatch(patch) {
+    // Chat output stays in the SCENE, never the drawings store. A segment
+    // there is not a free-standing line: it is one piece of a detector's
+    // object — a pattern's edge beside its fill (`link`), a divergence's price
+    // leg paired with its oscillator leg, a trendline its own tool clears by
+    // `owner` before redrawing — and it speaks raw exchange time, which only
+    // the scene converts (env.toChartTime). Moving segments into Drawings
+    // (993dad43) dropped that conversion, so every anchor landed 5h30 early in
+    // an overnight gap and snapped to a session edge; it also split patterns,
+    // lost role colours, and stacked duplicates on every redraw.
     const groups = new Map();
-    // Which drawings runtime pairs with each scene the patch is routed to, so a
-    // promoted line lands on the same pane its scene annotation would have.
-    const drawFor = new Map([[scene, draw]]);
     for (const a of patch || []) {
       const c = a.chart || {};
       const sym = String(c.symbol || "").toUpperCase();
       const iv = wireIv(c.interval);
       let to = scene;
-      let toDraw = draw;
       if (sym && !(sym === SYMBOL && (!iv || iv === wireIv(state.interval)))) {
         const subs = Panes.all();
         const hit = subs.find((s) => s.symbol === sym && wireIv(s.interval) === iv)
           || (sym !== SYMBOL && subs.find((s) => s.symbol === sym));
-        if (hit) { to = hit.scene; toDraw = hit.draw || null; }
+        if (hit) to = hit.scene;
       }
-      drawFor.set(to, toDraw);
       if (!groups.has(to)) groups.set(to, []);
       groups.get(to).push(a);
     }
-    for (const [sc, items] of groups) {
-      const d = drawFor.get(sc);
-      // Promote what has an editable twin; everything else goes to the scene as
-      // before. A promotion is only attempted where a drawings runtime exists
-      // for that pane — a sub-pane without one keeps the scene annotation.
-      const rest = [];
-      for (const a of items) {
-        const spec = d ? promoteToDrawing(a) : null;
-        if (spec && d.add(spec)) continue;
-        rest.push(a);
-      }
-      if (rest.length) sc.apply(rest);
-    }
+    for (const [sc, items] of groups) sc.apply(items);
   }
 
   window.__charto = { chart, candle, state, draw, ind, scene, pins, applyScenePatch,

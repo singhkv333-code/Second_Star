@@ -1312,19 +1312,29 @@ def _trendlines(rows: list[tuple], window: int = 5, want: int = 6,
                     continue
                 # pierced = the line failed to contain price between anchors
                 up = role == "resistance"
-                pierce = sum(
-                    1 for k in range(i1, i2 + 1)
-                    if ((closes[k] > at(k) + tol) if up
-                        else (closes[k] < at(k) - tol)))
+                beyond = (lambda k: closes[k] > at(k) + tol) if up \
+                    else (lambda k: closes[k] < at(k) - tol)  # noqa: E731
+                pierce = sum(1 for k in range(i1, i2 + 1) if beyond(k))
                 if pierce > (i2 - i1) * 0.15:
+                    continue
+                # The 15% budget forgives scattered closes through a line; it
+                # also forgave a whole session spent on the far side, as long
+                # as the span was long enough to dilute it. RELIANCE 15m drew
+                # an "intact" support with 25 straight closes up to 30 rupees
+                # below it. A run that outlasts a swing (`window`, the same
+                # unit _pivots uses) is price living on the other side — the
+                # line broke there, and a line through it is a re-fit.
+                run = longest = 0
+                for k in range(i1, i2 + 1):
+                    run = run + 1 if beyond(k) else 0
+                    longest = max(longest, run)
+                if longest > window:
                     continue
                 # does it still matter? project to the last bar
                 now = at(n - 1)
                 # A fitted line does not become intact again just because
                 # price returned to its original side after breaking it.
-                broken = any((closes[k] > at(k) + tol) if up
-                             else (closes[k] < at(k) - tol)
-                             for k in range(i2 + 1, n))
+                broken = any(beyond(k) for k in range(i2 + 1, n))
                 cands.append({
                     "role": role, "i1": i1, "p1": round(p1, 2),
                     "i2": i2, "p2": round(p2, 2),
