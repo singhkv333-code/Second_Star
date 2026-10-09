@@ -3,8 +3,8 @@
 /* The pricing / upgrade page for pivot-next.
  *
  * A full-screen overlay (/pricing) on its own backdrop, OVER the app, with a
- * close button and Esc to dismiss. The layout follows Typeform's pricing page:
- * a large serif headline, the billing toggle above the cards, three centred
+ * close button and Esc to dismiss. Under the original hero, the layout
+ * follows Typeform's pricing page: the billing toggle above the cards, three centred
  * plan cards (name, line, serif price, saving, CTA, then a hairline-ruled
  * checklist) and a full "Compare all plans" matrix with a sticky price
  * header. Every colour, radius and easing comes from the app's
@@ -226,7 +226,14 @@ export function PricingPage(): React.ReactElement {
       </button>
       <div className="pricing-overlay-scroll">
         <div className="pricing-page">
-          <h1 className="pricing-title">Choose the plan that fits your workflow</h1>
+          <header className="pricing-hero">
+            <span className="pricing-eyebrow">Plans &amp; pricing</span>
+            <h1 className="pricing-title">Choose the plan that fits your workflow</h1>
+            <p className="pricing-sub">
+              Start free and upgrade when you need more alerts, AI and room on the chart. This is
+              plan information, not financial advice.
+            </p>
+          </header>
 
           {/* the bar above the cards: billing on the left */}
           <div className="pricing-bar">

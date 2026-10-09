@@ -2389,7 +2389,7 @@ body:has(.app-shell-root) {
 
    A full-viewport layer OVER the app (topbar and sidebar hidden behind it),
    with a close button top-right and Esc to dismiss. Laid out after Typeform's
-   pricing page: a large serif headline, the billing toggle above the cards,
+   pricing page under the original hero: the billing toggle above the cards,
    three centred cards on a soft grey ground, a "Compare all plans" matrix with
    a sticky price header. Every box is borderless except the Recommended
    card. Built only from the tokens above; the serif is the app's own
@@ -2426,12 +2426,21 @@ body:has(.app-shell-root) {
   margin: 0 auto; padding: 72px 0 64px;
 }
 
-/* ── headline ─────────────────────────────────────────────── */
+/* ── hero ─────────────────────────────────────────────────── */
+.pricing-hero { text-align: center; max-width: 640px; margin: 0 auto 48px; }
+.pricing-eyebrow {
+  display: inline-block;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 14px;
+}
 .pricing-title {
-  margin: 0 auto 64px; text-align: center;
-  font-family: var(--font-serif); font-weight: 400;
-  font-size: clamp(40px, 6.4vw, 84px); line-height: 1.02;
-  letter-spacing: -0.025em; color: var(--text-primary);
+  margin: 0 0 12px;
+  font-size: clamp(24px, 3.4vw, 34px); line-height: 1.12;
+  font-weight: 700; letter-spacing: -0.01em; color: var(--text-primary);
+}
+.pricing-sub {
+  margin: 0 auto; max-width: 500px;
+  font-size: 14px; line-height: 1.6; color: var(--text-secondary);
 }
 .pricing-h2 {
   margin: 0 0 48px; text-align: center;
@@ -2629,7 +2638,7 @@ body:has(.app-shell-root) {
 /* phone: the matrix label moves above its three cells */
 @media (max-width: 720px) {
   .pricing-page { padding: 64px 0 48px; }
-  .pricing-title { margin-bottom: 40px; }
+  .pricing-hero { margin-bottom: 36px; }
   .pricing-toggle { width: 100%; }
   .pricing-seg { flex: 1; padding: 0 8px; }
   .pricing-compare { margin-top: 88px; }
