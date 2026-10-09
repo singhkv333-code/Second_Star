@@ -44,6 +44,7 @@ from backend.market import company_logos as cl, logo_store  # noqa: E402
 
 _CTX = ssl.create_default_context(cafile=certifi.where())
 _MAX_BYTES = 512 * 1024
+_FMP_URL = "https://financialmodelingprep.com/image-stock/{ticker}.png"
 _ISIN_IN_URL = re.compile(r"/logo/([A-Z]{2}[A-Z0-9]{9}\d)/")
 
 
@@ -184,6 +185,9 @@ def main() -> None:
                     help="NSE EQUITY_L / SME_EQUITY_L csv; fetch by ISIN without the master")
     ap.add_argument("--link-only", action="store_true",
                     help="with --from-master: only link stored logos into the chart's map")
+    ap.add_argument("--source", choices=("shareperks", "fmp"), default="shareperks",
+                    help="fmp: Financial Modeling Prep's square tile by exchange ticker, "
+                         "for the listings SharePerks does not know")
     ap.add_argument("--processes", type=int, default=0,
                     help="fetch in this many processes instead of threads")
     args = ap.parse_args()
@@ -208,7 +212,12 @@ def main() -> None:
     print(f"universe {len(syms)}, stored {len(have)}, to fetch {len(todo)}", flush=True)
 
     placeholder = None
-    if master:
+    if master and args.source == "fmp":
+        # Opaque 100x100 square tiles, the same shape as SharePerks' icons;
+        # an unknown ticker is a clean 404, so there is no placeholder to learn.
+        src = {s: (_FMP_URL.format(ticker=(s[4:] + ".BO") if s.startswith("BSE:") else (s + ".NS")), True)
+               for s in todo if s in master}
+    elif master:
         src = {s: (cl._SHAREPERKS_URL.format(isin=master[s]), True) for s in todo if s in master}
         probe = fetch(cl._SHAREPERKS_URL.format(isin="INE000X00000"))
         placeholder = hashlib.sha256(probe[0]).hexdigest() if probe else None
@@ -254,6 +263,17 @@ def main() -> None:
                 print(f"  {done}/{len(items)} fetched, {stored} stored, {time.time() - t0:.0f}s", flush=True)
     flush()
     print(f"done: {stored} stored of {len(src)} sources in {time.time() - t0:.0f}s", flush=True)
+    if args.source == "fmp":
+        # FMP's one placeholder (a flag-like mark) has no 404 to catch: it is
+        # the same image under unrelated tickers. A group brand repeats by
+        # pairs (VEERENRGY/VEERHEALTH); three unrelated listings do not.
+        with SessionLocal() as db:
+            n = db.execute(text(
+                "DELETE FROM company_logo_images WHERE source_url LIKE :u AND sha IN ("
+                "SELECT sha FROM company_logo_images WHERE source_url LIKE :u "
+                "GROUP BY sha HAVING count(*) >= 3)"), {"u": "%financialmodelingprep%"}).rowcount
+            db.commit()
+        print(f"dropped {n} shared FMP placeholder rows", flush=True)
     if args.from_master:
         print(f"linked into the chart's logo map: {link_to_chart(args.from_master, syms)}", flush=True)
 
