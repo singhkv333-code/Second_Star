@@ -105,3 +105,61 @@ Still open:
 6. **Security, unrelated to the paywall:**
     - `GET /live` is an unauthenticated admin route that starts and stops venue drivers.
     - `POST /execution/backtest` is anonymous.
+
+## The UI (built 2026-10-10)
+
+### See it locally
+
+- **Every screen and state, no backend needed:** `cd pivot-next && pnpm dev`, then open
+  `http://localhost:3000/paywall-gallery`. It renders the production components with fixtures,
+  in light and dark and at phone width, and never calls the network or Razorpay. Use the
+  "Viewer" picker to walk the pricing page and Plan & billing through every subscription state.
+- **The real pages:** `/pricing`, `/checkout?plan=pro&cycle=annual`, `/settings/billing`. They read
+  `/billing/*` from the charto dataserver (proxied to `:5174` by `next.config.ts`).
+- **On the chart:** open the chart with `?paywall=preview` to see the lock markers and prompts
+  while the server's paywall is off. Account menu → Plan & billing opens the chart's billing dialog.
+
+### Where things live
+
+| Piece | File |
+|---|---|
+| Catalog snapshot (a test fails if it drifts from `plans_catalog.json`) | `pivot-next/lib/billing/catalog.snapshot.json` |
+| Entitlement logic mirrored from `entitlements.py`, subscription states, guards | `pivot-next/lib/billing/entitlements.ts` |
+| Copy (taglines, feature benefits, FAQ, terms, placeholders) | `lib/billing/presentation.ts`, `lib/billing/policy.ts` |
+| Design tokens and components | `pivot-next/app/billing.css`, `pivot-next/components/billing/*` |
+| Pages | `app/pricing`, `app/checkout`, `app/settings/billing`, `app/paywall-gallery` |
+| Chart: prompt, credits, evicted banner, locks, billing dialog | `charto/preview/js/paywall.js` |
+
+### How a 402 becomes a paywall
+
+1. Any service refuses with the 402 contract above.
+2. On the chart, `paywall.js` sees it (fetch is wrapped once) and draws the prompt. Inside the
+   pivot-next shell it dispatches `pivot:paywall` on the shell window instead.
+3. In pivot-next, `BillingProvider` listens for `pivot:paywall` (any code can dispatch it with the raw
+   402 body) and opens `PaywallDialog`, which words itself by `code` and `feature`.
+4. Continue → `/checkout?plan=…&cycle=…&return=<where the user was>&feature=…`. Success sends the
+   user back to `return` (same-origin paths only, see `safeReturnPath`). A subscriber is never sent
+   to checkout: the dialog changes the plan in place through `POST /billing/change`.
+
+### Subscription states the UI draws
+
+`anonymous · free · incomplete (checkout never paid) · trialing · active · canceling (paid through
+period end) · past_due (grace) · expired · comp (granted)`, from `subscriptionView()`.
+
+### Decisions still needed before charging
+
+Each is a visible "To be confirmed" placeholder in the UI (search `tbd(` in `lib/billing/policy.ts`):
+
+1. **Refund policy** for monthly and yearly plans.
+2. **GST invoice details** (GSTIN, legal entity, address) on Razorpay invoices.
+3. **What an immediate upgrade charges.** `billing.api_change` uses `schedule_change_at=now`; read
+   the result off a Razorpay test-mode upgrade, then write the sentence as fact.
+4. **Trials.** `plans_catalog.json` has `trial.days: null`. Setting a number switches on the trial
+   wording everywhere, but granting the trial (Razorpay `start_at`) is not built.
+5. **Card expiry warnings.** `CardExpiryBanner` exists, but card expiry is not on the subscription
+   wire, so nothing renders it yet.
+6. **Updating the payment method** opens the subscription's Razorpay `short_url`. Confirm in test
+   mode that it lets the customer change the card or mandate.
+7. **pivot-next and charto accounts are separate.** Billing uses charto's session token
+   (`charto:auth:token`). A pivot-only login sees the signed-out billing state until roadmap step 2
+   (share the session) lands.
