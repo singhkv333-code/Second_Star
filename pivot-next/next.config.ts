@@ -20,6 +20,11 @@ const BACKEND =
 // is a chart the signed-in user is signed out of.
 const CHART = process.env.CHART_UPSTREAM || "http://127.0.0.1:5173";
 
+// The charto dataserver, which owns plans, subscriptions and usage
+// (charto_users.db). Billing is proxied same-origin like everything else; in
+// production nginx falls `/billing/*` through to it directly.
+const CHARTO_DATA = process.env.CHARTO_DATA_ORIGIN || "http://127.0.0.1:5174";
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   // Keep `next build` from overwriting a running development server's chunks.
@@ -87,6 +92,10 @@ const nextConfig: NextConfig = {
   },
   async rewrites() {
     return [
+      {
+        source: "/billing/:path*",
+        destination: `${CHARTO_DATA}/billing/:path*`,
+      },
       {
         source: "/pivot-chat/:path*",
         destination: `${BACKEND}/:path*`,

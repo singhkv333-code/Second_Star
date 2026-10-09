@@ -507,7 +507,9 @@ def public_catalog() -> dict:
             "gst_inclusive": True, "plans": plans, "trial_days": trial_days(),
             "features": {k: {"kind": f["kind"], "label": f["label"],
                              **({"unit": f["unit"]} if f.get("unit") else {}),
-                             **({"window": f["window"]} if f.get("window") else {})}
+                             **({"window": f["window"]} if f.get("window") else {}),
+                             # unbuilt: a pricing page must not sell it as live
+                             **({"pending": True} if f.get("pending") else {})}
                          for k, f in CATALOG["features"].items()}}
 
 
