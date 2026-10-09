@@ -400,6 +400,8 @@ const Setups = (() => {
         try {
           ogImage = await SharePreview.render({
             title, note: note.value, thumb, symbol: sym, interval: iv,
+            chart: Layouts.capture(1400, 0.92),
+            by: (Auth.user && Auth.user.name) || "",
             chatTurns: state.include_chat ? chat.length : 0,
           });
         } catch (e) { console.warn("Share preview unavailable", e); }
