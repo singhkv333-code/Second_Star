@@ -2463,7 +2463,7 @@ body:has(.app-shell-root) {
 .pricing-seg-badge {
   font-size: 10.5px; font-weight: 600; letter-spacing: 0.01em;
   padding: 2px 7px; border-radius: var(--radius-pill);
-  background: var(--accent-wash); color: var(--accent);
+  background: var(--bg-elevated); color: var(--text-primary);
 }
 
 /* ── the card grid ────────────────────────────────────────── */
@@ -2480,8 +2480,8 @@ body:has(.app-shell-root) {
 }
 .pricing-card:hover { border-color: var(--glass-border-hover); }
 .pricing-card--featured {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent);
+  border-color: var(--text-primary);
+  box-shadow: 0 0 0 1px var(--text-primary);
 }
 
 /* card head */
@@ -2491,12 +2491,12 @@ body:has(.app-shell-root) {
   width: 28px; height: 28px; border-radius: var(--radius-sm);
   background: var(--bg-elevated); color: var(--text-primary); flex: none;
 }
-.pricing-card--featured .pricing-mark { background: var(--accent-wash); color: var(--accent); }
+.pricing-card--featured .pricing-mark { background: var(--bg-elevated); color: var(--text-primary); }
 .pricing-name { font-size: 15px; font-weight: 600; color: var(--text-primary); }
 .pricing-reco {
   margin-left: auto; font-size: 10.5px; font-weight: 600; letter-spacing: 0.02em;
   padding: 3px 9px; border-radius: var(--radius-pill);
-  background: var(--accent-wash); color: var(--accent); text-transform: none;
+  background: var(--bg-elevated); color: var(--text-primary); text-transform: none;
 }
 
 .pricing-headline {
@@ -2525,7 +2525,7 @@ body:has(.app-shell-root) {
    Monthly so the CTAs stay aligned across cards */
 .pricing-save {
   display: block; margin-top: 8px; min-height: 16px;
-  font-size: 12px; font-weight: 600; color: var(--accent);
+  font-size: 12px; font-weight: 600; color: var(--text-primary);
 }
 .pricing-save--ghost { visibility: hidden; }
 
@@ -2540,8 +2540,8 @@ body:has(.app-shell-root) {
               border-color 0.12s var(--ease-quartr),
               color 0.12s var(--ease-quartr), opacity 0.12s var(--ease-quartr);
 }
-.pricing-cta--primary { background: var(--accent); color: #ffffff; }
-.pricing-cta--primary:hover { background: color-mix(in srgb, var(--accent) 88%, #000); }
+.pricing-cta--primary { background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); }
+.pricing-cta--primary:hover { background: color-mix(in srgb, hsl(var(--primary)) 86%, hsl(var(--background))); }
 .pricing-cta--dark {
   background: hsl(var(--primary)); color: hsl(var(--primary-foreground));
 }
@@ -2571,7 +2571,7 @@ body:has(.app-shell-root) {
   display: inline-flex; align-items: center; justify-content: center;
   width: 20px; flex: none; color: var(--text-secondary);
 }
-.pricing-card--featured .pricing-feature-icon { color: var(--accent); }
+.pricing-card--featured .pricing-feature-icon { color: var(--text-primary); }
 .pricing-feature-label { flex: 1; min-width: 0; color: var(--text-secondary); line-height: 1.4; }
 .pricing-feature-value {
   font-weight: 600; color: var(--text-primary);
