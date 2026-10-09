@@ -47,10 +47,9 @@ type Bar = { t: number; o: number; h: number; l: number; c: number; v: number };
 type Series = { points: PricePoint[]; volume: VolumePoint[]; base: number; last: Bar };
 
 function dataBase(): string {
-  if (typeof window === "undefined") return "";
-  return ["localhost", "127.0.0.1"].includes(window.location.hostname)
-    ? "http://127.0.0.1:5174"
-    : "";
+  // Same origin: the shell is the one front door and falls through to the
+  // chart data server for every path it does not own (next.config.ts).
+  return "";
 }
 
 const cache = new Map<string, Promise<Series | null>>();

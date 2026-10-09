@@ -5,7 +5,7 @@
 import type { ApiResult, ErrorBody } from "@/lib/types";
 import { getAccessToken } from "@/lib/authToken";
 
-const DEFAULT_BASE = "/api";
+const DEFAULT_BASE = "/pv/api";   // Pivot's API on the one origin (see lib/api.ts)
 
 // ---------------------------------------------------------------------------
 // Portfolio performance series — GET /api/portfolio/performance

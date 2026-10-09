@@ -12,7 +12,10 @@
   // served from anywhere else — the browser dials the VIEWER's machine, so
   // every request fails with a connection error that looks like a dead server.
   const LOCAL_DEV = ["localhost", "127.0.0.1"].includes(location.hostname);
-  const API = LOCAL_DEV ? "http://127.0.0.1:5174" : "";
+  // Same origin wherever the chart is served — the Pivot shell on one port, or
+  // nginx on the VM. Only the standalone dev server (serve.py, :5173) is a
+  // second origin, and only it needs the data server addressed directly.
+  const API = location.port === "5173" ? "http://127.0.0.1:5174" : "";
   // Pivot's stock page, copied into charto/web and served by `next dev`
   // there (see charto/web/README). Company links open it directly.
   /* The company page is same-origin, and the empty string is the point.

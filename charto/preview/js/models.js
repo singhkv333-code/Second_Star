@@ -16,7 +16,7 @@
 "use strict";
 
 const Models = (() => {
-  const API = ["localhost", "127.0.0.1"].includes(location.hostname)
+  const API = location.port === "5173"
     ? "http://127.0.0.1:5174" : "";
   const PICK = "charto:engine";
   const CARET = '<svg class="mk-caret" viewBox="0 0 10 10" aria-hidden="true"><path d="M2.6 3.9 5 6.3l2.4-2.4"/></svg>';

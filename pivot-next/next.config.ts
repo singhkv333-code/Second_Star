@@ -18,7 +18,11 @@ const BACKEND =
 // cosmetic — the chart keeps its auth token, workspace and saved layouts in
 // localStorage, and localStorage is per-origin, so a chart on a second port
 // is a chart the signed-in user is signed out of.
-const CHART = process.env.CHART_UPSTREAM || "http://127.0.0.1:5173";
+// The data server behind the chart (charto/data/dataserver.py). Every path
+// that is not a page of this app, a /pv/ Pivot API call or a chart file falls
+// through to it — the same fall-through nginx has on the VM, so one origin
+// (this port) is the whole product locally exactly as it is in production.
+const CHARTO = process.env.CHARTO_UPSTREAM || "http://127.0.0.1:5174";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
@@ -85,72 +89,30 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  /* ONE routing table, the same one nginx serves in production
+   * (charto/deploy/nginx-charto.conf). Earlier this file sent /auth, /chat,
+   * /paper and /api to Pivot's API while nginx sent the same paths to Charto,
+   * so signing in, the chat and the paper book reached a different backend
+   * on a laptop than on the site. Now:
+   *   /pv/*           Pivot's API, prefix stripped (NEXT_PUBLIC_PIVOT_API_BASE=/pv/api)
+   *   /pivot-chat/*   Pivot's chat, same API
+   *   /api/pivot/*    Pivot's company data and logos (unprefixed on the API)
+   *   /research/*     the research chat, mounted on Pivot's API
+   *   /chart-app/*    the chart, served by app/chart-app (this app)
+   *   anything else   Charto's data server, AFTER this app's own pages */
   async rewrites() {
-    return [
-      {
-        source: "/pivot-chat/:path*",
-        destination: `${BACKEND}/:path*`,
-      },
-      {
-        // The chart app, proxied so it is same-origin with the shell. Two
-        // rules because `/chart-app` with no trailing path must resolve too —
-        // it is what the iframe asks for first.
-        source: "/chart-app",
-        destination: `${CHART}/`,
-      },
-      {
-        source: "/chart-app/:path*",
-        destination: `${CHART}/:path*`,
-      },
-      {
-        // The Agent System client (lib/api.ts `request()`) targets the
-        // `/api` base; when NEXT_PUBLIC_PIVOT_API_BASE isn't inlined it
-        // falls back to the RELATIVE `/api/*`, so proxy that to the backend
-        // (which serves the Agent System under /api). Without this, calls
-        // like /api/workflows hit Next's 404 -> "Failed to fetch" in the
-        // Active Agents rail. Mirrors the legacy /chat,/paper,... rewrites.
-        source: "/api/:path*",
-        destination: `${BACKEND}/api/:path*`,
-      },
-      {
-        source: "/chat/:path*",
-        destination: `${BACKEND}/chat/:path*`,
-      },
-      {
-        source: "/auth/:path*",
-        destination: `${BACKEND}/auth/:path*`,
-      },
-      {
-        source: "/orders/:path*",
-        destination: `${BACKEND}/orders/:path*`,
-      },
-      {
-        source: "/workflows/:path*",
-        destination: `${BACKEND}/workflows/:path*`,
-      },
-      {
-        source: "/runs/:path*",
-        destination: `${BACKEND}/runs/:path*`,
-      },
-      {
-        source: "/markets/:path*",
-        destination: `${BACKEND}/markets/:path*`,
-      },
-      {
-        source: "/paper/:path*",
-        destination: `${BACKEND}/paper/:path*`,
-      },
-      {
-        // Voice input — bare-mounted like /paper; without this the relative
-        // fallback base would 404 on Next instead of reaching the backend.
-        source: "/audio/:path*",
-        destination: `${BACKEND}/audio/:path*`,
-      },
-      {
-        source: "/health",
-        destination: `${BACKEND}/health`,
-      },
-    ];
+    return {
+      beforeFiles: [],
+      afterFiles: [
+        { source: "/pv/:path*", destination: `${BACKEND}/:path*` },
+        { source: "/pivot-chat/:path*", destination: `${BACKEND}/:path*` },
+        { source: "/api/pivot/:path*", destination: `${BACKEND}/api/pivot/:path*` },
+        { source: "/research/:path*", destination: `${BACKEND}/research/:path*` },
+      ],
+      fallback: [
+        { source: "/:path*", destination: `${CHARTO}/:path*` },
+      ],
+    };
   },
 };
 

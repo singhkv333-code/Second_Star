@@ -921,11 +921,20 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
       const params = new URLSearchParams(window.location.search);
       const view = params.get("view");
       const symbol = params.get("symbol");
-      if (!view || !symbol || !/^[\w-]{8,64}$/.test(view)) return;
-      setChartSymbol(symbol.trim().toUpperCase());
-      setChartQuery(params.get("mine") === "1" ? { view, mine: "1" } : { view });
+      // A question for the chart's composer (the paper, strategies and broker
+      // pages hand one over); the chart reads ?ask= itself and clears it.
+      const ask = params.get("ask");
+      if (view && symbol && /^[\w-]{8,64}$/.test(view)) {
+        setChartSymbol(symbol.trim().toUpperCase());
+        setChartQuery(params.get("mine") === "1" ? { view, mine: "1" } : { view });
+      } else if (symbol || ask) {
+        if (symbol && /^[\w:&.-]{1,40}$/.test(symbol)) setChartSymbol(symbol.trim().toUpperCase());
+        setChartQuery(ask ? { ask: ask.slice(0, 2000) } : undefined);
+      } else {
+        return;
+      }
       goTab("chart");
-      for (const key of ["view", "symbol", "mine"]) params.delete(key);
+      for (const key of ["view", "symbol", "mine", "ask"]) params.delete(key);
       const qs = params.toString();
       window.history.replaceState(null, "", `${window.location.pathname}${qs ? `?${qs}` : ""}#chart`);
     } catch {

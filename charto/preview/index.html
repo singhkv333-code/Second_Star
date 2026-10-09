@@ -11895,9 +11895,9 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        browsers that cannot filter a backdrop; the tint, rim and sheen stay
        in CSS below. -->
   <script src="./vendor/liquid-glass.js"></script>
-  <script src="./js/store.js?v=22"></script>
+  <script src="./js/store.js?v=23"></script>
   <script src="./js/theme.js?v=15"></script>
-  <script src="./js/universe.js?v=19"></script>
+  <script src="./js/universe.js?v=20"></script>
   <script src="./js/icons.js?v=47"></script>
   <!-- after icons.js (every row is drawn with one) and before main.js, which
        builds the chart's three right-click menus out of it -->
@@ -11909,8 +11909,8 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- after icons.js: the sign-in screen draws the show/hide eye from the
        shared set, and a classic script cannot reach a const declared by one
        that has not run yet -->
-  <script src="./js/auth.js?v=6"></script>
-  <script src="./js/plan.js?v=4"></script>
+  <script src="./js/auth.js?v=7"></script>
+  <script src="./js/plan.js?v=5"></script>
   <script src="./js/indicators.js?v=37"></script>
   <!-- before both legends: each asks it whether the series runs behind a row
        or a chip, which is what puts the plate there -->
@@ -11931,48 +11931,48 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/tools.js?v=23"></script>
   <script src="./js/drawings.js?v=45"></script>
   <script src="./js/scene.js?v=53"></script>
-  <script src="./js/panes.js?v=31"></script>
+  <script src="./js/panes.js?v=32"></script>
   <!-- The pricing / upgrade overlay. Before main.js so window.Pricing exists
        when the account menu's Upgrade row is wired. -->
   <script src="./js/pricing.js?v=1"></script>
   <!-- the Footprint chart type: a primitive on the price series, mounted by main.js -->
-  <script src="./js/footprint.js?v=8"></script>
-  <script src="./js/main.js?v=172"></script>
+  <script src="./js/footprint.js?v=9"></script>
+  <script src="./js/main.js?v=173"></script>
   <!-- the floating drawing edit toolbar — listens for charto:draw-select and
        drives js/drawings.js's setStyle/clone/lock/remove. After main.js so
        __charto and ChartSettings exist by the first selection. -->
   <script src="./js/drawedit.js?v=7"></script>
-  <script src="./js/wkit.js?v=1"></script>
+  <script src="./js/wkit.js?v=2"></script>
   <script src="./js/hub-art.js?v=5"></script>
   <script src="./js/dock.js?v=26"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
-  <script src="./js/layouts.js?v=12"></script>
+  <script src="./js/layouts.js?v=13"></script>
   <script src="./js/share-preview.js?v=1"></script>
   <!-- shared setups: publish, view-only links, "Make it mine" -->
-  <script src="./js/setups.js?v=15"></script>
+  <script src="./js/setups.js?v=16"></script>
   <!-- Voice must load before chat.js, which wires it to the composer. -->
   <script src="./js/voice.js?v=2"></script>
   <!-- before chat.js, which asks it to render the panels a tool prints as the
        reply streams in. It reads Sym (store.js) for the instrument's currency
        and grouping, and nothing else — a renderer with no state of its own -->
-  <script src="./js/cards.js?v=68"></script>
-  <script src="./js/layers-panel.js?v=11"></script>
+  <script src="./js/cards.js?v=69"></script>
+  <script src="./js/layers-panel.js?v=12"></script>
   <script src="./js/model-logos.js?v=2"></script>
-  <script src="./js/models.js?v=3"></script>
-  <script src="./js/chat.js?v=180"></script>
-  <script src="./js/codeview.js?v=5"></script>
-  <script src="./js/journal.js?v=8"></script>
+  <script src="./js/models.js?v=4"></script>
+  <script src="./js/chat.js?v=181"></script>
+  <script src="./js/codeview.js?v=6"></script>
+  <script src="./js/journal.js?v=9"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it
        uses. Everything it needs from main.js (SYMBOL) and panels.js
        (openWidget) is read inside handlers, so those may come later. -->
-  <script src="./js/alerts.js?v=21"></script>
+  <script src="./js/alerts.js?v=22"></script>
   <!-- after chat.js: the widget panels share the phone's one panel slot with
        the conversation, and close it by clicking its real toggle -->
-  <script src="./js/panels.js?v=23"></script>
-  <script src="./js/screener.js?v=7"></script>
-  <script src="./js/depth.js?v=7"></script>
+  <script src="./js/panels.js?v=24"></script>
+  <script src="./js/screener.js?v=8"></script>
+  <script src="./js/depth.js?v=8"></script>
   <script src="./js/notes.js?v=6"></script>
   <script src="./js/w-sheet.js?v=7"></script>
   <script src="./js/w-chart.js?v=5"></script>

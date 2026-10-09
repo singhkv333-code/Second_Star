@@ -20,7 +20,7 @@ const Auth = (() => {
   // Same derivation as chat.js and main.js: same-origin behind the VM's nginx,
   // explicit port in local dev. Spelled out rather than shared because these
   // files load as plain scripts with no module graph between them.
-  const API = ["localhost", "127.0.0.1"].includes(location.hostname)
+  const API = location.port === "5173"
     ? "http://127.0.0.1:5174" : "";
   let user = null;
   let token = null;

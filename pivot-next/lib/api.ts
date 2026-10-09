@@ -62,7 +62,9 @@ import { refreshAccessToken } from "@/lib/authToken";
 // Configuration
 // ---------------------------------------------------------------------------
 
-const DEFAULT_BASE = "/api";
+// Pivot's API lives under /pv on the one origin, in development and production
+// alike (next.config.ts locally, nginx on the VM).
+const DEFAULT_BASE = "/pv/api";
 
 function getBaseUrl(): string {
   // Read at call time so tests / SSR can override.
@@ -1785,6 +1787,8 @@ export function clearToken(): void {
   try {
     window.localStorage.removeItem(TOKEN_KEY);
     window.localStorage.removeItem(REFRESH_KEY);
+    // one session for the whole product: signing out of the shell signs the chart out too
+    window.localStorage.removeItem("charto:auth:token");
   } catch {
     /* ignore */
   }
@@ -1797,42 +1801,77 @@ type AuthResponse = {
   email: string;
 };
 
-/** `POST /auth/login` — exchange email+password for tokens. */
+/* ── one sign-in for the whole product ──────────────────────────────────────
+ * Accounts live in Charto (`charto_users.db` holds the 11 real accounts and
+ * every piece of live state — docs/DATA_MAP.md), so signing in goes there.
+ * Its one token serves both halves: the chart reads it as its own session
+ * (CHARTO_TOKEN_STORAGE_KEY), and Pivot's API accepts it
+ * (backend/auth/charto_session.py maps it to a Pivot user by email). Before
+ * this, the shell signed in to Pivot and the chart asked for a second sign-in.
+ *
+ * An account that exists only in Pivot's own table still signs in: a Charto
+ * refusal falls back to Pivot's /auth/login, exactly as before. */
+const CHARTO_TOKEN_KEY = "charto:auth:token";
+
+type ChartoSession = { token?: string; access_token?: string; user?: { id?: number | string; email?: string }; error?: string };
+
+async function chartoAuth(path: string, body: Record<string, unknown>): Promise<ApiResult<AuthResponse>> {
+  let status = 0;
+  try {
+    const res = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    status = res.status;
+    const d = (await res.json().catch(() => ({}))) as ChartoSession;
+    const token = d.token || d.access_token;
+    if (!res.ok || !token) {
+      return { error: { code: String(status || "network"), message: d.error || `Sign-in failed (HTTP ${status})` } };
+    }
+    storeToken(token);
+    try { window.localStorage.setItem(CHARTO_TOKEN_KEY, token); } catch { /* denied */ }
+    return { data: { access_token: token, refresh_token: "", user_id: String(d.user?.id ?? ""), email: d.user?.email ?? "" } };
+  } catch {
+    return { error: { code: "network", message: "Could not reach the server." } };
+  }
+}
+
+/** `POST /auth/login` — Charto first (the accounts' home), Pivot's table second. */
 export async function loginUser(credentials: {
   email: string;
   password: string;
 }): Promise<ApiResult<AuthResponse>> {
+  const charto = await chartoAuth("/auth/login", credentials);
+  if (!("error" in charto)) return charto;
   const result = await requestLegacy<AuthResponse>("/auth/login", {
     method: "POST",
     body: credentials,
   });
   if (!("error" in result)) {
     storeToken(result.data.access_token, result.data.refresh_token);
+    return result;
   }
-  return result;
+  return charto;                     // Charto's sentence: the account most people have
 }
 
-/** `POST /auth/register` — create account + receive tokens. */
+/** `POST /auth/signup` — a new account is a Charto account, so the chart, the
+ *  alerts and the paper book are all theirs from the first minute. */
 export async function registerUser(body: {
   email: string;
   password: string;
   full_name: string;
 }): Promise<ApiResult<AuthResponse>> {
-  const result = await requestLegacy<AuthResponse>("/auth/register", {
-    method: "POST",
-    body,
-  });
-  if (!("error" in result)) {
-    storeToken(result.data.access_token, result.data.refresh_token);
-  }
-  return result;
+  return chartoAuth("/auth/signup", { email: body.email, password: body.password, name: body.full_name });
 }
 
-/** `POST /auth/google` — exchange a Google OAuth access token for Pivot
- *  tokens (find-or-create by verified email, server-verified). */
+/** `POST /auth/google` — Charto's Google sign-in (the same OAuth client), and
+ *  Pivot's only when Charto has Google switched off. */
 export async function googleLogin(
   accessToken: string,
 ): Promise<ApiResult<AuthResponse>> {
+  const charto = await chartoAuth("/auth/google", { access_token: accessToken });
+  if (!("error" in charto) || charto.error.code !== "503") return charto;
   const result = await requestLegacy<AuthResponse>("/auth/google", {
     method: "POST",
     body: { access_token: accessToken },
@@ -1884,10 +1923,16 @@ async function _tryRefresh(): Promise<boolean> {
 
 /** `POST /auth/logout` — best-effort server-side session revocation. */
 export async function logoutUser(): Promise<void> {
+  let charto: string | null = null;
+  try { charto = window.localStorage.getItem("charto:auth:token"); } catch { /* denied */ }
   try {
     await requestLegacy("/auth/logout", { method: "POST" });
   } catch {
     /* best-effort — we clear local tokens regardless */
+  }
+  if (charto) {
+    // and end the Charto session itself, not just this tab's copy of it
+    await fetch("/auth/logout", { method: "POST", headers: { Authorization: `Bearer ${charto}` } }).catch(() => undefined);
   }
   clearToken();
   // Drop every TTL-cached response (user profile, portfolio, quotes, ...) —

@@ -55,7 +55,7 @@ export function AppBootstrap({
     setBackendSource("real");
     setAuthTokenProvider(() => {
       try {
-        return localStorage.getItem(TOKEN_KEY);
+        return getStoredToken();
       } catch {
         return null;
       }
@@ -132,7 +132,9 @@ function BootstrapSplash(): React.ReactElement {
  */
 export function getStoredToken(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem(TOKEN_KEY);
+  // One session for the whole product: a reader already signed in to the
+  // chart is signed in here too — Pivot's API accepts the Charto token.
+  return localStorage.getItem(TOKEN_KEY) || localStorage.getItem("charto:auth:token");
 }
 
 /**

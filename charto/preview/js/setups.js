@@ -30,7 +30,7 @@
 "use strict";
 
 const Setups = (() => {
-  const API = ["localhost", "127.0.0.1"].includes(location.hostname)
+  const API = location.port === "5173"
     ? "http://127.0.0.1:5174" : "";
   const BASE = (document.currentScript && document.currentScript.src) || location.href;
   const el = (id) => document.getElementById(id);

@@ -28,7 +28,7 @@ const Panels = (() => {
   if (!bar) return {};
 
   // same-origin behind a proxy, explicit port in local dev (see main.js)
-  const API = ["localhost", "127.0.0.1"].includes(location.hostname)
+  const API = location.port === "5173"
     ? "http://127.0.0.1:5174" : "";
 
   /* ══ shared bits ═══════════════════════════════════════════════════════ */

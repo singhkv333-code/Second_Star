@@ -70,7 +70,7 @@ export type PendingScreen = {
   universe: number;
 };
 
-const BASE = process.env.NEXT_PUBLIC_PIVOT_API_BASE || "/api";
+const BASE = process.env.NEXT_PUBLIC_PIVOT_API_BASE || "/pv/api";
 const TOKEN_KEY = "pivot_jwt";
 
 function authHeaders(): Record<string, string> {

@@ -156,7 +156,7 @@ const Store = (() => {
    * Resolves to { status, d } and never rejects: a dead network is a miss. */
   let viewSetup = null;
   if (VIEW) {
-    const API = ["localhost", "127.0.0.1"].includes(location.hostname)
+    const API = location.port === "5173"
       ? "http://127.0.0.1:5174" : "";
     let tok = null;
     try { tok = localStorage.getItem("charto:auth:token"); } catch {}

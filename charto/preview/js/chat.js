@@ -13,7 +13,10 @@
 (function () {
   // same-origin behind a proxy, explicit port in local dev (see main.js)
   const LOCAL_DEV = ["localhost", "127.0.0.1"].includes(location.hostname);
-  const API = LOCAL_DEV ? "http://127.0.0.1:5174" : "";
+  // Same origin wherever the chart is served — the Pivot shell on one port, or
+  // nginx on the VM. Only the standalone dev server (serve.py, :5173) is a
+  // second origin, and only it needs the data server addressed directly.
+  const API = location.port === "5173" ? "http://127.0.0.1:5174" : "";
   /* Execution mode was laptop-only while the deployed box had nowhere to keep
    * a strategy: a visitor could compose a rule, be told it was saved, and
    * find nothing afterwards. The paper book and /strategies now hold them, and

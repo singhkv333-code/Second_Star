@@ -63,7 +63,7 @@ export type RunStream = {
 };
 
 function defaultBaseUrl(): string {
-  if (typeof window === "undefined") return "/api";
+  if (typeof window === "undefined") return "/pv/api";
   // When NEXT_PUBLIC_PIVOT_WS_BASE is set (e.g. ws://127.0.0.1:8000/api in
   // dev), use it. Falls back to the same origin so the app works behind a
   // reverse proxy in production.
@@ -71,7 +71,7 @@ function defaultBaseUrl(): string {
     typeof process !== "undefined" && process.env.NEXT_PUBLIC_PIVOT_WS_BASE;
   if (envBase) return envBase;
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${window.location.host}/api`;
+  return `${proto}//${window.location.host}/pv/api`;
 }
 
 export function openRunStream(

@@ -70,10 +70,9 @@ export type BrokerOrder = {
 };
 
 function apiBase(): string {
-  if (typeof window === "undefined") return "";
-  return ["localhost", "127.0.0.1"].includes(window.location.hostname)
-    ? "http://127.0.0.1:5174"
-    : "";
+  // Same origin: the shell is the one front door and falls through to the
+  // chart data server for every path it does not own (next.config.ts).
+  return "";
 }
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {

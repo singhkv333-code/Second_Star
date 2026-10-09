@@ -35,7 +35,7 @@
 "use strict";
 
 window.LayersPanel = (() => {
-  const API = ["localhost", "127.0.0.1"].includes(location.hostname)
+  const API = location.port === "5173"
     ? "http://127.0.0.1:5174" : "";
 
   const symbol = ((window.__charto && window.__charto.symbol)

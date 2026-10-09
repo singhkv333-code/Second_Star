@@ -163,7 +163,7 @@ export type ScreenerStocksParams = {
 // Minimal fetch (/api base + bearer token), additive — no shared client edits
 // ---------------------------------------------------------------------------
 
-const DEFAULT_BASE = "/api";
+const DEFAULT_BASE = "/pv/api";   // Pivot's API on the one origin (see lib/api.ts)
 
 /** `/api` base — screener routes are mounted under it; do NOT strip. */
 function getApiBase(): string {

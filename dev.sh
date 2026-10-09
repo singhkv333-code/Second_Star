@@ -3,21 +3,21 @@
 #
 # WHY THIS EXISTS
 # ---------------
-# Pivot is one product and four processes, and until this script the only way
-# to see it was to start them by hand in four terminals, in the right order,
-# remembering that the chart needs Pivot's venv rather than bare python3. The
-# Chart tab then showed "localhost refused to connect" for whichever one had
-# not been started — which reads as a broken feature, not a missing process.
+# Pivot is one product on ONE port. Two of its engines are Python services in
+# different runtimes, so they still run as processes — but nothing in the
+# browser ever addresses them: the shell on :3000 is the only front door, with
+# the same routing table nginx serves in production (pivot-next/next.config.ts).
 #
-#   :5174  charto dataserver   bars, indicators, patterns, alerts, live ticks,
-#                              the paper book, armed strategies, auth
-#   :5173  charto preview      the chart app itself (static, no-cache)
-#   :8000  pivot API           workflows DSL, backtesters, tool registry
-#   :3000  pivot-next          THE SHELL — the only URL you open
+#   :3000  pivot-next          THE PRODUCT — the only URL you open. Its own pages
+#                              (home, chat, stock, paper, strategies, brokers),
+#                              the chart at /chart-app, and a fall-through to:
+#   :5174  charto dataserver   bars, indicators, patterns, the chart's chat,
+#                              alerts, live ticks, the paper book, accounts
+#   :8000  pivot API           workflows DSL, backtesters, tool registry (/pv/*)
 #
-# You open http://localhost:3000. Everything else is proxied to by
-# next.config.ts so the browser sees ONE origin, which is what lets the chart
-# share the shell's localStorage instead of being separately signed out.
+# Both backends listen on 127.0.0.1 only. The chart no longer needs a server of
+# its own (serve.py on :5173) — the shell serves its files — and signing in once
+# signs in the shell, the chart and Pivot's API together.
 #
 # Already-running ports are LEFT ALONE rather than restarted: this is meant to
 # be safe to run when you already have a dataserver up with a warm SQLite page
@@ -59,32 +59,37 @@ stop() {
 trap stop EXIT INT TERM
 
 echo "Pivot — starting the platform"
+# A Python without its own CA bundle (python.org builds on macOS) fails every
+# HTTPS fetch the data server makes — exchange backfills, web search — with
+# CERTIFICATE_VERIFY_FAILED. certifi ships in the venv; point the runtime at it.
+CA="$("$PY" -c 'import certifi; print(certifi.where())' 2>/dev/null || true)"
 start 5174 "charto data"   /tmp/pivot_dev_dataserver.log \
-      env -C "$ROOT/charto/data" "$PY" -u dataserver.py
-start 5173 "charto chart"  /tmp/pivot_dev_preview.log \
-      env -C "$ROOT/charto/preview" "$PY" -u serve.py
+      env -C "$ROOT/charto/data" ${CA:+SSL_CERT_FILE="$CA"} "$PY" -u dataserver.py
 start 8000 "pivot api"     /tmp/pivot_dev_api.log \
-      env -C "$ROOT/pivot" "$PY" -m uvicorn backend.main:app --reload --port 8000
-start 3000 "pivot shell"   /tmp/pivot_dev_next.log \
-      env -C "$ROOT/pivot-next" npm run dev
+      env -C "$ROOT/pivot" "$PY" -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
+# Process env beats .env.local in Next, so these pin the one-origin bases even
+# where an older .env.local still points the browser at :8000 directly.
+start 3000 "pivot"         /tmp/pivot_dev_next.log \
+      env -C "$ROOT/pivot-next" NEXT_PUBLIC_PIVOT_API_BASE=/pv/api \
+      CHARTO_PREVIEW_DIR="$ROOT/charto/preview" npm run dev
 
 echo
 echo "waiting for the ports…"
 for _ in $(seq 1 90); do
   ready=0
-  for p in 5174 5173 8000 3000; do up "$p" && ready=$((ready + 1)); done
-  [ "$ready" -eq 4 ] && break
+  for p in 5174 8000 3000; do up "$p" && ready=$((ready + 1)); done
+  [ "$ready" -eq 3 ] && break
   sleep 1
 done
 
 echo
-for p in 5174:"charto data" 5173:"charto chart" 8000:"pivot api" 3000:"pivot shell"; do
+for p in 5174:"charto data" 8000:"pivot api" 3000:"pivot"; do
   port="${p%%:*}"; name="${p#*:}"
   if up "$port"; then printf '  \033[32mup\033[0m    %-14s :%s\n' "$name" "$port"
   else printf '  \033[31mDOWN\033[0m  %-14s :%s  — see the log above\n' "$name" "$port"; fi
 done
 echo
-echo "  open  http://localhost:3000     (Chart tab is live immediately)"
+echo "  open  http://localhost:3000     — the whole product, one port"
 echo "  ^C    stops everything this script started"
 echo
 wait

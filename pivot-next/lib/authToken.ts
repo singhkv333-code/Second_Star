@@ -53,7 +53,7 @@ function legacyBase(): string {
   const base =
     (typeof process !== "undefined" &&
       process.env.NEXT_PUBLIC_PIVOT_API_BASE) ||
-    "/api";
+    "/pv/api";
   return base.replace(/\/api\/?$/, "");
 }
 

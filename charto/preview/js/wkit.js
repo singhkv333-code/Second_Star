@@ -4,7 +4,7 @@
 "use strict";
 
 const WKit = (() => {
-  const API = ["localhost", "127.0.0.1"].includes(location.hostname) ? "http://127.0.0.1:5174" : "";
+  const API = location.port === "5173" ? "http://127.0.0.1:5174" : "";
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g,
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const ic = (n, c = "xs") => Icons.svg(n, c);

@@ -144,7 +144,7 @@ export function CompanyAutosuggest({
     universeAttempted.current = true;
     let active = true;
     setUniverseLoading(true);
-    const host = ["localhost", "127.0.0.1"].includes(location.hostname) ? "http://127.0.0.1:5174" : "";
+    const host = "";   // the chart data server is on this origin (next.config.ts fall-through)
     fetch(`${host}/symbols`).then((r) => r.json()).then((data: {
       symbols?: string[]; names?: Record<string, string>; long?: Record<string, string>;
       logos?: Record<string, string>; meta?: Record<string, [string, string, number?]>; hydrated?: string[];

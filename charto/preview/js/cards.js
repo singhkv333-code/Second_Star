@@ -31,7 +31,7 @@
 const Cards = (() => {
   // Same origin rule the rest of the app uses: served from the dataserver in
   // production, cross-origin only when the preview folder is on its own port.
-  const API = ["localhost", "127.0.0.1"].includes(location.hostname)
+  const API = location.port === "5173"
     ? "http://127.0.0.1:5174" : "";
   const esc = (s) => String(s == null ? "" : s)
     .replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;",
