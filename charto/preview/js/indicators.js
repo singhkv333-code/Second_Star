@@ -490,6 +490,15 @@ const Indicators = (() => {
       const volBars = def.name === "volume" && n === "volume";
       const own = (def.plots || {})[n];      // a custom study's declared plot type
       const hist = volBars || n === "histogram" || (own || PLOT_DEFAULT[n]) === "columns";
+      if (own === "state") {
+        // A custom study's +1 / 0 / -1 condition: a ribbon, green / grey / red.
+        out[n] = {
+          visible: true, color: Theme.c("histUp"), colorDown: Theme.c("histDown"),
+          colors: [Theme.c("histUp"), "#9598a1", Theme.c("histDown")],
+          custom: false, width: 1, lineStyle: 0, plotType: "state",
+        };
+        return;
+      }
       out[n] = {
         visible: true,
         color: volBars ? Theme.c("volUp")
@@ -943,12 +952,22 @@ const Indicators = (() => {
       return names.map((n) => {
         const plot = st.style.plots[n] || {};
         const volBars = def.name === "volume" && n === "volume";
-        const hist = volBars || plot.plotType === "columns" || n === "histogram";
+        const state = plot.plotType === "state";
+        const hist = volBars || state || plot.plotType === "columns" || n === "histogram";
+        const sc = plot.colors || [plot.color, "#9598a1", plot.colorDown || plot.color];
         return {
           line: n,
           pane,
           hist,
-          data: volBars
+          state,
+          data: state
+            // every bar the same height on the ribbon's own hidden scale; the
+            // state itself is the colour (and `state`, for the status line)
+            ? lines[n].map((p) => (p.value == null ? p : {
+                time: p.time, value: 1, state: p.value,
+                color: p.value > 0 ? sc[0] : p.value < 0 ? sc[2] : sc[1],
+              }))
+            : volBars
             ? volumePoints(lines[n], plot)
             : hist
             ? lines[n].map((p, i, all) => {
@@ -1002,6 +1021,24 @@ const Indicators = (() => {
         ...(def.kind === "pane" && isFirstOfPane
           ? { autoscaleInfoProvider: scaleWithMarks(def) } : {}),
       };
+      if (spec.state) {
+        // its own invisible scale, pinned to a strip of the pane — the whole
+        // pane when the study draws nothing else
+        const { autoscaleInfoProvider, ...rest } = common;
+        const s = chart.addSeries(LWC.HistogramSeries, {
+          ...rest, color: plot.color, priceScaleId: `state:${def.name}:${spec.line}`,
+          lastValueVisible: false, priceLineVisible: false,
+        }, spec.pane ?? 0);
+        const alone = Object.values(st.style.plots || {}).every((q) => q.plotType === "state");
+        try {
+          s.priceScale().applyOptions({
+            visible: false,
+            scaleMargins: alone ? { top: 0.05, bottom: 0 }
+              : def.kind === "overlay" ? { top: 0.94, bottom: 0 } : { top: 0.86, bottom: 0 },
+          });
+        } catch { /* torn down */ }
+        return s;
+      }
       if (spec.hist) {
         return chart.addSeries(LWC.HistogramSeries,
           { ...common, color: plot.color }, spec.pane ?? 0);
@@ -1118,6 +1155,10 @@ const Indicators = (() => {
           if (!shown(st, s.line) || st.style.statusLine === false) continue;
           const p = valueAt(s.data, at);
           if (!p || p.value == null) continue;
+          if (s.state) {
+            values.push({ color: p.color, text: p.state > 0 ? "▲" : p.state < 0 ? "▼" : "–" });
+            continue;
+          }
           values.push({ color: s.opts.color, text: fmt(p.value) });
         }
         // The pane index is read LIVE, not remembered: removing an oscillator
@@ -1246,7 +1287,9 @@ const Indicators = (() => {
           visible: shown(st, s.line),
           ...priceFormat(st, a.def),
         };
-        if (s.hist) {
+        if (s.state) {
+          old.applyOptions({ visible: common.visible, color: plot.color });
+        } else if (s.hist) {
           old.applyOptions({ ...common, color: plot.color });
         } else if (plot.plotType === "area") {
           old.applyOptions({

@@ -138,3 +138,68 @@ def test_compute_for_refuses_unvalidated_and_clamps_inputs():
     rec["status"] = "validated"
     out = ci.compute_for(rec, ROWS, {"length": "9999"})
     assert out["spec"]["length"] == 200
+
+
+# ── baskets: studies that read other instruments ─────────────────────────
+BASKET_SPEC = {
+    "title": "Basket breadth", "short": "Breadth", "formula": "% of members above their SMA",
+    "classification": "custom", "pane": "own", "bounds": [0, 100], "levels": [50],
+    "lines": [{"key": "breadth", "label": "% above", "plot": "line"},
+              {"key": "regime", "label": "Regime", "plot": "state"}],
+    "inputs": [{"key": "length", "label": "Length", "type": "int", "default": 20, "min": 2, "max": 200}],
+    "basket": {"label": "test", "symbols": ["A", "B"]}, "reference": None,
+    "reference_waiver": "custom method",
+}
+BREADTH = '''
+def compute(bars, params):
+    conds = []
+    for c in bars["basket"]["close"]:
+        s = ta.sma(c, params["length"])
+        conds.append([None if s[i] is None or c[i] is None else c[i] > s[i] for i in range(bars["n"])])
+    br = ta.xpct(conds)
+    return {"breadth": br,
+            "regime": [None if x is None else (1 if x > 60 else -1 if x < 40 else 0) for x in br]}
+'''
+
+
+def _real_with_basket():
+    members = {"A": ci.synthetic("trend_up", 800), "B": ci.synthetic("range", 800)}
+    return [("walk 5m", ROWS, "5m", 19800, ci.align_basket(ROWS, members, label="test"))]
+
+
+def test_align_basket_is_causal_and_carries_gaps_briefly():
+    m = [r for i, r in enumerate(ROWS[:40]) if i not in (5, 20, 21, 22, 23, 24, 25, 26)]
+    b = ci.align_basket(ROWS[:40], {"X": m}, max_fill=5)
+    c, v = b["close"][0], b["volume"][0]
+    assert c[5] == ROWS[4][4] and v[5] == 0          # one missing bar: carried, no volume
+    assert c[24] == ROWS[19][4] and c[25] is None     # carried 5 bars, then no value
+    late = ci.align_basket(ROWS[:40], {"L": ROWS[10:40]})
+    assert late["close"][0][:10] == [None] * 10       # never a bar from the future
+
+
+def test_basket_study_validates_including_look_ahead_on_members():
+    rep = ci.validate(BASKET_SPEC, BREADTH, _real_with_basket())
+    st = checks(rep)
+    assert rep["passed"], rep["summary"]
+    assert st["causal"] == "pass" and st["state"] == "pass"
+    assert "bounds" in st                             # the state ribbon is exempt from [0, 100]
+
+
+def test_basket_must_be_declared_and_read():
+    rep = ci.validate({**BASKET_SPEC, "basket": None}, BREADTH, REAL)
+    assert checks(rep).get("basket") == "fail"
+
+
+def test_state_lines_hold_only_three_values():
+    bad = BREADTH.replace("(1 if x > 60 else -1 if x < 40 else 0)", "x / 50")
+    rep = ci.validate(BASKET_SPEC, bad, _real_with_basket())
+    assert checks(rep)["state"] == "fail"
+
+
+def test_compute_for_passes_the_basket_through():
+    rec = {"id": "cx_basketaa", "status": "validated", "version": 1,
+           "spec": BASKET_SPEC, "code": BREADTH}
+    bk = _real_with_basket()[0][4]
+    out = ci.compute_for(rec, ROWS, {}, interval="5m", basket=bk)
+    assert out["last"]["breadth"] is not None
+    assert out["last"]["regime"] in (1.0, 0.0, -1.0)

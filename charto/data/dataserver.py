@@ -6375,6 +6375,10 @@ _SETUP_ALIASES = {
     "pharma": ["pharmaceutical", "drugmanufacturers"], "banks": ["bank"], "bank": ["bank"],
     "psubanks": ["bankspublicsector"], "psubank": ["bankspublicsector"],
     "privatebanks": ["banksprivatesector"], "privatebank": ["banksprivatesector"],
+    "privatesectorbanks": ["banksprivatesector"], "privatesectorbank": ["banksprivatesector"],
+    "publicsectorbanks": ["bankspublicsector"], "publicsectorbank": ["bankspublicsector"],
+    "psbanks": ["bankspublicsector"], "governmentbanks": ["bankspublicsector"],
+    "banking": ["bank"], "bankingsector": ["bank"], "banksector": ["bank"],
     "auto": ["auto"], "autos": ["auto"], "fmcg": ["packagedfoods", "householdpersonal", "consumerdefensive"],
     "metals": ["metal", "steel", "aluminium", "aluminum", "mining"], "metal": ["metal", "steel", "mining"],
     "oil": ["oilgas", "oil gas", "refin"], "oilandgas": ["oilgas"], "energy": ["energy", "oilgas", "power"],
@@ -6481,36 +6485,53 @@ def _setup_universe(ref: str, scope: str, industry: str, symbols: list | None):
         syms = [canon_symbol(s) for s in symbols if str(s or "").strip()]
         return f"the {len(syms)} symbols named", [s for s in syms if s and s != ref]
     rows = list(_con.execute(
-        "SELECT symbol, industry, COALESCE(label, industry), COALESCE(sector, '') FROM classification"))
+        "SELECT symbol, industry, COALESCE(label, industry), COALESCE(sector, ''), "
+        "COALESCE(industry_mc, '') FROM classification"))
     if str(industry or "").strip():
         q = _squash(industry)
         terms = _SETUP_ALIASES.get(q, [q])
-        hit = set()
+        # Two vocabularies are matched: the store's own industry (whose "Banks
+        # - Regional" lumps private and public banks together) and
+        # Moneycontrol's, which splits them — "private banks" must find 14
+        # names, not the 2 the first one happens to file that way.
+        hit, by_mc = set(), set()
         for t in terms:
             for r in rows:
-                key, label, sector = _squash(r[1]), _squash(r[2]), _squash(r[3])
+                key, label, sector, mc = _squash(r[1]), _squash(r[2]), _squash(r[3]), _squash(r[4])
                 if len(t) < 4:
                     # "it" sits inside utilities and hospitality: short words
                     # match a whole word or a prefix, never a substring
                     words = _squash(r[2], " ").split() + _squash(r[3], " ").split()
                     ok = key.startswith(t) or label.startswith(t) or t in words
+                    ok_mc = mc.startswith(t)
                 else:
                     ok = t in key or t in label or t == sector
+                    ok_mc = t in mc
                 if ok:
                     hit.add(r[1])
-        if not hit:
+                if ok_mc:
+                    by_mc.add(r[0])
+        if not hit and not by_mc:
             near = sorted({r[2] for r in rows if any(t in _squash(r[2]) for t in _squash(industry, " ").split() if len(t) >= 3)})
             return {"error": f"no industry or sector matches '{industry}'",
                     "closest": near[:15] or sorted({r[2] for r in rows})[:40],
                     "_note": "Nothing was scanned. Re-call with one of these, or pass `symbols`."}, None
-        labels = sorted({r[2] for r in rows if r[1] in hit})
-        return f"industries: {', '.join(labels)}", [r[0] for r in rows if r[1] in hit and r[0] != ref]
+        labels = sorted({r[2] for r in rows if r[1] in hit} | {r[4] for r in rows if r[0] in by_mc})
+        return (f"industries: {', '.join(labels)}",
+                [r[0] for r in rows if (r[1] in hit or r[0] in by_mc) and r[0] != ref])
     mine = next((r for r in rows if r[0] == ref), None)
     if not mine:
         return {"error": f"{ref} has no industry classification",
                 "_note": "Pass `industry` or `symbols` to say what to scan."}, None
     if scope == "sector" and mine[3]:
         return f"sector: {mine[3]}", [r[0] for r in rows if r[3] == mine[3] and r[0] != ref]
+    # Moneycontrol's industry is the finer one where it splits a lump (HDFCBANK's
+    # peers are the private banks, not every "regional" bank) — used when it
+    # still leaves a real group to compare with
+    if mine[4]:
+        mc_peers = [r[0] for r in rows if r[4] == mine[4] and r[0] != ref]
+        if len(mc_peers) >= 4:
+            return f"industry: {mine[4]}", mc_peers
     return f"industry: {mine[2]}", [r[0] for r in rows if r[1] == mine[1] and r[0] != ref]
 
 
@@ -11258,9 +11279,90 @@ def tool_get_indicator(name: str, interval: str = "5m", period: int = 0,
 _CX_CONTRAST = ("NIFTY 50", "BTCUSDT", "HDFCBANK", "TCS", "INFY")
 
 
-def _cx_bars_provider(symbol: str, interval: str):
-    """[(label, rows, interval, tz_offset)] — the real series a draft is
-    tested on: the chart itself, its daily, and two contrasting instruments."""
+# A basket study reads other instruments' bars. The model names the group;
+# _cx_basket_resolve finds its members in the classification table (or checks
+# the tickers it named), keeps those with stored bars, most traded first, and
+# freezes them into the spec — the chart then always draws the same group.
+_CX_BASKET_MAX = 30
+_cx_member_cache: dict = {}
+_cx_member_lock = threading.Lock()
+
+
+def _cx_member_rows(sym: str, interval: str, limit: int) -> list[tuple]:
+    """One basket member's bars, cached for a minute — a chart redraw reads
+    the same 30 members again, and an hourly series is resampled from minutes."""
+    key = (sym, interval, limit)
+    now = time.time()
+    with _cx_member_lock:
+        hit = _cx_member_cache.get(key)
+        if hit and now - hit[0] < 60:
+            return hit[1]
+    try:
+        rows = _rows_for(sym, interval, limit) if _symbol_ready(sym) else []
+    except Exception:  # noqa: BLE001 — a member without coverage is left out, not fatal
+        rows = []
+    with _cx_member_lock:
+        _cx_member_cache[key] = (now, rows)
+        if len(_cx_member_cache) > 600:
+            for k in sorted(_cx_member_cache, key=lambda k: _cx_member_cache[k][0])[:200]:
+                _cx_member_cache.pop(k, None)
+    return rows
+
+
+def _cx_basket_cols(basket: dict, rows: list[tuple], interval: str) -> dict:
+    """The spec's members, aligned to these chart rows (custom_indicators.align_basket)."""
+    members = {m: _cx_member_rows(m, interval, len(rows) + 50) for m in basket["symbols"]}
+    return _ci.align_basket(rows, members, label=basket.get("label") or "")
+
+
+def _cx_basket_resolve(kind: str, industry: str, symbols: list) -> tuple[dict | None, str]:
+    ref = canon_symbol(_sym())
+    if kind == "symbols":
+        # the store keys NSE equities bare: "NSE:ICICIBANK" and "ICICIBANK.NS" are ICICIBANK
+        named = []
+        for x in symbols:
+            raw = str(x or "").strip().upper()
+            if not raw:
+                continue
+            c = canon_symbol(raw)
+            if not _symbol_ready(c):
+                bare = raw.removeprefix("NSE:").removesuffix(".NS")
+                c = canon_symbol(bare) if _symbol_ready(canon_symbol(bare)) else c
+            named.append(c)
+        ok = [x for x in named if _symbol_ready(x)]
+        if not ok:
+            return None, f"none of {', '.join(named[:8]) or 'the named instruments'} have stored bars"
+        missing = [x for x in named if x not in ok]
+        return {"label": "", "symbols": ok[:_ci.MAX_BASKET],
+                **({"missing": missing} if missing else {})}, ""
+    # the whole group, the chart's own symbol included when it belongs to it —
+    # the study is told bars["symbol"] so it can leave itself out
+    basis, cands = _setup_universe("" if kind == "industry" else ref, "industry",
+                                   industry if kind == "industry" else "", None)
+    if cands is None:
+        why = basis.get("error") or "no such group"
+        if basis.get("closest"):
+            why += "; closest: " + ", ".join(basis["closest"][:10])
+        return None, why
+    if kind == "peers":
+        cands = [ref] + cands
+    ready = [x for x in dict.fromkeys(cands) if _symbol_ready(x)]
+    if not ready:
+        return None, f"no member of {basis} has stored bars"
+
+    def turnover(sym):
+        d = _cx_member_rows(sym, "1d", 20)
+        return sum(r[4] * (r[5] or 0) for r in d) / max(1, len(d))
+    ranked = sorted(ready, key=turnover, reverse=True)[:_CX_BASKET_MAX]
+    return {"label": basis.split(": ", 1)[-1], "symbols": ranked,
+            **({"left_out": len(ready) - len(ranked)} if len(ready) > len(ranked) else {})}, ""
+
+
+def _cx_bars_provider(symbol: str, interval: str, basket: dict | None = None):
+    """[(label, rows, interval, tz_offset[, basket_cols])] — the real series a
+    draft is tested on: the chart itself, its daily, and two contrasting
+    instruments. A basket study is tested on the chart's own series only, each
+    carrying its members' bars — a crypto pair has no bank basket to read."""
     def tz(sym):
         return session_for(sym)[1]
 
@@ -11275,6 +11377,9 @@ def _cx_bars_provider(symbol: str, interval: str):
     out = [(f"{symbol} {iv}", load(symbol, iv, 1500), iv, tz(symbol))]
     if iv != "1d":
         out.append((f"{symbol} 1d", load(symbol, "1d", 1000), "1d", tz(symbol)))
+    if basket:
+        return [(lab, rows, i, z, _cx_basket_cols(basket, rows, i) if rows else None)
+                for lab, rows, i, z in out]
     picked = 0
     for s in _CX_CONTRAST:
         if s == symbol or picked >= 2:
@@ -11287,17 +11392,31 @@ def _cx_bars_provider(symbol: str, interval: str):
     return out
 
 
-def _cx_llm(payload: dict) -> dict:
+def _cx_llm(payload: dict):
     """One Responses call for the builder — the same endpoint, model and retry
-    policy as the chat itself, with a longer timeout: a code draft is a few
-    thousand tokens of reasoning."""
+    policy as the chat itself. Streamed (the builder asks for it): yields the
+    server-sent events, ending with response.completed. The retry covers only
+    the time before the first byte, as everywhere else."""
     payload = {**payload, "service_tier": LLM_SERVICE_TIER}
     req = urllib.request.Request(
         f"{AZURE_ENDPOINT}/responses", data=json.dumps(payload).encode(),
         headers={"api-key": AZURE_KEY, "Content-Type": "application/json"},
         method="POST")
     with _urlopen_with_retry(req, timeout=240, context=_ssl_ctx()) as r:
-        return json.loads(r.read())
+        if not payload.get("stream"):
+            yield {"type": "response.completed", "response": json.loads(r.read())}
+            return
+        for raw in r:
+            line = raw.decode("utf-8", "replace").strip()
+            if not line.startswith("data:"):
+                continue
+            body = line[5:].strip()
+            if not body or body == "[DONE]":
+                continue
+            try:
+                yield json.loads(body)
+            except json.JSONDecodeError:
+                continue
 
 
 def _cx_scene(rec: dict, interval: str = "") -> None:
@@ -11350,10 +11469,16 @@ def _cx_build_events(request: str = "", id: str = ""):  # noqa: A002 — the mod
             return
     chart = {"symbol": _sym(),
              "interval": getattr(_req, "ctx_interval", "") or "1d"}
+    cls = _con.execute("SELECT COALESCE(label, industry), COALESCE(industry_mc, '') "
+                       "FROM classification WHERE symbol=?", (chart["symbol"],)).fetchone()
+    if cls:
+        chart["industry"] = cls[0] + (f" / {cls[1]}" if cls[1] else "")
     result = None
     for ev in _ib.build(request, llm=_cx_llm, model=_model(),
-                        bars_provider=lambda: _cx_bars_provider(chart["symbol"], chart["interval"]),
-                        chart=chart, uid=who[0], edit=edit):
+                        bars_provider=lambda b=None: _cx_bars_provider(chart["symbol"],
+                                                                       chart["interval"], b),
+                        chart=chart, uid=who[0], edit=edit,
+                        basket_resolver=_cx_basket_resolve):
         if ev["type"] == "final":
             result = ev["result"]
             break
@@ -11364,6 +11489,13 @@ def _cx_build_events(request: str = "", id: str = ""):  # noqa: A002 — the mod
             "native_equivalent": result["native"], "built": False,
             "_note": (f"{result['reason']} Call get_indicator(name='{result['native']}', "
                       f"draw=true) — nothing custom was generated.")}}
+        return
+    if result.get("basket_error"):
+        yield {"type": "final", "result": {
+            "built": False, "basket_error": result["basket_error"],
+            "_note": "Nothing was built: the group of instruments the study needs could not "
+                     "be found. Say so in one line, name the closest groups if listed, and "
+                     "offer to build it on one of those or on tickers the user names."}}
         return
     if result.get("declined"):
         yield {"type": "final", "result": {
@@ -11479,9 +11611,11 @@ def tool_custom_indicator(action: str, request: str = "", id: str = "",  # noqa:
         rows = _rows(iv, 1500)
         if not rows:
             return {"error": f"no bars for interval {iv}"}
+        bk = rec["spec"].get("basket")
         try:
             res = _ci.compute_for(rec, rows, {}, interval=iv,
-                                  tz_offset=session_for(_sym())[1])
+                                  tz_offset=session_for(_sym())[1], symbol=_sym(),
+                                  basket=_cx_basket_cols(bk, rows, iv) if bk else None)
         except ValueError as exc:
             return {"error": str(exc)}
         wt = iv not in ("1d", "1w", "1mo")
@@ -11534,9 +11668,11 @@ def _cx_series(q: dict, headers) -> tuple[int, dict]:
         return 400, {"error": "no bars"}
     raw = {f["key"]: q[f["key"]] for f in rec["spec"].get("inputs") or []
            if q.get(f["key"]) not in (None, "")}
+    bk = rec["spec"].get("basket")
     try:
         res = _ci.compute_for(rec, rows, raw, interval=interval,
-                              tz_offset=int(q.get("tz_offset") or 0))
+                              tz_offset=int(q.get("tz_offset") or 0), symbol=_sym(),
+                              basket=_cx_basket_cols(bk, rows, interval) if bk else None)
     except ValueError as exc:
         return 400, {"error": str(exc)}
 
@@ -12416,7 +12552,10 @@ TOOLS = [
          "exists), repairs it until it passes, then adds it to the chart. It takes 20-60 s and "
          "shows its own progress. Nothing that fails validation is drawn. Use build for 'make/"
          "create/code me an indicator' — however loosely worded, including blends across "
-         "several lookbacks or timeframes of this chart's bars; the builder scopes it, so "
+         "several lookbacks of this chart's bars, studies that read OTHER instruments (a sector "
+         "or industry average, breadth across a group, this stock against its peers or an "
+         "index — the builder finds the members itself), and conditions to be shown as "
+         "green/red/grey; the builder scopes it, so "
          "never say an indicator cannot be made without calling build first — a named indicator NOT in get_indicator's list (Squeeze "
          "Momentum, WaveTrend, Schaff, QQE, Coppock, Elder Ray…), or a variant of a native one "
          "('RSI of volume', 'Bollinger on hl2 with a 1.5 sd inner band'). A plain native study "
@@ -18803,7 +18942,7 @@ class Handler(BaseHTTPRequestHandler):
                 sym = "RELIANCE"
             _req.symbol = sym
             iv = str(body.get("interval") or "1d")
-            report = _ci.validate(rec["spec"], code, _cx_bars_provider(sym, iv))
+            report = _ci.validate(rec["spec"], code, _cx_bars_provider(sym, iv, rec["spec"].get("basket")))
             report["attempts"] = 0
             saved = _ci.save(me[0], spec=rec["spec"], code=code, report=report,
                              prompt="edited by hand", cid=cid)

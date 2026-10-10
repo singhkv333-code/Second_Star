@@ -377,8 +377,89 @@ class _TA:
             out.append(None if last is None else i - last)
         return out
 
+    # ── across a basket: one value per bar from many members' series ──────
+    # Each takes a list of member series (bars["basket"]["close"], or series
+    # computed from them) and reads bar i of every member — never another
+    # bar — so a cross-sectional study is as causal as its inputs. Members
+    # with no value at a bar (not yet listed, a gap) are left out of that
+    # bar; a bar where no member has a value is None.
+
+    @staticmethod
+    def xmean(series_list):
+        n = len(series_list[0]) if series_list else 0
+        out = []
+        for i in range(n):
+            v = [s[i] for s in series_list if s[i] is not None]
+            out.append(sum(v) / len(v) if v else None)
+        return out
+
+    @staticmethod
+    def xmedian(series_list):
+        n = len(series_list[0]) if series_list else 0
+        out = []
+        for i in range(n):
+            v = sorted(s[i] for s in series_list if s[i] is not None)
+            k = len(v)
+            out.append(None if not k else v[k // 2] if k % 2 else (v[k // 2 - 1] + v[k // 2]) / 2)
+        return out
+
+    @staticmethod
+    def xsum(series_list):
+        n = len(series_list[0]) if series_list else 0
+        out = []
+        for i in range(n):
+            v = [s[i] for s in series_list if s[i] is not None]
+            out.append(sum(v) if v else None)
+        return out
+
+    @staticmethod
+    def xcount(cond_list):
+        """How many members' condition holds at each bar (None = no value)."""
+        n = len(cond_list[0]) if cond_list else 0
+        out = []
+        for i in range(n):
+            v = [c[i] for c in cond_list if c[i] is not None]
+            out.append(float(sum(1 for x in v if x)) if v else None)
+        return out
+
+    @staticmethod
+    def xpct(cond_list):
+        """Percent (0-100) of the members WITH A VALUE whose condition holds."""
+        n = len(cond_list[0]) if cond_list else 0
+        out = []
+        for i in range(n):
+            v = [c[i] for c in cond_list if c[i] is not None]
+            out.append(100.0 * sum(1 for x in v if x) / len(v) if v else None)
+        return out
+
+    @staticmethod
+    def xrank(src, series_list):
+        """Percentile (0-100) of src[i] among the members' values at bar i."""
+        out = []
+        for i in range(len(src)):
+            v = [s[i] for s in series_list if s[i] is not None]
+            if src[i] is None or not v:
+                out.append(None)
+                continue
+            out.append(100.0 * sum(1 for x in v if x <= src[i]) / len(v))
+        return out
+
 
 TA = _TA()
+
+_BASKET_COLS = ("open", "high", "low", "close", "volume")
+
+
+def _basket(b, cut=None):
+    """A fresh copy of a basket, optionally cut to the first `cut` bars —
+    the look-ahead check truncates the members exactly as it truncates the
+    chart's own bars."""
+    if not isinstance(b, dict):
+        return b
+    out = {"label": b.get("label", ""), "symbols": list(b.get("symbols") or [])}
+    for k in _BASKET_COLS:
+        out[k] = [list(s[:cut] if cut else s) for s in (b.get(k) or [])]
+    return out
 
 SAFE_BUILTINS = {
     k: __builtins__[k] if isinstance(__builtins__, dict) else getattr(__builtins__, k)
@@ -437,7 +518,8 @@ def _run(code: str, jobs: list, datasets: dict | None = None) -> dict:
         cols = job.get("bars") or (datasets or {})[job["data"]]
         cut = job.get("truncate")
         if cut:
-            cols = {k: (v[:cut] if isinstance(v, list) else v) for k, v in cols.items()}
+            cols = {k: (v[:cut] if isinstance(v, list) else
+                        _basket(v, cut) if k == "basket" else v) for k, v in cols.items()}
         n = len(cols["close"])
         bars = dict(cols)
         bars["n"] = n
@@ -451,7 +533,8 @@ def _run(code: str, jobs: list, datasets: dict | None = None) -> dict:
             for _ in range(int(job.get("repeat") or 1)):
                 # a fresh copy each run: code that mutates its inputs must not
                 # change what the next run (or the determinism check) sees
-                got = compute({k: (list(v) if isinstance(v, list) else v)
+                got = compute({k: (list(v) if isinstance(v, list) else
+                                   _basket(v) if k == "basket" else v)
                                for k, v in bars.items()}, dict(job.get("params") or {}))
                 outs.append(_normalise(got, n))
         except Exception as exc:  # noqa: BLE001

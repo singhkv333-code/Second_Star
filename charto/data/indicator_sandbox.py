@@ -107,27 +107,44 @@ def run(code: str, jobs: list[dict], *, timeout: float = 15.0,
 
 
 # ── the chart path: one study, one series, cached ────────────────────────
+def _basket_print(b: dict | None):
+    """What identifies a basket's data for the cache: its members and each
+    one's last close — a member's new bar is a new result."""
+    if not b:
+        return None
+    return [b.get("symbols"), [next((x for x in reversed(s) if x is not None), None)
+                               for s in b.get("close") or []]]
+
+
 _cache: OrderedDict = OrderedDict()
 _cache_lock = threading.Lock()
 _CACHE_MAX = 256
 
 
-def columns(rows: list[tuple], *, interval: str = "", tz_offset: int = 0) -> dict:
-    """Charto rows (t, o, h, l, c, v) → the column dict compute() receives."""
-    return {"time": [r[0] for r in rows], "open": [r[1] for r in rows],
-            "high": [r[2] for r in rows], "low": [r[3] for r in rows],
-            "close": [r[4] for r in rows], "volume": [r[5] or 0 for r in rows],
-            "interval": interval, "tz_offset": int(tz_offset or 0)}
+def columns(rows: list[tuple], *, interval: str = "", tz_offset: int = 0,
+            symbol: str = "", basket: dict | None = None) -> dict:
+    """Charto rows (t, o, h, l, c, v) → the column dict compute() receives.
+    `basket` (already aligned to these rows) rides along for a study that
+    reads other instruments — see custom_indicators.align_basket."""
+    out = {"time": [r[0] for r in rows], "open": [r[1] for r in rows],
+           "high": [r[2] for r in rows], "low": [r[3] for r in rows],
+           "close": [r[4] for r in rows], "volume": [r[5] or 0 for r in rows],
+           "interval": interval, "tz_offset": int(tz_offset or 0), "symbol": symbol}
+    if basket is not None:
+        out["basket"] = basket
+    return out
 
 
 def compute(code: str, rows: list[tuple], params: dict, *, interval: str = "",
-            tz_offset: int = 0, timeout: float = 10.0) -> tuple[dict, int]:
+            tz_offset: int = 0, timeout: float = 10.0, symbol: str = "",
+            basket: dict | None = None) -> tuple[dict, int]:
     """({line: [float|None]}, non-finite count) for one validated study. Raises
     ValueError with the child's own message when the code fails here — a
     study that passed validation can still meet bars it never saw."""
     key = hashlib.sha256(json.dumps(
         [code, len(rows), rows[0] if rows else None, rows[-1] if rows else None,
-         sorted((params or {}).items()), interval, tz_offset],
+         sorted((params or {}).items()), interval, tz_offset, symbol,
+         _basket_print(basket)],
         default=str).encode()).hexdigest()
     with _cache_lock:
         if key in _cache:
@@ -135,7 +152,8 @@ def compute(code: str, rows: list[tuple], params: dict, *, interval: str = "",
             return _cache[key]
     try:
         reply = run(code, [{"id": "chart", "bars": columns(rows, interval=interval,
-                                                           tz_offset=tz_offset),
+                                                           tz_offset=tz_offset,
+                                                           symbol=symbol, basket=basket),
                             "params": params or {}}], timeout=timeout)
     except SandboxError as exc:
         raise ValueError(f"custom indicator could not run: {exc}") from exc

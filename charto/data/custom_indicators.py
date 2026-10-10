@@ -65,7 +65,8 @@ _db.commit()
 
 PREFIX = "cx_"
 _ID_RE = re.compile(r"^cx_[a-z]{8}$")
-PLOTS = ("line", "stepline", "area", "columns", "circles")
+PLOTS = ("line", "stepline", "area", "columns", "circles", "state")
+MAX_BASKET = 40
 INPUT_TYPES = ("int", "float", "bool", "enum", "source")
 CLASSES = ("standard", "variant", "custom")
 _KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,23}$")
@@ -156,6 +157,13 @@ def check_spec(spec: dict) -> list[str]:
             p.append("reference.line_map must map at least one of your lines to the reference's output")
         elif any(k not in seen for k in ref["line_map"]):
             p.append("reference.line_map keys must be your own line keys")
+    bk = spec.get("basket")
+    if bk is not None:
+        syms = (bk or {}).get("symbols") if isinstance(bk, dict) else None
+        if not isinstance(syms, list) or not syms or not all(isinstance(x, str) and x for x in syms):
+            p.append("spec.basket must be null or {label, symbols:[...]} with at least one symbol")
+        elif len(syms) > MAX_BASKET:
+            p.append(f"spec.basket has {len(syms)} symbols; the limit is {MAX_BASKET}")
     if spec.get("classification") == "standard" and not spec.get("standard_name"):
         p.append("a standard indicator must name itself in spec.standard_name")
     lib = str(spec.get("library_equivalent") or "")
@@ -226,6 +234,9 @@ def catalog_entry(rec: dict) -> dict:
            "levels": [x for x in (spec.get("levels") or []) if isinstance(x, (int, float))][:6]}
     if spec.get("bounds"):
         out["bounds"] = list(spec["bounds"])
+    if spec.get("basket"):
+        out["basket"] = {"label": spec["basket"].get("label") or "",
+                         "count": len(spec["basket"].get("symbols") or [])}
     return out
 
 
@@ -277,6 +288,70 @@ def library_probe(fn: str, rows: list[tuple]) -> dict | None:
 # ══════════════════════════════════════════════════════════════════
 # VALIDATION
 # ══════════════════════════════════════════════════════════════════
+
+def align_basket(rows: list[tuple], members: dict[str, list[tuple]], *, label: str = "",
+                 max_fill: int = 5) -> dict:
+    """Other instruments' bars on THIS chart's bar times, causally.
+
+    For each chart bar, a member contributes its own bar with the same open
+    time; where it has none (a halt, a later listing, a session it does not
+    trade) its last close is carried forward for at most `max_fill` bars
+    with zero volume, and after that — or before its first bar — it has no
+    value (None). A member is never given a bar from after the chart bar it
+    sits beside. Members are kept in the order given."""
+    times = [r[0] for r in rows]
+    out = {"label": label, "symbols": [], **{k: [] for k in ("open", "high", "low", "close", "volume")}}
+    for sym, mrows in members.items():
+        by_t = {r[0]: r for r in mrows}
+        mts = sorted(by_t)
+        o, h, l, c, v = [], [], [], [], []
+        j, held, gap = 0, None, 0
+        for t in times:
+            while j < len(mts) and mts[j] <= t:
+                j += 1
+            r = by_t.get(t)
+            if r is not None:
+                o.append(r[1]); h.append(r[2]); l.append(r[3]); c.append(r[4]); v.append(r[5] or 0)
+                held, gap = t, 0
+                continue
+            # the member's latest bar at or before t, if any; `gap` counts the
+            # chart bars it has been carried across
+            prev = by_t[mts[j - 1]] if j else None
+            if prev is not None and prev[0] != held:
+                held, gap = prev[0], 0
+            gap += 1
+            if prev is None or gap > max_fill:
+                o.append(None); h.append(None); l.append(None); c.append(None); v.append(None)
+            else:
+                p = prev[4]
+                o.append(p); h.append(p); l.append(p); c.append(p); v.append(0)
+        out["symbols"].append(sym)
+        for k, col in zip(("open", "high", "low", "close", "volume"), (o, h, l, c, v)):
+            out[k].append(col)
+    return out
+
+
+def synthetic_basket(rows: list[tuple], k: int = 6, seed: int = 11) -> dict:
+    """Members for a synthetic dataset: the series re-scaled with their own
+    noise, one listed late, one with no data at all — the shapes a real
+    basket throws at a study."""
+    rng = random.Random(f"basket:{seed}:{len(rows)}")
+    members = {}
+    for m in range(k):
+        scale = 0.4 + 0.5 * m
+        drift = rng.gauss(0, 0.002)
+        start = len(rows) * 2 // 5 if m == k - 2 else 0
+        mr = []
+        f = 1.0
+        for i, r in enumerate(rows):
+            f *= 1 + drift + rng.gauss(0, 0.003)
+            if i < start:
+                continue
+            o, h, l, c = (round(x * scale * f, 4) for x in r[1:5])
+            mr.append((r[0], o, max(o, h, c), min(o, l, c), c, (r[5] or 0) * (0.5 + m)))
+        members[f"MEMBER{m + 1}"] = [] if m == k - 1 else mr
+    return align_basket(rows, members, label="synthetic basket")
+
 
 def synthetic(kind: str, n: int = 600, seed: int = 7) -> list[tuple]:
     """Deterministic bars for one market condition. Times are 5-minute steps;
@@ -421,15 +496,30 @@ def validate(spec: dict, code: str, real: list[tuple[str, list[tuple], str, int]
     if problems or sp:
         return _report(checks, [])
 
+    basketed = bool(spec.get("basket"))
+    reads_basket = "basket" in code
+    if basketed != reads_basket:
+        add("basket", "Reads the basket it declares", "fail",
+            "spec.basket is set but compute() never reads bars['basket']" if basketed else
+            "compute() reads bars['basket'] but spec.basket is null — declare the members")
+        return _report(checks, [])
+
     declared = [ln["key"] for ln in spec["lines"]]
     sparse = {ln["key"] for ln in spec["lines"] if ln.get("sparse")}
+    states = {ln["key"] for ln in spec["lines"] if ln.get("plot") == "state"}
     defaults = default_params(spec)
     needs_volume = bool(spec.get("needs_volume"))
 
     datasets: dict[str, dict] = {}
     meta: list[dict] = []
     real_keys = []
-    for label, rows, interval, tz in real:
+    for item in real:
+        label, rows, interval, tz = item[:4]
+        bk = item[4] if len(item) > 4 else None
+        if basketed and bk is None:
+            meta.append({"label": label, "bars": len(rows), "used": False,
+                         "why": "no basket bars for this series"})
+            continue
         if len(rows) < 30:
             meta.append({"label": label, "bars": len(rows), "used": False,
                          "why": "not enough stored bars"})
@@ -439,16 +529,22 @@ def validate(spec: dict, code: str, real: list[tuple[str, list[tuple], str, int]
                          "why": "prints no volume; a volume study is refused there, as natively"})
             continue
         key = f"real{len(real_keys)}"
-        datasets[key] = sandbox.columns(rows, interval=interval, tz_offset=tz)
+        datasets[key] = sandbox.columns(rows, interval=interval, tz_offset=tz,
+                                        symbol=label.split(" ")[0],
+                                        basket=bk if basketed else None)
         real_keys.append((key, label, rows))
         meta.append({"label": label, "bars": len(rows), "used": True,
                      "from": rows[0][0], "to": rows[-1][0]})
     synth = ["trend_up", "trend_down", "range", "shock", "flat"] + (
         [] if needs_volume else ["zero_volume"])
     for s in synth:
-        datasets[s] = sandbox.columns(synthetic(s), interval="5m")
+        rows_s = synthetic(s)
+        datasets[s] = sandbox.columns(rows_s, interval="5m", symbol="SYNTH",
+                                      basket=synthetic_basket(rows_s) if basketed else None)
         meta.append({"label": f"synthetic {s.replace('_', ' ')}", "bars": 600, "used": True})
-    datasets["short"] = sandbox.columns(synthetic("walk", 8), interval="5m")
+    rows_s = synthetic("walk", 8)
+    datasets["short"] = sandbox.columns(rows_s, interval="5m", symbol="SYNTH",
+                                        basket=synthetic_basket(rows_s) if basketed else None)
     meta.append({"label": "synthetic 8-bar listing", "bars": 8, "used": True})
 
     jobs: list[dict] = []
@@ -521,6 +617,17 @@ def validate(spec: dict, code: str, real: list[tuple[str, list[tuple], str, int]
     add("finite", "No NaN or infinite values (incl. flat prices and zero volume)",
         "fail" if bad else ("pass" if full else "skip"), "; ".join(bad[:5]))
 
+    # a state line carries a state, not a magnitude: +1 / 0 / -1
+    if states:
+        odd = []
+        for k, lines in full.items():
+            for ln in states:
+                xs = {x for x in lines.get(ln, []) if _ok_val(x)} - {1.0, 0.0, -1.0}
+                if xs:
+                    odd.append(f"'{ln}' on {k} has {sorted(xs)[:3]}")
+        add("state", "State lines hold only +1, 0 or -1",
+            "fail" if odd else "pass", "; ".join(odd[:3]))
+
     # determinism
     nd = [k for k in datasets if res.get(f"full:{k}", {}).get("deterministic") is False]
     add("deterministic", "Same bars in, same values out",
@@ -592,6 +699,8 @@ def validate(spec: dict, code: str, real: list[tuple[str, list[tuple], str, int]
         out_b = []
         for k, lines in full.items():
             for ln, v in lines.items():
+                if ln in states:
+                    continue        # a ribbon on its own scale, not on this axis
                 vals = [x for x in v if _ok_val(x)]
                 if vals and (min(vals) < lo - tol or max(vals) > hi + tol):
                     out_b.append(f"{ln} on {k} spans {min(vals):.4g}..{max(vals):.4g}")
@@ -604,6 +713,8 @@ def validate(spec: dict, code: str, real: list[tuple[str, list[tuple], str, int]
         lo_p, hi_p = min(r[3] for r in rows), max(r[2] for r in rows)
         off = []
         for ln, v in (full.get(k) or {}).items():
+            if ln in states:
+                continue
             vals = [x for x in v if _ok_val(x)]
             if vals and (max(vals) > hi_p * 3 or min(vals) < lo_p / 3):
                 off.append(f"{ln} spans {min(vals):.4g}..{max(vals):.4g} vs price "
@@ -619,7 +730,7 @@ def validate(spec: dict, code: str, real: list[tuple[str, list[tuple], str, int]
         mags = {}
         for ln, v in (full.get(k) or {}).items():
             vals = sorted(abs(x) for x in v if _ok_val(x) and x != 0)
-            if vals and ln not in sparse:
+            if vals and ln not in sparse and ln not in states:
                 mags[ln] = vals[len(vals) // 2]
         if len(mags) > 1 and max(mags.values()) / max(min(mags.values()), 1e-12) > 50:
             big = max(mags, key=mags.get)
@@ -627,7 +738,8 @@ def validate(spec: dict, code: str, real: list[tuple[str, list[tuple], str, int]
             add("one_scale", "Lines in one pane share a scale", "fail",
                 f"'{big}' is typically {mags[big]:.4g} while '{small}' is {mags[small]:.4g} — "
                 f"in one pane the smaller line is drawn flat. Drop the line that repeats "
-                f"what the chart already shows (price is the candles), or normalise it")
+                f"what the chart already shows (price is the candles), or normalise it — "
+                f"and a +1/0/-1 condition is plot 'state' (a coloured ribbon on its own scale)")
         else:
             add("one_scale", "Lines in one pane share a scale", "pass")
 
@@ -769,7 +881,8 @@ def delete(uid: int, cid: str) -> bool:
 
 
 def compute_for(rec: dict, rows: list[tuple], raw_params: dict, *,
-                interval: str = "", tz_offset: int = 0) -> dict:
+                interval: str = "", tz_offset: int = 0, symbol: str = "",
+                basket: dict | None = None) -> dict:
     """The /indicator path for a custom study: the same {lines, last, spec}
     shape indicators.compute() returns, so every caller treats them alike."""
     if rec["status"] != "validated":
@@ -780,8 +893,11 @@ def compute_for(rec: dict, rows: list[tuple], raw_params: dict, *,
     if spec.get("needs_volume") and not any(r[5] for r in rows):
         raise ValueError(f"{spec['title']} needs traded volume and this instrument prints "
                          f"none — every bar has v=0, as indices are quoted.")
+    if spec.get("basket") and basket is None:
+        raise ValueError(f"{spec['title']} reads a basket of instruments and none was loaded")
     lines, bad = sandbox.compute(rec["code"], rows, params, interval=interval,
-                                 tz_offset=tz_offset)
+                                 tz_offset=tz_offset, symbol=symbol,
+                                 basket=basket if spec.get("basket") else None)
     lines = {ln["key"]: lines.get(ln["key"], [None] * len(rows)) for ln in spec["lines"]}
 
     def last(v):

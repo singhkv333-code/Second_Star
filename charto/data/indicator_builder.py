@@ -23,6 +23,7 @@ model — decides whether it reaches a chart.
 from __future__ import annotations
 
 import json
+import logging
 import time
 
 import custom_indicators as ci
@@ -43,6 +44,9 @@ TA_DOC = """\
   ta.crossover(a, b)  ta.crossunder(a, b)  [lists of bool]  ta.barssince(cond)  ta.valuewhen(cond, src, occurrence=0)
   ta.nz(x_or_list, replacement=0.0)
 Moving averages and stdev skip a leading run of None, so ta.ema(ta.rsi(c, 14), 9) works.
+Across a basket (lists of member series in, one value per bar out; members with None at a bar are left out of it):
+  ta.xmean(series_list)  ta.xmedian(series_list)  ta.xsum(series_list)
+  ta.xcount(cond_list)  ta.xpct(cond_list) [0..100 of members with a value]  ta.xrank(src, series_list) [0..100 percentile]
 Also available: `math` (math.sqrt, math.log, math.exp, math.pi, ...), builtins abs/min/max/sum/len/range/zip/enumerate/round/sorted/float/int/bool/list/dict."""
 
 CONTRACT = """\
@@ -55,6 +59,13 @@ Write Python defining exactly one entry point:
 bars: dict of equal-length lists "open", "high", "low", "close", "volume", "hl2", "hlc3", "ohlc4",
       "time" (epoch seconds UTC, bar open), plus "n" (bar count), "interval" ("1m".."1mo"),
       "tz_offset" (seconds east of UTC of the instrument's session clock).
+      "symbol" (the chart's symbol).
+      When the scope gives a basket, bars["basket"] = {"label", "symbols": [...], "open", "high", "low",
+      "close", "volume"} — each a list with ONE SERIES PER MEMBER, every series bars["n"] long and on
+      this chart's bar times. A member with no bar yet (later listing, missing data) is None there, and
+      any member can be None anywhere: skip None, never treat it as 0. The chart's own symbol may be a
+      member; leave it out (bars["symbol"]) when comparing the chart with its basket. Without a basket
+      in the scope there is no bars["basket"] — never read it.
 params: dict with every input key from your spec, already typed and range-clamped.
 
 Hard rules — the validator enforces each one and will send failures back:
@@ -72,6 +83,16 @@ Hard rules — the validator enforces each one and will send failures back:
 - Prefer ta.* over hand-written loops: they ARE the chart's native implementations, so a study
   built on ta.rma/ta.stdev agrees with the native RSI/Bollinger to the last digit."""
 
+DESIGN = """\
+Design — build the version a sharp trader would want, not the most literal reading:
+- Compare like with like. Instruments differ in price and share count, so never average or divide
+  raw volumes or prices ACROSS instruments: put each member on its own scale first (volume over its
+  own average volume, a return or % change, a z-score), then compare or average those.
+- Every line must add information: no line that is another line rescaled or shifted by a constant.
+  Prefer 1-2 lines; the conventional reading point (100%, 1.0, 0, 50) is a level, not a line.
+- A condition the user wants to SEE (above/below, agreeing/diverging) is a state line on top of the
+  measured value, not instead of it."""
+
 SPEC_RULES = """\
 Spec rules:
 - pane "overlay" ONLY when every line is in price units (bands, MAs, stops, levels); otherwise "own".
@@ -80,10 +101,13 @@ Spec rules:
   A constant reference line is ALWAYS a level, never a line in spec.lines — the chart draws
   levels as dashed guides the way it does for its native oscillators.
 - lines: key (snake_case), label (what the legend shows), plot one of line|stepline|area|columns|
-  circles. Histograms → ONE columns line: the chart draws it as its native four-colour histogram
+  circles|state. Histograms → ONE columns line: the chart draws it as its native four-colour histogram
   (above/below zero x rising/falling, exactly LazyBear's/TradingView's MACD scheme), so never split
   a histogram into colour-bucket lines. Discrete markers/signals → circles with sparse=true and
-  None where there is no signal (one sparse line per marker colour is fine). Name band lines upper/middle/lower and signal lines signal so they take the
+  None where there is no signal (one sparse line per marker colour is fine). A condition the user
+  wants COLOURED (green when …, red when …, otherwise grey; bullish/bearish/neutral regimes) → ONE
+  state line: +1 (green), -1 (red), 0 (grey), None (no value). The chart draws it as a coloured
+  ribbon across the pane — never fake colours with several lines. Name band lines upper/middle/lower and signal lines signal so they take the
   chart's native colours.
 - inputs: every tunable number (key "length", never "period"), with honest min/max; type int|float|
   bool|enum|source. A "source" input lets the user pick close/open/high/low/hl2/hlc3/ohlc4.
@@ -121,7 +145,7 @@ def _schema_brief() -> dict:
     return {"type": "object", "additionalProperties": False,
             "required": ["intent", "title", "classification", "standard_name", "summary",
                          "native_equivalent", "native_exact", "library_equivalent",
-                         "definition", "defaults", "conventions", "decline_reason"],
+                         "definition", "defaults", "conventions", "basket", "decline_reason"],
             "properties": {
                 "intent": {"type": "string", "enum": ["build", "decline"]},
                 "title": {"type": "string"},
@@ -134,6 +158,14 @@ def _schema_brief() -> dict:
                 "definition": {"type": "string"},
                 "defaults": {"type": "array", "items": kv},
                 "conventions": {"type": "array", "items": {"type": "string"}},
+                "basket": {"type": "object", "additionalProperties": False,
+                           "required": ["kind", "industry", "symbols", "label"],
+                           "properties": {
+                               "kind": {"type": "string",
+                                        "enum": ["none", "peers", "industry", "symbols"]},
+                               "industry": {"type": "string"},
+                               "symbols": {"type": "array", "items": {"type": "string"}},
+                               "label": {"type": "string"}}},
                 "decline_reason": {"type": "string"}}}
 
 
@@ -163,7 +195,9 @@ def _schema_code() -> dict:
                          "formula", "pane", "bounds", "levels", "needs_volume", "lines",
                          "inputs", "assumptions", "reference", "code", "notes_for_user"],
             "properties": {
-                "title": {"type": "string"}, "short": {"type": "string"},
+                "title": {"type": "string"},
+                "short": {"type": "string",
+                          "description": "the legend label: AT MOST 24 characters, e.g. 'Vol vs Sector'"},
                 "description": {"type": "string"},
                 "classification": {"type": "string", "enum": list(ci.CLASSES)},
                 "standard_name": {"type": "string"},
@@ -189,21 +223,53 @@ def _schema_code() -> dict:
 
 # ── one schema-bound call ─────────────────────────────────────────────────
 def _call(llm, model: str, *, system: str, user: str, schema: dict, name: str,
-          effort: str = "medium", web: bool = False, max_tokens: int = 8000) -> tuple[dict, list, dict]:
-    """(parsed JSON, [{title, url}] citations, usage)."""
+          effort: str = "medium", web: bool = False, max_tokens: int = 8000, stage: str = ""):
+    """A generator: yields progress events while the model works, and returns
+    (parsed JSON, [{title, url}] citations, usage) — use `yield from`.
+
+    Streamed, because a code draft is a minute or more of silent reasoning:
+    a non-streamed request sat idle that long and the connection was dropped
+    before the reply ("Remote end closed connection"), so the whole draft was
+    paid for twice. Streaming keeps bytes moving, and its reasoning summaries
+    are what the user watches instead of a frozen stage label. `llm` may also
+    return the finished response object (no stream) — tests do."""
     payload = {
         "model": model,
         "input": [{"role": "system", "content": system}, {"role": "user", "content": user}],
         "text": {"format": {"type": "json_schema", "name": name, "schema": schema,
                             "strict": True}},
-        "reasoning": {"effort": effort},
+        "reasoning": {"effort": effort, "summary": "auto"},
         "max_output_tokens": max_tokens,
+        "stream": True,
     }
     if web:
         payload["tools"] = [{"type": "web_search_preview", "search_context_size": "medium"}]
         # the URLs each search actually returned and each page actually opened
         payload["include"] = ["web_search_call.action.sources"]
-    data = llm(payload)
+    got = llm(payload)
+    data = got if isinstance(got, dict) else None
+    if data is None:
+        part = []
+        for ev in got:
+            t = ev.get("type", "")
+            if t == "response.reasoning_summary_text.delta":
+                part.append(ev.get("delta") or "")
+            elif t == "response.reasoning_summary_part.done":
+                head = _heading("".join(part))
+                part = []
+                if head:
+                    yield {"type": "progress", "stage": stage, "label": "Thinking",
+                           "detail": head}
+            elif t == "response.web_search_call.searching":
+                yield {"type": "progress", "stage": stage, "label": "Searching the web",
+                       "detail": ""}
+            elif t in ("response.completed", "response.incomplete"):
+                data = ev.get("response") or {}
+            elif t in ("error", "response.failed"):
+                err = ev.get("error") or (ev.get("response") or {}).get("error") or {}
+                raise RuntimeError(f"the model call failed: {err.get('message') or t}")
+        if data is None:
+            raise RuntimeError("the model stream ended without a response")
     text, cites, searched, opened, found = [], [], 0, [], []
     for item in data.get("output", []):
         if item.get("type") == "web_search_call":
@@ -245,6 +311,15 @@ def _call(llm, model: str, *, system: str, user: str, schema: dict, name: str,
     return json.loads(raw), uniq, usage
 
 
+def _heading(summary: str) -> str:
+    """A reasoning summary's title ("**Checking warm-up**\n\n…") — the
+    line shown as progress. Falls back to its first sentence, clipped."""
+    s = summary.strip()
+    if s.startswith("**") and "**" in s[2:]:
+        return s[2:s.index("**", 2)].strip()[:80]
+    return s.split(". ")[0][:80]
+
+
 def _spec_from(draft: dict, brief: dict, sources: list) -> dict:
     """The model's schema-shaped draft → the stored spec shape."""
     ref = draft.get("reference") or {}
@@ -284,6 +359,7 @@ def _spec_from(draft: dict, brief: dict, sources: list) -> dict:
         "reference": reference, "sources": sources,
         "reference_waiver": "" if reference else (ref.get("waiver") or "").strip(),
         "library_equivalent": brief.get("library_verified") or "",
+        "basket": brief.get("basket_resolved"),
         "notes": draft.get("notes_for_user") or "",
     }
 
@@ -295,12 +371,16 @@ def _failures(report: dict) -> str:
 
 
 def build(request: str, *, llm, model: str, bars_provider, chart: dict,
-          uid: int, edit: dict | None = None):
+          uid: int, edit: dict | None = None, basket_resolver=None):
     """Yield {"type": "progress", stage, label, detail, data?} events, then one
     {"type": "final", "result": {...}}. Never raises: a failure is a result.
 
-    `bars_provider()` → [(label, rows, interval, tz_offset)] of real data.
-    `chart` = {"symbol", "interval"} of the chart the study is for.
+    `bars_provider(basket)` → [(label, rows, interval, tz_offset[, basket_cols])]
+    of real data; with a basket ({label, symbols}) each series carries the
+    members' bars aligned to it.
+    `chart` = {"symbol", "interval", "industry"} of the chart the study is for.
+    `basket_resolver(kind, industry, symbols)` → ({label, symbols}, "") or
+    (None, why) — the model names the group, code finds the real members.
     `edit` = the stored record when this is a change to an existing study.
     """
     t0 = time.perf_counter()
@@ -327,8 +407,9 @@ def build(request: str, *, llm, model: str, bars_provider, chart: dict,
         if edit:
             current = (f"\n\nThis EDITS the user's existing indicator \"{edit['spec']['title']}\" "
                        f"({edit['spec']['classification']}): {edit['spec']['formula']}")
-        brief, sources, u = _call(
+        brief, sources, u = yield from _call(
             llm, model, name="scope", effort="low", web=True, max_tokens=4000,
+            stage="understanding",
             schema=_schema_brief(),
             system=("You scope requests for a charting platform's custom-indicator builder. "
                     "If the request names a published indicator and you are not certain of its "
@@ -345,10 +426,21 @@ def build(request: str, *, llm, model: str, bars_provider, chart: dict,
                     "library_equivalent = the pandas-ta-classic function implementing the same "
                     "indicator, or '' if none. definition = the step-by-step computation with "
                     "every convention; defaults = its standard parameter values. "
-                    "intent 'decline' only if this cannot be computed from a price/volume series "
+                    "basket: other instruments' bars the study must read — a sector or "
+                    "industry average, breadth (how many of a group are above X), the chart "
+                    "against its peers or an index. kind 'peers' = the chart symbol's own "
+                    "industry; 'industry' = a named group (industry = the group in plain "
+                    "words, e.g. 'private sector banks', 'IT services', 'oil and gas'); "
+                    "'symbols' = ONLY instruments the user named by ticker or name (e.g. NIFTY 50, "
+                    "BANKNIFTY, HDFCBANK) — a group described in words ('other banks', 'the "
+                    "sector', 'its peers') is 'peers' or 'industry', never a list you recall, "
+                    "because code finds the members that actually have data; label = a short name for the group. kind 'none' when "
+                    "the chart's own bars are enough. "
+                    "intent 'decline' only if this cannot be computed from price/volume series "
                     "(orders, advice, order book, fundamentals, news)."),
-            user=(f"Request: {request}{current}\n\npandas-ta-classic functions (for "
-                  f"library_equivalent): {_library_names()}"))
+            user=(f"Request: {request}{current}\n\nChart: {chart.get('symbol')} "
+                  f"({chart.get('industry') or 'industry unknown'}) on {chart.get('interval')}"
+                  f"\n\npandas-ta-classic functions (for library_equivalent): {_library_names()}"))
         acc(u)
         if brief["intent"] == "decline":
             return (yield final(ok=False, declined=True, reason=brief["decline_reason"]))
@@ -367,9 +459,26 @@ def build(request: str, *, llm, model: str, bars_provider, chart: dict,
                      f"{len(sources)} source{'s' if len(sources) != 1 else ''}",
                      sources=sources[:6])
 
+        # the group the model named → real members, found by code
+        bk = brief.get("basket") or {}
+        brief["basket_resolved"] = None
+        if bk.get("kind") in ("peers", "industry", "symbols"):
+            if basket_resolver is None:
+                return (yield final(ok=False, error="this server cannot load other instruments "
+                                                    "for a basket study"))
+            got, why = basket_resolver(bk["kind"], bk.get("industry") or "", bk.get("symbols") or [])
+            if not got:
+                return (yield final(ok=False, basket_error=why,
+                                    reason=f"could not find the instruments for the basket: {why}"))
+            got["label"] = (bk.get("label") or got.get("label") or "").strip()[:40]
+            brief["basket_resolved"] = got
+            yield ev("understanding", "Basket",
+                     f"{got['label'] or 'group'} · {len(got['symbols'])} instruments",
+                     symbols=got["symbols"])
+
         # the model's named library implementation, VERIFIED and described by
         # the library itself — real keywords and column names, not recalled ones
-        real = bars_provider()
+        real = bars_provider(brief["basket_resolved"])
         sample = next((r[1] for r in real if len(r[1]) >= 60), [])
         probe = (ci.library_probe(brief["library_equivalent"], sample)
                  if brief.get("library_equivalent") else None)
@@ -380,10 +489,16 @@ def build(request: str, *, llm, model: str, bars_provider, chart: dict,
                   "as sandboxed Python. Correctness is the product: implement the scoped "
                   "definition exactly, state every assumption, and never present a custom "
                   "method as a standard one.\n\n" + CONTRACT + "\n\n" + TA_DOC + "\n\n"
-                  + SPEC_RULES)
+                  + DESIGN + "\n\n" + SPEC_RULES)
         context = [f"User request: {request}",
-                   f"Scope (researched): {json.dumps({k: v for k, v in brief.items() if k not in ('intent', 'decline_reason', 'native_exact', 'library_verified')})}",
+                   f"Scope (researched): {json.dumps({k: v for k, v in brief.items() if k not in ('intent', 'decline_reason', 'native_exact', 'library_verified', 'basket', 'basket_resolved')})}",
                    f"Chart: {chart.get('symbol')} on {chart.get('interval')}"]
+        if brief["basket_resolved"]:
+            b = brief["basket_resolved"]
+            context.append(f"Basket: {b['label']} — bars['basket'] carries {len(b['symbols'])} "
+                           f"members: {', '.join(b['symbols'])}")
+        else:
+            context.append("Basket: none — this study reads only the chart's own bars.")
         if probe:
             context.append(f"Independent implementation available — pandas-ta-classic: {json.dumps(probe)}")
         if brief.get("native_equivalent") in native.SPECS:
@@ -412,15 +527,18 @@ def build(request: str, *, llm, model: str, bars_provider, chart: dict,
                         + json.dumps({k: v for k, v in draft.items()})
                         + f"\n\nFailing checks (fix every one; keep everything that passed):\n"
                         + prev_fail)
-            draft, _, u = _call(llm, model, name="indicator", effort="medium",
-                                max_tokens=16000, schema=_schema_code(),
-                                system=system, user=user)
+            draft, _, u = yield from _call(llm, model, name="indicator", effort="medium",
+                                           max_tokens=16000, schema=_schema_code(),
+                                           system=system, user=user,
+                                           stage="coding" if attempt == 1 else "repairing")
             acc(u)
             spec = _spec_from(draft, brief, sources)
             yield ev("testing", "Testing",
                      f"{len(spec['lines'])} line{'s' if len(spec['lines']) != 1 else ''}, "
                      f"{len(spec['inputs'])} input{'s' if len(spec['inputs']) != 1 else ''} "
-                     f"on {sum(1 for r in real if len(r[1]) >= 30)} real series + synthetic regimes")
+                     f"on {sum(1 for r in real if len(r[1]) >= 30)} real series + synthetic regimes"
+                     + (f", with {len(brief['basket_resolved']['symbols'])} basket members"
+                        if brief["basket_resolved"] else ""))
             notes: list[str] = []
             report = ci.validate(spec, draft["code"], real, progress=notes.append)
             yield ev("testing", "Tested", report["summary"],
@@ -430,6 +548,7 @@ def build(request: str, *, llm, model: str, bars_provider, chart: dict,
             if report["passed"]:
                 break
             prev_fail = _failures(report)
+            logging.warning("indicator build attempt %d failed:\n%s", attempt, prev_fail)
 
         # ── store, then render ────────────────────────────────────────
         report["attempts"] = attempt
