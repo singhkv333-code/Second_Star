@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, Minus, Plus } from "lucide-react";
 import { submitBugReport } from "@/lib/api";
 import { isError } from "@/lib/types";
+import { HalftonePlanet, PixelGrid } from "./Pixels";
 import "./affiliate.css";
 
 /**
@@ -45,30 +46,10 @@ const PLANS = [
   { id: "proplus", name: "Pro+", price: 999 },
 ] as const;
 
-const STEPS: { title: string; art: string }[] = [
-  {
-    title: "Share your link",
-    art: String.raw`  *
-   \.
-    '~~~~~~~~~~~~~.
-                  |`,
-  },
-  {
-    title: "They trade on Pivot",
-    art: String.raw`     /\
-    |  |
-    |  |
-   /|/\|\
-     **
-     *`,
-  },
-  {
-    title: "You get paid, monthly",
-    art: String.raw`   \  |  /
- -- ( * ) --
-   /  |  \
-     ' '`,
-  },
+const STEPS: { title: string; pattern: "share" | "trade" | "paid" }[] = [
+  { title: "Share your link", pattern: "share" },
+  { title: "They trade on Pivot", pattern: "trade" },
+  { title: "You get paid, monthly", pattern: "paid" },
 ];
 
 const FAQ: { q: string; a: string }[] = [
@@ -77,23 +58,6 @@ const FAQ: { q: string; a: string }[] = [
   { q: "When am I paid?", a: "Monthly, in INR, for payments that cleared the month before." },
   { q: "Can I be in both?", a: "An ambassador earns the ambassador rate on everyone they bring. One program per person." },
 ];
-
-const HERO_ART = String.raw`        .            *
-     _______
-  ,-'       '-.        .
- /    .---.    \
-=====(     )=========
- \    '---'    /
-  '-._______.-'     *`;
-
-const TNT_ART = String.raw`         *
-        /
-   ____/
-  |    |
- _|____|_
-| |  |  | |
-| |  |  | |
-|_|__|__|_|`;
 
 const inr = (n: number): string => "₹" + Math.round(n).toLocaleString("en-IN");
 
@@ -129,7 +93,6 @@ export function AffiliatePage(): React.ReactElement {
             <div className="aff-hero-shade" aria-hidden="true" />
             <div className="aff-grain" aria-hidden="true" />
             <div className="aff-hero-copy">
-              <pre className="aff-ascii aff-hero-ascii" aria-hidden="true">{HERO_ART}</pre>
               <h1>Light the fuse.</h1>
               <p>Bring traders to Pivot and earn on every payment they make.</p>
               <div className="aff-actions">
@@ -142,7 +105,6 @@ export function AffiliatePage(): React.ReactElement {
               </div>
             </div>
             <Calculator program={program} onProgram={setProgram} />
-            <span className="aff-credit">Joseph Wright of Derby, Vesuvius in Eruption, c. 1776–80</span>
           </div>
         </section>
 
@@ -154,8 +116,10 @@ export function AffiliatePage(): React.ReactElement {
         <section className="aff-shell aff-steps" aria-label="How it works">
           {STEPS.map((s, i) => (
             <article key={s.title}>
-              <span className="aff-step-n">0{i + 1}</span>
-              <pre className="aff-ascii" aria-hidden="true">{s.art}</pre>
+              <header>
+                <span className="aff-step-n">0{i + 1}</span>
+                <PixelGrid pattern={s.pattern} />
+              </header>
               <h3>{s.title}</h3>
             </article>
           ))}
@@ -171,7 +135,7 @@ export function AffiliatePage(): React.ReactElement {
             <div className="aff-mesh" aria-hidden="true"><i /><i /><i /></div>
             <div className="aff-grain" aria-hidden="true" />
             <div className="aff-apply-side">
-              <pre className="aff-ascii aff-tnt" aria-hidden="true">{TNT_ART}</pre>
+              <HalftonePlanet />
               <h2>Ready when you are.</h2>
             </div>
             <ApplyForm program={program} onProgram={setProgram} />
@@ -194,6 +158,13 @@ function Calculator({ program, onProgram }: {
   const [plan, setPlan] = useState<(typeof PLANS)[number]["id"]>("pro");
   const price = PLANS.find((p) => p.id === plan)!.price;
   const monthly = people * price * PROGRAMS[program].rate;
+  // The track's filled share is set after mount: a custom property in an
+  // inline style serialises differently on the server and the client, and
+  // React reports the mismatch on every load.
+  const range = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    range.current?.style.setProperty("--fill", `${((people - 1) / 499) * 100}%`);
+  }, [people]);
   return (
     <div className="aff-calc">
       <div className="aff-seg" role="tablist" aria-label="Program">
@@ -206,9 +177,8 @@ function Calculator({ program, onProgram }: {
       <label className="aff-calc-row" htmlFor="aff-people">
         <span>Traders you bring</span><strong>{people}</strong>
       </label>
-      <input id="aff-people" type="range" min={1} max={500} value={people}
-        onChange={(e) => setPeople(Number(e.target.value))}
-        style={{ "--fill": `${((people - 1) / 499) * 100}%` } as React.CSSProperties} />
+      <input ref={range} id="aff-people" type="range" min={1} max={500} value={people}
+        onChange={(e) => setPeople(Number(e.target.value))} />
       <div className="aff-calc-row">
         <span>On</span>
         <div className="aff-seg aff-seg-small" role="tablist" aria-label="Plan">

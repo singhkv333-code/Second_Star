@@ -23,7 +23,7 @@
 .aff-shell { width: min(1200px, calc(100% - 32px)); margin: 0 auto; }
 
 /* ── nav ─────────────────────────────────────────────────────────────── */
-.aff-nav { height: 72px; display: flex; align-items: center; justify-content: space-between; }
+.aff-nav { height: 72px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
 .aff-brand {
   color: var(--bone); text-decoration: none;
   font: 550 26px/1 Newsreader, Georgia, serif; letter-spacing: -.03em;
@@ -40,10 +40,6 @@
   position: absolute; inset: 0; pointer-events: none;
   background-image: var(--grain); background-size: 220px 220px;
   mix-blend-mode: overlay; opacity: .55;
-}
-.aff-ascii {
-  margin: 0; font: 400 12px/1.25 var(--mono); color: var(--bone);
-  white-space: pre; letter-spacing: .02em;
 }
 .aff-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 9px;
@@ -97,17 +93,12 @@
 }
 .aff-hero .aff-grain { z-index: 0; opacity: .5; }
 .aff-hero-copy { position: relative; z-index: 1; max-width: 520px; }
-.aff-hero-ascii { font-size: 11px; margin-bottom: 26px; }
 .aff-hero h1 {
   margin: 0; font: 400 clamp(54px, 7vw, 96px)/.92 Newsreader, Georgia, serif;
   letter-spacing: -.05em;
 }
 .aff-hero p { margin: 22px 0 30px; font-size: 17px; line-height: 1.55; max-width: 400px; }
 .aff-actions { display: flex; flex-wrap: wrap; gap: 12px; }
-.aff-credit {
-  position: absolute; left: 56px; bottom: 18px; z-index: 1;
-  font: 400 10px/1 var(--mono); letter-spacing: .04em; color: var(--bone);
-}
 
 /* The calculator is the home page's glass composer: frosted, hairline,
    no shadow halo. */
@@ -190,10 +181,11 @@
 
 /* ── how it works ────────────────────────────────────────────────────── */
 .aff-steps { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 120px; border-top: 1px solid var(--line); }
-.aff-steps article { padding: 28px 28px 8px 0; display: flex; flex-direction: column; gap: 26px; }
+.aff-steps article { padding: 28px 28px 8px 0; display: flex; flex-direction: column; gap: 34px; }
+.aff-steps header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.aff-pixels { display: block; flex: none; }
 .aff-steps article + article { padding-left: 28px; border-left: 1px solid var(--line); }
 .aff-step-n { font: 500 12px/1 var(--mono); letter-spacing: .12em; }
-.aff-steps .aff-ascii { height: 104px; font-size: 13px; }
 .aff-steps h3 { margin: 0; font: 400 28px/1.1 Newsreader, Georgia, serif; letter-spacing: -.02em; }
 
 /* ── FAQ ─────────────────────────────────────────────────────────────── */
@@ -219,11 +211,11 @@
   display: grid; grid-template-columns: 1fr minmax(300px, 420px); gap: 48px;
   align-items: end; padding: 56px; min-height: 480px; background: #0b0b0b;
 }
-.aff-apply .aff-mesh i:nth-child(1) { left: 2%; top: -6%; }
-.aff-apply .aff-mesh i:nth-child(2) { left: 52%; top: 4%; }
+.aff-apply .aff-mesh i:nth-child(1) { left: 46%; top: -8%; }
+.aff-apply .aff-mesh i:nth-child(2) { left: -4%; top: 30%; opacity: .45; }
 .aff-apply .aff-grain { opacity: .7; z-index: 0; }
 .aff-apply-side, .aff-form { position: relative; z-index: 1; }
-.aff-tnt { font-size: 14px; margin-bottom: 28px; }
+.aff-planet { display: block; margin: 0 0 18px -24px; max-width: 100%; height: auto; }
 .aff-apply h2 { margin: 0; font: 400 clamp(44px, 5.4vw, 72px)/.95 Newsreader, Georgia, serif; letter-spacing: -.045em; }
 .aff-form {
   display: flex; flex-direction: column; gap: 10px; padding: 20px; border-radius: 16px;
@@ -250,33 +242,25 @@
 }
 .aff-foot .aff-brand { font-size: 20px; }
 
-/* ── the one moving thing: the fuse's spark breathes ─────────────────── */
-@media (prefers-reduced-motion: no-preference) {
-  .aff-tnt, .aff-steps article:first-child .aff-ascii { animation: aff-spark 2.4s ease-in-out infinite; }
-}
-@keyframes aff-spark { 0%, 100% { opacity: 1; } 50% { opacity: .78; } }
 
 /* ── narrow screens ──────────────────────────────────────────────────── */
 @media (max-width: 960px) {
   .aff-hero { grid-template-columns: 1fr; padding: 40px 28px 56px; min-height: 0; }
-  .aff-credit { left: 28px; }
   .aff-programs { grid-template-columns: 1fr; }
   .aff-faq { grid-template-columns: 1fr; gap: 28px; }
   .aff-apply { grid-template-columns: 1fr; padding: 40px 28px; }
 }
 @media (max-width: 640px) {
   .aff-nav { height: 60px; }
-  .aff-hero { border-radius: 18px; padding: 32px 20px 52px; gap: 28px; }
-  .aff-hero-ascii { display: none; }
+  .aff-hero { border-radius: 18px; padding: 32px 20px 24px; gap: 28px; }
   .aff-hero p { font-size: 16px; }
-  .aff-credit { left: 20px; right: 20px; line-height: 1.4; }
   .aff-card { min-height: 420px; padding: 24px; border-radius: 18px; }
   .aff-steps { grid-template-columns: 1fr; margin-top: 80px; }
   .aff-steps article, .aff-steps article + article { padding: 22px 0; border-left: 0; gap: 16px; }
-  .aff-steps .aff-ascii { height: auto; }
   .aff-steps article + article { border-top: 1px solid var(--line); }
   .aff-faq, .aff-apply { margin-top: 80px; }
   .aff-faq h2 { font-size: 40px; }
   .aff-apply { padding: 28px 20px; border-radius: 18px; }
+  .aff-planet { margin: 0 auto 8px; }
   .aff-foot { flex-direction: column; align-items: flex-start; }
 }
