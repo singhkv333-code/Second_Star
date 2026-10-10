@@ -1652,7 +1652,17 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
         currentTab={active}
       />
 
-      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <SettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        tradingMode={tradingMode}
+        onChooseTradingMode={chooseTradingMode}
+        onOpenBroker={() => {
+          // Close settings first so the broker dialog isn't stacked behind it.
+          setSettingsOpen(false);
+          setBrokerPanelOpen(true);
+        }}
+      />
     </div>
     </ActiveDraftContext.Provider>
   );

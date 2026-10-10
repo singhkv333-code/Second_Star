@@ -25,6 +25,7 @@ import { useRouter } from "next/navigation";
 import {
   Bell,
   CalendarDays,
+  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -41,13 +42,15 @@ import {
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
   getMe,
+  listBrokers,
   requestPasswordReset,
   submitBugReport,
   updateProfile,
   type ProfilePatch,
   type UserProfile,
 } from "@/lib/api";
-import { isError } from "@/lib/types";
+import { isError, type Broker } from "@/lib/types";
+import type { TradingMode } from "@/lib/trading-mode";
 import { useBilling } from "@/components/billing/BillingProvider";
 import { BillingModal } from "@/components/billing/modal";
 import { PlanChangePanel, PlanPickerPanel } from "@/components/billing/PlanChange";
@@ -91,12 +94,20 @@ export type SettingsDialogProps = {
   onOpenChange: (open: boolean) => void;
   /** Which tab to land on when opened. */
   initialSection?: SectionKey;
+  /** Live vs paper, owned by AppShell so every surface agrees. */
+  tradingMode: TradingMode;
+  onChooseTradingMode: (m: TradingMode) => void | Promise<void>;
+  /** Opens the shared BrokerOnboarding dialog (owned by AppShell). */
+  onOpenBroker: () => void;
 };
 
 export function SettingsDialog({
   open,
   onOpenChange,
   initialSection = "profile",
+  tradingMode,
+  onChooseTradingMode,
+  onOpenBroker,
 }: SettingsDialogProps): React.ReactElement {
   const [section, setSection] = useState<SectionKey>(initialSection);
   const [query, setQuery] = useState("");
@@ -128,7 +139,9 @@ export function SettingsDialog({
               {section === "account" && <AccountSection />}
               {section === "usage" && <UsageSection onClose={close} />}
               {section === "billing" && <BillingSection onClose={close} />}
-              {section === "trading" && <EmptySection title="Trading" />}
+              {section === "trading" && (
+                <TradingSection mode={tradingMode} onChooseMode={onChooseTradingMode} onOpenBroker={onOpenBroker} />
+              )}
               {section === "notifications" && <EmptySection title="Notifications" />}
             </div>
           </div>
@@ -1429,27 +1442,6 @@ const INV_STATUS: Record<string, string> = {
 
 const INVOICE_PAGE = 6;
 
-/** Line art for the plan row, in the spirit of Claude's: a pivot that branches. */
-function PlanGlyph(): React.ReactElement {
-  return (
-    <svg width="56" height="56" viewBox="0 0 56 56" fill="none" aria-hidden={true} style={{ color: "var(--text-primary)", flexShrink: 0 }}>
-      <g stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="28" cy="12" r="6.5" />
-        <circle cx="28" cy="12" r="2.6" />
-        <path d="M28 18.5 V46" />
-        <path d="M28 33 L17 26.5" />
-        <path d="M28 33 L39 26.5" />
-        <path d="M28 46 L17 39.5" />
-        <path d="M28 46 L39 39.5" />
-        <circle cx="14" cy="24.8" r="3.2" fill="var(--bg-base)" />
-        <circle cx="42" cy="24.8" r="3.2" fill="var(--bg-base)" />
-        <circle cx="14" cy="37.8" r="3.2" fill="var(--bg-base)" />
-        <circle cx="42" cy="37.8" r="3.2" fill="var(--bg-base)" />
-      </g>
-    </svg>
-  );
-}
-
 // Blue that stays readable in both themes (mixed toward the text colour).
 const LINK = "color-mix(in srgb, #2563eb 82%, var(--text-primary))";
 const BADGE_BG = "color-mix(in srgb, #3b82f6 16%, transparent)";
@@ -1536,12 +1528,12 @@ function BillingSection({ onClose }: { onClose: () => void }): React.ReactElemen
     if (v.state === "expired" || v.state === "incomplete") {
       const p = (v.subPlan && v.subPlan !== "free" && v.subPlan !== "anonymous" ? v.subPlan : "pro") as PaidPlanId;
       return (
-        <Btn variant="primary" onClick={() => go(`/checkout?plan=${p}&cycle=${v.cycle ?? "annual"}&return=/settings/billing`)}>
+        <Btn onClick={() => go(`/checkout?plan=${p}&cycle=${v.cycle ?? "annual"}&return=/settings/billing`)}>
           {v.state === "expired" ? "Resubscribe" : "Resume checkout"}
         </Btn>
       );
     }
-    if (v.state === "free") return <Btn variant="primary" onClick={() => go("/pricing")}>Upgrade plan</Btn>;
+    if (v.state === "free") return <Btn onClick={() => go("/pricing")}>Upgrade plan</Btn>;
     return null;
   })();
 
@@ -1561,9 +1553,8 @@ function BillingSection({ onClose }: { onClose: () => void }): React.ReactElemen
   return (
     <>
       {/* Plan */}
-      <section className="flex flex-wrap items-center justify-between gap-x-6 gap-y-4">
-        <div className="flex min-w-0 items-center gap-5">
-          <PlanGlyph />
+      <section className="flex flex-wrap items-start justify-between gap-x-6 gap-y-4">
+        <div className="flex min-w-0 items-start">
           <div className="min-w-0">
             <div style={{ fontSize: 17, fontWeight: 600, color: "var(--text-primary)" }}>{planName(cat, planShown)} plan</div>
             <div style={{ marginTop: 3, fontSize: 15, color: "var(--text-primary)" }}>{cycleLine}</div>
@@ -1725,7 +1716,173 @@ function BillingSection({ onClose }: { onClose: () => void }): React.ReactElemen
 }
 
 // ---------------------------------------------------------------------------
-// 5–6. Trading, Notifications (to be filled in)
+// 5. Trading
+// ---------------------------------------------------------------------------
+
+const MODES: { value: TradingMode; label: string }[] = [
+  { value: "real", label: "Live" },
+  { value: "paper", label: "Paper" },
+];
+
+function ModeToggle({
+  value,
+  onChange,
+}: {
+  value: TradingMode;
+  onChange: (m: TradingMode) => void;
+}): React.ReactElement {
+  return (
+    <div role="radiogroup" aria-label="Trading mode" className="inline-flex" style={{ padding: 3, gap: 2, background: FILL, borderRadius: RADIUS + 2 }}>
+      {MODES.map((m) => {
+        const on = m.value === value;
+        return (
+          <button
+            key={m.value}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            onClick={() => onChange(m.value)}
+            style={{
+              height: 30,
+              minWidth: 76,
+              padding: "0 14px",
+              border: "none",
+              borderRadius: RADIUS,
+              background: on ? "var(--bg-base)" : "transparent",
+              color: on ? "var(--text-primary)" : "var(--text-secondary)",
+              boxShadow: on ? "0 1px 2px rgba(0,0,0,0.10)" : "none",
+              fontSize: 13.5,
+              fontWeight: on ? 600 : 500,
+              cursor: "pointer",
+              transition: "background 0.15s var(--ease-quartr), color 0.15s var(--ease-quartr)",
+            }}
+          >
+            {m.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function BrokerLogo({ broker }: { broker: Broker }): React.ReactElement {
+  const [failed, setFailed] = useState(false);
+  return (
+    <span
+      className="flex shrink-0 items-center justify-center overflow-hidden"
+      style={{ width: 34, height: 34, borderRadius: RADIUS, background: FILL, fontSize: 13, fontWeight: 600, color: "var(--text-secondary)" }}
+    >
+      {failed ? (
+        broker.name.charAt(0)
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={broker.logo || `/brokers/${broker.id}.svg`} alt="" width={20} height={20} style={{ objectFit: "contain" }} onError={() => setFailed(true)} />
+      )}
+    </span>
+  );
+}
+
+function TradingSection({
+  mode,
+  onChooseMode,
+  onOpenBroker,
+}: {
+  mode: TradingMode;
+  onChooseMode: (m: TradingMode) => void | Promise<void>;
+  onOpenBroker: () => void;
+}): React.ReactElement {
+  const [brokers, setBrokers] = useState<Fetch<Broker[]>>({ kind: "loading" });
+
+  const load = useCallback((): void => {
+    setBrokers({ kind: "loading" });
+    void listBrokers().then((res) => {
+      if (isError(res)) setBrokers({ kind: "error", message: res.error.message || "Could not load brokers." });
+      else setBrokers({ kind: "ok", value: res.data.brokers });
+    });
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const list =
+    brokers.kind === "ok"
+      ? [...brokers.value].sort((a, b) => Number(!!b.status?.connected) - Number(!!a.status?.connected))
+      : [];
+  const connected = list.filter((b) => b.status?.connected).length;
+
+  return (
+    <>
+      <Group first title="Trading">
+        <Row
+          last
+          label="Trading mode"
+          hint={
+            mode === "paper"
+              ? "Orders fill in a simulated paper book."
+              : "Portfolio and P&L come from your connected broker. Pivot does not place live orders."
+          }
+          control={<ModeToggle value={mode} onChange={(m) => void onChooseMode(m)} />}
+        />
+      </Group>
+
+      <Group
+        title="Brokers"
+        description={brokers.kind === "ok" ? (connected ? `${connected} of ${list.length} connected` : "None connected") : undefined}
+        action={<Btn onClick={onOpenBroker}>Manage</Btn>}
+      >
+        {brokers.kind === "loading" && <Muted>Checking broker connections…</Muted>}
+        {brokers.kind === "error" && <LoadError message={brokers.message} onRetry={load} />}
+        {brokers.kind === "ok" && list.length === 0 && <Muted>No brokers are available.</Muted>}
+        {list.map((b, i) => {
+          const on = !!b.status?.connected;
+          const detail = on
+            ? b.status?.mock_mode
+              ? "Connected with mock data"
+              : `Connected${b.status?.broker_user_id ? ` · ${b.status.broker_user_id}` : ""}`
+            : "Not connected";
+          return (
+            <div
+              key={b.id}
+              className="flex items-center justify-between gap-4"
+              style={{ padding: "14px 0", borderBottom: i === list.length - 1 ? "none" : HAIRLINE }}
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                <BrokerLogo broker={b} />
+                <div className="min-w-0">
+                  <div style={{ fontSize: 14.5, color: "var(--text-primary)" }}>{b.name}</div>
+                  <div style={{ marginTop: 2, fontSize: 13, color: "var(--text-tertiary)" }}>{detail}</div>
+                </div>
+              </div>
+              {on ? (
+                <span
+                  className="inline-flex shrink-0 items-center gap-1.5"
+                  style={{
+                    height: 26,
+                    padding: "0 10px",
+                    borderRadius: RADIUS,
+                    fontSize: 12.5,
+                    fontWeight: 500,
+                    color: "var(--color-profit, #059669)",
+                    background: "color-mix(in srgb, var(--color-profit, #059669) 12%, transparent)",
+                  }}
+                >
+                  <Check size={13} strokeWidth={2.5} aria-hidden={true} />
+                  Connected
+                </span>
+              ) : (
+                <Btn onClick={onOpenBroker}>Connect</Btn>
+              )}
+            </div>
+          );
+        })}
+      </Group>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 6. Notifications (to be filled in)
 // ---------------------------------------------------------------------------
 
 function EmptySection({ title }: { title: string }): React.ReactElement {
