@@ -16102,6 +16102,7 @@ _users_lock = threading.Lock()
 # plan allows must not serve the things plans limit.
 import entitlements as _ent  # noqa: E402
 import billing as _billing  # noqa: E402
+import analytics as _analytics  # noqa: E402
 
 _ent.bind(_users, _users_lock)
 _ADMIN_EMAILS = {e.strip().lower() for e in
@@ -18074,6 +18075,11 @@ class Handler(BaseHTTPRequestHandler):
     def _send(self, code: int, payload: dict, *, max_age: int = 0,
               headers: dict[str, str] | None = None) -> None:
         body = json.dumps(payload).encode()
+        if code == 402 and isinstance(payload, dict):
+            me = _auth_user(self.headers)
+            _analytics.capture(me[0] if me else None, "plan_limit_hit", {
+                "code": payload.get("code"), "feature": payload.get("feature"),
+                "plan": payload.get("plan"), "path": urllib.parse.urlparse(self.path).path})
         # An ETag turns a revalidation into a 304 with no body. Worth having
         # even at max_age=0: the company page's largest response is a 16 KB
         # financials blob that changes when the sync runs and not otherwise,
@@ -18236,12 +18242,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def _account_post(self, path: str, body: dict) -> tuple[int, dict]:
         """Accounts and saved work. Everything past /auth/* needs a session."""
-        if path == "/auth/signup":
-            return _auth_signup(body)
-        if path == "/auth/login":
-            return _auth_login(body)
-        if path == "/auth/google":
-            return _auth_google(body)
+        if path in ("/auth/signup", "/auth/login", "/auth/google"):
+            code, out = {"/auth/signup": _auth_signup, "/auth/login": _auth_login,
+                         "/auth/google": _auth_google}[path](body)
+            if code == 200 and isinstance(out.get("user"), dict):
+                _analytics.capture(out["user"].get("id"),
+                                   "user_signed_up" if path == "/auth/signup" else "user_logged_in",
+                                   {"method": "google" if path == "/auth/google" else "email"})
+            return code, out
         if path == "/auth/logout":
             raw = self.headers.get("Authorization") or ""
             if raw.startswith("Bearer "):
@@ -18366,6 +18374,7 @@ class Handler(BaseHTTPRequestHandler):
         turn ends in an error of ours or the model's; a reader who closes the
         tab mid-answer still used the model, so that is not refunded."""
         failed = False
+        t0, first, done = time.monotonic(), None, None
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache, no-transform")
@@ -18375,6 +18384,10 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         try:
             for ev in llm_chat_stream(messages, context):
+                if first is None and ev.get("type") == "delta":
+                    first = time.monotonic() - t0
+                if ev.get("type") == "done":
+                    done = ev
                 if meter and ev.get("type") == "done":
                     if ev.get("error"):
                         failed = True
@@ -18396,6 +18409,35 @@ class Handler(BaseHTTPRequestHandler):
         if meter and failed:
             _ent.refund(meter[0], "ai.credits", meter[1], client=meter[2],
                         why="error")
+        self._chat_event(done, failed, first, time.monotonic() - t0, meter is not None)
+
+    def _chat_event(self, done: dict | None, failed: bool, first: float | None,
+                    total: float, metered: bool) -> None:
+        """One `chat_turn` per answered turn: what a turn cost and did, never
+        what was said. The latency and token columns are the triad's first two
+        legs, measured in production rather than in an eval."""
+        d = done or {}
+        tools = [t.get("name") if isinstance(t, dict) else str(t)
+                 for t in (d.get("tools_used") or [])]
+        usage = d.get("usage") or {}
+        _analytics.capture(_req.user[0] if getattr(_req, "user", None) else None, "chat_turn", {
+            "mode": getattr(_req, "chat_mode", None),
+            "model": d.get("model") or LLM_DEPLOYMENT,
+            "byok": getattr(_req, "engine", None) is not None,
+            "metered": metered,
+            "ok": not failed and not d.get("error") and done is not None,
+            "error": (str(d.get("error"))[:120] if d.get("error") else None),
+            "input_tokens": usage.get("input_tokens"),
+            "output_tokens": usage.get("output_tokens"),
+            "first_text_s": round(first, 2) if first is not None else None,
+            "total_s": round(total, 2),
+            "tools": tools[:20],
+            "tool_count": len(tools),
+            "workspace_ops": sum(len(v.get("ops") or []) for v in (d.get("view_ops") or [])
+                                 if isinstance(v, dict) and v.get("kind") == "workspace"),
+            "cards": [c.get("kind") for c in (d.get("cards") or []) if isinstance(c, dict)][:10],
+            "symbol": getattr(_req, "symbol", None),
+        })
 
     def _send_alerts(self, uid: int) -> None:
         """SSE of this user's fired alerts. The same shape as _send_live and for
@@ -18488,6 +18530,9 @@ class Handler(BaseHTTPRequestHandler):
                 deep = q.get("deep", "").lower() in ("1", "true", "yes")
                 return self._send(*_health_report(deep=deep),
                                   headers={"Cache-Control": "no-store"})
+            if u.path == "/analytics/config":
+                return self._send(200, _analytics.config(),
+                                  headers={"Cache-Control": "public, max-age=300"})
             if u.path in ("/billing/plans", "/billing/me", "/billing/invoices"):
                 return self._send(*self._billing_get(u.path),
                                   headers={"Cache-Control": "no-store"})
@@ -19493,7 +19538,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(401, {"error": "sign in to use alerts"})
             tail = u.path[len("/alerts"):].strip("/")
             if not tail:
-                return self._send(*_alerts.api_create(me[0], body))
+                code, out = _alerts.api_create(me[0], body)
+                if code in (200, 201):
+                    _analytics.capture(me[0], "alert_created", {"source": "page"})
+                return self._send(code, out)
             if tail == "check":
                 return self._send(*_alerts.api_check(me[0], body))
             if tail == "seen":
@@ -19800,6 +19848,8 @@ class Handler(BaseHTTPRequestHandler):
             # construction. Two turns in the first suite run died this way and
             # left no trace at all.
             logging.exception("charto: chat turn failed")
+            _analytics.exception(exc, _req.user[0] if getattr(_req, "user", None) else None,
+                                 {"where": "chat", "mode": getattr(_req, "chat_mode", None)})
             # An upstream read timeout is not an internal error, and relaying
             # it as `TimeoutError: The read operation timed out` tells the
             # user nothing they can act on. It is a boundary — the model did
@@ -19905,6 +19955,7 @@ if __name__ == "__main__":
     except Exception as _exc:                                  # noqa: BLE001
         print(f"charto strategies UNAVAILABLE: {_exc}")
 
+    _analytics.init()
     print(f"charto dataserver on :{PORT} (db={DB_PATH.name})")
 
     class _Server(ThreadingHTTPServer):

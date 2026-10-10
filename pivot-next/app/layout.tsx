@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import Script from "next/script";
 import "./globals.css";
 import "./billing.css";
 import { Toaster } from "@/components/ui/sonner";
@@ -56,6 +57,10 @@ export default function RootLayout({
           <BillingProvider>{children}</BillingProvider>
         </AppBootstrap>
         <Toaster position="top-right" closeButton />
+        {/* Product analytics and front-end error monitoring: the chart's own
+            loader, so the shell and the framed chart are one visitor. It
+            fetches the key from the data server and does nothing without one. */}
+        <Script src="/chart-app/js/analytics.js?v=1" strategy="afterInteractive" />
       </body>
     </html>
   );
