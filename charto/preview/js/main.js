@@ -5263,7 +5263,19 @@
     for (const [sc, items] of groups) sc.apply(items);
   }
 
-  window.__charto = { chart, candle, state, draw, ind, scene, pins, applyScenePatch,
+  /* The chat's way to show what it just drew on another timeframe: the same
+   * three steps the interval buttons take for the primary chart, awaited so
+   * the drawing lands on bars of the interval it was computed on. */
+  async function switchInterval(iv) {
+    if (!IV_SEC[iv]) return false;
+    selectInterval(iv);
+    await loadInterval(iv);
+    document.dispatchEvent(new CustomEvent("charto:pane-active", {
+      detail: { pane: 0, symbol: SYMBOL, interval: iv },
+    }));
+    return true;
+  }
+  window.__charto = { chart, candle, state, draw, ind, scene, pins, applyScenePatch, switchInterval,
                       getChartContext, charts: chartList, panes: Panes,
                       /* The trash's model, so the phone's sheet offers the same
                        * choices the rail's menu does rather than a "clear all"

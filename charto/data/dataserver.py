@@ -6349,6 +6349,260 @@ _STRENGTH_WORDS = ("Weak", "Moderate", "Strong")
 _SYMMETRY_KEYS = ("shoulder_gap", "peak_gap", "trough_gap")
 
 
+# ── "which names have the same setup as this one?" ──────────────────────────
+#
+# screen_universe answers "which stocks pass these filters" on END-OF-DAY
+# features, and that is the wrong instrument for the question traders
+# actually ask across a sector: "which oil stocks look like RELIANCE does on
+# the hourly". There the reference is a chart, not a filter, and the interval
+# is whatever the user is looking at. Without this the model assembled it by
+# hand — get_peers, then read_symbol and get_levels per peer — a dozen hops
+# that stalled before a single comparison was made.
+#
+# One pass instead: measure the reference's setup on the asked interval, the
+# same measurements on every candidate, and say for each what matches and
+# what does not. The labels are disclosed thresholds, not opinions, and the
+# score is a count of agreements, not a forecast.
+
+_SETUP_WEIGHTS = {"trend": 3, "averages": 2, "rsi_zone": 2, "range": 2, "volume": 1}
+
+# Desk shorthand → the words the classification actually uses. A trader says
+# "IT" and "pharma"; the table says "Information Technology Services" and
+# "pharmaceuticalsdrugs", across two vocabularies (Moneycontrol slugs and
+# Yahoo-style labels) that both live in it.
+_SETUP_ALIASES = {
+    "it": ["informationtechnology", "software"], "tech": ["technology", "software", "informationtechnology"],
+    "pharma": ["pharmaceutical", "drugmanufacturers"], "banks": ["bank"], "bank": ["bank"],
+    "psubanks": ["bankspublicsector"], "psubank": ["bankspublicsector"],
+    "privatebanks": ["banksprivatesector"], "privatebank": ["banksprivatesector"],
+    "auto": ["auto"], "autos": ["auto"], "fmcg": ["packagedfoods", "householdpersonal", "consumerdefensive"],
+    "metals": ["metal", "steel", "aluminium", "aluminum", "mining"], "metal": ["metal", "steel", "mining"],
+    "oil": ["oilgas", "oil gas", "refin"], "oilandgas": ["oilgas"], "energy": ["energy", "oilgas", "power"],
+    "cement": ["cement", "buildingmaterials"], "realty": ["realestate", "realty"],
+}
+
+
+def _setup_measure(bars: list[dict]) -> dict | None:
+    """One symbol's setup on one interval, from its own bars. None when thin."""
+    import math
+    if len(bars) < 60:
+        return None
+    c = [float(b["c"]) for b in bars]
+    h = [float(b["h"]) for b in bars]
+    lo = [float(b["l"]) for b in bars]
+    v = [float(b.get("v") or 0) for b in bars]
+    last = c[-1]
+    sma = lambda n: sum(c[-n:]) / n  # noqa: E731
+    s20, s50 = sma(20), sma(50)
+    gains = losses = 0.0
+    for i in range(len(c) - 14, len(c)):
+        d = c[i] - c[i - 1]
+        gains += max(d, 0); losses += max(-d, 0)
+    rsi = 100.0 if losses == 0 else 100 - 100 / (1 + gains / losses)
+    trs = [max(h[i] - lo[i], abs(h[i] - c[i - 1]), abs(lo[i] - c[i - 1]))
+           for i in range(len(c) - 14, len(c))]
+    atr_pct = sum(trs) / 14 / last * 100 if last else 0
+    ys = [math.log(x) for x in c[-50:] if x > 0]
+    n = len(ys)
+    xm, ym = (n - 1) / 2, sum(ys) / n
+    slope = sum((i - xm) * (y - ym) for i, y in enumerate(ys)) / sum((i - xm) ** 2 for i in range(n))
+    trend_pct = (math.exp(slope * 50) - 1) * 100
+    hi50, lo50 = max(h[-50:]), min(lo[-50:])
+    range_pos = (last - lo50) / (hi50 - lo50) * 100 if hi50 > lo50 else 50.0
+    vol_ratio = None
+    if sum(v[-50:-10]) > 0:
+        vol_ratio = (sum(v[-10:]) / 10) / (sum(v[-50:-10]) / 40)
+    thr = max(1.0, 1.5 * atr_pct)
+    states = {
+        "trend": "up" if trend_pct > thr else "down" if trend_pct < -thr else "sideways",
+        "averages": ("above both" if last > s20 and last > s50 else
+                     "below both" if last < s20 and last < s50 else
+                     "between the 20 and 50"),
+        "rsi_zone": ("oversold" if rsi < 30 else "weak" if rsi < 45 else
+                     "neutral" if rsi <= 55 else "strong" if rsi <= 70 else "overbought"),
+        "range": ("lower third" if range_pos < 33.3 else
+                  "upper third" if range_pos > 66.7 else "middle"),
+        "volume": ("unknown" if vol_ratio is None else
+                   "expanding" if vol_ratio > 1.3 else
+                   "drying up" if vol_ratio < 0.75 else "normal"),
+    }
+    return {
+        "as_of": bars[-1]["t"], "last": round(last, 2),
+        "setup": states,
+        "measured": {
+            "trend_50_bars_pct": round(trend_pct, 2),
+            "vs_sma20_pct": round((last / s20 - 1) * 100, 2),
+            "vs_sma50_pct": round((last / s50 - 1) * 100, 2),
+            "rsi14": round(rsi, 1),
+            "range_position_50_pct": round(range_pos, 1),
+            "below_50_bar_high_pct": round((hi50 - last) / hi50 * 100, 2),
+            "atr14_pct": round(atr_pct, 2),
+            "volume_10_vs_40": round(vol_ratio, 2) if vol_ratio is not None else None,
+        },
+    }
+
+
+def _setup_patterns(sym: str, interval: str, within: int) -> list[str]:
+    """Chart patterns ending in the last `within` bars, by name. Never draws."""
+    prev = getattr(_req, "symbol", None)
+    # A silent read: get_patterns emits a card (and may stage ink) for the
+    # chart in focus, and a scan of fourteen peers must not paint fourteen
+    # pattern panels into the answer. Snapshot both and put them back.
+    cards = list(getattr(_scene, "cards", []))
+    items = list(getattr(_scene, "items", []))
+    try:
+        _req.symbol = sym
+        res = tool_get_patterns(interval=interval, lookback_bars=300, limit=10,
+                                draw=False, families=["chart"])
+    except Exception:                                # noqa: BLE001 — patterns are a bonus
+        return []
+    finally:
+        _req.symbol = prev
+        _scene.cards = cards
+        _scene.items = items
+    if not isinstance(res, dict) or res.get("error"):
+        return []
+    rows = _rows_for(sym, interval, within + 5)
+    cutoff = rows[-within][0] if len(rows) >= within else 0
+    out = []
+    for p in res.get("chart_patterns") or []:
+        if not isinstance(p, dict):
+            continue
+        end = p.get("to") or p.get("last_touch") or 0
+        name = str(p.get("pattern") or p.get("name") or "").replace("_", " ")
+        if name and (not cutoff or (isinstance(end, (int, float)) and end >= cutoff)):
+            out.append(name)
+    return sorted(set(out))
+
+
+def _setup_universe(ref: str, scope: str, industry: str, symbols: list | None):
+    """(basis in words, [symbols]) or (error dict, None)."""
+    if symbols:
+        syms = [canon_symbol(s) for s in symbols if str(s or "").strip()]
+        return f"the {len(syms)} symbols named", [s for s in syms if s and s != ref]
+    rows = list(_con.execute(
+        "SELECT symbol, industry, COALESCE(label, industry), COALESCE(sector, '') FROM classification"))
+    if str(industry or "").strip():
+        q = _squash(industry)
+        terms = _SETUP_ALIASES.get(q, [q])
+        hit = set()
+        for t in terms:
+            for r in rows:
+                key, label, sector = _squash(r[1]), _squash(r[2]), _squash(r[3])
+                if len(t) < 4:
+                    # "it" sits inside utilities and hospitality: short words
+                    # match a whole word or a prefix, never a substring
+                    words = _squash(r[2], " ").split() + _squash(r[3], " ").split()
+                    ok = key.startswith(t) or label.startswith(t) or t in words
+                else:
+                    ok = t in key or t in label or t == sector
+                if ok:
+                    hit.add(r[1])
+        if not hit:
+            near = sorted({r[2] for r in rows if any(t in _squash(r[2]) for t in _squash(industry, " ").split() if len(t) >= 3)})
+            return {"error": f"no industry or sector matches '{industry}'",
+                    "closest": near[:15] or sorted({r[2] for r in rows})[:40],
+                    "_note": "Nothing was scanned. Re-call with one of these, or pass `symbols`."}, None
+        labels = sorted({r[2] for r in rows if r[1] in hit})
+        return f"industries: {', '.join(labels)}", [r[0] for r in rows if r[1] in hit and r[0] != ref]
+    mine = next((r for r in rows if r[0] == ref), None)
+    if not mine:
+        return {"error": f"{ref} has no industry classification",
+                "_note": "Pass `industry` or `symbols` to say what to scan."}, None
+    if scope == "sector" and mine[3]:
+        return f"sector: {mine[3]}", [r[0] for r in rows if r[3] == mine[3] and r[0] != ref]
+    return f"industry: {mine[2]}", [r[0] for r in rows if r[1] == mine[1] and r[0] != ref]
+
+
+def tool_scan_setup(like: str = "", interval: str = "1d", scope: str = "industry",
+                    industry: str = "", symbols: list | None = None,
+                    patterns: bool = True, limit: int = 10) -> dict:
+    """Rank a peer group by how closely each matches one symbol's setup."""
+    ref = canon_symbol(like or _sym())
+    iv = str(interval or "1d").lower().strip()
+    if iv not in _IV_LABEL or iv == "1m":
+        return {"error": f"interval '{iv}' is not scannable",
+                "available": [k for k in _IV_LABEL if k != "1m"]}
+    basis, cands = _setup_universe(ref, str(scope or "industry").lower(), industry, symbols)
+    if cands is None:
+        return basis
+    cands = cands[:40]
+
+    def measure(sym):
+        try:
+            got = get_bars(sym, iv, None, 200)
+            bars = got.get("bars") or []
+        except Exception:                            # noqa: BLE001 — one thin name must not sink the scan
+            return None, f"no stored {iv} bars"
+        m = _setup_measure(bars)
+        if m is None:
+            return None, f"under 60 {iv} bars stored"
+        if patterns:
+            m["patterns"] = _setup_patterns(sym, iv, 20)
+        return m, ""
+
+    rm, why = measure(ref)
+    if rm is None:
+        return {"error": f"{ref}: {why}", "_note": "The reference setup cannot be measured on this interval; say so."}
+
+    scored, unscored = [], []
+    total_w = sum(_SETUP_WEIGHTS.values())
+    for sym in cands:
+        m, why = measure(sym)
+        if m is None:
+            unscored.append({"symbol": sym, "reason": why})
+            continue
+        same = [k for k in _SETUP_WEIGHTS if m["setup"][k] == rm["setup"][k]]
+        agree = sum(_SETUP_WEIGHTS[k] for k in same)
+        shared = sorted(set(m.get("patterns") or []) & set(rm.get("patterns") or []))
+        # numeric closeness breaks ties between names agreeing on the same labels
+        dist = (abs(m["measured"]["rsi14"] - rm["measured"]["rsi14"]) / 30 +
+                abs(m["measured"]["range_position_50_pct"] - rm["measured"]["range_position_50_pct"]) / 50 +
+                abs(m["measured"]["trend_50_bars_pct"] - rm["measured"]["trend_50_bars_pct"]) / max(5.0, abs(rm["measured"]["trend_50_bars_pct"])))
+        score = min(100, round(agree / total_w * 90 + 10 * len(shared) - 3 * min(dist, 3)))
+        # A candidate whose bars stop sessions before the reference's is a
+        # setup from another week. It is listed, but it cannot rank as a
+        # match: comparing July's chart with September's is not a resemblance.
+        lag_bars = sum(1 for r in _rows_for(ref, iv, 400) if r[0] > m["as_of"]) if m["as_of"] < rm["as_of"] else 0
+        stale = lag_bars > {"5m": 225, "15m": 75, "30m": 38, "1h": 21, "1d": 3, "1w": 1}.get(iv, 3)
+        if stale:
+            score = min(score, 25)
+        cls = _classification_full(sym)
+        scored.append({
+            "symbol": sym, "name": cls[0] if cls else sym, "score": max(score, 0),
+            "matches": same + [f"pattern: {p}" for p in shared],
+            "differs": {k: m["setup"][k] for k in _SETUP_WEIGHTS if k not in same},
+            "measured": m["measured"], "patterns": m.get("patterns") or [],
+            "last": m["last"], "as_of": m["as_of"],
+            **({"stale": f"bars end {lag_bars} {iv} bars before {ref}'s — not comparable"} if stale else {})})
+    scored.sort(key=lambda r: -r["score"])
+    lim = max(1, min(int(limit or 10), 25))
+    return {
+        "reference": {"symbol": ref, "interval": iv, **rm},
+        "universe": {"basis": basis, "candidates": len(cands),
+                     "scored": len(scored), "unscored": unscored},
+        "matches": scored[:lim],
+        "thresholds": {
+            "trend": "50-bar log-regression change beyond ±max(1%, 1.5×ATR%) = up/down, else sideways",
+            "averages": "last close vs SMA20 and SMA50",
+            "rsi_zone": "RSI14 <30 oversold, <45 weak, ≤55 neutral, ≤70 strong, else overbought",
+            "range": "close within the 50-bar high-low range, in thirds",
+            "volume": "last 10 bars' average vs the 40 before: >1.3 expanding, <0.75 drying up",
+            "score": "weighted agreement on those five labels (trend 3, averages 2, RSI 2, range 2, volume 1), "
+                     "+10 per shared chart pattern, small penalty for numeric distance",
+        },
+        "_note": (
+            "Lead with the reference's setup in words, then the closest names "
+            "with WHAT matches and what does not — the score alone says "
+            "nothing. Quote the interval and as-of time. A row marked "
+            "`stale` has bars that stop well before the reference's: say its "
+            "data is behind and do not present it as a match. A match is a "
+            "resemblance in measured state, not a signal or a forecast. Name "
+            "the unscored symbols and why. To show one on screen, open_chart "
+            "it or mark its pattern — this tool never draws."),
+    }
+
+
 def _pattern_edge_map(symbol: str, interval: str,
                       horizon: int = 20) -> dict[str, tuple]:
     """kind -> (edge_pp, se_pp) from the pooled ledger. One query per draw."""
@@ -9981,6 +10235,22 @@ def tool_open_chart(symbol: str = "", interval: str = "", replace: bool = False,
                 "No pane was opened: the user's plan caps charts per tab. Say "
                 "so in one line using `error`, name `upgrade_to`, and offer to "
                 "swap the focused pane instead (replace=true).")}
+    # The same symbol on another interval is not a new chart: it is the
+    # interval button. Routed as open_chart(replace) it reloaded the whole
+    # workspace — the layout fell back to "Unnamed", the chat panel closed,
+    # the stream died and whatever the turn meant to mark never landed. A
+    # set_interval view op moves the chart in place, before this turn's ink
+    # is applied (chat.js), so "mark the patterns on the hourly" works in one.
+    if (replace and bool(getattr(_req, "drawable", True)) and canon_symbol(sym) == _sym()
+            and not layout):
+        if iv != getattr(_req, "ctx_interval", ""):
+            _view_add({"kind": "set_interval", "interval": iv})
+            _req.ctx_interval = iv
+        return {"opened": sym, "interval": iv,
+                "placement": f"switched the main chart to {iv} in place — no reload",
+                "_read": (f"The chart now shows {sym} on {iv}. Carry on in this "
+                          f"same turn: read and draw with interval='{iv}'. Say "
+                          f"the chart was switched in a few words.")}
     op = {"kind": "open_chart", "symbol": sym, "interval": iv,
           "replace": bool(replace)}
     if layout:
@@ -11349,7 +11619,7 @@ TOOLS = [
          "lookback_sessions": {"type": "integer", "description": "used when no dates given — last N sessions, default 10, max 60"}},
       "required": []}},
     {"type": "function", "name": "open_chart",
-     "description": "Put a chart on the user's screen yourself. Use when the answer is about an instrument that is NOT already open — 'show me TCS', 'pull up the Nifty', 'compare this with HDFCBANK', 'open it on the daily' — and when a follow-up is clearly about a different symbol than the one in focus. Opening ADDS a reference pane and the layout grows to fit; pass replace=true to change what the focused chart shows instead of adding another. Every pane can be read and drawn on: aim the chart tools at it with its symbol and interval. The symbol is validated before the pane opens, so a bad ticker fails here rather than opening an empty chart. Opening a chart does NOT read it: call the reading tools afterwards for anything you intend to say about it.",
+     "description": "Put a chart on the user's screen yourself. Use when the answer is about an instrument that is NOT already open — 'show me TCS', 'pull up the Nifty', 'compare this with HDFCBANK', 'open it on the daily' — and when a follow-up is clearly about a different symbol than the one in focus. Opening ADDS a reference pane and the layout grows to fit; pass replace=true to change what the focused chart shows instead of adding another. To change only the TIMEFRAME of the chart in focus ('show it on the hourly', 'mark the patterns on the 15m'), call it with the same symbol, the interval and replace=true: the chart switches in place and you can read and draw on that interval in the same turn. Every pane can be read and drawn on: aim the chart tools at it with its symbol and interval. The symbol is validated before the pane opens, so a bad ticker fails here rather than opening an empty chart. Opening a chart does NOT read it: call the reading tools afterwards for anything you intend to say about it.",
      "parameters": {"type": "object", "properties": {
          "symbol": {"type": "string", "description": "ticker to open, e.g. 'TCS'"},
          "interval": {"type": "string", "enum": ["1m", "5m", "15m", "30m", "1h", "1d", "1w", "1mo"], "description": "default 1d"},
@@ -11944,6 +12214,8 @@ TOOLS = [
          "your context, so call this directly — a get_peers round first "
          "just to learn it wastes a full hop) and fresh crossovers "
          "(smaX_cross_ago lt N with smaX_rel's sign for the direction). "
+         "NOT for 'which names have the same setup as X' or anything "
+         "intraday — that is scan_setup. "
          "Results are end-of-day and carry their own as-of date and "
          "universe size — quote both. The vp20_* features screen on the "
          "20-session VOLUME PROFILE: vp20_pos places the close inside the "
@@ -11967,6 +12239,36 @@ TOOLS = [
          "sort": {"type": "string", "description": "feature to rank by; defaults to the first filter's"},
          "limit": {"type": "integer", "description": "rows returned, 1-50, default 15"}},
          "required": []}},
+    {"type": "function", "name": "scan_setup",
+     "description": (
+         "Find which names in a peer group have the SAME SETUP as one symbol "
+         "on a given interval — 'which oil stocks look like RELIANCE on the "
+         "hourly', 'any IT names set up like INFY on the 15m', 'scan banks "
+         "for this daily setup'. One call measures the reference (trend over "
+         "50 bars, position vs SMA20/50, RSI zone, place in the 50-bar range, "
+         "volume expansion, recent chart patterns) and the same things on "
+         "every candidate, and returns each one's matches and differences. "
+         "Works on intraday intervals, which screen_universe cannot.\n"
+         "Universe: the reference's own industry by default; scope='sector' "
+         "widens to its sector; `industry` takes plain words and matches "
+         "every industry containing them ('oil' covers refining, integrated "
+         "and E&P); `symbols` names the list exactly.\n"
+         "Do NOT use it for filter-style questions with no reference symbol "
+         "('RSI under 30 in pharma', 'stocks above their 200-day') — that is "
+         "screen_universe. Do NOT call get_peers first to learn the industry: "
+         "this tool resolves it. It never draws; to show a match, open_chart "
+         "it or mark its pattern afterwards."),
+     "parameters": {"type": "object", "properties": {
+         "like": {"type": "string", "description": "the reference symbol; defaults to the chart in focus"},
+         "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w"],
+                      "description": "the interval the setup is read on — use the one the user named ('hourly' = 1h)"},
+         "scope": {"type": "string", "enum": ["industry", "sector"],
+                   "description": "with no `industry`/`symbols`: the reference's industry (default) or its whole sector"},
+         "industry": {"type": "string", "description": "plain words for the group to scan, e.g. 'oil', 'private banks', 'cement'"},
+         "symbols": {"type": "array", "items": {"type": "string"}, "description": "scan exactly these instead"},
+         "patterns": {"type": "boolean", "description": "also compare recent chart patterns (default true)"},
+         "limit": {"type": "integer", "description": "matches returned, 1-25, default 10"}},
+         "required": ["interval"]}},
     {"type": "function", "name": "recall_conversations",
      "description": "Search the user's EARLIER conversations — the ones from previous sessions, stored against their account. Call it ONLY when the user refers to something outside this conversation: 'what did we say about ITC last week', 'the level I asked about yesterday', 'have I looked at this before', 'remind me what my plan was'. NEVER call it for anything said in the current conversation — every turn of that is already in front of you, and re-fetching it wastes a round trip and makes one remark look like two. Omit `query` to list recent conversations (an index: title, date, symbols); pass `query` and/or `symbol` to search their text and get the matching passages back. Nothing is stored for a signed-out user, and the result says so — relay that rather than recalling anything yourself. An empty result is an ANSWER ('no earlier conversation mentions it'), not a reason to hedge. Old conversations record what was SAID; current prices and levels still come from the data tools.",
      "parameters": {"type": "object", "properties": {
@@ -12428,6 +12730,7 @@ _DISPATCH = {"get_levels": tool_get_levels, "get_bars": tool_get_bars,
              "get_peers": tool_get_peers,
              "compare_symbols": tool_compare_symbols,
              "screen_universe": tool_screen_universe,
+             "scan_setup": tool_scan_setup,
              "get_patterns": tool_get_patterns,
              "evaluate_pattern": tool_evaluate_pattern,
              "get_results": tool_get_results,
@@ -12481,6 +12784,50 @@ def _paper_tool(name: str):
 for _n in ("save_strategy", "list_strategies", "pause_strategy",
            "delete_strategy", "paper_portfolio"):
     _DISPATCH[_n] = _paper_tool("tool_" + _n)
+
+
+# The user's portfolio is the paper book in Pivot's API — the account the
+# shell's Home, Portfolio and Paper pages show. Charto keeps a second book of
+# its own (paper.py, in charto_users.db) and this tool used to read that one,
+# so a user holding RELIANCE was told they held nothing. Read the account
+# they know, with their own bearer (Pivot accepts a charto session), and fall
+# back to the chart's book only when Pivot cannot be reached — saying so.
+PIVOT_API_ORIGIN = environ.get("PIVOT_API_ORIGIN", "http://127.0.0.1:8000").rstrip("/")
+
+
+def _pivot_get(path: str, auth: str):
+    req = urllib.request.Request(PIVOT_API_ORIGIN + path, headers={"Authorization": auth})
+    with urllib.request.urlopen(req, timeout=6) as r:
+        return json.loads(r.read() or b"null")
+
+
+def _tool_paper_portfolio(**_):
+    who = getattr(_req, "user", None)
+    if not who:
+        return {"error": "sign in to see your paper portfolio."}
+    auth = getattr(_req, "bearer", "") or ""
+    try:
+        summary = _pivot_get("/paper/summary", auth)
+        holdings = _pivot_get("/paper/holdings", auth) if summary.get("exists") else []
+    except Exception as exc:                       # noqa: BLE001 — fall back, honestly
+        logging.getLogger("charto").warning("paper_portfolio: Pivot API unreachable (%s); using the chart book", exc)
+        out = _paper_tool("tool_paper_portfolio")()
+        if isinstance(out, dict):
+            out["_source"] = ("the chart's own paper book — the Pivot account "
+                              "could not be reached, so this may not be the "
+                              "portfolio the user sees on the Portfolio page")
+        return out
+    if not summary.get("exists"):
+        return {"exists": False,
+                "_note": "No paper book yet. Do not describe a portfolio that "
+                         "does not exist."}
+    return {**summary, "holdings": holdings if isinstance(holdings, list) else [],
+            "_note": "The user's paper account — the same book the Portfolio "
+                     "page shows. Every figure is simulated; quote them as "
+                     "the paper book's, never as a real account's."}
+
+
+_DISPATCH["paper_portfolio"] = _tool_paper_portfolio
 
 
 def _plan_tool(name: str):
@@ -12979,13 +13326,20 @@ def _run_tool(name: str, fn, args: dict) -> dict:
     # Geometry drawn on a timeframe the chart is not showing is invisible to
     # the user until they switch — a "drawn" claim with nothing on screen
     # reads as a failure, so the reply must name the switch.
+    # So the chart MOVES there: one set_interval view op per turn, applied by
+    # the client before the scene patch (chat.js). Asking the user to click a
+    # button for something they just asked us to show was the old behaviour.
     iv, ctx_iv = args.get("interval"), getattr(_req, "ctx_interval", "")
     if (iv and ctx_iv and iv != ctx_iv and isinstance(out, dict)
-            and "error" not in out and getattr(_scene, "items", None)):
+            and "error" not in out and getattr(_scene, "items", None)
+            and iv in _IV_LABEL and not args.get("symbol")):
+        if not any(v.get("kind") == "set_interval" for v in getattr(_scene, "views", [])):
+            _view_add({"kind": "set_interval", "interval": iv})
+        _req.ctx_interval = iv
         out["_interval_note"] = (
-            f"This was drawn on the {iv} timeframe but the chart currently "
-            f"shows {ctx_iv} — tell the user to click the {iv} interval "
-            f"button to see it; the chat cannot switch the view.")
+            f"Drawn on the {iv} timeframe; the chart is being switched from "
+            f"{ctx_iv} to {iv} so it is visible. Say so in a few words — do "
+            f"not ask the user to switch.")
     return out
 
 
@@ -13493,39 +13847,50 @@ _CONTEXT_CONTRACT = (
 
 
 SUGGEST_PROMPT = (
-    "You write the three questions a user is most likely to want to ask NEXT, "
-    "given the conversation so far.\n\n"
-    "This is a chart-analysis chat for Indian markets (NSE/BSE equities, "
-    "indices, MCX commodities, crypto). It can answer from bars: price and "
-    "volume history, indicators, candlestick and chart patterns, support and "
-    "resistance levels, trendlines, divergences, gaps, volume profile, "
-    "correlations and comparisons between symbols, peers, company "
-    "fundamentals, bulk and block deal disclosures, and it can draw on the "
-    "chart. It cannot place orders, hold a portfolio, or predict.\n\n"
+    "You write the three things a user is most likely to want NEXT, given "
+    "the conversation so far.\n\n"
+    "This is Pivot's chart workspace for Indian markets (NSE/BSE equities, "
+    "indices, MCX commodities, crypto). It reads bars and company data — "
+    "price and volume history, indicators, candlestick and chart patterns, "
+    "support and resistance, trendlines, divergences, gaps, volume profile, "
+    "peers, fundamentals, deals — and it ACTS ON THE CHART: it marks "
+    "patterns, levels, gaps and divergences on the candles, draws "
+    "trendlines and zones, plots indicators, opens a peer beside it, "
+    "scans a sector for the same setup on any timeframe, sets price and "
+    "indicator alerts, and backtests a rule. It cannot predict.\n\n"
     "Rules:\n"
-    "- Each must be answerable by this app from chart or company data. Never "
-    "suggest a prediction, a recommendation, a buy/sell, a target, or "
-    "anything about a market it does not carry.\n"
-    "- Follow the thread. Prefer the obvious next step from what was just "
-    "answered, and the loose end left earlier in the conversation that was "
-    "never picked up.\n"
-    "- Three DIFFERENT directions — not three rewordings of one. Going "
-    "deeper, widening to another symbol or timeframe, and testing what was "
-    "claimed are good axes.\n"
-    "- Write them as the user would type them: first person, plain, no "
-    "pleasantries. Name the actual symbol under discussion rather than "
-    "'this stock'.\n"
-    "- Under 60 characters each. Short enough to read at a glance.\n\n"
-    "A question about what WILL happen is the easy mistake, and it is always "
-    "wrong here — rewrite it as the measurable thing underneath:\n"
-    "  'Will RELIANCE break out of the wedge?' -> 'Where are the wedge's "
-    "edges now?'\n"
+    "- One of the three must ask the chart to SHOW something, named "
+    "concretely: the pattern ('Mark the double bottom on the daily'), the "
+    "levels with their numbers ('Draw the 1,320 support and 1,368 "
+    "resistance'), the indicator with its setting ('Plot RSI 14 and mark "
+    "the divergence'), or a peer beside it ('Open ONGC beside this chart').\n"
+    "- One should WIDEN: the same setup across peers or a sector, another "
+    "timeframe, or the index ('Scan oil stocks for this hourly setup', "
+    "'Is the weekly trend the same?').\n"
+    "- One should TEST or ACT: how often it has held (a base rate), an "
+    "alert at the level just discussed, or a rule to backtest ('Alert me "
+    "if RELIANCE closes below 1,320').\n"
+    "- Follow the thread: use the symbol, timeframe, pattern and numbers "
+    "actually in the conversation — never 'this stock' or a level that was "
+    "not mentioned. Prefer the loose end the answer left open.\n"
+    "- The LAST exchange sets the subject. If the user just asked about "
+    "their portfolio or an alert, the three follow that — an earlier "
+    "pattern thread is not the topic any more.\n"
+    "- Never repeat or reword what the user just asked or what the answer "
+    "already did — a scan that just ran is not a suggestion; marking the "
+    "best match it found is.\n"
+    "- Write them as the user would type them: imperative or a plain "
+    "question, first person, no pleasantries. Under 60 characters each.\n\n"
+    "Never a prediction, a target, or buy/sell advice — rewrite it as the "
+    "measurable or visible thing underneath:\n"
+    "  'Will RELIANCE break out of the wedge?' -> 'Draw the wedge's edges "
+    "on the chart'\n"
     "  'Is this a good entry?' -> 'How often has this pattern held on "
     "RELIANCE?'\n"
-    "  'Should I wait for confirmation?' -> 'What would confirm the "
-    "breakout?'\n\n"
-    "Return exactly three lines. One question per line. No numbering, no "
-    "bullets, no quotes, no commentary."
+    "  'Should I wait for confirmation?' -> 'Alert me on a close above "
+    "1,368'\n\n"
+    "Return exactly three lines. One per line. No numbering, no bullets, "
+    "no quotes, no commentary."
 )
 
 
@@ -13729,7 +14094,7 @@ _EXECUTION_CHARTO_TOOLS = {
     # an index — each needs a second instrument's numbers before it can be
     # sized, benchmarked or sanity-checked, and `screen_universe` answers
     # "which names", not "what is THIS one doing".
-    "screen_universe", "read_symbol",
+    "screen_universe", "scan_setup", "read_symbol",
     "set_alert", "list_alerts", "update_alert", "cancel_alert", "check_alert",
     # The other half of building one: a draft that cannot be saved in the turn
     # it was built in is a draft the user has to rebuild to keep.
@@ -18687,6 +19052,9 @@ class Handler(BaseHTTPRequestHandler):
             # already in context from a search of the earlier ones. A signed
             # out request sets user None and the tool says so honestly.
             _req.user = _auth_user(self.headers)
+            # The bearer itself, for the one tool that reads the user's
+            # account from Pivot's API on their behalf (paper_portfolio).
+            _req.bearer = self.headers.get("Authorization") or ""
             _req.chat_id = str(body.get("chat_id") or "")[:64]
             _req.chat_mode = ("execution"
                               if body.get("mode") == "execution" else "chat")

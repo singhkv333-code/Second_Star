@@ -12,7 +12,7 @@
 
 (() => {
   if (typeof Dock === "undefined") return;
-  const { API, esc, ic, num, pct, dir, empty, skel } = WKit;
+  const { esc, ic, num, pct, dir, empty, skel } = WKit;
   // whole rupees: a holdings total to the paisa reads as noise
   const inr = (v) => WKit.inr(v == null || !Number.isFinite(+v) ? v : Math.round(+v));
   const POLL_MS = 30_000;
@@ -36,8 +36,14 @@
     const body = host.querySelector(".pf-body"), foot = host.querySelector(".pf-foot");
 
     const signedIn = () => typeof Auth !== "undefined" && !!Auth.user;
+    // The user's portfolio is the paper book in Pivot's API — the account the
+    // Home, Portfolio and Paper pages show — not charto's own book, which
+    // this widget used to read and which is empty for anyone who trades from
+    // those pages. Same-origin under /pv (nginx and the shell both route it);
+    // Pivot accepts the charto session as its bearer.
+    const PIVOT = location.port === "5173" ? "http://127.0.0.1:8000" : "/pv";
     async function get(path) {
-      const r = await fetch(API + path, { headers: typeof Auth !== "undefined" ? Auth.headers() : {} });
+      const r = await fetch(PIVOT + path, { headers: typeof Auth !== "undefined" ? Auth.headers() : {} });
       let d = null;
       try { d = await r.json(); } catch {}
       if (!r.ok) throw new Error((d && d.error) || `HTTP ${r.status}`);
@@ -169,7 +175,7 @@
       if (!rows) return;
       if (!rows.length) {
         body.innerHTML = (sum && sum.exists ? stats() : "") +
-          empty("pie", "No holdings yet. Paper orders you place and strategies you arm fill here.");
+          empty("pie", "No holdings yet. Paper orders you place fill here.");
       } else {
         const { list, total, by } = slices();
         const colorOf = (r) => {

@@ -696,6 +696,7 @@
     if (/scan_pairs|cointegration/.test(n)) return { word: "Testing", detail: "pairs" };
     if (/register_plan/.test(n)) return { word: "Registering", detail: "the plan" };
     if (/save_strategy/.test(n)) return { word: "Saving", detail: "the strategy" };
+    if (/scan_setup/.test(n)) return { word: "Scanning", detail: "peers for the same setup" };
     if (/read_symbol/.test(n)) return { word: "Reading", detail: hint || "the instrument" };
     if (/open_chart/.test(n)) return { word: "Opening", detail: "the chart" };
     if (/draw_shape/.test(n)) return { word: "Drawing", detail: "on the chart" };
@@ -2155,6 +2156,13 @@
         let alertsStale = false;
         for (const op of d.view_ops) {
           if (op.kind === "alerts_changed") { alertsStale = true; continue; }
+          // Ink computed on a timeframe the chart is not showing: move the
+          // chart there first, so the drawing below lands where it was made.
+          if (op.kind === "set_interval" && window.__charto?.switchInterval) {
+            try { await window.__charto.switchInterval(op.interval); }
+            catch (e) { console.warn("[charto] set_interval failed", op, e); }
+            continue;
+          }
           if (op.kind !== "open_chart" || !window.__charto?.panes) continue;
           try {
             window.__charto.panes.openChart(op.symbol, op.interval, op.replace);
