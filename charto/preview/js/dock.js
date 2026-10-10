@@ -765,7 +765,11 @@ const Dock = (() => {
         S.closed = S.closed.filter((c) => c.id !== ci);
         id = ci;
       } else {
-        id = spec.single ? type : uid(type + ":");
+        // the chat names the instance it is opening, so it can write into it
+        // in the same turn; a taken or malformed name falls back to a fresh one
+        const want = opts.id && !spec.single && !S.inst[opts.id]
+          && new RegExp(`^${type}:[a-z0-9]{2,12}$`).test(opts.id) ? opts.id : null;
+        id = spec.single ? type : (want || uid(type + ":"));
         if (!(spec.single && S.inst[id])) {
           S.inst[id] = { type, cfg: { ...(spec.defaults || {}), ...(opts.cfg || {}) } };
         }
@@ -2176,8 +2180,191 @@ const Dock = (() => {
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
   else queueMicrotask(start);
 
+
+  /* ══ the chat's handle on the workspace ═════════════════════════════════
+   * What js/agentws.js drives when the conversation builds or edits the
+   * desk. The model never sees DOM or raw config: it sees a manifest (each
+   * widget's id, kind and one line of what it shows — the widget's own
+   * `ask().sub`), loads a widget's fuller content with read(), and learns a
+   * kind's settings and writable content from catalog(), which is generated
+   * from the same `settings` the settings panel draws — nothing is declared
+   * twice. Every op is VERIFIED here against that catalog before it runs. */
+  const AGENT_SIDES = ["left", "right", "top", "bottom"];
+
+  function agentWhere(where) {
+    const w = String(where || "").trim();
+    if (!w) return null;
+    if (AGENT_SIDES.includes(w)) return { kind: "edge", side: w };
+    if (w === "float") {
+      const c = floatLayer.getBoundingClientRect();
+      return { kind: "float", x: clamp(c.width - FLOAT_DEF.w - 32, 16, c.width), y: 32 };
+    }
+    // ids carry a colon themselves ("notes:2987da"): the side is the LAST part
+    const k = w.split(":")[0], rest = w.slice(k.length + 1);
+    const ref = k === "split" ? rest.slice(0, rest.lastIndexOf(":")) : rest;
+    const side = k === "split" ? rest.slice(rest.lastIndexOf(":") + 1) : "";
+    const target = ref === "chart" ? CHART : ref;
+    const gid = target && S.inst[target] && groupOf(target);
+    if (!gid) return { error: `no widget '${ref}' on the workspace to place beside` };
+    if (k === "tab") return { kind: "tab", gid };
+    if (k === "split") {
+      if (!AGENT_SIDES.includes(side)) return { error: `split needs a side: ${AGENT_SIDES.join("|")}` };
+      return { kind: "split", gid, side };
+    }
+    return { error: `where '${w}' is not one of left|right|top|bottom|float|tab:<id>|split:<id>:<side>` };
+  }
+
+  function agentSettings(spec) {
+    const rows = [];
+    for (const r of spec.settings || []) {
+      if (!r || !r.key || r.kind === "action" || r.kind === "note") continue;
+      let opts = r.options;
+      if (typeof opts === "function") { try { opts = opts({}); } catch { opts = null; } }
+      const kind = r.kind || (opts ? "seg" : "text");
+      rows.push({ key: r.key, label: r.label, kind, def: r.def,
+                  ...(opts ? { options: opts.map((o) => (o && typeof o === "object" ? o.v : o)) } : {}),
+                  ...(r.min != null ? { min: r.min } : {}), ...(r.max != null ? { max: r.max } : {}),
+                  ...(r.hint ? { hint: r.hint } : {}) });
+    }
+    return rows;
+  }
+
+  function agentCatalog() {
+    return [...TYPES.values()].filter((t) => t.type !== CHART && t.catalog !== false).map((t) => ({
+      type: t.type, title: t.title, desc: t.desc || "", single: !!t.single, linkable: !!t.linkable,
+      settings: agentSettings(t), writes: (t.agent && t.agent.writes) || null,
+    }));
+  }
+
+  function agentAsk(id) {
+    const api = live.get(id);
+    if (!api || !api.ask) return null;
+    try { const got = api.ask(); return got && typeof got === "object" ? got : null; } catch { return null; }
+  }
+
+  function agentManifest() {
+    const vis = new Set([...lastVisible]);
+    return [...treeGroups(), ...S.floats.map((f) => f.gid)].flatMap((gid) => S.groups[gid].tabs)
+      .filter((id) => id !== CHART && S.inst[id])
+      .map((id) => {
+        const i = S.inst[id], got = agentAsk(id);
+        return { id, type: i.type, title: label(id).title, visible: vis.has(id),
+                 symbol: symbolOf(id), link: linkOf(id), float: !!floatOf(groupOf(id)),
+                 tab_of: S.groups[groupOf(id)].tabs.length > 1 ? groupOf(id) : null,
+                 model: got && got.sub ? String(got.sub).slice(0, 200) : "",
+                 // the widget's own settings, primitives only: the server merges a
+                 // change into them instead of replacing what the user set
+                 cfg: Object.fromEntries(Object.entries(i.cfg || {})
+                   .filter(([k, v]) => k !== "title" && JSON.stringify(v).length < 600)) };
+      });
+  }
+
+  /** Check one setting patch against the kind's declared settings. */
+  function agentCheck(type, patch) {
+    const rows = agentSettings(TYPES.get(type));
+    const errs = [];
+    for (const [k, v] of Object.entries(patch || {})) {
+      const r = rows.find((x) => x.key === k);
+      if (!r) { errs.push(`'${k}' is not a ${type} setting (have: ${rows.map((x) => x.key).join(", ")})`); continue; }
+      if (r.options && r.kind !== "chips" && !r.options.some((o) => String(o) === String(v))) {
+        errs.push(`${k} must be one of ${r.options.join(" | ")}`);
+      }
+      if (r.kind === "chips" && (!Array.isArray(v) || v.some((x) => !r.options.some((o) => String(o) === String(x))))) {
+        errs.push(`${k} takes a list from ${r.options.join(" | ")}`);
+      }
+      if (r.kind === "toggle" && typeof v !== "boolean") errs.push(`${k} is true or false`);
+    }
+    return errs;
+  }
+
+  /** Values come back as the option's own type (a "50" for a numeric option is 50). */
+  function agentCoerce(type, patch) {
+    const rows = agentSettings(TYPES.get(type)), out = {};
+    for (const [k, v] of Object.entries(patch || {})) {
+      const r = rows.find((x) => x.key === k);
+      const hit = r && r.options && r.kind !== "chips" ? r.options.find((o) => String(o) === String(v)) : undefined;
+      out[k] = hit !== undefined ? hit : v;
+    }
+    return out;
+  }
+
+  function agentWrite(id, content) {
+    const i = S.inst[id];
+    const spec = i && TYPES.get(i.type);
+    if (!spec) return { ok: false, error: `no widget '${id}'` };
+    const api = ensureMounted(id);
+    if (spec.agent && spec.agent.write) return spec.agent.write(api, content || {}, ctxFor(id)) || { ok: true };
+    if (api.write) return api.write(content || {}) || { ok: true };
+    if (api.receive) { api.receive(content || {}); return { ok: true }; }
+    return { ok: false, error: `${spec.title} has no content to write — use its settings` };
+  }
+
+  /** One op from the chat. Returns { ok, id?, error? }; never throws. */
+  /** Put a widget on a link, a pin or the chart. A link group no widget is
+   *  using takes the symbol it is opened for (or the page's) — a group left
+   *  over from another session must not bring back its old instrument. */
+  function agentLink(id, link, symbol) {
+    const sym = symbol ? String(symbol).toUpperCase() : null;
+    if (LINK_IDS.includes(link)) {
+      const others = members(link).filter((x) => x !== id);
+      if (sym && others.length) setLink(link, { sym });     // the group's widgets follow
+      else if (sym || !others.length) S.links[link] = { ...(S.links[link] || {}), sym: sym || pageSymbol() };
+      return setLinkOf(id, link);
+    }
+    return setLinkOf(id, sym && !link ? "pin" : (link || "chart"), sym || undefined);
+  }
+
+  function agentApply(op) {
+    try {
+      const o = op || {};
+      if (o.op === "open") {
+        const spec = TYPES.get(o.type);
+        if (!spec || o.type === CHART) return { ok: false, error: `no widget kind '${o.type}'` };
+        const errs = agentCheck(o.type, o.settings);
+        if (errs.length) return { ok: false, error: errs.join("; ") };
+        const where = agentWhere(o.where);
+        if (where && where.error) return { ok: false, error: where.error };
+        const id = open(o.type, where, { fresh: !spec.single, id: o.id, cfg: agentCoerce(o.type, o.settings) });
+        if (!id) return { ok: false, error: `${spec.title} could not be opened` };
+        if (o.settings && spec.single) setCfg(id, agentCoerce(o.type, o.settings));
+        if (o.link || o.symbol) agentLink(id, o.link, o.symbol);
+        if (o.content) { const w = agentWrite(id, o.content); if (w && w.ok === false) return { ok: false, id, error: w.error }; }
+        return { ok: true, id };
+      }
+      const id = o.id === "chart" ? CHART : o.id;
+      if (!id || !S.inst[id]) return { ok: false, error: `no widget '${o.id}' on the workspace` };
+      const type = S.inst[id].type;
+      if (o.op === "configure") {
+        const errs = agentCheck(type, o.settings);
+        if (errs.length) return { ok: false, error: errs.join("; ") };
+        if (o.settings && Object.keys(o.settings).length) setCfg(id, agentCoerce(type, o.settings));
+        if (o.link || o.symbol) agentLink(id, o.link, o.symbol);
+        if (o.title) { setCfg(id, { title: String(o.title).slice(0, 40) }); }
+        return { ok: true, id };
+      }
+      if (o.op === "write") { const w = agentWrite(id, o.content); return { ok: w.ok !== false, id, ...(w.error ? { error: w.error } : {}) }; }
+      if (o.op === "move") {
+        if (id === CHART && !AGENT_SIDES.includes(o.where) && o.where !== "float") return { ok: false, error: "the chart moves to an edge or a window only" };
+        if (AGENT_SIDES.includes(o.where) || o.where === "float") { moveTo(id, o.where); return { ok: true, id }; }
+        const where = agentWhere(o.where);
+        if (!where || where.error) return { ok: false, error: (where && where.error) || "move needs `where`" };
+        detach(id); place(id, where); layout(true);
+        return { ok: true, id };
+      }
+      if (o.op === "focus") { const g = groupOf(id); if (g) { S.groups[g].active = id; layout(true); flash(id); } return { ok: true, id }; }
+      if (o.op === "close") { if (id === CHART) return { ok: false, error: "the chart stays" }; close(id); return { ok: true, id }; }
+      return { ok: false, error: `unknown op '${o.op}'` };
+    } catch (e) {
+      console.error("[dock] agent op", op, e);
+      return { ok: false, error: String(e && e.message || e) };
+    }
+  }
+
   return {
     register, start, open, close, toggle, openSymbol, warm, setFocus, fullscreen, hub,
+    agent: { catalog: agentCatalog, manifest: agentManifest, apply: agentApply,
+             read: (id) => agentAsk(id === "chart" ? CHART : id),
+             snapshot: () => JSON.parse(JSON.stringify(exportState())), restore: (s) => applyState(s) },
     visible: (type) => placedOf(type).some((id) => lastVisible.has(id)),
     instances: (type) => placedOf(type),
     /** Every widget the hub offers: what Go to and the phone bar list. */

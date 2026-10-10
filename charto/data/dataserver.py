@@ -11582,7 +11582,8 @@ def tool_custom_indicator(action: str, request: str = "", id: str = "",  # noqa:
     if action == "list":
         recs = _ci.list_for(who[0], include_failed=True)
         return {"custom_indicators": [
-            {"id": r["id"], "title": r["spec"].get("title"), "version": r["version"],
+            {"id": r["id"], "title": r["spec"].get("title"), "legend": r["spec"].get("short"),
+             "version": r["version"],
              "status": r["status"], "classification": r["spec"].get("classification"),
              "pane": r["spec"].get("pane"), "validation": r["report"].get("summary")}
             for r in recs],
@@ -11720,6 +11721,337 @@ def _cx_get_route(path: str, headers) -> tuple[int, dict]:
 
 
 # Tools whose work is long enough that the stream shows its stages: the
+
+# ── the workspace: the chat's hands on the desk ───────────────────
+# The page sends, with every turn, a manifest of the widgets on the desk (id,
+# kind, symbol, link, one line of what each shows, and its fuller content for
+# `read`) and the catalog of widget kinds generated from the widgets' own
+# settings (js/agentws.js). Neither goes into the prompt whole: the manifest
+# is summarised into one short block at the end of the turn, and the catalog
+# is served only through op "describe". The tool VERIFIES every op against
+# that catalog, runs whatever is business data here — a screen through the
+# screen engine, code through the validator — and streams the rest to the
+# page, which applies it through the dock and reports back next turn.
+_WS_SIDES = ("left", "right", "top", "bottom")
+_WS_LINKS = ("1", "2", "3", "4", "chart", "pin")
+
+
+def _ws_known_symbol(sym: str) -> bool:
+    """A real instrument here: minute history, or a row in the daily universe
+    the screens read (a screener can list names the minute store lacks)."""
+    return _symbol_ready(sym) or bool(_con.execute(
+        "SELECT 1 FROM bars_1d WHERE symbol=? LIMIT 1", (sym,)).fetchone())
+
+
+def _ws_catalog() -> dict:
+    return {t.get("type"): t for t in (getattr(_req, "widget_catalog", None) or [])
+            if isinstance(t, dict) and t.get("type")}
+
+
+def _ws_widgets() -> dict:
+    ws = getattr(_req, "workspace", None) or {}
+    return {w.get("id"): w for w in (ws.get("widgets") or []) if isinstance(w, dict) and w.get("id")}
+
+
+def _workspace_line() -> str:
+    """The desk, in a few lines, for the end of the turn's input."""
+    if getattr(_req, "chat_mode", "chat") == "execution" or not _ws_catalog():
+        return ""
+    ws = getattr(_req, "workspace", None) or {}
+    rows = []
+    for w in _ws_widgets().values():
+        where = "window" if w.get("float") else ("tab" if w.get("tab_of") else "tile")
+        link = w.get("link") or "chart"
+        follows = (f"link {link} ({w.get('symbol')})" if link in ("1", "2", "3", "4")
+                   else f"pinned {w.get('symbol')}" if link == "pin" else f"follows chart")
+        rows.append(f"- {w['id']} · {w.get('title') or w.get('type')} · {where} · {follows}"
+                    f"{'' if w.get('visible') else ' · hidden behind a tab'}"
+                    + (f" — {w['model']}" if w.get("model") else ""))
+    fails = [f"- {a.get('op')} {a.get('id') or ''}: {a.get('error')}" for a in (ws.get("ack") or [])
+             if isinstance(a, dict) and not a.get("ok", True)]
+    out = "## Workspace now\n" + ("\n".join(rows) if rows else "Only the main chart is open.")
+    if fails:
+        out += "\nThese workspace ops from the last turn did NOT apply on the page:\n" + "\n".join(fails)
+    return out
+
+
+def _ws_settings_errors(entry: dict, patch) -> list[str]:
+    if patch in (None, {}):
+        return []
+    if not isinstance(patch, dict):
+        return ["settings must be an object of key: value"]
+    rows = {r["key"]: r for r in entry.get("settings") or [] if isinstance(r, dict) and r.get("key")}
+    errs = []
+    for k, v in patch.items():
+        r = rows.get(k)
+        if not r:
+            errs.append(f"'{k}' is not a {entry['type']} setting — op 'describe' lists them "
+                        f"({', '.join(rows) or 'none'})")
+            continue
+        opts = r.get("options")
+        if opts and r.get("kind") == "chips":
+            if not isinstance(v, list) or any(str(x) not in map(str, opts) for x in v):
+                errs.append(f"{k} takes a list from {opts}")
+        elif opts and str(v) not in map(str, opts):
+            errs.append(f"{k} must be one of {opts}")
+        elif r.get("kind") == "toggle" and not isinstance(v, bool):
+            errs.append(f"{k} is true or false")
+    return errs
+
+
+def _ws_where_error(where, ids: set) -> str:
+    w = str(where or "").strip()
+    if not w or w in _WS_SIDES or w == "float":
+        return ""
+    # ids carry a colon themselves ("notes:2987da"), so the side is the LAST part
+    k, _, rest = w.partition(":")
+    ref, side = rest, ""
+    if k == "split":
+        ref, _, side = rest.rpartition(":")
+    if k not in ("tab", "split") or not ref:
+        return f"where '{w}' must be left|right|top|bottom|float|tab:<id>|split:<id>:<side>"
+    if ref != "chart" and ref not in ids:
+        return f"no widget '{ref}' to place beside"
+    if k == "split" and side not in _WS_SIDES:
+        return f"split needs a side: {'|'.join(_WS_SIDES)}"
+    return ""
+
+
+def _ws_screen(c: dict, cur: dict | None = None) -> tuple[dict | None, dict]:
+    """Run a screen the chat is writing into a Screener, on the same engine the
+    widget will call — so the model reads the matches now, and the widget
+    shows the same list. A write CHANGES the screen: keys it leaves out keep
+    the widget's current values ("sort by RSI" must not drop the industry)."""
+    cur = cur or {}
+    base = {"filters": [list(f) for f in cur.get("filters") or [] if isinstance(f, (list, tuple))],
+            "industry": cur.get("industry"), "pattern": cur.get("pattern"),
+            "pattern_within": cur.get("pattern_within"), "sort": cur.get("sort"),
+            "order": cur.get("order"), "name": cur.get("name")}
+    c = {**base, **{k: v for k, v in c.items() if k in base}}
+    flt = []
+    for f in c.get("filters") or []:
+        if isinstance(f, (list, tuple)) and len(f) == 3:
+            f = {"feature": f[0], "op": f[1], "value": f[2]}
+        flt.append(f)
+    args = {"filters": flt, "industry": str(c.get("industry") or ""),
+            "pattern": str(c.get("pattern") or ""), "pattern_within": int(c.get("pattern_within") or 5),
+            "sort": str(c.get("sort") or ""), "order": str(c.get("order") or ""), "limit": 12}
+    keep = _card_take()
+    try:
+        out = tool_screen_universe(**args)
+    finally:
+        # the engine composes the chat's screen panel; this screen is shown in
+        # the widget instead, so only that panel is dropped
+        for card in keep + [x for x in _card_take() if x.get("kind") != "screen"]:
+            _card_add(card)
+    if "error" in out:
+        return None, {k: v for k, v in out.items() if k != "_note"}
+    rows = out.get("rows") or out.get("results") or []
+    fwd = {"name": str(c.get("name") or "")[:40], "filters": flt, "industry": args["industry"] or None,
+           "pattern": args["pattern"] or None, "pattern_within": args["pattern_within"],
+           "sort": args["sort"] or (out.get("sorted_by") or {}).get("feature") or "ret_1d",
+           "order": args["order"] or None}
+    key = (out.get("sorted_by") or {}).get("feature")
+    return fwd, {"matched": out.get("matched"), "universe": out.get("universe"),
+                 "as_of": out.get("as_of"), "sorted_by": out.get("sorted_by"),
+                 "top": [{k: r.get(k) for k in ("symbol", "name", "close", key) if k and k in r}
+                         for r in rows[:10]]}
+
+
+def _cx_save_code(uid: int, rec: dict, code: str, sym: str, iv: str) -> tuple[dict, dict]:
+    """Validate hand-edited (or chat-edited) code on real bars; only a pass is
+    a new version. (report, saved record)."""
+    sym = canon_symbol(sym or "RELIANCE")
+    if _ensure_symbol(sym):
+        sym = "RELIANCE"
+    _req.symbol = sym
+    report = _ci.validate(rec["spec"], code, _cx_bars_provider(sym, iv or "1d", rec["spec"].get("basket")))
+    report["attempts"] = 0
+    saved = _ci.save(uid, spec=rec["spec"], code=code, report=report,
+                     prompt="edited in the workspace", cid=rec["id"])
+    return report, saved
+
+
+def _ws_content(kind: str, c, cur: dict | None = None) -> tuple[dict | None, dict, str]:
+    """(content to forward, what the model learns, error). `cur` is the
+    widget's current settings, from the page's manifest."""
+    if not isinstance(c, dict) or not c:
+        return None, {}, "content must be an object — op 'describe' shows what this widget takes"
+    if kind == "screener":
+        fwd, got = _ws_screen(c, cur)
+        return (fwd, got, "") if fwd else (None, got, got.get("error") or "the screen did not run")
+    if kind == "code":
+        who = getattr(_req, "user", None)
+        study = str(c.get("study") or "")
+        if _ci is None or not who:
+            return None, {}, "custom indicators need a signed-in user"
+        rec = _ci.get(study, who[0]) if study else None
+        if not rec and study:
+            # the user names a study the way the chart shows it — its legend
+            # or its title — so either finds it, when exactly one matches
+            want = study.strip().lower()
+            hits = [r for r in _ci.list_for(who[0], include_failed=True)
+                    if want in (str(r["spec"].get("short") or "").lower(),
+                                str(r["spec"].get("title") or "").lower())]
+            rec = hits[0] if len(hits) == 1 else None
+        if not rec:
+            return None, {}, f"no custom indicator '{study}' — custom_indicator(action='list') has the ids"
+        study = rec["id"]
+        code = str(c.get("code") or "")
+        if code and c.get("save"):
+            report, saved = _cx_save_code(who[0], rec, code, _sym(),
+                                          getattr(_req, "ctx_interval", "") or "1d")
+            fails = [f"{x['label']}: {x['detail']}" for x in report["checks"]
+                     if x["status"] == "fail" and x["blocking"]]
+            if report["passed"]:
+                return ({"study": study, "saved": True},
+                        {"saved": True, "version": saved["version"], "validation": report["summary"]}, "")
+            return ({"study": study, "code": code},
+                    {"saved": False, "failed_checks": fails[:6],
+                     "_note": "Not saved — the code is in the editor as an unsaved draft."}, "")
+        if not code:
+            # opened to be edited: the model gets the source now, so it can
+            # write the changed version (save: true) in the same turn
+            return {"study": study}, {"title": rec["spec"].get("title"), "version": rec["version"],
+                                      "code": rec["code"][:12000],
+                                      "_note": "Write the full changed source back with save: true."}, ""
+        return {"study": study, "code": code}, {}, ""
+    if kind == "watch":
+        add = [canon_symbol(x) for x in c.get("add") or [] if str(x or "").strip()]
+        bad = [x for x in add if not _ws_known_symbol(x)]
+        if bad:
+            return None, {}, f"no stored bars for {', '.join(bad)} — check the tickers"
+        return {"add": add, "remove": [str(x).upper() for x in c.get("remove") or []]}, {}, ""
+    if kind == "sheet":
+        t = c.get("table") or {}
+        cols, rows = t.get("columns") or [], t.get("rows") or []
+        if not isinstance(cols, list) or not isinstance(rows, list) or not rows:
+            return None, {}, "sheet content is {table: {title, columns: [...], rows: [[...]]}}"
+        return {"table": {"title": str(t.get("title") or "From chat")[:40], "columns": cols[:30],
+                          "rows": [r[:30] for r in rows[:500] if isinstance(r, list)]}}, {}, ""
+    if kind == "notes":
+        text = str(c.get("text") or "").strip()
+        if not text:
+            return None, {}, "notes content is {text}"
+        return {"text": text[:4000], **({"symbol": canon_symbol(c["symbol"])} if c.get("symbol") else {}),
+                **({"general": True} if c.get("general") else {})}, {}, ""
+    if kind in ("browser", "docs"):
+        url = str(c.get("url") or "")
+        if url and not url.startswith(("https://", "http://")):
+            return None, {}, "url must start with https://"
+        if kind == "browser" and not url and not c.get("q"):
+            return None, {}, "browser content is {url} or {q}"
+        if kind == "docs" and not url:
+            return None, {}, "docs content is {url, name}"
+        return {k: c[k] for k in ("url", "q", "reader", "name") if c.get(k)}, {}, ""
+    if kind == "strategy":
+        if not isinstance(c.get("steps"), list) or not c["steps"]:
+            return None, {}, "strategy content is {name, steps} — the steps of a draft"
+        return {"name": str(c.get("name") or "")[:60], "steps": c["steps"]}, {}, ""
+    return None, {}, f"a {kind} widget has no content to write — set its settings instead"
+
+
+def tool_workspace(ops: list | None = None) -> dict:
+    """Verify, partly run, and stream a list of workspace ops."""
+    cat = _ws_catalog()
+    if not cat:
+        return {"error": "this page did not send its workspace",
+                "_note": "Say the workspace cannot be changed from here; nothing was done."}
+    if not isinstance(ops, list) or not ops:
+        return {"error": "ops must be a non-empty list"}
+    have = _ws_widgets()
+    opened = getattr(_req, "ws_opened", None)
+    if opened is None:
+        opened = _req.ws_opened = {}
+    kind_of = {**{i: w.get("type") for i, w in have.items()}, **opened}
+    fwd, results = [], []
+    for i, op in enumerate(ops[:24]):
+        o = op if isinstance(op, dict) else {}
+        verb = str(o.get("op") or "")
+        res = {"i": i, "op": verb}
+        err = ""
+        if verb == "describe":
+            e = cat.get(o.get("type"))
+            res.update({"describe": e} if e else {"error": f"no widget kind '{o.get('type')}'", "kinds": sorted(cat)})
+            results.append(res)
+            continue
+        if verb == "read":
+            w = have.get(o.get("id"))
+            if w:
+                res.update({"id": w["id"], "type": w.get("type"), "symbol": w.get("symbol"),
+                            "content": w.get("content") or w.get("model") or "(empty)"})
+            elif o.get("id") in opened:
+                res["error"] = "opened this turn — its contents arrive with the next message"
+            else:
+                res["error"] = f"no widget '{o.get('id')}' — the ids are under 'Workspace now'"
+            results.append(res)
+            continue
+        out = {k: o[k] for k in ("op", "id", "type", "where", "settings", "symbol", "link", "title")
+               if o.get(k) not in (None, "", {})}
+        if verb == "open":
+            e = cat.get(o.get("type"))
+            if not e:
+                err = f"no widget kind '{o.get('type')}' (kinds: {', '.join(sorted(cat))})"
+            else:
+                kind = e["type"]
+                if not e.get("single"):
+                    out["id"] = f"{kind}:{secrets.token_hex(3)}"
+                else:
+                    out["id"] = kind
+        elif verb in ("configure", "write", "move", "focus", "close"):
+            wid = str(o.get("id") or "")
+            if wid != "chart" and wid not in kind_of:
+                k0 = wid.split(":")[0]
+                err = (f"no '{wid}' on the desk — open it first: "
+                       f"{{op:'open', type:'{k0}', content: …}} (it can carry the content)"
+                       if k0 in cat else f"no widget '{wid}' — the ids are under 'Workspace now'")
+            elif wid == "chart" and verb not in ("move",):
+                err = "the main chart is changed with open_chart and the chart tools, not here"
+            else:
+                kind = kind_of.get(wid)
+                e = cat.get(kind) or {}
+        else:
+            err = f"unknown op '{verb}' — open|configure|write|move|focus|close|read|describe"
+        if not err and verb in ("open", "configure"):
+            errs = _ws_settings_errors(e, o.get("settings"))
+            if o.get("link") and str(o["link"]) not in _WS_LINKS:
+                errs.append(f"link is one of {'|'.join(_WS_LINKS)}")
+            if o.get("symbol"):
+                sym = canon_symbol(o["symbol"])
+                if not _ws_known_symbol(sym):
+                    errs.append(f"no stored bars for {sym}")
+                out["symbol"] = sym
+            err = "; ".join(errs)
+        if not err and verb in ("open", "move"):
+            err = _ws_where_error(o.get("where"), set(kind_of))
+        if not err and (verb == "write" or (verb == "open" and o.get("content"))):
+            content, learned, err = _ws_content(kind, o.get("content"),
+                                                (have.get(o.get("id")) or {}).get("cfg"))
+            if not err:
+                out["content"] = content
+                if learned:
+                    res["result"] = learned
+            if verb == "open" and err:
+                err = f"opened nothing — {err}"
+        if err:
+            res["error"] = err
+        else:
+            res["id"] = out.get("id")
+            if verb == "open":
+                opened[out["id"]] = kind
+                kind_of[out["id"]] = kind
+            if verb == "close":
+                kind_of.pop(out.get("id"), None)
+            fwd.append(out)
+        results.append(res)
+    if fwd:
+        _view_add({"kind": "workspace", "seq": time.time_ns(), "ops": fwd})
+    failed = sum(1 for r in results if "error" in r)
+    return {"results": results,
+            "_note": ("Applied on the page as you answer; say briefly what changed on the desk. "
+                      + (f"{failed} op(s) failed and did nothing — fix and re-call, or say why. " if failed else "")
+                      + "Never describe a widget's contents you have not read or been given back here.")}
+
 # name → a generator of {"type": "progress"|"final"} events.
 _STREAMING_TOOLS = {
     "custom_indicator": lambda action="", request="", id="", **_: (  # noqa: A002
@@ -12541,6 +12873,47 @@ TOOLS = [
          "remove": {"type": "boolean", "description": "remove this indicator AND its pane from the chart — period targets one variant, omitted removes every variant of the name"},
          "clear_marks": {"type": "boolean", "description": "remove only the marks previously added ON this indicator (reference lines, dots, connections) while keeping the indicator itself — use this, not remove, when the user wants the lines gone but the indicator kept"}},
          "required": ["name", "interval"]}},
+    {"type": "function", "name": "workspace",
+     "description": (
+         "Build and change the user's workspace — every widget beside the chart. Open any widget, "
+         "place it, set its settings, put content in it, read what it shows, move, focus or close "
+         "it. Put EVERY change for one request in ONE call: `ops` run in order, and an op can use "
+         "an id opened earlier in the same list. The widgets on the desk and their ids are under "
+         "'Workspace now' at the end of the conversation. "
+         "Kinds: chart (an extra chart), screener, watch (watchlist), alerts, journal, notes, news, "
+         "calendar, tv, financials, portfolio, depth (order book), sheet, code, docs, browser, "
+         "strategy. Before setting settings you have not used, call {op:'describe', type} — it "
+         "returns the kind's settings with their legal values and the content it accepts. "
+         "Content (on open, or op 'write'): screener {name, filters:[{feature, op:'gt'|'lt', value}], "
+         "industry, pattern, sort, order} — changes the screen (keys left out keep their values), "
+         "runs it on the server and returns the matches; code {study (id, title or legend), code, "
+         "save} — with no code it returns the current source so you can edit it, and save "
+         "validates in the sandbox and reports the checks (to change what a study computes in "
+         "words, custom_indicator edit rebuilds it); "
+         "watch {add, remove}; sheet {table:{title, columns, rows}}; notes {text}; browser {url|q}; "
+         "docs {url}; strategy {name, steps}. "
+         "symbol pins a widget to an instrument; link '1'-'4' makes widgets follow one symbol "
+         "together (a click in one moves them all) — use one link for widgets opened for one idea. "
+         "where: left|right|top|bottom|float|tab:<id>|split:<id>:<side>. "
+         "Use it when the user asks to open, show, set up, arrange or edit widgets, or to put "
+         "something INTO one. Not for answering a question with data — results, prices, levels, "
+         "flows are answered by the data tools (load their group from tool search), and a widget "
+         "opened this turn cannot be read until the next message. Not for drawing on the chart "
+         "(mark, draw_shape), switching or splitting the main chart (open_chart), or a one-off "
+         "list answered in the reply (screen_universe)."),
+     "parameters": {"type": "object", "properties": {
+         "ops": {"type": "array", "items": {"type": "object", "properties": {
+             "op": {"type": "string", "enum": ["open", "configure", "write", "move", "focus", "close", "read", "describe"]},
+             "type": {"type": "string", "description": "open/describe: the widget kind"},
+             "id": {"type": "string", "description": "the widget's id from 'Workspace now' or from an open earlier in this call ('chart' = the main chart, move only)"},
+             "where": {"type": "string", "description": "open/move: left|right|top|bottom|float|tab:<id>|split:<id>:<side>"},
+             "settings": {"type": "object", "description": "open/configure: setting key → value, as 'describe' lists them"},
+             "symbol": {"type": "string", "description": "open/configure: pin the widget to this instrument"},
+             "link": {"type": "string", "enum": ["1", "2", "3", "4", "chart", "pin"], "description": "open/configure: follow the chart, a link group, or a pin"},
+             "title": {"type": "string", "description": "configure: rename the widget"},
+             "content": {"type": "object", "description": "open/write: what goes inside, per kind (see the description)"}},
+             "required": ["op"]}}},
+         "required": ["ops"]}},
     {"type": "function", "name": "custom_indicator",
      "description": (
          "Build, edit, read and manage the user's OWN indicators — ones the native catalogue "
@@ -12880,7 +13253,8 @@ _DISPATCH = {"get_levels": tool_get_levels, "get_bars": tool_get_bars,
              "get_deals": tool_get_deals,
              "recall_conversations": tool_recall_conversations,
              "open_chart": tool_open_chart,
-             "custom_indicator": tool_custom_indicator}
+             "custom_indicator": tool_custom_indicator,
+             "workspace": tool_workspace}
 
 # The watcher's three, added only when alerts.py is loaded. `user_id` is NOT a
 # tool parameter and never appears in the schema: it is read off the request's
@@ -14291,6 +14665,95 @@ def _tools_for_request() -> list[dict]:
     return kept + execution_bridge.tools()
 
 
+
+# ── tool loading: a core that is always there, the rest on request ──
+# 53 tools were 100k characters (~25k tokens) on every round of every turn.
+# The chart-shaped core stays loaded; purpose groups sit behind the
+# provider's hosted tool search as namespaces. The model sees each group's one
+# line, and when a question needs one it loads it and calls the tool IN THE
+# SAME RESPONSE (measured on gpt-6-luna, 2026-10-10: no extra round). Nothing
+# here routes: the model decides what to load. Execution mode keeps its own
+# fixed surface. CHARTO_TOOL_SEARCH=0 puts every tool back on the wire.
+TOOL_GROUPS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "alerts": ("Alerts on price, indicators or the user's drawings: create one, change it, "
+               "check whether it would have fired, list them, cancel one.",
+               ("set_alert", "update_alert", "check_alert", "list_alerts", "cancel_alert")),
+    "journal": ("The user's trade journal: log a trade, update or edit it, list trades.",
+                ("log_trade", "update_trade", "list_trades", "update_journal_trade")),
+    "paper_strategies": ("Saved strategies armed on live ticks in the paper book: save the draft "
+                         "this turn built, list, pause or delete them.",
+                         ("save_strategy", "list_strategies", "pause_strategy", "delete_strategy")),
+    "indicator_builder": ("Build, edit, read or manage the user's own custom indicators — anything "
+                          "the native catalogue lacks, including sector or basket studies and "
+                          "conditions shown as colours.", ("custom_indicator",)),
+    "drawing_checks": ("Check the user's own drawings against the bars: a fib, a trendline, a "
+                       "pattern or any drawing — touches, holds, results; read a drawing by id.",
+                       ("evaluate_drawing", "evaluate_fib", "evaluate_pattern", "evaluate_line",
+                        "read_drawing", "evaluate_results")),
+    "fundamentals_flows": ("Quarterly results and earnings (revenue, profit, margins, EPS, growth), "
+                           "fundamentals and valuation, peers, FII/DII flows, bulk and block deals, "
+                           "and news search.",
+                           ("get_results", "get_peers", "get_flows", "get_deals", "search_news")),
+    "position_planning": ("Plan and size a position (entry, stop, targets, risk), and confirm "
+                          "whether a reversal is real.", ("plan_position", "confirm_reversal")),
+    "memory": ("Search the user's earlier conversations.", ("recall_conversations",)),
+}
+TOOL_SEARCH = (environ.get("CHARTO_TOOL_SEARCH") or "1") != "0"
+
+
+def _supports_tool_search(model: str) -> bool:
+    """Hosted tool search needs gpt-5.4 or later on the Responses API."""
+    m = re.match(r"gpt-(\d+)(?:\.(\d+))?", str(model or ""))
+    if not m:
+        return False
+    major, minor = int(m.group(1)), int(m.group(2) or 0)
+    return major > 5 or (major == 5 and minor >= 4)
+
+
+def _tools_wire(tools: list[dict], model: str) -> list[dict]:
+    """The offered tools as they go on the wire: core first, then each group
+    as a namespace of deferred functions, then the search tool."""
+    if (not TOOL_SEARCH or getattr(_req, "chat_mode", "chat") == "execution"
+            or not _supports_tool_search(model)):
+        return tools
+    by = {t.get("name"): t for t in tools if t.get("type") == "function"}
+    deferred = {n for _, names in TOOL_GROUPS.values() for n in names}
+    out = [t for t in tools if t.get("name") not in deferred]
+    spaces = []
+    for ns, (desc, names) in TOOL_GROUPS.items():
+        # strict: false, said out loud — a function loaded through tool search
+        # is otherwise held to strict schemas, where EVERY parameter is required:
+        # list_trades then had to pick a status (no "all") and was called three
+        # times, and get_results filled draw/draw_mode it was never asked for
+        fns = [{**by[n], "defer_loading": True, "strict": False} for n in names if n in by]
+        if fns:
+            spaces.append({"type": "namespace", "name": ns, "description": desc, "tools": fns})
+    return out + spaces + ([{"type": "tool_search"}] if spaces else [])
+
+
+def _wire_for(model: str, wire: list[dict]) -> list[dict]:
+    """A deployment without tool search cannot be sent the search items a
+    previous round produced (the fallback arm, mid-turn)."""
+    if _supports_tool_search(model) and TOOL_SEARCH:
+        return wire
+    out = []
+    for it in wire:
+        if it.get("type") in ("tool_search_call", "tool_search_output"):
+            continue
+        if it.get("type") == "function_call" and "namespace" in it:
+            it = {k: v for k, v in it.items() if k != "namespace"}
+        out.append(it)
+    return out
+
+
+def _search_items(output: list[dict]) -> list[dict]:
+    """The tool-search items of one response, to replay in the next round so
+    the tools it loaded stay loaded (we resend the turn; nothing is stored)."""
+    keep = ("type", "execution", "call_id", "status", "arguments", "tools")
+    return [{k: it[k] for k in keep if k in it} for it in output or []
+            if it.get("type") in ("tool_search_call", "tool_search_output")]
+
+
 def _post_responses(wire: list[dict], allow_tools: bool = True) -> dict:
     """The non-streaming answer path. Falls back on the same rule as the
     streaming one — nothing has been shown to the reader here, so the retry is
@@ -14299,8 +14762,8 @@ def _post_responses(wire: list[dict], allow_tools: bool = True) -> dict:
     for attempt, model in enumerate(models):
         payload = {
             "model": model,
-            "input": wire,
-            "tools": _tools_for_request(),
+            "input": _wire_for(model, wire),
+            "tools": _tools_wire(_tools_for_request(), model),
             "tool_choice": "auto" if allow_tools else "none",
             "max_output_tokens": 2000,
             "reasoning": {"effort": LLM_EFFORT},
@@ -14557,8 +15020,8 @@ def _stream_once(wire: list[dict], allow_tools: bool, model: str):
     owns what a failure means."""
     payload = {
         "model": model,
-        "input": wire,
-        "tools": _tools_for_request(),
+        "input": _wire_for(model, wire),
+        "tools": _tools_wire(_tools_for_request(), model),
         "tool_choice": "auto" if allow_tools else "none",
         "max_output_tokens": 2000,
         # `summary` streams the model's reasoning as titled paragraphs while
@@ -14767,6 +15230,11 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
     if block:
         wire.append({"role": "system", "content": block})
     wire += _wire_messages(messages)
+    # the desk last: it changes every turn, and after the history it does not
+    # break the cached prefix the way a line in the system block would
+    _ws = _workspace_line()
+    if _ws:
+        wire.append({"role": "system", "content": _ws})
 
     _scene_reset()
     _drawings_set(context)   # tools can now resolve a drawing by ref
@@ -14788,6 +15256,7 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
         tok_out += u.get("output_tokens") or 0
 
         calls, text_parts = [], []
+        searched = _search_items(data.get("output", []))
         for item in data.get("output", []):
             t = item.get("type")
             if t == "function_call":
@@ -14809,6 +15278,7 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
             }
 
         # execute every call this round, then feed results back
+        wire.extend(searched)
         for call in calls:
             try:
                 args = call.get("arguments") or "{}"
@@ -14822,7 +15292,8 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
             tool_trace.append({"name": call.get("name"), "args": args,
                                "ok": "error" not in result})
             wire.append({"type": "function_call", "call_id": call.get("call_id"),
-                         "name": call.get("name"), "arguments": call.get("arguments")})
+                         "name": call.get("name"), "arguments": call.get("arguments"),
+                         **({"namespace": call["namespace"]} if call.get("namespace") else {})})
             wire.append({"type": "function_call_output", "call_id": call.get("call_id"),
                          "output": json.dumps(result, default=str)})
 
@@ -14886,6 +15357,11 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
     if block:
         wire.append({"role": "system", "content": block})
     wire += _wire_messages(messages)
+    # the desk last: it changes every turn, and after the history it does not
+    # break the cached prefix the way a line in the system block would
+    _ws = _workspace_line()
+    if _ws:
+        wire.append({"role": "system", "content": _ws})
 
     _scene_reset()
     _drawings_set(context)   # tools can now resolve a drawing by ref
@@ -14902,6 +15378,7 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
         calls: list[dict] = []
         text_parts: list[str] = []
         by_id: dict = {}
+        searched: list[dict] = []
         try:
             source = (eng.stream(wire, tools_now, _round < _rounds - 1) if eng
                       else _post_responses_stream(wire, allow_tools=_round < _rounds - 1))
@@ -14930,7 +15407,7 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
                 elif t == "response.output_item.done":
                     item = ev.get("item") or {}
                     if item.get("type") == "function_call":
-                        by_id[item.get("id") or len(by_id)] = item
+                        by_id[item.get("call_id") or item.get("id") or len(by_id)] = item
                 elif t in ("response.completed", "response.incomplete"):
                     r = ev.get("response") or {}
                     u = r.get("usage") or {}
@@ -14939,7 +15416,8 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
                     # authoritative item list — the deltas above are only text
                     for item in r.get("output", []):
                         if item.get("type") == "function_call":
-                            by_id[item.get("id") or len(by_id)] = item
+                            by_id[item.get("call_id") or item.get("id") or len(by_id)] = item
+                    searched = _search_items(r.get("output", []))
                 # `error` is the stream-level fault; `response.failed` is the
                 # RUN failing after it started, and it was not handled at all —
                 # the loop simply ran out of events, found no tool calls and
@@ -14992,6 +15470,7 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
             yield from _suggest_events(messages, answer)
             return
 
+        wire.extend(searched)   # the tools this round loaded stay loaded
         for call in calls:
             try:
                 args = call.get("arguments") or "{}"
@@ -15028,7 +15507,11 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
             else:
                 result = run_tool(call.get("name", ""), args)
             scene_patch.extend(_scene_take())
-            view_ops.extend(_view_take())
+            fresh_ops = _view_take()
+            view_ops.extend(fresh_ops)
+            for vop in fresh_ops:
+                if vop.get("kind") == "workspace":
+                    yield {"type": "view_op", "op": vop}
             fresh = _card_take()
             cards.extend(fresh)
             ok = "error" not in result
@@ -15040,6 +15523,7 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
                 yield {"type": "card", "card": c}
             wire.append({"type": "function_call", "call_id": call.get("call_id"),
                          "name": call.get("name"), "arguments": call.get("arguments"),
+                         **({"namespace": call["namespace"]} if call.get("namespace") else {}),
                          **({"_sig": call["_sig"]} if call.get("_sig") else {})})
             wire.append({"type": "function_call_output", "call_id": call.get("call_id"),
                          "output": json.dumps(result, default=str)})
@@ -18937,15 +19421,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(404, {"error": f"no custom indicator '{cid}'"})
             if not code.strip():
                 return self._send(400, {"error": "empty code"})
-            sym = canon_symbol(body.get("symbol") or "RELIANCE")
-            if _ensure_symbol(sym):
-                sym = "RELIANCE"
-            _req.symbol = sym
-            iv = str(body.get("interval") or "1d")
-            report = _ci.validate(rec["spec"], code, _cx_bars_provider(sym, iv, rec["spec"].get("basket")))
-            report["attempts"] = 0
-            saved = _ci.save(me[0], spec=rec["spec"], code=code, report=report,
-                             prompt="edited by hand", cid=cid)
+            report, saved = _cx_save_code(me[0], rec, code, body.get("symbol") or "RELIANCE",
+                                          str(body.get("interval") or "1d"))
             out = {"ok": bool(report["passed"]), "report": report,
                    "version": saved["version"]}
             if report["passed"]:
@@ -19197,6 +19674,12 @@ class Handler(BaseHTTPRequestHandler):
             _req.chat_id = str(body.get("chat_id") or "")[:64]
             _req.chat_mode = ("execution"
                               if body.get("mode") == "execution" else "chat")
+            # the desk, for the workspace tool — out of the chart envelope, so
+            # neither the manifest's contents nor the catalog reach the prompt
+            # except through the tool and the short "Workspace now" block
+            _req.workspace = ctx.pop("workspace", None) if isinstance(ctx, dict) else None
+            _req.widget_catalog = ctx.pop("widget_catalog", None) if isinstance(ctx, dict) else None
+            _req.ws_opened = {}
             # WHICH MODEL. Pivot's own unless the page names a connected one
             # (byok.py). Reset on every request: _req is per thread, and a
             # thread serves many users.

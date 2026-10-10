@@ -803,6 +803,7 @@
   Dock.register({
     type: "browser", title: "Browser", icon: "globe", hue: "cyan", group: "Tools",
     desc: "Search the web and browse pages beside the chart", zone: "right", minW: 320, mount,
+    agent: { writes: { url: "a page to open", q: "or a web search to run", reader: "true: open the page as text" } },
     settings: [
       { section: "Search" },
       { key: "source", label: "Search", kind: "seg", def: "web", options: [{ v: "web", label: "The web" }, { v: "wiki", label: "Wikipedia only" }] },

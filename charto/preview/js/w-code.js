@@ -187,6 +187,22 @@
     return {
       show() { if (!booted) { booted = true; loadList(); } else paintState(); },
       config(cfg, patch) { prefs(); if ("wrap" in patch || "fontSize" in patch) requestAnimationFrame(() => lines()); if ("tab" in patch && cur && !dirty) openStudy(cur.id); },
+      /** The chat opens a study here, puts code in it, or shows the version
+       *  it just validated and saved on the server. Unsaved edits the user
+       *  made are never overwritten. */
+      async write(c) {
+        if (dirty && cur && (!c.study || c.study === cur.id) && !c.saved) {
+          return { ok: false, error: "the Code widget has unsaved edits by the user" };
+        }
+        if (c.saved || !list.length) await loadList();
+        if (c.study && (!cur || cur.id !== c.study || c.saved)) { dirty = false; await openStudy(c.study); }
+        if (c.code && !c.saved && jar) {
+          jar.updateCode(String(c.code));
+          dirty = cur && jar.toString() !== cur.code;
+          paintState(); lines();
+        }
+        return { ok: true };
+      },
       ask: () => cur ? { sub: `${(cur.spec && cur.spec.title) || "Custom indicator"} · Python`,
         context: `My custom indicator "${cur.spec && cur.spec.title}":\n\`\`\`python\n${(jar ? jar.toString() : cur.code).slice(0, 4000)}\n\`\`\``,
         question: "Explain what this computes, line by line, and how to read it on the chart." } : null,
@@ -206,5 +222,10 @@
         hint: "The colours of VS Code's default themes" },
       { kind: "note", label: "Saving runs the code in the server's sandbox on the chart's bars; only a pass becomes a new version." },
     ],
+    agent: { writes: {
+      study: "the custom indicator id (cx_…) to open",
+      code: "full Python source for compute(bars, params) — shown in the editor",
+      save: "true: validate in the sandbox and save as a new version (the result comes back to you)",
+    } },
   });
 })();

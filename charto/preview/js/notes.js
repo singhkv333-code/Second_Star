@@ -218,6 +218,15 @@
       /** Another widget files a line into a note: { symbol | general, html }.
        *  It lands at the end of that symbol's note (or the general one),
        *  whether or not that note is the one on screen. */
+      /** The chat writes plain text: each line becomes a paragraph. */
+      write(c) {
+        const text = String(c.text || "").trim();
+        if (!text) return { ok: false, error: "notes need `text`" };
+        const esc = (x) => x.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+        const html = text.split(/\n{1,}/).map((l) => `<p>${esc(l)}</p>`).join("");
+        this.receive({ html, ...(c.general ? { general: true } : { symbol: c.symbol || ctx.symbol() }) });
+        return { ok: true };
+      },
       receive(p) {
         if (!p || !p.html) return;
         if (saveT) save();
@@ -244,6 +253,9 @@
     type: "notes", title: "Notes", icon: "note", shortcut: "notes",
     key: "Alt N", desc: "Write beside the chart, stamped with its price",
     zone: "right", minW: 260, hue: "gold", group: "Tools", mount, linkable: true,
+    agent: { writes: { text: "plain text, appended to the note; one paragraph per line",
+                       symbol: "the instrument's note to append to (default: the widget's symbol)",
+                       general: "true: the general note instead" } },
     settings: [
       { section: "Writing" },
       { key: "textSize", label: "Text size", def: "m", options: [{ v: "s", label: "Small" }, { v: "m", label: "Medium" }, { v: "l", label: "Large" }] },

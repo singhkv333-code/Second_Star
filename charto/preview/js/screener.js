@@ -171,6 +171,10 @@
       filters: cfg().filters.map(([feature, op, value]) => ({ feature, op, value })),
       sort: cfg().sort, limit: cfg().rows || 50,
       ...(cfg().order ? { order: cfg().order } : {}),
+      // a screen the chat wrote can be narrowed to an industry or a recent
+      // pattern — the engine's own arguments, passed through untouched
+      ...(cfg().industry ? { industry: cfg().industry } : {}),
+      ...(cfg().pattern ? { pattern: cfg().pattern, pattern_within: cfg().pattern_within || 5 } : {}),
     });
 
     /* Every stock's values, for the editor's distribution and its live
@@ -212,7 +216,7 @@
 
     function title() {
       const p = presetOf(cfg().preset);
-      return p ? p.label : "Custom screen";
+      return p ? p.label : (cfg().name || "Custom screen");
     }
 
     function paintHead() {
@@ -224,7 +228,11 @@
         `<button type="button" data-s="drop" data-f="${esc(g.f)}" aria-label="Remove this filter">${ic("x")}</button></span>`);
       const served = state.res && state.res.sorted_by && state.res.sorted_by.feature === cfg().sort ? state.res.sorted_by.order : null;
       const ord = cfg().order || served || "desc";
-      $(".scr-chips").innerHTML = chips.join("") +
+      const scope = [cfg().industry && ["industry", cfg().industry], cfg().pattern && ["pattern", cfg().pattern]]
+        .filter(Boolean).map(([k, v]) =>
+          `<span class="scr-chip" role="listitem"><span class="scr-edit"><b>${k === "industry" ? "Industry" : "Pattern"}</b> ${esc(v)}</span>` +
+          `<button type="button" data-s="unscope" data-k="${k}" aria-label="Remove">${ic("x")}</button></span>`);
+      $(".scr-chips").innerHTML = scope.join("") + chips.join("") +
         `<button type="button" class="scr-chip add" data-s="add">${ic("plus")}Filter</button>` +
         `<button type="button" class="scr-chip sort" data-s="sort" title="Ranked by ${esc(F[cfg().sort] || cfg().sort)}, ${ord === "asc" ? "lowest" : "highest"} first">` +
         `${ic(ord === "asc" ? "arrowUp" : "arrowDown")}${esc(F[cfg().sort] || cfg().sort)}</button>`;
@@ -536,6 +544,7 @@
         if (a === "edit") return filterSheet(b, b.dataset.f);
         if (a === "sort") return sortMenu(b);
         if (a === "drop") return setScreen({ preset: null, filters: cfg().filters.filter((x) => x[0] !== b.dataset.f) });
+        if (a === "unscope") return setScreen({ [b.dataset.k]: null });
         if (a === "ask") return ctx.ask(askText());
         if (a === "watch" && row) {
           if (typeof Panels !== "undefined" && Panels.watch) Panels.watch(row.dataset.sym);
@@ -593,6 +602,16 @@
       config(c, patch) { if ("rows" in patch) run(); else paint(); },
 
       ask: askText,
+      /** The chat writes a whole screen (verified and already run once by
+       *  the server's workspace tool, so it is known to be legal). */
+      write(c) {
+        const filters = (c.filters || []).map((f) => Array.isArray(f) ? f : [f.feature, f.op, Number(f.value)]);
+        setScreen({ preset: null, name: c.name ? String(c.name).slice(0, 40) : null, filters,
+                    sort: c.sort || "ret_1d", order: c.order || null,
+                    industry: c.industry || null, pattern: c.pattern || null,
+                    pattern_within: c.pattern_within || null });
+        return { ok: true };
+      },
     };
   }
 
@@ -615,5 +634,12 @@
         options: [{ v: "chart", label: "On the chart" }, { v: "pane", label: "In a new pane" }] },
       { kind: "note", label: "Screens run on end-of-day values, so there is nothing to refresh during the day." },
     ],
+    agent: { writes: {
+      name: "short name for the screen",
+      filters: "[{feature, op: 'gt'|'lt', value}] — replaces the screen; a band is two filters on one feature",
+      industry: "optional: restrict to an industry, in words",
+      pattern: "optional: a daily pattern seen in the last pattern_within sessions",
+      sort: "feature to rank by", order: "'desc' | 'asc'",
+    } },
   });
 })();

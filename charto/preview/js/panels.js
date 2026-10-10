@@ -921,6 +921,7 @@ const Panels = (() => {
       // a setting changed (or the link group's symbol): the panel redraws
       config(cfg, patch) { if (extra.onConfig) extra.onConfig(cfg, patch); else if (on(id)) extra.render(el(extra.panel), cfg); },
       ask: extra.ask,
+      write: extra.write,
       actions: extra.actions ? extra.actions(ctx) : [],
     }),
     ...extra,
@@ -974,6 +975,12 @@ const Panels = (() => {
     ],
     key: "Alt W", desc: "Your lists, priced live",
     render: renderWatch,
+    agent: { writes: { add: "symbols to add to the active list", remove: "symbols to take off it" } },
+    write: (c) => {
+      for (const s of c.add || []) addSymbol(s);
+      for (const s of c.remove || []) dropSymbol(String(s).toUpperCase());
+      return { ok: true };
+    },
     onShow: () => polling(true),
     onHide: () => { polling(false); closePopup(); },
     onConfig: (cfg, patch) => { if ("refresh" in patch && on("watch")) polling(true); repaint(true); },

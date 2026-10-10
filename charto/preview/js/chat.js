@@ -1129,6 +1129,13 @@
           if (turn.__wait) turn.__wait.thought(ev.part, ev.delta);
         } else if (ev.type === "progress") {
           if (turn.__wait) turn.__wait.progress(ev.label, ev.detail, ev.data);
+        } else if (ev.type === "view_op") {
+          // the workspace tool's ops land as it runs, so the desk builds
+          // while the reply is still being written (js/agentws.js)
+          if (ev.op && ev.op.kind === "workspace" && typeof AgentWS !== "undefined") {
+            turn.__wsKey = turn.__wsKey || `ws${Date.now()}`;
+            try { AgentWS.apply(ev.op, turn.__wsKey); } catch (e) { console.warn("[charto] workspace op", e); }
+          }
         } else if (ev.type === "tool") {
           tools.push(ev.name);
           // a landed tool is the only progress signal a multi-round turn has —
@@ -1493,6 +1500,14 @@
       .filter((b) => b && !TOKENS_RE.test(String(b).trim()))
       .join("  ·  ");
     meta.append(copy, label);
+    // A turn that rearranged the desk can put it back, in one click.
+    if (turn.__wsKey && typeof AgentWS !== "undefined" && AgentWS.canUndo(turn.__wsKey)) {
+      const u = document.createElement("button");
+      u.className = "acts-toggle";
+      u.textContent = "Undo workspace changes";
+      u.addEventListener("click", () => { if (AgentWS.revert(turn.__wsKey)) u.remove(); });
+      meta.append(u);
+    }
     // The chart-actions disclosure rides in the same row, in the same type —
     // it is provenance, the same as the latency and the token count.
     const acts2 = acts || [];
@@ -2062,6 +2077,13 @@
       let context = window.__charto
         ? window.__charto.getChartContext(chosenCharts().map((c) => c.pane)) : null;
       if (journal) context = Object.assign({}, context || {}, { journal });
+      // what is on the desk, for the workspace tool: a manifest of widgets,
+      // their contents for `read`, the catalog of kinds, and how the last
+      // turn's ops went
+      if (typeof AgentWS !== "undefined") {
+        const ws = AgentWS.envelope();
+        if (ws) context = Object.assign({}, context || {}, ws);
+      }
       // Stamp the turn with what was on screen when it was asked. Only the
       // mirrored archive uses it, so a later session can find "that ITC
       // conversation" without reading every word of every one.
@@ -2156,6 +2178,13 @@
         let alertsStale = false;
         for (const op of d.view_ops) {
           if (op.kind === "alerts_changed") { alertsStale = true; continue; }
+          // streamed already (applied once — AgentWS skips a seq it has seen);
+          // this is the path for a reply that arrived without the stream
+          if (op.kind === "workspace" && typeof AgentWS !== "undefined") {
+            turn.__wsKey = turn.__wsKey || `ws${Date.now()}`;
+            try { AgentWS.apply(op, turn.__wsKey); } catch (e) { console.warn("[charto] workspace op", e); }
+            continue;
+          }
           // Ink computed on a timeframe the chart is not showing: move the
           // chart there first, so the drawing below lands where it was made.
           if (op.kind === "set_interval" && window.__charto?.switchInterval) {

@@ -483,6 +483,7 @@
   Dock.register({
     type: "sheet", title: "Sheet", icon: "sheet", hue: "green", group: "Tools",
     desc: "A spreadsheet with live market functions and Excel files",
+    agent: { writes: { table: "{title, columns: [..], rows: [[..], ..]} — becomes a new sheet; cells may be formulas such as =PRICE(\"SBIN\")" } },
     // A vertical tool beside the chart, never a strip under it: a strip
     // squeezed the chart's height and showed two rows of the grid.
     zone: "right", zoneOnly: true, minW: 340, mount,

@@ -349,6 +349,7 @@
   Dock.register({
     type: "docs", title: "Documents", icon: "doc", hue: "rose", group: "Research",
     desc: "Read PDFs, Word files and images beside the chart", zone: "right", minW: 320, mount,
+    agent: { writes: { url: "a PDF / document URL to open", name: "its display name" } },
     settings: [
       { section: "Reading" },
       { key: "pdfZoom", label: "PDF opens at", def: "fit", options: [{ v: "fit", label: "Fit width" }, { v: "page", label: "Whole page" }, { v: 1, label: "100%" }] },
