@@ -743,6 +743,10 @@
     // the same row grammar; the last row starts a new one in the chat, which
     // is where they are built and edited.
     const mine = m.CATALOG.filter((c) => c.custom);
+    // Adding one more than the plan carries wears the plan that would carry
+    // it; the click still goes through to the prompt, never to a dead row.
+    const lockNext = typeof Paywall !== "undefined"
+      ? Paywall.lockFor("chart.indicators", m.active.size + 1) : "";
     menu.innerHTML = '<div class="head">Overlays</div>' +
       m.CATALOG.filter((c) => c.kind === "overlay" && !c.custom).map(itemHTML).join("") +
       '<div class="sep"></div><div class="head">Panes</div>' +
@@ -759,8 +763,9 @@
       }).join("");
     function itemHTML(c) {
       const on = m.isActive(c.id);
+      const lock = !on && lockNext ? `<span class="pw-lock">${Icons.svg("lock", "xs")}${lockNext}</span>` : "";
       return `<div class="item ${on ? "on" : ""}" data-ind="${c.id}">` +
-        `<span>${c.label}</span>${on ? Icons.svg("check", "xs") : ""}</div>`;
+        `<span>${c.label}</span>${on ? Icons.svg("check", "xs") : lock}</div>`;
     }
   }
   /* The indicator legend is ON the chart now (js/indlegend.js) — one row per
@@ -963,6 +968,7 @@
     if (!m.isActive(id) && typeof Plan !== "undefined"
         && !Plan.allows("chart.indicators", m.active.size + 1)) {
       status(Plan.refusal("chart.indicators"));
+      if (typeof Paywall !== "undefined") Paywall.prompt("chart.indicators", m.active.size + 1);
       return;
     }
     Promise.resolve(m.toggle(id, state.bars))
@@ -2390,6 +2396,7 @@
       if (id && !ind.isActive(id) && typeof Plan !== "undefined"
           && !Plan.allows("chart.indicators", ind.active.size + 1)) {
         status(Plan.refusal("chart.indicators"));
+        if (typeof Paywall !== "undefined") Paywall.prompt("chart.indicators", ind.active.size + 1);
         return;
       }
       if (id && !ind.isActive(id)) {
@@ -4428,14 +4435,41 @@
     if (!cell) return;
     layoutMenu.classList.remove("open");
     clearCustom();
+    const n = Number(cell.dataset.r) * Number(cell.dataset.c);
+    if (typeof Plan !== "undefined" && !Plan.allows("chart.panes", n)) {
+      status(Plan.refusal("chart.panes"));
+      if (typeof Paywall !== "undefined") Paywall.prompt("chart.panes", n);
+      return;
+    }
     Panes.applyGrid(Number(cell.dataset.r), Number(cell.dataset.c));
   });
 
-  // Another tab took this one's parallel-chart slot. Said, never silent; the
-  // proper surface for it (a banner with "use this tab") is a design item.
+  // Another tab took this one's parallel-chart slot. Said, never silent:
+  // js/paywall.js draws the banner with "Use this tab"; the status line keeps
+  // the sentence for anyone who dismisses it.
   document.addEventListener("charto:evicted", (e) => {
     status((e.detail && e.detail.error) || "This chart was paused by your plan's tab limit.");
   });
+
+  /* Lock markers: a layout with more charts than the plan carries wears the
+   * plan that carries it. Repainted when the plan (or its catalog) arrives,
+   * because both load after the menu is built. */
+  function paintLayoutLocks() {
+    if (typeof Paywall === "undefined") return;
+    for (const it of layoutMenu.querySelectorAll("[data-layout]")) {
+      const L = Panes.LAYOUTS[it.dataset.layout];
+      const lock = L ? Paywall.lockFor("chart.panes", L.panes) : "";
+      it.classList.toggle("pw-locked", !!lock || (L && typeof Plan !== "undefined" && !Plan.allows("chart.panes", L.panes)));
+      it.title = lock ? `${L.label} — ${lock}` : (L ? L.label : it.title);
+    }
+    for (const cell of layoutMenu.querySelectorAll(".lay-cell")) {
+      const n = Number(cell.dataset.r) * Number(cell.dataset.c);
+      cell.classList.toggle("pw-locked", !!Paywall.lockFor("chart.panes", n)
+        || (typeof Plan !== "undefined" && !Plan.allows("chart.panes", n)));
+    }
+  }
+  document.addEventListener("charto:plan", () => { paintLayoutLocks(); renderIndMenu(); });
+  document.addEventListener("charto:plan-catalog", () => { paintLayoutLocks(); renderIndMenu(); });
 
   function paintLayoutBtn() {
     // The trigger wears the layout you are in, so the header says which one
@@ -4459,6 +4493,7 @@
     const L = Panes.LAYOUTS[it.dataset.layout];
     if (L && typeof Plan !== "undefined" && !Plan.allows("chart.panes", L.panes)) {
       status(Plan.refusal("chart.panes"));
+      if (typeof Paywall !== "undefined") Paywall.prompt("chart.panes", L.panes);
       return;
     }
     Panes.apply(it.dataset.layout);   // paint + persist ride on onChange below
@@ -4684,12 +4719,10 @@
         // dev-only link would hide the connect flow from everybody in prod.
         + `<div class="item" data-acct="brokers"><span class="lead">`
         + Icons.svg("link", "xs") + `Brokers</span></div>`
-        // Upgrade — the one row that opens a different KIND of surface (the
-        // pricing page, js/pricing.js), so it carries the arrow its own CTA
-        // does and sits just above the ordinary settings rows.
-        + `<div class="item acct-upgrade" data-acct="upgrade"><span class="lead">`
-        + Icons.svg("sparkles", "xs") + `Upgrade</span>`
-        + Icons.svg("arrowUpRight", "xs") + `</div>`
+        // Plan & billing — the plan, its usage and the subscription
+        // (js/paywall.js), one row above the ordinary settings.
+        + `<div class="item" data-acct="billing"><span class="lead">`
+        + Icons.svg("sparkles", "xs") + `Plan &amp; billing</span></div>`
         + `<div class="item" data-acct="settings"><span class="lead">`
         + Icons.svg("settings", "xs") + `Settings</span></div>`
         + `<div class="item" data-acct="help"><span class="lead">`
@@ -4704,10 +4737,9 @@
         + `<span class="em">Working in this browser</span></span></div>`
         + `<div class="item" data-acct="login"><span class="lead">Sign in</span></div>`
         + `<div class="item" data-acct="signup"><span class="lead">Create an account</span></div>`
+        + `<div class="item" data-acct="billing"><span class="lead">`
+        + Icons.svg("sparkles", "xs") + `See plans</span></div>`
         + `<div class="sep"></div>`
-        + `<div class="item acct-upgrade" data-acct="upgrade"><span class="lead">`
-        + Icons.svg("sparkles", "xs") + `See plans</span>`
-        + Icons.svg("arrowUpRight", "xs") + `</div>`
         + `<div class="item" data-acct="settings"><span class="lead">`
         + Icons.svg("settings", "xs") + `Settings</span></div>`
         + `<div class="item" data-acct="help"><span class="lead">`
@@ -4775,7 +4807,7 @@
     if (!it) return;
     closeMenus(null);
     if (it.dataset.acct === "theme") { Theme.toggle(); paintAccount(Auth.user); return; }
-    if (it.dataset.acct === "upgrade") { if (window.Pricing) window.Pricing.open(); return; }
+    if (it.dataset.acct === "billing") { if (typeof Paywall !== "undefined") Paywall.openBilling(); return; }
     if (it.dataset.acct === "settings") { el("settingsBtn").click(); return; }
     if (it.dataset.acct === "help") return Shortcuts.open();
     if (it.dataset.acct === "shortcuts") return Shortcuts.open();

@@ -1,7 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import "./billing.css";
 import { Toaster } from "@/components/ui/sonner";
 import { AppBootstrap } from "@/components/AppBootstrap";
+import { BillingProvider } from "@/components/billing/BillingProvider";
 
 export const metadata: Metadata = {
   title: "Pivot — Agent System",
@@ -48,7 +50,11 @@ export default function RootLayout({
         />
       </head>
       <body className="min-h-screen bg-background text-foreground antialiased">
-        <AppBootstrap>{children}</AppBootstrap>
+        <AppBootstrap>
+          {/* The plan, mirrored once for the app, and the one contextual
+              paywall any 402 can raise (components/billing). */}
+          <BillingProvider>{children}</BillingProvider>
+        </AppBootstrap>
         <Toaster position="top-right" closeButton />
       </body>
     </html>

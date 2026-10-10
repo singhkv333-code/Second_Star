@@ -169,6 +169,12 @@ def bind(con, lock) -> None:
     _con, _lock = con, lock
     with _lock:
         _con.executescript(_SCHEMA)
+        try:
+            # Added after the table shipped: a plan change the provider has
+            # scheduled for the cycle end, as {"plan", "cycle", "at"}.
+            _con.execute("ALTER TABLE subscriptions ADD COLUMN pending_change TEXT")
+        except Exception:                               # noqa: BLE001
+            pass                                        # already there
         _con.commit()
 
 
@@ -487,9 +493,11 @@ def summary(uid: int | None, counts: dict | None = None, client: str = "") -> di
             sub = {"plan": row[0], "cycle": row[1], "status": row[2],
                    "period_start": row[3], "period_end": row[4],
                    "cancel_at_period_end": bool(row[5]),
-                   "grace_until": row[6], "provider": row[7]}
+                   "grace_until": row[6], "provider": row[7],
+                   "pending_change": pending_change(uid)}
     return {"plan": plan, "plan_name": CATALOG["plans"][plan]["name"],
             "subscription": sub, "features": feats,
+            "trial_days": trial_days(),
             "paywall_enabled": paywall_enabled()}
 
 
@@ -507,10 +515,12 @@ def public_catalog() -> dict:
         plans.append({"id": p, "name": meta["name"], "rank": meta["rank"],
                       "prices": meta["prices"], "features": feats})
     return {"currency": CATALOG["currency"], "version": CATALOG["version"],
-            "gst_inclusive": True, "plans": plans,
+            "gst_inclusive": True, "plans": plans, "trial_days": trial_days(),
             "features": {k: {"kind": f["kind"], "label": f["label"],
                              **({"unit": f["unit"]} if f.get("unit") else {}),
-                             **({"window": f["window"]} if f.get("window") else {})}
+                             **({"window": f["window"]} if f.get("window") else {}),
+                             # unbuilt: a pricing page must not sell it as live
+                             **({"pending": True} if f.get("pending") else {})}
                          for k, f in CATALOG["features"].items()}}
 
 
@@ -545,6 +555,34 @@ def set_subscription(uid: int, *, plan: str, status: str, cycle: str = "monthly"
                  period_start, period_end,
                  None if cancel_at_period_end is None else int(cancel_at_period_end),
                  grace_until, now, uid))
+        _con.commit()
+
+
+def trial_days() -> int | None:
+    """Days of free trial a new paid subscription starts with, or None when no
+    trial is offered. Nothing grants a trial yet; the clients read this to
+    decide whether to show trial wording at all."""
+    days = (CATALOG.get("trial") or {}).get("days")
+    return int(days) if isinstance(days, int) and days > 0 else None
+
+
+def pending_change(uid: int) -> dict | None:
+    with _lock:
+        row = _con.execute("SELECT pending_change FROM subscriptions WHERE "
+                           "user_id=?", (uid,)).fetchone()
+    if not row or not row[0]:
+        return None
+    try:
+        return json.loads(row[0])
+    except ValueError:
+        return None
+
+
+def set_pending_change(uid: int, change: dict | None) -> None:
+    with _lock:
+        _con.execute("UPDATE subscriptions SET pending_change=?, updated=? "
+                     "WHERE user_id=?",
+                     (json.dumps(change) if change else None, _now(), uid))
         _con.commit()
 
 

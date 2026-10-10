@@ -371,14 +371,8 @@ const Icons = (() => {
      * than from the stroke, and could not follow the icon sizes. */
     info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
 
-    // ── plans / upgrade ───────────────────────────────────
-    // The upgrade row in the account menu and the plan marks on the pricing
-    // cards. One glyph per tier so a card can be read by its mark alone:
-    // sparkles for the free starting point, zap for Pro, crown for Pro+.
+    // ── marks ─────────────────────────────────────────────
     sparkles: '<path d="M9.94 5.5 11 2l1.06 3.5a3 3 0 0 0 2 2L17.5 8.56 14 9.62a3 3 0 0 0-2 2L11 15l-1.06-3.38a3 3 0 0 0-2-2L4.5 8.56 8 7.5a3 3 0 0 0 1.94-2Z"/><path d="M18 14.5 18.6 16.4a1.5 1.5 0 0 0 1 1L21.5 18l-1.9.6a1.5 1.5 0 0 0-1 1L18 21.5l-.6-1.9a1.5 1.5 0 0 0-1-1L14.5 18l1.9-.6a1.5 1.5 0 0 0 1-1Z"/>',
-    zap: '<path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/>',
-    crown: '<path d="M3 7l4.5 4L12 4l4.5 7L21 7l-1.8 11H4.8L3 7Z"/><path d="M4.8 18h14.4"/>',
-    infinity: '<path d="M7 9a3 3 0 1 0 0 6c1.5 0 2.5-1 3.5-2.5l3-4C17.5 10 18.5 9 20 9a3 3 0 1 1 0 6c-1.5 0-2.5-1-3.5-2.5l-3-4C9.5 10 8.5 9 7 9Z"/>',
     arrowUpRight: '<path d="M7 17 17 7"/><path d="M7 7h10v10"/>',
 
     // ── account ────────────────────────────────────────────

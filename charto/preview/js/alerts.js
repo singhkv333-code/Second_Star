@@ -485,12 +485,21 @@ const Alerts = (() => {
     const l = ev.log || {};
     const line = `${l.symbol} ${l.verb} ${l.level}`;
     toast(l.late ? `${line} (found on reconnect)` : line);
-    if (prefs().sound && !l.late) chime();
-    if (prefs().notify !== false) notify(line, l);
+    const acct = accountPrefs();
+    if ((prefs().sound || acct.alertSound === true) && !l.late) chime();
+    if (prefs().notify !== false && acct.alertDesktop !== false) notify(line, l);
   }
 
   /** The Alerts widget's settings (sound, desktop notifications). */
   const prefs = () => (typeof Dock !== "undefined" && Dock.cfgOf ? Dock.cfgOf("alerts") : {}) || {};
+
+  /** The account's switches from Settings → Notifications in the pivot-next
+   *  shell, which serves this chart on the same origin. Desktop off silences
+   *  banners everywhere; sound on chimes even without the widget's own toggle. */
+  function accountPrefs() {
+    try { return JSON.parse(localStorage.getItem("pivot:notif-prefs") || "{}") || {}; }
+    catch { return {}; }
+  }
 
   /** Two soft notes, made here — no sound file to fetch or license. */
   let audio = null;

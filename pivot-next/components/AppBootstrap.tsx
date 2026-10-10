@@ -32,8 +32,9 @@ import { loginForHere } from "@/lib/returnTo";
 const TOKEN_KEY = "pivot_jwt";
 
 /** Routes that render without the auth gate: the /design showcase, public
- *  marketing pages, and the auth routes themselves. */
-const UNGATED_PATHS = ["/design", "/waitlist", "/login", "/signup", "/affiliate"];
+ *  marketing pages, the auth routes themselves, the plans (a visitor reads
+ *  them before signing up) and the paywall design gallery. */
+const UNGATED_PATHS = ["/design", "/waitlist", "/login", "/signup", "/affiliate", "/pricing", "/paywall-gallery"];
 
 type Phase = "loading" | "needs-auth" | "ready";
 

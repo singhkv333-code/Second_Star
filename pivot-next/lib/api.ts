@@ -1715,11 +1715,41 @@ export type UserProfile = {
   id: string;
   email: string;
   full_name: string | null;
+  /** Lowercase, without the "@". */
+  username?: string | null;
+  /** YYYY-MM-DD */
+  dob?: string | null;
+  /** A data: URL of the downsized photo. */
+  avatar?: string | null;
 };
+
+export type ProfilePatch = Partial<Pick<UserProfile, "full_name" | "username" | "dob" | "avatar">>;
 
 /** `GET /auth/me` — returns user profile for dashboard greeting. */
 export function getMe(): Promise<ApiResult<UserProfile>> {
   return cached("me", 5 * 60_000, () => requestLegacy<UserProfile>("/auth/me"));
+}
+
+/** `PATCH /auth/me` — only the fields sent change; `null` clears one. */
+export async function updateProfile(patch: ProfilePatch): Promise<ApiResult<UserProfile>> {
+  const res = await requestLegacy<UserProfile>("/auth/me", { method: "PATCH", body: patch });
+  if (!isError(res)) _ttlCache.set("me", { expiresAt: Date.now() + 5 * 60_000, value: Promise.resolve(res) });
+  return res;
+}
+
+/** `GET /auth/settings` — the account's preferences JSON ({} when unset). */
+export function getUserSettings(): Promise<ApiResult<{ settings: Record<string, unknown> }>> {
+  return requestLegacy<{ settings: Record<string, unknown> }>("/auth/settings");
+}
+
+/** `PATCH /auth/settings` — deep-merged into the stored JSON. */
+export function patchUserSettings(patch: Record<string, unknown>): Promise<ApiResult<{ settings: Record<string, unknown> }>> {
+  return requestLegacy<{ settings: Record<string, unknown> }>("/auth/settings", { method: "PATCH", body: patch });
+}
+
+/** `POST /auth/forgot-password` — emails a reset link. Always answers ok. */
+export function requestPasswordReset(email: string): Promise<ApiResult<{ ok: boolean }>> {
+  return requestLegacy<{ ok: boolean }>("/auth/forgot-password", { method: "POST", body: { email } });
 }
 
 // ---------------------------------------------------------------------------

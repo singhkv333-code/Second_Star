@@ -77,7 +77,12 @@ const Layouts = (() => {
    */
   const THUMB_W = 480;
 
-  function thumbnail() {
+  function thumbnail() { return capture(THUMB_W, 0.6); }
+
+  // The link-preview card draws the chart ~700px wide; a 480px JPEG at 0.6
+  // upscaled to that read as a blurred photo of a chart. The card gets its
+  // own capture at full resolution, made once at publish time.
+  function capture(width, quality) {
     const c = window.__charto;
     if (!c) return "";
     try {
@@ -104,9 +109,9 @@ const Layouts = (() => {
       const x1 = Math.max(...shots.map(([, r]) => r.right));
       const y1 = Math.max(...shots.map(([, r]) => r.bottom));
       const w = Math.max(1, x1 - x0), h = Math.max(1, y1 - y0);
-      const k = THUMB_W / w;
+      const k = width / w;
       const out = document.createElement("canvas");
-      out.width = THUMB_W;
+      out.width = width;
       out.height = Math.max(1, Math.round(h * k));
       const ctx = out.getContext("2d");
       // the pane background, so a gap between panes is not transparent-black
@@ -117,7 +122,7 @@ const Layouts = (() => {
         ctx.drawImage(cv, (r.left - x0) * k, (r.top - y0) * k,
                       r.width * k, r.height * k);
       }
-      return out.toDataURL("image/jpeg", 0.6);
+      return out.toDataURL("image/jpeg", quality);
     } catch (e) {
       // A layout still saves without its picture — the capture is the
       // decoration, never the record.
@@ -742,7 +747,7 @@ const Layouts = (() => {
   return { save, open, openPicker, createNew, downloadData, touch,
            // for js/setups.js: one definition of what a desk IS, what its
            // picture looks like, and how it goes back on the chart
-           snapshot, thumbnail, restore, symbolsOf, call, signedIn,
+           snapshot, thumbnail, capture, restore, symbolsOf, call, signedIn,
            /* This file owns the app's one toast element and its one timer, so
             * it owns the app's one toast. js/alerts.js already re-declared an
             * identical local copy against the same #layoutToast; exporting it

@@ -99,7 +99,9 @@ const nextConfig: NextConfig = {
    *   /api/pivot/*    Pivot's company data and logos (unprefixed on the API)
    *   /research/*     the research chat, mounted on Pivot's API
    *   /chart-app/*    the chart, served by app/chart-app (this app)
-   *   anything else   Charto's data server, AFTER this app's own pages */
+   *   anything else   Charto's data server, AFTER this app's own pages —
+   *                   including /billing/*, where plans, subscriptions and
+   *                   usage live (charto_users.db) */
   async rewrites() {
     return {
       beforeFiles: [],

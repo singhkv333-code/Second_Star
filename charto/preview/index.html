@@ -2380,14 +2380,6 @@ header > .btn, header > .badge { flex: none; }
 :root[data-nav="kbd"] .acct-btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 
 .acct-menu { min-width: 244px; }
-/* Upgrade is the one row that leads somewhere else entirely — the pricing
-   page. Its sparkle takes the accent so the row reads as the way UP, and its
-   trailing arrow stays faint until the row is hovered, the way an external
-   link advertises itself without shouting. */
-.acct-menu .acct-upgrade .lead svg { color: var(--primary); }
-.acct-menu .acct-upgrade .lead { font-weight: var(--weight-medium); }
-.acct-menu .acct-upgrade > svg.icon.xs { color: var(--faint); transition: color var(--dur) var(--ease-quartr); }
-.acct-menu .acct-upgrade:hover > svg.icon.xs { color: var(--foreground); }
 /* The identity block is a HEAD, not a row: it is not clickable, so it must
    not wear a row's hover or a row's padding. */
 .acct-id {
@@ -11224,245 +11216,102 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
 .ly-card { border-radius: 6px; }
 .ly-card:hover { border-color: var(--border); background: var(--accent); }
 
-/* ══════════════════════════════════════════════════════════════════════════
-   PRICING — the upgrade surface (js/pricing.js)
+/* ═══ Paywall (js/paywall.js) ══════════════════════════════════════════════
+   The upgrade prompt, the evicted-tab banner, the credits line under the
+   composer, Plan & billing, and the lock markers on the layout and
+   indicator menus. Same ink-on-paper language as pivot-next's billing
+   system (pivot-next/app/billing.css), on this app's own tokens. */
+.pw-scrim {
+  position: fixed; inset: 0; z-index: 9000; display: grid; place-items: center; padding: 16px;
+  background: var(--scrim, rgba(0, 0, 0, .42)); animation: pw-in .14s ease-out;
+}
+@keyframes pw-in { from { opacity: 0; } }
+.pw-modal {
+  position: relative; width: min(460px, 100%); max-height: calc(100dvh - 32px); overflow-y: auto;
+  display: flex; flex-direction: column; gap: 14px; padding: 26px 24px 20px;
+  background: var(--popover); color: var(--foreground); border-radius: 14px;
+  box-shadow: var(--menu-shadow, 0 24px 60px rgba(0, 0, 0, .3)), 0 0 0 1px var(--border);
+}
+.pw-wide { width: min(520px, 100%); }
+.pw-x { position: absolute; top: 10px; right: 10px; width: 32px; height: 32px; display: grid; place-items: center;
+  border: 0; border-radius: 50%; background: transparent; color: var(--muted-foreground); cursor: pointer; }
+.pw-x:hover { background: var(--accent); color: var(--foreground); }
+.pw-kicker { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--faint, var(--muted-foreground)); }
+.pw-title { margin: 0; font-family: "Newsreader", Georgia, serif; font-weight: 400; font-size: 26px; line-height: 1.15; letter-spacing: -.01em; }
+.pw-msg { margin: 0; font-size: 14px; line-height: 1.55; color: var(--muted-foreground); }
+.pw-fine { font-size: 12px; color: var(--faint, var(--muted-foreground)); margin: 0; }
+.pw-meter { display: flex; flex-direction: column; gap: 6px; }
+.pw-meter-head { display: flex; justify-content: space-between; font-size: 13px; font-variant-numeric: tabular-nums; }
+.pw-meter-head span:last-child { color: var(--muted-foreground); }
+.pw-meter-head b { color: var(--foreground); }
+.pw-track { height: 6px; border-radius: 99px; background: var(--muted); overflow: hidden; }
+.pw-fill { height: 100%; border-radius: inherit; background: var(--foreground); }
+.pw-meter.low .pw-fill { background: var(--ann-res); }
+.pw-meter.out .pw-fill { background: var(--down); }
+.pw-opts { list-style: none; margin: 0; padding: 0; font-size: 13.5px; line-height: 1.5; color: var(--muted-foreground); }
+.pw-opts li { padding: 9px 0; border-top: 1px solid var(--border); }
+.pw-opts li:first-child { border-top: 0; }
+.pw-opts b { color: var(--foreground); font-weight: 600; }
+.pw-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.pw-actions .btn { height: 36px; }
+.pw-cta { flex: 1; justify-content: center; }
+.pw-ghost { background: transparent; border-color: transparent; color: var(--muted-foreground); }
+.pw-split { display: grid; grid-template-columns: 1fr 1fr; }
+.pw-split .btn { justify-content: center; }
+.pw-danger { background: var(--down); color: #fff; border-color: transparent; }
+.pw-plan { display: flex; align-items: center; gap: 10px; }
+.pw-badge { display: inline-flex; align-items: center; height: 22px; padding: 0 9px; border-radius: 99px; font-size: 11.5px; font-weight: 600;
+  background: var(--muted); color: var(--muted-foreground); }
+.pw-badge.good { background: var(--up-soft); color: var(--up); }
+.pw-badge.bad { background: var(--down-soft); color: var(--down); }
+.pw-badge.warn { background: color-mix(in srgb, var(--ann-res) 14%, transparent); color: var(--ann-res); }
+.pw-rows { display: flex; flex-direction: column; }
+.pw-kv { display: flex; justify-content: space-between; gap: 16px; padding: 9px 0; border-top: 1px solid var(--border); font-size: 13.5px; }
+.pw-kv:first-child { border-top: 0; }
+.pw-kv span { color: var(--muted-foreground); }
+.pw-kv b { font-weight: 500; text-align: right; font-variant-numeric: tabular-nums; }
+.pw-section { margin-top: 4px; font-size: 13px; font-weight: 600; }
+.pw-note { padding: 10px 12px; border-radius: 10px; font-size: 13px; line-height: 1.5; color: var(--muted-foreground); background: var(--muted); }
+.pw-note b { color: var(--foreground); }
+.pw-note.bad { background: var(--down-soft); }
+.pw-skel { height: 14px; border-radius: 6px; background: var(--muted); animation: pw-pulse 1.2s ease-in-out infinite; }
+.pw-skel + .pw-skel { width: 70%; }
+@keyframes pw-pulse { 50% { opacity: .5; } }
 
-   A full-screen overlay, not a settings dialog: three plans have to be
-   comparable side by side, and a marketing page needs room the 476px .dlg
-   never has. It still speaks only the tokens above — the CTA is the same ink
-   button, seams are the same hairline, radii are the same scale — so it reads
-   as a room in this product, not a bolt-on template.
-   ══════════════════════════════════════════════════════════════════════════ */
-.pr-wrap {
-  position: fixed; inset: 0; z-index: 210; display: none;
-  background: rgba(0, 0, 0, .60);
-  overflow: hidden;
+.pw-banner {
+  position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 60;
+  display: flex; align-items: center; gap: 12px; width: min(680px, calc(100% - 24px)); padding: 10px 12px 10px 14px;
+  border-radius: 12px; background: var(--popover); color: var(--foreground);
+  box-shadow: var(--menu-shadow, 0 12px 32px rgba(0, 0, 0, .25)), 0 0 0 1px var(--border);
 }
-.pr-wrap.open { display: flex; align-items: flex-start; justify-content: center; }
-.pr-sheet {
-  position: relative;
-  width: 100%; max-width: 1120px; height: 100%;
-  background: var(--background);
-  display: flex; flex-direction: column;
-  animation: pr-rise var(--dur-slow) var(--ease-quartr);
-}
-@keyframes pr-rise { from { opacity: 0; transform: translateY(8px); } }
-@media (prefers-reduced-motion: reduce) {
-  .pr-sheet { animation: none; }
-  .pr-price.swap { animation: none !important; }
-}
-.pr-close {
-  position: absolute; top: 14px; right: 14px; z-index: 2;
-  width: 34px; height: 34px;
-}
-.pr-scroll {
-  flex: 1; overflow-y: auto; overscroll-behavior: contain;
-  padding: 56px clamp(20px, 5vw, 56px) 72px;
-  scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent;
-}
-.pr-scroll::-webkit-scrollbar { width: 8px; }
-.pr-scroll::-webkit-scrollbar-track { background: transparent; }
-.pr-scroll::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: var(--radius-pill); }
+.pw-banner-icon { flex: none; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%;
+  background: color-mix(in srgb, var(--ann-res) 16%, transparent); color: var(--ann-res); }
+.pw-banner-body { flex: 1; min-width: 0; font-size: 13px; line-height: 1.45; color: var(--muted-foreground); }
+.pw-banner-body b { display: block; color: var(--foreground); font-weight: 600; }
+.pw-banner-acts { display: flex; gap: 6px; flex: none; }
+@media (max-width: 640px) { .pw-banner { flex-wrap: wrap; } .pw-banner-acts { width: 100%; } .pw-banner-acts .btn { flex: 1; justify-content: center; } }
 
-/* ── hero ─────────────────────────────────────────────────── */
-.pr-hero { text-align: center; max-width: 620px; margin: 0 auto 44px; }
-.pr-eyebrow {
-  display: inline-block; font-size: var(--text-2xs); font-weight: var(--weight-semi);
-  letter-spacing: .08em; text-transform: uppercase; color: var(--faint);
-  margin-bottom: 14px;
-}
-.pr-title {
-  margin: 0 0 12px; font-size: clamp(24px, 3.4vw, 34px);
-  line-height: 1.12; font-weight: var(--weight-bold); letter-spacing: -.01em;
-  color: var(--foreground);
-}
-.pr-sub {
-  margin: 0 auto; max-width: 480px; font-size: var(--text-xl);
-  line-height: 1.6; color: var(--muted-foreground);
-}
+.pw-credits { margin: 6px 4px 0; text-align: center; font-size: 11.5px; color: var(--faint, var(--muted-foreground)); font-variant-numeric: tabular-nums; }
+.pw-credits.low { color: var(--ann-res); }
+.pw-credits.out { color: var(--down); }
+.pw-link { padding: 0; border: 0; background: none; font: inherit; font-weight: 600; color: var(--foreground);
+  text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.pw-credits .pw-link { margin-left: 6px; }
 
-/* ── billing toggle ───────────────────────────────────────── */
-.pr-toggle {
-  display: inline-flex; gap: 2px; margin-top: 28px; padding: 3px;
-  background: var(--muted); border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
+.pw-lock { display: inline-flex; align-items: center; gap: 3px; margin-left: auto; padding: 1px 6px; border-radius: 99px;
+  background: var(--muted); color: var(--muted-foreground); font-size: 10.5px; font-weight: 600; }
+.pw-lock svg { width: 10px; height: 10px; }
+.pw-tag { display: inline-block; padding: 0 6px; border-radius: 99px; background: color-mix(in srgb, var(--ann-res) 15%, transparent);
+  color: var(--ann-res); font-size: 10.5px; font-weight: 600; }
+.lay-opt.pw-locked { position: relative; opacity: .45; }
+.lay-opt.pw-locked::after {
+  content: ""; position: absolute; right: 1px; bottom: 1px; width: 9px; height: 9px;
+  background: var(--foreground);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3'%3E%3Crect x='4' y='11' width='16' height='10' rx='2'/%3E%3Cpath d='M8 11V7a4 4 0 0 1 8 0v4'/%3E%3C/svg%3E") center / contain no-repeat;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3'%3E%3Crect x='4' y='11' width='16' height='10' rx='2'/%3E%3Cpath d='M8 11V7a4 4 0 0 1 8 0v4'/%3E%3C/svg%3E") center / contain no-repeat;
 }
-.pr-seg {
-  display: inline-flex; align-items: center; gap: 8px;
-  border: 0; cursor: pointer; background: transparent;
-  height: 32px; padding: 0 18px; border-radius: var(--radius-pill);
-  font-size: var(--text-md); font-weight: var(--weight-medium);
-  color: var(--muted-foreground); font-family: inherit;
-  transition: color var(--dur) var(--ease-quartr),
-              background var(--dur) var(--ease-quartr);
-}
-.pr-seg:hover { color: var(--foreground); }
-.pr-seg.active {
-  color: var(--foreground); background: var(--background);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, .18);
-}
-:root[data-theme="dark"] .pr-seg.active { background: var(--card); }
-:root[data-nav="kbd"] .pr-seg:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
-.pr-seg-badge {
-  font-size: var(--text-3xs); font-weight: var(--weight-semi);
-  padding: 2px 7px; border-radius: var(--radius-pill);
-  background: var(--primary-soft); color: var(--primary);
-  letter-spacing: .01em;
-}
-
-/* ── cards ────────────────────────────────────────────────── */
-.pr-cards {
-  display: grid; grid-template-columns: repeat(3, 1fr);
-  gap: 18px; align-items: stretch; max-width: 960px; margin: 0 auto;
-}
-.pr-card {
-  position: relative; display: flex; flex-direction: column;
-  padding: 26px 24px; border: 1px solid var(--border);
-  border-radius: var(--radius-lg); background: var(--card);
-  transition: border-color var(--dur) var(--ease-quartr),
-              box-shadow var(--dur-slow) var(--ease-quartr),
-              transform var(--dur-slow) var(--ease-quartr);
-}
-.pr-card:hover {
-  border-color: var(--faint);
-  box-shadow: var(--shadow); transform: translateY(-2px);
-}
-.pr-card.featured {
-  border-color: var(--foreground); box-shadow: var(--shadow);
-}
-.pr-card.featured:hover { border-color: var(--foreground); }
-.pr-flag {
-  position: absolute; top: -11px; left: 50%; transform: translateX(-50%);
-  font-size: var(--text-2xs); font-weight: var(--weight-semi);
-  letter-spacing: .02em; padding: 4px 12px; border-radius: var(--radius-pill);
-  background: var(--foreground); color: var(--background); white-space: nowrap;
-}
-.pr-card-head { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; }
-.pr-mark {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 30px; height: 30px; border-radius: var(--radius-sm);
-  background: var(--accent); color: var(--foreground); flex: none;
-}
-.pr-card.featured .pr-mark { background: var(--primary-soft); color: var(--primary); }
-.pr-name { font-size: var(--text-h2); font-weight: var(--weight-semi); color: var(--foreground); }
-.pr-save {
-  margin-left: auto; font-size: var(--text-3xs); font-weight: var(--weight-semi);
-  padding: 2px 8px; border-radius: var(--radius-pill);
-  background: var(--up-soft); color: var(--up);
-}
-.pr-tag {
-  margin: 0 0 20px; font-size: var(--text-md); line-height: 1.55;
-  color: var(--muted-foreground); min-height: 40px;
-}
-.pr-price { margin-bottom: 20px; min-height: 62px; }
-.pr-price.swap { animation: pr-fade var(--dur-slow) var(--ease-quartr); }
-@keyframes pr-fade { from { opacity: 0; transform: translateY(3px); } }
-.pr-amount { display: flex; align-items: baseline; gap: 2px; color: var(--foreground); }
-.pr-cur { font-size: var(--text-h2); font-weight: var(--weight-semi); align-self: flex-start; margin-top: 4px; }
-.pr-num {
-  font-size: 38px; line-height: 1; font-weight: var(--weight-bold);
-  letter-spacing: -.02em; font-variant-numeric: tabular-nums;
-}
-.pr-per { font-size: var(--text-md); font-weight: var(--weight-medium); color: var(--muted-foreground); margin-left: 4px; }
-.pr-period { margin-top: 7px; font-size: var(--text-sm); color: var(--faint); font-variant-numeric: tabular-nums; }
-.pr-cta {
-  width: 100%; justify-content: center; height: 38px;
-  font-size: var(--text-lg); font-weight: var(--weight-semi); margin-bottom: 22px;
-}
-.pr-cta.outline { border-color: var(--border); }
-
-.pr-highlights { list-style: none; margin: 0; padding: 18px 0 0; border-top: 1px solid var(--border-soft); display: flex; flex-direction: column; gap: 11px; }
-.pr-highlights li { display: flex; align-items: center; gap: 10px; font-size: var(--text-md); color: var(--foreground); }
-.hi-tick { display: inline-flex; color: var(--up); flex: none; }
-.hi-tick svg.icon { width: 15px; height: 15px; stroke-width: 2.4; }
-.hi-txt { flex: 1; min-width: 0; color: var(--muted-foreground); }
-.hi-val { font-weight: var(--weight-semi); color: var(--foreground); font-variant-numeric: tabular-nums; white-space: nowrap; }
-
-/* ── comparison ───────────────────────────────────────────── */
-.pr-compare { max-width: 960px; margin: 64px auto 0; }
-.pr-compare-title {
-  margin: 0 0 20px; text-align: center; font-size: var(--text-h2);
-  font-weight: var(--weight-semi); color: var(--foreground);
-}
-.pr-matrix { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-.pr-matrix th, .pr-matrix td { text-align: center; padding: 13px 14px; font-weight: 400; }
-.pr-matrix thead th {
-  position: sticky; top: -1px; z-index: 1; background: var(--background);
-  font-size: var(--text-md); font-weight: var(--weight-semi); color: var(--foreground);
-  border-bottom: 1px solid var(--border); padding-bottom: 14px;
-}
-.pr-matrix thead th.featured { color: var(--foreground); }
-.pr-matrix thead th.mx-feat { text-align: left; }
-.mx-feat { text-align: left !important; width: 42%; font-size: var(--text-md); color: var(--foreground); }
-.pr-matrix tbody th.mx-feat { font-weight: 400; color: var(--muted-foreground); }
-.pr-matrix tbody tr { border-bottom: 1px solid var(--border-soft); }
-.pr-matrix tbody tr:last-child { border-bottom: 0; }
-.pr-matrix tbody td.featured { background: var(--accent); }
-.mx-group th {
-  text-align: left !important; padding: 20px 14px 8px !important;
-  font-size: var(--text-2xs) !important; font-weight: var(--weight-semi) !important;
-  letter-spacing: .06em; text-transform: uppercase; color: var(--faint) !important;
-}
-.mx-yes { display: inline-flex; color: var(--up); }
-.mx-yes svg.icon { width: 17px; height: 17px; stroke-width: 2.4; }
-.mx-no { color: var(--faint); font-size: var(--text-md); }
-.mx-val { font-size: var(--text-md); font-weight: var(--weight-medium); color: var(--foreground); }
-
-/* the mobile stack is hidden on desktop */
-.pr-stack { display: none; }
-.pr-foot {
-  max-width: 620px; margin: 48px auto 0; text-align: center;
-  font-size: var(--text-sm); line-height: 1.65; color: var(--faint);
-}
-
-/* ── responsive ───────────────────────────────────────────── */
-/* laptop / small desktop: cards stay 3-up but tighten */
-@media (max-width: 1040px) {
-  .pr-cards { gap: 14px; }
-  .pr-card { padding: 24px 20px; }
-}
-/* tablet: cards wrap to a single centred column, table → stack */
-@media (max-width: 860px) {
-  .pr-scroll { padding: 52px clamp(18px, 5vw, 36px) 64px; }
-  .pr-cards { grid-template-columns: minmax(0, 420px); justify-content: center; }
-  .pr-card.featured { order: -1; }
-  .pr-tag { min-height: 0; }
-  .pr-matrix { display: none; }
-  .pr-stack { display: flex; flex-direction: column; gap: 20px; }
-  .pr-stack-plan {
-    border: 1px solid var(--border); border-radius: var(--radius-lg);
-    overflow: hidden; background: var(--card);
-  }
-  .pr-stack-plan.featured { border-color: var(--foreground); }
-  .pr-stack-name {
-    display: flex; align-items: center; gap: 8px; margin: 0;
-    padding: 15px 18px; font-size: var(--text-h3); font-weight: var(--weight-semi);
-    color: var(--foreground); border-bottom: 1px solid var(--border-soft);
-    background: var(--accent);
-  }
-  .pr-stack-name svg.icon { width: 17px; height: 17px; color: var(--muted-foreground); }
-  .pr-stack-group {
-    padding: 14px 18px 6px; font-size: var(--text-2xs); font-weight: var(--weight-semi);
-    letter-spacing: .06em; text-transform: uppercase; color: var(--faint);
-  }
-  .pr-stack-row {
-    display: flex; align-items: center; justify-content: space-between; gap: 16px;
-    padding: 9px 18px; font-size: var(--text-md);
-  }
-  .pr-stack-row + .pr-stack-row { border-top: 1px solid var(--border-soft); }
-  .pr-stack-label { color: var(--muted-foreground); }
-  .pr-stack-val { font-weight: var(--weight-medium); color: var(--foreground); font-variant-numeric: tabular-nums; }
-}
-/* phone */
-@media (max-width: 480px) {
-  .pr-scroll { padding: 48px 16px 56px; }
-  .pr-hero { margin-bottom: 34px; }
-  .pr-num { font-size: 34px; }
-  /* segments size to their own content so "Annual · Save 10%" keeps one line */
-  .pr-seg { justify-content: center; padding: 0 14px; white-space: nowrap; }
-  .pr-seg-badge { padding: 2px 6px; }
-  .pr-compare { margin-top: 48px; }
-}
+.lay-cell.pw-locked { background-image: repeating-linear-gradient(135deg, transparent 0 3px, var(--border) 3px 4px); }
+@media (prefers-reduced-motion: reduce) { .pw-scrim, .pw-skel { animation: none; } }
 </style>
 </head>
 <body>
@@ -11916,7 +11765,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/store.js?v=23"></script>
   <script src="./js/theme.js?v=15"></script>
   <script src="./js/universe.js?v=20"></script>
-  <script src="./js/icons.js?v=47"></script>
+  <script src="./js/icons.js?v=48"></script>
   <!-- after icons.js (every row is drawn with one) and before main.js, which
        builds the chart's three right-click menus out of it -->
   <script src="./js/ctxmenu.js?v=13"></script>
@@ -11928,7 +11777,8 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        shared set, and a classic script cannot reach a const declared by one
        that has not run yet -->
   <script src="./js/auth.js?v=7"></script>
-  <script src="./js/plan.js?v=5"></script>
+  <script src="./js/plan.js?v=6"></script>
+  <script src="./js/paywall.js?v=1"></script>
   <script src="./js/indicators.js?v=38"></script>
   <!-- before both legends: each asks it whether the series runs behind a row
        or a chip, which is what puts the plate there -->
@@ -11950,12 +11800,9 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/drawings.js?v=45"></script>
   <script src="./js/scene.js?v=53"></script>
   <script src="./js/panes.js?v=32"></script>
-  <!-- The pricing / upgrade overlay. Before main.js so window.Pricing exists
-       when the account menu's Upgrade row is wired. -->
-  <script src="./js/pricing.js?v=1"></script>
   <!-- the Footprint chart type: a primitive on the price series, mounted by main.js -->
   <script src="./js/footprint.js?v=9"></script>
-  <script src="./js/main.js?v=174"></script>
+  <script src="./js/main.js?v=175"></script>
   <!-- the floating drawing edit toolbar — listens for charto:draw-select and
        drives js/drawings.js's setStyle/clone/lock/remove. After main.js so
        __charto and ChartSettings exist by the first selection. -->
@@ -11966,10 +11813,10 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/agentws.js?v=1"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
-  <script src="./js/layouts.js?v=13"></script>
-  <script src="./js/share-preview.js?v=1"></script>
+  <script src="./js/layouts.js?v=14"></script>
+  <script src="./js/share-preview.js?v=2"></script>
   <!-- shared setups: publish, view-only links, "Make it mine" -->
-  <script src="./js/setups.js?v=16"></script>
+  <script src="./js/setups.js?v=17"></script>
   <!-- Voice must load before chat.js, which wires it to the composer. -->
   <script src="./js/voice.js?v=2"></script>
   <!-- before chat.js, which asks it to render the panels a tool prints as the
@@ -11979,17 +11826,17 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/layers-panel.js?v=12"></script>
   <script src="./js/model-logos.js?v=2"></script>
   <script src="./js/models.js?v=4"></script>
-  <script src="./js/chat.js?v=184"></script>
+  <script src="./js/chat.js?v=185"></script>
   <script src="./js/codeview.js?v=6"></script>
   <script src="./js/journal.js?v=9"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it
        uses. Everything it needs from main.js (SYMBOL) and panels.js
        (openWidget) is read inside handlers, so those may come later. -->
-  <script src="./js/alerts.js?v=22"></script>
+  <script src="./js/alerts.js?v=23"></script>
   <!-- after chat.js: the widget panels share the phone's one panel slot with
        the conversation, and close it by clicking its real toggle -->
-  <script src="./js/panels.js?v=25"></script>
+  <script src="./js/panels.js?v=26"></script>
   <script src="./js/screener.js?v=9"></script>
   <script src="./js/depth.js?v=8"></script>
   <script src="./js/notes.js?v=7"></script>

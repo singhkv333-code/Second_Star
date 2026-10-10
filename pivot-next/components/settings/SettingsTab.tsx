@@ -1,208 +1,151 @@
 "use client";
 
 /**
- * SettingsTab — Pivot's account & preferences surface.
+ * SettingsDialog — Pivot's account surface, in the Claude settings pattern:
+ * a left rail (search + sections) and a scrolling pane of hairline-divided
+ * rows, label on the left and the control flush right. On <sm the rail
+ * becomes a horizontal strip above the content.
  *
- * Layout is the Claude / ChatGPT settings pattern: a vertical section rail
- * on the left and a scrolling detail pane on the right. On <lg the rail
- * collapses into a horizontal scroll strip pinned above the content.
+ * Tabs:
+ *   1. Profile        photo, full name, username, date of birth
+ *                     (GET/PATCH /auth/me; each field saves on its own).
+ *   2. Account        email, password reset, two-factor, delete request.
+ *   3. Usage          AI credits left, plan usage bars, upgrade.
+ *   4. Billing        plan, payment method, invoices, cancellation.
+ *   5. Trading        empty for now.
+ *   6. Notifications  empty for now.
  *
- * Visual language is deliberately minimal — borderless grouped sections with
- * hairline-divided rows (no boxed cards), right-aligned values, generous
- * whitespace. Controls sit flush-right; descriptions stay quiet.
- *
- * Sections (top → bottom):
- *   1. Profile        — name / email / account id (read-only; /auth/me).
- *   2. Appearance     — theme (Light / Dark / System), reuses the shell's
- *                       real theme store so the toggle here and the one in
- *                       the account menu never disagree.
- *   3. Trading        — Real vs Paper mode + the register-not-execute
- *                       contract Pivot operates under.
- *   4. Brokers        — live connection status from GET /brokers; "Manage"
- *                       opens the existing BrokerOnboarding dialog.
- *   5. Notifications  — local alert preferences (device-scoped; no backend
- *                       store yet, and the UI says so plainly).
- *   6. Privacy & Data — policy / terms links + log out.
- *   7. About          — what Pivot is + the not-financial-advice boundary.
- *
- * Theme + trading mode are owned by AppShell and passed in as props so this
- * page edits the single source of truth rather than a drifting copy.
+ * Usage and Billing read the plan from BillingProvider (charto's
+ * /billing/me), so they agree with /settings/billing and the paywall. Plan
+ * changes and cancellation reuse the billing panels in a BillingModal.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Bell,
+  CalendarDays,
   Check,
+  ChevronDown,
+  ChevronLeft,
   ChevronRight,
   CircleUserRound,
-  ExternalLink,
-  FileText,
+  CreditCard,
+  Gauge,
   Info,
-  Keyboard,
-  LogOut,
-  Monitor,
-  Moon,
-  Palette,
-  Plug,
+  Loader2,
   RefreshCw,
+  Search,
   ShieldCheck,
-  Sun,
   TrendingUp,
 } from "lucide-react";
-import { Search } from "lucide-react";
-import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { getMe, listBrokers, type UserProfile } from "@/lib/api";
-import type { Broker } from "@/lib/types";
-import { isError } from "@/lib/types";
+import { Switch } from "@/components/ui/switch";
+import {
+  getMe,
+  getUserSettings,
+  listBrokers,
+  patchUserSettings,
+  requestPasswordReset,
+  submitBugReport,
+  updateProfile,
+  type ProfilePatch,
+  type UserProfile,
+} from "@/lib/api";
+import { isError, type Broker } from "@/lib/types";
 import type { TradingMode } from "@/lib/trading-mode";
+import { useBilling } from "@/components/billing/BillingProvider";
+import { BillingModal } from "@/components/billing/modal";
+import { PlanChangePanel, PlanPickerPanel } from "@/components/billing/PlanChange";
+import { CancelPanel } from "@/components/billing/CancelFlow";
+import { billingApi } from "@/lib/billing/api";
+import { planName, rankOf } from "@/lib/billing/catalog";
+import { meter, quotaView, subscriptionView, type QuotaView } from "@/lib/billing/entitlements";
+import { fmtDate, inr, num } from "@/lib/billing/format";
+import { track } from "@/lib/billing/analytics";
+import type { BillingMe, Cycle, InvoiceList, PaidPlanId, PlanId, PublicCatalog } from "@/lib/billing/types";
 
-type Theme = "light" | "dark" | "system";
+type SectionKey = "profile" | "account" | "usage" | "billing" | "trading" | "notifications";
 
-type SectionKey =
-  | "profile"
-  | "appearance"
-  | "trading"
-  | "brokers"
-  | "notifications"
-  | "privacy"
-  | "about";
+type IconType = React.ComponentType<{ size?: number; strokeWidth?: number; "aria-hidden"?: boolean }>;
 
-const SECTIONS: {
-  key: SectionKey;
-  label: string;
-  Icon: React.ComponentType<{ size?: number; strokeWidth?: number; "aria-hidden"?: boolean }>;
-}[] = [
-  { key: "profile", label: "Profile", Icon: CircleUserRound },
-  { key: "appearance", label: "Appearance", Icon: Palette },
-  { key: "trading", label: "Trading", Icon: TrendingUp },
-  { key: "brokers", label: "Brokers", Icon: Plug },
-  { key: "notifications", label: "Notifications", Icon: Bell },
-  { key: "privacy", label: "Privacy & Data", Icon: ShieldCheck },
-  { key: "about", label: "About", Icon: Info },
+const SECTIONS: { key: SectionKey; label: string; Icon: IconType; keywords: string }[] = [
+  { key: "profile", label: "Profile", Icon: CircleUserRound, keywords: "photo avatar name username birth dob" },
+  { key: "account", label: "Account", Icon: ShieldCheck, keywords: "email password two-factor 2fa delete security" },
+  { key: "usage", label: "Usage", Icon: Gauge, keywords: "credits ai limits alerts upgrade" },
+  { key: "billing", label: "Billing", Icon: CreditCard, keywords: "plan payment invoices subscription cancel" },
+  { key: "trading", label: "Trading", Icon: TrendingUp, keywords: "paper orders" },
+  { key: "notifications", label: "Notifications", Icon: Bell, keywords: "alerts email push" },
 ];
 
-const APP_VERSION = "v1 · beta";
 const HAIRLINE = "1px solid var(--glass-border)";
+const DANGER = "var(--color-loss, #dc2626)";
+// Fields and buttons are borderless fills, the chart's `.searchfield` look.
+// Tints of the text colour read on the rail, the pane, and in both themes.
+const FILL = "color-mix(in srgb, var(--text-primary) 5%, transparent)";
+const FILL_HOVER = "color-mix(in srgb, var(--text-primary) 9%, transparent)";
+const DANGER_FILL = "color-mix(in srgb, var(--color-loss, #dc2626) 10%, transparent)";
+const DANGER_FILL_HOVER = "color-mix(in srgb, var(--color-loss, #dc2626) 16%, transparent)";
+const RADIUS = 6;
 
 // ---------------------------------------------------------------------------
-// Notification preferences — device-local (no backend store yet). Honest:
-// the UI labels these "saved on this device".
-// ---------------------------------------------------------------------------
-
-type NotifPrefs = {
-  triggerAlerts: boolean;
-  agentRuns: boolean;
-  priceMoves: boolean;
-  productUpdates: boolean;
-};
-
-const NOTIF_LS_KEY = "pivot-notif-prefs";
-const NOTIF_DEFAULTS: NotifPrefs = {
-  triggerAlerts: true,
-  agentRuns: true,
-  priceMoves: false,
-  productUpdates: true,
-};
-
-function readNotifPrefs(): NotifPrefs {
-  if (typeof window === "undefined") return NOTIF_DEFAULTS;
-  try {
-    const raw = window.localStorage.getItem(NOTIF_LS_KEY);
-    if (!raw) return NOTIF_DEFAULTS;
-    const parsed = JSON.parse(raw) as Partial<NotifPrefs>;
-    return { ...NOTIF_DEFAULTS, ...parsed };
-  } catch {
-    return NOTIF_DEFAULTS;
-  }
-}
-
-function writeNotifPrefs(prefs: NotifPrefs): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(NOTIF_LS_KEY, JSON.stringify(prefs));
-  } catch {
-    /* non-persistent fallback still works in-memory this session */
-  }
-}
-
-// ---------------------------------------------------------------------------
-// SettingsTab
+// Dialog
 // ---------------------------------------------------------------------------
 
 export type SettingsDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  theme: Theme;
-  onChooseTheme: (t: Theme) => void;
+  /** Which tab to land on when opened. */
+  initialSection?: SectionKey;
+  /** Live vs paper, owned by AppShell so every surface agrees. */
   tradingMode: TradingMode;
   onChooseTradingMode: (m: TradingMode) => void | Promise<void>;
   /** Opens the shared BrokerOnboarding dialog (owned by AppShell). */
   onOpenBroker: () => void;
-  onLogout: () => void;
-  /** Optional — opens the keyboard-shortcuts modal. */
-  onOpenShortcuts?: () => void;
 };
 
-/**
- * SettingsDialog — the settings surface as a centered modal (Claude/ChatGPT
- * pattern): a left rail with search + section nav, and a scrolling content
- * pane on the right. Full-screen on mobile, a floating card on sm+.
- */
 export function SettingsDialog({
   open,
   onOpenChange,
-  theme,
-  onChooseTheme,
+  initialSection = "profile",
   tradingMode,
   onChooseTradingMode,
   onOpenBroker,
-  onLogout,
-  onOpenShortcuts,
 }: SettingsDialogProps): React.ReactElement {
-  const [section, setSection] = useState<SectionKey>("profile");
+  const [section, setSection] = useState<SectionKey>(initialSection);
   const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    if (open) setSection(initialSection);
+  }, [open, initialSection]);
+
+  const close = useCallback(() => onOpenChange(false), [onOpenChange]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        // max-sm:h-[100dvh] pins the mobile full-screen sheet to the *visible*
-        // viewport height — plain inset-0 can run behind the phone browser's
-        // bottom toolbar and clip the last rows of content.
-        className="gap-0 p-0 max-sm:h-[100dvh] sm:max-w-[940px] sm:rounded-2xl"
+        // max-sm:h-[100dvh] pins the mobile full-screen sheet to the visible
+        // viewport, so the phone browser's toolbar never clips the last rows.
+        className="gap-0 p-0 max-sm:h-[100dvh] sm:max-w-[980px] sm:rounded-[10px]"
         style={{ background: "var(--bg-base)", overflow: "hidden" }}
       >
         <DialogTitle className="sr-only">Settings</DialogTitle>
-        {/* w-full min-w-0: the dialog is a CSS grid, whose item defaults to
-            min-width:auto — without this the horizontal section-nav's
-            intrinsic width blows the column out past the viewport on mobile,
-            pushing the (mx-auto, 560px) content block off to the right. */}
-        <div className="flex h-full w-full min-w-0 flex-col sm:h-[78vh] sm:max-h-[660px] sm:flex-row">
-          {/* Left rail — search + section nav. */}
-          <SettingsRail
-            active={section}
-            onSelect={setSection}
-            query={query}
-            onQueryChange={setQuery}
-          />
+        {/* w-full min-w-0: the dialog is a grid, whose item defaults to
+            min-width:auto; without it the mobile nav strip blows the column
+            out past the viewport. */}
+        <div className="flex h-full w-full min-w-0 flex-col sm:h-[80vh] sm:max-h-[720px] sm:flex-row">
+          <SettingsRail active={section} onSelect={setSection} query={query} onQueryChange={setQuery} />
 
-          {/* Content pane — scrolls independently. */}
-          <div className="min-w-0 flex-1 overflow-y-auto px-5 py-6 sm:px-8 sm:py-7">
-            <div className="mx-auto w-full" style={{ maxWidth: 560 }}>
+          <div data-settings-pane className="min-w-0 flex-1 overflow-y-auto px-5 py-6 sm:px-10 sm:py-9">
+            <div className="mx-auto w-full" style={{ maxWidth: 660 }}>
               {section === "profile" && <ProfileSection />}
-              {section === "appearance" && (
-                <AppearanceSection theme={theme} onChooseTheme={onChooseTheme} />
-              )}
+              {section === "account" && <AccountSection />}
+              {section === "usage" && <UsageSection onClose={close} />}
+              {section === "billing" && <BillingSection onClose={close} />}
               {section === "trading" && (
-                <TradingSection
-                  tradingMode={tradingMode}
-                  onChooseTradingMode={onChooseTradingMode}
-                />
+                <TradingSection mode={tradingMode} onChooseMode={onChooseTradingMode} onOpenBroker={onOpenBroker} />
               )}
-              {section === "brokers" && <BrokersSection onOpenBroker={onOpenBroker} />}
               {section === "notifications" && <NotificationsSection />}
-              {section === "privacy" && <PrivacySection onLogout={onLogout} />}
-              {section === "about" && <AboutSection onOpenShortcuts={onOpenShortcuts} />}
             </div>
           </div>
         </div>
@@ -212,7 +155,7 @@ export function SettingsDialog({
 }
 
 // ---------------------------------------------------------------------------
-// Left rail — search + section nav (modal)
+// Left rail
 // ---------------------------------------------------------------------------
 
 function SettingsRail({
@@ -227,30 +170,26 @@ function SettingsRail({
   onQueryChange: (q: string) => void;
 }): React.ReactElement {
   const q = query.trim().toLowerCase();
-  const items = q ? SECTIONS.filter((s) => s.label.toLowerCase().includes(q)) : SECTIONS;
+  const items = q
+    ? SECTIONS.filter((s) => s.label.toLowerCase().includes(q) || s.keywords.includes(q))
+    : SECTIONS;
 
   return (
     <aside
-      className="flex shrink-0 flex-col gap-3 px-3 pb-2 pt-4 sm:w-[200px] sm:gap-2 sm:py-5"
-      style={{
-        background: "var(--bg-primary)",
-        borderBottom: HAIRLINE,
-      }}
+      className="flex shrink-0 flex-col gap-3 px-3 pb-2 pt-4 sm:w-[220px] sm:gap-2 sm:px-3.5 sm:py-5"
+      style={{ background: "var(--bg-primary)", borderBottom: HAIRLINE, borderRight: HAIRLINE }}
     >
-      {/* Search — on mobile the dialog's close (X) button floats over the
-          top-right corner of this rail, so leave room for it (44px) at <sm;
-          the sidebar rail on sm+ has the X clear of it, so no margin there. */}
+      {/* On mobile the dialog's close (X) floats over this corner; leave it room. */}
       <div
         className="mr-11 flex items-center gap-2 sm:mr-0"
         style={{
-          height: 34,
-          padding: "0 10px",
-          background: "var(--bg-base)",
-          border: HAIRLINE,
-          borderRadius: "var(--radius-sm)",
+          height: 36,
+          padding: "0 11px",
+          background: FILL,
+          borderRadius: 4,
         }}
       >
-        <Search size={14} strokeWidth={2} aria-hidden={true} style={{ color: "var(--text-tertiary)" }} />
+        <Search size={15} strokeWidth={2} aria-hidden={true} style={{ color: "var(--text-secondary)" }} />
         <input
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
@@ -262,28 +201,19 @@ function SettingsRail({
             background: "transparent",
             border: "none",
             outline: "none",
-            fontSize: 13,
+            fontSize: 14,
             color: "var(--text-primary)",
           }}
         />
       </div>
 
-      {/* Section label */}
       <div
         className="hidden sm:block"
-        style={{
-          padding: "2px 8px",
-          fontSize: 11,
-          fontWeight: 600,
-          textTransform: "uppercase",
-          letterSpacing: "0.06em",
-          color: "var(--text-tertiary)",
-        }}
+        style={{ padding: "12px 10px 4px", fontSize: 12.5, fontWeight: 500, color: "var(--text-tertiary)" }}
       >
         Settings
       </div>
 
-      {/* Nav */}
       <nav
         aria-label="Settings sections"
         className="quartr-no-scrollbar flex gap-1 overflow-x-auto sm:flex-col sm:gap-0.5 sm:overflow-visible"
@@ -296,34 +226,31 @@ function SettingsRail({
               type="button"
               onClick={() => onSelect(key)}
               aria-current={isActive ? "page" : undefined}
-              className="inline-flex shrink-0 items-center gap-2.5 whitespace-nowrap"
+              className="inline-flex shrink-0 items-center gap-3 whitespace-nowrap"
               style={{
                 padding: "8px 10px",
-                borderRadius: "var(--radius-sm)",
+                borderRadius: RADIUS,
                 background: isActive ? "var(--surface-active)" : "transparent",
                 color: isActive ? "var(--text-primary)" : "var(--text-secondary)",
-                fontSize: 13.5,
+                fontSize: 14,
                 fontWeight: isActive ? 600 : 500,
                 cursor: "pointer",
                 transition: "background 0.18s var(--ease-quartr), color 0.18s var(--ease-quartr)",
               }}
               onMouseEnter={(e) => {
-                if (!isActive) e.currentTarget.style.color = "var(--text-primary)";
+                if (!isActive) e.currentTarget.style.background = "var(--surface-hover)";
               }}
               onMouseLeave={(e) => {
-                if (!isActive) e.currentTarget.style.color = "var(--text-secondary)";
+                if (!isActive) e.currentTarget.style.background = "transparent";
               }}
             >
-              <Icon size={16} strokeWidth={1.9} aria-hidden={true} />
+              <Icon size={17} strokeWidth={1.8} aria-hidden={true} />
               {label}
             </button>
           );
         })}
         {items.length === 0 && (
-          <div
-            className="hidden sm:block"
-            style={{ padding: "8px 10px", fontSize: 12.5, color: "var(--text-tertiary)" }}
-          >
+          <div className="hidden sm:block" style={{ padding: "8px 10px", fontSize: 13, color: "var(--text-tertiary)" }}>
             No matches
           </div>
         )}
@@ -333,10 +260,10 @@ function SettingsRail({
 }
 
 // ---------------------------------------------------------------------------
-// Shared building blocks
+// Building blocks
 // ---------------------------------------------------------------------------
 
-/** A borderless titled group. Rows inside are divided by hairlines. */
+/** A titled group. Rows inside carry their own hairline dividers. */
 function Group({
   title,
   description,
@@ -345,210 +272,1495 @@ function Group({
   first = false,
 }: {
   title: string;
-  description?: string;
+  description?: React.ReactNode;
   action?: React.ReactNode;
   children?: React.ReactNode;
   first?: boolean;
 }): React.ReactElement {
   return (
-    <section style={{ marginTop: first ? 0 : 38 }}>
-      <div
-        className="flex items-baseline justify-between gap-4"
-        style={{ marginBottom: description ? 4 : 10 }}
-      >
-        <h2
-          style={{
-            fontSize: 16,
-            fontWeight: 600,
-            letterSpacing: "-0.01em",
-            color: "var(--text-primary)",
-            margin: 0,
-          }}
-        >
+    <section style={{ marginTop: first ? 0 : 44 }}>
+      <div className="flex items-start justify-between gap-4" style={{ marginBottom: description ? 4 : 8 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 600, letterSpacing: "-0.01em", color: "var(--text-primary)", margin: 0 }}>
           {title}
         </h2>
         {action}
       </div>
       {description && (
-        <p
-          style={{
-            margin: "0 0 10px",
-            fontSize: 13,
-            lineHeight: 1.55,
-            color: "var(--text-tertiary)",
-            maxWidth: 520,
-          }}
-        >
+        <p style={{ margin: "0 0 8px", fontSize: 13.5, lineHeight: 1.55, color: "var(--text-tertiary)", maxWidth: 480 }}>
           {description}
         </p>
       )}
-      {children && <div style={{ borderTop: HAIRLINE }}>{children}</div>}
+      {children}
     </section>
   );
 }
 
-/** A label/description on the left, a control on the right. */
+/** Label (and quiet hint) on the left, a control flush right. */
 function Row({
   label,
   hint,
   control,
-  align = "center",
+  last = false,
+  htmlFor,
 }: {
-  label: string;
-  hint?: string;
-  control: React.ReactNode;
-  align?: "center" | "start";
+  label: React.ReactNode;
+  hint?: React.ReactNode;
+  control?: React.ReactNode;
+  last?: boolean;
+  htmlFor?: string;
 }): React.ReactElement {
   return (
     <div
-      className="flex gap-6"
-      style={{
-        alignItems: align === "center" ? "center" : "flex-start",
-        padding: "15px 2px",
-        borderBottom: HAIRLINE,
-      }}
+      className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2"
+      style={{ padding: "16px 0", borderBottom: last ? "none" : HAIRLINE }}
     >
-      <div className="min-w-0 flex-1">
-        <div style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>
-          {label}
-        </div>
+      <div className="min-w-0">
+        {htmlFor ? (
+          <label htmlFor={htmlFor} style={{ fontSize: 14.5, color: "var(--text-primary)" }}>
+            {label}
+          </label>
+        ) : (
+          <div style={{ fontSize: 14.5, color: "var(--text-primary)" }}>{label}</div>
+        )}
         {hint && (
-          <div
-            style={{
-              marginTop: 3,
-              fontSize: 12.5,
-              lineHeight: 1.5,
-              color: "var(--text-tertiary)",
-              maxWidth: 380,
-            }}
-          >
+          <div style={{ marginTop: 3, fontSize: 13, lineHeight: 1.5, color: "var(--text-tertiary)", maxWidth: 360 }}>
             {hint}
           </div>
         )}
       </div>
-      <div className="shrink-0">{control}</div>
+      {control && <div className="flex shrink-0 items-center gap-2">{control}</div>}
     </div>
   );
 }
 
-/** Read-only label (left) → value (right), the Claude/ChatGPT pattern. */
-function ValueRow({
-  label,
-  value,
-  mono = false,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}): React.ReactElement {
-  return (
-    <div
-      className="flex items-center gap-6"
-      style={{ padding: "15px 2px", borderBottom: HAIRLINE }}
-    >
-      <div style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>
-        {label}
-      </div>
-      <div
-        className="min-w-0 flex-1"
-        style={{
-          textAlign: "right",
-          fontSize: 13.5,
-          color: "var(--text-secondary)",
-          fontFamily: mono ? "var(--font-numeric, monospace)" : undefined,
-          wordBreak: "break-all",
-        }}
-      >
-        {value}
-      </div>
-    </div>
-  );
-}
+type BtnVariant = "secondary" | "primary" | "danger" | "danger-soft";
 
-/** A soft, borderless informational callout. */
-function Callout({
-  Icon,
-  tone = "neutral",
+const BTN_FILL: Record<BtnVariant, { bg: string; hover: string; color: string }> = {
+  secondary: { bg: FILL, hover: FILL_HOVER, color: "var(--text-primary)" },
+  // --bg-base is the inverse of --text-primary in both themes.
+  primary: { bg: "var(--text-primary)", hover: "color-mix(in srgb, var(--text-primary) 86%, transparent)", color: "var(--bg-base)" },
+  danger: { bg: DANGER, hover: "color-mix(in srgb, var(--color-loss, #dc2626) 88%, #000)", color: "#fff" },
+  "danger-soft": { bg: DANGER_FILL, hover: DANGER_FILL_HOVER, color: DANGER },
+};
+
+function Btn({
   children,
+  onClick,
+  variant = "secondary",
+  disabled = false,
+  busy = false,
+  title,
+  href,
 }: {
-  Icon: React.ComponentType<{
-    size?: number;
-    strokeWidth?: number;
-    "aria-hidden"?: boolean;
-    style?: React.CSSProperties;
-  }>;
-  tone?: "neutral" | "positive";
   children: React.ReactNode;
+  onClick?: () => void;
+  variant?: BtnVariant;
+  disabled?: boolean;
+  busy?: boolean;
+  title?: string;
+  href?: string;
 }): React.ReactElement {
-  const accent =
-    tone === "positive" ? "var(--color-profit, #059669)" : "var(--text-tertiary)";
-  return (
-    <div
-      className="flex gap-3"
-      style={{
-        marginTop: 12,
-        padding: "13px 15px",
-        borderRadius: "var(--radius-md)",
-        background: "var(--surface-hover)",
-      }}
-    >
-      <Icon size={17} strokeWidth={2} aria-hidden={true} style={{ color: accent, flexShrink: 0, marginTop: 1 }} />
-      <p style={{ fontSize: 12.5, lineHeight: 1.6, color: "var(--text-secondary)", margin: 0 }}>
+  const fill = BTN_FILL[variant];
+  const inert = disabled || busy;
+  const style: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    height: 34,
+    padding: "0 14px",
+    border: "none",
+    borderRadius: RADIUS,
+    background: fill.bg,
+    color: fill.color,
+    fontSize: 13.5,
+    fontWeight: 500,
+    whiteSpace: "nowrap",
+    textDecoration: "none",
+    cursor: inert ? "default" : "pointer",
+    opacity: disabled ? 0.45 : 1,
+    transition: "background 0.15s var(--ease-quartr)",
+  };
+  const hover = {
+    onMouseEnter: (e: React.MouseEvent<HTMLElement>) => {
+      if (!inert) e.currentTarget.style.background = fill.hover;
+    },
+    onMouseLeave: (e: React.MouseEvent<HTMLElement>) => {
+      e.currentTarget.style.background = fill.bg;
+    },
+  };
+  if (href && !disabled) {
+    return (
+      <a href={href} target="_blank" rel="noopener noreferrer" style={style} title={title} {...hover}>
         {children}
-      </p>
-    </div>
+      </a>
+    );
+  }
+  return (
+    <button type="button" onClick={onClick} disabled={inert} title={title} style={style} {...hover}>
+      {busy && <Loader2 size={14} className="animate-spin" aria-hidden={true} />}
+      {children}
+    </button>
   );
 }
 
-/** Segmented control (used for theme). */
-function Segmented<T extends string>({
-  options,
+const FIELD_WIDTH = "min(300px, 72vw)";
+
+function fieldBox(invalid: boolean, focused = false): React.CSSProperties {
+  return {
+    width: FIELD_WIDTH,
+    height: 38,
+    padding: "0 12px",
+    background: invalid ? DANGER_FILL : focused ? FILL_HOVER : FILL,
+    border: "none",
+    borderRadius: RADIUS,
+    transition: "background 0.15s var(--ease-quartr)",
+  };
+}
+
+function TextField({
+  id,
   value,
   onChange,
-  ariaLabel,
+  onCommit,
+  placeholder,
+  prefix,
+  invalid = false,
 }: {
-  options: { value: T; label: string; Icon?: React.ComponentType<{ size?: number; strokeWidth?: number }> }[];
-  value: T;
-  onChange: (v: T) => void;
-  ariaLabel: string;
+  id: string;
+  value: string;
+  onChange: (v: string) => void;
+  onCommit: () => void;
+  placeholder?: string;
+  prefix?: string;
+  invalid?: boolean;
 }): React.ReactElement {
+  const [focused, setFocused] = useState(false);
   return (
-    <div
-      role="radiogroup"
-      aria-label={ariaLabel}
+    <div className="flex items-center" style={fieldBox(invalid, focused)}>
+      {prefix && <span style={{ fontSize: 14, color: "var(--text-tertiary)", marginRight: 2 }}>{prefix}</span>}
+      <input
+        id={id}
+        value={value}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => {
+          setFocused(false);
+          onCommit();
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
+        }}
+        aria-invalid={invalid || undefined}
+        style={{
+          flex: 1,
+          minWidth: 0,
+          background: "transparent",
+          border: "none",
+          outline: "none",
+          fontSize: 14,
+          color: "var(--text-primary)",
+        }}
+      />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Date picker: days, months and years views; dates after `max` are disabled
+// ---------------------------------------------------------------------------
+
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const WEEKDAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+
+type Ymd = { y: number; m: number; d: number };
+
+function parseIso(iso: string): Ymd | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  return m ? { y: Number(m[1]), m: Number(m[2]) - 1, d: Number(m[3]) } : null;
+}
+const toIso = ({ y, m, d }: Ymd): string => `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+const cmp = (a: Ymd, b: Ymd): number => a.y - b.y || a.m - b.m || a.d - b.d;
+
+function DatePicker({
+  id,
+  value,
+  max,
+  onChange,
+  invalid = false,
+  placeholder = "Select date",
+}: {
+  id: string;
+  value: string;
+  max: string;
+  onChange: (iso: string) => void;
+  invalid?: boolean;
+  placeholder?: string;
+}): React.ReactElement {
+  const sel = parseIso(value);
+  const limit = parseIso(max) ?? { y: 9999, m: 11, d: 31 };
+  const [open, setOpen] = useState(false);
+  const [up, setUp] = useState(false);
+  const [view, setView] = useState<"days" | "months" | "years">("days");
+  const [cursor, setCursor] = useState<{ y: number; m: number }>({ y: 2000, m: 0 });
+  const wrap = useRef<HTMLDivElement>(null);
+
+  const show = (): void => {
+    const start = sel ?? { y: limit.y - 25, m: 0, d: 1 };
+    setCursor({ y: start.y, m: start.m });
+    // A date of birth is far from today, so an empty picker opens on years.
+    setView(sel ? "days" : "years");
+    // Open upward when the scroll pane has no room below the field.
+    const el = wrap.current;
+    const pane = el?.closest("[data-settings-pane]") as HTMLElement | null;
+    if (el && pane) {
+      const r = el.getBoundingClientRect();
+      const p = pane.getBoundingClientRect();
+      setUp(p.bottom - r.bottom < 340 && r.top - p.top > p.bottom - r.bottom);
+    }
+    setOpen(true);
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent): void => {
+      if (wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") {
+        // Close the picker, not the settings dialog around it.
+        e.stopPropagation();
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey, true);
+    };
+  }, [open]);
+
+  const pick = (d: number): void => {
+    onChange(toIso({ y: cursor.y, m: cursor.m, d }));
+    setOpen(false);
+  };
+
+  const step = (dir: -1 | 1): void => {
+    if (view === "days") {
+      const m = cursor.m + dir;
+      setCursor({ y: cursor.y + Math.floor(m / 12), m: ((m % 12) + 12) % 12 });
+    } else if (view === "months") setCursor({ ...cursor, y: cursor.y + dir });
+    else setCursor({ ...cursor, y: cursor.y + dir * 12 });
+  };
+
+  const yearStart = cursor.y - (((cursor.y % 12) + 12) % 12);
+  const canNext =
+    view === "days"
+      ? cursor.y < limit.y || (cursor.y === limit.y && cursor.m < limit.m)
+      : view === "months"
+        ? cursor.y < limit.y
+        : yearStart + 12 <= limit.y;
+
+  const title =
+    view === "days" ? `${MONTHS[cursor.m]} ${cursor.y}` : view === "months" ? `${cursor.y}` : `${yearStart} – ${yearStart + 11}`;
+
+  const cell = (on: boolean, disabled: boolean, today = false): React.CSSProperties => ({
+    height: 34,
+    border: "none",
+    borderRadius: RADIUS,
+    fontSize: 13.5,
+    fontVariantNumeric: "tabular-nums",
+    cursor: disabled ? "default" : "pointer",
+    background: on ? "var(--text-primary)" : "transparent",
+    color: on ? "var(--bg-base)" : disabled ? "var(--text-tertiary)" : "var(--text-primary)",
+    opacity: disabled ? 0.4 : 1,
+    fontWeight: on || today ? 600 : 400,
+    boxShadow: today && !on ? "inset 0 0 0 1px var(--glass-border)" : "none",
+  });
+  const hoverable = (on: boolean, disabled: boolean) => ({
+    onMouseEnter: (e: React.MouseEvent<HTMLButtonElement>) => {
+      if (!on && !disabled) e.currentTarget.style.background = FILL_HOVER;
+    },
+    onMouseLeave: (e: React.MouseEvent<HTMLButtonElement>) => {
+      if (!on) e.currentTarget.style.background = "transparent";
+    },
+  });
+
+  const days = ((): React.ReactNode[] => {
+    const first = new Date(cursor.y, cursor.m, 1).getDay();
+    const count = new Date(cursor.y, cursor.m + 1, 0).getDate();
+    const now = new Date();
+    const out: React.ReactNode[] = Array.from({ length: first }, (_, i) => <span key={`b${i}`} />);
+    for (let d = 1; d <= count; d++) {
+      const ymd = { y: cursor.y, m: cursor.m, d };
+      const on = !!sel && cmp(sel, ymd) === 0;
+      const disabled = cmp(ymd, limit) > 0;
+      const today = now.getFullYear() === ymd.y && now.getMonth() === ymd.m && now.getDate() === d;
+      out.push(
+        <button key={d} type="button" disabled={disabled} onClick={() => pick(d)} style={cell(on, disabled, today)} {...hoverable(on, disabled)}>
+          {d}
+        </button>,
+      );
+    }
+    return out;
+  })();
+
+  const navBtn = (dir: -1 | 1, label: string, enabled: boolean): React.ReactElement => (
+    <button
+      type="button"
+      aria-label={label}
+      disabled={!enabled}
+      onClick={() => step(dir)}
+      className="flex items-center justify-center"
       style={{
-        display: "inline-flex",
-        padding: 3,
-        gap: 2,
-        background: "var(--bg-elevated)",
-        borderRadius: "var(--radius-sm)",
+        width: 30,
+        height: 30,
+        border: "none",
+        borderRadius: RADIUS,
+        background: "transparent",
+        color: "var(--text-secondary)",
+        cursor: enabled ? "pointer" : "default",
+        opacity: enabled ? 1 : 0.3,
       }}
+      {...hoverable(false, !enabled)}
     >
-      {options.map(({ value: v, label, Icon }) => {
-        const isActive = v === value;
-        return (
-          <button
-            key={v}
-            type="button"
-            role="radio"
-            aria-checked={isActive}
-            onClick={() => onChange(v)}
-            className="inline-flex items-center gap-1.5"
-            style={{
-              padding: "6px 12px",
-              borderRadius: "var(--radius-xs)",
-              border: "none",
-              cursor: "pointer",
-              fontSize: 12.5,
-              fontWeight: isActive ? 600 : 500,
-              background: isActive ? "var(--bg-base)" : "transparent",
-              color: isActive ? "var(--text-primary)" : "var(--text-secondary)",
-              boxShadow: isActive ? "0 1px 2px rgba(0,0,0,0.10)" : "none",
-              transition: "background 0.16s var(--ease-quartr), color 0.16s var(--ease-quartr)",
+      {dir < 0 ? <ChevronLeft size={16} aria-hidden={true} /> : <ChevronRight size={16} aria-hidden={true} />}
+    </button>
+  );
+
+  const grid = (cells: { key: string; label: string; on: boolean; disabled: boolean; go: () => void }[]): React.ReactElement => (
+    <div className="grid grid-cols-3 gap-1">
+      {cells.map((c) => (
+        <button key={c.key} type="button" disabled={c.disabled} onClick={c.go} style={{ ...cell(c.on, c.disabled), height: 40 }} {...hoverable(c.on, c.disabled)}>
+          {c.label}
+        </button>
+      ))}
+    </div>
+  );
+
+  return (
+    <div ref={wrap} style={{ position: "relative" }}>
+      <button
+        id={id}
+        type="button"
+        onClick={() => (open ? setOpen(false) : show())}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        className="flex items-center justify-between"
+        style={{ ...fieldBox(invalid, open), cursor: "pointer", fontSize: 14, color: sel ? "var(--text-primary)" : "var(--text-tertiary)" }}
+      >
+        {sel ? `${sel.d} ${MONTHS[sel.m]} ${sel.y}` : placeholder}
+        <CalendarDays size={15} aria-hidden={true} style={{ color: "var(--text-tertiary)" }} />
+      </button>
+
+      {open && (
+        <div
+          role="dialog"
+          aria-label="Choose a date"
+          style={{
+            position: "absolute",
+            right: 0,
+            ...(up ? { bottom: "calc(100% + 6px)" } : { top: "calc(100% + 6px)" }),
+            zIndex: 20,
+            width: 292,
+            padding: 12,
+            background: "var(--bg-base)",
+            borderRadius: 8,
+            boxShadow: "0 18px 48px -12px rgba(0,0,0,0.28), 0 0 0 1px var(--glass-border)",
+          }}
+        >
+          <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
+            <button
+              type="button"
+              onClick={() => setView(view === "days" ? "years" : view === "months" ? "years" : "days")}
+              className="inline-flex items-center gap-1"
+              style={{
+                height: 30,
+                padding: "0 8px",
+                border: "none",
+                borderRadius: RADIUS,
+                background: "transparent",
+                color: "var(--text-primary)",
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+              {...hoverable(false, false)}
+            >
+              {title}
+              <ChevronDown
+                size={14}
+                aria-hidden={true}
+                style={{ color: "var(--text-tertiary)", transform: view === "days" ? "none" : "rotate(180deg)" }}
+              />
+            </button>
+            <div className="flex">
+              {navBtn(-1, "Previous", true)}
+              {navBtn(1, "Next", canNext)}
+            </div>
+          </div>
+
+          {view === "days" && (
+            <>
+              <div className="grid grid-cols-7" style={{ marginBottom: 2 }}>
+                {WEEKDAYS.map((w) => (
+                  <span key={w} style={{ height: 26, display: "grid", placeItems: "center", fontSize: 12, color: "var(--text-tertiary)" }}>
+                    {w}
+                  </span>
+                ))}
+              </div>
+              <div className="grid grid-cols-7 gap-0.5">{days}</div>
+            </>
+          )}
+
+          {view === "months" &&
+            grid(
+              MONTHS.map((name, m) => ({
+                key: name,
+                label: name.slice(0, 3),
+                on: !!sel && sel.y === cursor.y && sel.m === m,
+                disabled: cursor.y > limit.y || (cursor.y === limit.y && m > limit.m),
+                go: () => {
+                  setCursor({ ...cursor, m });
+                  setView("days");
+                },
+              })),
+            )}
+
+          {view === "years" &&
+            grid(
+              Array.from({ length: 12 }, (_, i) => yearStart + i).map((y) => ({
+                key: String(y),
+                label: String(y),
+                on: !!sel && sel.y === y,
+                disabled: y > limit.y || y < 1900,
+                go: () => {
+                  setCursor({ ...cursor, y });
+                  setView("months");
+                },
+              })),
+            )}
+
+          {sel && (
+            <div className="flex justify-end" style={{ marginTop: 10, paddingTop: 10, borderTop: HAIRLINE }}>
+              <Btn
+                onClick={() => {
+                  onChange("");
+                  setOpen(false);
+                }}
+              >
+                Clear
+              </Btn>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Muted({ children }: { children: React.ReactNode }): React.ReactElement {
+  return <div style={{ padding: "16px 0", fontSize: 13.5, color: "var(--text-tertiary)" }}>{children}</div>;
+}
+
+function LoadError({ message, onRetry }: { message: string; onRetry: () => void }): React.ReactElement {
+  return (
+    <div className="flex items-center justify-between gap-4" style={{ padding: "16px 0" }}>
+      <span style={{ fontSize: 13.5, color: DANGER }}>{message}</span>
+      <Btn onClick={onRetry}>
+        <RefreshCw size={13} aria-hidden={true} /> Retry
+      </Btn>
+    </div>
+  );
+}
+
+/** Pydantic messages arrive as "Value error, <text>"; keep the text. */
+function cleanError(message: string | undefined, fallback: string): string {
+  if (!message) return fallback;
+  const m = message.replace(/^Value error,\s*/i, "");
+  return m.charAt(0).toUpperCase() + m.slice(1);
+}
+
+type Fetch<T> = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ok"; value: T };
+
+function useProfile(): [Fetch<UserProfile>, () => void, (p: UserProfile) => void] {
+  const [state, setState] = useState<Fetch<UserProfile>>({ kind: "loading" });
+  const load = useCallback((): void => {
+    setState({ kind: "loading" });
+    void getMe().then((res) => {
+      if (isError(res)) setState({ kind: "error", message: res.error.message || "Could not load your profile." });
+      else setState({ kind: "ok", value: res.data });
+    });
+  }, []);
+  useEffect(() => {
+    load();
+  }, [load]);
+  const set = useCallback((p: UserProfile) => setState({ kind: "ok", value: p }), []);
+  return [state, load, set];
+}
+
+// ---------------------------------------------------------------------------
+// 1. Profile
+// ---------------------------------------------------------------------------
+
+const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
+const PHOTO_TYPES = ["image/png", "image/jpeg", "image/webp"];
+const AVATAR_PX = 256;
+
+/** Centre-crop to a square and downsize, so the stored photo stays small. */
+async function toAvatarDataUrl(file: File): Promise<string> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error("That image could not be read."));
+      el.src = url;
+    });
+    const side = Math.min(img.naturalWidth, img.naturalHeight);
+    const canvas = document.createElement("canvas");
+    canvas.width = AVATAR_PX;
+    canvas.height = AVATAR_PX;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("That image could not be read.");
+    ctx.drawImage(
+      img,
+      (img.naturalWidth - side) / 2,
+      (img.naturalHeight - side) / 2,
+      side,
+      side,
+      0,
+      0,
+      AVATAR_PX,
+      AVATAR_PX,
+    );
+    // Browsers that cannot encode WebP fall back to PNG; JPEG is smaller.
+    const webp = canvas.toDataURL("image/webp", 0.86);
+    return webp.startsWith("data:image/webp") ? webp : canvas.toDataURL("image/jpeg", 0.88);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+function todayIso(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+function ProfileSection(): React.ReactElement {
+  const [state, load, setProfile] = useProfile();
+  const [name, setName] = useState("");
+  const [username, setUsername] = useState("");
+  const [dob, setDob] = useState("");
+  const [errors, setErrors] = useState<Partial<Record<keyof ProfilePatch, string>>>({});
+  const [note, setNote] = useState<"saving" | "saved" | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const profile = state.kind === "ok" ? state.value : null;
+
+  useEffect(() => {
+    if (!profile) return;
+    setName(profile.full_name ?? "");
+    setUsername(profile.username ?? "");
+    setDob(profile.dob ?? "");
+    // Only when a different profile arrives, not on every save.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.id]);
+
+  useEffect(() => () => {
+    if (noteTimer.current) clearTimeout(noteTimer.current);
+  }, []);
+
+  const save = useCallback(
+    async (field: keyof ProfilePatch, value: string | null): Promise<void> => {
+      setErrors((e) => ({ ...e, [field]: undefined }));
+      setNote("saving");
+      const res = await updateProfile({ [field]: value });
+      if (isError(res)) {
+        setNote(null);
+        setErrors((e) => ({ ...e, [field]: cleanError(res.error.message, "Could not save. Try again.") }));
+        return;
+      }
+      setProfile(res.data);
+      setNote("saved");
+      if (noteTimer.current) clearTimeout(noteTimer.current);
+      noteTimer.current = setTimeout(() => setNote(null), 1800);
+    },
+    [setProfile],
+  );
+
+  const commit = (field: "full_name" | "username" | "dob", raw: string): void => {
+    if (!profile) return;
+    const value = field === "username" ? raw.trim().replace(/^@/, "").toLowerCase() : raw.trim();
+    const current = (profile[field] ?? "") as string;
+    if (value === current) return;
+    void save(field, value || null);
+  };
+
+  const onPhoto = async (file: File | undefined): Promise<void> => {
+    if (!file) return;
+    if (!PHOTO_TYPES.includes(file.type)) {
+      setErrors((e) => ({ ...e, avatar: "Choose a PNG, JPEG or WebP image." }));
+      return;
+    }
+    if (file.size > MAX_PHOTO_BYTES) {
+      setErrors((e) => ({ ...e, avatar: "That image is over 10MB." }));
+      return;
+    }
+    try {
+      await save("avatar", await toAvatarDataUrl(file));
+    } catch (err) {
+      setErrors((e) => ({ ...e, avatar: err instanceof Error ? err.message : "That image could not be read." }));
+    }
+  };
+
+  const initial = useMemo(() => {
+    const src = (profile?.full_name || profile?.username || profile?.email || "").trim();
+    return (src[0] || "U").toUpperCase();
+  }, [profile]);
+
+  return (
+    <Group
+      first
+      title="Profile"
+      action={
+        note && (
+          <span style={{ fontSize: 12.5, color: "var(--text-tertiary)" }} aria-live="polite">
+            {note === "saving" ? "Saving…" : "Saved"}
+          </span>
+        )
+      }
+    >
+      {state.kind === "loading" && <Muted>Loading your profile…</Muted>}
+      {state.kind === "error" && <LoadError message={state.message} onRetry={load} />}
+
+      {profile && (
+        <>
+          <Row
+            label="Profile photo"
+            hint={
+              errors.avatar ? <span style={{ color: DANGER }}>{errors.avatar}</span> : "PNG, JPEG, or WebP, up to 10MB."
+            }
+            control={
+              <>
+                {profile.avatar && (
+                  <button
+                    type="button"
+                    onClick={() => void save("avatar", null)}
+                    style={{ fontSize: 13, color: "var(--text-tertiary)", background: "none", border: "none", cursor: "pointer" }}
+                  >
+                    Remove
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => fileRef.current?.click()}
+                  aria-label={profile.avatar ? "Change profile photo" : "Upload profile photo"}
+                  title={profile.avatar ? "Change photo" : "Upload photo"}
+                  className="flex items-center justify-center overflow-hidden"
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: "50%",
+                    background: "var(--surface-active)",
+                    border: "none",
+                    color: "var(--text-primary)",
+                    fontSize: 16,
+                    fontWeight: 500,
+                    cursor: "pointer",
+                    padding: 0,
+                  }}
+                >
+                  {profile.avatar ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={profile.avatar} alt="" width={48} height={48} style={{ objectFit: "cover" }} />
+                  ) : (
+                    initial
+                  )}
+                </button>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept={PHOTO_TYPES.join(",")}
+                  hidden
+                  onChange={(e) => {
+                    void onPhoto(e.target.files?.[0]);
+                    e.target.value = "";
+                  }}
+                />
+              </>
+            }
+          />
+          <Row
+            label="Full name"
+            htmlFor="pf-name"
+            hint={errors.full_name && <span style={{ color: DANGER }}>{errors.full_name}</span>}
+            control={
+              <TextField
+                id="pf-name"
+                value={name}
+                onChange={setName}
+                onCommit={() => commit("full_name", name)}
+                placeholder="Your name"
+                invalid={!!errors.full_name}
+              />
+            }
+          />
+          <Row
+            label="Username"
+            htmlFor="pf-username"
+            hint={errors.username && <span style={{ color: DANGER }}>{errors.username}</span>}
+            control={
+              <TextField
+                id="pf-username"
+                value={username}
+                onChange={(v) => setUsername(v.replace(/\s/g, ""))}
+                onCommit={() => commit("username", username)}
+                placeholder="username"
+                prefix="@"
+                invalid={!!errors.username}
+              />
+            }
+          />
+          <Row
+            last
+            label="Date of birth"
+            htmlFor="pf-dob"
+            hint={errors.dob && <span style={{ color: DANGER }}>{errors.dob}</span>}
+            control={
+              <DatePicker
+                id="pf-dob"
+                value={dob}
+                max={todayIso()}
+                onChange={(v) => {
+                  setDob(v);
+                  commit("dob", v);
+                }}
+                invalid={!!errors.dob}
+              />
+            }
+          />
+        </>
+      )}
+    </Group>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 2. Account
+// ---------------------------------------------------------------------------
+
+function AccountSection(): React.ReactElement {
+  const [state, load] = useProfile();
+  const [reset, setReset] = useState<"idle" | "busy" | "sent" | "error">("idle");
+  const [del, setDel] = useState<"idle" | "confirm" | "busy" | "sent" | "error">("idle");
+  const email = state.kind === "ok" ? state.value.email : "";
+
+  const sendReset = async (): Promise<void> => {
+    setReset("busy");
+    const res = await requestPasswordReset(email);
+    setReset(isError(res) ? "error" : "sent");
+  };
+
+  const requestDelete = async (): Promise<void> => {
+    setDel("busy");
+    const res = await submitBugReport({
+      category: "other",
+      severity: "normal",
+      title: "Account deletion request",
+      description: `The account holder asked for this account to be deleted from Settings → Account.\nAccount: ${email}`,
+      email,
+      context: { page: "settings/account" },
+    });
+    setDel(isError(res) ? "error" : "sent");
+  };
+
+  return (
+    <Group first title="Account">
+      {state.kind === "loading" && <Muted>Loading your account…</Muted>}
+      {state.kind === "error" && <LoadError message={state.message} onRetry={load} />}
+
+      {state.kind === "ok" && (
+        <>
+          <Row
+            label="Email"
+            hint={<span style={{ wordBreak: "break-all" }}>{email}</span>}
+
+          />
+          <Row
+            label="Password"
+            hint={
+              reset === "sent"
+                ? `We sent a reset link to ${email}. It expires in 1 hour.`
+                : reset === "error"
+                  ? <span style={{ color: DANGER }}>The reset link could not be sent. Try again.</span>
+                  : "••••••••"
+            }
+            control={
+              <Btn onClick={() => void sendReset()} busy={reset === "busy"} disabled={reset === "sent"}>
+                {reset === "sent" ? "Link sent" : "Reset password"}
+              </Btn>
+            }
+          />
+          <Row
+            label="Two-factor authentication"
+            hint="Not available yet."
+            control={
+              <Btn disabled title="Two-factor authentication is not available yet.">
+                Connect
+              </Btn>
+            }
+          />
+          <Row
+            last
+            label="Delete my account"
+            hint={
+              del === "confirm"
+                ? "We will email you to confirm before anything is deleted. Your plan, layouts, alerts and paper book go with it."
+                : del === "sent"
+                  ? "Request received. We will email you to confirm before deleting anything."
+                  : del === "error"
+                    ? <span style={{ color: DANGER }}>The request could not be sent. Try again.</span>
+                    : null
+            }
+            control={
+              del === "confirm" || del === "busy" ? (
+                <>
+                  <Btn onClick={() => setDel("idle")} disabled={del === "busy"}>
+                    Keep account
+                  </Btn>
+                  <Btn variant="danger" onClick={() => void requestDelete()} busy={del === "busy"}>
+                    Send request
+                  </Btn>
+                </>
+              ) : (
+                <Btn variant="danger-soft" onClick={() => setDel("confirm")} disabled={del === "sent"}>
+                  {del === "sent" ? "Requested" : "Request"}
+                </Btn>
+              )
+            }
+          />
+        </>
+      )}
+    </Group>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Plan helpers shared by Usage and Billing
+// ---------------------------------------------------------------------------
+
+type PlanModal =
+  | { kind: "pick" }
+  | { kind: "change"; plan: PaidPlanId; cycle: Cycle }
+  | { kind: "cancel" }
+  | null;
+
+/** The next public plan above `plan`, or null when it is already the top. */
+function nextPlanUp(cat: PublicCatalog, plan: PlanId): PaidPlanId | null {
+  const from = rankOf(cat, plan === "anonymous" ? "free" : plan);
+  const above = cat.plans
+    .filter((p) => p.id !== "anonymous" && p.id !== "free" && p.rank > from)
+    .sort((a, b) => a.rank - b.rank);
+  return (above[0]?.id as PaidPlanId | undefined) ?? null;
+}
+
+const PAYING = ["active", "trialing", "past_due"];
+
+function PlanModals({
+  modal,
+  setModal,
+  cat,
+  me,
+  demo,
+  setMe,
+}: {
+  modal: PlanModal;
+  setModal: (m: PlanModal) => void;
+  cat: PublicCatalog;
+  me: BillingMe;
+  demo: boolean;
+  setMe: (m: BillingMe) => void;
+}): React.ReactElement | null {
+  if (!modal) return null;
+  return (
+    <BillingModal open onOpenChange={(o) => !o && setModal(null)} label="Manage plan">
+      {modal.kind === "pick" ? (
+        <PlanPickerPanel
+          catalog={cat}
+          me={me}
+          onPick={(plan, cycle) => setModal({ kind: "change", plan, cycle })}
+          onCancelInstead={() => setModal({ kind: "cancel" })}
+          onClose={() => setModal(null)}
+        />
+      ) : modal.kind === "change" ? (
+        <PlanChangePanel
+          catalog={cat}
+          me={me}
+          to={modal.plan}
+          cycle={modal.cycle}
+          demo={demo}
+          onBack={() => setModal({ kind: "pick" })}
+          onDone={(m) => {
+            setMe(m);
+            setModal(null);
+          }}
+        />
+      ) : (
+        <CancelPanel
+          catalog={cat}
+          me={me}
+          demo={demo}
+          onClose={() => setModal(null)}
+          onAlternative={(plan, cycle) => setModal({ kind: "change", plan, cycle })}
+          onDone={(m) => {
+            if (m) setMe(m);
+            setModal(null);
+          }}
+        />
+      )}
+    </BillingModal>
+  );
+}
+
+/** Shared states for the two billing-backed tabs. Null when `me` is ready. */
+function useBillingGate(onClose: () => void): React.ReactElement | null {
+  const { me, loading, error, refresh } = useBilling();
+  const router = useRouter();
+  if (loading && !me) return <Muted>Loading your plan…</Muted>;
+  if (!me) return <LoadError message={error ?? "Your plan could not be loaded."} onRetry={() => void refresh()} />;
+  if (me.plan === "anonymous") {
+    return (
+      <Row
+        last
+        label="Sign in to see your plan"
+        hint="Plans, usage and invoices belong to your chart account."
+        control={
+          <Btn
+            variant="primary"
+            onClick={() => {
+              onClose();
+              router.push("/login?next=/settings/billing");
             }}
           >
-            {Icon && <Icon size={14} strokeWidth={2} />}
-            {label}
+            Sign in
+          </Btn>
+        }
+      />
+    );
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// 3. Usage
+// ---------------------------------------------------------------------------
+
+function relativeReset(unix: number | null): string | null {
+  if (!unix) return null;
+  const secs = unix - Math.floor(Date.now() / 1000);
+  if (secs <= 0) return "Resets soon";
+  const days = Math.floor(secs / 86400);
+  const hours = Math.floor((secs % 86400) / 3600);
+  if (days >= 2) return `Resets ${fmtDate(unix)}`;
+  if (days === 1) return `Resets in 1 day ${hours} hr`;
+  const mins = Math.max(1, Math.floor((secs % 3600) / 60));
+  return hours > 0 ? `Resets in ${hours} hr ${mins} min` : `Resets in ${mins} min`;
+}
+
+/** Usage row: label + reset on the left, the bar, then used / limit. */
+function UsageBar({
+  label,
+  sub,
+  view,
+  last = false,
+}: {
+  label: string;
+  sub?: string | null;
+  view: QuotaView;
+  last?: boolean;
+}): React.ReactElement {
+  const unlimited = view.limit === null;
+  const fill = view.tone === "out" ? DANGER : view.tone === "low" ? "var(--color-warn, #d97706)" : "var(--text-primary)";
+  return (
+    <div
+      className="grid items-center gap-x-6 gap-y-2 max-sm:grid-cols-1 sm:grid-cols-[190px_1fr_auto]"
+      style={{ padding: "18px 0", borderBottom: last ? "none" : HAIRLINE }}
+    >
+      <div className="min-w-0">
+        <div style={{ fontSize: 14.5, color: "var(--text-primary)" }}>{label}</div>
+        {sub && <div style={{ marginTop: 2, fontSize: 13, color: "var(--text-tertiary)" }}>{sub}</div>}
+      </div>
+      <div
+        role="progressbar"
+        aria-label={label}
+        aria-valuemin={0}
+        aria-valuemax={view.limit ?? undefined}
+        aria-valuenow={view.used}
+        style={{ height: 8, borderRadius: 999, background: "var(--surface-track, var(--surface-active))", overflow: "hidden" }}
+      >
+        {!unlimited && (
+          <div style={{ width: `${view.pct}%`, height: "100%", borderRadius: 999, background: fill, transition: "width 0.4s var(--ease-quartr)" }} />
+        )}
+      </div>
+      <div style={{ fontSize: 13.5, color: "var(--text-secondary)", minWidth: 96, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+        {unlimited ? `${num(view.used)} · no limit` : `${num(view.used)} / ${num(view.limit!)} used`}
+      </div>
+    </div>
+  );
+}
+
+function UsageSection({ onClose }: { onClose: () => void }): React.ReactElement {
+  const { catalog: cat, me, refresh, setMe, demo } = useBilling();
+  const router = useRouter();
+  const [modal, setModal] = useState<PlanModal>(null);
+  const [checkedAt, setCheckedAt] = useState(() => Date.now());
+  const [refreshing, setRefreshing] = useState(false);
+  const [, tick] = useState(0);
+
+  useEffect(() => {
+    const t = setInterval(() => tick((n) => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, []);
+
+  const gate = useBillingGate(onClose);
+  if (gate || !me) return <Group first title="Usage">{gate}</Group>;
+
+  const view = subscriptionView(me);
+  const credits = quotaView(me, "ai.credits");
+  const price = me.features["alerts.price"];
+  const tech = me.features["alerts.technical"];
+  const up = nextPlanUp(cat, me.plan);
+  const ago = Math.round((Date.now() - checkedAt) / 60_000);
+
+  const upgrade = (): void => {
+    if (!up) return;
+    track("plan_selected", { surface: "settings_usage", from_plan: me.plan, to_plan: up });
+    if (PAYING.includes(view.state)) {
+      // A subscriber is never sent to checkout: the change happens in place.
+      setModal({ kind: "change", plan: up, cycle: view.cycle ?? "monthly" });
+    } else {
+      onClose();
+      router.push("/pricing");
+    }
+  };
+
+  const reload = async (): Promise<void> => {
+    setRefreshing(true);
+    await refresh();
+    setCheckedAt(Date.now());
+    setRefreshing(false);
+  };
+
+  return (
+    <>
+      <Group first title="Usage">
+        {/* Credits summary */}
+        <div
+          className="flex flex-wrap items-center justify-between gap-4"
+          style={{ padding: "18px 20px", marginTop: 8, borderRadius: 8, background: "var(--bg-primary)" }}
+        >
+          <div className="min-w-0">
+            <div style={{ fontSize: 13, color: "var(--text-tertiary)" }}>AI credits left · {planName(cat, me.plan)} plan</div>
+            <div style={{ marginTop: 4, fontSize: 26, fontWeight: 600, letterSpacing: "-0.02em", color: "var(--text-primary)", fontVariantNumeric: "tabular-nums" }}>
+              {credits ? (credits.limit === null ? "Unlimited" : num(credits.left ?? 0)) : "—"}
+              {credits && credits.limit !== null && (
+                <span style={{ fontSize: 15, fontWeight: 400, color: "var(--text-tertiary)" }}> of {num(credits.limit)}</span>
+              )}
+            </div>
+          </div>
+          {up ? (
+            <Btn variant="primary" onClick={upgrade}>
+              Upgrade to {planName(cat, up)}
+            </Btn>
+          ) : (
+            <span style={{ fontSize: 13, color: "var(--text-tertiary)" }}>You are on the highest plan</span>
+          )}
+        </div>
+      </Group>
+
+      <Group
+        title="Plan usage limits"
+      >
+        {credits && <UsageBar label="AI credits" sub={relativeReset(credits.resetsAt)} view={credits} />}
+        {price && typeof price.used === "number" && (
+          <UsageBar
+            label="Price alerts"
+            sub={`${num(price.used)} armed`}
+            view={meter(price.used, (price.value as number | null) ?? null)}
+          />
+        )}
+        {tech && typeof tech.used === "number" && (
+          <UsageBar
+            last
+            label="Technical alerts"
+            sub={`${num(tech.used)} armed`}
+            view={meter(tech.used, (tech.value as number | null) ?? null)}
+          />
+        )}
+        <div className="flex items-center gap-2" style={{ marginTop: 12, fontSize: 12.5, color: "var(--text-tertiary)" }}>
+          Last updated: {ago < 1 ? "less than a minute ago" : `${ago} min ago`}
+          <button
+            type="button"
+            onClick={() => void reload()}
+            aria-label="Refresh usage"
+            style={{ display: "inline-flex", background: "none", border: "none", padding: 2, cursor: "pointer", color: "inherit" }}
+          >
+            <RefreshCw size={13} className={refreshing ? "animate-spin" : undefined} aria-hidden={true} />
+          </button>
+        </div>
+      </Group>
+
+      <PlanModals modal={modal} setModal={setModal} cat={cat} me={me} demo={demo} setMe={setMe} />
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 4. Billing
+// ---------------------------------------------------------------------------
+
+type InvoiceState =
+  | { status: "loading" }
+  | { status: "ready"; data: InvoiceList }
+  | { status: "error"; message: string; unavailable?: boolean };
+
+const METHOD: Record<string, string> = {
+  card: "Card",
+  upi: "UPI Autopay",
+  emandate: "Bank mandate",
+  nach: "NACH mandate",
+};
+
+const INV_STATUS: Record<string, string> = {
+  paid: "Paid",
+  issued: "Due",
+  partially_paid: "Partly paid",
+  cancelled: "Cancelled",
+  expired: "Expired",
+};
+
+const INVOICE_PAGE = 6;
+
+// Blue that stays readable in both themes (mixed toward the text colour).
+const LINK = "color-mix(in srgb, #2563eb 82%, var(--text-primary))";
+const BADGE_BG = "color-mix(in srgb, #3b82f6 16%, transparent)";
+
+const H2: React.CSSProperties = { fontSize: 17, fontWeight: 600, letterSpacing: "-0.01em", color: "var(--text-primary)", margin: 0 };
+const TD: React.CSSProperties = { padding: "11px 16px 11px 0", fontSize: 15, color: "var(--text-primary)", whiteSpace: "nowrap" };
+
+function BillingSection({ onClose }: { onClose: () => void }): React.ReactElement {
+  const { catalog: cat, me, setMe, demo, signedIn } = useBilling();
+  const router = useRouter();
+  const [modal, setModal] = useState<PlanModal>(null);
+  const [inv, setInv] = useState<InvoiceState>({ status: "loading" });
+  const [shown, setShown] = useState(INVOICE_PAGE);
+  const [undoBusy, setUndoBusy] = useState(false);
+  const [undoError, setUndoError] = useState<string | null>(null);
+
+  const loadInvoices = useCallback(async () => {
+    setInv({ status: "loading" });
+    const r = await billingApi.invoices();
+    if (r.ok) setInv({ status: "ready", data: r.data });
+    else setInv({ status: "error", message: r.error, unavailable: r.status === 503 });
+  }, []);
+
+  useEffect(() => {
+    if (!demo && signedIn) void loadInvoices();
+  }, [demo, signedIn, loadInvoices]);
+
+  const gate = useBillingGate(onClose);
+  if (gate || !me) return <Group first title="Billing">{gate}</Group>;
+
+  const v = subscriptionView(me);
+  const planShown = v.state === "expired" || v.state === "incomplete" ? me.plan : (v.subPlan ?? me.plan);
+  const paying = PAYING.includes(v.state);
+  const hasSub = !!me.subscription && v.state !== "comp";
+  const cycleLine =
+    (paying || v.state === "canceling") && v.cycle
+      ? v.cycle === "annual"
+        ? "Yearly"
+        : "Monthly"
+      : v.state === "comp"
+        ? "Granted"
+        : "No subscription";
+
+  const go = (path: string): void => {
+    onClose();
+    router.push(path);
+  };
+
+  const undo = async (): Promise<void> => {
+    setUndoBusy(true);
+    setUndoError(null);
+    const r = await billingApi.undoChange();
+    setUndoBusy(false);
+    if (r.ok) {
+      setMe(r.data.billing);
+      track("plan_change_undone", { plan: v.subPlan });
+    } else setUndoError(r.error);
+  };
+
+  const statusLine = ((): React.ReactNode => {
+    switch (v.state) {
+      case "active":
+        return `Your subscription will auto renew on ${fmtDate(v.renewsAt)}.`;
+      case "trialing":
+        return `Your trial ends on ${fmtDate(v.endsAt)}.`;
+      case "canceling":
+        return `Your subscription ends on ${fmtDate(v.endsAt)} and will not renew.`;
+      case "past_due":
+        return <span style={{ color: DANGER }}>Your last payment failed. The plan is held until {fmtDate(v.graceUntil)}.</span>;
+      case "expired":
+        return `Your ${planName(cat, v.subPlan)} plan ended on ${fmtDate(v.endsAt)}.`;
+      case "incomplete":
+        return "Checkout was started but not paid.";
+      case "comp":
+        return "Granted by Pivot. Nothing is charged.";
+      default:
+        return "Upgrade for more AI credits, alerts and charts.";
+    }
+  })();
+
+  const planAction = ((): React.ReactNode => {
+    if (paying) return <Btn onClick={() => setModal({ kind: "pick" })}>Adjust plan</Btn>;
+    if (v.state === "canceling") return <Btn onClick={() => go("/pricing")}>See plans</Btn>;
+    if (v.state === "expired" || v.state === "incomplete") {
+      const p = (v.subPlan && v.subPlan !== "free" && v.subPlan !== "anonymous" ? v.subPlan : "pro") as PaidPlanId;
+      return (
+        <Btn onClick={() => go(`/checkout?plan=${p}&cycle=${v.cycle ?? "annual"}&return=/settings/billing`)}>
+          {v.state === "expired" ? "Resubscribe" : "Resume checkout"}
+        </Btn>
+      );
+    }
+    if (v.state === "free") return <Btn onClick={() => go("/pricing")}>Upgrade plan</Btn>;
+    return null;
+  })();
+
+  const ready = inv.status === "ready" ? inv.data : null;
+  const method = hasSub && ready?.payment_method ? (METHOD[ready.payment_method] ?? ready.payment_method) : null;
+  const list = hasSub && ready ? ready.invoices : [];
+
+  const tableNote = ((): React.ReactNode => {
+    if (!hasSub) return "No invoices yet. They appear here after your first payment.";
+    if (inv.status === "loading") return "Loading invoices…";
+    if (inv.status === "error") {
+      return inv.unavailable ? "Payments are not switched on yet, so there are no invoices." : null;
+    }
+    return list.length === 0 ? "No invoices yet. They appear here after your first payment." : null;
+  })();
+
+  return (
+    <>
+      {/* Plan */}
+      <section className="flex flex-wrap items-center justify-between gap-x-6 gap-y-4">
+        <div className="flex min-w-0 items-start">
+          <div className="min-w-0">
+            <div style={{ fontSize: 17, fontWeight: 600, color: "var(--text-primary)" }}>{planName(cat, planShown)} plan</div>
+            <div style={{ marginTop: 3, fontSize: 15, color: "var(--text-primary)" }}>{cycleLine}</div>
+            <div style={{ marginTop: 3, fontSize: 14, color: "var(--text-tertiary)" }}>{statusLine}</div>
+            {v.pending && (
+              <div style={{ marginTop: 6, fontSize: 13.5, color: "var(--text-secondary)" }}>
+                Changing to {planName(cat, v.pending.plan)}, {v.pending.cycle === "annual" ? "yearly" : "monthly"}, on{" "}
+                {fmtDate(v.pending.at)}.{" "}
+                <button
+                  type="button"
+                  onClick={() => void undo()}
+                  disabled={undoBusy}
+                  style={{ background: "none", border: "none", padding: 0, color: LINK, textDecoration: "underline", cursor: "pointer", fontSize: 13.5 }}
+                >
+                  Undo
+                </button>
+                {undoError && <span style={{ color: DANGER }}> {undoError}</span>}
+              </div>
+            )}
+          </div>
+        </div>
+        {planAction && <div style={{ transform: "translateY(8px)" }}>{planAction}</div>}
+      </section>
+
+      {/* Payment */}
+      <section style={{ marginTop: 52 }}>
+        <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+          <div className="min-w-0">
+            <h2 style={H2}>Payment</h2>
+            <p style={{ margin: "4px 0 0", fontSize: 14, lineHeight: 1.5, color: "var(--text-tertiary)", maxWidth: 460 }}>
+              Your default payment method is charged for subscription renewals.
+            </p>
+          </div>
+          {hasSub && ready && !ready.payment_method && ready.manage_url && <Btn href={ready.manage_url}>Add payment method</Btn>}
+        </div>
+
+        {hasSub && inv.status === "error" && !inv.unavailable ? (
+          <LoadError message={inv.message} onRetry={() => void loadInvoices()} />
+        ) : (
+          <div className="flex items-center justify-between gap-4" style={{ marginTop: 22 }}>
+            <div className="flex min-w-0 items-center gap-3">
+              <span
+                className="flex shrink-0 items-center justify-center"
+                style={{ width: 30, height: 30, borderRadius: RADIUS, background: method ? "var(--text-primary)" : FILL, color: method ? "var(--bg-base)" : "var(--text-tertiary)" }}
+              >
+                <CreditCard size={16} aria-hidden={true} />
+              </span>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2" style={{ fontSize: 15, color: method ? "var(--text-primary)" : "var(--text-secondary)" }}>
+                  {hasSub && inv.status === "loading" ? "Loading…" : (method ?? "No payment method on file")}
+                  {method && (
+                    <span style={{ fontSize: 12.5, fontWeight: 500, padding: "2px 8px", borderRadius: RADIUS, background: BADGE_BG, color: LINK }}>
+                      Default
+                    </span>
+                  )}
+                </div>
+                <div style={{ marginTop: 2, fontSize: 14, color: "var(--text-tertiary)" }}>
+                  {method
+                    ? "Held by Razorpay"
+                    : inv.status === "error" && inv.unavailable
+                      ? "Payments are not switched on yet"
+                      : "Added securely through Razorpay when you subscribe"}
+                </div>
+              </div>
+            </div>
+            {method && ready?.manage_url && <Btn href={ready.manage_url}>Update</Btn>}
+          </div>
+        )}
+      </section>
+
+      {/* Invoices */}
+      <section style={{ marginTop: 52 }}>
+        <h2 style={H2}>Invoices</h2>
+        {hasSub && inv.status === "error" && !inv.unavailable ? (
+          <LoadError message={inv.message} onRetry={() => void loadInvoices()} />
+        ) : (
+          <div className="overflow-x-auto" style={{ marginTop: 20 }}>
+            <table style={{ width: "100%", minWidth: 460, borderCollapse: "collapse", tableLayout: "fixed" }}>
+              <colgroup>
+                <col style={{ width: "34%" }} />
+                <col style={{ width: "22%" }} />
+                <col style={{ width: "18%" }} />
+                <col />
+              </colgroup>
+              <thead>
+                <tr style={{ textAlign: "left" }}>
+                  {["Date", "Total", "Status", "Actions"].map((h) => (
+                    <th key={h} scope="col" style={{ ...TD, fontWeight: 500, paddingBottom: 13 }}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {tableNote ? (
+                  <tr>
+                    <td colSpan={4} style={{ ...TD, color: "var(--text-tertiary)", fontSize: 14, whiteSpace: "normal" }}>
+                      {tableNote}
+                    </td>
+                  </tr>
+                ) : (
+                  list.slice(0, shown).map((i) => (
+                    <tr key={i.id}>
+                      <td style={TD}>{fmtDate(i.date)}</td>
+                      <td style={{ ...TD, fontVariantNumeric: "tabular-nums" }}>
+                        <span className="inline-flex items-center gap-1.5">
+                          {inr(i.amount)}
+                          <span title="Includes GST" aria-label="Includes GST" style={{ display: "inline-flex", color: "var(--text-secondary)" }}>
+                            <Info size={14} aria-hidden={true} />
+                          </span>
+                        </span>
+                      </td>
+                      <td style={TD}>{INV_STATUS[i.status] ?? i.status}</td>
+                      <td style={TD}>
+                        {i.url ? (
+                          <a href={i.url} target="_blank" rel="noopener noreferrer" style={{ color: LINK, textDecoration: "underline", textUnderlineOffset: 3 }}>
+                            View invoice
+                          </a>
+                        ) : (
+                          <span style={{ color: "var(--text-tertiary)" }}>Not available</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {list.length > shown && (
+          <div className="flex justify-center" style={{ marginTop: 14, paddingTop: 18, borderTop: HAIRLINE }}>
+            <Btn onClick={() => setShown((n) => n + INVOICE_PAGE)}>Load more</Btn>
+          </div>
+        )}
+      </section>
+
+      {/* Cancellation */}
+      {paying && (
+        <section style={{ marginTop: 52 }}>
+          <h2 style={H2}>Cancellation</h2>
+          <div className="flex items-center justify-between gap-4" style={{ marginTop: 20 }}>
+            <span style={{ fontSize: 15, color: "var(--text-primary)" }}>Cancel plan</span>
+            <Btn
+              variant="danger"
+              onClick={() => {
+                track("cancel_started", { plan: v.subPlan });
+                setModal({ kind: "cancel" });
+              }}
+            >
+              Cancel
+            </Btn>
+          </div>
+        </section>
+      )}
+
+      <PlanModals modal={modal} setModal={setModal} cat={cat} me={me} demo={demo} setMe={setMe} />
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 5. Trading
+// ---------------------------------------------------------------------------
+
+const MODES: { value: TradingMode; label: string }[] = [
+  { value: "real", label: "Live" },
+  { value: "paper", label: "Paper" },
+];
+
+function ModeToggle({
+  value,
+  onChange,
+}: {
+  value: TradingMode;
+  onChange: (m: TradingMode) => void;
+}): React.ReactElement {
+  return (
+    <div role="radiogroup" aria-label="Trading mode" className="inline-flex" style={{ padding: 3, gap: 2, background: FILL, borderRadius: RADIUS + 2 }}>
+      {MODES.map((m) => {
+        const on = m.value === value;
+        return (
+          <button
+            key={m.value}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            onClick={() => onChange(m.value)}
+            style={{
+              height: 30,
+              minWidth: 76,
+              padding: "0 14px",
+              border: "none",
+              borderRadius: RADIUS,
+              background: on ? "var(--bg-base)" : "transparent",
+              color: on ? "var(--text-primary)" : "var(--text-secondary)",
+              boxShadow: on ? "0 1px 2px rgba(0,0,0,0.10)" : "none",
+              fontSize: 13.5,
+              fontWeight: on ? 600 : 500,
+              cursor: "pointer",
+              transition: "background 0.15s var(--ease-quartr), color 0.15s var(--ease-quartr)",
+            }}
+          >
+            {m.label}
           </button>
         );
       })}
@@ -556,561 +1768,276 @@ function Segmented<T extends string>({
   );
 }
 
-/** A row that behaves as a link / action, with a trailing affordance. */
-function LinkRow({
-  label,
-  hint,
-  href,
-  external = false,
-  onClick,
-  danger = false,
-  Icon,
-}: {
-  label: string;
-  hint?: string;
-  href?: string;
-  external?: boolean;
-  onClick?: () => void;
-  danger?: boolean;
-  Icon?: React.ComponentType<{ size?: number; strokeWidth?: number }>;
-}): React.ReactElement {
-  const color = danger ? "var(--color-loss, #dc2626)" : "var(--text-primary)";
-  const inner = (
-    <>
-      <div className="inline-flex min-w-0 items-center gap-3">
-        {Icon && (
-          <span style={{ color: danger ? color : "var(--text-tertiary)" }}>
-            <Icon size={16} strokeWidth={2} />
-          </span>
-        )}
-        <div className="min-w-0">
-          <div style={{ fontSize: 14, fontWeight: 500, color }}>{label}</div>
-          {hint && (
-            <div style={{ marginTop: 2, fontSize: 12.5, color: "var(--text-tertiary)" }}>
-              {hint}
-            </div>
-          )}
-        </div>
-      </div>
-      <span style={{ color: "var(--text-tertiary)" }}>
-        {external ? <ExternalLink size={14} strokeWidth={2} /> : <ChevronRight size={16} strokeWidth={2} />}
-      </span>
-    </>
-  );
-
-  const baseStyle: React.CSSProperties = {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    width: "100%",
-    gap: 12,
-    padding: "15px 2px",
-    borderBottom: HAIRLINE,
-    background: "transparent",
-    border: "none",
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: "var(--glass-border)",
-    textAlign: "left",
-    cursor: "pointer",
-    textDecoration: "none",
-  };
-
-  if (href) {
-    return (
-      <a
-        href={href}
-        target={external ? "_blank" : undefined}
-        rel={external ? "noopener noreferrer" : undefined}
-        style={baseStyle}
-      >
-        {inner}
-      </a>
-    );
-  }
-  return (
-    <button type="button" onClick={onClick} style={baseStyle}>
-      {inner}
-    </button>
-  );
-}
-
-/** Small quiet text button (used for retry / inline actions). */
-function GhostButton({
-  onClick,
-  Icon,
-  children,
-}: {
-  onClick: () => void;
-  Icon?: React.ComponentType<{ size?: number; strokeWidth?: number }>;
-  children: React.ReactNode;
-}): React.ReactElement {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="inline-flex items-center gap-1.5"
-      style={{
-        fontSize: 12.5,
-        fontWeight: 500,
-        color: "var(--text-secondary)",
-        background: "transparent",
-        border: HAIRLINE,
-        borderRadius: "var(--radius-sm)",
-        padding: "6px 11px",
-        cursor: "pointer",
-      }}
-    >
-      {Icon && <Icon size={13} strokeWidth={2} />}
-      {children}
-    </button>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// 1. Profile
-// ---------------------------------------------------------------------------
-
-type Fetch<T> =
-  | { kind: "loading" }
-  | { kind: "error"; message: string }
-  | { kind: "ok"; value: T };
-
-function ProfileSection(): React.ReactElement {
-  const [state, setState] = useState<Fetch<UserProfile>>({ kind: "loading" });
-
-  const load = useCallback((): void => {
-    setState({ kind: "loading" });
-    void getMe().then((res) => {
-      if (isError(res)) {
-        setState({ kind: "error", message: res.error.message ?? "Could not load profile." });
-        return;
-      }
-      setState({ kind: "ok", value: res.data });
-    });
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const initial = useMemo(() => {
-    if (state.kind !== "ok") return "U";
-    const src = (state.value.full_name && state.value.full_name.trim()) || state.value.email || "";
-    return (src.trim()[0] || "U").toUpperCase();
-  }, [state]);
-
-  return (
-    <Group
-      first
-      title="Profile"
-      description="Your Pivot account. Details are read-only for now — use Report a bug to request a change."
-    >
-      {state.kind === "loading" && (
-        <Muted>Loading your profile…</Muted>
-      )}
-
-      {state.kind === "error" && (
-        <div className="flex items-center justify-between" style={{ padding: "16px 2px" }}>
-          <span style={{ fontSize: 13, color: "var(--color-loss, #dc2626)" }}>{state.message}</span>
-          <GhostButton onClick={load} Icon={RefreshCw}>Retry</GhostButton>
-        </div>
-      )}
-
-      {state.kind === "ok" && (
-        <>
-          <div className="flex items-center gap-4" style={{ padding: "16px 2px", borderBottom: HAIRLINE }}>
-            <div
-              aria-hidden={true}
-              className="flex shrink-0 items-center justify-center"
-              style={{
-                // Matches the topbar account avatar (AppShell AccountMenu),
-                // scaled up: bordered light circle, grey initial, UI font.
-                width: 52,
-                height: 52,
-                borderRadius: "var(--radius-pill)",
-                background: "var(--bg-primary)",
-                border: "1px solid var(--glass-border)",
-                color: "var(--text-secondary)",
-                fontFamily: "var(--font-ui)",
-                fontSize: 19,
-                fontWeight: 500,
-              }}
-            >
-              {initial}
-            </div>
-            <div className="min-w-0">
-              <div style={{ fontSize: 15.5, fontWeight: 600, color: "var(--text-primary)" }}>
-                {state.value.full_name?.trim() || "Pivot user"}
-              </div>
-              <div style={{ fontSize: 13, color: "var(--text-tertiary)" }}>{state.value.email}</div>
-            </div>
-          </div>
-
-          <ValueRow label="Full name" value={state.value.full_name?.trim() || "—"} />
-          <ValueRow label="Email" value={state.value.email} />
-          <ValueRow label="Account ID" value={state.value.id} mono />
-        </>
-      )}
-    </Group>
-  );
-}
-
-function Muted({ children }: { children: React.ReactNode }): React.ReactElement {
-  return (
-    <div style={{ padding: "16px 2px", fontSize: 13, color: "var(--text-tertiary)", borderBottom: HAIRLINE }}>
-      {children}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// 2. Appearance
-// ---------------------------------------------------------------------------
-
-function AppearanceSection({
-  theme,
-  onChooseTheme,
-}: {
-  theme: Theme;
-  onChooseTheme: (t: Theme) => void;
-}): React.ReactElement {
-  return (
-    <Group
-      first
-      title="Appearance"
-      description="System follows your device's light/dark setting and updates live."
-    >
-      <Row
-        label="Theme"
-        hint="Applies across the whole app instantly."
-        align="start"
-        control={
-          <Segmented<Theme>
-            ariaLabel="Theme"
-            value={theme}
-            onChange={onChooseTheme}
-            options={[
-              { value: "light", label: "Light", Icon: Sun },
-              { value: "dark", label: "Dark", Icon: Moon },
-              { value: "system", label: "System", Icon: Monitor },
-            ]}
-          />
-        }
-      />
-    </Group>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// 3. Trading
-// ---------------------------------------------------------------------------
-
-function TradingSection({
-  tradingMode,
-  onChooseTradingMode,
-}: {
-  tradingMode: TradingMode;
-  onChooseTradingMode: (m: TradingMode) => void | Promise<void>;
-}): React.ReactElement {
-  const isPaper = tradingMode === "paper";
-  return (
-    <>
-      <Group
-        first
-        title="Trading mode"
-        description="Switches the entire app's data source — portfolio, holdings, orders and P&L — and routes any buys/sells to the matching book."
-      >
-        <Row
-          label={isPaper ? "Paper trading" : "Real (live) data"}
-          hint={
-            isPaper
-              ? "Orders fill against a simulated paper book. Nothing reaches a broker."
-              : "Reads live broker / market data. Orders are registered for you to confirm in your broker app."
-          }
-          control={
-            <div className="flex items-center" style={{ gap: 10 }}>
-              <span
-                style={{
-                  fontSize: 12.5,
-                  fontWeight: 600,
-                  color: !isPaper ? "var(--text-primary)" : "var(--text-tertiary)",
-                }}
-              >
-                Real
-              </span>
-              <Switch
-                checked={isPaper}
-                onCheckedChange={(checked) => void onChooseTradingMode(checked ? "paper" : "real")}
-                aria-label="Toggle paper trading mode"
-                className="data-[state=checked]:bg-[#d97706]"
-              />
-              <span
-                style={{
-                  fontSize: 12.5,
-                  fontWeight: 600,
-                  color: isPaper ? "var(--color-warn, #d97706)" : "var(--text-tertiary)",
-                }}
-              >
-                Paper
-              </span>
-            </div>
-          }
-        />
-      </Group>
-
-      <Group title="How orders work">
-        <ValueRow label="Base currency" value="INR (₹) — Indian markets" />
-        <ValueRow label="Markets" value="NSE & BSE equities, indices, NSE options (NFO)" />
-        <Callout Icon={ShieldCheck} tone="positive">
-          Pivot <Strong>registers</Strong> orders and arms automations — it never auto-executes against
-          your live broker. You confirm and place every real trade yourself in your broker app. Paper
-          trading is fully simulated.
-        </Callout>
-      </Group>
-    </>
-  );
-}
-
-function Strong({ children }: { children: React.ReactNode }): React.ReactElement {
-  return <strong style={{ color: "var(--text-primary)", fontWeight: 600 }}>{children}</strong>;
-}
-
-// ---------------------------------------------------------------------------
-// 4. Brokers
-// ---------------------------------------------------------------------------
-
-function BrokersSection({ onOpenBroker }: { onOpenBroker: () => void }): React.ReactElement {
-  const [state, setState] = useState<Fetch<Broker[]>>({ kind: "loading" });
-
-  const load = useCallback((): void => {
-    setState({ kind: "loading" });
-    void listBrokers().then((res) => {
-      if (isError(res)) {
-        setState({ kind: "error", message: res.error.message ?? "Could not load brokers." });
-        return;
-      }
-      setState({ kind: "ok", value: res.data.brokers });
-    });
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  return (
-    <Group
-      first
-      title="Brokers & connections"
-      description="Connect a broker so Pivot can read live quotes, holdings and F&O. Zerodha Kite is the primary data source."
-      action={
-        <button
-          type="button"
-          onClick={onOpenBroker}
-          className="inline-flex shrink-0 items-center gap-1.5"
-          style={{
-            fontSize: 13,
-            fontWeight: 600,
-            // --bg-base is the correct inverse of the --text-primary background
-            // (white↔black across themes). --primary-foreground is a bare HSL
-            // triplet meant for hsl(), so using it raw yields an invalid color
-            // and the label falls back to near-black — invisible on the button.
-            color: "var(--bg-base)",
-            background: "var(--text-primary)",
-            border: "none",
-            borderRadius: "var(--radius-sm)",
-            padding: "7px 13px",
-            cursor: "pointer",
-          }}
-        >
-          <Plug size={14} strokeWidth={2} /> Manage
-        </button>
-      }
-    >
-      {state.kind === "loading" && <Muted>Checking broker connections…</Muted>}
-
-      {state.kind === "error" && (
-        <div className="flex items-center justify-between" style={{ padding: "16px 2px" }}>
-          <span style={{ fontSize: 13, color: "var(--color-loss, #dc2626)" }}>{state.message}</span>
-          <GhostButton onClick={load} Icon={RefreshCw}>Retry</GhostButton>
-        </div>
-      )}
-
-      {state.kind === "ok" &&
-        (state.value.length === 0 ? (
-          <Muted>No brokers available.</Muted>
-        ) : (
-          state.value.map((b) => {
-            const connected = !!b.status?.connected;
-            const mock = b.status?.mock_mode;
-            return (
-              <div
-                key={b.id}
-                className="flex items-center gap-3"
-                style={{ padding: "13px 2px", borderBottom: HAIRLINE }}
-              >
-                <div
-                  className="flex shrink-0 items-center justify-center"
-                  style={{
-                    width: 34,
-                    height: 34,
-                    borderRadius: "var(--radius-sm)",
-                    background: "var(--bg-elevated)",
-                    overflow: "hidden",
-                  }}
-                >
-                  <img
-                    src={b.logo || `/brokers/${b.id}.svg`}
-                    alt=""
-                    width={21}
-                    height={21}
-                    style={{ objectFit: "contain" }}
-                    onError={(e) => {
-                      (e.currentTarget as HTMLImageElement).style.display = "none";
-                    }}
-                  />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)" }}>
-                    {b.name}
-                  </div>
-                  <div style={{ fontSize: 12, color: "var(--text-tertiary)" }}>
-                    {connected
-                      ? mock
-                        ? "Connected (mock data)"
-                        : `Connected${b.status?.broker_user_id ? ` · ${b.status.broker_user_id}` : ""}`
-                      : "Not connected"}
-                  </div>
-                </div>
-                <StatusPill connected={connected} />
-              </div>
-            );
-          })
-        ))}
-    </Group>
-  );
-}
-
-function StatusPill({ connected }: { connected: boolean }): React.ReactElement {
+function BrokerLogo({ broker }: { broker: Broker }): React.ReactElement {
+  const [failed, setFailed] = useState(false);
   return (
     <span
-      className="inline-flex shrink-0 items-center gap-1.5"
-      style={{
-        fontSize: 11.5,
-        fontWeight: 600,
-        padding: "3px 9px",
-        borderRadius: "var(--radius-pill)",
-        color: connected ? "var(--color-profit, #059669)" : "var(--text-tertiary)",
-        background: connected ? "rgba(5,150,105,0.12)" : "var(--surface-active)",
-      }}
+      className="flex shrink-0 items-center justify-center overflow-hidden"
+      style={{ width: 34, height: 34, borderRadius: RADIUS, background: FILL, fontSize: 13, fontWeight: 600, color: "var(--text-secondary)" }}
     >
-      {connected && <Check size={12} strokeWidth={2.5} />}
-      {connected ? "Connected" : "Inactive"}
+      {failed ? (
+        broker.name.charAt(0)
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={broker.logo || `/brokers/${broker.id}.svg`} alt="" width={20} height={20} style={{ objectFit: "contain" }} onError={() => setFailed(true)} />
+      )}
     </span>
   );
 }
 
-// ---------------------------------------------------------------------------
-// 5. Notifications
-// ---------------------------------------------------------------------------
+function TradingSection({
+  mode,
+  onChooseMode,
+  onOpenBroker,
+}: {
+  mode: TradingMode;
+  onChooseMode: (m: TradingMode) => void | Promise<void>;
+  onOpenBroker: () => void;
+}): React.ReactElement {
+  const [brokers, setBrokers] = useState<Fetch<Broker[]>>({ kind: "loading" });
 
-function NotificationsSection(): React.ReactElement {
-  const [prefs, setPrefs] = useState<NotifPrefs>(NOTIF_DEFAULTS);
-
-  useEffect(() => {
-    setPrefs(readNotifPrefs());
-  }, []);
-
-  const toggle = useCallback((key: keyof NotifPrefs) => {
-    setPrefs((prev) => {
-      const next = { ...prev, [key]: !prev[key] };
-      writeNotifPrefs(next);
-      return next;
+  const load = useCallback((): void => {
+    setBrokers({ kind: "loading" });
+    void listBrokers().then((res) => {
+      if (isError(res)) setBrokers({ kind: "error", message: res.error.message || "Could not load brokers." });
+      else setBrokers({ kind: "ok", value: res.data.brokers });
     });
   }, []);
 
-  const switchFor = (key: keyof NotifPrefs): React.ReactElement => (
-    <Switch checked={prefs[key]} onCheckedChange={() => toggle(key)} aria-label={key} />
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const list =
+    brokers.kind === "ok"
+      ? [...brokers.value].sort((a, b) => Number(!!b.status?.connected) - Number(!!a.status?.connected))
+      : [];
+  const connected = list.filter((b) => b.status?.connected).length;
+
+  return (
+    <>
+      <Group first title="Trading">
+        <Row
+          last
+          label="Trading mode"
+          hint={
+            mode === "paper"
+              ? "Orders fill in a simulated paper book."
+              : "Portfolio and P&L come from your connected broker. Pivot does not place live orders."
+          }
+          control={<ModeToggle value={mode} onChange={(m) => void onChooseMode(m)} />}
+        />
+      </Group>
+
+      <Group
+        title="Brokers"
+        description={brokers.kind === "ok" ? (connected ? `${connected} of ${list.length} connected` : "None connected") : undefined}
+        action={<Btn onClick={onOpenBroker}>Manage</Btn>}
+      >
+        {brokers.kind === "loading" && <Muted>Checking broker connections…</Muted>}
+        {brokers.kind === "error" && <LoadError message={brokers.message} onRetry={load} />}
+        {brokers.kind === "ok" && list.length === 0 && <Muted>No brokers are available.</Muted>}
+        {list.map((b, i) => {
+          const on = !!b.status?.connected;
+          const detail = on
+            ? b.status?.mock_mode
+              ? "Connected with mock data"
+              : `Connected${b.status?.broker_user_id ? ` · ${b.status.broker_user_id}` : ""}`
+            : "Not connected";
+          return (
+            <div
+              key={b.id}
+              className="flex items-center justify-between gap-4"
+              style={{ padding: "14px 0", borderBottom: i === list.length - 1 ? "none" : HAIRLINE }}
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                <BrokerLogo broker={b} />
+                <div className="min-w-0">
+                  <div style={{ fontSize: 14.5, color: "var(--text-primary)" }}>{b.name}</div>
+                  <div style={{ marginTop: 2, fontSize: 13, color: "var(--text-tertiary)" }}>{detail}</div>
+                </div>
+              </div>
+              {on ? (
+                <span
+                  className="inline-flex shrink-0 items-center gap-1.5"
+                  style={{
+                    height: 26,
+                    padding: "0 10px",
+                    borderRadius: RADIUS,
+                    fontSize: 12.5,
+                    fontWeight: 500,
+                    color: "var(--color-profit, #059669)",
+                    background: "color-mix(in srgb, var(--color-profit, #059669) 12%, transparent)",
+                  }}
+                >
+                  <Check size={13} strokeWidth={2.5} aria-hidden={true} />
+                  Connected
+                </span>
+              ) : (
+                <Btn onClick={onOpenBroker}>Connect</Btn>
+              )}
+            </div>
+          );
+        })}
+      </Group>
+    </>
   );
+}
+
+// ---------------------------------------------------------------------------
+// 6. Notifications
+// ---------------------------------------------------------------------------
+
+type NotifKey =
+  | "alertDesktop"
+  | "alertSound"
+  | "paperFills"
+  | "strategySignals"
+  | "economicEvents"
+  | "earnings"
+  | "weeklySummary"
+  | "productUpdates";
+
+type NotifPrefs = Record<NotifKey, boolean>;
+
+const NOTIF_DEFAULTS: NotifPrefs = {
+  alertDesktop: true,
+  alertSound: false,
+  paperFills: true,
+  strategySignals: true,
+  economicEvents: true,
+  earnings: false,
+  weeklySummary: false,
+  productUpdates: true,
+};
+
+const NOTIF_GROUPS: { title: string; rows: { key: NotifKey; label: string }[] }[] = [
+  {
+    title: "Alerts",
+    rows: [
+      { key: "alertDesktop", label: "Desktop notifications" },
+      { key: "alertSound", label: "Sound" },
+    ],
+  },
+  {
+    title: "Trading",
+    rows: [
+      { key: "paperFills", label: "Paper order fills" },
+      { key: "strategySignals", label: "Strategy signals" },
+    ],
+  },
+  {
+    title: "Markets",
+    rows: [
+      { key: "economicEvents", label: "Economic events" },
+      { key: "earnings", label: "Earnings for your watchlist" },
+    ],
+  },
+  {
+    title: "Email",
+    rows: [
+      { key: "weeklySummary", label: "Weekly portfolio summary" },
+      { key: "productUpdates", label: "Product updates" },
+    ],
+  },
+];
+
+/** The chart reads the alert switches from here (same origin via /chart-app). */
+const CHART_NOTIF_KEY = "pivot:notif-prefs";
+
+function mirrorToChart(p: NotifPrefs): void {
+  try {
+    localStorage.setItem(CHART_NOTIF_KEY, JSON.stringify({ alertDesktop: p.alertDesktop, alertSound: p.alertSound }));
+  } catch {
+    /* the chart falls back to its own widget settings */
+  }
+}
+
+function NotificationsSection(): React.ReactElement {
+  const [prefs, setPrefs] = useState<Fetch<NotifPrefs>>({ kind: "loading" });
+  const [blocked, setBlocked] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const load = useCallback((): void => {
+    setPrefs({ kind: "loading" });
+    void getUserSettings().then((res) => {
+      if (isError(res)) {
+        setPrefs({ kind: "error", message: res.error.message || "Could not load your notification settings." });
+        return;
+      }
+      const stored = (res.data.settings.notifications ?? {}) as Partial<NotifPrefs>;
+      const next = { ...NOTIF_DEFAULTS, ...stored };
+      mirrorToChart(next);
+      setPrefs({ kind: "ok", value: next });
+    });
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const set = async (key: NotifKey, on: boolean): Promise<void> => {
+    if (prefs.kind !== "ok") return;
+    setSaveError(null);
+    if (key === "alertDesktop" && on && typeof window !== "undefined" && "Notification" in window) {
+      // Ask at the moment the person turns it on, never on page load.
+      const perm = Notification.permission === "default" ? await Notification.requestPermission() : Notification.permission;
+      if (perm !== "granted") {
+        setBlocked(true);
+        return;
+      }
+      setBlocked(false);
+    }
+    const before = prefs.value;
+    const next = { ...before, [key]: on };
+    setPrefs({ kind: "ok", value: next });
+    mirrorToChart(next);
+    const res = await patchUserSettings({ notifications: { [key]: on } });
+    if (isError(res)) {
+      setPrefs({ kind: "ok", value: before });
+      mirrorToChart(before);
+      setSaveError("Could not save. Try again.");
+    }
+  };
+
+  if (prefs.kind !== "ok") {
+    return (
+      <Group first title="Notifications">
+        {prefs.kind === "loading" ? <Muted>Loading…</Muted> : <LoadError message={prefs.message} onRetry={load} />}
+      </Group>
+    );
+  }
 
   return (
     <Group
       first
       title="Notifications"
-      description="Choose what Pivot tells you about. Preferences are saved on this device."
+      action={saveError ? <span style={{ fontSize: 12.5, color: DANGER }}>{saveError}</span> : undefined}
     >
-      <Row
-        label="Trigger & alert hits"
-        hint="When a price alert or automation condition you set fires."
-        control={switchFor("triggerAlerts")}
-      />
-      <Row
-        label="Agent runs"
-        hint="When an automation registers an order or completes a run."
-        control={switchFor("agentRuns")}
-      />
-      <Row
-        label="Watchlist price moves"
-        hint="Large intraday moves on stocks you've looked at recently."
-        control={switchFor("priceMoves")}
-      />
-      <Row
-        label="Product updates"
-        hint="New features and improvements to Pivot."
-        control={switchFor("productUpdates")}
-      />
+      {NOTIF_GROUPS.map((g, gi) => (
+        <section key={g.title} style={{ marginTop: gi === 0 ? 14 : 30 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-tertiary)" }}>{g.title}</div>
+          {g.rows.map((r, ri) => (
+            <Row
+              key={r.key}
+              last={ri === g.rows.length - 1}
+              label={r.label}
+              hint={
+                r.key === "alertDesktop" && blocked ? (
+                  <span style={{ color: DANGER }}>Your browser is blocking notifications for this site.</span>
+                ) : undefined
+              }
+              control={
+                <Switch
+                  checked={prefs.value[r.key]}
+                  onCheckedChange={(on) => void set(r.key, on)}
+                  aria-label={r.label}
+                />
+              }
+            />
+          ))}
+        </section>
+      ))}
     </Group>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// 6. Privacy & Data
-// ---------------------------------------------------------------------------
-
-function PrivacySection({ onLogout }: { onLogout: () => void }): React.ReactElement {
-  return (
-    <>
-      <Group first title="Privacy & data" description="Your data, and the terms you're using Pivot under.">
-        <LinkRow label="Privacy Policy" hint="How we handle your data." href="/privacy" external Icon={ShieldCheck} />
-        <LinkRow label="Terms of Service" hint="The agreement you accepted." href="/terms" external Icon={FileText} />
-      </Group>
-
-      <Group title="Session">
-        <LinkRow label="Log out" hint="Sign out of Pivot on this device." onClick={onLogout} danger Icon={LogOut} />
-      </Group>
-    </>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// 7. About
-// ---------------------------------------------------------------------------
-
-function AboutSection({
-  onOpenShortcuts,
-}: {
-  onOpenShortcuts?: () => void;
-}): React.ReactElement {
-  return (
-    <>
-      <Group first title="About Pivot">
-        <div style={{ padding: "4px 0 14px", borderBottom: HAIRLINE }}>
-          <p style={{ fontSize: 13.5, lineHeight: 1.65, color: "var(--text-secondary)", margin: 0 }}>
-            Pivot is a chat-first investing copilot for Indian retail investors. Describe what you want
-            in plain English (or Hinglish) and Pivot answers it with grounded market data, or builds it —
-            an automation, an options strategy, a backtest, a paper trade.
-          </p>
-        </div>
-        <ValueRow label="Version" value={APP_VERSION} />
-        {onOpenShortcuts && (
-          <LinkRow label="Keyboard shortcuts" onClick={onOpenShortcuts} Icon={Keyboard} />
-        )}
-        <Callout Icon={Info}>
-          Pivot gives you <Strong>data and frameworks</Strong>, not personalised buy/sell advice. It is
-          not a broker and not a registered advisor — every analysis is exactly that: analysis, not
-          financial advice.
-        </Callout>
-      </Group>
-    </>
   );
 }
