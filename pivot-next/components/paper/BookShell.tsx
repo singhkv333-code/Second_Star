@@ -86,7 +86,7 @@ export function BookShell({
         >
           {status ?? "Simulated · no order reaches a broker"}
         </span>
-        <a
+        <Link
           href="/#chart"
           className="q-display"
           style={{
@@ -99,7 +99,7 @@ export function BookShell({
           }}
         >
           Back to the chart
-        </a>
+        </Link>
       </header>
 
       {signedIn === null ? null : signedIn ? (
@@ -124,9 +124,9 @@ export function BookShell({
           >
             A paper book belongs to an account, not to a browser tab. Sign in on
             the chart and this page will find it.{" "}
-            <a href="/#chart" style={{ color: "var(--text-primary)" }}>
+            <Link href="/#chart" style={{ color: "var(--text-primary)" }}>
               Open the chart
-            </a>
+            </Link>
             .
           </p>
         </div>
