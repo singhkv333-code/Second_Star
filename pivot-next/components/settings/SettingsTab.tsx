@@ -1271,7 +1271,7 @@ function relativeReset(unix: number | null): string | null {
   return hours > 0 ? `Resets in ${hours} hr ${mins} min` : `Resets in ${mins} min`;
 }
 
-/** Claude's usage row: label + reset on the left, the bar, then "% used". */
+/** Usage row: label + reset on the left, the bar, then used / limit. */
 function UsageBar({
   label,
   sub,
@@ -1307,7 +1307,7 @@ function UsageBar({
         )}
       </div>
       <div style={{ fontSize: 13.5, color: "var(--text-secondary)", minWidth: 96, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-        {unlimited ? `${num(view.used)} · no limit` : `${view.pct}% used`}
+        {unlimited ? `${num(view.used)} · no limit` : `${num(view.used)} / ${num(view.limit!)} used`}
       </div>
     </div>
   );

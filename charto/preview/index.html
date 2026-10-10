@@ -10680,6 +10680,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
 .pw-credits.out { color: var(--down); }
 .pw-link { padding: 0; border: 0; background: none; font: inherit; font-weight: 600; color: var(--foreground);
   text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.pw-credits .pw-link { margin-left: 6px; }
 
 .pw-lock { display: inline-flex; align-items: center; gap: 3px; margin-left: auto; padding: 1px 6px; border-radius: 99px;
   background: var(--muted); color: var(--muted-foreground); font-size: 10.5px; font-weight: 600; }
@@ -11181,7 +11182,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/drawings.js?v=43"></script>
   <script src="./js/scene.js?v=51"></script>
   <script src="./js/panes.js?v=30"></script>
-  <script src="./js/main.js?v=170"></script>
+  <script src="./js/main.js?v=171"></script>
   <!-- the floating drawing edit toolbar — listens for charto:draw-select and
        drives js/drawings.js's setStyle/clone/lock/remove. After main.js so
        __charto and ChartSettings exist by the first selection. -->

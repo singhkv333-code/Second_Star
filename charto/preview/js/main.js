@@ -4411,12 +4411,13 @@
     for (const it of layoutMenu.querySelectorAll("[data-layout]")) {
       const L = Panes.LAYOUTS[it.dataset.layout];
       const lock = L ? Paywall.lockFor("chart.panes", L.panes) : "";
-      it.classList.toggle("pw-locked", !!lock);
+      it.classList.toggle("pw-locked", !!lock || (L && typeof Plan !== "undefined" && !Plan.allows("chart.panes", L.panes)));
       it.title = lock ? `${L.label} — ${lock}` : (L ? L.label : it.title);
     }
     for (const cell of layoutMenu.querySelectorAll(".lay-cell")) {
       const n = Number(cell.dataset.r) * Number(cell.dataset.c);
-      cell.classList.toggle("pw-locked", !!Paywall.lockFor("chart.panes", n));
+      cell.classList.toggle("pw-locked", !!Paywall.lockFor("chart.panes", n)
+        || (typeof Plan !== "undefined" && !Plan.allows("chart.panes", n)));
     }
   }
   document.addEventListener("charto:plan", () => { paintLayoutLocks(); renderIndMenu(); });

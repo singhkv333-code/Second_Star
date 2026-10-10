@@ -123,13 +123,13 @@ function PanelCard({ fixture, trigger }: { fixture: Fixture; trigger: PaywallTri
 const TRIGGERS: { label: string; note: string; fixture: Fixture; t: PaywallTrigger }[] = [
   {
     label: "Usage limit: AI credits",
-    note: "quota_exhausted. Meter, reset date, and the free way forward.",
+    note: "quota_exhausted. Meter, reset date, and available plans.",
     fixture: "free_out",
     t: { kind: "quota_exhausted", feature: "ai.credits", plan: "free", limit: 15, used: 15, resetsAt: now + 12 * DAY, upgradeTo: "pro", message: "You have used all 15 AI credits in your Free plan for this period." },
   },
   {
     label: "Plan limit: price alerts",
-    note: "plan_limit on a live-object cap. Freeing a slot is offered beside upgrading.",
+    note: "plan_limit on a live-object cap. The plan allowance is the heading.",
     fixture: "free_out",
     t: { kind: "plan_limit", feature: "alerts.price", plan: "free", limit: 20, used: 20, upgradeTo: "pro", message: "Your Free plan allows 20 price alerts." },
   },
@@ -165,7 +165,7 @@ const TRIGGERS: { label: string; note: string; fixture: Fixture; t: PaywallTrigg
   },
   {
     label: "Already on the top plan",
-    note: "No upsell to offer, so none is invented: only the real alternatives.",
+    note: "No upsell is offered when there is no higher plan.",
     fixture: "pro_plus",
     t: { kind: "quota_exhausted", feature: "ai.credits", plan: "pro_plus", limit: 500, used: 500, resetsAt: now + 9 * DAY, upgradeTo: null, message: "You have used all 500 AI credits in your Pro+ plan for this period." },
   },
@@ -368,7 +368,7 @@ function Gallery(): React.ReactElement {
           </Section>
 
           {/* ── contextual paywalls ─────────────────────────────── */}
-          <Section id="paywalls" title="Contextual paywalls" intro="One panel whose words follow the trigger: the server's own sentence, what each plan gives for that feature, and every real way forward. 'Not now' always returns the user to where they were.">
+          <Section id="paywalls" title="Contextual paywalls" intro="One panel whose heading follows the trigger, with usage and available plans below. 'Not now' always returns the user to where they were.">
             <OpenModalButtons />
             <div className="bl-gal-grid">
               {TRIGGERS.map((x) => (

@@ -348,6 +348,10 @@
   animation: bl-modal-in 0.2s var(--bl-ease);
 }
 .bl-modal--wide { width: min(760px, calc(100vw - 32px)); }
+.bl-modal:has(.bl-panel) { width: min(540px, calc(100vw - 32px)); }
+@media (min-width: 641px) {
+  .bl-modal:has(.bl-panel) { max-height: calc(100dvh - 12px); }
+}
 .bl-modal:focus { outline: none; }
 @keyframes bl-modal-in { from { opacity: 0; transform: translate(-50%, calc(-50% + 8px)) scale(0.985); } }
 .bl-modal-close { position: absolute; top: 12px; right: 12px; z-index: 2; }
@@ -375,14 +379,13 @@
   padding: 16px 24px 22px; background: var(--bl-raised);
 }
 .bl-panel-foot .bl-row-flex { justify-content: center; }
+.bl-modal .bl-panel-art { height: 120px; }
+.bl-modal .bl-panel-body { gap: 22px; padding-top: 24px; }
+.bl-modal .bl-choice { padding-block: 13px; }
+.bl-modal .bl-panel-foot { gap: 12px; padding-top: 16px; padding-bottom: 18px; }
 .bl-panel-title { margin: 0; font-family: var(--font-serif); font-weight: 400; font-size: 28px; line-height: 1.12; letter-spacing: -0.015em; }
 .bl-panel-kicker { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--bl-faint); }
 .bl-panel-inline { width: 100%; background: var(--bl-raised); border-radius: var(--bl-r-lg); box-shadow: var(--bl-pop); overflow: hidden; }
-.bl-options { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.bl-options li { display: flex; gap: 12px; padding: 12px 0; border-top: 1px solid var(--bl-rule); font-size: 14px; line-height: 1.45; color: var(--bl-muted); }
-.bl-options li:first-child { border-top: 0; }
-.bl-options li svg { flex: none; width: 17px; height: 17px; margin-top: 1px; color: var(--bl-ink); }
-.bl-options strong { color: var(--bl-ink); font-weight: 600; }
 .bl-benefits { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .bl-benefits li { display: flex; gap: 10px; font-size: 14.5px; line-height: 1.45; }
 .bl-benefits li svg { flex: none; margin-top: 2px; }

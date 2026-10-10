@@ -45,7 +45,7 @@ function Grid(): React.ReactElement {
   // 4 unlocked panes, 4 more behind the plan
   const cells = Array.from({ length: 8 }, (_, i) => ({ col: i % 4, row: Math.floor(i / 4), locked: i >= 4 }));
   return (
-    <g transform="translate(150 14)">
+    <g transform="translate(115 14)">
       {cells.map((c) => {
         const x = c.col * 64;
         const y = c.row * 52;

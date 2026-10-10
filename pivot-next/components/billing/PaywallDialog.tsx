@@ -11,17 +11,14 @@
  *   upgrade          opened on purpose (an Upgrade button), no refusal
  *   trial_ended      a trial ran out
  *
- * It always says three things: what happened (the server's own sentence),
- * what each plan would give for THIS feature, and every real way forward —
- * upgrade, wait for the reset, or free a slot — so paying is one option
- * among honest ones, not the only door. "Not now" is always there and
- * always keeps the user exactly where they were.
+ * A plan-limit refusal is the heading, followed by usage and available plans.
+ * "Not now" always keeps the user exactly where they were.
  */
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, CalendarClock, Check, Eraser, X, Zap } from "lucide-react";
-import { fmtDate, inr, num } from "@/lib/billing/format";
+import { ArrowRight, Check, X } from "lucide-react";
+import { inr, num } from "@/lib/billing/format";
 import { planById, planName, rankOf } from "@/lib/billing/catalog";
 import {
   bestSavingPct,
@@ -38,20 +35,6 @@ import { BillingToggle, UsageMeter } from "./primitives";
 import { PaywallArt } from "./art";
 import { PlanChangePanel } from "./PlanChange";
 import { BillingModal, PanelDesc, PanelTitle } from "./modal";
-
-/** The way out that costs nothing, per feature. Only real actions. */
-const FREE_WAY: Record<string, string> = {
-  "ai.credits": "Your saved chats, charts, alerts and strategies keep working while you wait.",
-  "alerts.price": "Pause or delete a price alert you no longer need to free a slot.",
-  "alerts.technical": "Pause or delete a technical alert you no longer need to free a slot.",
-  "chart.indicators": "Remove an indicator from this chart to make room.",
-  "chart.panes": "Pick a layout with fewer charts.",
-  "chart.parallel": "Close a chart tab you are not using, or continue in this one.",
-  "screens.saved": "Delete a saved screen you no longer use.",
-};
-
-/** "AI credits" stays "AI credits"; "Unlimited indicators" becomes "unlimited indicators". */
-const lowerFirst = (s: string): string => (/^.[A-Z]/.test(s) ? s : s.charAt(0).toLowerCase() + s.slice(1));
 
 function kicker(t: PaywallTrigger, cat: PublicCatalog): string {
   switch (t.kind) {
@@ -78,7 +61,9 @@ function title(t: PaywallTrigger, cat: PublicCatalog): string {
     case "quota_exhausted":
       return t.feature === "ai.credits" ? "You have used this month's AI credits" : `You have used this period's ${copy?.noun}`;
     case "plan_limit":
-      return t.limit != null ? `You are at ${num(t.limit)} ${copy?.noun}` : (copy?.title ?? "You are at your plan's limit");
+      return t.message || (t.limit != null
+        ? `Your ${planName(cat, t.plan)} plan allows ${num(t.limit)} ${copy?.noun ?? "items"}`
+        : (copy?.title ?? "You are at your plan's limit"));
     case "evicted":
       return "This chart was paused";
     case "signin":
@@ -183,10 +168,7 @@ export function PaywallPanel(props: PaywallPanelProps): React.ReactElement {
         <div className="bl-stack" style={{ gap: 8 }}>
           <span className="bl-panel-kicker">{kicker(t, cat)}</span>
           <PanelTitle>{title(t, cat)}</PanelTitle>
-          <PanelDesc>
-            {t.message ? `${t.message} ` : ""}
-            {copy?.benefit}
-          </PanelDesc>
+          {t.kind !== "plan_limit" && t.kind !== "quota_exhausted" && t.message ? <PanelDesc>{t.message}</PanelDesc> : null}
         </div>
 
         {usage && t.feature ? (
@@ -196,35 +178,6 @@ export function PaywallPanel(props: PaywallPanelProps): React.ReactElement {
             verb={t.kind === "quota_exhausted" ? "used" : "in use"}
             showReset={t.kind === "quota_exhausted"}
           />
-        ) : null}
-
-        {!isSignin && (t.kind === "quota_exhausted" || t.kind === "plan_limit" || t.kind === "evicted") ? (
-          <ul className="bl-options" aria-label="Your options">
-            {plans.length ? (
-              <li>
-                <Zap aria-hidden />
-                <span>
-                  <strong>Upgrade</strong> for{" "}
-                  {f && t.feature && chosen ? lowerFirst(featureLine(t.feature, f, chosen.features[t.feature] ?? null)) : "a higher limit"}
-                  , starting today.
-                </span>
-              </li>
-            ) : null}
-            {t.resetsAt ? (
-              <li>
-                <CalendarClock aria-hidden />
-                <span>
-                  <strong>Wait for the reset</strong> on {fmtDate(t.resetsAt)}, when your allowance refills at no cost.
-                </span>
-              </li>
-            ) : null}
-            {t.feature && FREE_WAY[t.feature] ? (
-              <li>
-                <Eraser aria-hidden />
-                <span>{FREE_WAY[t.feature]}</span>
-              </li>
-            ) : null}
-          </ul>
         ) : null}
 
         {isSignin ? (
@@ -270,7 +223,6 @@ export function PaywallPanel(props: PaywallPanelProps): React.ReactElement {
                     <span className="bl-choice-main">
                       <span className="bl-choice-name">
                         {p.name}
-                        {id === t.upgradeTo && plans.length > 1 ? <span className="bl-badge bl-badge--plain">Enough for this</span> : null}
                       </span>
                       <span className="bl-choice-sub">{line}</span>
                     </span>
