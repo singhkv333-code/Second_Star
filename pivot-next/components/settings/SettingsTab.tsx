@@ -24,6 +24,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Bell,
+  CalendarDays,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   CircleUserRound,
   CreditCard,
   Gauge,
@@ -71,6 +75,13 @@ const SECTIONS: { key: SectionKey; label: string; Icon: IconType; keywords: stri
 
 const HAIRLINE = "1px solid var(--glass-border)";
 const DANGER = "var(--color-loss, #dc2626)";
+// Fields and buttons are borderless fills, the chart's `.searchfield` look.
+// Tints of the text colour read on the rail, the pane, and in both themes.
+const FILL = "color-mix(in srgb, var(--text-primary) 5%, transparent)";
+const FILL_HOVER = "color-mix(in srgb, var(--text-primary) 9%, transparent)";
+const DANGER_FILL = "color-mix(in srgb, var(--color-loss, #dc2626) 10%, transparent)";
+const DANGER_FILL_HOVER = "color-mix(in srgb, var(--color-loss, #dc2626) 16%, transparent)";
+const RADIUS = 6;
 
 // ---------------------------------------------------------------------------
 // Dialog
@@ -102,7 +113,7 @@ export function SettingsDialog({
       <DialogContent
         // max-sm:h-[100dvh] pins the mobile full-screen sheet to the visible
         // viewport, so the phone browser's toolbar never clips the last rows.
-        className="gap-0 p-0 max-sm:h-[100dvh] sm:max-w-[980px] sm:rounded-2xl"
+        className="gap-0 p-0 max-sm:h-[100dvh] sm:max-w-[980px] sm:rounded-[10px]"
         style={{ background: "var(--bg-base)", overflow: "hidden" }}
       >
         <DialogTitle className="sr-only">Settings</DialogTitle>
@@ -112,7 +123,7 @@ export function SettingsDialog({
         <div className="flex h-full w-full min-w-0 flex-col sm:h-[80vh] sm:max-h-[720px] sm:flex-row">
           <SettingsRail active={section} onSelect={setSection} query={query} onQueryChange={setQuery} />
 
-          <div className="min-w-0 flex-1 overflow-y-auto px-5 py-6 sm:px-10 sm:py-9">
+          <div data-settings-pane className="min-w-0 flex-1 overflow-y-auto px-5 py-6 sm:px-10 sm:py-9">
             <div className="mx-auto w-full" style={{ maxWidth: 660 }}>
               {section === "profile" && <ProfileSection />}
               {section === "account" && <AccountSection />}
@@ -157,14 +168,13 @@ function SettingsRail({
       <div
         className="mr-11 flex items-center gap-2 sm:mr-0"
         style={{
-          height: 38,
-          padding: "0 12px",
-          background: "var(--bg-base)",
-          border: HAIRLINE,
-          borderRadius: 10,
+          height: 36,
+          padding: "0 11px",
+          background: FILL,
+          borderRadius: RADIUS,
         }}
       >
-        <Search size={15} strokeWidth={2} aria-hidden={true} style={{ color: "var(--text-tertiary)" }} />
+        <Search size={15} strokeWidth={2} aria-hidden={true} style={{ color: "var(--text-secondary)" }} />
         <input
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
@@ -204,7 +214,7 @@ function SettingsRail({
               className="inline-flex shrink-0 items-center gap-3 whitespace-nowrap"
               style={{
                 padding: "8px 10px",
-                borderRadius: 8,
+                borderRadius: RADIUS,
                 background: isActive ? "var(--surface-active)" : "transparent",
                 color: isActive ? "var(--text-primary)" : "var(--text-secondary)",
                 fontSize: 14,
@@ -308,7 +318,15 @@ function Row({
   );
 }
 
-type BtnVariant = "secondary" | "primary" | "danger" | "danger-outline";
+type BtnVariant = "secondary" | "primary" | "danger" | "danger-soft";
+
+const BTN_FILL: Record<BtnVariant, { bg: string; hover: string; color: string }> = {
+  secondary: { bg: FILL, hover: FILL_HOVER, color: "var(--text-primary)" },
+  // --bg-base is the inverse of --text-primary in both themes.
+  primary: { bg: "var(--text-primary)", hover: "color-mix(in srgb, var(--text-primary) 86%, transparent)", color: "var(--bg-base)" },
+  danger: { bg: DANGER, hover: "color-mix(in srgb, var(--color-loss, #dc2626) 88%, #000)", color: "#fff" },
+  "danger-soft": { bg: DANGER_FILL, hover: DANGER_FILL_HOVER, color: DANGER },
+};
 
 function Btn({
   children,
@@ -327,42 +345,61 @@ function Btn({
   title?: string;
   href?: string;
 }): React.ReactElement {
-  const palette: Record<BtnVariant, React.CSSProperties> = {
-    secondary: { background: "var(--bg-base)", color: "var(--text-primary)", border: HAIRLINE },
-    // --bg-base is the inverse of --text-primary in both themes.
-    primary: { background: "var(--text-primary)", color: "var(--bg-base)", border: "1px solid transparent" },
-    danger: { background: DANGER, color: "#fff", border: "1px solid transparent" },
-    "danger-outline": { background: "var(--bg-base)", color: DANGER, border: HAIRLINE },
-  };
+  const fill = BTN_FILL[variant];
+  const inert = disabled || busy;
   const style: React.CSSProperties = {
-    ...palette[variant],
     display: "inline-flex",
     alignItems: "center",
     gap: 6,
     height: 34,
     padding: "0 14px",
-    borderRadius: 8,
+    border: "none",
+    borderRadius: RADIUS,
+    background: fill.bg,
+    color: fill.color,
     fontSize: 13.5,
     fontWeight: 500,
     whiteSpace: "nowrap",
     textDecoration: "none",
-    cursor: disabled || busy ? "default" : "pointer",
+    cursor: inert ? "default" : "pointer",
     opacity: disabled ? 0.45 : 1,
-    boxShadow: variant === "secondary" || variant === "danger-outline" ? "0 1px 2px rgba(0,0,0,0.04)" : "none",
+    transition: "background 0.15s var(--ease-quartr)",
+  };
+  const hover = {
+    onMouseEnter: (e: React.MouseEvent<HTMLElement>) => {
+      if (!inert) e.currentTarget.style.background = fill.hover;
+    },
+    onMouseLeave: (e: React.MouseEvent<HTMLElement>) => {
+      e.currentTarget.style.background = fill.bg;
+    },
   };
   if (href && !disabled) {
     return (
-      <a href={href} target="_blank" rel="noopener noreferrer" style={style} title={title}>
+      <a href={href} target="_blank" rel="noopener noreferrer" style={style} title={title} {...hover}>
         {children}
       </a>
     );
   }
   return (
-    <button type="button" onClick={onClick} disabled={disabled || busy} title={title} style={style}>
+    <button type="button" onClick={onClick} disabled={inert} title={title} style={style} {...hover}>
       {busy && <Loader2 size={14} className="animate-spin" aria-hidden={true} />}
       {children}
     </button>
   );
+}
+
+const FIELD_WIDTH = "min(300px, 72vw)";
+
+function fieldBox(invalid: boolean, focused = false): React.CSSProperties {
+  return {
+    width: FIELD_WIDTH,
+    height: 38,
+    padding: "0 12px",
+    background: invalid ? DANGER_FILL : focused ? FILL_HOVER : FILL,
+    border: "none",
+    borderRadius: RADIUS,
+    transition: "background 0.15s var(--ease-quartr)",
+  };
 }
 
 function TextField({
@@ -372,8 +409,6 @@ function TextField({
   onCommit,
   placeholder,
   prefix,
-  type = "text",
-  max,
   invalid = false,
 }: {
   id: string;
@@ -382,31 +417,22 @@ function TextField({
   onCommit: () => void;
   placeholder?: string;
   prefix?: string;
-  type?: "text" | "date";
-  max?: string;
   invalid?: boolean;
 }): React.ReactElement {
+  const [focused, setFocused] = useState(false);
   return (
-    <div
-      className="flex items-center"
-      style={{
-        width: "min(300px, 72vw)",
-        height: 38,
-        padding: "0 12px",
-        background: "var(--bg-base)",
-        border: invalid ? `1px solid ${DANGER}` : HAIRLINE,
-        borderRadius: 8,
-      }}
-    >
+    <div className="flex items-center" style={fieldBox(invalid, focused)}>
       {prefix && <span style={{ fontSize: 14, color: "var(--text-tertiary)", marginRight: 2 }}>{prefix}</span>}
       <input
         id={id}
-        type={type}
         value={value}
-        max={max}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
-        onBlur={onCommit}
+        onFocus={() => setFocused(true)}
+        onBlur={() => {
+          setFocused(false);
+          onCommit();
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
         }}
@@ -419,9 +445,302 @@ function TextField({
           outline: "none",
           fontSize: 14,
           color: "var(--text-primary)",
-          colorScheme: "light dark",
         }}
       />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Date picker: days, months and years views; dates after `max` are disabled
+// ---------------------------------------------------------------------------
+
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const WEEKDAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+
+type Ymd = { y: number; m: number; d: number };
+
+function parseIso(iso: string): Ymd | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  return m ? { y: Number(m[1]), m: Number(m[2]) - 1, d: Number(m[3]) } : null;
+}
+const toIso = ({ y, m, d }: Ymd): string => `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+const cmp = (a: Ymd, b: Ymd): number => a.y - b.y || a.m - b.m || a.d - b.d;
+
+function DatePicker({
+  id,
+  value,
+  max,
+  onChange,
+  invalid = false,
+  placeholder = "Select date",
+}: {
+  id: string;
+  value: string;
+  max: string;
+  onChange: (iso: string) => void;
+  invalid?: boolean;
+  placeholder?: string;
+}): React.ReactElement {
+  const sel = parseIso(value);
+  const limit = parseIso(max) ?? { y: 9999, m: 11, d: 31 };
+  const [open, setOpen] = useState(false);
+  const [up, setUp] = useState(false);
+  const [view, setView] = useState<"days" | "months" | "years">("days");
+  const [cursor, setCursor] = useState<{ y: number; m: number }>({ y: 2000, m: 0 });
+  const wrap = useRef<HTMLDivElement>(null);
+
+  const show = (): void => {
+    const start = sel ?? { y: limit.y - 25, m: 0, d: 1 };
+    setCursor({ y: start.y, m: start.m });
+    // A date of birth is far from today, so an empty picker opens on years.
+    setView(sel ? "days" : "years");
+    // Open upward when the scroll pane has no room below the field.
+    const el = wrap.current;
+    const pane = el?.closest("[data-settings-pane]") as HTMLElement | null;
+    if (el && pane) {
+      const r = el.getBoundingClientRect();
+      const p = pane.getBoundingClientRect();
+      setUp(p.bottom - r.bottom < 340 && r.top - p.top > p.bottom - r.bottom);
+    }
+    setOpen(true);
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent): void => {
+      if (wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") {
+        // Close the picker, not the settings dialog around it.
+        e.stopPropagation();
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey, true);
+    };
+  }, [open]);
+
+  const pick = (d: number): void => {
+    onChange(toIso({ y: cursor.y, m: cursor.m, d }));
+    setOpen(false);
+  };
+
+  const step = (dir: -1 | 1): void => {
+    if (view === "days") {
+      const m = cursor.m + dir;
+      setCursor({ y: cursor.y + Math.floor(m / 12), m: ((m % 12) + 12) % 12 });
+    } else if (view === "months") setCursor({ ...cursor, y: cursor.y + dir });
+    else setCursor({ ...cursor, y: cursor.y + dir * 12 });
+  };
+
+  const yearStart = cursor.y - (((cursor.y % 12) + 12) % 12);
+  const canNext =
+    view === "days"
+      ? cursor.y < limit.y || (cursor.y === limit.y && cursor.m < limit.m)
+      : view === "months"
+        ? cursor.y < limit.y
+        : yearStart + 12 <= limit.y;
+
+  const title =
+    view === "days" ? `${MONTHS[cursor.m]} ${cursor.y}` : view === "months" ? `${cursor.y}` : `${yearStart} – ${yearStart + 11}`;
+
+  const cell = (on: boolean, disabled: boolean, today = false): React.CSSProperties => ({
+    height: 34,
+    border: "none",
+    borderRadius: RADIUS,
+    fontSize: 13.5,
+    fontVariantNumeric: "tabular-nums",
+    cursor: disabled ? "default" : "pointer",
+    background: on ? "var(--text-primary)" : "transparent",
+    color: on ? "var(--bg-base)" : disabled ? "var(--text-tertiary)" : "var(--text-primary)",
+    opacity: disabled ? 0.4 : 1,
+    fontWeight: on || today ? 600 : 400,
+    boxShadow: today && !on ? "inset 0 0 0 1px var(--glass-border)" : "none",
+  });
+  const hoverable = (on: boolean, disabled: boolean) => ({
+    onMouseEnter: (e: React.MouseEvent<HTMLButtonElement>) => {
+      if (!on && !disabled) e.currentTarget.style.background = FILL_HOVER;
+    },
+    onMouseLeave: (e: React.MouseEvent<HTMLButtonElement>) => {
+      if (!on) e.currentTarget.style.background = "transparent";
+    },
+  });
+
+  const days = ((): React.ReactNode[] => {
+    const first = new Date(cursor.y, cursor.m, 1).getDay();
+    const count = new Date(cursor.y, cursor.m + 1, 0).getDate();
+    const now = new Date();
+    const out: React.ReactNode[] = Array.from({ length: first }, (_, i) => <span key={`b${i}`} />);
+    for (let d = 1; d <= count; d++) {
+      const ymd = { y: cursor.y, m: cursor.m, d };
+      const on = !!sel && cmp(sel, ymd) === 0;
+      const disabled = cmp(ymd, limit) > 0;
+      const today = now.getFullYear() === ymd.y && now.getMonth() === ymd.m && now.getDate() === d;
+      out.push(
+        <button key={d} type="button" disabled={disabled} onClick={() => pick(d)} style={cell(on, disabled, today)} {...hoverable(on, disabled)}>
+          {d}
+        </button>,
+      );
+    }
+    return out;
+  })();
+
+  const navBtn = (dir: -1 | 1, label: string, enabled: boolean): React.ReactElement => (
+    <button
+      type="button"
+      aria-label={label}
+      disabled={!enabled}
+      onClick={() => step(dir)}
+      className="flex items-center justify-center"
+      style={{
+        width: 30,
+        height: 30,
+        border: "none",
+        borderRadius: RADIUS,
+        background: "transparent",
+        color: "var(--text-secondary)",
+        cursor: enabled ? "pointer" : "default",
+        opacity: enabled ? 1 : 0.3,
+      }}
+      {...hoverable(false, !enabled)}
+    >
+      {dir < 0 ? <ChevronLeft size={16} aria-hidden={true} /> : <ChevronRight size={16} aria-hidden={true} />}
+    </button>
+  );
+
+  const grid = (cells: { key: string; label: string; on: boolean; disabled: boolean; go: () => void }[]): React.ReactElement => (
+    <div className="grid grid-cols-3 gap-1">
+      {cells.map((c) => (
+        <button key={c.key} type="button" disabled={c.disabled} onClick={c.go} style={{ ...cell(c.on, c.disabled), height: 40 }} {...hoverable(c.on, c.disabled)}>
+          {c.label}
+        </button>
+      ))}
+    </div>
+  );
+
+  return (
+    <div ref={wrap} style={{ position: "relative" }}>
+      <button
+        id={id}
+        type="button"
+        onClick={() => (open ? setOpen(false) : show())}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        className="flex items-center justify-between"
+        style={{ ...fieldBox(invalid, open), cursor: "pointer", fontSize: 14, color: sel ? "var(--text-primary)" : "var(--text-tertiary)" }}
+      >
+        {sel ? `${sel.d} ${MONTHS[sel.m]} ${sel.y}` : placeholder}
+        <CalendarDays size={15} aria-hidden={true} style={{ color: "var(--text-tertiary)" }} />
+      </button>
+
+      {open && (
+        <div
+          role="dialog"
+          aria-label="Choose a date"
+          style={{
+            position: "absolute",
+            right: 0,
+            ...(up ? { bottom: "calc(100% + 6px)" } : { top: "calc(100% + 6px)" }),
+            zIndex: 20,
+            width: 292,
+            padding: 12,
+            background: "var(--bg-base)",
+            borderRadius: 8,
+            boxShadow: "0 18px 48px -12px rgba(0,0,0,0.28), 0 0 0 1px var(--glass-border)",
+          }}
+        >
+          <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
+            <button
+              type="button"
+              onClick={() => setView(view === "days" ? "years" : view === "months" ? "years" : "days")}
+              className="inline-flex items-center gap-1"
+              style={{
+                height: 30,
+                padding: "0 8px",
+                border: "none",
+                borderRadius: RADIUS,
+                background: "transparent",
+                color: "var(--text-primary)",
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+              {...hoverable(false, false)}
+            >
+              {title}
+              <ChevronDown
+                size={14}
+                aria-hidden={true}
+                style={{ color: "var(--text-tertiary)", transform: view === "days" ? "none" : "rotate(180deg)" }}
+              />
+            </button>
+            <div className="flex">
+              {navBtn(-1, "Previous", true)}
+              {navBtn(1, "Next", canNext)}
+            </div>
+          </div>
+
+          {view === "days" && (
+            <>
+              <div className="grid grid-cols-7" style={{ marginBottom: 2 }}>
+                {WEEKDAYS.map((w) => (
+                  <span key={w} style={{ height: 26, display: "grid", placeItems: "center", fontSize: 12, color: "var(--text-tertiary)" }}>
+                    {w}
+                  </span>
+                ))}
+              </div>
+              <div className="grid grid-cols-7 gap-0.5">{days}</div>
+            </>
+          )}
+
+          {view === "months" &&
+            grid(
+              MONTHS.map((name, m) => ({
+                key: name,
+                label: name.slice(0, 3),
+                on: !!sel && sel.y === cursor.y && sel.m === m,
+                disabled: cursor.y > limit.y || (cursor.y === limit.y && m > limit.m),
+                go: () => {
+                  setCursor({ ...cursor, m });
+                  setView("days");
+                },
+              })),
+            )}
+
+          {view === "years" &&
+            grid(
+              Array.from({ length: 12 }, (_, i) => yearStart + i).map((y) => ({
+                key: String(y),
+                label: String(y),
+                on: !!sel && sel.y === y,
+                disabled: y > limit.y || y < 1900,
+                go: () => {
+                  setCursor({ ...cursor, y });
+                  setView("months");
+                },
+              })),
+            )}
+
+          {sel && (
+            <div className="flex justify-end" style={{ marginTop: 10, paddingTop: 10, borderTop: HAIRLINE }}>
+              <Btn
+                onClick={() => {
+                  onChange("");
+                  setOpen(false);
+                }}
+              >
+                Clear
+              </Btn>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -663,7 +982,7 @@ function ProfileSection(): React.ReactElement {
           <Row
             label="Full name"
             htmlFor="pf-name"
-            hint={errors.full_name ? <span style={{ color: DANGER }}>{errors.full_name}</span> : "Optional"}
+            hint={errors.full_name && <span style={{ color: DANGER }}>{errors.full_name}</span>}
             control={
               <TextField
                 id="pf-name"
@@ -678,13 +997,7 @@ function ProfileSection(): React.ReactElement {
           <Row
             label="Username"
             htmlFor="pf-username"
-            hint={
-              errors.username ? (
-                <span style={{ color: DANGER }}>{errors.username}</span>
-              ) : (
-                "Letters, digits, dots and underscores."
-              )
-            }
+            hint={errors.username && <span style={{ color: DANGER }}>{errors.username}</span>}
             control={
               <TextField
                 id="pf-username"
@@ -701,15 +1014,16 @@ function ProfileSection(): React.ReactElement {
             last
             label="Date of birth"
             htmlFor="pf-dob"
-            hint={errors.dob ? <span style={{ color: DANGER }}>{errors.dob}</span> : "Optional"}
+            hint={errors.dob && <span style={{ color: DANGER }}>{errors.dob}</span>}
             control={
-              <TextField
+              <DatePicker
                 id="pf-dob"
-                type="date"
                 value={dob}
                 max={todayIso()}
-                onChange={setDob}
-                onCommit={() => commit("dob", dob)}
+                onChange={(v) => {
+                  setDob(v);
+                  commit("dob", v);
+                }}
                 invalid={!!errors.dob}
               />
             }
@@ -759,11 +1073,7 @@ function AccountSection(): React.ReactElement {
           <Row
             label="Email"
             hint={<span style={{ wordBreak: "break-all" }}>{email}</span>}
-            control={
-              <Btn disabled title="Changing your email is not available yet.">
-                Change email
-              </Btn>
-            }
+
           />
           <Row
             label="Password"
@@ -799,7 +1109,7 @@ function AccountSection(): React.ReactElement {
                   ? "Request received. We will email you to confirm before deleting anything."
                   : del === "error"
                     ? <span style={{ color: DANGER }}>The request could not be sent. Try again.</span>
-                    : "Permanently remove your account and its data."
+                    : null
             }
             control={
               del === "confirm" || del === "busy" ? (
@@ -812,7 +1122,7 @@ function AccountSection(): React.ReactElement {
                   </Btn>
                 </>
               ) : (
-                <Btn variant="danger-outline" onClick={() => setDel("confirm")} disabled={del === "sent"}>
+                <Btn variant="danger-soft" onClick={() => setDel("confirm")} disabled={del === "sent"}>
                   {del === "sent" ? "Requested" : "Request"}
                 </Btn>
               )
@@ -1036,7 +1346,7 @@ function UsageSection({ onClose }: { onClose: () => void }): React.ReactElement 
         {/* Credits summary */}
         <div
           className="flex flex-wrap items-center justify-between gap-4"
-          style={{ padding: "18px 20px", marginTop: 8, borderRadius: 12, border: HAIRLINE, background: "var(--bg-primary)" }}
+          style={{ padding: "18px 20px", marginTop: 8, borderRadius: 8, border: HAIRLINE, background: "var(--bg-primary)" }}
         >
           <div className="min-w-0">
             <div style={{ fontSize: 13, color: "var(--text-tertiary)" }}>AI credits left · {planName(cat, me.plan)} plan</div>
