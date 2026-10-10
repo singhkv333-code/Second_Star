@@ -1992,6 +1992,24 @@ body.view-only .dk-tab .x, body.view-only #dockBtn { display: none !important; }
 .dlg-nav.active svg { color: var(--primary); }
 .dlg-nav svg { width: 17px; height: 17px; flex: none; }
 .dlg.settings .dlg-body { padding-top: 2px; }
+/* The list is a PANEL, not a column of floating rows. On the off-white
+   --card the rows hung in the same paper as the form, edgeless, and the
+   selected row was a grey slab with nothing to belong to. The card is the
+   clean surface the fields already are (--popover: white / #111212), the
+   list sits on --muted flush to the left edge from the title rule to the
+   footer, and the selected row is that surface lifted back out of it. */
+.dlg.settings { background: var(--popover); }
+.dlg.settings .dlg-cols { border-top: 1px solid var(--border-soft); }
+.dlg.settings .dlg-side {
+  width: 208px; padding: 12px 10px;
+  background: var(--muted); border-right: 1px solid var(--border-soft);
+}
+.dlg.settings .dlg-nav { height: 38px; }
+.dlg.settings .dlg-nav.active {
+  background: var(--popover); border-color: var(--border-soft);
+}
+.dlg.settings .dlg-nav.active svg { color: var(--foreground); }
+.dlg.settings .dlg-body { padding: 14px 24px 18px; }
 /* A band of small caps naming what the rows under it are — TradingView's
    CANDLES / DATA MODIFICATION. It spans the table, and the first one in a
    section does not push the list down from the top of the card. */
