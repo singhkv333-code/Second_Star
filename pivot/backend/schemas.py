@@ -1,4 +1,5 @@
-from datetime import datetime
+import re
+from datetime import date, datetime
 from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
@@ -124,9 +125,69 @@ class UserResponse(BaseModel):
     is_active: bool
     is_verified: bool
     created_at: datetime
+    # Profile extras live in user_settings.settings["profile"], not on the
+    # users table, so they are filled in by the /auth/me handlers.
+    username: Optional[str] = None
+    dob: Optional[date] = None
+    avatar: Optional[str] = None
 
     class Config:
         from_attributes = True
+
+
+USERNAME_RE = re.compile(r"^[a-z0-9](?:[a-z0-9._]{1,28}[a-z0-9])$")
+AVATAR_RE = re.compile(r"^data:image/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$")
+# The client downsizes the photo to 256px before sending, which lands near
+# 20-60 KB; this ceiling only stops a raw upload from bloating the row.
+AVATAR_MAX_CHARS = 400_000
+
+
+class ProfileUpdate(BaseModel):
+    """Body for PATCH /auth/me. Only the fields sent are changed; an
+    explicit null clears an optional field."""
+    full_name: Optional[str] = Field(default=None, max_length=120)
+    username: Optional[str] = None
+    dob: Optional[date] = None
+    avatar: Optional[str] = None
+
+    @field_validator("full_name", mode="before")
+    @classmethod
+    def _strip_name(cls, v: Optional[str]) -> Optional[str]:
+        if isinstance(v, str):
+            v = v.strip()
+            return v or None
+        return v
+
+    @field_validator("username", mode="before")
+    @classmethod
+    def _check_username(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        v = str(v).strip().lstrip("@").lower()
+        if not USERNAME_RE.match(v) or ".." in v:
+            raise ValueError(
+                "username must be 3-30 characters: letters, digits, dots or "
+                "underscores, starting and ending with a letter or digit",
+            )
+        return v
+
+    @field_validator("dob")
+    @classmethod
+    def _check_dob(cls, v: Optional[date]) -> Optional[date]:
+        if v is None:
+            return None
+        if v.year < 1900 or v >= date.today():
+            raise ValueError("date of birth must be a past date after 1900")
+        return v
+
+    @field_validator("avatar")
+    @classmethod
+    def _check_avatar(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        if len(v) > AVATAR_MAX_CHARS or not AVATAR_RE.match(v):
+            raise ValueError("avatar must be a PNG, JPEG or WebP data URL under 300 KB")
+        return v
 
 
 # ─── Health Check ────────────────────────────────────────────────────

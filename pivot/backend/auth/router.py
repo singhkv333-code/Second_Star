@@ -6,6 +6,7 @@ Surface (paths kept stable so the FE doesn't move):
     POST /auth/logout            — revoke the current access token
     POST /auth/refresh           — mint a fresh access + refresh from a refresh
     GET  /auth/me                — current user profile
+    PATCH /auth/me               — edit name, username, date of birth, photo
     POST /auth/request-verify    — mint + (deferred-)send email-verify link
     POST /auth/verify-email      — consume an email-verify token
     POST /auth/forgot-password   — mint + send password-reset link (no enum)
@@ -20,7 +21,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
 from fastapi import (
@@ -61,6 +62,7 @@ from backend.schemas import (
     ForgotPasswordRequest,
     GoogleAuthRequest,
     PasswordResetConfirm,
+    ProfileUpdate,
     TokenRefreshRequest,
     TokenResponse,
     UserCreate,
@@ -248,7 +250,78 @@ def me(
     if _ph:
         _ph.set(distinct_id=str(user.id), properties={"email": user.email})
 
-    return UserResponse.model_validate(user)
+    return _user_response(user, _settings_row(db, user.id))
+
+
+def _settings_row(db: Session, user_id: int) -> Optional[UserSetting]:
+    return db.query(UserSetting).filter(UserSetting.user_id == user_id).first()
+
+
+def _user_response(user: User, row: Optional[UserSetting]) -> UserResponse:
+    """UserResponse with the profile extras folded in from user_settings."""
+    out = UserResponse.model_validate(user)
+    settings_json = row.settings if row and isinstance(row.settings, dict) else {}
+    profile = settings_json.get("profile")
+    if isinstance(profile, dict):
+        out.username = profile.get("username") or None
+        dob = profile.get("dob")
+        out.dob = date.fromisoformat(dob) if isinstance(dob, str) and dob else None
+        out.avatar = profile.get("avatar") or None
+    return out
+
+
+@router.patch("/me", response_model=UserResponse)
+def update_me(
+    body: ProfileUpdate,
+    authorization: str = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    """Edit the profile. `full_name` is a users column; username, date of
+    birth and photo live in user_settings.settings["profile"] so no schema
+    migration is needed. Only the fields present in the body change."""
+    user, _jti = _require_user_with_jti(authorization, db)
+    sent = body.model_fields_set
+
+    if "full_name" in sent:
+        user.full_name = body.full_name
+
+    row = _settings_row(db, user.id)
+    current = row.settings if row and isinstance(row.settings, dict) else {}
+    profile = dict(current.get("profile") or {})
+
+    if "username" in sent:
+        if body.username:
+            taken = (
+                db.query(UserSetting.user_id)
+                .filter(
+                    UserSetting.user_id != user.id,
+                    UserSetting.settings["profile"]["username"].as_string()
+                    == body.username,
+                )
+                .first()
+            )
+            if taken:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="That username is taken",
+                )
+        profile["username"] = body.username
+    if "dob" in sent:
+        profile["dob"] = body.dob.isoformat() if body.dob else None
+    if "avatar" in sent:
+        profile["avatar"] = body.avatar
+
+    merged = {**current, "profile": profile}
+    if row is None:
+        row = UserSetting(user_id=user.id, settings=merged)
+        db.add(row)
+    else:
+        # A new dict, so SQLAlchemy sees the JSON column change.
+        row.settings = merged
+    db.commit()
+    db.refresh(user)
+    db.refresh(row)
+    return _user_response(user, row)
 
 
 # ─── /login ─────────────────────────────────────────────────────────
