@@ -33,7 +33,6 @@ import {
   Gauge,
   Info,
   Loader2,
-  Receipt,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -171,7 +170,7 @@ function SettingsRail({
           height: 36,
           padding: "0 11px",
           background: FILL,
-          borderRadius: RADIUS,
+          borderRadius: 4,
         }}
       >
         <Search size={15} strokeWidth={2} aria-hidden={true} style={{ color: "var(--text-secondary)" }} />
@@ -1346,7 +1345,7 @@ function UsageSection({ onClose }: { onClose: () => void }): React.ReactElement 
         {/* Credits summary */}
         <div
           className="flex flex-wrap items-center justify-between gap-4"
-          style={{ padding: "18px 20px", marginTop: 8, borderRadius: 8, border: HAIRLINE, background: "var(--bg-primary)" }}
+          style={{ padding: "18px 20px", marginTop: 8, borderRadius: 8, background: "var(--bg-primary)" }}
         >
           <div className="min-w-0">
             <div style={{ fontSize: 13, color: "var(--text-tertiary)" }}>AI credits left · {planName(cat, me.plan)} plan</div>
@@ -1355,9 +1354,6 @@ function UsageSection({ onClose }: { onClose: () => void }): React.ReactElement 
               {credits && credits.limit !== null && (
                 <span style={{ fontSize: 15, fontWeight: 400, color: "var(--text-tertiary)" }}> of {num(credits.limit)}</span>
               )}
-            </div>
-            <div style={{ marginTop: 2, fontSize: 13, color: "var(--text-tertiary)" }}>
-              One credit is one prompt. Follow-ups and failed turns are free.
             </div>
           </div>
           {up ? (
@@ -1372,7 +1368,6 @@ function UsageSection({ onClose }: { onClose: () => void }): React.ReactElement 
 
       <Group
         title="Plan usage limits"
-        description={me.paywall_enabled ? undefined : "Limits are shown for reference and are not enforced yet."}
       >
         {credits && <UsageBar label="AI credits" sub={relativeReset(credits.resetsAt)} view={credits} />}
         {price && typeof price.used === "number" && (
@@ -1434,17 +1429,33 @@ const INV_STATUS: Record<string, string> = {
 
 const INVOICE_PAGE = 6;
 
+/** Line art for the plan row, in the spirit of Claude's: a pivot that branches. */
 function PlanGlyph(): React.ReactElement {
   return (
-    <svg width="44" height="44" viewBox="0 0 44 44" fill="none" aria-hidden={true} style={{ color: "var(--text-primary)", flexShrink: 0 }}>
-      <path d="M6 32 L15 22 L22 27 L31 14 L38 19" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx="15" cy="22" r="2.6" fill="var(--bg-base)" stroke="currentColor" strokeWidth="1.6" />
-      <circle cx="22" cy="27" r="2.6" fill="var(--bg-base)" stroke="currentColor" strokeWidth="1.6" />
-      <circle cx="31" cy="14" r="3.4" fill="var(--bg-base)" stroke="currentColor" strokeWidth="1.6" />
-      <circle cx="31" cy="14" r="1.2" fill="currentColor" />
+    <svg width="56" height="56" viewBox="0 0 56 56" fill="none" aria-hidden={true} style={{ color: "var(--text-primary)", flexShrink: 0 }}>
+      <g stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="28" cy="12" r="6.5" />
+        <circle cx="28" cy="12" r="2.6" />
+        <path d="M28 18.5 V46" />
+        <path d="M28 33 L17 26.5" />
+        <path d="M28 33 L39 26.5" />
+        <path d="M28 46 L17 39.5" />
+        <path d="M28 46 L39 39.5" />
+        <circle cx="14" cy="24.8" r="3.2" fill="var(--bg-base)" />
+        <circle cx="42" cy="24.8" r="3.2" fill="var(--bg-base)" />
+        <circle cx="14" cy="37.8" r="3.2" fill="var(--bg-base)" />
+        <circle cx="42" cy="37.8" r="3.2" fill="var(--bg-base)" />
+      </g>
     </svg>
   );
 }
+
+// Blue that stays readable in both themes (mixed toward the text colour).
+const LINK = "color-mix(in srgb, #2563eb 82%, var(--text-primary))";
+const BADGE_BG = "color-mix(in srgb, #3b82f6 16%, transparent)";
+
+const H2: React.CSSProperties = { fontSize: 17, fontWeight: 600, letterSpacing: "-0.01em", color: "var(--text-primary)", margin: 0 };
+const TD: React.CSSProperties = { padding: "11px 16px 11px 0", fontSize: 15, color: "var(--text-primary)", whiteSpace: "nowrap" };
 
 function BillingSection({ onClose }: { onClose: () => void }): React.ReactElement {
   const { catalog: cat, me, setMe, demo, signedIn } = useBilling();
@@ -1473,7 +1484,14 @@ function BillingSection({ onClose }: { onClose: () => void }): React.ReactElemen
   const planShown = v.state === "expired" || v.state === "incomplete" ? me.plan : (v.subPlan ?? me.plan);
   const paying = PAYING.includes(v.state);
   const hasSub = !!me.subscription && v.state !== "comp";
-  const cycleWord = v.cycle === "annual" ? "Yearly" : v.cycle === "monthly" ? "Monthly" : null;
+  const cycleLine =
+    (paying || v.state === "canceling") && v.cycle
+      ? v.cycle === "annual"
+        ? "Yearly"
+        : "Monthly"
+      : v.state === "comp"
+        ? "Granted"
+        : "No subscription";
 
   const go = (path: string): void => {
     onClose();
@@ -1523,31 +1541,42 @@ function BillingSection({ onClose }: { onClose: () => void }): React.ReactElemen
         </Btn>
       );
     }
-    if (v.state === "free") return <Btn variant="primary" onClick={() => go("/pricing")}>Upgrade</Btn>;
+    if (v.state === "free") return <Btn variant="primary" onClick={() => go("/pricing")}>Upgrade plan</Btn>;
     return null;
   })();
 
-  const list = inv.status === "ready" ? inv.data.invoices : [];
+  const ready = inv.status === "ready" ? inv.data : null;
+  const method = hasSub && ready?.payment_method ? (METHOD[ready.payment_method] ?? ready.payment_method) : null;
+  const list = hasSub && ready ? ready.invoices : [];
+
+  const tableNote = ((): React.ReactNode => {
+    if (!hasSub) return "No invoices yet. They appear here after your first payment.";
+    if (inv.status === "loading") return "Loading invoices…";
+    if (inv.status === "error") {
+      return inv.unavailable ? "Payments are not switched on yet, so there are no invoices." : null;
+    }
+    return list.length === 0 ? "No invoices yet. They appear here after your first payment." : null;
+  })();
 
   return (
     <>
       {/* Plan */}
-      <section className="flex flex-wrap items-start justify-between gap-4" style={{ paddingBottom: 28, borderBottom: HAIRLINE }}>
-        <div className="flex min-w-0 items-start gap-4">
+      <section className="flex flex-wrap items-center justify-between gap-x-6 gap-y-4">
+        <div className="flex min-w-0 items-center gap-5">
           <PlanGlyph />
           <div className="min-w-0">
-            <div style={{ fontSize: 16, fontWeight: 600, color: "var(--text-primary)" }}>{planName(cat, planShown)} plan</div>
-            {cycleWord && paying && <div style={{ marginTop: 2, fontSize: 14, color: "var(--text-primary)" }}>{cycleWord}</div>}
-            <div style={{ marginTop: 2, fontSize: 13.5, color: "var(--text-tertiary)" }}>{statusLine}</div>
+            <div style={{ fontSize: 17, fontWeight: 600, color: "var(--text-primary)" }}>{planName(cat, planShown)} plan</div>
+            <div style={{ marginTop: 3, fontSize: 15, color: "var(--text-primary)" }}>{cycleLine}</div>
+            <div style={{ marginTop: 3, fontSize: 14, color: "var(--text-tertiary)" }}>{statusLine}</div>
             {v.pending && (
-              <div style={{ marginTop: 8, fontSize: 13, color: "var(--text-secondary)" }}>
+              <div style={{ marginTop: 6, fontSize: 13.5, color: "var(--text-secondary)" }}>
                 Changing to {planName(cat, v.pending.plan)}, {v.pending.cycle === "annual" ? "yearly" : "monthly"}, on{" "}
                 {fmtDate(v.pending.at)}.{" "}
                 <button
                   type="button"
                   onClick={() => void undo()}
                   disabled={undoBusy}
-                  style={{ background: "none", border: "none", padding: 0, color: "var(--text-primary)", textDecoration: "underline", cursor: "pointer", fontSize: 13 }}
+                  style={{ background: "none", border: "none", padding: 0, color: LINK, textDecoration: "underline", cursor: "pointer", fontSize: 13.5 }}
                 >
                   Undo
                 </button>
@@ -1560,99 +1589,97 @@ function BillingSection({ onClose }: { onClose: () => void }): React.ReactElemen
       </section>
 
       {/* Payment */}
-      {hasSub && (
-        <section style={{ paddingTop: 28 }}>
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="min-w-0">
-              <h2 style={{ fontSize: 16, fontWeight: 600, color: "var(--text-primary)", margin: 0 }}>Payment</h2>
-              <p style={{ margin: "4px 0 0", fontSize: 13.5, lineHeight: 1.55, color: "var(--text-tertiary)", maxWidth: 440 }}>
-                Your payment method is charged for subscription renewals. It is held by Razorpay; Pivot never sees the details.
-              </p>
-            </div>
-            {inv.status === "ready" && !inv.data.payment_method && inv.data.manage_url && (
-              <Btn href={inv.data.manage_url}>Add payment method</Btn>
-            )}
+      <section style={{ marginTop: 52 }}>
+        <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+          <div className="min-w-0">
+            <h2 style={H2}>Payment</h2>
+            <p style={{ margin: "4px 0 0", fontSize: 14, lineHeight: 1.5, color: "var(--text-tertiary)", maxWidth: 460 }}>
+              Your default payment method is charged for subscription renewals.
+            </p>
           </div>
-          {inv.status === "loading" && <Muted>Loading payment method…</Muted>}
-          {inv.status === "error" &&
-            (inv.unavailable ? (
-              <Muted>Payments are not switched on for this server, so there is no payment method on file.</Muted>
-            ) : (
-              <LoadError message={inv.message} onRetry={() => void loadInvoices()} />
-            ))}
-          {inv.status === "ready" && inv.data.payment_method && (
-            <div className="flex items-center justify-between gap-4" style={{ paddingTop: 18 }}>
-              <div className="flex items-center gap-3">
-                <span
-                  className="flex items-center justify-center"
-                  style={{ width: 34, height: 24, borderRadius: 5, background: "var(--surface-active)", color: "var(--text-secondary)" }}
-                >
-                  <CreditCard size={15} aria-hidden={true} />
-                </span>
-                <span style={{ fontSize: 14.5, color: "var(--text-primary)" }}>
-                  {METHOD[inv.data.payment_method] ?? inv.data.payment_method}
-                </span>
-                <span
-                  style={{ fontSize: 12, fontWeight: 500, padding: "2px 8px", borderRadius: 6, background: "rgba(59,130,246,0.14)", color: "rgb(37,99,235)" }}
-                >
-                  Default
-                </span>
+          {hasSub && ready && !ready.payment_method && ready.manage_url && <Btn href={ready.manage_url}>Add payment method</Btn>}
+        </div>
+
+        {hasSub && inv.status === "error" && !inv.unavailable ? (
+          <LoadError message={inv.message} onRetry={() => void loadInvoices()} />
+        ) : (
+          <div className="flex items-center justify-between gap-4" style={{ marginTop: 22 }}>
+            <div className="flex min-w-0 items-center gap-3">
+              <span
+                className="flex shrink-0 items-center justify-center"
+                style={{ width: 30, height: 30, borderRadius: RADIUS, background: method ? "var(--text-primary)" : FILL, color: method ? "var(--bg-base)" : "var(--text-tertiary)" }}
+              >
+                <CreditCard size={16} aria-hidden={true} />
+              </span>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2" style={{ fontSize: 15, color: method ? "var(--text-primary)" : "var(--text-secondary)" }}>
+                  {hasSub && inv.status === "loading" ? "Loading…" : (method ?? "No payment method on file")}
+                  {method && (
+                    <span style={{ fontSize: 12.5, fontWeight: 500, padding: "2px 8px", borderRadius: RADIUS, background: BADGE_BG, color: LINK }}>
+                      Default
+                    </span>
+                  )}
+                </div>
+                <div style={{ marginTop: 2, fontSize: 14, color: "var(--text-tertiary)" }}>
+                  {method
+                    ? "Held by Razorpay"
+                    : inv.status === "error" && inv.unavailable
+                      ? "Payments are not switched on yet"
+                      : "Added securely through Razorpay when you subscribe"}
+                </div>
               </div>
-              {inv.data.manage_url && <Btn href={inv.data.manage_url}>Update</Btn>}
             </div>
-          )}
-        </section>
-      )}
+            {method && ready?.manage_url && <Btn href={ready.manage_url}>Update</Btn>}
+          </div>
+        )}
+      </section>
 
       {/* Invoices */}
-      <section style={{ paddingTop: 40 }}>
-        <h2 style={{ fontSize: 16, fontWeight: 600, color: "var(--text-primary)", margin: 0 }}>Invoices</h2>
-        {!hasSub ? (
-          <EmptyInvoices />
-        ) : inv.status === "loading" ? (
-          <Muted>Loading invoices…</Muted>
-        ) : inv.status === "error" ? (
-          inv.unavailable ? (
-            <Muted>Payments are not switched on for this server, so there are no invoices.</Muted>
-          ) : (
-            <LoadError message={inv.message} onRetry={() => void loadInvoices()} />
-          )
-        ) : list.length === 0 ? (
-          <EmptyInvoices />
+      <section style={{ marginTop: 52 }}>
+        <h2 style={H2}>Invoices</h2>
+        {hasSub && inv.status === "error" && !inv.unavailable ? (
+          <LoadError message={inv.message} onRetry={() => void loadInvoices()} />
         ) : (
-          <>
-            <div className="overflow-x-auto">
-              <table style={{ width: "100%", minWidth: 440, marginTop: 14, borderCollapse: "collapse", fontSize: 14 }}>
-                <thead>
-                  <tr style={{ textAlign: "left" }}>
-                    {["Date", "Total", "Status", "Actions"].map((h) => (
-                      <th key={h} scope="col" style={{ padding: "10px 0", fontWeight: 600, color: "var(--text-primary)" }}>
-                        {h}
-                      </th>
-                    ))}
+          <div className="overflow-x-auto" style={{ marginTop: 20 }}>
+            <table style={{ width: "100%", minWidth: 460, borderCollapse: "collapse", tableLayout: "fixed" }}>
+              <colgroup>
+                <col style={{ width: "34%" }} />
+                <col style={{ width: "22%" }} />
+                <col style={{ width: "18%" }} />
+                <col />
+              </colgroup>
+              <thead>
+                <tr style={{ textAlign: "left" }}>
+                  {["Date", "Total", "Status", "Actions"].map((h) => (
+                    <th key={h} scope="col" style={{ ...TD, fontWeight: 500, paddingBottom: 13 }}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {tableNote ? (
+                  <tr>
+                    <td colSpan={4} style={{ ...TD, color: "var(--text-tertiary)", fontSize: 14, whiteSpace: "normal" }}>
+                      {tableNote}
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {list.slice(0, shown).map((i) => (
+                ) : (
+                  list.slice(0, shown).map((i) => (
                     <tr key={i.id}>
-                      <td style={{ padding: "9px 0", color: "var(--text-primary)" }}>{fmtDate(i.date)}</td>
-                      <td style={{ padding: "9px 0", color: "var(--text-primary)", fontVariantNumeric: "tabular-nums" }}>
+                      <td style={TD}>{fmtDate(i.date)}</td>
+                      <td style={{ ...TD, fontVariantNumeric: "tabular-nums" }}>
                         <span className="inline-flex items-center gap-1.5">
                           {inr(i.amount)}
-                          <span title="Includes GST" aria-label="Includes GST" style={{ display: "inline-flex", color: "var(--text-tertiary)" }}>
-                            <Info size={13} aria-hidden={true} />
+                          <span title="Includes GST" aria-label="Includes GST" style={{ display: "inline-flex", color: "var(--text-secondary)" }}>
+                            <Info size={14} aria-hidden={true} />
                           </span>
                         </span>
                       </td>
-                      <td style={{ padding: "9px 0", color: "var(--text-primary)" }}>{INV_STATUS[i.status] ?? i.status}</td>
-                      <td style={{ padding: "9px 0" }}>
+                      <td style={TD}>{INV_STATUS[i.status] ?? i.status}</td>
+                      <td style={TD}>
                         {i.url ? (
-                          <a
-                            href={i.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{ color: "rgb(37,99,235)", textDecoration: "underline", textUnderlineOffset: 3 }}
-                          >
+                          <a href={i.url} target="_blank" rel="noopener noreferrer" style={{ color: LINK, textDecoration: "underline", textUnderlineOffset: 3 }}>
                             View invoice
                           </a>
                         ) : (
@@ -1660,57 +1687,40 @@ function BillingSection({ onClose }: { onClose: () => void }): React.ReactElemen
                         )}
                       </td>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {list.length > shown && (
-              <div className="flex justify-center" style={{ marginTop: 14, paddingTop: 16, borderTop: HAIRLINE }}>
-                <Btn onClick={() => setShown((n) => n + INVOICE_PAGE)}>Load more</Btn>
-              </div>
-            )}
-          </>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {list.length > shown && (
+          <div className="flex justify-center" style={{ marginTop: 14, paddingTop: 18, borderTop: HAIRLINE }}>
+            <Btn onClick={() => setShown((n) => n + INVOICE_PAGE)}>Load more</Btn>
+          </div>
         )}
       </section>
 
       {/* Cancellation */}
       {paying && (
-        <section style={{ paddingTop: 40 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 600, color: "var(--text-primary)", margin: 0 }}>Cancellation</h2>
-          <Row
-            last
-            label="Cancel plan"
-            hint={`You keep ${planName(cat, v.subPlan)} until ${fmtDate(v.renewsAt ?? v.endsAt)}.`}
-            control={
-              <Btn
-                variant="danger"
-                onClick={() => {
-                  track("cancel_started", { plan: v.subPlan });
-                  setModal({ kind: "cancel" });
-                }}
-              >
-                Cancel
-              </Btn>
-            }
-          />
+        <section style={{ marginTop: 52 }}>
+          <h2 style={H2}>Cancellation</h2>
+          <div className="flex items-center justify-between gap-4" style={{ marginTop: 20 }}>
+            <span style={{ fontSize: 15, color: "var(--text-primary)" }}>Cancel plan</span>
+            <Btn
+              variant="danger"
+              onClick={() => {
+                track("cancel_started", { plan: v.subPlan });
+                setModal({ kind: "cancel" });
+              }}
+            >
+              Cancel
+            </Btn>
+          </div>
         </section>
       )}
 
-      <p style={{ marginTop: 32, fontSize: 12, lineHeight: 1.55, color: "var(--text-tertiary)" }}>
-        Prices include GST. Payments are processed by Razorpay.
-      </p>
-
       <PlanModals modal={modal} setModal={setModal} cat={cat} me={me} demo={demo} setMe={setMe} />
     </>
-  );
-}
-
-function EmptyInvoices(): React.ReactElement {
-  return (
-    <div className="flex items-center gap-3" style={{ padding: "18px 0", fontSize: 13.5, color: "var(--text-tertiary)" }}>
-      <Receipt size={16} aria-hidden={true} />
-      No invoices yet. They appear here after your first payment.
-    </div>
   );
 }
 
