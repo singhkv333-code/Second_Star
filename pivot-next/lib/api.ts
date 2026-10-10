@@ -1735,6 +1735,16 @@ export async function updateProfile(patch: ProfilePatch): Promise<ApiResult<User
   return res;
 }
 
+/** `GET /auth/settings` — the account's preferences JSON ({} when unset). */
+export function getUserSettings(): Promise<ApiResult<{ settings: Record<string, unknown> }>> {
+  return requestLegacy<{ settings: Record<string, unknown> }>("/auth/settings");
+}
+
+/** `PATCH /auth/settings` — deep-merged into the stored JSON. */
+export function patchUserSettings(patch: Record<string, unknown>): Promise<ApiResult<{ settings: Record<string, unknown> }>> {
+  return requestLegacy<{ settings: Record<string, unknown> }>("/auth/settings", { method: "PATCH", body: patch });
+}
+
 /** `POST /auth/forgot-password` — emails a reset link. Always answers ok. */
 export function requestPasswordReset(email: string): Promise<ApiResult<{ ok: boolean }>> {
   return requestLegacy<{ ok: boolean }>("/auth/forgot-password", { method: "POST", body: { email } });

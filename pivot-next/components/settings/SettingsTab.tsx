@@ -40,9 +40,12 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
 import {
   getMe,
+  getUserSettings,
   listBrokers,
+  patchUserSettings,
   requestPasswordReset,
   submitBugReport,
   updateProfile,
@@ -142,7 +145,7 @@ export function SettingsDialog({
               {section === "trading" && (
                 <TradingSection mode={tradingMode} onChooseMode={onChooseTradingMode} onOpenBroker={onOpenBroker} />
               )}
-              {section === "notifications" && <EmptySection title="Notifications" />}
+              {section === "notifications" && <NotificationsSection />}
             </div>
           </div>
         </div>
@@ -1553,7 +1556,7 @@ function BillingSection({ onClose }: { onClose: () => void }): React.ReactElemen
   return (
     <>
       {/* Plan */}
-      <section className="flex flex-wrap items-start justify-between gap-x-6 gap-y-4">
+      <section className="flex flex-wrap items-center justify-between gap-x-6 gap-y-4">
         <div className="flex min-w-0 items-start">
           <div className="min-w-0">
             <div style={{ fontSize: 17, fontWeight: 600, color: "var(--text-primary)" }}>{planName(cat, planShown)} plan</div>
@@ -1576,7 +1579,7 @@ function BillingSection({ onClose }: { onClose: () => void }): React.ReactElemen
             )}
           </div>
         </div>
-        {planAction}
+        {planAction && <div style={{ transform: "translateY(8px)" }}>{planAction}</div>}
       </section>
 
       {/* Payment */}
@@ -1882,9 +1885,159 @@ function TradingSection({
 }
 
 // ---------------------------------------------------------------------------
-// 6. Notifications (to be filled in)
+// 6. Notifications
 // ---------------------------------------------------------------------------
 
-function EmptySection({ title }: { title: string }): React.ReactElement {
-  return <Group first title={title} />;
+type NotifKey =
+  | "alertDesktop"
+  | "alertSound"
+  | "paperFills"
+  | "strategySignals"
+  | "economicEvents"
+  | "earnings"
+  | "weeklySummary"
+  | "productUpdates";
+
+type NotifPrefs = Record<NotifKey, boolean>;
+
+const NOTIF_DEFAULTS: NotifPrefs = {
+  alertDesktop: true,
+  alertSound: false,
+  paperFills: true,
+  strategySignals: true,
+  economicEvents: true,
+  earnings: false,
+  weeklySummary: false,
+  productUpdates: true,
+};
+
+const NOTIF_GROUPS: { title: string; rows: { key: NotifKey; label: string }[] }[] = [
+  {
+    title: "Alerts",
+    rows: [
+      { key: "alertDesktop", label: "Desktop notifications" },
+      { key: "alertSound", label: "Sound" },
+    ],
+  },
+  {
+    title: "Trading",
+    rows: [
+      { key: "paperFills", label: "Paper order fills" },
+      { key: "strategySignals", label: "Strategy signals" },
+    ],
+  },
+  {
+    title: "Markets",
+    rows: [
+      { key: "economicEvents", label: "Economic events" },
+      { key: "earnings", label: "Earnings for your watchlist" },
+    ],
+  },
+  {
+    title: "Email",
+    rows: [
+      { key: "weeklySummary", label: "Weekly portfolio summary" },
+      { key: "productUpdates", label: "Product updates" },
+    ],
+  },
+];
+
+/** The chart reads the alert switches from here (same origin via /chart-app). */
+const CHART_NOTIF_KEY = "pivot:notif-prefs";
+
+function mirrorToChart(p: NotifPrefs): void {
+  try {
+    localStorage.setItem(CHART_NOTIF_KEY, JSON.stringify({ alertDesktop: p.alertDesktop, alertSound: p.alertSound }));
+  } catch {
+    /* the chart falls back to its own widget settings */
+  }
+}
+
+function NotificationsSection(): React.ReactElement {
+  const [prefs, setPrefs] = useState<Fetch<NotifPrefs>>({ kind: "loading" });
+  const [blocked, setBlocked] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const load = useCallback((): void => {
+    setPrefs({ kind: "loading" });
+    void getUserSettings().then((res) => {
+      if (isError(res)) {
+        setPrefs({ kind: "error", message: res.error.message || "Could not load your notification settings." });
+        return;
+      }
+      const stored = (res.data.settings.notifications ?? {}) as Partial<NotifPrefs>;
+      const next = { ...NOTIF_DEFAULTS, ...stored };
+      mirrorToChart(next);
+      setPrefs({ kind: "ok", value: next });
+    });
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const set = async (key: NotifKey, on: boolean): Promise<void> => {
+    if (prefs.kind !== "ok") return;
+    setSaveError(null);
+    if (key === "alertDesktop" && on && typeof window !== "undefined" && "Notification" in window) {
+      // Ask at the moment the person turns it on, never on page load.
+      const perm = Notification.permission === "default" ? await Notification.requestPermission() : Notification.permission;
+      if (perm !== "granted") {
+        setBlocked(true);
+        return;
+      }
+      setBlocked(false);
+    }
+    const before = prefs.value;
+    const next = { ...before, [key]: on };
+    setPrefs({ kind: "ok", value: next });
+    mirrorToChart(next);
+    const res = await patchUserSettings({ notifications: { [key]: on } });
+    if (isError(res)) {
+      setPrefs({ kind: "ok", value: before });
+      mirrorToChart(before);
+      setSaveError("Could not save. Try again.");
+    }
+  };
+
+  if (prefs.kind !== "ok") {
+    return (
+      <Group first title="Notifications">
+        {prefs.kind === "loading" ? <Muted>Loading…</Muted> : <LoadError message={prefs.message} onRetry={load} />}
+      </Group>
+    );
+  }
+
+  return (
+    <Group
+      first
+      title="Notifications"
+      action={saveError ? <span style={{ fontSize: 12.5, color: DANGER }}>{saveError}</span> : undefined}
+    >
+      {NOTIF_GROUPS.map((g, gi) => (
+        <section key={g.title} style={{ marginTop: gi === 0 ? 14 : 30 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-tertiary)" }}>{g.title}</div>
+          {g.rows.map((r, ri) => (
+            <Row
+              key={r.key}
+              last={ri === g.rows.length - 1}
+              label={r.label}
+              hint={
+                r.key === "alertDesktop" && blocked ? (
+                  <span style={{ color: DANGER }}>Your browser is blocking notifications for this site.</span>
+                ) : undefined
+              }
+              control={
+                <Switch
+                  checked={prefs.value[r.key]}
+                  onCheckedChange={(on) => void set(r.key, on)}
+                  aria-label={r.label}
+                />
+              }
+            />
+          ))}
+        </section>
+      ))}
+    </Group>
+  );
 }
