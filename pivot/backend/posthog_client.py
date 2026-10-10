@@ -13,6 +13,7 @@ Rules:
 """
 import atexit
 import logging
+import os
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -39,6 +40,11 @@ def init_posthog(api_key: str, host: str) -> None:
         project_api_key=api_key,
         host=host,
         enable_exception_autocapture=True,
+        # Tag every event with where it came from. POSTHOG_ENV is "production"
+        # on the VM; a laptop sharing the token reports "local", so dashboards
+        # can leave it out. charto/data/analytics.py tags the same way.
+        super_properties={"env": (os.environ.get("POSTHOG_ENV") or "local").strip(),
+                          "surface": "pivot-api"},
     )
     atexit.register(_client.shutdown)  # type: ignore[union-attr]
     logger.info("PostHog analytics initialized (host=%s)", host)
