@@ -64,6 +64,7 @@ import { meter, quotaView, subscriptionView, type QuotaView } from "@/lib/billin
 import { fmtDate, inr, num } from "@/lib/billing/format";
 import { track } from "@/lib/billing/analytics";
 import type { BillingMe, Cycle, InvoiceList, PaidPlanId, PlanId, PublicCatalog } from "@/lib/billing/types";
+import { brokerLogo } from "@/lib/publicAssets";
 
 type SectionKey = "profile" | "account" | "usage" | "billing" | "trading" | "notifications";
 
@@ -1779,7 +1780,7 @@ function BrokerLogo({ broker }: { broker: Broker }): React.ReactElement {
         broker.name.charAt(0)
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={broker.logo || `/brokers/${broker.id}.svg`} alt="" width={20} height={20} style={{ objectFit: "contain" }} onError={() => setFailed(true)} />
+        <img src={brokerLogo(broker.id, broker.logo)} alt="" width={20} height={20} style={{ objectFit: "contain" }} onError={() => setFailed(true)} />
       )}
     </span>
   );

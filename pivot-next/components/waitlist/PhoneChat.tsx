@@ -16,6 +16,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ArrowUp } from "lucide-react";
+import { PIVOT_LIGHT } from "@/lib/publicAssets";
 
 type Turn =
   | { role: "user"; text: string }
@@ -94,7 +95,7 @@ export function PhoneChat(): React.ReactElement {
           {/* Header */}
           <div className="flex items-center px-5 pb-1 pt-1">
             <img
-              src="/pivot-light.png"
+              src={PIVOT_LIGHT}
               alt="Pivot"
               width={56}
               height={56}

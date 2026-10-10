@@ -11,6 +11,7 @@
  */
 
 import { useState } from "react";
+import { brokerLogo } from "@/lib/publicAssets";
 
 // Publishable logo.dev token (pk_…) — the SAME one HomeTab uses; safe in the
 // client, it is what the backend embeds in company logo_url values. logo.dev
@@ -64,7 +65,7 @@ export function BrokerLogo({
     stage === 0 && domain
       ? logoDevUrl(domain, size)
       : stage === 1
-        ? logo || `/brokers/${brokerId}.svg`
+        ? brokerLogo(brokerId, logo) ?? null
         : null;
 
   if (src === null) {

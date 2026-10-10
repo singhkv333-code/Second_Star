@@ -10,6 +10,7 @@
  */
 
 import { cn } from "@/lib/utils";
+import { LOADER_CUBES } from "@/lib/publicAssets";
 
 export function LoadingCubes({
   size = 160,
@@ -23,7 +24,7 @@ export function LoadingCubes({
 }): React.ReactElement {
   return (
     <img
-      src="/loaders/isometric-cubes.svg"
+      src={LOADER_CUBES}
       width={size}
       height={size}
       alt={label}

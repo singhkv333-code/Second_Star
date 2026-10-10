@@ -24,6 +24,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { PIVOT_LIGHT } from "@/lib/publicAssets";
 
 export function WaitlistNav(): React.ReactElement {
   const [scrolled, setScrolled] = useState(false);
@@ -136,7 +137,7 @@ export function WaitlistNav(): React.ReactElement {
           }}
         >
           <img
-            src="/pivot-light.png"
+            src={PIVOT_LIGHT}
             alt="Pivot"
             width={55}
             height={55}

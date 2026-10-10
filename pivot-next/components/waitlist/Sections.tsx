@@ -12,6 +12,7 @@
 
 import { useEffect, useState } from "react";
 import { ArrowUp, ChevronLeft, ChevronRight, Square } from "lucide-react";
+import { PIVOT_ICON } from "@/lib/publicAssets";
 
 // ─── How it works ───────────────────────────────────────────────────────
 
@@ -834,7 +835,7 @@ function SecurityCard({ sec }: { sec: Security }): React.ReactElement {
           {sec.type}
         </span>
         <img
-          src="/pivot-icon.png"
+          src={PIVOT_ICON}
           alt="Pivot"
           width={44}
           height={44}
