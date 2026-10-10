@@ -12044,6 +12044,14 @@ def tool_workspace(ops: list | None = None) -> dict:
                 kind_of.pop(out.get("id"), None)
             fwd.append(out)
         results.append(res)
+    uid = _req.user[0] if getattr(_req, "user", None) else None
+    for o, r in zip(ops[:24], results):
+        o = o if isinstance(o, dict) else {}
+        _analytics.capture(uid, "workspace_op", {
+            "op": r.get("op"), "widget": o.get("type") or kind_of.get(r.get("id") or o.get("id")),
+            "ok": "error" not in r, "error": (str(r["error"])[:120] if "error" in r else None),
+            "has_content": bool(o.get("content")), "has_settings": bool(o.get("settings")),
+            "source": "chat", "mode": getattr(_req, "chat_mode", None)})
     if fwd:
         _view_add({"kind": "workspace", "seq": time.time_ns(), "ops": fwd})
     failed = sum(1 for r in results if "error" in r)
@@ -13660,6 +13668,24 @@ def _chart_target(sym: str, args: dict) -> dict:
         else:
             iv = next((i for s, i in getattr(_req, "chart_pairs", []) or [] if s == sym), "")
     return {"symbol": sym, "interval": iv}
+
+
+def _tool_event(call: dict, result, secs: float) -> None:
+    """`chat_tool_call` for every tool the model runs, and `strategy_saved`
+    when that tool armed one. Names and outcomes only, never arguments."""
+    name = call.get("name") or ""
+    res = result if isinstance(result, dict) else {}
+    uid = _req.user[0] if getattr(_req, "user", None) else None
+    _analytics.capture(uid, "chat_tool_call", {
+        "tool": name, "namespace": call.get("namespace"),
+        "ok": "error" not in res, "error": (str(res["error"])[:120] if "error" in res else None),
+        "ms": int(secs * 1000), "mode": getattr(_req, "chat_mode", None),
+        "symbol": getattr(_req, "symbol", None)})
+    if name == "save_strategy" and "error" not in res:
+        s = res.get("strategy") if isinstance(res.get("strategy"), dict) else res
+        _analytics.capture(uid, "strategy_saved", {
+            "source": "chat", "symbol": s.get("symbol"), "interval": s.get("interval"),
+            "side": s.get("side"), "armed": s.get("state", "armed") == "armed"})
 
 
 def run_tool(name: str, args: dict) -> dict:
@@ -15285,12 +15311,14 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
                 args = json.loads(args) if isinstance(args, str) else args
             except json.JSONDecodeError:
                 args = {}
+            t_tool = time.monotonic()
             result = run_tool(call.get("name", ""), args)
             scene_patch.extend(_scene_take())
             view_ops.extend(_view_take())
             cards.extend(_card_take())
             tool_trace.append({"name": call.get("name"), "args": args,
                                "ok": "error" not in result})
+            _tool_event(call, result, time.monotonic() - t_tool)
             wire.append({"type": "function_call", "call_id": call.get("call_id"),
                          "name": call.get("name"), "arguments": call.get("arguments"),
                          **({"namespace": call["namespace"]} if call.get("namespace") else {})})
@@ -15482,6 +15510,7 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
             # A long tool streams its own stages. It runs on THIS thread — the
             # request state is thread-local — and hands each stage up as it
             # happens; the tool's ordinary result arrives as its last event.
+            t_tool = time.monotonic()
             streamer = _STREAMING_TOOLS.get(call.get("name", ""))
             stages = streamer(**args) if streamer and isinstance(args, dict) else None
             if offered is not None and call.get("name") not in offered:
@@ -15516,6 +15545,7 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
             cards.extend(fresh)
             ok = "error" not in result
             tool_trace.append({"name": call.get("name"), "args": args, "ok": ok})
+            _tool_event(call, result, time.monotonic() - t_tool)
             # tell the client immediately: a tool landing is the only progress
             # signal there is during a multi-round turn
             yield {"type": "tool", "name": call.get("name"), "ok": ok}
@@ -18409,10 +18439,11 @@ class Handler(BaseHTTPRequestHandler):
         if meter and failed:
             _ent.refund(meter[0], "ai.credits", meter[1], client=meter[2],
                         why="error")
-        self._chat_event(done, failed, first, time.monotonic() - t0, meter is not None)
+        self._chat_event(done, failed, first, time.monotonic() - t0, meter is not None,
+                         messages)
 
     def _chat_event(self, done: dict | None, failed: bool, first: float | None,
-                    total: float, metered: bool) -> None:
+                    total: float, metered: bool, messages: list | None = None) -> None:
         """One `chat_turn` per answered turn: what a turn cost and did, never
         what was said. The latency and token columns are the triad's first two
         legs, measured in production rather than in an eval."""
@@ -18420,6 +18451,11 @@ class Handler(BaseHTTPRequestHandler):
         tools = [t.get("name") if isinstance(t, dict) else str(t)
                  for t in (d.get("tools_used") or [])]
         usage = d.get("usage") or {}
+        last = (messages or [{}])[-1] if messages else {}
+        prompt = last.get("content") if isinstance(last, dict) else ""
+        if isinstance(prompt, list):          # content parts: keep the text ones
+            prompt = " ".join(str(c.get("text") or "") for c in prompt if isinstance(c, dict))
+        prompt = str(prompt or "")
         _analytics.capture(_req.user[0] if getattr(_req, "user", None) else None, "chat_turn", {
             "mode": getattr(_req, "chat_mode", None),
             "model": d.get("model") or LLM_DEPLOYMENT,
@@ -18437,6 +18473,10 @@ class Handler(BaseHTTPRequestHandler):
                                  if isinstance(v, dict) and v.get("kind") == "workspace"),
             "cards": [c.get("kind") for c in (d.get("cards") or []) if isinstance(c, dict)][:10],
             "symbol": getattr(_req, "symbol", None),
+            "prompt": prompt[:500],
+            "prompt_chars": len(prompt),
+            "turn_index": sum(1 for m in (messages or []) if isinstance(m, dict) and m.get("role") == "user"),
+            "chat_id": getattr(_req, "chat_id", None) or None,
         })
 
     def _send_alerts(self, uid: int) -> None:
@@ -19413,13 +19453,21 @@ class Handler(BaseHTTPRequestHandler):
                         chat_id=str(body.get("chat_id") or ""),
                         arm=body.get("arm") is not False)
                 except _strategies.Unbuildable as exc:
+                    _analytics.capture(me[0], "strategy_save_refused", {"source": "card", "reason": str(exc)[:120]})
                     return self._send(400, {"error": str(exc)})
+                st = out.get("strategy") if isinstance(out, dict) and isinstance(out.get("strategy"), dict) else (out or {})
+                _analytics.capture(me[0], "strategy_saved", {
+                    "source": "card", "symbol": st.get("symbol"), "interval": st.get("interval"),
+                    "side": st.get("side"), "armed": body.get("arm") is not False})
                 return self._send(200, out)
             sid = tail.split("/")[0]
             if not sid.isdigit():
                 return self._send(404, {"error": f"no strategy route '{tail}'"})
             if tail.endswith("/delete"):
+                _analytics.capture(me[0], "strategy_updated", {"action": "delete", "source": "page"})
                 return self._send(*_strategies.api_delete(me[0], int(sid)))
+            _analytics.capture(me[0], "strategy_updated", {
+                "action": str(body.get("state") or body.get("action") or "edit")[:24], "source": "page"})
             return self._send(*_strategies.api_patch(me[0], int(sid), body))
 
         # Plans. `/plans/<id>/activate` is the ONE route on this server that

@@ -60,7 +60,7 @@ export default function RootLayout({
         {/* Product analytics and front-end error monitoring: the chart's own
             loader, so the shell and the framed chart are one visitor. It
             fetches the key from the data server and does nothing without one. */}
-        <Script src="/chart-app/js/analytics.js?v=1" strategy="afterInteractive" />
+        <Script src="/chart-app/js/analytics.js?v=2" strategy="afterInteractive" />
       </body>
     </html>
   );

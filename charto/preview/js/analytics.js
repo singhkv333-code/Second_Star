@@ -36,7 +36,10 @@
       person_profiles: "identified_only",   // anonymous browsing makes no person
       capture_exceptions: true,             // front-end errors, for monitoring
     });
-    window.posthog.register({ surface: CHART ? (window.top === window ? "chart" : "chart-frame") : "shell" });
+    window.posthog.register({
+      surface: CHART ? (window.top === window ? "chart" : "chart-frame") : "shell",
+      env: cfg.env || "local",
+    });
   }
 
   function identify(user) {
@@ -68,6 +71,34 @@
     } catch { /* offline: stay anonymous */ }
   }
 
+  /* Widgets the user opens or closes. The dock announces every layout change
+   * (charto:dock); comparing the widget set before and after names what came
+   * and went. An open within a moment of the chat applying ops is the chat's
+   * (data/analytics.py also logs it server-side as workspace_op). */
+  let lastChatOps = 0;
+  let widgets = null;
+  function watchDock() {
+    if (typeof Dock === "undefined" || !Dock.agent) return;
+    if (typeof AgentWS !== "undefined" && !AgentWS.__tracked) {
+      const apply = AgentWS.apply;
+      AgentWS.apply = function () { lastChatOps = Date.now(); return apply.apply(this, arguments); };
+      AgentWS.__tracked = true;
+    }
+    const snap = () => {
+      const m = new Map();
+      try { for (const w of Dock.agent.manifest()) m.set(w.id, w.type); } catch { /* not ready */ }
+      return m;
+    };
+    widgets = snap();
+    document.addEventListener("charto:dock", () => {
+      const now = snap();
+      const source = Date.now() - lastChatOps < 3000 ? "chat" : "user";
+      for (const [id, type] of now) if (!widgets.has(id)) window.posthog.capture("widget_opened", { widget: type, source });
+      for (const [id, type] of widgets) if (!now.has(id)) window.posthog.capture("widget_closed", { widget: type, source });
+      widgets = now;
+    });
+  }
+
   async function start() {
     let cfg = {};
     try {
@@ -77,6 +108,10 @@
     if (!cfg || !cfg.key || !cfg.host) return;
     load(cfg);
     whoAmI();
+    if (CHART) {
+      if (document.readyState === "complete") watchDock();
+      else addEventListener("load", watchDock, { once: true });
+    }
   }
 
   start();

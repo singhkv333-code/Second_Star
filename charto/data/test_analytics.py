@@ -44,7 +44,8 @@ def test_capture_shapes_and_never_raises(monkeypatch):
     ev, who, props = fake.events[0]
     assert (ev, who, props["surface"], props["mode"]) == ("chat_turn", "charto:7", "charto", "chat")
     assert fake.events[1][2]["$process_person_profile"] is False   # anonymous: no person
-    assert analytics.config() == {"key": "phc_test", "host": "https://us.i.posthog.com"}
+    monkeypatch.delenv("POSTHOG_ENV", raising=False)
+    assert analytics.config() == {"key": "phc_test", "host": "https://us.i.posthog.com", "env": "local"}
 
     class _Boom:
         def capture(self, *a, **k):
@@ -83,3 +84,42 @@ def test_a_chat_turn_reports_cost_and_tools(monkeypatch):
     assert (p["input_tokens"], p["first_text_s"], p["total_s"], p["cards"]) == (1200, 1.5, 4.25, ["screen"])
     h._chat_event({"type": "done", "error": "model timed out"}, True, None, 30.0, True)
     assert fake.events[-1][2]["ok"] is False and "timed out" in fake.events[-1][2]["error"]
+
+
+def test_tool_calls_strategies_and_workspace_ops(monkeypatch):
+    fake = _with_fake(monkeypatch)
+    monkeypatch.setenv("POSTHOG_ENV", "production")
+    server._req.user = (9, "x@y.z")
+    server._req.chat_mode = "execution"
+    server._tool_event({"name": "save_strategy", "namespace": "paper_strategies"},
+                       {"id": 3, "symbol": "HDFCBANK", "interval": "5m", "side": "BUY", "state": "armed"}, 0.42)
+    server._tool_event({"name": "set_alert"}, {"error": "price required"}, 0.01)
+    names = [(e, p.get("tool")) for e, _, p in fake.events]
+    assert names == [("chat_tool_call", "save_strategy"), ("strategy_saved", None), ("chat_tool_call", "set_alert")]
+    assert fake.events[0][2]["ms"] == 420 and fake.events[0][2]["env"] == "production"
+    assert fake.events[1][2]["interval"] == "5m" and fake.events[2][2]["ok"] is False
+
+    fake.events.clear()
+    server._req.chat_mode = "chat"
+    server._req.widget_catalog = [{"type": "notes", "title": "Notes", "single": False, "linkable": True,
+                                   "settings": [], "writes": {"text": "…"}}]
+    server._req.workspace = {"widgets": [], "ack": []}
+    server._req.ws_opened = {}
+    server.tool_workspace([{"op": "open", "type": "notes", "content": {"text": "plan"}},
+                           {"op": "open", "type": "rocket"}])
+    server._view_take()
+    ops = [(p["op"], p["widget"], p["ok"], p["has_content"]) for e, _, p in fake.events if e == "workspace_op"]
+    assert ops == [("open", "notes", True, True), ("open", "rocket", False, False)]
+
+
+def test_chat_turn_carries_the_prompt(monkeypatch):
+    fake = _with_fake(monkeypatch)
+    server._req.user = (5, "a@b.c")
+    server._req.chat_id = "c-1"
+    h = object.__new__(server.Handler)
+    msgs = [{"role": "user", "content": "first"}, {"role": "assistant", "content": "ok"},
+            {"role": "user", "content": "Mark the opening range on HDFC"}]
+    h._chat_event({"type": "done"}, False, 1.0, 2.0, False, msgs)
+    p = fake.events[-1][2]
+    assert (p["prompt"], p["prompt_chars"], p["turn_index"], p["chat_id"]) == (
+        "Mark the opening range on HDFC", 30, 2, "c-1")

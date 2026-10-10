@@ -4,6 +4,9 @@ Configured by the environment, never by source:
 
     POSTHOG_PROJECT_TOKEN   the project's ingestion token (phc_…); empty = off
     POSTHOG_HOST            ingestion host, default https://us.i.posthog.com
+    POSTHOG_ENV             tag on every event ("production" on the VM, else
+                            "local"), so a dashboard can leave out laptops
+                            and test runs that share the same token
 
 Both are in /etc/pivot/runtime.env on the VM, the file Pivot's API reads for
 the same project (pivot/backend/posthog_client.py), so the two services report
@@ -85,11 +88,15 @@ def _flush_on_sigterm() -> None:
         pass                    # not the main thread (tests): atexit still flushes
 
 
+def _env() -> str:
+    return (os.environ.get("POSTHOG_ENV") or "local").strip() or "local"
+
+
 def config() -> dict:
     """What the browser needs to report into the same project. The token is
     PostHog's public ingestion key — the one browser snippets embed — so
     serving it is by design; it can write events, never read them."""
-    return {"key": _key, "host": _host} if _client is not None else {}
+    return {"key": _key, "host": _host, "env": _env()} if _client is not None else {}
 
 
 def distinct(uid) -> str:
@@ -101,7 +108,7 @@ def capture(uid, event: str, props: dict | None = None) -> None:
     if _client is None:
         return
     try:
-        p = {"surface": "charto", **(props or {})}
+        p = {"surface": "charto", "env": _env(), **(props or {})}
         if uid is None:
             p["$process_person_profile"] = False
         _client.capture(event, distinct_id=distinct(uid if uid is not None else "server"),
@@ -117,6 +124,6 @@ def exception(exc: BaseException, uid=None, props: dict | None = None) -> None:
     try:
         _client.capture_exception(
             exc, distinct_id=distinct(uid if uid is not None else "server"),
-            properties={"surface": "charto", **(props or {})})
+            properties={"surface": "charto", "env": _env(), **(props or {})})
     except Exception as e:  # noqa: BLE001
         logging.debug("charto analytics: exception capture failed: %s", e)

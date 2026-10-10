@@ -15,6 +15,8 @@ os.environ["KITE_API_KEY"] = ""
 os.environ["KITE_API_SECRET"] = ""
 os.environ["OPENAI_API_KEY"] = ""
 os.environ["AZURE_KEY"] = ""
+# Tests must not report into the live PostHog project (.env carries its token).
+os.environ["POSTHOG_PROJECT_TOKEN"] = ""
 # Demo seeder runs on /auth/register in dev; disable for tests so a
 # freshly-registered user starts truly empty. Tests that exercise the
 # seeder explicitly opt-in by un-setting this in their own setup.
