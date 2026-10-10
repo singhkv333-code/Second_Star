@@ -1,0 +1,282 @@
+/* /affiliate — dark, black and bone-white only.
+   Hierarchy is carried by size, weight and the Newsreader/Inter pairing,
+   never by dimming text: there is no grey type on this page. Colour comes
+   only from monochrome gradients, the grayscale oil painting and the
+   dithered plate, each finished with the same film grain (an SVG
+   feTurbulence tile blended over it). */
+
+.aff {
+  --ink: #050505;
+  --bone: #f4f1ea;
+  --line: rgba(244, 241, 234, .16);
+  --line-strong: rgba(244, 241, 234, .34);
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  min-height: 100vh;
+  background: var(--ink);
+  color: var(--bone);
+  font-family: Inter, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.aff *, .aff *::before, .aff *::after { box-sizing: border-box; }
+.aff ::selection { background: var(--bone); color: var(--ink); }
+.aff-shell { width: min(1200px, calc(100% - 32px)); margin: 0 auto; }
+
+/* ── nav ─────────────────────────────────────────────────────────────── */
+.aff-nav { height: 72px; display: flex; align-items: center; justify-content: space-between; }
+.aff-brand {
+  color: var(--bone); text-decoration: none;
+  font: 550 26px/1 Newsreader, Georgia, serif; letter-spacing: -.03em;
+}
+.aff-back {
+  display: inline-flex; align-items: center; gap: 8px;
+  color: var(--bone); text-decoration: none; font-size: 14px; font-weight: 500;
+}
+.aff-back svg { width: 16px; height: 16px; transition: transform .2s ease; }
+.aff-back:hover svg { transform: translateX(-2px); }
+
+/* ── shared pieces ───────────────────────────────────────────────────── */
+.aff-grain {
+  position: absolute; inset: 0; pointer-events: none;
+  background-image: var(--grain); background-size: 220px 220px;
+  mix-blend-mode: overlay; opacity: .55;
+}
+.aff-ascii {
+  margin: 0; font: 400 12px/1.25 var(--mono); color: var(--bone);
+  white-space: pre; letter-spacing: .02em;
+}
+.aff-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 9px;
+  height: 46px; padding: 0 20px; border-radius: 10px;
+  font: 600 14px/1 Inter, system-ui, sans-serif; cursor: pointer;
+  transition: transform .2s ease, background-color .2s ease, color .2s ease;
+}
+.aff-btn svg { width: 16px; height: 16px; }
+.aff-btn:hover { transform: translateY(-1px); }
+/* Disabled is an outline, not a dimmed fill: no grey on this page. */
+.aff-btn:disabled, .aff-btn-solid:disabled { cursor: not-allowed; transform: none; background: transparent; color: var(--bone); border-color: var(--line-strong); }
+.aff-btn-solid { background: var(--bone); color: var(--ink); border: 1px solid var(--bone); }
+.aff-btn-line { background: rgba(5, 5, 5, .3); color: var(--bone); border: 1px solid var(--line-strong); }
+.aff-btn-line:hover { border-color: var(--bone); }
+
+/* A segmented control, not chips: one rail, one lifted segment. */
+.aff-seg {
+  display: grid; grid-auto-flow: column; grid-auto-columns: 1fr;
+  padding: 3px; border: 1px solid var(--line); border-radius: 10px;
+  background: rgba(5, 5, 5, .35);
+}
+.aff-seg button {
+  height: 34px; border: 0; border-radius: 7px; background: transparent;
+  color: var(--bone); font: 500 13px/1 Inter, system-ui, sans-serif; cursor: pointer;
+  transition: background-color .2s ease, color .2s ease;
+}
+.aff-seg button[aria-selected="true"], .aff-seg button[aria-checked="true"] {
+  background: var(--bone); color: var(--ink);
+}
+.aff-seg-small button { height: 28px; padding: 0 10px; font-size: 12px; }
+
+/* ── hero: the painting in the home page's rounded container ─────────── */
+.aff-hero {
+  position: relative; isolation: isolate; overflow: hidden;
+  min-height: 600px; border-radius: 22px;
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  align-items: center; gap: 40px; padding: 56px;
+  border: 1px solid var(--line);
+}
+.aff-hero-art {
+  position: absolute; inset: 0; width: 100%; height: 100%; z-index: -2;
+  object-fit: cover; object-position: 38% 40%;
+  filter: grayscale(1) contrast(1.08) brightness(.9);
+  transform: scale(1.04);
+}
+.aff-hero-shade {
+  position: absolute; inset: 0; z-index: -1;
+  background:
+    linear-gradient(90deg, rgba(5,5,5,.86) 0%, rgba(5,5,5,.5) 40%, rgba(5,5,5,.08) 68%, rgba(5,5,5,.34) 100%),
+    linear-gradient(180deg, rgba(5,5,5,0) 55%, rgba(5,5,5,.7) 100%);
+}
+.aff-hero .aff-grain { z-index: 0; opacity: .5; }
+.aff-hero-copy { position: relative; z-index: 1; max-width: 520px; }
+.aff-hero-ascii { font-size: 11px; margin-bottom: 26px; }
+.aff-hero h1 {
+  margin: 0; font: 400 clamp(54px, 7vw, 96px)/.92 Newsreader, Georgia, serif;
+  letter-spacing: -.05em;
+}
+.aff-hero p { margin: 22px 0 30px; font-size: 17px; line-height: 1.55; max-width: 400px; }
+.aff-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+.aff-credit {
+  position: absolute; left: 56px; bottom: 18px; z-index: 1;
+  font: 400 10px/1 var(--mono); letter-spacing: .04em; color: var(--bone);
+}
+
+/* The calculator is the home page's glass composer: frosted, hairline,
+   no shadow halo. */
+.aff-calc {
+  position: relative; z-index: 1;
+  display: flex; flex-direction: column; gap: 18px;
+  padding: 22px; border-radius: 16px;
+  background: rgba(10, 10, 10, .46); border: 1px solid var(--line-strong);
+  backdrop-filter: blur(16px) saturate(110%); -webkit-backdrop-filter: blur(16px) saturate(110%);
+}
+.aff-calc-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 14px; }
+.aff-calc-row strong { font: 500 20px/1 Inter, system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+.aff-calc input[type="range"] {
+  -webkit-appearance: none; appearance: none; width: 100%; height: 18px; margin: -6px 0;
+  background: transparent; cursor: pointer;
+}
+.aff-calc input[type="range"]::-webkit-slider-runnable-track {
+  height: 2px; border-radius: 2px;
+  background: linear-gradient(90deg, var(--bone) var(--fill), var(--line-strong) var(--fill));
+}
+.aff-calc input[type="range"]::-moz-range-track { height: 2px; background: var(--line-strong); }
+.aff-calc input[type="range"]::-moz-range-progress { height: 2px; background: var(--bone); }
+.aff-calc input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 18px; height: 18px; margin-top: -8px;
+  border-radius: 50%; background: var(--bone); border: 4px solid var(--ink);
+  box-shadow: 0 0 0 1px var(--bone);
+}
+.aff-calc input[type="range"]::-moz-range-thumb {
+  width: 12px; height: 12px; border-radius: 50%; background: var(--bone); border: 3px solid var(--ink);
+}
+.aff-calc input[type="range"]:focus-visible { outline: 1px solid var(--bone); outline-offset: 6px; border-radius: 4px; }
+.aff-calc-out { border-top: 1px solid var(--line); padding-top: 18px; display: flex; flex-direction: column; gap: 8px; }
+.aff-calc-out strong {
+  font: 400 48px/1 Newsreader, Georgia, serif; letter-spacing: -.03em;
+  font-variant-numeric: tabular-nums;
+}
+.aff-calc-out span { font-size: 13px; }
+
+/* ── the two programs ────────────────────────────────────────────────── */
+.aff-programs { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+.aff-card {
+  position: relative; isolation: isolate; overflow: hidden;
+  min-height: 460px; border-radius: 22px; border: 1px solid var(--line);
+  display: flex; align-items: flex-end; padding: 36px;
+  background: #0b0b0b;
+}
+.aff-card .aff-grain { z-index: 0; }
+.aff-card-body { position: relative; z-index: 1; width: 100%; }
+.aff-card h2 { margin: 0 0 22px; font: 500 15px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; }
+.aff-card-rate { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; }
+.aff-card-rate strong { font: 400 clamp(72px, 9vw, 112px)/.85 Newsreader, Georgia, serif; letter-spacing: -.05em; }
+.aff-card-rate span { font-size: 17px; line-height: 1.45; max-width: 380px; }
+.aff-card ul { list-style: none; margin: 28px 0 30px; padding: 0; border-top: 1px solid var(--line); }
+.aff-card li { padding: 12px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+
+/* The sandy mesh: three soft monochrome lights, blurred, over near-black.
+   Bone at the top edge so the type at the foot sits on the dark. */
+.aff-mesh { position: absolute; inset: -20%; z-index: -1; filter: blur(48px); }
+.aff-mesh i { position: absolute; border-radius: 50%; display: block; }
+.aff-mesh i:nth-child(1) { width: 62%; height: 58%; left: 34%; top: 2%; background: radial-gradient(circle, #e9e4d8 0%, rgba(233,228,216,0) 68%); opacity: .82; }
+.aff-mesh i:nth-child(2) { width: 54%; height: 52%; left: 4%; top: 14%; background: radial-gradient(circle, #8b8780 0%, rgba(139,135,128,0) 70%); opacity: .7; }
+.aff-mesh i:nth-child(3) { width: 70%; height: 46%; left: 28%; top: 40%; background: radial-gradient(circle, #3b3a37 0%, rgba(59,58,55,0) 70%); }
+.aff-card-sand::after, .aff-apply::after {
+  content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background: linear-gradient(180deg, rgba(5,5,5,0) 30%, rgba(5,5,5,.78) 78%);
+}
+.aff-card-sand .aff-grain { opacity: .7; }
+
+.aff-card-art {
+  position: absolute; inset: 0; width: 100%; height: 100%; z-index: -1;
+  object-fit: cover; object-position: 0% 0%; opacity: .95; transform: translate(12%, -18%) scale(1.08);
+  -webkit-mask-image: linear-gradient(180deg, #000 52%, transparent 84%); mask-image: linear-gradient(180deg, #000 52%, transparent 84%);
+}
+.aff-card-planets::after {
+  content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(5,5,5,.88) 0%, rgba(5,5,5,.62) 42%, rgba(5,5,5,.06) 78%),
+    linear-gradient(180deg, rgba(5,5,5,0) 40%, rgba(5,5,5,.8) 80%);
+}
+
+/* ── how it works ────────────────────────────────────────────────────── */
+.aff-steps { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 120px; border-top: 1px solid var(--line); }
+.aff-steps article { padding: 28px 28px 8px 0; display: flex; flex-direction: column; gap: 26px; }
+.aff-steps article + article { padding-left: 28px; border-left: 1px solid var(--line); }
+.aff-step-n { font: 500 12px/1 var(--mono); letter-spacing: .12em; }
+.aff-steps .aff-ascii { height: 104px; font-size: 13px; }
+.aff-steps h3 { margin: 0; font: 400 28px/1.1 Newsreader, Georgia, serif; letter-spacing: -.02em; }
+
+/* ── FAQ ─────────────────────────────────────────────────────────────── */
+.aff-faq { display: grid; grid-template-columns: 300px 1fr; gap: 64px; margin-top: 120px; }
+.aff-faq h2 { margin: 0; font: 400 52px/1 Newsreader, Georgia, serif; letter-spacing: -.04em; }
+.aff-faq > div { border-top: 1px solid var(--line); }
+.aff-faq-item { border-bottom: 1px solid var(--line); }
+.aff-faq-item button {
+  width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 20px;
+  padding: 22px 0; border: 0; background: transparent; color: var(--bone);
+  font: 500 16px/1.3 Inter, system-ui, sans-serif; text-align: left; cursor: pointer;
+}
+.aff-faq-item button svg { width: 18px; height: 18px; flex: none; }
+.aff-faq-a { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .3s ease; }
+.aff-faq-a > div { overflow: hidden; }
+.aff-faq-item.open .aff-faq-a { grid-template-rows: 1fr; }
+.aff-faq-a p { margin: 0 0 22px; max-width: 620px; font-size: 15px; line-height: 1.65; }
+
+/* ── apply ───────────────────────────────────────────────────────────── */
+.aff-apply {
+  position: relative; isolation: isolate; overflow: hidden;
+  margin-top: 120px; border-radius: 22px; border: 1px solid var(--line);
+  display: grid; grid-template-columns: 1fr minmax(300px, 420px); gap: 48px;
+  align-items: end; padding: 56px; min-height: 480px; background: #0b0b0b;
+}
+.aff-apply .aff-mesh i:nth-child(1) { left: 2%; top: -6%; }
+.aff-apply .aff-mesh i:nth-child(2) { left: 52%; top: 4%; }
+.aff-apply .aff-grain { opacity: .7; z-index: 0; }
+.aff-apply-side, .aff-form { position: relative; z-index: 1; }
+.aff-tnt { font-size: 14px; margin-bottom: 28px; }
+.aff-apply h2 { margin: 0; font: 400 clamp(44px, 5.4vw, 72px)/.95 Newsreader, Georgia, serif; letter-spacing: -.045em; }
+.aff-form {
+  display: flex; flex-direction: column; gap: 10px; padding: 20px; border-radius: 16px;
+  background: rgba(10, 10, 10, .5); border: 1px solid var(--line-strong);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+}
+.aff-form input {
+  height: 46px; padding: 0 14px; border-radius: 10px;
+  border: 1px solid var(--line-strong); background: rgba(5, 5, 5, .45);
+  color: var(--bone); font: 400 14px/1 Inter, system-ui, sans-serif; outline: none;
+  transition: border-color .2s ease;
+}
+.aff-form input::placeholder { color: var(--bone); opacity: .8; }
+.aff-form input:focus { border-color: var(--bone); }
+.aff-form .aff-btn { margin-top: 4px; }
+.aff-sent { gap: 8px; padding: 28px 22px; }
+.aff-sent strong { font: 400 36px/1 Newsreader, Georgia, serif; letter-spacing: -.03em; }
+.aff-sent span, .aff-error { font-size: 14px; line-height: 1.5; }
+
+/* ── footer ──────────────────────────────────────────────────────────── */
+.aff-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  margin-top: 96px; padding: 28px 0 36px; border-top: 1px solid var(--line); font-size: 12px;
+}
+.aff-foot .aff-brand { font-size: 20px; }
+
+/* ── the one moving thing: the fuse's spark breathes ─────────────────── */
+@media (prefers-reduced-motion: no-preference) {
+  .aff-tnt, .aff-steps article:first-child .aff-ascii { animation: aff-spark 2.4s ease-in-out infinite; }
+}
+@keyframes aff-spark { 0%, 100% { opacity: 1; } 50% { opacity: .78; } }
+
+/* ── narrow screens ──────────────────────────────────────────────────── */
+@media (max-width: 960px) {
+  .aff-hero { grid-template-columns: 1fr; padding: 40px 28px 56px; min-height: 0; }
+  .aff-credit { left: 28px; }
+  .aff-programs { grid-template-columns: 1fr; }
+  .aff-faq { grid-template-columns: 1fr; gap: 28px; }
+  .aff-apply { grid-template-columns: 1fr; padding: 40px 28px; }
+}
+@media (max-width: 640px) {
+  .aff-nav { height: 60px; }
+  .aff-hero { border-radius: 18px; padding: 32px 20px 52px; gap: 28px; }
+  .aff-hero-ascii { display: none; }
+  .aff-hero p { font-size: 16px; }
+  .aff-credit { left: 20px; right: 20px; line-height: 1.4; }
+  .aff-card { min-height: 420px; padding: 24px; border-radius: 18px; }
+  .aff-steps { grid-template-columns: 1fr; margin-top: 80px; }
+  .aff-steps article, .aff-steps article + article { padding: 22px 0; border-left: 0; gap: 16px; }
+  .aff-steps .aff-ascii { height: auto; }
+  .aff-steps article + article { border-top: 1px solid var(--line); }
+  .aff-faq, .aff-apply { margin-top: 80px; }
+  .aff-faq h2 { font-size: 40px; }
+  .aff-apply { padding: 28px 20px; border-radius: 18px; }
+  .aff-foot { flex-direction: column; align-items: flex-start; }
+}

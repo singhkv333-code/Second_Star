@@ -43,6 +43,7 @@ import {
   Search,
   Settings,
   Sparkles,
+  Gift,
   Sun,
   Trash2,
   WalletCards,
@@ -2087,6 +2088,15 @@ function AccountMenu({
             chevronDirection="side"
             testId="menu-upgrade"
             onClick={() => { setOpen(false); router.push("/pricing"); }}
+          />
+          {/* Partner programs — a page of its own, like /pricing. */}
+          <MenuItem
+            icon={Gift}
+            label="Refer and earn"
+            hasChevron
+            chevronDirection="side"
+            testId="menu-affiliate"
+            onClick={() => { setOpen(false); router.push("/affiliate"); }}
           />
           <MenuItem icon={Settings} label="Settings" testId="menu-settings-chart-style" onClick={() => { setOpen(false); onOpenSettings(); }} />
           {isDesktop && (
