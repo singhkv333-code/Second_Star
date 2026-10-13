@@ -202,6 +202,8 @@
       }
       return [...by.values()];
     }
+    // 0 = roomy, 1 = narrow (tight number columns), 2 = also no logos
+    const sizeTier = (width) => width < 300 ? 2 : width < 360 ? 1 : 0;
     const nice = (v) => Math.abs(v) >= 100 ? Math.round(v) : Math.abs(v) >= 10 ? Math.round(v * 10) / 10 : Math.round(v * 100) / 100;
     function chipText(g) {
       const u = unitOf(g.f), n = (v) => `${fmt(v, Math.abs(v) >= 100 || Number.isInteger(v) ? 0 : Math.abs(v) >= 10 ? 1 : 2)}${u && u !== "₹" ? (u.length > 1 ? " " + u : u) : ""}`;
@@ -311,17 +313,24 @@
       // the extra columns the settings switch on, minus the one already
       // shown as the ranking metric, and minus whatever does not fit
       let extra = (cfg().cols || []).filter((c) => c !== k && c !== "close" && c !== "ret_1d");
-      const room = (host.clientWidth || 320) - 120 - 72 - 62 - (showMetric ? 70 : 0);
+      const width = host.clientWidth || 320;
+      // A narrow tile tightens the number columns (they hold "1,270.00" and
+      // "−1.85%" at --text-base with room to spare), and a very narrow one
+      // also drops the logo — otherwise the symbol column is left ~30px and
+      // every name past five letters ran under the price beside it.
+      const tier = sizeTier(width);
+      const [cLast, c1d, cMet] = tier ? [60, 52, 52] : [72, 62, 70];
+      const room = width - 120 - cLast - c1d - (showMetric ? cMet : 0);
       extra = extra.slice(0, Math.max(0, Math.floor(room / 62)));
       body.classList.toggle("loading", state.loading);
-      body.classList.toggle("scr-flat", cfg().logos === false);
-      body.style.setProperty("--scr-cols", `minmax(0,1fr) 72px 62px${showMetric ? " 70px" : ""}${extra.map(() => " 62px").join("")}`);
+      body.classList.toggle("scr-flat", cfg().logos === false || tier === 2);
+      body.style.setProperty("--scr-cols", `minmax(0,1fr) ${cLast}px ${c1d}px${showMetric ? ` ${cMet}px` : ""}${extra.map(() => " 62px").join("")}`);
       body.innerHTML = list.length
         ? `<div class="scr-th">${th("symbol", "Symbol", "l")}${th("close", "Last")}${th("ret_1d", "1D")}` +
           (showMetric ? th(k, F[k] || k) : "") + extra.map((c) => th(c, SHORT[c] || F[c] || c)).join("") + `</div>` +
           list.map((r) => {
             const f = state.feats[r.symbol] || {};
-            const mark = cfg().logos === false ? "" : Universe.logoHTML(r.symbol) || `<span class="co-blank">${esc(r.symbol[0])}</span>`;
+            const mark = cfg().logos === false || tier === 2 ? "" : Universe.logoHTML(r.symbol) || `<span class="co-blank">${esc(r.symbol[0])}</span>`;
             const m = r[k];
             return `<div class="scr-row${r.symbol === cur ? " on" : ""}" data-sym="${esc(r.symbol)}" role="button" tabindex="0" ` +
               `aria-label="Open ${esc(r.symbol)} on the chart">` +
@@ -580,11 +589,13 @@
       };
     }
 
-    // a resize that changes how many extra columns fit redraws the table
-    let fitW = 0;
+    // a resize that changes how many extra columns fit, or crosses a width
+    // tier, redraws the table
+    let fitW = "";
     new ResizeObserver(() => {
-      const w = Math.floor((host.clientWidth || 0) / 62);
-      if (w !== fitW) { fitW = w; if (state.res && (cfg().cols || []).length) paint(); }
+      const width = host.clientWidth || 0;
+      const w = `${Math.floor(width / 62)}:${sizeTier(width)}`;
+      if (w !== fitW) { fitW = w; if (state.res) paint(); }
     }).observe(host);
 
     let ran = false;

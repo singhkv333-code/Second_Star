@@ -177,8 +177,15 @@ export function ChartFrame({
   // change. Before "chart:ready" the listener inside the frame does not exist
   // yet and the message would land on nothing.
   useEffect(() => {
-    if (!ready || !theme) return;
-    post({ type: "pivot:theme", mode: theme });
+    if (!ready) return;
+    const sync = (): void => {
+      const palette = window.PivotWorkspaceTheme?.getTheme();
+      if (palette) post({ type: "pivot:workspace-theme", theme: palette });
+      else if (theme) post({ type: "pivot:theme", mode: theme });
+    };
+    sync();
+    window.addEventListener("pivot:workspace-colors", sync);
+    return () => window.removeEventListener("pivot:workspace-colors", sync);
   }, [ready, theme, post]);
 
   // The shell's global Quick Ask is only a presentation bridge on Chart. The
@@ -199,9 +206,14 @@ export function ChartFrame({
       style={{ background: "var(--bg-base)" }}
     >
     {(!ready || failed) && (
-      <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3" style={{ background: "var(--bg-base)", color: "var(--text-secondary)" }} role="status">
-        {failed ? "The chart could not finish loading." : "Loading chart…"}
-        {failed && <button type="button" onClick={() => setAttempt((value) => value + 1)}>Reload chart</button>}
+      // Drawn as the same framed window the chart paints once it is up
+      // (`.chart-frame-loading` in globals.css), so a reload does not flash
+      // a full-bleed page and then snap into the frame.
+      <div className="chart-frame-loading" role="status">
+        <div className="chart-frame-loading-window">
+          {failed ? "The chart could not finish loading." : "Loading chart…"}
+          {failed && <button type="button" onClick={() => setAttempt((value) => value + 1)}>Reload chart</button>}
+        </div>
       </div>
     )}
     <iframe
@@ -211,7 +223,9 @@ export function ChartFrame({
       onLoad={() => {
         setReady(false);
         post({ type: "pivot:hello" });
-        if (theme) post({ type: "pivot:theme", mode: theme });
+        const palette = window.PivotWorkspaceTheme?.getTheme();
+        if (palette) post({ type: "pivot:workspace-theme", theme: palette });
+        else if (theme) post({ type: "pivot:theme", mode: theme });
       }}
       onError={() => setFailed(true)}
       style={{ visibility: ready && !failed ? "visible" : "hidden" }}

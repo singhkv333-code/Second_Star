@@ -5,7 +5,7 @@
  * content.
  *
  * Layout:
- *   [Sticky top header: logo + search + metric strip + theme toggle + avatar]
+ *   [Sticky top header: logo + search + metric strip + workspace colors + avatar]
  *   [Left sidebar nav | Center content pane]
  *
  * Nav items: Chat / Portfolio / Agents / Screener
@@ -21,6 +21,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { openWorkspaceColors, workspaceMode } from "@/lib/workspace-theme";
 import { toast } from "sonner";
 import {
   ChartNoAxesCombined,
@@ -41,7 +42,7 @@ import {
   Search,
   Settings,
   Sparkles,
-  Sun,
+  Palette,
   Trash2,
   WalletCards,
   Workflow as WorkflowIcon,
@@ -82,7 +83,6 @@ import { PivotWordmark } from "@/components/brand/PivotLogo";
 import { ProductTour } from "@/components/onboarding/ProductTour";
 import { LoginIntroGate } from "@/components/onboarding/LoginIntroGate";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
 import {
   deleteConversation,
   getMe,
@@ -206,37 +206,12 @@ function readHashTab(): TabKey {
 }
 
 // ---------------------------------------------------------------------------
-// Theme helpers — three modes (Dark / Light / System).
-//
-// "system" defers to the OS preference and live-updates if the user changes
-// their system theme. The actual class applied to <html> is always "dark"
-// or no class — only the *resolution* is three-state.
+// Workspace palettes own appearance; this mode is only a contrast bridge.
 // ---------------------------------------------------------------------------
-
 type Theme = "light" | "dark" | "system";
-const LS_KEY = "pivot-theme";
-
-function readStoredTheme(): Theme | null {
-  try {
-    const v = localStorage.getItem(LS_KEY);
-    return v === "light" || v === "dark" || v === "system" ? v : null;
-  } catch {
-    return null;
-  }
-}
-
-function osPrefersDark(): boolean {
-  if (typeof window === "undefined") return false;
-  return window.matchMedia("(prefers-color-scheme: dark)").matches;
-}
-
-/** Apply a theme choice to the <html> element. With "system", resolve to
- *  the current OS preference; otherwise honor the explicit choice. */
-function applyTheme(t: Theme): void {
-  if (typeof document === "undefined") return;
-  const isDark = t === "dark" || (t === "system" && osPrefersDark());
-  document.documentElement.classList.toggle("dark", isDark);
-}
+function readStoredTheme(): Theme { return workspaceMode(); }
+function osPrefersDark(): boolean { return workspaceMode() === "dark"; }
+function applyTheme(_theme: Theme): void { window.PivotWorkspaceTheme?.apply(); }
 
 // ---------------------------------------------------------------------------
 // Conversation history — GET /api/conversations (wired Day 8)
@@ -716,29 +691,20 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
-  // Live-react to OS theme changes when in "system" mode.
+  // Keep native chart contrast and account settings in step with the palette.
   useEffect(() => {
-    if (theme !== "system") return;
-    if (typeof window === "undefined") return;
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const onChange = (): void => {
-      applyTheme("system");
-      setResolvedTheme(osPrefersDark() ? "dark" : "light");
+    const sync = (): void => {
+      const next = workspaceMode();
+      setTheme(next);
+      setResolvedTheme(next);
     };
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, [theme]);
-
-  const chooseTheme = useCallback((next: Theme): void => {
-    setTheme(next);
-    applyTheme(next);
-    setResolvedTheme(
-      next === "dark" || (next === "system" && osPrefersDark())
-        ? "dark" : "light",
-    );
-    try {
-      localStorage.setItem(LS_KEY, next);
-    } catch { /* ignore */ }
+    sync();
+    window.addEventListener("pivot:workspace-colors", sync);
+    return () => window.removeEventListener("pivot:workspace-colors", sync);
+  }, []);
+  const chooseTheme = useCallback((_next: Theme): void => {
+    setSettingsOpen(false);
+    window.setTimeout(() => openWorkspaceColors(), 0);
   }, []);
 
   // Metric strip loading
@@ -1328,7 +1294,12 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
       )}
 
 
-      <div className="flex flex-1 min-w-0 min-h-0 flex-col">
+      {/* The framed window — see `.shell-window` in globals.css. */}
+      <div
+        className={`shell-window flex flex-1 min-w-0 min-h-0 flex-col${
+          !children && active === "chart" ? " shell-window--chart" : ""
+        }${sidebarCollapsed && isDesktop ? " shell-window--no-rail" : ""}`}
+      >
 
         {/* Paper-mode banner removed per owner request — the account-menu
             toggle still indicates paper vs real. */}
@@ -1752,8 +1723,6 @@ function TopHeader({
       className={`top-header relative flex shrink-0 items-center gap-6 px-3${variant === "chart" ? " top-header--chart" : ""}`}
       style={{
         height: "var(--header-h, 56px)",
-        background: "var(--bg-base)",
-        borderBottom: "2px solid var(--shell-seam)",
       }}
     >
       {/* Mobile-only hamburger — opens the sidebar drawer at <lg. */}
@@ -1805,6 +1774,9 @@ function TopHeader({
           as a filled chip in the header rather than an outlined box on it.
           It was --bg-elevated, a step darker, which made the same chip look
           like two different greys across the chart and the shell.
+          The header is now the grey chrome around the framed window, where a
+          --muted chip vanishes, so the field takes the window's own surface
+          and hairline: it reads as a piece of the page set into the bar.
           Hidden below lg; mobile users get the CommandPalette via the
           account menu / keyboard shortcut. */}
       {variant === "default" && <div
@@ -1812,10 +1784,10 @@ function TopHeader({
         data-tour="search"
         style={{
           maxWidth: 300,
-          height: 30,
+          height: 28,
           padding: "0 12px",
-          background: "hsl(var(--muted))",
-          border: "none",
+          background: "var(--bg-base)",
+          border: "1px solid var(--shell-window-border)",
           borderRadius: 10,
           position: "relative",
         }}
@@ -1862,9 +1834,7 @@ function TopHeader({
 // ---------------------------------------------------------------------------
 // AccountMenu — Quartr-style avatar dropdown.
 //
-// Mirrors frontend-quartr/.../TopHeader.jsx::MenuItem usage (Settings, Help,
-// Log out). Adds a single-row icon-only theme toggle BENEATH those items
-// (Moon / Sun / Monitor) to switch between Dark / Light / System.
+// Profile actions include the shared workspace color editor.
 // ---------------------------------------------------------------------------
 
 function AccountMenu({
@@ -1979,8 +1949,8 @@ function AccountMenu({
         data-testid="account-menu-trigger"
         className="inline-flex shrink-0 items-center justify-center"
         style={{
-          width: 30,
-          height: 30,
+          width: 28,
+          height: 28,
           borderRadius: "var(--radius-pill)",
           background: "#089981",
           border: "none",
@@ -2064,17 +2034,8 @@ function AccountMenu({
           <MenuItem icon={Settings} label="Settings" testId="menu-settings-chart-style" onClick={() => { setOpen(false); onOpenSettings(); }} />
           <MenuItem icon={HelpCircle} label="Help" onClick={() => { setOpen(false); onReportBug(); }} />
           <div aria-hidden={true} style={{ height: 1, background: "var(--glass-border)", margin: "5px -5px" }} />
-          <div style={{ display: "flex", alignItems: "center", minHeight: 34, padding: "0 10px", gap: 10 }}>
-            <Sun size={14} strokeWidth={2} aria-hidden={true} />
-            <span style={{ flex: 1, color: "var(--text-secondary)", fontSize: 13, fontWeight: 500 }}>Dark mode</span>
-            <Switch
-              checked={theme === "dark"}
-              onCheckedChange={(checked) => onChooseTheme(checked ? "dark" : "light")}
-              aria-label="Toggle dark mode"
-              data-testid="theme-dark-toggle"
-              className="data-[state=checked]:bg-[#0d0d0e] dark:data-[state=checked]:bg-[#fbfcfc]"
-            />
-          </div>
+          <MenuItem icon={Palette} label="Workspace colors" testId="menu-workspace-colors" hasChevron chevronDirection="side"
+            onClick={() => { const anchor = ref.current?.querySelector<HTMLButtonElement>("button"); setOpen(false); openWorkspaceColors(anchor); }} />
           {!hideShortcuts && (
             <MenuItem icon={Keyboard} label="Keyboard shortcuts" trailing="Ctrl + /" onClick={() => { setOpen(false); onOpenShortcuts(); }} />
           )}
@@ -2172,55 +2133,6 @@ function MenuItem({
   );
 }
 
-function _ThemeIconButton({
-  active,
-  onClick,
-  ariaLabel,
-  testId,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  ariaLabel: string;
-  testId: string;
-  children: React.ReactNode;
-}): React.ReactElement {
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={active}
-      aria-label={ariaLabel}
-      data-testid={testId}
-      onClick={onClick}
-      className="flex flex-1 items-center justify-center"
-      style={{
-        // Borderless — same active treatment as the sidebar nav:
-        // subtle elevated bg + ink text, no border, no ring.
-        height: 28,
-        background: active ? "var(--surface-active)" : "transparent",
-        border: "none",
-        borderRadius: "var(--radius-sm)",
-        color: active ? "var(--text-primary)" : "var(--text-tertiary)",
-        cursor: "pointer",
-        transition:
-          "color 0.2s var(--ease-quartr), background-color 0.2s var(--ease-quartr)",
-      }}
-      onMouseEnter={(e) => {
-        if (active) return;
-        e.currentTarget.style.background = "var(--surface-active)";
-        e.currentTarget.style.color = "var(--text-primary)";
-      }}
-      onMouseLeave={(e) => {
-        if (active) return;
-        e.currentTarget.style.background = "transparent";
-        e.currentTarget.style.color = "var(--text-tertiary)";
-      }}
-    >
-      {children}
-    </button>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Metric strip
@@ -2376,10 +2288,6 @@ function Sidebar({
       aria-label="Primary navigation"
       data-testid="sidebar-nav"
       data-mobile-open={mobileOpen ? "true" : "false"}
-      style={{
-        background: "var(--bg-base)",
-        borderRight: "2px solid var(--shell-seam)",
-      }}
     >
       {/* Brand row — the full-height sidebar owns the logo (ElevenLabs-style),
           so the top header's brand is hidden at lg+. The mobile-only close
@@ -2432,8 +2340,7 @@ function Sidebar({
           <X size={18} strokeWidth={2} aria-hidden="true" />
         </button>
       </div>
-      {/* Nav — text-only, with a 4×4 dot indicator on the active row.
-          Mirrors frontend-quartr/.../Sidebar.jsx exactly. */}
+      {/* Compact navigation rail; hover, focus and current-page states live in CSS. */}
       <nav
         className="sidebar-nav-list flex flex-col"
         aria-label="Primary navigation list"
@@ -2451,29 +2358,6 @@ function Sidebar({
               title={label}
               data-testid={`nav-${key}`}
               className="sidebar-nav-item inline-flex items-center justify-center"
-              style={{
-                position: "relative",
-                background: isActive ? "var(--surface-active)" : "transparent",
-                color: isActive ? "var(--text-primary)" : "var(--text-secondary)",
-                border: "none",
-                borderRadius: "var(--radius-sm)",
-                cursor: "pointer",
-                fontFamily: "var(--font-ui)",
-                transition:
-                  "color 0.35s var(--ease-quartr), background-color 0.35s var(--ease-quartr)",
-              }}
-              onMouseEnter={(e) => {
-                if (!isActive) {
-                  e.currentTarget.style.color = "var(--text-primary)";
-                  e.currentTarget.style.background = "var(--surface-active)";
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!isActive) {
-                  e.currentTarget.style.color = "var(--text-secondary)";
-                  e.currentTarget.style.background = "transparent";
-                }
-              }}
             >
               <Icon className="sidebar-nav-icon" aria-hidden={true} />
               <span className="sidebar-nav-label">{label}</span>

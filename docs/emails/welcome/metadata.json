@@ -1,0 +1,23 @@
+{
+  "signup": {
+    "subject": "You're in. Welcome to Pivot.",
+    "preheader": "A chart, a question, a what-if. Start wherever you like.",
+    "html": "signup.html",
+    "text": "signup.txt",
+    "trigger": "account_created"
+  },
+  "pro": {
+    "subject": "Welcome to Pivot Pro. Payment received.",
+    "preheader": "Your Pro plan is active. Your payment details are inside.",
+    "html": "pro.html",
+    "text": "pro.txt",
+    "trigger": "payment_captured_and_plan_active"
+  },
+  "pro-plus": {
+    "subject": "Welcome to Pivot Pro+. Payment received.",
+    "preheader": "Your Pro+ plan is active. Your payment details are inside.",
+    "html": "pro-plus.html",
+    "text": "pro-plus.txt",
+    "trigger": "payment_captured_and_plan_active"
+  }
+}

@@ -1,0 +1,30 @@
+Subject: Welcome to Pivot Pro. Payment received.
+Preview: Your Pro plan is active. Your payment details are inside.
+
+Hello, Pro.
+
+Hey {{first_name}},
+
+That ‘one more thing’ you wanted to ask? There’s room for it now.
+
+We’ve received your payment of {{amount_paid}}, and your Pivot Pro plan is active.
+
+You now have 200 AI credits a month and room for 10 indicators per chart.
+
+Your payment details
+Plan: Pivot Pro
+Amount paid: {{amount_paid}}
+Billing cycle: {{billing_cycle}}
+Paid on: {{paid_on}}
+Payment reference: {{payment_reference}}
+Access through: {{access_until}}
+
+Open Pivot: {{app_url}}
+
+See you at the charts,
+The Pivot team
+
+Anything look off? Write to info@pivotnow.in.
+
+Pivot Tech
+Market analysis and paper trading. Not financial advice.

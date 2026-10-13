@@ -13,9 +13,7 @@
  *
  * Sections (top → bottom):
  *   1. Profile        — name / email / account id (read-only; /auth/me).
- *   2. Appearance     — theme (Light / Dark / System), reuses the shell's
- *                       real theme store so the toggle here and the one in
- *                       the account menu never disagree.
+ *   2. Appearance     — opens the shared workspace color editor.
  *   3. Trading        — Real vs Paper mode + the register-not-execute
  *                       contract Pivot operates under.
  *   4. Brokers        — live connection status from GET /brokers; "Manage"
@@ -40,13 +38,10 @@ import {
   Info,
   Keyboard,
   LogOut,
-  Monitor,
-  Moon,
   Palette,
   Plug,
   RefreshCw,
   ShieldCheck,
-  Sun,
   TrendingUp,
 } from "lucide-react";
 import { Search } from "lucide-react";
@@ -768,36 +763,14 @@ function Muted({ children }: { children: React.ReactNode }): React.ReactElement 
 // 2. Appearance
 // ---------------------------------------------------------------------------
 
-function AppearanceSection({
-  theme,
-  onChooseTheme,
-}: {
-  theme: Theme;
-  onChooseTheme: (t: Theme) => void;
-}): React.ReactElement {
+function AppearanceSection(props: { theme: Theme; onChooseTheme: (t: Theme) => void }): React.ReactElement {
   return (
-    <Group
-      first
-      title="Appearance"
-      description="System follows your device's light/dark setting and updates live."
-    >
-      <Row
-        label="Theme"
-        hint="Applies across the whole app instantly."
-        align="start"
-        control={
-          <Segmented<Theme>
-            ariaLabel="Theme"
-            value={theme}
-            onChange={onChooseTheme}
-            options={[
-              { value: "light", label: "Light", Icon: Sun },
-              { value: "dark", label: "Dark", Icon: Moon },
-              { value: "system", label: "System", Icon: Monitor },
-            ]}
-          />
-        }
-      />
+    <Group first title="Appearance" description="Choose a color pair or make your own. Saved in this browser.">
+      <Row label="Workspace colors" hint="Charts, widgets, frames and bars update together." align="start"
+        control={<button type="button" onClick={() => props.onChooseTheme(props.theme)}
+          style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", border: "1px solid var(--glass-border)", borderRadius: 8 }}>
+          <Palette size={16} aria-hidden={true} /> Edit colors
+        </button>} />
     </Group>
   );
 }
@@ -1072,7 +1045,7 @@ function PrivacySection({ onLogout }: { onLogout: () => void }): React.ReactElem
     <>
       <Group first title="Privacy & data" description="Your data, and the terms you're using Pivot under.">
         <LinkRow label="Privacy Policy" hint="How we handle your data." href="/privacy" external Icon={ShieldCheck} />
-        <LinkRow label="Terms of Service" hint="The agreement you accepted." href="/terms" external Icon={FileText} />
+        <LinkRow label="Terms of Service" hint="The terms for using Pivot." href="/terms" external Icon={FileText} />
       </Group>
 
       <Group title="Session">
@@ -1101,6 +1074,7 @@ function AboutSection({
             an automation, an options strategy, a backtest, a paper trade.
           </p>
         </div>
+        <LinkRow label="About us" hint="What we are building and why." href="/about" external Icon={Info} />
         <ValueRow label="Version" value={APP_VERSION} />
         {onOpenShortcuts && (
           <LinkRow label="Keyboard shortcuts" onClick={onOpenShortcuts} Icon={Keyboard} />

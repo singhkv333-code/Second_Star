@@ -1,4 +1,5 @@
 "use client";
+import { openWorkspaceColors } from "@/lib/workspace-theme";
 
 import { useEffect, useRef, useState } from "react";
 import { BarChart2, ChevronRight, LogOut, User } from "lucide-react";
@@ -15,18 +16,14 @@ import { logoutCharto, useChartoUser } from "@/lib/charto-auth";
  * for one session. charto has no sidebar to keep: the only navigation that makes
  * sense from a company page is back to the chart for that symbol.
  *
- * Theme: Pivot applies its dark palette by toggling `.dark` on <html>, and
- * that lived in AppShell. The chart sends its choice in the link as `?theme=`
- * and it is remembered here so a reload or a peer click keeps it. (This page
- * used to run on a different ORIGIN from the chart and could not read the
- * stored choice at all; it is proxied onto the chart's origin now, so the
- * localStorage read below is a real fallback rather than a dead branch.)
+ * Appearance uses the shared workspace palette, including direct page loads.
+ * The runtime is loaded before paint by layout.tsx and persists per origin.
  */
 // Relative, because the chart and this page are now ONE origin — nginx (and
 // serve.py in dev) proxy /stock/ here. An absolute localhost:5173 was a link
 // back to whichever machine happened to be reading the page.
 const CHART = "/index.html";
-const KEY = "charto_theme";
+
 
 function venueFor(symbol: string): string {
   const normalized = symbol.toUpperCase();
@@ -108,6 +105,10 @@ function StockAccountMenu({ symbol }: { symbol: string }): React.ReactElement {
                 : "Working in this browser"}
             </div>
           </div>
+          <button type="button" onClick={() => { const anchor = ref.current?.querySelector<HTMLButtonElement>("button"); setOpen(false); openWorkspaceColors(anchor); }}
+            className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] text-foreground transition hover:bg-muted">
+            Workspace colors
+          </button>
           {user ? (
             <button
               type="button"
@@ -146,28 +147,7 @@ export function CompanyChrome({
   symbol: string;
   children: React.ReactNode;
 }): React.ReactElement {
-  const [dark, setDark] = useState(true);
-
-  useEffect(() => {
-    const url = new URLSearchParams(window.location.search).get("theme");
-    let mode = url === "dark" || url === "light" ? url : null;
-    if (!mode) {
-      try {
-        const saved = localStorage.getItem(KEY);
-        mode = saved === "dark" || saved === "light" ? saved : null;
-      } catch { /* private mode — fall through to the OS preference */ }
-    }
-    if (!mode) {
-      mode = window.matchMedia("(prefers-color-scheme: dark)").matches
-        ? "dark" : "light";
-    }
-    try { localStorage.setItem(KEY, mode); } catch { /* not fatal */ }
-    setDark(mode === "dark");
-  }, []);
-
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark", dark);
-  }, [dark]);
+  useEffect(() => { window.PivotWorkspaceTheme?.apply(); }, []);
 
   const chart = (path: string): string => `${CHART}${path}`;
   const chartHref = chart(`?symbol=${encodeURIComponent(symbol)}`);

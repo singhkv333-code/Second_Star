@@ -355,6 +355,11 @@ export default function SignupPage(): React.ReactElement {
                 </div>
               )}
 
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                By creating an account, you agree to our <Link href="/terms" className="underline underline-offset-4">Terms & conditions</Link>.
+                {" "}Read our <Link href="/privacy" className="underline underline-offset-4">Privacy policy</Link> to understand how we handle your information.
+              </p>
+
               {/* Submit */}
               <Button type="submit" disabled={isSubmitting} className="w-full">
                 {isSubmitting ? (

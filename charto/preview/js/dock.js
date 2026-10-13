@@ -146,6 +146,46 @@ const Dock = (() => {
       const l = raw.links && raw.links[g];
       if (l && typeof l === "object") s.links[g] = { sym: typeof l.sym === "string" ? l.sym : null, iv: typeof l.iv === "string" ? l.iv : null };
     }
+    return migrateChartWidgets(s);
+  }
+
+  /** Retire reference charts while keeping the full chart in its saved place. */
+  function migrateChartWidgets(s) {
+    // An old chart instance may have used the primary id. Its reference-chart
+    // settings do not belong to the full chart engine.
+    if (s.inst[CHART]?.type === "chart") s.inst[CHART] = { type: CHART, cfg: {} };
+    const retired = new Set(Object.keys(s.inst).filter((id) => s.inst[id].type === "chart"));
+    if (!retired.size) return s;
+    const placedGroups = [];
+    const visit = (n) => {
+      if (!n) return;
+      if (n.k === "g") placedGroups.push(n.g);
+      else n.c.forEach(visit);
+    };
+    visit(s.tree);
+    placedGroups.push(...s.floats.map((f) => f.gid));
+    let primaryPlaced = placedGroups.some((gid) => s.groups[gid]?.tabs.includes(CHART));
+    // If only the retired chart was on screen, reopen the real chart in that
+    // same tile. Otherwise leave the primary's placement and settings alone.
+    for (const gid of placedGroups) {
+      const g = s.groups[gid];
+      if (!g) continue;
+      g.tabs = g.tabs.flatMap((id) => {
+        if (!retired.has(id)) return [id];
+        if (primaryPlaced) return [];
+        primaryPlaced = true;
+        s.inst[CHART] ||= { type: CHART, cfg: {} };
+        if (g.active === id) g.active = CHART;
+        return [CHART];
+      });
+    }
+    for (const g of Object.values(s.groups)) {
+      g.tabs = g.tabs.filter((id) => !retired.has(id));
+      if (!g.tabs.includes(g.active)) g.active = g.tabs[0];
+    }
+    for (const id of retired) delete s.inst[id];
+    s.closed = s.closed.filter((c) => !retired.has(c.id) && !(primaryPlaced && c.id === CHART));
+    // sanitize() prunes empty tiles and adjusts their surviving split weights.
     return s;
   }
 
@@ -198,8 +238,8 @@ const Dock = (() => {
   }
 
   /** Make the stored layout drawable whatever it says: dead tabs and groups
-   *  drop out, every tiled group is in the tree exactly once, and the chart
-   *  is always somewhere. */
+   *  drop out, every tiled group is in the tree exactly once, and a chart
+   *  deliberately closed by the user stays closed. */
   function sanitize() {
     for (const [id, i] of Object.entries(S.inst)) if (!TYPES.has(i.type)) delete S.inst[id];
     // an empty slot exists only to be filled: once something joins it, it goes
@@ -227,7 +267,7 @@ const Dock = (() => {
     for (const gid of Object.keys(S.groups)) {
       if (!seen.has(gid)) { S.groups[gid].tabs.forEach((t) => placed.delete(t)); delete S.groups[gid]; }
     }
-    if (!placed.has(CHART)) {
+    if (!placed.has(CHART) && !S.closed.some((c) => c.id === CHART)) {
       const gid = newGroup([CHART]);
       S.tree = S.tree ? box("row", [leaf(gid), S.tree], [1, .4]) : leaf(gid);
       S.tree = normalize(S.tree);
@@ -254,7 +294,7 @@ const Dock = (() => {
     closeSettings();
     for (const [id, api] of [...live]) {
       if (id === CHART) continue;
-      try { if (api.hide) api.hide(); } catch {}
+      try { if (api.hide) api.hide(); if (api.destroy) api.destroy(); } catch {}
       live.delete(id); shown.delete(id); lastVisible.delete(id);
       const h = hosts.get(id);
       if (h) { h.remove(); hosts.delete(id); }
@@ -401,6 +441,11 @@ const Dock = (() => {
   const floatLayer = document.createElement("div");
   floatLayer.className = "dk-floats";
   canvas.appendChild(floatLayer);
+  // Keep closed main-chart controls addressable during background restores.
+  const parking = document.createElement("div");
+  parking.className = "dk-parking";
+  parking.hidden = true;
+  canvas.appendChild(parking);
 
   const groupEls = new Map();        // gid → <section>
   const boxEls = new Map();          // tree node id → row/col <div>
@@ -412,7 +457,7 @@ const Dock = (() => {
     let h = hosts.get(id);
     if (h) return h;
     const spec = TYPES.get(S.inst[id].type);
-    h = (spec.host && spec.host()) || document.createElement("div");
+    h = (spec.host && spec.host(id)) || document.createElement("div");
     h.classList.remove("sidepanel", "hidden");
     h.classList.add("dk-host", `dk-w-${spec.type}`);
     h.dataset.inst = id;
@@ -456,7 +501,7 @@ const Dock = (() => {
     const named = S.inst[id].cfg && S.inst[id].cfg.title;
     if (named) return { title: String(named).slice(0, 40), sub: titles.get(id) || "" };
     let title = spec.title;
-    if (!spec.single) {
+    if (!spec.single && spec.type !== CHART) {
       const n = instancesOf(spec.type).indexOf(id);
       if (placedOf(spec.type).length > 1 && n > 0) title += ` ${n + 1}`;
     }
@@ -474,7 +519,7 @@ const Dock = (() => {
         `aria-selected="${on}" data-inst="${id}" title="${esc(l.title + (l.sub ? " · " + l.sub : ""))}">` +
         `${id === CHART ? "" : icon(s.icon)}<span class="t">${esc(l.title)}</span>${dot}` +
         (id !== CHART && l.sub ? `<span class="s">${esc(l.sub)}</span>` : "") +
-        (g.tabs.length > 1 && id !== CHART ? `<span class="x" data-act="close-tab" role="button" ` +
+        (g.tabs.length > 1 ? `<span class="x" data-act="close-tab" role="button" ` +
           `aria-label="Close ${esc(l.title)}">${icon("x")}</span>` : "") +
         `</button>`;
     }).join("") + `<span class="dk-ink" aria-hidden="true"></span>`;
@@ -487,10 +532,10 @@ const Dock = (() => {
       (spec && spec.linkable ? linkChip(g.active) : "") +
       (api.actions || []).map((a, i) => btn("widget-action", a.icon, a.label, `data-action-index="${i}"`)).join("") +
       (api.ask && g.active !== CHART ? btn("ask", "chat", "Ask about this widget") : "") +
-      (spec && g.active !== CHART && act.type !== SLOT ? btn("settings", "settings", "Settings") : "") +
+      (spec && act.type !== CHART && act.type !== SLOT ? btn("settings", "settings", "Settings") : "") +
       btn("more", "more", "More") +
       (!fl ? btn("max", maxed === gid ? "shrink" : "expand", maxed === gid ? "Restore" : "Maximize") : "") +
-      (g.active !== CHART ? btn("close", "x", "Close") : "");
+      btn("close", "x", act.type === CHART ? "Close chart" : "Close");
     node.classList.toggle("is-float", fl);
     node.classList.toggle("has-chart", g.tabs.includes(CHART));
     requestAnimationFrame(() => paintInk(node));
@@ -504,6 +549,11 @@ const Dock = (() => {
   // held, not looked up: a layout can detach the tile they ride in, and a
   // detached node is no longer found by id
   let chartTools = null;
+  let chartToolsTarget = CHART;
+  document.addEventListener("charto:chart-widget-active", (e) => {
+    chartToolsTarget = e.detail.id;
+    syncChartTools();
+  });
   function syncChartTools(vm) {
     const tools = chartTools || (chartTools = document.getElementById("chartTools"));
     const home = document.getElementById("chartToolsHome");
@@ -511,10 +561,11 @@ const Dock = (() => {
     // the group the chart is drawn in THIS layout — in focus that is the
     // stage, not the group the chart is stored in
     const groups = (vm && vm.groups) || S.groups;
-    const gid = Object.keys(groups).find((k) => groups[k].tabs.includes(CHART));
+    const target = S.inst[chartToolsTarget] ? chartToolsTarget : CHART;
+    const gid = Object.keys(groups).find((k) => groups[k].tabs.includes(target));
     const node = gid && groupEls.get(gid);
     const slot = node && canvas.contains(node) && !compact && !node.classList.contains("dk-bare")
-      && groups[gid].active === CHART ? node.querySelector(".dk-tools") : null;
+      && groups[gid].active === target ? node.querySelector(".dk-tools") : null;
     if (slot) { if (tools.parentNode !== slot) slot.appendChild(tools); }
     else if (home.nextElementSibling !== tools) home.after(tools);
     for (const n of groupEls.values()) n.classList.toggle("has-tools", !!slot && n === node);
@@ -540,7 +591,7 @@ const Dock = (() => {
    *  as a tab — out only when asked for this visit). Neither touches the
    *  stored layout. */
   function viewModel() {
-    if (!compact && !S.focus) return { tree: S.tree, floats: S.floats, groups: S.groups };
+    if (!placedOf(CHART).length || (!compact && !S.focus)) return { tree: S.tree, floats: S.floats, groups: S.groups };
     const groups = { stage: { tabs: [CHART], active: CHART } };
     const stage = { k: "g", g: "stage", id: "vstage" };
     if (S.focus || !compact) return { tree: stage, floats: [], groups };
@@ -612,8 +663,15 @@ const Dock = (() => {
 
   function layout(animate) {
     sanitize();
+    for (const [id, api] of live) {
+      if (id !== CHART && !S.inst[id] && api.destroy) {
+        api.destroy(); live.delete(id); hosts.get(id)?.remove(); hosts.delete(id);
+      }
+    }
     const before = animate ? snapshot() : null;
     const vm = viewModel();
+    // On a closed-chart boot, park the original chart DOM before rendering.
+    if (!placedOf(CHART).length) parking.appendChild(hostFor(CHART));
     const stored = S.groups;
     if (vm.groups !== S.groups) S.groups = { ...S.groups, ...vm.groups };
     const visibleNow = new Set();
@@ -623,7 +681,7 @@ const Dock = (() => {
       root.style.flex = "1 1 0";
       if (canvas.firstElementChild !== root) move(canvas, root, canvas.firstElementChild);
     }
-    for (const c of [...canvas.children]) if (c !== root && c !== floatLayer && !c.classList.contains("dk-hub") && !c.classList.contains("dk-pull")) c.remove();
+    for (const c of [...canvas.children]) if (c !== root && c !== floatLayer && c !== parking && !c.classList.contains("dk-hub") && !c.classList.contains("dk-pull")) c.remove();
     // forget boxes no longer in the tree
     const live_ = new Set(); walk(vm.tree, (n) => live_.add(n.id));
     for (const id of [...boxEls.keys()]) if (!live_.has(id)) boxEls.delete(id);
@@ -646,7 +704,9 @@ const Dock = (() => {
       paintHead(gid);
     }
     for (const [id, h] of hosts) {
-      if (!Object.keys(vm.groups).some((gid) => S.groups[gid].tabs.includes(id)) && h.parentNode) h.remove();
+      if (!Object.keys(vm.groups).some((gid) => S.groups[gid].tabs.includes(id)) && h.parentNode) {
+        if (id === CHART) parking.appendChild(h); else h.remove();
+      }
     }
     if (vm.groups !== stored) S.groups = stored;
 
@@ -663,6 +723,7 @@ const Dock = (() => {
     syncDense();
     syncRail();
     if (before) play(before);
+    document.dispatchEvent(new CustomEvent("charto:dock-layout"));
     persist();
   }
 
@@ -744,7 +805,7 @@ const Dock = (() => {
    *  asks for a new one, which lands beside the copy already open. */
   function open(type, where, opts = {}) {
     const spec = TYPES.get(type);
-    if (!spec || type === CHART) return null;
+    if (!spec) return null;
     if (S.focus) S.focus = false;
     let id = !opts.fresh ? placedOf(type)[0] : null;
     if (id && !where) {
@@ -773,6 +834,11 @@ const Dock = (() => {
       detach(id);
     }
     let target = where;
+    if (!target && opts.fresh && type === CHART) {
+      const sibling = placedOf(CHART)[0];
+      const gid = sibling && groupOf(sibling);
+      if (gid) target = { kind: "split", gid, side: "right" };
+    }
     if (!target && opts.fresh) {
       const sib = placedOf(type).find((x) => x !== id);
       const sg = sib && groupOf(sib);
@@ -788,18 +854,18 @@ const Dock = (() => {
     place(id, target || { kind: "zone", zone: spec.zone || "right" });
     compactSheet.active = id;
     if (compact) { compactSheet.shown = true; phoneMakeRoom(); }
-    if (typeof Journal !== "undefined" && Journal.toggleQuick) Journal.toggleQuick(false);
+    if (typeof Journal !== "undefined" && Journal.toggleQuick && el("journalQuick")) Journal.toggleQuick(false);
     layout(true);
     flash(id);
     return id;
   }
 
   function close(id) {
-    if (!S.inst[id] || id === CHART) return;
+    if (!S.inst[id]) return;
     if (S.inst[id].type === SLOT) { detach(id); delete S.inst[id]; layout(true); return; }
     const at = detach(id);
     if (at) S.closed.push({ id, ...at });
-    S.closed = S.closed.slice(-24);
+    S.closed = [...S.closed.filter((c) => c.id === CHART), ...S.closed.filter((c) => c.id !== CHART).slice(-23)];
     if (maxed && !S.groups[maxed]) unmax();
     layout(true);
     if (compact) phoneRestore();
@@ -836,6 +902,7 @@ const Dock = (() => {
     if (spec.single) return;
     const copy = uid(i.type + ":");
     S.inst[copy] = { type: i.type, cfg: JSON.parse(JSON.stringify(i.cfg || {})) };
+    if (i.type === CHART) delete S.inst[copy].cfg.chartSlot;
     const api = live.get(id);
     if (api && api.duplicate) try { api.duplicate(copy); } catch { }
     const gid = groupOf(id);
@@ -1006,7 +1073,7 @@ const Dock = (() => {
         { id: "mv:top", label: "Top", icon: "panelTop" },
         { id: "mv:bottom", label: "Bottom", icon: "panelBottom" },
         { id: "mv:float", label: "Floating window", icon: "float", on: fl }]),
-      ...(!chart ? [{ sep: true }, { id: "close", label: "Close", icon: "x" }] : []),
+      { sep: true }, { id: "close", label: "Close", icon: "x" },
     ], (pick) => {
       if (pick.startsWith("widget:")) {
         const action = (api.actions || [])[Number(pick.slice(7))];
@@ -1986,7 +2053,7 @@ const Dock = (() => {
     hubEl.className = "dk-hub";
     hubEl.hidden = true;
     hubEl.setAttribute("aria-label", "Widgets");
-    const specs = [...TYPES.values()].filter((s) => s.catalog !== false && s.type !== CHART);
+    const specs = [...TYPES.values()].filter((s) => s.catalog !== false);
     const order = (s) => SECTIONS.indexOf(s.group || "Tools");
     specs.sort((x, y) => order(x) - order(y));
     // a picture and a name; the one-line description is the tooltip
@@ -2152,13 +2219,15 @@ const Dock = (() => {
   /* ══ the chart itself, as a widget ══════════════════════════════════════ */
 
   TYPES.set(CHART, {
-    type: CHART, title: "Chart", icon: "candles", single: true, rail: false, catalog: false,
-    host() {
+    type: CHART, title: "Chart", icon: "candles", single: false, rail: false, catalog: true,
+    group: "Market", zone: "left", desc: "Full chart with candles, indicators and drawings",
+    host(id) {
       const h = document.createElement("div");
-      h.appendChild(charts);
+      if (id === CHART) h.appendChild(charts);
       return h;
     },
     mount(host, ctx) {
+      if (ctx.id !== CHART) return Panes.mountWidget(host, ctx);
       return { show() { ctx.setTitle(pageSymbol()); } };
     },
   });
@@ -2336,7 +2405,7 @@ const Dock = (() => {
     visible: (type) => placedOf(type).some((id) => lastVisible.has(id)),
     instances: (type) => placedOf(type),
     /** Every widget the hub offers: what Go to and the phone bar list. */
-    catalog: () => [...TYPES.values()].filter((t) => t.catalog !== false && t.type !== CHART)
+    catalog: () => [...TYPES.values()].filter((t) => t.catalog !== false)
       .map((t) => ({ type: t.type, title: t.title, icon: t.icon, desc: t.desc || "", group: t.group || "",
                      key: t.key || "", anim: t.anim || "", single: !!t.single, open: placedOf(t.type).length })),
     /** What is on the workspace now, in reading order. */

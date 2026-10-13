@@ -7,15 +7,22 @@ so an interrupted run resumes, pause before eating the serving disk's
 headroom, and advertise a symbol in serving_inventory only once its minutes
 are really here. Crypto is every Bybit USDT pair and Coinbase -USD pair the
 old store held (392 on 2026-10-09). Prints one line per symbol and a total.
+
+The clean host's 256 GiB disk holds the equity universe with ~35 GiB to
+spare, and the guard keeps 30 of it, so the full crypto minute history (24/7
+since 2024) does not fit. Every pair gets its whole daily history and the
+newest DAYS of minutes (argv[1], default 21): every interval charts, intraday
+reaches back three weeks, and the live feed extends it from here.
 """
 import re
 import shutil
 import sqlite3
+import sys
 
 CRYPTO = re.compile(r'(USDT|-USD)$')
 
 
-def main():
+def main(days: int = 21):
     c = sqlite3.connect('/srv/pivot-data/charto_bars.db', isolation_level=None,
                         timeout=60, uri=True)
     c.execute('PRAGMA trusted_schema=OFF')
@@ -39,9 +46,11 @@ def main():
                 raise RuntimeError('Retention paused before consuming serving disk headroom')
             c.execute('BEGIN')
             try:
-                for table in ('bars', 'bars_1d'):
-                    c.execute(f'INSERT OR IGNORE INTO main.{table} SELECT * FROM legacy.{table} '
-                              'WHERE symbol=?', (symbol,))
+                c.execute('INSERT OR IGNORE INTO main.bars_1d SELECT * FROM legacy.bars_1d '
+                          'WHERE symbol=?', (symbol,))
+                c.execute('INSERT OR IGNORE INTO main.bars SELECT * FROM legacy.bars '
+                          'WHERE symbol=? AND ts >= (SELECT max(ts) FROM legacy.bars '
+                          'WHERE symbol=?) - ?', (symbol, symbol, days * 86400))
                 if cols:
                     c.execute(f'INSERT OR IGNORE INTO main.sync_state ({cols}) '
                               f'SELECT {cols} FROM legacy.sync_state WHERE symbol=?', (symbol,))
@@ -57,4 +66,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    main(int(sys.argv[1]) if len(sys.argv) > 1 else 21)

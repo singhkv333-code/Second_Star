@@ -753,6 +753,13 @@ const Panels = (() => {
   /* The log line is the EVIDENCE record: what fired, against what level, and
    * the value it actually saw. `late` means the engine found it on a catch-up
    * scan rather than live — a fact about the reading, so it is on the reading. */
+  const mailState = (l) => {
+    const labels = { pending: "Email queued", sent: "Email sent", failed: "Email failed",
+      uncertain: "Email unconfirmed", expired: "Email expired", cancelled: "Email cancelled",
+      disabled: "Email off", sending: "Email sending" };
+    return labels[l.email_status]
+      ? ` · <span title="${l.email_status === "sent" ? "Accepted by Google SMTP; inbox delivery is not guaranteed" : "Email delivery status"}">${labels[l.email_status]}</span>` : "";
+  };
   const logRow = (l) =>
     `<div class="lg-row" data-sym="${esc(l.symbol)}">` +
       `<span class="lg-time">${esc(hhmm(l.ts))}</span><div>` +
@@ -761,6 +768,7 @@ const Panels = (() => {
       `<div class="lg-meta">${esc(l.meta)} ` +
         `<span class="val">${esc(fmtVal(l.value))}</span>` +
         (l.late ? ` <span class="lg-late">found late</span>` : "") +
+        mailState(l) +
       `</div></div></div>`;
 
   const hhmm = (ts) => new Date(ts * 1000).toLocaleTimeString("en-IN",

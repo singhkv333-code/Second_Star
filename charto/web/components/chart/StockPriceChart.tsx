@@ -21,6 +21,7 @@
  */
 
 import * as React from "react";
+import type { WorkspacePalette } from "@/lib/workspace-theme";
 import {
   AreaSeries,
   ColorType,
@@ -137,7 +138,23 @@ export function StockPriceChart({
   normalize?: boolean;
 }): React.ReactElement {
   const dark = useIsDark();
-  const t = THEME[dark ? "dark" : "light"];
+  const [workspace, setWorkspace] = React.useState<WorkspacePalette | null>(null);
+  React.useEffect(() => {
+    const sync = (): void => setWorkspace(window.PivotWorkspaceTheme?.getTheme() ?? null);
+    sync(); window.addEventListener("pivot:workspace-colors", sync);
+    return () => window.removeEventListener("pivot:workspace-colors", sync);
+  }, []);
+  const t = React.useMemo(() => {
+    const base = THEME[dark ? "dark" : "light"];
+    if (!workspace) return base;
+    const alpha = (hex: string, opacity: number): string => `rgba(${parseInt(hex.slice(1,3),16)},${parseInt(hex.slice(3,5),16)},${parseInt(hex.slice(5,7),16)},${opacity})`;
+    return { ...base,
+      text: getComputedStyle(document.documentElement).getPropertyValue("--workspace-ink").trim() || base.text,
+      grid: alpha(workspace.border,.6), areaLine: workspace.accent,
+      areaTop: alpha(workspace.accent,.2), areaBottom: alpha(workspace.accent,.02),
+      volUp: alpha(workspace.up,.4), volDown: alpha(workspace.down,.4),
+    };
+  }, [dark, workspace]);
   const compare = seriesDefs.length > 1;
   const showVolume = !compare && !!volume && volume.length > 0;
   const normalized = compare && normalize;
@@ -259,7 +276,7 @@ export function StockPriceChart({
     <LightweightChart
       height={height}
       refitKey={refitKey}
-      deps={[seriesDefs, volume, compare, showVolume, normalized, dark, intraday, valueFormatter]}
+      deps={[seriesDefs, volume, compare, showVolume, normalized, dark, t, intraday, valueFormatter]}
       options={{
         // NOTE: the wrapper merges these SHALLOWLY over its defaults, so any
         // top-level key set here must be complete (a partial `layout` would

@@ -1,0 +1,36 @@
+/* Names sit on the plot; no reserved header strip above the grid. */
+.dock-chart-host { display: flex; min-width: 0; min-height: 0; }
+.dock-chart-host > .subchart { flex: 1; min-width: 0; min-height: 0; position: relative; }
+.comparison-view { container-type: inline-size; position: absolute; inset: 0; z-index: 30; min-width: 0; min-height: 0; background: var(--background, #fff); color: var(--foreground, #111); }
+.comparison-canvas { position: absolute; inset: 0; z-index: 0; }
+.comparison-header { position: absolute; z-index: 2; top: 10px; left: 12px; right: calc(var(--comparison-axis-w, 90px) + 12px); display: flex; align-items: flex-start; gap: 6px 14px; pointer-events: none; }
+.comparison-legend { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.comparison-security { display: flex; align-items: center; gap: 6px; height: 24px; font-size: 12px; white-space: nowrap; }
+.comparison-security:first-child { height: 27px; font-size: 13px; }
+.comparison-logo { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; font-weight: 600; }
+.comparison-logo img { width: 100%; height: 100%; object-fit: contain; border-radius: 4px; }
+.comparison-security b { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+.comparison-security:first-child b { font-weight: 600; }
+.comparison-meta { font-size: 11px; }
+.comparison-value { flex: none; font-variant-numeric: tabular-nums; font-weight: 500; }
+.comparison-security, .comparison-controls { pointer-events: auto; }
+.comparison-controls { flex: none; display: flex; align-items: center; gap: 2px; margin-left: auto; }
+.comparison-controls select, .comparison-controls button, .comparison-security button { font: inherit; font-size: 11px; color: inherit; background: transparent; border: 0; border-radius: 5px; cursor: pointer; }
+.comparison-controls button { display: inline-flex; align-items: center; justify-content: center; gap: 3px; min-width: 26px; height: 26px; padding: 0 5px; }
+.comparison-scale { position: relative; display: inline-flex; align-items: center; }
+.comparison-scale select { appearance: none; padding: 5px 21px 5px 5px; line-height: 16px; }
+.comparison-scale > svg { pointer-events: none; position: absolute; right: 5px; width: 11px; height: 11px; }
+.comparison-security button { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 3px; }
+.comparison-security button svg { width: 12px; height: 12px; }
+.comparison-controls button:hover, .comparison-scale:hover, .comparison-security button:hover { background: var(--hover-fill, #f2f2f2); border-radius: 5px; }
+.comparison-controls :focus-visible, .comparison-security button:focus-visible { outline: 2px solid var(--foreground, #111); outline-offset: 2px; }
+.comparison-period { position: absolute; z-index: 2; bottom: 31px; left: 12px; margin: 0; font-size: 10px; line-height: 16px; pointer-events: none; }
+.comparison-period:empty { display: none; }
+.comparison-status { margin: 0; padding: 8px 14px; font-size: 12px; }
+.comparison-status:empty { display: none; }
+.comparison-status:not(:empty) { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); max-width: min(560px, 90%); width: max-content; text-align: center; background: var(--background, #fff); }
+@container (max-width: 680px) {
+  .comparison-header { flex-wrap: wrap; }
+  .comparison-legend { flex-basis: 100%; }
+  .comparison-controls { margin-left: 24px; }
+}

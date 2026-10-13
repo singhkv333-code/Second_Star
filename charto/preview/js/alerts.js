@@ -20,9 +20,8 @@
  * access log. chat.js already reads SSE off a fetch body reader twice; this is
  * the third, for the same reason.
  *
- * WHAT THIS DOES NOT DO. With every tab shut, nothing is delivered anywhere.
- * The log and the bell are waiting when you come back, and no string in this
- * file may suggest otherwise — the honest boundary is the feature.
+ * Email delivery is server-side and works with this tab closed once the
+ * sender is configured. SMTP acceptance is not a guarantee of inbox delivery.
  */
 "use strict";
 
@@ -41,7 +40,7 @@ const Alerts = (() => {
    */
   const state = {
     alerts: [], log: [], unseen: 0, loaded: false, signedIn: false,
-    feed: null, vocab: null, error: "",
+    feed: null, vocab: null, emailDelivery: null, error: "",
   };
   const listeners = [];
   const chartLines = new Map();
@@ -391,6 +390,7 @@ const Alerts = (() => {
   async function load() {
     if (!Auth.user) {
       state.alerts = []; state.log = []; state.unseen = 0;
+      state.emailDelivery = null;
       state.loaded = true; state.signedIn = false;
       emit();
       return;
@@ -401,6 +401,7 @@ const Alerts = (() => {
       state.log = d.log || [];
       state.unseen = d.unseen || 0;
       state.feed = d.feed || null;
+      state.emailDelivery = d.email_delivery || null;
       state.vocab = d.vocab || null;
       state.error = "";
     } catch (e) {
@@ -441,6 +442,12 @@ const Alerts = (() => {
           let ev = null;
           try { ev = JSON.parse(line.slice(6)); } catch { continue }
           if (ev && ev.type === "fired") onFired(ev);
+          if (ev && ev.type === "email_delivery") {
+            if (ev.email_delivery) state.emailDelivery = ev.email_delivery;
+            state.log = state.log.map((l) => l.id === ev.log_id
+              ? { ...l, email_status: ev.email_status } : l);
+            emit();
+          }
         }
       }
     } catch {
@@ -717,7 +724,7 @@ const Alerts = (() => {
   let checkTimer = null, checkSeq = 0, checkReady = false;
 
   const blank = (symbol) => ({
-    symbol, interval: "5m", freq: "once", all: true, note: "", expires_days: "0",
+    symbol, interval: "5m", freq: "once", all: true, note: "", expires_days: "0", email: "on",
     when: [{ left: "close", op: "cross_up", right: "" }],
   });
 
@@ -969,6 +976,11 @@ const Alerts = (() => {
       ${row("Interval", sel("interval", IVS.map((v) => [v, v === "1d" ? "1D" : v]), draft.interval))}
       ${row("Trigger", sel("freq", FREQS, draft.freq))}
       ${row("Expires", sel("expires_days", expiryOptions(), draft.expires_days))}
+      ${row("Email", `<div class="al-stack">` +
+        sel("email", [["on", "On"], ["off", "Off"]], draft.email) +
+        `<small class="al-email-note">${esc(state.emailDelivery?.configured && !state.emailDelivery?.error
+          ? "To " + Auth.user.email + " · from info@pivotnow.in"
+          : "Email unavailable until sender setup is complete")}</small></div>`)}
       ${row("Note", `<input class="dlg-input wide" data-f="note" ` +
             `value="${esc(draft.note)}" placeholder="Optional">`)}`;
   }
@@ -1057,7 +1069,7 @@ const Alerts = (() => {
   function toRule() {
     const out = {
       symbol: draft.symbol, interval: draft.interval, freq: draft.freq,
-      all: draft.all, note: draft.note,
+      all: draft.all, note: draft.note, email: draft.email !== "off",
       when: draft.when.map((c) => {
         const o = { left: numOrAddr(c.left), op: c.op };
         for (const k of ["right", "right2", "x", "within"]) {
@@ -1212,7 +1224,7 @@ const Alerts = (() => {
       if (editing) {
         const r = toRule();
         const changes = { when: r.when, all: r.all, interval: r.interval,
-                          freq: r.freq, note: r.note };
+                          freq: r.freq, note: r.note, email: r.email };
         if (Object.prototype.hasOwnProperty.call(r, "expires")) {
           changes.expires = r.expires;
         }
@@ -1255,6 +1267,7 @@ const Alerts = (() => {
       draft = {
         symbol: a.symbol, interval: a.interval, freq: a.freq, all: a.all !== false,
         note: a.note || "", expires: a.expires || null,
+        email: a.email === false ? "off" : "on",
         expires_days: a.expires ? "keep" : "0",
         when: (a.when || []).map((c) => Object.assign({}, c)),
       };

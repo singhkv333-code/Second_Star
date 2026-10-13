@@ -33,20 +33,26 @@ const Panes = (() => {
   // — and labelled — Reliance beside it. A pane can now be pointed at its own
   // instrument from its legend, and everything about it (clock, currency,
   // venue, indicator series) follows that symbol rather than the page's.
-  const INTERVALS = ["1m", "5m", "15m", "30m", "1h", "D", "W", "M"];
+  const INTERVALS = ["1m", "2m", "3m", "5m", "10m", "15m", "20m", "30m", "45m", "1h", "2h", "3h", "4h", "D", "W", "M"];
   // set by main.js — see onSettings() at the bottom of this file
   let onSettings = null;
   // the server's own vocabulary; the header's D/W/M are display labels
   const WIRE = { D: "1d", W: "1w", M: "1mo" };
   const DISP = { "1d": "D", "1w": "W", "1mo": "M" };
-  const PAGE = { "1m": 3000, "5m": 2500, "15m": 2000, "30m": 2000, "1h": 2000, D: 2000, W: 700, M: 200 };
+  const PAGE = {
+    "1m": 3000, "2m": 2500, "3m": 2500, "5m": 2500, "10m": 2000,
+    "15m": 2000, "20m": 2000, "30m": 2000, "45m": 2000, "1h": 2000,
+    "2h": 1000, "3h": 650, "4h": 500, "D": 2000, "W": 700,
+    "M": 200,
+  };
   // seconds per bar, keyed by BOTH the display label and the wire id — the
   // drawing runtime asks for it (clone offset), and a pane speaks D/W/M while
   // the server speaks 1d/1w/1mo.
   const IV_SEC = {
-    "1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600,
-    D: 86400, W: 604800, M: 2592000,
-    "1d": 86400, "1w": 604800, "1mo": 2592000,
+    "1m": 60, "2m": 120, "3m": 180, "5m": 300, "10m": 600,
+    "15m": 900, "20m": 1200, "30m": 1800, "45m": 2700, "1h": 3600,
+    "2h": 7200, "3h": 10800, "4h": 14400, "D": 86400, "W": 604800,
+    "M": 2592000, "1d": 86400, "1w": 604800, "1mo": 2592000,
   };
 
   /* ── the layout catalogue ────────────────────────────────────────────────
@@ -250,6 +256,49 @@ const Panes = (() => {
     Store.set(FR_KEY, frAll);
   }
   let active = 0;         // 0 = primary, 1..n = subs — the pane the toolbar drives
+  let expanded = null;   // temporary view; never changes the saved pane grid
+  function expandPane(root) {
+    const previous = expanded;
+    expanded = root === expanded ? null : root;
+    if (previous) previous.classList.remove("pane-expanded-target");
+    if (expanded) expanded.classList.add("pane-expanded-target");
+    gridEl.classList.toggle("pane-expanded", !!expanded);
+    for (const button of gridEl.querySelectorAll(".pane-expand")) {
+      const on = button.parentElement === expanded;
+      const label = on ? "Restore split charts (Esc)" : "Expand this chart";
+      button.innerHTML = Icons.svg(on ? "shrink" : "expand", "xs");
+      button.title = label;
+      button.setAttribute("aria-label", label);
+      button.setAttribute("aria-pressed", String(on));
+    }
+    mountSplitters();
+  }
+  function addExpand(root) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "pane-expand";
+    button.innerHTML = Icons.svg("expand", "xs");
+    button.title = "Expand this chart";
+    button.setAttribute("aria-label", button.title);
+    button.setAttribute("aria-pressed", "false");
+    button.addEventListener("click", () => {
+      setActive(root === stage ? 0 : subs.findIndex((s) => s.root === root) + 1);
+      expandPane(root);
+    });
+    root.appendChild(button);
+  }
+  const widgetSubs = [];
+  let activeWidget = null;
+  const peers = () => [...subs, ...widgetSubs];
+  const selectedSub = () => activeWidget || subs[active - 1] || null;
+  function selectSub(sub) {
+    if (widgetSubs.includes(sub)) {
+      activeWidget = sub;
+      if (stage) stage.classList.remove("pane-active");
+      peers().forEach((s) => s.root.classList.toggle("pane-active", s === sub));
+      emitActive();
+    } else setActive(subs.indexOf(sub) + 1);
+  }
   const subs = [];        // active secondary charts
   let subSeq = 0;         // monotonic id for a sub's drawing runtime (never reused)
   // main.js installs this so a tool finishing on a secondary pane hands the
@@ -264,7 +313,7 @@ const Panes = (() => {
     const P = Theme.palette;
     return {
       layout: {
-        background: { color: P.chartBg }, textColor: P.axisText,
+        background: { color: P.canvasBg || P.chartBg }, textColor: P.axisText,
         fontFamily: CHART_FONT, fontSize: 11,
         panes: { separatorColor: P.separator },
         // As the primary chart — one mark on the surface, on the primary, and
@@ -320,8 +369,10 @@ const Panes = (() => {
     const titleEl = root.querySelector(".sub-legend .title");
     const ohlcEl = root.querySelector(".sub-legend .ohlc");
     const legendEl = root.querySelector(".sub-legend .ind-legend");
+    addExpand(root);
 
     const chart = LWC.createChart(canvas, chartOpts());
+    const stopSizing = ChartSize.watch(chart, canvas);
     // Built through ChartSettings so this pane wears the same chart type the
     // primary does — a split showing one instrument twice must show it the same
     // way. `let`, because the type switcher rebuilds the series (see rebind in
@@ -443,6 +494,7 @@ const Panes = (() => {
         `<span class="ro-c"><i>C</i> <b class="${cls}">${fmt(b.close)}</b></span>` +
         `<span class="ro-v"><i>V</i> <b class="${cls}">${fmt(b.volume)}</b></span>`;
     }
+    sub.paintLegend = paintLegend;
     chart.subscribeCrosshairMove((p) => {
       if (!p || !p.time) return paintLegend(sub.bars[sub.bars.length - 1]);
       const d = p.seriesData && p.seriesData.get(candle);
@@ -540,7 +592,10 @@ const Panes = (() => {
       }
     }, true);
 
+    let loadTicket = 0;
     async function load(rawIv) {
+      const ticket = ++loadTicket;
+      sub.loading = true;
       // The toolbar speaks the server's ids (1d/1w/1mo), this pane's ladder and
       // legend speak D/W/M. Normalising here is why a daily pane picked from
       // the header still gets a daily PAGE size and a date-only axis.
@@ -549,7 +604,7 @@ const Panes = (() => {
       paintLegend(null);
       try {
         const bars = await fetchBars(sub.symbol, iv, PAGE[iv] || 2000);
-        if (sub.destroyed) return;
+        if (sub.destroyed || ticket !== loadTicket) return;
         sub.bars = bars;
         // the settings module builds the series — see the note beside
         // main.js's paint(): one place decides what a green bar is, and
@@ -561,6 +616,9 @@ const Panes = (() => {
         chart.timeScale().setVisibleLogicalRange(
           { from: Math.max(0, bars.length - 140), to: bars.length + 4 });
         paintLegend(bars[bars.length - 1]);
+        sub.compare?.refresh();
+        sub.onState?.();
+        if (selectedSub() === sub) emitActive();
         // this pane's own indicators recompute on ITS symbol and interval
         sub.ind.recomputeAll(bars, {
           interval: WIRE[iv] || iv, limit: bars.length, symbol: sub.symbol,
@@ -582,10 +640,17 @@ const Panes = (() => {
         // charto:indicators-changed
         if (sub._syncDrawPanes) requestAnimationFrame(sub._syncDrawPanes);
       } catch (e) {
-        if (!sub.destroyed) titleEl.textContent = String(e.message || e);
+        if (!sub.destroyed && ticket === loadTicket) titleEl.textContent = String(e.message || e);
+      } finally {
+        if (ticket === loadTicket) { sub.loading = false; sub.connectLive?.(); }
       }
     }
     sub.load = load;
+    sub.compare = ChartCompare.create({ chart, root, settings: sub.settings,
+      getBars: () => sub.bars, getSymbol: () => sub.symbol,
+      getInterval: () => WIRE[sub.interval] || sub.interval,
+      save: (comparison) => sub.onComparison?.(comparison),
+    });
 
     /* ── the drawing runtime, on THIS pane ──────────────────────────────────
      *
@@ -622,7 +687,7 @@ const Panes = (() => {
       setStatus: () => {},
       // a tool that finishes hands the toolbar back to cursor, on every pane
       onToolDone: () => { if (onSubToolDone) onSubToolDone(); },
-      onChange: () => {},
+      onChange: () => sub.onState?.(),
     });
     // panes come and go with this pane's own indicators — re-attach the
     // drawing primitives the same way the primary does on its own changes
@@ -637,9 +702,10 @@ const Panes = (() => {
       sub.symbol = next;
       // what was drawn belonged to the old instrument's prices
       sub.scene.setItems([]);
+      if (sub.widgetId) sub.draw.setAll([]);
       titleEl.innerHTML = `${next}<span class="sep">·</span>loading…`;
       ohlcEl.innerHTML = "";
-      if (subs[active - 1] === sub) emitActive();
+      if (selectedSub() === sub) emitActive();
       return load(sub.interval);
     };
 
@@ -648,7 +714,7 @@ const Panes = (() => {
       const btn = e.target.closest("[data-sym-btn]");
       if (!btn) return;
       e.stopPropagation();
-      setActive(subs.indexOf(sub) + 1);
+      selectSub(sub);
       Universe.open({ anchor: btn, current: sub.symbol, onPick: (s) => sub.setSymbol(s) });
     });
 
@@ -663,6 +729,9 @@ const Panes = (() => {
     };
     sub.destroy = () => {
       sub.destroyed = true;
+      sub.compare?.destroy();
+      sub.stream?.close();
+      stopSizing();
       sub.sceneAbort.abort();   // the scene's window listeners go with the pane
       // the drawing runtime holds pointer listeners on this canvas and
       // primitives on its series; drop them before the chart goes, and
@@ -697,7 +766,9 @@ const Panes = (() => {
    *  selection is a property of the pane, not of the toolbar. */
   function setActive(i) {
     const n = Math.max(0, Math.min(i, subs.length));
-    const same = n === active;
+    const same = n === active && !activeWidget;
+    activeWidget = null;
+    widgetSubs.forEach((s) => s.root.classList.remove("pane-active"));
     active = n;
     if (stage) stage.classList.toggle("pane-active", n === 0 && subs.length > 0);
     subs.forEach((s, k) => s.root.classList.toggle("pane-active", n === k + 1));
@@ -710,17 +781,18 @@ const Panes = (() => {
    *  hear about that or it keeps naming the company you just navigated away
    *  from. */
   function emitActive() {
+    document.dispatchEvent(new CustomEvent("charto:chart-widget-active", { detail: { id: activeWidget?.widgetId || "main" } }));
     for (const fn of onActiveSubs) {
-      try { fn(active, intervalOf(active), symbolOf(active)); } catch (e) { console.error(e); }
+      try { fn(activeWidget ? peers().indexOf(activeWidget) + 1 : active, intervalOf(active), symbolOf(active)); } catch (e) { console.error(e); }
     }
   }
   const onActiveSubs = [];
 
   function intervalOf(i) {
-    return i === 0 ? null : (subs[i - 1] || {}).interval || null;
+    return activeWidget ? activeWidget.interval : i === 0 ? null : (subs[i - 1] || {}).interval || null;
   }
   function symbolOf(i) {
-    return i === 0 ? Sym.name : (subs[i - 1] || {}).symbol || Sym.name;
+    return activeWidget ? activeWidget.symbol : i === 0 ? Sym.name : (subs[i - 1] || {}).symbol || Sym.name;
   }
 
   /* A second pane defaults to a SLOWER interval — the reason to open one is
@@ -747,6 +819,7 @@ const Panes = (() => {
   function mountSplitters() {
     if (!gridEl) return;
     for (const el of [...gridEl.querySelectorAll(".pane-split")]) el.remove();
+    if (expanded) return;
     const L = LAYOUTS[layout];
     if (!L || (L.cols < 2 && L.rows < 2)) return;
     const cs = getComputedStyle(gridEl);
@@ -835,6 +908,7 @@ const Panes = (() => {
 
   function apply(next) {
     if (!gridEl) return;
+    if (expanded) expandPane(expanded);
     /* A custom grid id (gRxC) may not be in LAYOUTS yet — a reload restores it
      * from the persisted id alone, before anyone has opened the picker — so
      * rebuild it from the id before the lookup below. */
@@ -885,17 +959,99 @@ const Panes = (() => {
     gridEl.dataset.layout = "s1";
     stageEl.parentNode.insertBefore(gridEl, stageEl);
     gridEl.appendChild(stageEl);
+    addExpand(stageEl);
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && expanded) expandPane(expanded);
+    });
     // delegated: apply() rebuilds the handles on every layout change, and a
     // listener per handle would leak one set per switch
     gridEl.addEventListener("pointerdown", beginDrag);
     // the handles are positioned in px off resolved track sizes, so they have
     // to be re-laid whenever the grid's own box changes
     if (window.ResizeObserver) new ResizeObserver(mountSplitters).observe(gridEl);
-    Theme.onChange(() => { for (const s of subs) s.retheme(); });
+    Theme.onChange(() => { for (const s of peers()) s.retheme(); });
+  }
+
+  /** A docked chart uses the same chart, indicators, scene and drawing runtime
+   * as a split pane. Closing parks it; destroying a workspace releases it. */
+  function mountWidget(host, ctx) {
+    const cfg = ctx.cfg;
+    const slot = Number(cfg.chartSlot) || 100000 + Math.floor(Math.random() * 1000000000);
+    const sub = makeSub(cfg.interval || "5m", cfg.symbol || Sym.name, slot);
+    sub.widgetId = ctx.id;
+    sub.widgetVisible = false;
+    host.classList.add("dock-chart-host");
+    host.appendChild(sub.root);
+    widgetSubs.push(sub);
+    let restoring = true;
+    const save = () => {
+      if (restoring || sub.destroyed) return;
+      ctx.setCfg({ symbol: sub.symbol, interval: sub.interval, chartSlot: slot,
+        drawings: sub.draw.state.drawings, indicators: [...sub.ind.active.keys()] });
+      ctx.setTitle(sub.symbol);
+    };
+    sub.onState = save;
+    // Additional chart widgets share the primary chart's minute stream format.
+    sub.connectLive = () => {
+      if (!sub.widgetVisible || sub.destroyed) return;
+      if (sub.stream && sub.streamSymbol === sub.symbol) return;
+      sub.stream?.close();
+      sub.streamSymbol = sub.symbol;
+      const stream = { close: null };
+      sub.stream = stream;
+      stream.close = ChartCompare.subscribeBars(sub.symbol, (payload) => {
+        if (sub.destroyed || sub.loading || sub.stream !== stream) return;
+        const point = payload.type === "bar" && payload.bars?.[WIRE[sub.interval] || sub.interval];
+        if (!point) return;
+        const bar = { time: point.t + Sym.of(sub.symbol).tz, open: point.o, high: point.h, low: point.l, close: point.c, volume: point.v };
+        const last = sub.bars.at(-1);
+        if (last && bar.time < last.time) return;
+        if (last && last.time === bar.time) sub.bars[sub.bars.length - 1] = bar;
+        else sub.bars.push(bar);
+        const update = () => sub.candle.update(ChartSettings.pricePoint(bar, sub.bars.at(-2)));
+        if (ChartSettings.withTarget) ChartSettings.withTarget(sub.settings, update); else update();
+        sub.ind.updateEdge(sub.bars);
+        sub.paintLegend(bar);
+      });
+    };
+    sub.onComparison = (comparison) => ctx.setCfg({ comparison });
+    sub.root.addEventListener("pointerdown", () => selectSub(sub));
+    const stateChanged = () => save();
+    document.addEventListener("charto:indicators-changed", stateChanged);
+    // The chart is in its host before the initial request starts.
+    Promise.resolve(sub.load(cfg.interval || "5m")).then(async () => {
+      if (sub.destroyed) return;
+      if (cfg.drawings) sub.draw.setAll(cfg.drawings);
+      if (Array.isArray(cfg.indicators)) {
+        for (const id of [...sub.ind.active.keys()]) if (!cfg.indicators.includes(id)) sub.ind.remove(id);
+        for (const id of cfg.indicators) if (!sub.ind.isActive(id)) await sub.ind.toggle(id, sub.bars);
+      }
+      sub.compare.restore(cfg.comparison);
+      restoring = false;
+      save();
+      if (selectedSub() === sub) emitActive();
+    }).catch((error) => {
+      restoring = false;
+      if (!sub.destroyed) ctx.toast(`Chart settings could not be restored: ${error.message || error}`);
+    });
+    return {
+      show() { sub.widgetVisible = true; ctx.setTitle(sub.symbol); selectSub(sub); sub.connectLive(); },
+      hide() { sub.widgetVisible = false; sub.stream?.close(); sub.stream = null; if (activeWidget === sub) setActive(0); },
+      destroy() {
+        document.removeEventListener("charto:indicators-changed", stateChanged);
+        if (activeWidget === sub) setActive(0);
+        widgetSubs.splice(widgetSubs.indexOf(sub), 1);
+        sub.destroy();
+      },
+      config(next, patch) {
+        if (patch.symbol && next.symbol !== sub.symbol) sub.setSymbol(next.symbol);
+        else if (patch.interval && next.interval !== sub.interval) sub.load(next.interval);
+      },
+    };
   }
 
   return {
-    init, apply, LAYOUTS, setActive,
+    mountWidget, init, apply, LAYOUTS, setActive,
     /** The largest custom grid the picker offers, per side. */
     CUSTOM_MAX,
     /** Build (memoised) and apply a uniform rows×cols custom grid — the drag
@@ -924,29 +1080,29 @@ const Panes = (() => {
     },
     get layout() { return layout; },
     /** true when the toolbar should drive main.js's own chart. */
-    get primaryActive() { return active === 0; },
+    get primaryActive() { return active === 0 && !activeWidget; },
     get activeInterval() { return intervalOf(active); },
     get activeSymbol() { return symbolOf(active); },
     /** The selected secondary pane, or null when the primary has it. Callers
      *  that must act on "the chart the user is working in" ask for this and
      *  fall back to their own primary — there is no null-object stand-in,
      *  because a silent no-op on the wrong chart is worse than a branch. */
-    activeSub() { return active === 0 ? null : subs[active - 1] || null; },
+    activeSub() { return activeWidget || (active === 0 ? null : subs[active - 1] || null); },
     /** A pane BY INDEX — 0 is the primary (null: main.js owns it), 1..n the
      *  secondaries. Null for an index the current layout no longer has, so a
      *  caller holding a stale pane falls back to the primary instead of
      *  answering from a chart that is gone. */
-    paneAt(i) { return i > 0 ? (subs[i - 1] || null) : null; },
-    hasPane(i) { return i === 0 || !!subs[i - 1]; },
+    paneAt(i) { return i > 0 ? (peers()[i - 1] || null) : null; },
+    hasPane(i) { return i === 0 || !!peers()[i - 1]; },
     /** What the secondary panes are showing, in screen order. main.js puts the
      *  primary at the head of this list — it is the only one that knows what
      *  the primary chart is on. */
     subsInfo() {
-      return subs.map((s, i) => ({ pane: i + 1, symbol: s.symbol,
+      return peers().filter((s) => !s.widgetId || s.widgetVisible).map((s) => ({ pane: peers().indexOf(s) + 1, symbol: s.symbol,
                                    interval: s.interval, bars: s.bars.length }));
     },
     /** The secondary panes, in screen order — for routing what the chat drew. */
-    all() { return subs.slice(); },
+    all() { return peers(); },
     /** The indicator manager the one toolbar drives. */
     activeInd() { const s = this.activeSub(); return s ? s.ind : null; },
     /** The drawing runtime the rail should arm a tool on: null when the
@@ -955,7 +1111,7 @@ const Panes = (() => {
     activeDraw() { const s = this.activeSub(); return s ? s.draw : null; },
     /** Run fn against every secondary pane's drawing runtime — used to put
      *  them all back to the cursor when the tool arms elsewhere. */
-    eachSubDraw(fn) { for (const s of subs) if (s.draw) { try { fn(s.draw); } catch {} } },
+    eachSubDraw(fn) { for (const s of peers()) if (s.draw) { try { fn(s.draw); } catch {} } },
     /** Resolve a paneId (from a charto:draw-select detail) to its runtime, so
      *  the edit toolbar can act on the pane the selection is actually on. */
     drawByPaneId(id) { return Drawings.byPaneId(id); },
@@ -965,8 +1121,8 @@ const Panes = (() => {
     /** Route an interval choice to the selected pane. Returns false when the
      *  primary is selected, so main.js keeps ownership of its own chart. */
     setIntervalOnActive(iv) {
-      if (active === 0) return false;
-      const s = subs[active - 1];
+      if (active === 0 && !activeWidget) return false;
+      const s = selectedSub();
       if (s) { s.load(iv); emitActive(); }   // the chat's subject moved with it
       return true;
     },

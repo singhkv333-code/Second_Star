@@ -1,0 +1,20 @@
+Subject: You're in. Welcome to Pivot.
+Preview: A chart, a question, a what-if. Start wherever you like.
+
+You bring the questions.
+
+Hey {{first_name}},
+
+Got a ‘what’s going on with this chart?’ question? That’s a good place to start.
+
+Open a chart, ask Pivot, or try an idea in the paper book. No perfect first question needed.
+
+Open Pivot: {{app_url}}
+
+See you in there,
+The Pivot team
+
+Need a hand? Write to info@pivotnow.in.
+
+Pivot Tech
+Market analysis and paper trading. Not financial advice.

@@ -1,5 +1,10 @@
 # Charto Alerts — making the widget real
 
+> Email implementation update, 2026-10-09: `data/alert_email.py` adds a
+> transactional SMTP outbox and per-alert email control. Sender activation
+> requires verified Google configuration. See `../docs/ALERT_EMAIL.md`.
+> The email exclusions below describe the original August delivery design.
+
 > Plan, 2026-08-10 — **built the same day**. The Alerts widget was drawn at full
 > fidelity and deliberately inert; it now runs on a real engine.
 > **The engine's own specification is `data/alerts.py`'s module docstring** —

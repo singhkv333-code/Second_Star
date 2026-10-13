@@ -112,13 +112,12 @@ const Shortcuts = (() => {
    * mean minute — a typed M is a month, which is what the M cap on
    * TradingView's own box means. */
   const IV_TOKENS = {
-    "1": "1m", "5": "5m", "15": "15m", "30": "30m", "60": "1h",
+    "1": "1m", "2": "2m", "3": "3m", "5": "5m", "10": "10m", "15": "15m", "20": "20m", "30": "30m", "45": "45m", "60": "1h", "120": "2h", "180": "3h", "240": "4h",
     "D": "1d", "1D": "1d", "W": "1w", "1W": "1w", "M": "1mo", "1M": "1mo",
   };
   const IV_NAMES = {
-    "1m": "1 minute", "5m": "5 minutes", "15m": "15 minutes",
-    "30m": "30 minutes", "1h": "1 hour", "1d": "1 day",
-    "1w": "1 week", "1mo": "1 month",
+    "1m": "1 minute", "2m": "2 minutes", "3m": "3 minutes", "5m": "5 minutes", "10m": "10 minutes", "15m": "15 minutes", "20m": "20 minutes", "30m": "30 minutes", "45m": "45 minutes", "1h": "1 hour", "2h": "2 hours", "3h": "3 hours", "4h": "4 hours",
+    "1d": "1 day", "1w": "1 week", "1mo": "1 month",
   };
 
   // ── parsing a printed combo into something matchable ────

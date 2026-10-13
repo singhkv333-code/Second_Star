@@ -1,6 +1,13 @@
 # Data map — every store, who writes it, who reads it, what breaks
 
 > Verified live against Azure and the source tree on **2026-09-05**.
+> Serving-host update verified **2026-10-09**: the canonical address now uses
+> `pivot-clean-stage`; live SQLite state is `/srv/pivot-data/charto_users.db`
+> and market data is `/srv/pivot-data/charto_bars.db` (6,917 minute-backed
+> series). The original VM is a powered, writer-stopped rollback host, not a
+> second live state plane. See `docs/research/2026-10-08-full-universe-cutover.md`
+> for final handoff counts, retained sources and unresolved security/live-feed
+> boundaries. Historical table counts below retain their verification date.
 > This file exists because two of our stores are *silently* shared: a break
 > upstream keeps serving from a downstream cache, so nothing looks wrong until
 > the data is weeks stale. **Read this before deleting, renaming or migrating
@@ -125,6 +132,7 @@ understates it by a wide margin. It is not an auth database.
 |---|---|
 | `users`, `sessions`, `workspace_state`, `layouts`, `conversations` | `dataserver.py:13511-13560` |
 | `alerts`, `alert_log` | `charto/data/alerts.py` (`_db()` → `ds._users`) |
+| `alert_email_outbox` (additive email feature) | `charto/data/alert_email.py`, initialized by `alerts.py`; same user DB and lock, included in whole-plane backups |
 | `paper_accounts`, `paper_orders`, `paper_fills`, `paper_positions`, `paper_ledger`, `paper_nav` | `charto/data/paper.py:212` |
 | `strategies`, `strategy_log` | `charto/data/strategies.py:172` |
 | `journal_trades`, `journal_revisions`, `journal_playbooks` | `charto/data/journal.py:24` |

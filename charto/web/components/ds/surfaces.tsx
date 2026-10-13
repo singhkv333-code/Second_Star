@@ -63,6 +63,7 @@ export function Panel({
   };
   return (
     <div
+      data-workspace-widget={variant === "paper" ? "" : undefined}
       className={cn(
         interactive &&
           "cursor-pointer transition-all duration-200 hover:-translate-y-0.5",

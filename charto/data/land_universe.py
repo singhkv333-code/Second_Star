@@ -215,8 +215,12 @@ def land(src: Path, dst_path: Path, dump_path: str | None, only: set[str] | None
         roots = {(r["exchange"], r["root"]) for r in master if r["id"] in only and r["kind"] == "continuous"}
         master = [r for r in master if r["id"] in only or (r["kind"] == "future" and (r["exchange"], r["root"]) in roots)]
     dst = sqlite3.connect(dst_path, isolation_level=None)
-    dst.execute("PRAGMA journal_mode=WAL")
-    dst.execute("PRAGMA synchronous=OFF")
+    # This is an OFFLINE build. A per-exchange transaction can append 75GB
+    # to WAL, then need another 75GB during checkpoint on the serving disk.
+    # A rollback journal keeps the atomicity without doubling every inserted
+    # page. Runtime switches the accepted store to WAL when it opens it.
+    dst.execute("PRAGMA journal_mode=DELETE")
+    dst.execute("PRAGMA synchronous=NORMAL")
     dst.execute("PRAGMA cache_size=-1000000")
     dst.executescript(SCHEMA)
     stats = defaultdict(int)

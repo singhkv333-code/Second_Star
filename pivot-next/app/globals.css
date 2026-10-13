@@ -75,6 +75,13 @@
     /* Main shell divisions match charto/preview's 2px seams. */
     --shell-seam:         #e6e6e6;
     --shell-sidebar-bg:   #ffffff;
+    /* The framed window (Codex/ChatGPT layout): the top bar and the rail are
+       one "chrome" surface, and the page sits inside it as a bordered,
+       rounded window. charto/preview's `.in-shell` copies these values —
+       change them together. */
+    --shell-chrome:        #f3f3f4;
+    --shell-window-border: #e2e2e5;
+    --shell-window-shadow: 0 1px 2px rgba(15, 18, 22, 0.04);
     --glass-border-hover: rgba(15, 18, 22, 0.16);
     --glass-border-focus: rgba(15, 18, 22, 0.32);
 
@@ -208,6 +215,9 @@
     --glass-border:       rgba(255, 255, 255, 0.14);
     --shell-seam:         #242424;
     --shell-sidebar-bg:   #1c1c1d;
+    --shell-chrome:        #151516;
+    --shell-window-border: #29292c;
+    --shell-window-shadow: none;
     --glass-border-hover: rgba(255, 255, 255, 0.22);
     --glass-border-focus: rgba(255, 255, 255, 0.36);
 
@@ -1200,16 +1210,22 @@ input[type="range"].payoff-slider::-moz-range-thumb {
 
 @media (min-width: 1024px) {
   :root {
-    /* Match the chart workspace's compact top bar. */
-    --header-h: 48px;
+    /* A thin, quiet bar: every pixel of it is height the page (above all
+       the chart) does not get. charto/preview's `.in-shell` header is
+       lifted into this slot and sets the same 40px — change them together. */
+    --header-h: 40px;
   }
   /* Keep the search immediately beside the wordmark. The old fixed 200px
      slot left a large dead zone between the two controls. */
   .brand-slot {
     width: auto;
   }
+  /* The wordmark was the heaviest mark on the screen and pulled the eye
+     off the chart; smaller and at the secondary ink, it still says where
+     you are without competing with the data. */
   .top-header-wordmark {
-    font-size: 17px !important;
+    font-size: 15px !important;
+    color: var(--text-secondary) !important;  /* PivotWordmark inlines --text-primary */
   }
 }
 
@@ -1248,6 +1264,99 @@ input[type="range"].payoff-slider::-moz-range-thumb {
 .chart-shell-pane .chart-frame-wrap {
   position: absolute;
   inset: calc(var(--header-h, 56px) * -1) 0 0;
+}
+.chart-frame-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-base);
+}
+.chart-frame-loading-window {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: var(--bg-base);
+  color: var(--text-secondary);
+}
+/* ── the framed window ─────────────────────────────────────────────────────
+   Desktop only. The top bar and the rail are one chrome surface; the page
+   is a window set inside it — flush against the rail and the top bar, a
+   4px margin on the right and bottom, one hairline border and a 10px corner.
+   Below lg the rail is a drawer and the page runs edge to edge, so the
+   header and drawer keep the page colour and nothing is framed.
+
+   Chart is the exception: its frame is lifted one header height so the
+   chart's own controls fill the shared top bar, and a window here would clip
+   that. charto/preview draws the same window inside the frame instead
+   (`.in-shell` in its stylesheet), so the outer box only steps aside. */
+.top-header,
+.sidebar-shell {
+  background: var(--bg-base);
+}
+.top-header {
+  border-bottom: 2px solid var(--shell-seam);
+}
+@media (min-width: 1024px) {
+  :root {
+    --shell-gap: 4px;
+    --shell-radius: 10px;
+  }
+  .app-shell-root,
+  .top-header,
+  .sidebar-shell {
+    background: var(--shell-chrome);
+  }
+  .top-header {
+    border-bottom: 0;
+  }
+  .shell-window {
+    margin: 0 var(--shell-gap) var(--shell-gap) 0;
+    border: 1px solid var(--shell-window-border);
+    border-radius: var(--shell-radius);
+    background: var(--bg-base);
+    box-shadow: var(--shell-window-shadow);
+    overflow: hidden;
+  }
+  /* Rail collapsed: the window keeps the same margin on all three sides. */
+  .shell-window--no-rail {
+    margin-left: var(--shell-gap);
+  }
+  .shell-window--chart {
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    overflow: visible;
+  }
+  .chart-shell-pane .chart-frame-wrap {
+    background: transparent !important;
+  }
+  /* The loader covers the lifted frame, top bar included: leave that band
+     as chrome and draw the window where the chart's own will land. */
+  .chart-shell-pane .chart-frame-loading {
+    padding: var(--header-h, 56px) var(--shell-gap) var(--shell-gap) 0;
+    background: transparent;
+  }
+  .chart-shell-pane .chart-frame-loading-window {
+    border: 1px solid var(--shell-window-border);
+    border-radius: var(--shell-radius);
+    box-shadow: var(--shell-window-shadow);
+  }
+  /* The page assistant is fixed to the viewport; seat it inside the
+     window's border so it reads as the window's right column. */
+  .copilot-side-panel {
+    top: calc(var(--header-h, 56px) + 1px);
+    right: calc(var(--shell-gap) + 1px);
+    bottom: calc(var(--shell-gap) + 1px);
+    border-radius: 0 calc(var(--shell-radius) - 1px) calc(var(--shell-radius) - 1px) 0;
+  }
 }
 @media (max-width: 560px) and (orientation: portrait) {
   /* Charto replaces its desktop header with an in-canvas mobile toolbar at
@@ -2694,4 +2803,215 @@ body:has(.app-shell-root) {
   .cas-result-list { max-height: calc(90vh - 170px); }
   .cas-modal-head, .cas-category-tabs { padding-left: 16px; padding-right: 16px; }
   .cas-modal-query { margin-left: 16px; margin-right: 16px; }
+}
+
+/* Home welcome: a chart scene with a contained composer surrounded by inset chart cards. */
+.home-dashboard { --font-display: var(--font-ui); --font-experiment: var(--font-ui); padding-top: 12px; scrollbar-gutter: stable; }
+.home-welcome { flex-shrink: 0; font-family: var(--font-ui); container-type: inline-size; }
+.home-welcome-banner {
+  position: relative; isolation: isolate; display: grid;
+  grid-template-columns: minmax(0, .65fr) minmax(0, 2fr);
+  align-items: center; gap: 28px; min-height: 240px;
+  padding: 12px 32px; border-radius: 18px; background: #263948;
+}
+.home-mesh {
+  position: absolute; inset: 0; z-index: -2; pointer-events: none;
+  border-radius: inherit; overflow: hidden;
+  background: radial-gradient(ellipse at 12% 0%, #afc3c4 0%, transparent 60%), radial-gradient(ellipse at 88% 25%, #6b8594 0%, transparent 55%), radial-gradient(ellipse at 45% 100%, #101723 0%, transparent 65%), #33495c;
+}
+.home-welcome-banner::after { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: linear-gradient(180deg, #0b121a00, #0b121a30); border: 1px solid #ffffff24; border-radius: inherit; }
+.home-chart-intro { position: relative; z-index: 1; padding-bottom: 0; }
+.home-chart-intro h2 { margin: 0 0 20px; font-family: var(--font-ui); font-size: clamp(25px, 2.4vw, 34px); font-weight: 500; letter-spacing: -.04em; line-height: 1.2; color: #f6f8f9; }
+.home-chart-cta { height: 38px; padding: 0 16px; border-radius: 6px; border: 1px solid #ffffffb3; background: #f7f9fa !important; color: #1c2a33 !important; font-size: 13px; font-weight: 500; box-shadow: 0 1px 2px #10192320; }
+.home-chart-cta:hover { background: #e6ecef !important; }
+.home-chart-scene { position: relative; isolation: isolate; width: min(100%, 820px); height: 220px; justify-self: end; min-width: 0; }
+.home-chart-scene::before { content: ""; position: absolute; z-index: -1; inset: 0; pointer-events: none; background-image: linear-gradient(#d3e1e10c 1px, transparent 1px), linear-gradient(90deg, #d3e1e10c 1px, transparent 1px); background-size: 28px 28px; mask-image: radial-gradient(ellipse at center, #000 25%, transparent 72%); }
+.home-asset-row { display: contents; }
+.home-asset-card { position: absolute; width: 190px; padding: 5px; border: 1.5px solid #dcdedc; border-radius: 12px; background: #fafbfa; box-shadow: 0 5px 18px #10192312; color: #222b2b; }
+.home-asset-card:hover, .home-asset-card:focus-within { z-index: 11; }
+.home-scene-bitcoin { left: 4%; top: 0; z-index: 2; }
+.home-scene-ethereum { right: 0; top: 0; z-index: 1; }
+.home-scene-candles { left: 0; bottom: 0; z-index: 3; }
+.home-scene-portfolio { right: 3%; bottom: 0; z-index: 2; width: 210px; display: grid; grid-template-columns: minmax(0, 1fr) 72px; gap: 2px 5px; background: #fff; border-color: #e2e5e3; box-shadow: 0 8px 20px #0e1c2524; }
+.home-asset-chart { border-radius: 8px; background: #eff0ef; padding: 6px 9px 5px; }
+.home-asset-header { line-height: 1.3; display: flex; align-items: center; gap: 7px; padding: 1px 4px 5px; }
+.home-asset-logo { flex-shrink: 0; width: 20px; height: 20px; object-fit: contain; background: none; border: 0; border-radius: 0; box-shadow: none; }
+.home-asset-monogram { color: #243342; font-size: 14px; }
+.home-asset-name { color: #273238; font-size: 11px; font-weight: 550; white-space: nowrap; }
+.home-price-row { line-height: 1.3; display: flex; align-items: center; gap: 7px; font-variant-numeric: tabular-nums; }
+.home-asset-price { font-size: 18px; font-weight: 550; letter-spacing: -.04em; white-space: nowrap; }
+.home-change-badge { display: inline-flex; padding: 3px 5px; border-radius: 4px; font-size: 9px; line-height: 1.3; font-weight: 500; white-space: nowrap; }
+.home-change-badge.is-negative { color: #b64d57; background: #eed7da; }
+.home-change-badge.is-positive { color: #397367; background: #dce9e3; }
+.home-chart-ranges { display: flex; justify-content: flex-end; gap: 10px; margin-top: 1px; }
+.home-chart-ranges button { line-height: 1.25; border: 0; padding: 2px 0; background: none; color: #777d7a; font: inherit; font-size: 9px; line-height: 1.25; cursor: pointer; }
+.home-chart-ranges button[aria-pressed="true"] { color: #202926; font-weight: 600; }
+.home-chart-ranges button:focus-visible, .home-portfolio-legend button:focus-visible { outline: 1px solid #437c73; outline-offset: 2px; }
+.home-asset-spark { display: block; width: 100%; height: 28px; margin: 3px 0 0; color: #4e8076; }
+.home-scene-ethereum .home-asset-spark { color: #697e9e; }
+.home-composer { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 10; width: min(58%, 400px); min-width: 0; }
+.home-portfolio-tabs { line-height: 1.3; grid-column: 1 / -1; display: flex; gap: 11px; border-bottom: 1px solid #dedfdd; font-size: 9px; color: #525e57; }
+.home-portfolio-tabs span { display: flex; gap: 4px; align-items: center; padding: 2px 0 5px; }
+.home-portfolio-tabs span:first-child { color: #252c28; border-bottom: 2px solid #252c28; margin-bottom: -1px; }
+.home-portfolio-total { grid-column: 1; grid-row: 2; align-self: center; color: #18291f; font-size: 19px; letter-spacing: -.04em; font-weight: 550; padding: 6px 5px 0; font-variant-numeric: tabular-nums; }
+.home-allocation { grid-column: 2; grid-row: 2; position: relative; width: 72px; height: 72px; margin: 0; }
+.home-allocation svg { width: 100%; height: 100%; overflow: visible; }
+.home-allocation-segment { cursor: pointer; transition: stroke-width .15s, opacity .15s; outline: none; }
+.home-allocation-segment:focus-visible { filter: drop-shadow(0 0 1px #263c35); }
+@media (prefers-reduced-motion: reduce) { .home-allocation-segment { transition: none; } }
+.home-allocation-label { position: absolute; pointer-events: none; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 2px; }
+.home-allocation-label strong { font-size: 10px; font-weight: 600; }
+.home-allocation-label span { font-size: 5px; color: #39483f; }
+.home-portfolio-legend { line-height: 1.3; grid-column: 1 / -1; display: flex; justify-content: center; gap: 7px; }
+.home-portfolio-legend button { display: flex; align-items: center; gap: 3px; border: 0; padding: 1px 0; color: #46574d; background: none; font: inherit; font-size: 7px; line-height: 1.3; cursor: pointer; }
+.home-portfolio-legend i { width: 5px; height: 5px; border-radius: 50%; }
+.home-glass-prompt { position: relative; width: 100%; padding: 14px 18px 11px; border-radius: 12px; border: 1px solid #f5fafb70; background: linear-gradient(120deg, #596e7ac9, #354956dc); backdrop-filter: blur(24px) saturate(.75); -webkit-backdrop-filter: blur(24px) saturate(.75); box-shadow: inset 0 1px 0 #ffffff26, inset 0 -1px 0 #ffffff08, 0 15px 28px -12px #08121c4d; transition: border-color .15s; }
+.home-glass-prompt:focus-within { border-color: #f0f7f8b3; }
+.home-prompt-textarea { font-family: var(--font-ui); font-size: 14px; font-weight: 400; line-height: 1.6; min-height: 32px; color: #fff; caret-color: white; padding: 0; }
+.home-glass-prompt .home-prompt-textarea::placeholder { color: #f3f6f7; opacity: .94; }
+.home-prompt-actions { justify-content: space-between; margin-top: 10px; gap: 16px; }
+.home-prompt-plus { height: 30px; width: 30px; color: #edf3f5; margin-left: -5px; border-radius: 5px; }
+.home-prompt-plus:hover { background: #ffffff14 !important; color: white !important; }
+.home-prompt-submit-group { display: flex; align-items: center; gap: 14px; }
+.home-prompt-key-hint { font-size: 11px; color: #e1eaed; }
+.home-prompt-send { width: 32px; height: 32px; background: #f2f6f7 !important; color: #263641 !important; border-radius: 6px; flex-shrink: 0; box-shadow: 0 1px 3px #0c1c2920; }
+.home-prompt-send:disabled { opacity: .65; }
+.home-prompt-send:focus-visible, .home-prompt-plus:focus-visible { outline: 2px solid #fff; outline-offset: 4px; }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { .home-glass-prompt { background: #344c60; } }
+@container (max-width: 1100px) {
+  .home-welcome-banner { grid-template-columns: minmax(0, .6fr) minmax(0, 1.5fr); gap: 18px; padding: 12px 24px; }
+  .home-chart-scene { height: 220px; }
+  .home-asset-card { width: 168px; }
+  .home-scene-bitcoin { left: 2%; }
+  .home-scene-ethereum { right: 0; top: 0; }
+  .home-scene-portfolio { width: 190px; right: 1%; grid-template-columns: minmax(0, 1fr) 64px; }
+  .home-allocation { width: 64px; height: 64px; }
+  .home-portfolio-total { font-size: 17px; }
+  .home-composer { width: 60%; }
+  .home-asset-price { font-size: 16px; }
+  .home-change-badge { font-size: 8px; padding: 3px; }
+  .home-portfolio-tabs { gap: 7px; font-size: 8px; }
+  .home-prompt-key-hint { display: none; }
+}
+@container (max-width: 900px) {
+  .home-welcome-banner { grid-template-columns: 1fr; gap: 20px; padding: 24px; }
+  .home-chart-intro h2 { font-size: 26px; margin-bottom: 15px; }
+  .home-chart-scene { width: 100%; height: 280px; }
+}
+@container (max-width: 550px) {
+  .home-chart-scene { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 14px; height: auto; }
+  .home-asset-card { position: relative; width: 100%; inset: auto; }
+  .home-scene-ethereum { margin-top: 12px; }
+  .home-composer { position: relative; inset: auto; transform: none; width: 100%; grid-column: 1 / -1; grid-row: 2; }
+  .home-scene-candles { grid-column: 1; grid-row: 3; margin-top: 12px; }
+  .home-scene-portfolio { grid-column: 2; grid-row: 3; grid-template-columns: 1fr; }
+  .home-portfolio-total { grid-column: 1; grid-row: 2; text-align: center; }
+  .home-allocation { grid-column: 1; grid-row: 3; margin: auto; }
+  .home-allocation { width: 94px; height: 94px; }
+  .home-glass-prompt { padding: 14px; }
+  .home-prompt-textarea { font-size: 16px; }
+}
+
+/* Home cards keep their contents in independently scrollable bodies. */
+.home-card-grid { grid-auto-rows: 320px; }
+@media (min-width: 1024px) {
+  .home-card-grid {
+    height: clamp(520px, calc(100dvh - 235px), 720px);
+    grid-template-rows: minmax(0, 1.05fr) minmax(0, 1fr);
+    grid-auto-rows: minmax(0, 1fr);
+  }
+}
+
+/* Page assistant — shared Prompt Kit composer and consistent icon feedback. */
+.sidebar-nav-item,
+.copilot-panel-action,
+.broker-sidebar-button {
+  position: relative;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color 140ms var(--ease-quartr), color 140ms var(--ease-quartr);
+}
+.sidebar-nav-item { width: 34px; height: 34px; }
+.sidebar-nav-item:hover,
+.copilot-panel-action:not(:disabled):hover,
+.broker-sidebar-button:hover,
+.sidebar-nav-item[aria-current="page"] {
+  background: var(--surface-active);
+  color: var(--text-primary);
+}
+.sidebar-nav-item:focus-visible,
+.copilot-panel-action:focus-visible,
+.broker-sidebar-button:focus-visible,
+.assistant-composer-send:focus-visible {
+  outline: 2px solid var(--glass-border-focus);
+  outline-offset: 3px;
+}
+.copilot-panel-action { width: 32px; height: 32px; }
+.copilot-panel-action:disabled { opacity: .4; cursor: default; background: transparent; }
+.assistant-composer-dock { padding: 12px 14px 10px; border-top: 1px solid var(--glass-border); }
+.assistant-composer-wrap { width: 100%; min-width: 0; }
+.assistant-composer {
+  padding: 12px;
+  border: 1px solid var(--glass-border);
+  border-radius: 18px;
+  background: var(--bg-primary);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 3%);
+  transition: border-color 140ms var(--ease-quartr), box-shadow 140ms var(--ease-quartr);
+}
+.assistant-composer:focus-within { border-color: var(--glass-border-focus); box-shadow: 0 0 0 3px var(--surface-active); }
+.assistant-composer-row { display: flex; align-items: flex-end; gap: 10px; }
+.assistant-composer .assistant-composer-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 34px;
+  max-height: 160px;
+  padding: 5px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 24px;
+  box-shadow: none;
+  outline: none;
+}
+.assistant-composer-input::placeholder { color: var(--text-tertiary); }
+.assistant-composer-send {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  background: var(--text-primary);
+  color: var(--bg-primary);
+  cursor: pointer;
+  transition: opacity 140ms var(--ease-quartr), box-shadow 140ms var(--ease-quartr);
+}
+.assistant-composer-send:not(:disabled):hover { opacity: .85; box-shadow: 0 2px 5px rgb(0 0 0 / 12%); }
+.assistant-composer-send:disabled { background: var(--surface-active); color: var(--text-tertiary); cursor: default; }
+.assistant-composer-hint { margin: 7px 2px 0; font-size: 10px; color: var(--text-tertiary); }
+.assistant-composer-wrap--compact .assistant-composer { border-radius: 24px; padding: 9px 10px 9px 14px; }
+.assistant-composer-wrap--compact .assistant-composer-row { align-items: center; }
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-nav-item, .copilot-panel-action, .broker-sidebar-button, .assistant-composer, .assistant-composer-send { transition: none; }
+}
+@media (max-width: 1023px) {
+  .sidebar-nav-item { width: 100%; height: 40px; }
+}
+
+/* Keep every page and nested pane scrollable without visible scrollbar rails. */
+* {
+  scrollbar-width: none !important;
+  scrollbar-gutter: auto !important;
+}
+*::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
