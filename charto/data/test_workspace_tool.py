@@ -155,3 +155,57 @@ def test_search_items_are_replayed_and_stripped_for_an_older_arm():
     assert [i["type"] for i in old] == ["function_call"] and "namespace" not in old[0]
     assert server._wire_for("gpt-6-luna", wire) == wire
     json.dumps(items)
+
+
+def test_write_by_kind_lands_on_the_one_on_the_desk_or_opens_it():
+    _desk()
+    out = server.tool_workspace([{"op": "write", "type": "notes", "content": {"text": "x"}}])
+    r = out["results"][0]
+    assert "error" not in r and r["op"] == "open" and r["id"].startswith("notes:")
+    assert _ops()[0]["op"] == "open"
+    _desk([{"id": "notes:ab12cd", "type": "notes", "title": "Notes", "visible": True}])
+    out = server.tool_workspace([{"op": "write", "type": "notes", "content": {"text": "y"}}])
+    assert out["results"][0].get("id") == "notes:ab12cd"
+    op = _ops()[0]
+    assert op["op"] == "write" and op["id"] == "notes:ab12cd"
+
+
+def test_notes_carry_section_and_mode_and_refuse_a_bad_mode():
+    _desk()
+    out = server.tool_workspace([{"op": "write", "type": "notes", "content": {
+        "text": "### HDFCBANK · read\n- 1d · down", "section": "HDFCBANK · read", "mode": "append"}}])
+    c = _ops()[0]["content"]
+    assert c["section"] == "HDFCBANK · read" and c["mode"] == "append" and "1d · down" in c["text"]
+    out = server.tool_workspace([{"op": "write", "type": "notes", "content": {"text": "x", "mode": "merge"}}])
+    assert "mode" in out["results"][0]["error"]
+
+
+def test_parallel_calls_keep_request_state_and_merge_it_in_call_order():
+    """Workers start from this thread's request and hand back what they drew,
+    moved and changed; the turn reads exactly as a serial one would."""
+    server._scene_reset()
+    server._req.symbol = "RELIANCE"
+    server._req.ctx_interval = "5m"
+
+    def fake(tag):
+        def fn(**_):
+            server._scene_add({"kind": "level", "id": f"L-{tag}", "price": 1.0})
+            server._view_add({"kind": "set_interval", "interval": tag})
+            server._req.ctx_interval = tag
+            return {"seen_symbol": server._sym(), "tag": tag}
+        return fn
+
+    saved = dict(server._DISPATCH)
+    try:
+        server._DISPATCH.update({"fake_a": fake("1w"), "fake_b": fake("1h")})
+        got = dict(server._dispatch_calls([("fake_a", {}), ("fake_b", {})]))
+    finally:
+        server._DISPATCH.clear()
+        server._DISPATCH.update(saved)
+    assert got[0]["result"]["seen_symbol"] == "RELIANCE" and got[1]["result"]["tag"] == "1h"
+    assert [v["interval"] for v in got[0]["views"]] == ["1w"] and got[1]["scene"][0]["id"] == "L-1h"
+    assert all("seq" in v for g in got.values() for v in g["views"])
+    # the later call in the model's order wins, whatever finished first
+    assert server._req.ctx_interval == "1h"
+    # both marks are in the turn's ledger of what is on the chart
+    assert {"L-1W", "L-1H"} <= set(server._scene.placed)   # ids are kept upper-cased

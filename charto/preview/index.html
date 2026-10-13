@@ -9626,6 +9626,9 @@ i.mg { height: 3px !important; border-radius: 2px !important; background: var(--
 }
 .nt-ed:empty::before { content: attr(data-ph); color: var(--foreground); opacity: .5; pointer-events: none; }
 .nt-ed h3 { margin: 10px 0 4px; font-size: 16px; font-weight: var(--weight-semi); letter-spacing: -.01em; }
+/* a section the chat just wrote or updated, marked for a moment */
+.nt-ed h3.nt-fresh { background: rgba(201, 162, 39, .18);
+  border-radius: 4px; transition: background .6s ease; }
 .nt-ed p, .nt-ed div { margin: 0; }
 .nt-ed ul, .nt-ed ol { margin: 4px 0; padding-left: 20px; }
 .nt-ed ul.nt-check { list-style: none; padding-left: 2px; }
@@ -11932,7 +11935,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/panes.js?v=37"></script>
   <!-- the Footprint chart type: a primitive on the price series, mounted by main.js -->
   <script src="./js/footprint.js?v=9"></script>
-  <script src="./js/main.js?v=184"></script>
+  <script src="./js/main.js?v=187"></script>
   <!-- the floating drawing edit toolbar — listens for charto:draw-select and
        drives js/drawings.js's setStyle/clone/lock/remove. After main.js so
        __charto and ChartSettings exist by the first selection. -->
@@ -11956,7 +11959,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/layers-panel.js?v=12"></script>
   <script src="./js/model-logos.js?v=2"></script>
   <script src="./js/models.js?v=4"></script>
-  <script src="./js/chat.js?v=185"></script>
+  <script src="./js/chat.js?v=188"></script>
   <script src="./js/codeview.js?v=6"></script>
   <script src="./js/journal.js?v=9"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
@@ -11969,7 +11972,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/panels.js?v=26"></script>
   <script src="./js/screener.js?v=10"></script>
   <script src="./js/depth.js?v=8"></script>
-  <script src="./js/notes.js?v=7"></script>
+  <script src="./js/notes.js?v=9"></script>
   <script src="./js/w-sheet.js?v=8"></script>
   <script src="./js/w-fin.js?v=7"></script>
   <script src="./js/w-news.js?v=4"></script>

@@ -698,13 +698,19 @@
     if (/save_strategy/.test(n)) return { word: "Saving", detail: "the strategy" };
     if (/scan_setup/.test(n)) return { word: "Scanning", detail: "peers for the same setup" };
     if (/read_symbol/.test(n)) return { word: "Reading", detail: hint || "the instrument" };
-    if (/open_chart/.test(n)) return { word: "Opening", detail: "the chart" };
+    if (/open_chart/.test(n)) return { word: "Opening", detail: hint || "the chart" };
+    if (/^workspace$/.test(n)) {
+      return /notes/.test(hint || "") ? { word: "Writing", detail: "your notes" }
+        : { word: "Setting up", detail: hint ? `the ${hint}` : "the desk" };
+    }
+    if (/multi_timeframe/.test(n)) return { word: "Reading", detail: hint ? `the ladder${on}` : "the timeframes" };
+    if (/get_trend/.test(n)) return { word: "Reading", detail: `the trend${on}` };
     if (/draw_shape/.test(n)) return { word: "Drawing", detail: "on the chart" };
-    if (/trendline/.test(n)) return { word: "Fitting", detail: "trendlines" };
-    if (/pattern/.test(n)) return { word: "Scanning", detail: "patterns" };
-    if (/diverg/.test(n)) return { word: "Comparing", detail: "momentum" };
-    if (/gap/.test(n)) return { word: "Finding", detail: "gaps" };
-    if (/level|anchor/.test(n)) return { word: "Measuring", detail: "levels" };
+    if (/trendline/.test(n)) return { word: "Fitting", detail: `trendlines${on}` };
+    if (/pattern/.test(n)) return { word: "Scanning", detail: `patterns${on}` };
+    if (/diverg/.test(n)) return { word: "Comparing", detail: `momentum${on}` };
+    if (/gap/.test(n)) return { word: "Finding", detail: `gaps${on}` };
+    if (/level|anchor/.test(n)) return { word: "Measuring", detail: `levels${on}` };
     if (/volume_profile/.test(n)) return { word: "Building", detail: "the volume profile" };
     if (/evaluate/.test(n)) return { word: "Testing", detail: "the idea" };
     if (/plan_position/.test(n)) return { word: "Planning", detail: "the trade" };
@@ -712,8 +718,8 @@
       const verb = { build: "Building", edit: "Editing", read: "Reading", list: "Listing" }[hint];
       return { word: verb || "Updating", detail: "the custom indicator" };
     }
-    if (/indicator/.test(n)) return { word: "Computing", detail: "indicators" };
-    if (/bars/.test(n)) return { word: "Reading", detail: "price history" };
+    if (/indicator/.test(n)) return { word: "Computing", detail: `indicators${on}` };
+    if (/bars/.test(n)) return { word: "Reading", detail: `price history${on}` };
     if (/news|explain_move/.test(n)) return { word: "Searching", detail: "news" };
     if (/flow|deal/.test(n)) return { word: "Reading", detail: "the flows" };
     if (/results/.test(n)) return { word: "Reading", detail: "the results" };
@@ -826,8 +832,12 @@
        *  comes back with it. */
       tool(name, hint) {
         real = true;
-        if (seen.has(name)) return;
-        seen.add(name);
+        // once per tool AND subject: three intervals of the same read are one
+        // kind of work, but a walk down the ladder is three steps, and the
+        // timeframe in the hint is what makes them three
+        const key = `${name}|${hint || ""}`;
+        if (seen.has(key)) return;
+        seen.add(key);
         // Cancel a close in flight as well as reopening a finished one, or a
         // wait that came back would be hidden 200ms later by the old timer.
         if (host.dataset.closing) {
@@ -863,6 +873,25 @@
           note.textContent = out.join("\n");
           note.hidden = false;
         }
+        if (atBottom()) toBottom();
+      },
+      /** The model's own progress note between rounds ("weekly first, for
+       *  the direction"). It sits under the phrase, which keeps naming the
+       *  tool at work, and joins the turn's work log. */
+      narrate(line) {
+        const t = String(line || "").trim();
+        if (!t) return;
+        real = true;
+        if (host.dataset.closing) {
+          delete host.dataset.closing;
+          host.classList.remove("wait-out");
+          host.style.maxHeight = "";
+        }
+        if (host.hidden) { host.hidden = false; run(); }
+        thoughts.set(`n${thoughts.size}`, t);
+        if (!last || last.word === "Thinking" || last.word === "Still") push({ word: "Working", detail: "" });
+        note.textContent = t;
+        note.hidden = false;
         if (atBottom()) toBottom();
       },
       /** The model's reasoning summary, streamed. A new part opens a new
@@ -917,6 +946,39 @@
       },
       stop() { halt(); clearTimeout(timer); host.remove(); },
     };
+  }
+
+  /* ── the chart moves while the turn works ────────────────────────────
+   *
+   * A turn that walks the timeframes switches the chart to each one and draws
+   * what it found there, AS it finds it, so the trader watches the read
+   * happen instead of getting every mark at once when the answer lands.
+   * Switching is async (bars load), so everything live goes through one
+   * queue per turn: a drawing made on the hourly waits for the hourly. The
+   * `done` handler drains the queue first and skips what was already applied.
+   *
+   * A chart REPLACED on the main pane navigates the page, which would kill
+   * this very stream, so that one op still waits for `done`. */
+  function liveQueue(turn, fn) {
+    turn.__live = (turn.__live || Promise.resolve())
+      .then(fn)
+      .catch((e) => console.warn("[charto] live chart op failed", e));
+    return turn.__live;
+  }
+  function liveViewOp(turn, op) {
+    const c = window.__charto;
+    if (!c || op.seq == null) return;
+    if (op.kind === "set_interval" && c.switchInterval) {
+      (turn.__liveSeq || (turn.__liveSeq = new Set())).add(op.seq);
+      // a read and a drawing on the same timeframe can both ask for it in
+      // one round; the second ask would only reload the same bars
+      if (turn.__liveIv === op.interval) return;
+      turn.__liveIv = op.interval;
+      liveQueue(turn, () => c.switchInterval(op.interval));
+    } else if (op.kind === "open_chart" && !op.replace && c.panes) {
+      (turn.__liveSeq || (turn.__liveSeq = new Set())).add(op.seq);
+      liveQueue(turn, () => c.panes.openChart(op.symbol, op.interval, false));
+    }
   }
 
   /** An assistant turn. `live` is false when repainting a finished thread —
@@ -1121,6 +1183,20 @@
           shown = ""; stableLen = 0; stableMarks = 0;
           stableEl.innerHTML = ""; tailEl.innerHTML = "";
           paintAll();
+        } else if (ev.type === "step") {
+          // What the model said before going back to work ("weekly first, for
+          // the direction") is a progress note, not the answer: it leaves the
+          // reply and becomes the live line of the work log, kept in the
+          // turn's "Thought for" record.
+          text = ""; shown = ""; stableLen = 0; stableMarks = 0;
+          turn.__streamText = "";
+          stableEl.innerHTML = ""; tailEl.innerHTML = "";
+          if (turn.__wait) turn.__wait.narrate(ev.text || "");
+        } else if (ev.type === "scene") {
+          // Drawn as the tool finds it, on the chart it was found on — queued
+          // behind any chart switch this turn already asked for.
+          turn.__liveScene = true;
+          liveQueue(turn, () => window.__charto && window.__charto.applyScenePatch(ev.patch || []));
         } else if (ev.type === "tool_start") {
           // the tool is RUNNING — say so now, not when it lands, or a
           // 20-second evaluation shows the step before it the whole time
@@ -1135,6 +1211,8 @@
           if (ev.op && ev.op.kind === "workspace" && typeof AgentWS !== "undefined") {
             turn.__wsKey = turn.__wsKey || `ws${Date.now()}`;
             try { AgentWS.apply(ev.op, turn.__wsKey); } catch (e) { console.warn("[charto] workspace op", e); }
+          } else if (ev.op) {
+            liveViewOp(turn, ev.op);
           }
         } else if (ev.type === "tool") {
           tools.push(ev.name);
@@ -2173,6 +2251,8 @@
       // Move the workspace BEFORE drawing on it: a scene op can be aimed at a
       // chart this same turn opened, and applying the patch first would draw
       // it onto whatever pane happened to be there.
+      // whatever the stream is still moving on the chart finishes first
+      if (turn.__live) await turn.__live;
       if (d.view_ops && d.view_ops.length) {
         // An alert armed in conversation is a row in the widget and a line on
         // the price axis, and this tab holds its own copy of both — so a turn
@@ -2190,6 +2270,7 @@
           }
           // Ink computed on a timeframe the chart is not showing: move the
           // chart there first, so the drawing below lands where it was made.
+          if (turn.__liveSeq && op.seq != null && turn.__liveSeq.has(op.seq)) continue;
           if (op.kind === "set_interval" && window.__charto?.switchInterval) {
             try { await window.__charto.switchInterval(op.interval); }
             catch (e) { console.warn("[charto] set_interval failed", op, e); }
@@ -2218,7 +2299,7 @@
       // Apply anything the model chose to draw. Guarded like the open above:
       // the answer is already written and filed, and a patch that throws must
       // cost the drawing, never the reply.
-      if (d.scene_patch && d.scene_patch.length && window.__charto) {
+      if (d.scene_patch && d.scene_patch.length && window.__charto && !turn.__liveScene) {
         try {
           // each mark to the pane it was computed on — see main.js
           window.__charto.applyScenePatch(d.scene_patch);

@@ -269,6 +269,10 @@ _CHAT_SLOTS = threading.BoundedSemaphore(_CHAT_MAX_CONCURRENCY)
 _CHAT_STATE_LOCK = threading.Lock()
 _CHAT_STATE = {"active": 0, "peak": 0, "rejected": 0, "completed": 0}
 _LLM_MAX_ATTEMPTS = _env_int("CHARTO_LLM_MAX_ATTEMPTS", 3)
+# Per response, and SHARED with reasoning. 2,000 was sized for a one-paragraph
+# reading; a round that writes a trader's note and a sheet in its arguments,
+# or a sectioned multi-timeframe answer, ran into it mid-sentence.
+_LLM_MAX_OUTPUT = _env_int("CHARTO_LLM_MAX_OUTPUT", 8000)
 _LLM_RETRY_BASE_S = _env_float("CHARTO_LLM_RETRY_BASE_S", 0.4)
 _LLM_RETRY_MAX_S = _env_float("CHARTO_LLM_RETRY_MAX_S", 5.0)
 _LLM_RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
@@ -510,6 +514,13 @@ def _ensure_symbol(sym: str) -> dict | None:
                         "than guessing a second variant.")
     else:
         out["hint"] = "GET /symbols lists the universe"
+        # The hint is for a URL caller. A model given only that guessed three
+        # more spellings of NIFTY, a round each, before saying it could not.
+        out["_note"] = ("No instrument on this server matches that name in any "
+                        "spelling, so another variant will fail too. Say plainly "
+                        "it is not available here; if a comparison was the point, "
+                        "offer one this server does hold (get_peers lists the "
+                        "stock's own peers).")
     return out
 
 
@@ -711,6 +722,9 @@ def _scene_take() -> list[dict]:
 def _view_add(op: dict) -> None:
     if not hasattr(_scene, "views"):
         _scene.views = []
+    # the id the page dedupes on: ops stream live as their tool lands and come
+    # again in `done`, and a chart switch applied twice is a visible flicker
+    op.setdefault("seq", time.time_ns())
     _scene.views.append(op)
 
 
@@ -3282,8 +3296,8 @@ def tool_evaluate_drawing(kind: str = "", points: list | None = None,
                 f"At {round(rr, 2)}:1 this setup needs {be}% to break even before "
                 f"costs; historically it resolved in favour {res['hit_rate']}% of "
                 f"{graded} trials"
-                + (". That is within noise of break-even — say so rather than "
-                   "presenting it as an edge." if abs(edge) <= 8 else
+                + (". That is close enough to break-even to mean nothing — "
+                   "say so plainly." if abs(edge) <= 8 else
                    f", {abs(edge)} points {'above' if edge > 0 else 'BELOW'} "
                    f"break-even."))
         else:
@@ -3304,7 +3318,7 @@ def tool_evaluate_drawing(kind: str = "", points: list | None = None,
         "This measures the user's own levels against history; it is not a "
         "recommendation and must not be phrased as one — no 'take this trade', "
         "no sizing, no expectancy in rupees. Lead with the break-even "
-        "comparison: a hit rate alone always reads as an edge, and against the "
+        "comparison: a hit rate alone always looks better than it is, and against the "
         "R:R it usually is not. Obey hit_rate_withheld. 'unresolved' trials hit "
         "neither level inside the horizon — never fold them into wins. Close by "
         "saying this is historical analysis, not advice.")
@@ -3560,8 +3574,8 @@ def tool_plan_position(entry: float | None = None, stop: float | None = None,
         "A new plan_position call replaces it, "
         "draw_mode=clear removes it. Quote these figures exactly, and always "
         "put history.hit_rate NEXT TO target-1's breakeven_hit_pct — a hit "
-        "rate without that benchmark reads as an edge it may not be (within "
-        "~8 points is noise: say so). This prices the USER'S stated plan; it "
+        "rate without that benchmark looks better than it is (within ~8 "
+        "points of break-even means nothing: say so). This prices the USER'S stated plan; it "
         "is analysis, not a recommendation, and must close as such.")}
 
 
@@ -8851,12 +8865,13 @@ def tool_evaluate_pattern(kind: str = "", interval: str = "1d",
             se = (se ** 2 + pc * (1 - pc) / len(base) * 1e4) ** 0.5
             res["edge_se_pp"] = round(se, 1)
             res["edge_verdict"] = (
-                "within sampling noise — say the shape is indistinguishable "
-                "from its base rate on this chart, and do NOT quote the edge "
-                "as a finding"
+                "too small for this many cases — say the pattern did no "
+                "better than an ordinary bar on this chart, and do NOT "
+                "present the difference as a finding"
                 if abs(res["edge_pp"]) <= 2 * se else
-                "larger than twice its sampling error — a real difference on "
-                "this chart, still a historical tendency and not a forecast")
+                "more than twice its error — a real difference on this chart: "
+                "say how much better (or worse) than an ordinary bar it did; "
+                "it is history, not a forecast")
     else:
         res["direction_note"] = (
             "neutral shape — it has no textbook direction to score, so only "
@@ -8876,15 +8891,17 @@ def tool_evaluate_pattern(kind: str = "", interval: str = "1d",
                   "completion bar (candles: the pattern bar; chart shapes: "
                   "the confirming break bar)"}
     res["_note"] = (
-        "Quote the pattern rate NEXT TO the base rate — the edge is the "
-        "difference, and a rate alone is decoration. This is one symbol's "
+        "Quote the pattern rate NEXT TO the base rate (how an ordinary bar "
+        "did) — the difference is what the pattern adds, and a rate alone "
+        "says nothing. This is one symbol's "
         "history at one horizon, not a forecast; past instances of a shape "
         "do not obligate the next one."
-        + (f" `edge_verdict` decides how this chart's edge may be described: "
-           f"{res['edge_verdict']}. An edge inside its error bar must not be "
-           f"called an edge, a tendency, or 'modest' — it is a coin flip on "
-           f"this many cases. Never present a percentage-point difference "
-           f"without saying how many instances produced it."
+        + (f" `edge_verdict` decides how the difference may be described: "
+           f"{res['edge_verdict']}. A difference inside its error bar must not "
+           f"be called a tendency or 'modest': on this many cases the pattern "
+           f"did no better than an ordinary bar. Never present a "
+           f"percentage-point difference without saying how many instances "
+           f"produced it."
            if res.get("edge_verdict") else ""))
     uh = min(_UNIVERSE_HORIZONS, key=lambda x: (abs(x - h), x))
     uni = _pattern_universe_stats(k, interval, uh)
@@ -8918,13 +8935,13 @@ def tool_evaluate_pattern(kind: str = "", interval: str = "1d",
             + " Each rate must be quoted next to its OWN control (the pooled "
               "control is full-history, this chart's is its window). "
               "Edge-fitted shapes have no universe record at all."
-            + (f" `edge_se_pp` is the sampling error on the EDGE — it carries "
+            + (f" `edge_se_pp` is the error on the DIFFERENCE — it carries "
                f"both the pattern's own count and the control's, so a thin "
-               f"base rate widens it too. This edge of "
+               f"base rate widens it too. This difference of "
                f"{uni.get('edge_pp')}pp is "
-               + ("WITHIN it, so call the shape indistinguishable from its "
-                  "base rate — do not report it as an edge in either "
-                  "direction"
+               + ("WITHIN it, so say the shape did no better than an ordinary "
+                  "bar across the market — do not present the difference in "
+                  "either direction"
                   if uni.get("edge_pp") is not None
                   and uni.get("edge_se_pp")
                   and abs(uni["edge_pp"]) <= 2 * uni["edge_se_pp"]
@@ -11932,8 +11949,14 @@ def _ws_content(kind: str, c, cur: dict | None = None) -> tuple[dict | None, dic
     if kind == "notes":
         text = str(c.get("text") or "").strip()
         if not text:
-            return None, {}, "notes content is {text}"
-        return {"text": text[:4000], **({"symbol": canon_symbol(c["symbol"])} if c.get("symbol") else {}),
+            return None, {}, "notes content is {text, section, mode, symbol | general}"
+        mode = str(c.get("mode") or "append")
+        if mode not in ("append", "replace"):
+            return None, {}, "notes mode is append (default) or replace"
+        return {"text": text[:8000], "mode": mode,
+                **({"section": str(c["section"]).strip()[:80]} if c.get("section") else {}),
+                **({"stamp": False} if c.get("stamp") is False else {}),
+                **({"symbol": canon_symbol(c["symbol"])} if c.get("symbol") else {}),
                 **({"general": True} if c.get("general") else {})}, {}, ""
     if kind in ("browser", "docs"):
         url = str(c.get("url") or "")
@@ -11966,8 +11989,17 @@ def tool_workspace(ops: list | None = None) -> dict:
     kind_of = {**{i: w.get("type") for i, w in have.items()}, **opened}
     fwd, results = [], []
     for i, op in enumerate(ops[:24]):
-        o = op if isinstance(op, dict) else {}
+        o = dict(op) if isinstance(op, dict) else {}
         verb = str(o.get("op") or "")
+        if verb == "write" and not o.get("id") and o.get("type"):
+            # "write into the notes" names a KIND: the one on the desk takes it,
+            # and with none there it opens carrying the content — one op, no
+            # round spent looking up an id or failing on a missing widget
+            mine = [wid for wid, k in kind_of.items() if k == o["type"]]
+            if mine:
+                o["id"] = mine[-1]
+            else:
+                verb = o["op"] = "open"
         res = {"i": i, "op": verb}
         err = ""
         if verb == "describe":
@@ -12598,7 +12630,7 @@ TOOLS = [
                     "description": "How much panel this answer is worth — YOUR judgement about the question, and the one input to it that is not measurable from the chart. 'brief' renders a compact strip of the few formations that matter: use it when the user asked a QUESTION the prose answers, so the panel is supporting evidence and a full inventory would bury the answer under furniture ('what is this', 'is it turning', a chart screenshot with three words attached). 'full' renders the whole sweep — structure events, formation grid, candlestick bars: use it when the INVENTORY is the deliverable ('sweep this chart', 'list every pattern', 'what have you got on the 15m'). Omit it and the panel decides from whether this call marked the chart: marks mean the panel is their legend and renders full, no marks means it renders brief. Set it whenever the ask is clearer than that default."}},
          "required": ["interval"]}},
     {"type": "function", "name": "evaluate_pattern",
-     "description": "Historical reliability of ONE named pattern on this chart: every past instance, the forward move horizon_bars after each completion, the rate of moving in the pattern's textbook direction, and the unconditional base rate as control — the edge is pattern rate minus base rate. Use for 'does X actually work here / has that pattern type been reliable'. Works for candlestick kinds and swing shapes (double/triple top/bottom, head and shoulders, flags, pennants); live-edge fitted shapes (triangles, wedges, channels, rectangle, cup, rounding) have no instance history and it will say so. Never answer reliability questions from raw bars.",
+     "description": "Historical reliability of ONE named pattern on this chart: every past instance, the forward move horizon_bars after each completion, the rate of moving in the pattern's textbook direction, and the unconditional base rate (an ordinary bar) as control — the difference is what the pattern adds. Use for 'does X actually work here / has that pattern type been reliable'. Works for candlestick kinds and swing shapes (double/triple top/bottom, head and shoulders, flags, pennants); live-edge fitted shapes (triangles, wedges, channels, rectangle, cup, rounding) have no instance history and it will say so. Never answer reliability questions from raw bars.",
      "parameters": {"type": "object", "properties": {
          "kind": {"type": "string", "description": "one exact snake_case pattern id, e.g. bullish_engulfing, triple_top, bull_flag"},
          "interval": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
@@ -12898,13 +12930,23 @@ TOOLS = [
          "save} — with no code it returns the current source so you can edit it, and save "
          "validates in the sandbox and reports the checks (to change what a study computes in "
          "words, custom_indicator edit rebuilds it); "
-         "watch {add, remove}; sheet {table:{title, columns, rows}}; notes {text}; browser {url|q}; "
-         "docs {url}; strategy {name, steps}. "
+         "watch {add, remove}; sheet {table:{title, columns, rows}}; browser {url|q}; "
+         "docs {url}; strategy {name, steps}; notes {text, section, mode, symbol | general} — "
+         "text is light markdown (### heading, - bullet, - [ ] checklist item, **bold**); "
+         "`section` names a block of the note (e.g. 'HDFCBANK · timeframe read') and writing the "
+         "same section again REPLACES that block, so refine a note in place instead of appending "
+         "a second copy; mode 'replace' rewrites the whole note; the note goes to the chart's "
+         "symbol unless symbol or general:true says otherwise. "
+         "To write into a kind without looking up its id, send {op:'write', type, content}: the "
+         "one on the desk takes it, or it opens with that content. "
          "symbol pins a widget to an instrument; link '1'-'4' makes widgets follow one symbol "
          "together (a click in one moves them all) — use one link for widgets opened for one idea. "
          "where: left|right|top|bottom|float|tab:<id>|split:<id>:<side>. "
          "Use it when the user asks to open, show, set up, arrange or edit widgets, or to put "
-         "something INTO one. Not for answering a question with data — results, prices, levels, "
+         "something INTO one — and on your own initiative when the work produces something the "
+         "trader will keep: their notes from a read, a table worth a sheet, a scan worth a "
+         "screener, a filing worth the documents reader. It can ride in the same round as the "
+         "reads. Not for answering a question with data — results, prices, levels, "
          "flows are answered by the data tools (load their group from tool search), and a widget "
          "opened this turn cannot be read until the next message. Not for drawing on the chart "
          "(mark, draw_shape), switching or splitting the main chart (open_chart), or a one-off "
@@ -13688,6 +13730,100 @@ def _tool_event(call: dict, result, secs: float) -> None:
             "side": s.get("side"), "armed": s.get("state", "armed") == "armed"})
 
 
+# ── one round's calls, run side by side ─────────────────────────────────
+#
+# A round that asks for the weekly, the daily and the hourly, or a chart read
+# beside a news search, asks for things that do not depend on each other. Run
+# one after another they cost the SUM — a cold symbol hydrates for 10-16s, a
+# news search is its own model call — run together they cost the slowest.
+#
+# Every tool reads the request from three thread-locals (`_req`, `_scene`,
+# `_drawings`), so a worker thread starts from a COPY of this thread's state:
+# the same user, chart, workspace and turn ledgers (shared references, so the
+# per-turn draw budget and the anchors a call mints are one turn's, not one
+# worker's), with fresh output channels of its own. What a call drew, moved
+# or printed comes back with its result, and anything it changed on `_req`
+# (the interval the chart is now on, a pane it opened) is applied here in the
+# order the model asked — so the merged turn reads exactly as a serial one.
+#
+# Tools that stream their own stages run on this thread, as before.
+_PARALLEL_TOOLS = (environ.get("CHARTO_PARALLEL_TOOLS") or "1") != "0"
+_TOOL_POOL = None
+_TOOL_POOL_LOCK = threading.Lock()
+_UNSET = object()
+_SCENE_LEDGERS = ("drawn", "placed", "budget", "minted_anchors")
+
+
+def _tool_pool():
+    global _TOOL_POOL
+    with _TOOL_POOL_LOCK:
+        if _TOOL_POOL is None:
+            from concurrent.futures import ThreadPoolExecutor
+            _TOOL_POOL = ThreadPoolExecutor(
+                max_workers=_env_int("CHARTO_TOOL_WORKERS", 8),
+                thread_name_prefix="charto-tool")
+        return _TOOL_POOL
+
+
+def _run_call(name: str, args: dict) -> dict:
+    """One call on THIS thread, its output channels drained with it."""
+    t0 = time.monotonic()
+    result = run_tool(name, args)
+    return {"result": result, "secs": time.monotonic() - t0,
+            "scene": _scene_take(), "views": _view_take(), "cards": _card_take(),
+            "req": {}}
+
+
+def _run_call_in_worker(snap: list, name: str, args: dict) -> dict:
+    for loc, d in snap:
+        loc.__dict__.clear()
+        loc.__dict__.update(d)
+    _scene.items, _scene.views, _scene.cards, _scene.parked = [], [], [], []
+    before = dict(_req.__dict__)
+    ledgers = {k: getattr(_scene, k, _UNSET) for k in _SCENE_LEDGERS}
+    try:
+        out = _run_call(name, args)
+    except Exception as exc:  # noqa: BLE001 — a failed tool must not kill the turn
+        logging.exception("charto: tool %s failed in a worker", name)
+        out = {"result": {"error": f"{name} failed: {exc}"}, "secs": 0.0,
+               "scene": [], "views": [], "cards": [], "req": {}}
+    out["req"] = {k: v for k, v in _req.__dict__.items() if before.get(k, _UNSET) is not v}
+    # a `clear` REBINDS the turn's ledgers rather than emptying them in place
+    out["ledgers"] = {k: getattr(_scene, k) for k in _SCENE_LEDGERS
+                      if getattr(_scene, k, _UNSET) is not ledgers[k]}
+    for loc, _ in snap:          # a pooled thread carries nothing to its next job
+        loc.__dict__.clear()
+    return out
+
+
+def _dispatch_calls(jobs: list[tuple[str, dict]]):
+    """Yield (index, outcome) for each (name, args) as it FINISHES.
+
+    One job, or parallelism switched off, runs inline. `_req` changes are
+    applied in call order once every job is back, so the yielded outcomes can
+    be shown the moment they land without the turn's state depending on which
+    finished first.
+    """
+    if len(jobs) < 2 or not _PARALLEL_TOOLS:
+        for i, (name, args) in enumerate(jobs):
+            yield i, _run_call(name, args)
+        return
+    from concurrent.futures import as_completed
+    snap = [(loc, dict(loc.__dict__)) for loc in (_req, _scene, _drawings)]
+    pool = _tool_pool()
+    futs = {pool.submit(_run_call_in_worker, snap, n, a): i for i, (n, a) in enumerate(jobs)}
+    done: dict[int, dict] = {}
+    for f in as_completed(futs):
+        i = futs[f]
+        done[i] = f.result()
+        yield i, done[i]
+    for i in sorted(done):
+        for k, v in done[i]["req"].items():
+            setattr(_req, k, v)
+        for k, v in done[i].get("ledgers", {}).items():
+            setattr(_scene, k, v)
+
+
 def run_tool(name: str, args: dict) -> dict:
     fn = _DISPATCH.get(name)
     if not fn:
@@ -13950,6 +14086,18 @@ area". Match the length to the question — a one-line question takes a one-line
 answer, and a reader who asked for a reading wants the reading, not a tour of
 how you got it.
 
+Use a trader's words. Say how strong something is by what it did: "worked
+27 of 41 times (66%), against 52% on an ordinary day", "held on four tests",
+"broke on the first retest", "too few cases (6) to judge". The grades traders
+use are fine: strong, reliable, mixed, weak. Leave out the vocabulary of
+statistics and of machine writing that traders do not use: edge, supported or
+unsupported, statistically significant, sampling noise, coin flip, base rate
+as a bare phrase, robust, conviction, tilt, lift. Tool results use some of
+these words; translate them. A pattern's "edge" is how much better than an
+ordinary bar it did; "within noise" means it did no better than an ordinary
+bar on that many cases, and that is what to say. The same goes for field
+names: "held 3 of 3 retests", never "3 of 3 graded re-tests holding".
+
 PLACING A PANEL. Whenever a tool result says a panel was rendered, PLACE IT:
 write `[[panel]]` on its own line, with a blank line either side, at the point
 in your reply where the reader should meet it. Do this every time, as part of
@@ -14012,46 +14160,109 @@ the chart."""
 # is that place.
 #
 # It is a ROUTING rail and nothing else — it never says what an answer should
-# conclude. The "call one" line is the part that earns its tokens: two reading
-# tools in a turn answer one question twice and print two panels beside one
-# paragraph, which reads as the app not knowing what was asked.
+# conclude. It used to cap a turn at ONE reading tool and a sweep at three
+# rungs; both were right for a single question and wrong for a session, so
+# since 2026-10-13 the one-question case is stated as the judgement it is and
+# the ladder is chosen from the trader's horizon (Elder's triple screen: a
+# slow rung ~4-6x the trading one for direction, a fast one for timing).
 READING_RULES = """\
 ## Which reading tool
-Five tools read the chart and they are NOT interchangeable. Pick by what the
-question asks for, not by what would be interesting to know:
+Five tools read the chart and each answers a different question:
 - a direction, or how strong the move is → get_trend
 - the indicators, with none named → read_indicators (one interval)
 - ONE named study or period ("what's RSI", "show me a 200 EMA") → get_indicator
-- more than one interval, or higher/lower timeframes → multi_timeframe
+- several intervals measured the same way, side by side → multi_timeframe
 - what would have to HAPPEN for a turn or a break → confirm_reversal
-A question that names a single interval ("the trend on the hourly") is NOT a
-multi-timeframe question — it is get_trend or read_indicators at that
-interval. Call ONE of these per turn: each prints its own panel, and two
-panels beside one paragraph reads as not having understood the question. If a
-second is genuinely needed, say in the reply why the first was not enough.
+For one question at one interval, one of these is the answer; a second that
+measures the same thing prints a second panel saying it again. A question
+that names a single interval ("the trend on the hourly") is not a
+multi-timeframe question. When the work is bigger (a full read, a walk
+through the timeframes) use as many as it needs.
 
-## A sweep across timeframes
-get_patterns scans ONE interval and prints its own panel, so "what's forming
-on all timeframes" is the one question that legitimately calls it more than
-once — and the way it goes wrong is always the same. Three rules:
-- THREE RUNGS, NOT SEVEN. Pick a fast, a middle and a slow one that actually
-  span the ladder (5m/1h/1d, or 15m/1d/1w) and say in one clause why those.
-  Seven sweeps is seven panels and roughly four hundred rows for a reader who
-  asked a single question; the ladder is the answer, not the inventory.
-- HEAD EACH ONE. Write a heading per interval, coarsest first, so every shape
-  you name is under the timeframe it was found on. Without that the reply is
-  a list of formations from four different charts with nothing saying which
-  is which — and the panels stack in call order, not in ladder order, so the
-  prose is the only thing that can put them in sequence.
-- THE ANSWER IS ACROSS THE RUNGS, NOT ON THEM. Three inventories side by side
-  is not a multi-timeframe read. What the user is asking is where the
-  timeframes AGREE and where they contradict: a shape the daily and the
-  hourly both show is evidence; the same shape on the 5-minute alone is
-  noise, and a slow rung outranks a fast one when they disagree. A fast rung
-  disagreeing with a slow one is the ordinary state of a pullback, and saying
-  which is which — with the user's own horizon deciding which matters — is
-  the whole reply. Name the few formations that carry that argument and leave
-  the rest to the panels."""
+## Reading across timeframes
+Choose the ladder from the trader's horizon, not from a fixed set. The middle
+rung is the timeframe they trade or asked about; a rung roughly four to six
+times slower gives the direction and the levels that matter; a faster rung
+times the entry. An intraday trader on 5m reads 1h, 15m and 5m, with the daily
+for the big levels; a swing trader reads 1w, 1d and 1h; a position investor
+1mo, 1w and 1d. Add or drop rungs when the question needs it, and say in one
+clause why these.
+Work top-down. Start on the slowest rung for the direction and the big levels,
+then step down. On each rung read what the question is about, which is usually
+some of: the structure (higher highs and higher lows or not), the formation
+forming there and how far along it is, how price is behaving at the nearest
+levels, momentum, and volume. Each get_patterns call prints its own panel, so
+name the few formations that matter and leave the rest to the panels.
+The answer lives across the rungs: where they agree, where they conflict, and
+which one decides for this trader. A slow rung outranks a fast one; a fast rung
+running against a slow one is usually a pullback inside the bigger move, and
+saying which is which is the read. Head each rung, coarsest first, so every
+formation sits under the timeframe it was found on."""
+
+
+# How a longer turn is worked. Written 2026-10-13 when the chat stopped being a
+# four-round question-answerer: the round ceiling went to twelve and calls in
+# one round run side by side, and none of that helps unless the model knows
+# what a working session looks like. Everything here is a capability and a
+# judgement call, not a procedure — no request is matched to a script.
+WORKING_RULES = """\
+## Working a bigger request
+Match the depth to the ask. A quick question is one round of tools and a
+direct answer. A full read, a walk through the timeframes, preparing a
+session, a comparison, or anything the trader wants kept is a working session:
+plan it, then work through it over several rounds until it is done. You have
+about ten rounds; use them when the work needs them and stop as soon as the
+question is answered with evidence. Do not read more just to polish.
+
+Calls that do not depend on each other go in the SAME round: they run side by
+side, so three timeframes cost the time of one. On a timeframe walk that means
+one round per timeframe: the chart switch and every read for that timeframe
+(trend, patterns, levels, whatever the question needs) together, never one
+read per round. Wait for a later round only when one result decides the next
+call.
+
+Narrate the work. On a turn with more than one round, write one short line
+before the tool calls saying what you are about to check and why ("Weekly
+first, for the direction and the levels that matter."), and after each round a
+line on what you found and where you go next. These lines appear live beside
+the chart while you work; they are not the answer, so keep each to a sentence
+and do not repeat them in the final reply.
+
+Work on the chart in front of the trader. When you read a timeframe of the
+instrument on screen, move the chart there (open_chart with the same symbol,
+that interval and replace=true) in the same round as the reads, and draw the
+few things that matter on it: the level, the formation, the trendline. Finish
+on the timeframe the trader trades, with the decisive marks on it.
+
+Use the desk when the work produces something worth keeping (workspace tool):
+- notes: the trader's notes from the work, as below.
+- sheet: a table they will come back to, such as the timeframe ladder, a
+  levels list, a peer comparison, a watchlist with numbers.
+- screener for a scan they may refine; watch for names to follow.
+- a chart pane for the index or a peer beside the main chart (open_chart
+  without replace).
+- financials, news, docs or browser for the company's numbers, the story, a
+  filing or a primary source to read alongside.
+Open what helps the trader act, never decoration; a quick answer opens
+nothing. Desk changes can ride in the same round as the reads.
+
+## Notes for the trader
+Take notes when the trader asks, and keep one through any working session
+such as a timeframe walk. A note is read at a glance mid-session, so it looks
+like this (numbers from the tools, never these):
+  section: "HDFCBANK · timeframe read"
+  text:
+  **Read:** down on 1d, basing on 1h; turns only above 732
+  - 1w · sideways · under the 713-732 supply, wedge unresolved
+  - 1d · down · lower highs since Jul, ADX 33
+  - 1h · down, flattening · 698-700 held 3 tests
+  **Levels:** 732 res (held 3 of 3 retests) · 707 · 699 sup
+  - [ ] 1h close above 732: swing structure turns up
+  - [ ] loses 698: next support 682 (weekly)
+Each line under about twelve words: no sentences of explanation, no hedging,
+no field names from the tools. Write the same section again to update it,
+never a second copy. Write it once the reads it records are in, and say in
+the reply that it is in their notes."""
 
 # The causal contract (~120 tokens). A rail, not a procedure: it says where
 # quantities and causes each come from and what an honest "why" answer owes,
@@ -14766,6 +14977,8 @@ def _wire_for(model: str, wire: list[dict]) -> list[dict]:
     for it in wire:
         if it.get("type") in ("tool_search_call", "tool_search_output"):
             continue
+        if it.get("phase"):
+            it = {k: v for k, v in it.items() if k != "phase"}
         if it.get("type") == "function_call" and "namespace" in it:
             it = {k: v for k, v in it.items() if k != "namespace"}
         out.append(it)
@@ -14791,7 +15004,8 @@ def _post_responses(wire: list[dict], allow_tools: bool = True) -> dict:
             "input": _wire_for(model, wire),
             "tools": _tools_wire(_tools_for_request(), model),
             "tool_choice": "auto" if allow_tools else "none",
-            "max_output_tokens": 2000,
+            "parallel_tool_calls": True,
+            "max_output_tokens": _LLM_MAX_OUTPUT,
             "reasoning": {"effort": LLM_EFFORT},
             "service_tier": LLM_SERVICE_TIER,
         }
@@ -15049,7 +15263,10 @@ def _stream_once(wire: list[dict], allow_tools: bool, model: str):
         "input": _wire_for(model, wire),
         "tools": _tools_wire(_tools_for_request(), model),
         "tool_choice": "auto" if allow_tools else "none",
-        "max_output_tokens": 2000,
+        # Independent reads in one response (three timeframes, a peer and the
+        # index) — they run concurrently here too, see _dispatch_calls.
+        "parallel_tool_calls": True,
+        "max_output_tokens": _LLM_MAX_OUTPUT,
         # `summary` streams the model's reasoning as titled paragraphs while
         # it reasons (measured on gpt-6-luna: first text ~3s before the first
         # output token). The reader sees what is being worked out instead of
@@ -15078,7 +15295,12 @@ def _stream_once(wire: list[dict], allow_tools: bool, model: str):
                 continue
 
 
-_MAX_TOOL_ROUNDS = 4  # bounds latency; 1 round answers almost everything
+# A loop guard, not a plan. A quick question still ends in one or two rounds
+# because the model stops when it has the answer (WORKING_RULES says when);
+# the ceiling exists for the session-shaped asks — walk the timeframes, mark
+# each, keep notes, fill a sheet — which are five to ten rounds of real work
+# and died at four with the reading done and nothing written down.
+_MAX_TOOL_ROUNDS = _env_int("CHARTO_CHAT_ROUNDS", 12)
 # Why 4 and not 3. Every detector that can DRAW does it in its own call
 # (get_levels, volume_profile, get_indicator), so those finish inside two
 # rounds and drew reliably. get_anchors is the exception by design — it mints
@@ -15229,6 +15451,15 @@ def _execution_unavailable_reply() -> str | None:
     )
 
 
+def _call_args(call: dict) -> dict:
+    try:
+        args = call.get("arguments") or "{}"
+        args = json.loads(args) if isinstance(args, str) else args
+    except json.JSONDecodeError:
+        args = {}
+    return args if isinstance(args, dict) else {}
+
+
 def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
     """Responses-API call with the tool loop.
 
@@ -15250,7 +15481,7 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
     mode_rules = (_execution_system()
                   if getattr(_req, "chat_mode", "chat") == "execution" else "")
     common = (build_context_block(context), FORMAT_RULES, ANSWERING_RULES)
-    mode_context = ((mode_rules,) if mode_rules else (READING_RULES, CAUSAL_RULES))
+    mode_context = ((mode_rules,) if mode_rules else (READING_RULES, CAUSAL_RULES, WORKING_RULES))
     block = "\n\n".join(x for x in (*common, *mode_context) if x)
     wire: list[dict] = []
     if block:
@@ -15303,22 +15534,25 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
                 "cards": cards,
             }
 
-        # execute every call this round, then feed results back
+        # execute every call this round (side by side), then feed results back
         wire.extend(searched)
-        for call in calls:
-            try:
-                args = call.get("arguments") or "{}"
-                args = json.loads(args) if isinstance(args, str) else args
-            except json.JSONDecodeError:
-                args = {}
-            t_tool = time.monotonic()
-            result = run_tool(call.get("name", ""), args)
-            scene_patch.extend(_scene_take())
-            view_ops.extend(_view_take())
-            cards.extend(_card_take())
+        said = "".join(text_parts).strip()
+        if said:
+            # what the model told the user before going to work stays in its
+            # own transcript, so the next round does not repeat or contradict it
+            wire.append({"role": "assistant", "content": said})
+        parsed = [_call_args(c) for c in calls]
+        outcomes: dict[int, dict] = dict(
+            _dispatch_calls([(c.get("name", ""), a) for c, a in zip(calls, parsed)]))
+        for i, (call, args) in enumerate(zip(calls, parsed)):
+            got = outcomes[i]
+            result = got["result"]
+            scene_patch.extend(got["scene"])
+            view_ops.extend(got["views"])
+            cards.extend(got["cards"])
             tool_trace.append({"name": call.get("name"), "args": args,
                                "ok": "error" not in result})
-            _tool_event(call, result, time.monotonic() - t_tool)
+            _tool_event(call, result, got["secs"])
             wire.append({"type": "function_call", "call_id": call.get("call_id"),
                          "name": call.get("name"), "arguments": call.get("arguments"),
                          **({"namespace": call["namespace"]} if call.get("namespace") else {})})
@@ -15368,7 +15602,7 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
     mode_rules = (_execution_system()
                   if getattr(_req, "chat_mode", "chat") == "execution" else "")
     common = (build_context_block(context), FORMAT_RULES, ANSWERING_RULES)
-    mode_context = ((mode_rules,) if mode_rules else (READING_RULES, CAUSAL_RULES))
+    mode_context = ((mode_rules,) if mode_rules else (READING_RULES, CAUSAL_RULES, WORKING_RULES))
     block = "\n\n".join(x for x in (*common, *mode_context) if x)
     guard = None
     offered = None
@@ -15379,7 +15613,8 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
         tools_now = _byok_tools()
         offered = {t["name"] for t in tools_now}
         guard = _byok.LeakGuard(*(x for x in (FORMAT_RULES, ANSWERING_RULES, READING_RULES,
-                                              CAUSAL_RULES, BYOK_RULES, _byok.GUARD_RULES) if x),
+                                              CAUSAL_RULES, WORKING_RULES, BYOK_RULES,
+                                              _byok.GUARD_RULES) if x),
                                 *(t.get("description", "") for t in tools_now))
     wire: list[dict] = []
     if block:
@@ -15407,11 +15642,25 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
         text_parts: list[str] = []
         by_id: dict = {}
         searched: list[dict] = []
+        # Models from gpt-5.4 label each message `phase`: "commentary" for a
+        # progress line written before tools, "final_answer" for the answer.
+        # Commentary never enters the reply: it is held per message and sent
+        # whole as a `step` the moment that message closes.
+        phase_of: dict = {}
+        said_parts: dict = {}
         try:
             source = (eng.stream(wire, tools_now, _round < _rounds - 1) if eng
                       else _post_responses_stream(wire, allow_tools=_round < _rounds - 1))
             for ev in source:
                 t = ev.get("type", "")
+                if t == "response.output_item.added":
+                    item = ev.get("item") or {}
+                    if item.get("type") == "message" and item.get("phase"):
+                        phase_of[ev.get("output_index")] = item["phase"]
+                    continue
+                if t == "response.output_text.delta" and phase_of.get(ev.get("output_index")) == "commentary":
+                    said_parts.setdefault(ev.get("output_index"), []).append(ev.get("delta") or "")
+                    continue
                 if t == "response.output_text.delta":
                     d = ev.get("delta") or ""
                     if d and guard and guard.tripped:
@@ -15436,6 +15685,10 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
                     item = ev.get("item") or {}
                     if item.get("type") == "function_call":
                         by_id[item.get("call_id") or item.get("id") or len(by_id)] = item
+                    elif ev.get("output_index") in said_parts:
+                        note = "".join(said_parts[ev.get("output_index")]).strip()
+                        if note and not (guard and guard.feed(note)):
+                            yield {"type": "step", "text": note}
                 elif t in ("response.completed", "response.incomplete"):
                     r = ev.get("response") or {}
                     u = r.get("usage") or {}
@@ -15466,6 +15719,11 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
             yield {"type": "retract", "text": _byok.REFUSAL}
         if guard and guard.tripped:
             calls = []
+        if not calls and not "".join(text_parts).strip() and said_parts:
+            # the whole reply came labelled as commentary: it IS the answer
+            # (already shown as a step, so it is sent as text here once)
+            text_parts = ["\n\n".join("".join(v).strip() for v in said_parts.values())]
+            yield {"type": "delta", "text": text_parts[0]}
         if not calls:
             answer = "".join(text_parts) or "(empty reply)"
             # Which arm wrote this. A reader on the fallback is getting
@@ -15499,64 +15757,101 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
             return
 
         wire.extend(searched)   # the tools this round loaded stay loaded
-        for call in calls:
-            try:
-                args = call.get("arguments") or "{}"
-                args = json.loads(args) if isinstance(args, str) else args
-            except json.JSONDecodeError:
-                args = {}
-            yield {"type": "tool_start", "name": call.get("name"),
-                   "hint": _tool_hint(call.get("name", ""), args)}
+        # The progress notes stay in the model's own transcript, phase intact
+        # (the provider's replay rule), so the next round builds on them.
+        for idx in sorted(said_parts, key=lambda x: (x is None, x)):
+            note = "".join(said_parts[idx]).strip()
+            if note:
+                wire.append({"type": "message", "role": "assistant", "phase": "commentary",
+                             "content": [{"type": "output_text", "text": note}]})
+        # A model that does not label phases: prose written alongside tool
+        # calls is still a progress note, not the answer — the page moves it
+        # out of the reply into the live work log.
+        said = "".join(text_parts).strip()
+        if said:
+            wire.append({"role": "assistant", "content": said})
+            yield {"type": "step", "text": said}
+        parsed = [_call_args(c) for c in calls]
+        outcomes: dict[int, dict] = {}
+
+        def _landed(i: int, got: dict):
+            """A call finished: show what it did the moment it did it."""
+            call, args = calls[i], parsed[i]
+            outcomes[i] = got
+            result = got["result"]
+            scene_patch.extend(got["scene"])
+            view_ops.extend(got["views"])
+            for vop in got["views"]:
+                yield {"type": "view_op", "op": vop}
+            if got["scene"]:
+                # drawn as it is found, on the interval it was found on — the
+                # page applies these in order behind any chart switch above
+                yield {"type": "scene", "patch": got["scene"]}
+            cards.extend(got["cards"])
+            ok = "error" not in result
+            tool_trace.append({"name": call.get("name"), "args": args, "ok": ok})
+            _tool_event(call, result, got["secs"])
+            # tell the client immediately: a tool landing is the only progress
+            # signal there is during a multi-round turn
+            yield {"type": "tool", "name": call.get("name"), "ok": ok}
+            for c in got["cards"]:
+                yield {"type": "card", "card": c}
+
+        inline: list[tuple[int, object]] = []
+        batch: list[int] = []
+        for i, (call, args) in enumerate(zip(calls, parsed)):
+            name = call.get("name", "")
+            yield {"type": "tool_start", "name": name, "hint": _tool_hint(name, args)}
+            if offered is not None and name not in offered:
+                # Only what was offered runs. A model that names anything
+                # else — a withheld tool, an invented one — is told no.
+                inline.append((i, None))
+                continue
             # A long tool streams its own stages. It runs on THIS thread — the
             # request state is thread-local — and hands each stage up as it
             # happens; the tool's ordinary result arrives as its last event.
+            streamer = _STREAMING_TOOLS.get(name)
+            stages = streamer(**args) if streamer else None
+            if stages is not None:
+                inline.append((i, stages))
+            else:
+                batch.append(i)
+
+        for j, got in _dispatch_calls([(calls[i].get("name", ""), parsed[i]) for i in batch]):
+            yield from _landed(batch[j], got)
+
+        for i, stages in inline:
+            name = calls[i].get("name", "")
             t_tool = time.monotonic()
-            streamer = _STREAMING_TOOLS.get(call.get("name", ""))
-            stages = streamer(**args) if streamer and isinstance(args, dict) else None
-            if offered is not None and call.get("name") not in offered:
-                # Only what was offered runs. A model that names anything
-                # else — a withheld tool, an invented one — is told no.
-                stages = None
-                result = {"error": f"{call.get('name')} is not available on this engine"}
-            elif stages is not None:
+            if stages is None:
+                result = {"error": f"{name} is not available on this engine"}
+            else:
                 result = None
                 try:
                     for sev in stages:
                         if sev.get("type") == "final":
                             result = sev["result"]
                         else:
-                            yield {"type": "progress", "name": call.get("name"),
+                            yield {"type": "progress", "name": name,
                                    "stage": sev.get("stage"), "label": sev.get("label"),
                                    "detail": sev.get("detail", ""),
                                    **({"data": sev["data"]} if sev.get("data") else {})}
                 except Exception as exc:  # noqa: BLE001 — a failed tool must not kill the turn
-                    logging.exception("charto: streaming tool %s failed", call.get("name"))
-                    result = {"error": f"{call.get('name')} failed: {exc}"}
-                result = result or {"error": f"{call.get('name')} returned nothing"}
-            else:
-                result = run_tool(call.get("name", ""), args)
-            scene_patch.extend(_scene_take())
-            fresh_ops = _view_take()
-            view_ops.extend(fresh_ops)
-            for vop in fresh_ops:
-                if vop.get("kind") == "workspace":
-                    yield {"type": "view_op", "op": vop}
-            fresh = _card_take()
-            cards.extend(fresh)
-            ok = "error" not in result
-            tool_trace.append({"name": call.get("name"), "args": args, "ok": ok})
-            _tool_event(call, result, time.monotonic() - t_tool)
-            # tell the client immediately: a tool landing is the only progress
-            # signal there is during a multi-round turn
-            yield {"type": "tool", "name": call.get("name"), "ok": ok}
-            for c in fresh:
-                yield {"type": "card", "card": c}
+                    logging.exception("charto: streaming tool %s failed", name)
+                    result = {"error": f"{name} failed: {exc}"}
+                result = result or {"error": f"{name} returned nothing"}
+            yield from _landed(i, {"result": result, "secs": time.monotonic() - t_tool,
+                                   "scene": _scene_take(), "views": _view_take(),
+                                   "cards": _card_take()})
+
+        # the transcript in the order the model asked, whatever order they landed
+        for i, call in enumerate(calls):
             wire.append({"type": "function_call", "call_id": call.get("call_id"),
                          "name": call.get("name"), "arguments": call.get("arguments"),
                          **({"namespace": call["namespace"]} if call.get("namespace") else {}),
                          **({"_sig": call["_sig"]} if call.get("_sig") else {})})
             wire.append({"type": "function_call_output", "call_id": call.get("call_id"),
-                         "output": json.dumps(result, default=str)})
+                         "output": json.dumps(outcomes[i]["result"], default=str)})
 
     if eng:
         eng.touch()
@@ -15580,7 +15875,20 @@ def _tool_hint(name: str, args: dict) -> str:
         return f"{n} candidates" + (f" on {sym}" if sym else "")
     if name == "custom_indicator":
         return str(args.get("action") or "")
-    return sym
+    if name == "workspace":
+        # which widgets the desk change is about — "notes", "sheet, screener"
+        kinds = []
+        for o in args.get("ops") or []:
+            k = str((o or {}).get("type") or str((o or {}).get("id") or "").split(":")[0] or "")
+            if k and k not in kinds and (o or {}).get("op") not in ("read", "describe"):
+                kinds.append(k)
+        return ", ".join(kinds[:3])
+    # the timeframe is half of what a chart read is about: a walk down the
+    # ladder shows as "1w", "1d", "1h" rather than one repeated word
+    ivs = args.get("intervals")
+    iv = (" · ".join(str(x) for x in ivs[:6]) if isinstance(ivs, list) and ivs
+          else str(args.get("interval") or ""))
+    return " ".join(x for x in (sym, iv) if x)
 
 
 IST_OFF = 19800  # +05:30

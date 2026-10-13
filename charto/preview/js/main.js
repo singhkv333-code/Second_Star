@@ -285,7 +285,7 @@
     // Visibility tab allows, and the legend row is where that is legible —
     // without this the plot vanishes on 1h while its row still reads as live.
     // (recomputeAll repaints the legend itself; this is only the menu's tick.)
-    ind.recomputeAll(state.bars, { interval: state.interval, limit: state.bars.length })
+    state.indTask = ind.recomputeAll(state.bars, { interval: state.interval, limit: state.bars.length })
       .then(() => renderIndMenu());
   }
 
@@ -369,6 +369,15 @@
       // fresh data, fresh view — the same one the reset button lands on
       paintResetBtn();
       resetView(chart, bars.length);
+      // …and again once this interval's indicators have landed. Their series
+      // still carry the OLD interval's timestamps until then, and when they
+      // are replaced the chart re-indexes its time scale and the view jumps to
+      // the first bar of history — measured 2026-10-13: a switch to 1h landed
+      // on Dec 2024, the history pager then walked further back from there,
+      // and the chat's next context described that window as "the chart".
+      Promise.resolve(state.indTask).catch(() => {}).then(() => {
+        if (generation === intervalGeneration) resetView(chart, state.bars.length);
+      });
       lastBar = bars[bars.length - 1];
       paintReadout(lastBar);
       setText("barsLine", `${bars.length.toLocaleString()} × ${interval}`);
@@ -5280,6 +5289,9 @@
     if (!IV_SEC[iv]) return false;
     selectInterval(iv);
     await loadInterval(iv);
+    // the history behind the drawings already on the chart, before the chat
+    // draws more on it and before it reads the view back
+    await coverScene();
     document.dispatchEvent(new CustomEvent("charto:pane-active", {
       detail: { pane: 0, symbol: SYMBOL, interval: iv },
     }));
