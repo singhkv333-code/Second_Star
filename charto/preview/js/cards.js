@@ -1342,10 +1342,37 @@ const Cards = (() => {
       + `<span>${esc(n2("", xHi))}</span></div></div>`;
   }
 
-  /** The chain, centred on the money. Open interest is drawn as a bar behind
-   *  the figure because the SHAPE of OI across strikes is the read — where the
-   *  writers are — and a column of six-digit numbers hides it completely. */
+  /** The option chain: the same drawing as the Option chain widget
+   *  (js/w-options.js), cut to a window around the money, with the button
+   *  that opens the whole chain on the desk. Pivot's own chain card (an older
+   *  payload with no `available`) keeps its compact OI ladder. */
   function optionChain(c) {
+    const V = window.OptionChainView;
+    if (!V || c.available !== true) return legacyChain(c);
+    const i = Math.max(0, (c.rows || []).findIndex((r) => r.strike === c.atm_strike));
+    const rows = (c.rows || []).slice(Math.max(0, i - 8), i + 9);
+    const canOpen = typeof Dock !== "undefined" && Dock.meta && Dock.meta("options");
+    return `<div class="wf-card oc oc-card">`
+      + `<div class="wf-top"><span class="wf-chip">Options</span>${V.source(c)}</div>`
+      + `<h3 class="wf-title">${esc(c.symbol)} · ${esc(V.day(c.expiry))} expiry</h3>`
+      + `<p class="wf-desc">${esc(c.index ? "Spot" : "Price")} ${esc(V.px(c.spot))} · ${esc(V.dte(c.dte))} to expiry · lot ${esc(c.lot_size)}</p>`
+      + V.summary(c) + V.walls(c)
+      + V.table(c, { cols: V.SETS.essential, rows })
+      + `<div class="oc-card-foot"><span class="note">${esc(V.foot(c))}</span>`
+      + (canOpen ? `<button type="button" class="dk-cta sm" data-oc-open>Open full chain</button>` : "")
+      + `</div></div>`;
+  }
+
+  function wireOptions(box, card) {
+    const btn = box.querySelector("[data-oc-open]");
+    if (!btn) return;
+    btn.addEventListener("click", () => {
+      if (typeof Dock === "undefined") return;
+      Dock.send("options", { symbol: card.symbol, expiry: card.expiry });
+    });
+  }
+
+  function legacyChain(c) {
     const rows = c.rows || [];
     const und = c.underlying || "";
     const fin = (x) => x != null && Number.isFinite(Number(x));
@@ -3114,6 +3141,7 @@ const Cards = (() => {
         });
       });
       if (box.querySelector("[data-screen-open]")) wireScreen(box, card);
+      if (box.querySelector("[data-oc-open]")) wireOptions(box, card);
       if (box.querySelector("[data-wf]")) wireDraft(box, card);
       if (box.querySelector("[data-plan]")) wirePlan(box, card);
       if (box.querySelector("[data-cx-act]")) wireCustom(box, card);

@@ -122,6 +122,17 @@ const HubArt = (() => {
           bar(44, 100 + i * 12, 34, 5, .5) + bar(120, 100 + i * 12, 26, 5, .2)).join("");
       return frame(id, bar(0, 0, 320, 180, 0), rows);
     },
+    options(id) {
+      const ce = [18, 30, 46, 64, 38, 24, 14], pe = [12, 22, 40, 70, 52, 30, 20];
+      const rows = ce.map((w, i) => {
+        const y = 22 + i * 20, atm = i === 3;
+        return (atm ? `<rect x="30" y="${y - 4}" width="260" height="18" rx="5" ${ink(.07)}/>` : "") +
+          `<rect x="${146 - w * 1.6}" y="${y}" width="${w * 1.6}" height="10" rx="2.5" fill="var(--down)" fill-opacity="${atm ? .7 : .32}"/>` +
+          bar(150, y + 2, 20, 6, atm ? .8 : .35, 2) +
+          `<rect x="174" y="${y}" width="${pe[i] * 1.6}" height="10" rx="2.5" fill="var(--up)" fill-opacity="${atm ? .7 : .32}"/>`;
+      }).join("");
+      return frame(id, bar(20, 8, 280, 164, .04, 10), rows + bar(30, 88, 260, 1.2, .35, 0));
+    },
     notes(id) {
       const lines = [0, 1, 2, 3, 4].map((i) => bar(60, 46 + i * 18, [170, 140, 180, 96, 150][i], 6, .22)).join("");
       return frame(id, bar(40, 10, 240, 170, .05, 10),

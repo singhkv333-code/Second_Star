@@ -302,6 +302,8 @@ const Icons = (() => {
     funnel: '<path d="M3 4h18l-7 8.5V19l-4 2v-8.5Z"/>',
     // an order book: offers stacked above the touch, bids below it, each
     // bar as long as the size resting there
+    // an option chain: the strike spine, call OI out to the left, put OI to the right
+    options: '<path d="M12 3v18"/><path d="M4 6.5h5"/><path d="M6 10.5h3"/><path d="M3 14.5h6"/><path d="M15 8.5h4"/><path d="M15 12.5h6"/><path d="M15 16.5h3"/>',
     depth: '<path d="M10 5h10"/><path d="M14 8.5h6"/><path d="M3 12h18" stroke-dasharray="2 2.2"/><path d="M4 15.5h6"/><path d="M4 19h11"/>',
     note: '<path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8Z"/><path d="M15 3v4a2 2 0 0 0 2 2h4"/><path d="M7.5 13h6"/><path d="M7.5 17h9"/>',
     // open beside: the chart splits, the new one on the right

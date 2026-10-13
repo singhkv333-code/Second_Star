@@ -9569,6 +9569,157 @@ i.mg { height: 3px !important; border-radius: 2px !important; background: var(--
 .fp-note { margin-top: 4px; color: var(--muted-foreground); line-height: 1.35; white-space: normal; }
 .fp-sep { height: 1px; margin: 6px 0; background: var(--ctx-seam, var(--border)); }
 
+/* ── the option chain ── widget (js/w-options.js) and the chat's card share
+   these: one drawing of the chain. Calls are red and puts green, the way an
+   Indian chain reads OI (call writers above, put writers below); ITM is a
+   quiet wash, the money row a firmer one, and spot a line between strikes. */
+.oc { display: flex; flex-direction: column; min-height: 0; height: 100%; font-variant-numeric: tabular-nums;
+  --oc-ce: var(--down); --oc-pe: var(--up);
+  --oc-ce-soft: color-mix(in srgb, var(--down) 15%, transparent); --oc-pe-soft: color-mix(in srgb, var(--up) 15%, transparent);
+  --oc-itm: color-mix(in srgb, var(--ann-res) 6%, transparent); --oc-line: var(--border-soft); }
+.oc-head { flex: none; display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 4px 6px 0 12px; }
+.oc-name { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.oc-name > b { flex: none; font-size: var(--text-h3); font-weight: var(--weight-semi); white-space: nowrap; }
+.oc-px { min-width: 0; font-size: var(--text-sm); color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.oc-narrow .oc-px span { display: none; }
+.oc-px b { color: var(--foreground); font-weight: var(--weight-semi); }
+.oc-px span { margin-left: 6px; }
+.oc-src { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 999px;
+  font-size: var(--text-xs); color: var(--muted-foreground); background: var(--rail); white-space: nowrap; }
+.oc-src i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted-foreground); }
+.oc-src.live { color: var(--foreground); }
+.oc-src.live i { background: var(--up); animation: dk-live 2s infinite; }
+.oc-bar { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--oc-line); }
+.oc-exps { display: flex; gap: 4px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity; }
+.oc-exps::-webkit-scrollbar { display: none; }
+.oc-exps button { flex: none; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 4px 9px; border: 0;
+  border-radius: 8px; background: transparent; color: var(--foreground); cursor: pointer; font: inherit; scroll-snap-align: center;
+  box-shadow: inset 0 0 0 1px var(--border-soft); transition: background var(--dur), box-shadow var(--dur); }
+.oc-exps button b { font-size: var(--text-sm); font-weight: var(--weight-semi); line-height: 15px; }
+.oc-exps button span { font-size: var(--text-3xs); color: var(--muted-foreground); line-height: 12px; }
+.oc-exps button:hover { background: var(--hover-fill); }
+.oc-exps button.on { background: var(--foreground); color: var(--background); box-shadow: none; }
+.oc-exps button.on span { color: inherit; opacity: .7; }
+.oc-views { flex: none; }
+.oc-body { padding: 0 0 10px; }
+.oc-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin: 10px 12px 0; border-radius: 10px; overflow: hidden;
+  background: var(--oc-line); box-shadow: inset 0 0 0 1px var(--oc-line); }
+.oc-tile { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; background: var(--background); min-width: 0; }
+.oc-tile > span { font-size: var(--text-3xs); color: var(--muted-foreground); text-transform: uppercase; letter-spacing: .04em; }
+.oc-tile > b { font-size: var(--text-xl); font-weight: var(--weight-semi); white-space: nowrap; }
+.oc-tile > em { font-style: normal; font-size: var(--text-3xs); color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.oc-split { margin: 10px 12px 0; }
+.oc-split-bar { display: flex; height: 6px; border-radius: 999px; overflow: hidden; background: var(--oc-pe); opacity: .85; }
+.oc-split-bar .ce { background: var(--oc-ce); transition: width .3s var(--ease-quartr); }
+.oc-split-lab { display: flex; justify-content: space-between; gap: 8px; margin-top: 5px; font-size: var(--text-xs); color: var(--muted-foreground); }
+.oc-split-lab b { color: var(--foreground); font-weight: var(--weight-semi); margin: 0 2px; }
+.oc-split-lab em, .oc-pick i { font-style: normal; }
+.oc .up { color: var(--up); } .oc .dn { color: var(--down); }
+.oc-walls { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 10px 12px 0; font-size: var(--text-xs); color: var(--muted-foreground); }
+.oc-walls b { color: var(--foreground); font-weight: var(--weight-medium); }
+.oc-walls i, .oc-legend i { display: inline-block; width: 8px; height: 8px; margin-right: 5px; border-radius: 2px; vertical-align: -1px; }
+.oc-walls i.ce, .oc-legend i.ce { background: var(--oc-ce); } .oc-walls i.pe, .oc-legend i.pe { background: var(--oc-pe); }
+.oc-walls .muted { flex-basis: 100%; }
+.oc-table, .oc-prof { margin-top: 10px; font-size: var(--text-sm); }
+.oc-sides { position: sticky; top: 0; z-index: 3; display: flex; align-items: flex-end; justify-content: space-between; height: 22px; padding: 0 12px 2px; background: var(--background);
+  font-size: var(--text-3xs); font-weight: var(--weight-semi); text-transform: uppercase; letter-spacing: .06em; }
+.oc-sides span:first-child { color: var(--oc-ce); } .oc-sides span:last-child { color: var(--oc-pe); }
+.oc-th, .oc-row { display: grid; align-items: center; column-gap: 0; padding: 0 6px; }
+.oc-th { position: sticky; top: 21px; z-index: 3; height: 24px; background: var(--background); border-bottom: 1px solid var(--oc-line);
+  font-size: var(--text-3xs); color: var(--muted-foreground); }
+.oc-side { display: contents; }
+.oc-c { position: relative; padding: 0 6px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.oc-th .oc-c { cursor: help; }
+.oc-k { text-align: center; font-weight: var(--weight-semi); white-space: nowrap; }
+.oc-th .oc-k { font-weight: var(--weight-medium); }
+.oc-row { height: 30px; border-bottom: 1px solid color-mix(in srgb, var(--oc-line) 70%, transparent); cursor: pointer; transition: background var(--dur); }
+.oc-row:hover { background: var(--hover-fill); }
+.oc-row .oc-k { align-self: stretch; display: flex; align-items: center; justify-content: center; gap: 4px; background: var(--rail); }
+.oc-row.atm .oc-k { background: var(--foreground); color: var(--background); }
+.oc-row.sel { box-shadow: inset 0 0 0 1.5px var(--foreground); }
+.oc-side.itm > .oc-c { background: var(--oc-itm); align-self: stretch; display: flex; align-items: center; justify-content: flex-end; }
+.oc-side.pe .oc-c { text-align: left; }
+.oc-side.pe.itm > .oc-c { justify-content: flex-start; }
+.oc-row .oc-c.oi { align-self: stretch; display: flex; align-items: center; justify-content: flex-end; }
+.oc-row .oc-side.pe .oc-c.oi { justify-content: flex-start; }
+.oc-c.oi i { position: absolute; top: 5px; bottom: 5px; border-radius: 3px; transition: width .3s var(--ease-quartr); }
+.oc-side.ce .oc-c.oi i { right: 0; background: var(--oc-ce-soft); }
+.oc-side.pe .oc-c.oi i { left: 0; background: var(--oc-pe-soft); }
+.oc-row.cwall .oc-side.ce .oc-c.oi i { background: color-mix(in srgb, var(--oc-ce) 34%, transparent); }
+.oc-row.pwall .oc-side.pe .oc-c.oi i { background: color-mix(in srgb, var(--oc-pe) 34%, transparent); }
+.oc-c.oi b { position: relative; font-weight: var(--weight-medium); }
+/* the price over its change: two short lines fit a 30px row at any width */
+.oc-c.ltp, .oc-side.itm > .oc-c.ltp { align-self: stretch; display: flex; flex-direction: column; justify-content: center;
+  align-items: flex-end; line-height: 1.15; }
+.oc-side.pe .oc-c.ltp, .oc-side.pe.itm > .oc-c.ltp { align-items: flex-start; }
+.oc-c.ltp b { font-weight: var(--weight-semi); }
+.oc-c.ltp em { font-style: normal; font-size: 9.5px; line-height: 1.1; }
+.oc-c.oichg, .oc-c.vol, .oc-c.iv, .oc-c.delta, .oc-c.theta { color: var(--muted-foreground); }
+.oc-c.oichg.up { color: var(--up); } .oc-c.oichg.dn { color: var(--down); }
+.oc-tag { font-style: normal; font-size: 9px; font-weight: var(--weight-semi); padding: 0 4px; border-radius: 4px; line-height: 14px;
+  background: var(--ann-res); color: #000; }
+/* spot gets its own thin row between the strikes it falls between, so its
+   label never sits on top of a strike */
+.oc-spot { position: relative; display: flex; justify-content: center; align-items: center; height: 18px; margin: 0 6px; }
+.oc-spot::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; border-top: 1.5px dashed var(--foreground); opacity: .7; }
+.oc-spot span { position: relative; padding: 0 8px; border-radius: 999px; line-height: 15px;
+  font-size: var(--text-3xs); font-weight: var(--weight-semi); background: var(--foreground); color: var(--background); white-space: nowrap; }
+.oc-prow { display: grid; grid-template-columns: 1fr 74px 1fr; align-items: center; height: 24px; padding: 0 12px; cursor: pointer; }
+.oc-prow:hover { background: var(--hover-fill); }
+.oc-prow.atm .oc-k { color: var(--background); background: var(--foreground); border-radius: 5px; }
+.oc-prow.sel { box-shadow: inset 0 0 0 1.5px var(--foreground); border-radius: 6px; }
+.oc-prow .oc-k { font-size: var(--text-xs); line-height: 18px; display: flex; justify-content: center; align-items: center; gap: 3px; }
+.oc-b { position: relative; height: 14px; }
+.oc-b i { position: absolute; top: 0; bottom: 0; border-radius: 3px; }
+.oc-b.ce i.tot { right: 0; background: var(--oc-ce-soft); } .oc-b.pe i.tot { left: 0; background: var(--oc-pe-soft); }
+.oc-b.ce i.add { background: var(--oc-ce); } .oc-b.pe i.add { background: var(--oc-pe); }
+.oc-b i.cut { background: repeating-linear-gradient(135deg, transparent 0 3px, color-mix(in srgb, var(--muted-foreground) 45%, transparent) 3px 4px);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--muted-foreground) 35%, transparent); }
+.oc-b em { position: absolute; top: 0; line-height: 14px; font-style: normal; font-size: var(--text-3xs); color: var(--muted-foreground); }
+.oc-b.ce em { left: 0; } .oc-b.pe em { right: 0; }
+.oc-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 2px 12px 6px; font-size: var(--text-3xs); color: var(--muted-foreground); }
+.oc-legend i.tot { background: color-mix(in srgb, var(--muted-foreground) 30%, transparent); }
+.oc-legend i.add { background: var(--muted-foreground); }
+.oc-legend i.cut { background: repeating-linear-gradient(135deg, transparent 0 2px, var(--muted-foreground) 2px 3px); }
+.oc-legend i.otm { background: var(--foreground); height: 2px; vertical-align: 2px; width: 12px; }
+.oc-smile { margin: 10px 12px 0; }
+.oc-smile svg { display: block; max-width: 100%; height: auto; overflow: visible; }
+.oc-smile text { font-size: 10px; fill: var(--muted-foreground); font-family: var(--font); }
+.oc-smile .g { stroke: var(--oc-line); stroke-width: 1; }
+.oc-smile .s { stroke: var(--foreground); stroke-dasharray: 3 3; stroke-opacity: .6; }
+.oc-smile .sl { fill: var(--foreground); }
+.oc-smile path { fill: none; vector-effect: non-scaling-stroke; }
+.oc-smile path.ce { stroke: var(--oc-ce); stroke-opacity: .35; stroke-width: 1.2; }
+.oc-smile path.pe { stroke: var(--oc-pe); stroke-opacity: .35; stroke-width: 1.2; }
+.oc-smile path.otm { stroke: var(--foreground); stroke-width: 2; }
+.oc-smile .pt { fill: var(--foreground); }
+.oc-smile .oc-legend { padding: 8px 0 0; }
+.oc-none { padding: 30px 16px; text-align: center; color: var(--muted-foreground); font-size: var(--text-sm); }
+.oc-pick { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; padding: 8px 8px 8px 12px; border-top: 1px solid var(--oc-line);
+  font-size: var(--text-xs); color: var(--muted-foreground); background: var(--background); }
+.oc-pick[hidden] { display: none; }
+.oc-pick > b { font-size: var(--text-md); color: var(--foreground); }
+.oc-pick em { font-style: normal; font-weight: var(--weight-semi); color: var(--foreground); }
+.oc .dk-cta.sm { height: 26px; padding: 0 10px; font-size: var(--text-sm); border-radius: 7px; }
+.oc-foot { flex: none; padding: 6px 12px; border-top: 1px solid var(--oc-line); font-size: var(--text-3xs); color: var(--muted-foreground);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.oc-empty .oc-sug { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.oc-skel { padding: 12px; }
+.dk-floats .oc-sides, .dk-floats .oc-th, .dk-floats .oc-tile, .dk-floats .oc-pick { background: var(--popover); }
+@media (max-width: 520px) { .oc-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } .oc-views button { padding: 0 7px; } }
+.oc.oc-narrow .oc-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* the card in the conversation: the same chain, a window onto it */
+.oc.oc-card { height: auto; }
+.oc-card .oc-rows { max-height: 330px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.oc-card .oc-table, .oc-card .oc-prof { margin-top: 8px; }
+.oc-card .oc-sides, .oc-card .oc-th { position: static; background: transparent; }
+.oc-card .oc-tiles, .oc-card .oc-split, .oc-card .oc-walls { margin-left: 0; margin-right: 0; }
+.oc-card .oc-th, .oc-card .oc-row { padding: 0; }
+.oc-card .oc-sides { padding: 4px 0 2px; }
+.oc-card .oc-tile { background: var(--card, var(--background)); }
+.oc-card-foot { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.oc-card-foot .note { flex: 1; min-width: 0; font-size: var(--text-3xs); color: var(--muted-foreground); }
+
 /* ── market depth ── */
 .dp-head .dp-live {
   width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: var(--up);
@@ -11917,7 +12068,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/store.js?v=24"></script>
   <script src="./js/theme.js?v=16"></script>
   <script src="./js/universe.js?v=20"></script>
-  <script src="./js/icons.js?v=48"></script>
+  <script src="./js/icons.js?v=49"></script>
   <!-- after icons.js (every row is drawn with one) and before main.js, which
        builds the chart's three right-click menus out of it -->
   <script src="./js/ctxmenu.js?v=13"></script>
@@ -11964,8 +12115,8 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        __charto and ChartSettings exist by the first selection. -->
   <script src="./js/drawedit.js?v=7"></script>
   <script src="./js/wkit.js?v=2"></script>
-  <script src="./js/hub-art.js?v=5"></script>
-  <script src="./js/dock.js?v=34"></script>
+  <script src="./js/hub-art.js?v=6"></script>
+  <script src="./js/dock.js?v=35"></script>
   <script src="./js/agentws.js?v=1"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
@@ -11978,7 +12129,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- before chat.js, which asks it to render the panels a tool prints as the
        reply streams in. It reads Sym (store.js) for the instrument's currency
        and grouping, and nothing else — a renderer with no state of its own -->
-  <script src="./js/cards.js?v=71"></script>
+  <script src="./js/cards.js?v=72"></script>
   <script src="./js/layers-panel.js?v=12"></script>
   <script src="./js/model-logos.js?v=2"></script>
   <script src="./js/models.js?v=4"></script>
@@ -11999,6 +12150,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/w-sheet.js?v=8"></script>
   <script src="./js/w-fin.js?v=7"></script>
   <script src="./js/w-news.js?v=4"></script>
+  <script src="./js/w-options.js?v=5"></script>
   <script src="./js/w-portfolio.js?v=5"></script>
   <script src="./js/w-strategy.js?v=4"></script>
   <script src="./js/w-browser.js?v=10"></script>

@@ -61,6 +61,7 @@ sys.modules.setdefault("dataserver", sys.modules[__name__])
 
 import company_scores   # sibling module: Altman / Ohlson / Graham / DuPont
 import depth as _depth   # sibling module: order-book snapshots for the depth widget
+import options as _options   # sibling module: option chains (NSE F&O file + live Kite quotes)
 import footprint as _fp   # sibling module: buy/sell volume at price per bar (crypto tape)
 import calfeed as _calfeed     # sibling module: the Calendar widget's NSE + macro feeds
 import webfeeds as _webfeeds   # sibling module: news feeds + frame checks for widgets
@@ -9821,6 +9822,32 @@ def tool_explain_move(frm: str = "", to: str = "") -> dict:
     return out
 
 
+def tool_get_option_chain(symbol: str = "", expiry: str = "", strikes: int = 12) -> dict:
+    """The option chain of an NSE F&O stock or index (options.py). The model
+    gets the reads and a strip of strikes around the money; the card gets the
+    chain itself, so the numbers in the reply and on the card are one set."""
+    sym = (symbol or getattr(_req, "symbol", "") or "").strip()
+    if not sym:
+        return {"error": "which instrument?"}
+    c = _options.chain(sym, expiry or None, max(4, min(int(strikes or 12), 30)))
+    if not c.get("available"):
+        return {**c, "_note": "Say this in one line and name an instrument that has options "
+                              "if it helps (NIFTY 50, NIFTY BANK, or the stock's own index)."}
+    _card_add({"kind": "option_chain", **c})
+    eod = c["source"] == "nse_eod"
+    return {**_options.digest(c), "_note": (
+        ("These are END-OF-DAY figures from NSE's F&O file (" + c["as_of_label"] + "): say "
+         "'at the close on …', never 'now' or 'currently'. " if eod else
+         "Live Kite quotes for the strikes shown; OI change is against the last close. ")
+        + "The card under your reply shows the full chain, so do not re-list strikes in a "
+        "table; read it: where call and put OI sit (walls), where OI was added or cut today, "
+        "PCR, max pain, IV and the straddle's expected move, and what that says about the "
+        "range the market is pricing. OI, OI change and volume are in contracts. Quote "
+        "numbers from here only. To keep the chain on the desk, open the 'options' widget "
+        "with the workspace tool (symbol, settings {expiry}). This is analysis, not advice "
+        "to buy or sell any option.")}
+
+
 def tool_get_flows(frm: str = "", to: str = "", lookback_sessions: int = 10) -> dict:
     """Ownership and positioning series on their own — delivery %, futures
     OI with quadrant, bulk/block deals — for direct questions that are not
@@ -12136,6 +12163,20 @@ TOOLS = [
          "frm": {"type": "string", "description": "first session of the move, chart format e.g. '21 Jul 2026'. When the user gives no dates and is pointing at a decline or rally ON the chart ('why is the price falling'), pass the VISIBLE WINDOW's start from the chart context — omitting both dates explains the last session only, which is the wrong window for a multi-day move"},
          "to": {"type": "string", "description": "last session of the move; omit for a single day"}},
       "required": []}},
+    {"type": "function", "name": "get_option_chain",
+     "description": ("The option chain of an NSE F&O stock or index (NIFTY 50, NIFTY BANK, "
+                     "FINNIFTY, MIDCPNIFTY and about 210 stocks) for one expiry: price, OI and "
+                     "OI change, volume, IV and Greeks per strike, plus put-call ratio, max "
+                     "pain, ATM IV, the ATM straddle's expected move, the biggest OI walls and "
+                     "today's OI additions and cuts, and the list of expiries. A card with the "
+                     "chain is shown under the reply. Use for questions about options, OI, "
+                     "PCR, max pain, IV, support/resistance from OI, or the range options "
+                     "are pricing."),
+     "parameters": {"type": "object", "properties": {
+         "symbol": {"type": "string", "description": "the instrument, e.g. 'NIFTY 50', 'NIFTY BANK', 'RELIANCE'; omit for the chart's own"},
+         "expiry": {"type": "string", "description": "'2026-10-27', '27 Oct' or 'next'; omit for the nearest"},
+         "strikes": {"type": "integer", "description": "strikes each side of the money on the card, default 12"}},
+      "required": []}},
     {"type": "function", "name": "get_flows",
      "description": "Ownership and positioning series on their own: daily delivery % (share of traded quantity that actually changed hands, with its percentile vs this stock's own history), futures open interest with the standard quadrant read (long/short buildup, unwinding, covering), and bulk/block deals with client names. Use for direct questions like 'is the selling delivery-backed', 'are shorts building up', 'any big deals lately', 'how has delivery trended' — for explaining one specific move, explain_move already includes this.",
      "parameters": {"type": "object", "properties": {
@@ -12938,7 +12979,8 @@ TOOLS = [
          "an id opened earlier in the same list. The widgets on the desk and their ids are under "
          "'Workspace now' at the end of the conversation. "
          "Kinds: chart (an extra chart), screener, watch (watchlist), alerts, journal, notes, news, "
-         "calendar, tv, financials, portfolio, depth (order book), sheet, code, docs, browser. "
+         "calendar, tv, financials, portfolio, depth (order book), options (option chain), sheet, "
+         "code, docs, browser. "
          "Before setting settings you have not used, call {op:'describe', type} — it "
          "returns the kind's settings with their legal values and the content it accepts. "
          "Content (on open, or op 'write'): screener {name, filters:[{feature, op:'gt'|'lt', value}], "
@@ -13317,6 +13359,7 @@ _DISPATCH = {"get_levels": tool_get_levels, "get_bars": tool_get_bars,
              "explain_move": tool_explain_move,
              "search_news": tool_search_news,
              "get_flows": tool_get_flows,
+             "get_option_chain": tool_get_option_chain,
              "get_deals": tool_get_deals,
              "recall_conversations": tool_recall_conversations,
              "open_chart": tool_open_chart,
@@ -15008,6 +15051,9 @@ TOOL_GROUPS: dict[str, tuple[str, tuple[str, ...]]] = {
                            "fundamentals and valuation, peers, FII/DII flows, bulk and block deals, "
                            "and news search.",
                            ("get_results", "get_peers", "get_flows", "get_deals", "search_news")),
+    "options": ("Option chains for NSE stocks and indices: OI and OI change by strike, IV, "
+                "Greeks, put-call ratio, max pain, expected move, by expiry.",
+                ("get_option_chain",)),
     "position_planning": ("Plan and size a position (entry, stop, targets, risk), and confirm "
                           "whether a reversal is real.", ("plan_position", "confirm_reversal")),
     "memory": ("Search the user's earlier conversations.", ("recall_conversations",)),
@@ -19164,6 +19210,21 @@ class Handler(BaseHTTPRequestHandler):
                 except ValueError:
                     lv = 20
                 return self._send(200, _depth.book(sym, lv, scope_for(sym)))
+            if u.path == "/options/chain":
+                # The Option chain widget, the stock page's options section and
+                # the chat's card: one payload (options.py). End of day from
+                # NSE's F&O file, live strikes when the Kite session is up.
+                sym = (q.get("symbol") or "").strip()
+                if not sym:
+                    return self._send(400, {"error": "symbol is required"})
+                try:
+                    n = int(q.get("strikes") or 12)
+                except ValueError:
+                    n = 12
+                return self._send(200, _options.chain(sym, q.get("expiry") or None, n,
+                                                      live=q.get("live") != "0"))
+            if u.path == "/options/underlyings":
+                return self._send(200, {"underlyings": _options.underlyings()})
             if u.path == "/footprint":
                 # The Footprint widget: buy/sell volume at each price inside
                 # each bar, folded from the crypto trade tape (footprint.py).
@@ -20447,6 +20508,11 @@ if __name__ == "__main__":
             _plans.init_db()
     except Exception as _exc:                                  # noqa: BLE001
         print(f"charto strategies UNAVAILABLE: {_exc}")
+
+    # The F&O file is ~1 MB from NSE and a second to parse; fetched now, so
+    # the first option chain anyone opens answers from memory.
+    threading.Thread(target=lambda: _options.has_options("NIFTY"), name="options-warm",
+                     daemon=True).start()
 
     _analytics.init()
     print(f"charto dataserver on :{PORT} (db={DB_PATH.name})")

@@ -49,6 +49,7 @@ import { RowTrend } from "@/components/stock/RowTrend";
 import { Select } from "./stock/Select";
 import "./stock/stock-research.css";
 import { TechnicalPanel } from "@/components/stock/TechnicalPanel";
+import { OptionChainSection, OptionsNavLink } from "@/components/stock/OptionChainSection";
 import { StockNewsSection } from "@/components/stock/StockNewsSection";
 
 // ---------------------------------------------------------------------------
@@ -398,6 +399,7 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
           <a href="#stock-overview">Overview</a>
           <a href="#stock-price">Price & performance</a>
           {!isIndexQuote && <><a href="#stock-technicals">Technicals</a><a href="#stock-financials" onClick={() => window.dispatchEvent(new Event("stock-open-financials"))}>Financials</a><a href="#stock-valuation">Valuation</a><a href="#stock-capital">Capital allocation</a><a href="#stock-benchmarks">Benchmarks</a><a href="#stock-research">Company research</a></>}
+          <OptionsNavLink symbol={quoteState.quote.symbol} />
           <a href="#stock-news">News</a>
         </nav>
         {!isIndexQuote && <div className="research-snapshot" aria-label="Company snapshot">
@@ -485,6 +487,10 @@ export function StockDetailPage({ symbol }: { symbol: string }): React.ReactElem
           {quoteState.kind === "ok" && !isIndexQuote && (
             <section id="stock-technicals"><TechnicalPanel quote={quoteState.quote} /></section>
           )}
+
+          {/* Options: renders nothing unless the symbol has an NSE option chain
+              (indices included — NIFTY 50 has the deepest one). */}
+          {quoteState.kind === "ok" && <OptionChainSection symbol={quoteState.quote.symbol} />}
 
           {/* Key Metrics — snapshot tiles from the financials DB. Skipped
               entirely when the symbol has no MC entry. */}
@@ -579,6 +585,7 @@ function PhoneLayout({
       <PerformanceRanges quote={quote} />
 
       {!quote.is_index && <section id="stock-technicals"><TechnicalPanel quote={quote} /></section>}
+      <OptionChainSection symbol={quote.symbol} />
 
       {/* Flat, stacked sections (phone): Company Overview, then each statement
           — Balance Sheet, Profit and Loss, Quarterly Results, Ratios — as its

@@ -2235,8 +2235,12 @@ const Dock = (() => {
     S = load();
     const legacy = new URLSearchParams(location.search).get("panel");
     if (legacy && TYPES.has(legacy) && !placedOf(legacy).length) {
-      if (!S.inst[legacy]) S.inst[legacy] = { type: legacy, cfg: { ...(TYPES.get(legacy).defaults || {}) } };
+      // sanitize FIRST: it drops every instance that is neither placed nor
+      // closed, so run after the instance was added it deleted the one this
+      // branch had just made, and ?panel= only ever reopened a widget the
+      // user already had
       sanitize();
+      if (!S.inst[legacy]) S.inst[legacy] = { type: legacy, cfg: { ...(TYPES.get(legacy).defaults || {}) } };
       place(legacy, { kind: "zone", zone: TYPES.get(legacy).zone || "right" });
     }
     buildHeader();

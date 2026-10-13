@@ -874,11 +874,20 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
 
   useEffect(() => { goTabRef.current = goTab; }, [goTab]);
 
-  const openChart = useCallback((symbol: string): void => {
-    setChartQuery(undefined);
-    setChartSymbol(symbol.trim().toUpperCase());
+  const openChart = useCallback((symbol: string, panel?: string): void => {
+    const sym = symbol.trim().toUpperCase();
+    // A sub-route (/stock/X) renders its own AppShell, and the home shell that
+    // mounts after the push starts with empty chart state, so state set here
+    // would be lost. Hand the symbol (and a widget to open) over in the URL,
+    // which the home shell reads on arrival (the effect below).
+    if (pathname !== "/" && typeof window !== "undefined") {
+      router.push(`/?symbol=${encodeURIComponent(sym)}${panel ? `&panel=${encodeURIComponent(panel)}` : ""}`);
+      return;
+    }
+    setChartQuery(panel ? { panel } : undefined);
+    setChartSymbol(sym);
     goTab("chart");
-  }, [goTab]);
+  }, [goTab, pathname, router]);
 
   // Arriving with a shared setup in the URL: open it on the Chart tab, then
   // take the parameters off the address bar so a refresh does not copy the
@@ -891,17 +900,21 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
       // A question for the chart's composer (the paper, strategies and broker
       // pages hand one over); the chart reads ?ask= itself and clears it.
       const ask = params.get("ask");
+      // a widget to open beside the chart (the chart reads ?panel= on load)
+      const panel = params.get("panel");
       if (view && symbol && /^[\w-]{8,64}$/.test(view)) {
         setChartSymbol(symbol.trim().toUpperCase());
         setChartQuery(params.get("mine") === "1" ? { view, mine: "1" } : { view });
       } else if (symbol || ask) {
-        if (symbol && /^[\w:&.-]{1,40}$/.test(symbol)) setChartSymbol(symbol.trim().toUpperCase());
-        setChartQuery(ask ? { ask: ask.slice(0, 2000) } : undefined);
+        // spaces allowed: an index is "NIFTY 50" here
+        if (symbol && /^[\w:&. -]{1,40}$/.test(symbol)) setChartSymbol(symbol.trim().toUpperCase());
+        setChartQuery(ask ? { ask: ask.slice(0, 2000) }
+          : panel && /^[a-z]{2,20}$/.test(panel) ? { panel } : undefined);
       } else {
         return;
       }
       goTab("chart");
-      for (const key of ["view", "symbol", "mine", "ask"]) params.delete(key);
+      for (const key of ["view", "symbol", "mine", "ask", "panel"]) params.delete(key);
       const qs = params.toString();
       window.history.replaceState(null, "", `${window.location.pathname}${qs ? `?${qs}` : ""}#chart`);
     } catch {
@@ -912,8 +925,11 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
 
   useEffect(() => {
     const handleOpenChart = (event: Event): void => {
-      const symbol = (event as CustomEvent<{ symbol?: string }>).detail?.symbol;
-      if (symbol) openChart(symbol);
+      const detail = (event as CustomEvent<{ symbol?: string; panel?: string }>).detail;
+      if (!detail?.symbol) return;
+      // panel: a widget to open beside the chart, e.g. the stock page's
+      // "Open in the chart workspace" → the Option chain
+      openChart(detail.symbol, detail.panel && /^[a-z]{2,20}$/.test(detail.panel) ? detail.panel : undefined);
     };
     window.addEventListener("pivot:open-chart", handleOpenChart);
     return () => window.removeEventListener("pivot:open-chart", handleOpenChart);
