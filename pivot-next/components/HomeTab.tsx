@@ -70,6 +70,7 @@ import { useCompanyLogos } from "@/hooks/useCompanyLogos";
 import { Panel } from "@/components/ds/surfaces";
 import { CompanyLogo } from "@/components/CompanyLogo";
 import { Skeleton } from "@/components/ui/skeleton";
+import { HomeWelcome } from "@/components/HomeWelcome";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -77,7 +78,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export type HomeTabProps = {
   /** Switch the shell to another top-level tab. */
-  onGoTab: (tab: "chat" | "portfolio" | "screener" | "agents") => void;
+  onGoTab: (tab: "chat" | "chart" | "portfolio" | "screener" | "agents") => void;
   /** Drop a prompt into the chat composer and auto-submit it. */
   onSendPrompt: (prompt: string) => void;
   /**
@@ -141,13 +142,7 @@ const TODAY_FMT = new Intl.DateTimeFormat("en-IN", {
   month: "long",
 });
 
-// NOTE: the home board no longer classifies "monitor vs laptop" from physical
-// pixel counts — that guess mis-sized Retina laptops (small screen, huge pixel
-// count) and 1920 monitors, causing overflow and wrong prompt/strategy counts.
-// The rich-vs-compact decision is now made from actual available space: the
-// chat prompts measure their card height (ChatPromptsCard / promptsThatFit),
-// and the strategies compaction keys off `@media (max-height)` in
-// globals.css — both scaling-honest, unlike a device guess.
+// Card sizes follow CSS viewport space; their bodies scroll independently.
 
 /** Rough NSE session check in IST — Mon–Fri, 09:15–15:30. Presentational only
  *  (a calm status chip); never gates any data or action. */
@@ -362,11 +357,7 @@ type ChatPrompt = {
   Icon: React.ComponentType<{ size?: number; strokeWidth?: number; style?: React.CSSProperties }>;
 };
 
-// Seven seeds. ChatPromptsCard measures the card's real height and shows as
-// many as fit without cramping (a tall monitor takes all seven; a short laptop
-// or a small-screen MacBook trims to what stays readable) — see PROMPT_ROW_MIN
-// and the ResizeObserver there. Measured space, not a physical-pixel device
-// guess, which used to mis-size Retina laptops and 1920 monitors.
+// All seven starting questions remain reachable inside the scrollable card.
 const CHAT_PROMPTS: ChatPrompt[] = [
   { label: "Give me a market pulse for today.", Icon: Activity },
   { label: "Analyse TCS — technicals, fundamentals and a view.", Icon: BarChart2 },
@@ -406,10 +397,11 @@ export function HomeTab({ onGoTab, onSendPrompt, onOpenAgent, onOpenStrategies }
       // this is the last-resort fallback — silently clipping row 2 out of
       // reach (the old lg:overflow-hidden) is worse than an occasional
       // scroll.
-      className="mx-auto flex h-full min-h-0 w-full flex-col overflow-y-auto"
-      style={{ maxWidth: 1760, gap: "clamp(8px, 1.4vh, 14px)" }}
+      className="home-dashboard mx-auto flex h-full min-h-0 w-full flex-col overflow-y-auto"
+      style={{ maxWidth: 1760, gap: 24 }}
       data-testid="home-tab"
     >
+      <HomeWelcome onOpenChart={() => onGoTab("chart")} onSendPrompt={onSendPrompt} />
       {/* ── Greeting + indices (fixed header band) ───────────────────── */}
       <div className="flex shrink-0 flex-col" style={{ gap: "clamp(8px, 1.4vh, 14px)" }}>
         <div className="flex flex-wrap items-baseline justify-between" style={{ gap: 8 }}>
@@ -420,7 +412,7 @@ export function HomeTab({ onGoTab, onSendPrompt, onOpenAgent, onOpenStrategies }
               data-testid="home-greeting"
               style={{
                 margin: 0,
-                fontFamily: "var(--font-experiment)",
+                fontFamily: "var(--font-ui)",
                 fontWeight: "var(--weight-display)" as unknown as number,
                 fontSize: "clamp(22px, 2.6vw, 32px)",
                 letterSpacing: "-0.035em",
@@ -454,8 +446,8 @@ export function HomeTab({ onGoTab, onSendPrompt, onOpenAgent, onOpenStrategies }
 
       {/* ── Bento grid (fills remaining height at lg+) ───────────────── */}
       <div
-        className="grid grid-cols-1 lg:min-h-0 lg:flex-1 lg:grid-cols-6 lg:grid-rows-[1.05fr_1fr]"
-        style={{ gap: "clamp(10px, 1.5vh, 16px)", gridAutoRows: "minmax(160px, auto)" }}
+        className="home-card-grid grid shrink-0 grid-cols-1 lg:grid-cols-6"
+        style={{ gap: 16, paddingBottom: 8 }}
       >
         {/* Row 1 */}
         <div className="lg:col-span-2 lg:col-start-1 lg:row-start-1 min-h-0">
@@ -1484,25 +1476,6 @@ function WatchlistRow({ row, last }: { row: WlRow; last: boolean }): React.React
 // Chat prompts card
 // ---------------------------------------------------------------------------
 
-// Smallest height (px) a single prompt row can take before its one line of
-// text + icon start to look cramped against the row border. The fit maths
-// below never lets a visible row fall below this, so rows always read cleanly.
-const PROMPT_ROW_MIN = 30;
-// Inter-row gap in px — the resolved midpoint of the clamp() on the list below.
-// Used only to size the fit; the real gap is still the clamp.
-const PROMPT_ROW_GAP = 6;
-
-/** How many prompt rows fit in `height` px without any row dropping below
- *  PROMPT_ROW_MIN. n flex rows share `height` with (n-1) gaps between them, so
- *  the tallest n that keeps every row ≥ min is floor((height+gap)/(min+gap)).
- *  Clamped to [4, total] so the compact home card always offers one more
- *  useful starting point without growing taller. */
-function promptsThatFit(height: number, total: number): number {
-  if (height <= 0) return total;
-  const n = Math.floor((height + PROMPT_ROW_GAP) / (PROMPT_ROW_MIN + PROMPT_ROW_GAP));
-  return Math.max(4, Math.min(total, n));
-}
-
 function ChatPromptsCard({
   onGoTab,
   onSend,
@@ -1510,36 +1483,6 @@ function ChatPromptsCard({
   onGoTab: HomeTabProps["onGoTab"];
   onSend: (prompt: string) => void;
 }): React.ReactElement {
-  const listRef = useRef<HTMLDivElement | null>(null);
-  // How many prompts to render. Measured from the card's real height rather
-  // than guessed from the device: the tall monitor holds all six, a laptop or
-  // small MacBook trims to what stays readable — no overflow on either, and no
-  // dependence on physical-pixel counts (which mis-sized both). Starts at four
-  // (always safe — never overflows on first paint) and the observer corrects
-  // it up or down once the card has a measured height.
-  const [visible, setVisible] = useState(4);
-  useEffect(() => {
-    const el = listRef.current;
-    if (!el) return;
-    // Only the lg+ bento fixes the card to a viewport-derived height where the
-    // fit maths is stable; below lg the board is a single scrolling column, so
-    // the card sizes to its own content and there's room for all six.
-    const lg = window.matchMedia("(min-width: 1024px)");
-    const measure = (): void => {
-      setVisible(lg.matches ? promptsThatFit(el.clientHeight, CHAT_PROMPTS.length) : CHAT_PROMPTS.length);
-    };
-    measure();
-    // The list is flex-1, so at lg its height tracks the card (which the bento
-    // grid sizes from the viewport) independently of how many rows we render —
-    // the measurement is stable, not circular, and re-fires on any resize/zoom.
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    lg.addEventListener("change", measure);
-    return () => {
-      ro.disconnect();
-      lg.removeEventListener("change", measure);
-    };
-  }, []);
 
   return (
     <CardShell
@@ -1547,21 +1490,13 @@ function ChatPromptsCard({
       title="Chat with Pivot"
       actionLabel="Open"
       onAction={() => onGoTab("chat")}
-      scroll={false}
-      bodyClassName="flex min-h-0 flex-col overflow-hidden"
+      bodyClassName="flex min-h-0 flex-col"
     >
-      {/* No inner scroll — each prompt grows to an equal share of the card
-          height (flex-1), so they read as one evenly-spaced stack that fills
-          the card rather than floating apart. `visible` (measured above) keeps
-          six on a tall monitor and trims on shorter screens so no row is
-          cramped. The small vertical padding keeps the top/bottom rows' hover
-          highlight visible. */}
       <div
-        ref={listRef}
-        className="home-chat-prompts flex min-h-0 flex-1 flex-col overflow-hidden"
+        className="home-chat-prompts flex flex-col"
         style={{ gap: "clamp(4px, 0.75vh, 7px)", paddingBlock: 2 }}
       >
-        {CHAT_PROMPTS.slice(0, visible).map((p) => (
+        {CHAT_PROMPTS.map((p) => (
           <PromptRow key={p.label} label={p.label} Icon={p.Icon} onClick={() => onSend(p.label)} />
         ))}
       </div>
@@ -1582,10 +1517,10 @@ function PromptRow({
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex w-full flex-1 items-center"
+      className="inline-flex w-full shrink-0 items-center"
       style={{
         gap: 9,
-        minHeight: 0,
+        minHeight: 34,
         padding: "clamp(4px, 0.7vh, 6px) 11px",
         background: "var(--bg-base)",
         border: "1px solid var(--glass-border)",
