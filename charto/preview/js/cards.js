@@ -563,7 +563,7 @@ const Cards = (() => {
 
     const payload = attrJSON({ name: c.name, steps: steps });
     return `<div class="wf-card" data-wf data-draft="${payload}">`
-      + `<div class="wf-top"><span class="wf-chip">Agent</span>`
+      + `<div class="wf-top"><span class="wf-chip">Rule</span>`
       + `<span class="wf-state">${ttl}`
       + `<span class="wf-dot" aria-hidden="true"></span>Draft</span></div>`
       + `<h3 class="wf-title">${esc(c.name || "Strategy draft")}</h3>`
@@ -574,8 +574,10 @@ const Cards = (() => {
       + (blockers.length
           ? `<p class="wf-note">${esc(blockers[0])}</p>` : "")
       + `<div class="wf-cta">`
-      + `<button type="button" class="wf-primary" data-wf-activate>`
-      + `Save &amp; activate</button>`
+      // Research launch: nothing is armed, so the card's action is the test.
+      + (window.CHARTO_EXECUTION === true
+          ? `<button type="button" class="wf-primary" data-wf-activate>Save &amp; activate</button>`
+          : "")
       + `<div class="wf-ghosts">`
       + (blockers.length ? ""
           : `<button type="button" class="wf-ghost" data-wf-backtest>`
@@ -786,6 +788,63 @@ const Cards = (() => {
    * GEOMETRY from those series — a pixel path, a bar width — and never a
    * statistic: nothing here prints a number the engine did not compute.
    */
+  /* ── a backtest in a trader's words ──────────────────────────────
+   * The engine writes for a statistics audience: "No demonstrable edge",
+   * PSR, deflated Sharpe, "2026-08-14 → 2026-10-13", and the rule as a
+   * machine string that names the symbol and the interval in every clause.
+   * The dataserver already rewrites the verdict for new results
+   * (_PLAIN_VERDICT); this mirrors it so a card restored from an older
+   * thread reads the same way. */
+  const PLAIN_VERDICT = {
+    insufficient_data: ["Too few trades to judge",
+      () => "There are not enough trades in this window to tell a real pattern from luck. A longer window would say more."],
+    no_edge: ["No better than chance",
+      (c) => `On this history the rule did not make money reliably after costs: the odds that it truly works come out at about ${c}%.`],
+    unproven: ["Not proven yet",
+      (c) => `It made money here, but not by enough or over enough trades to rule out luck (about ${c}% confidence).`],
+    promising: ["Holds up on this history",
+      (c) => `About ${c}% confidence the gain is real after costs and after counting every rule tried. History, not a forecast.`],
+  };
+  function plainVerdict(v) {
+    const p = PLAIN_VERDICT[v.verdict];
+    if (!p) return { label: v.label || "", text: v.rationale || "" };
+    const c = Number.isFinite(Number(v.confidence)) ? Math.round(Number(v.confidence)) : "low";
+    const label = v.verdict === "promising" && (v.flags || []).length ? "Holds up, with risks to watch" : p[0];
+    return { label, text: p[1](c) };
+  }
+  const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  /** "2026-08-14 → 2026-10-13" → "14 Aug – 13 Oct 2026"; anything else as it came. */
+  function plainPeriod(label) {
+    const m = /(\d{4})-(\d{2})-(\d{2}).*?(\d{4})-(\d{2})-(\d{2})/.exec(String(label || ""));
+    if (!m) return String(label || "");
+    const d = (y, mo, da) => `${Number(da)} ${MON[Number(mo) - 1]}`;
+    return m[1] === m[4]
+      ? `${d(m[1], m[2], m[3])} – ${d(m[4], m[5], m[6])} ${m[4]}`
+      : `${d(m[1], m[2], m[3])} ${m[1]} – ${d(m[4], m[5], m[6])} ${m[4]}`;
+  }
+  /** "2026-09-02…" → "2 Sep 2026"; "open" and anything else as it came. */
+  function plainDay(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ""));
+    return m ? `${Number(m[3])} ${MON[Number(m[2]) - 1]} ${m[1]}` : String(iso || "");
+  }
+  function periodDays(label) {
+    const m = /(\d{4}-\d{2}-\d{2}).*?(\d{4}-\d{2}-\d{2})/.exec(String(label || ""));
+    return m ? (Date.parse(m[2]) - Date.parse(m[1])) / 864e5 : null;
+  }
+  /** "price of RELIANCE > EMA(50) of RELIANCE on 15-minute bars AND …" →
+   *  { rule: "Price above EMA(50), and EMA(50) above EMA(200)", bars: "15-minute bars" } */
+  function plainRule(text, sym) {
+    let t = String(text || "");
+    const bars = (/\bon ([\w-]+ bars)\b/i.exec(t) || [])[1] || "";
+    if (bars) t = t.split(` on ${bars}`).join("");
+    if (sym) t = t.split(` of ${sym}`).join("");
+    t = t.replace(/\s*>=\s*/g, " at or above ").replace(/\s*<=\s*/g, " at or below ")
+         .replace(/\s*>\s*/g, " above ").replace(/\s*<\s*/g, " below ")
+         .replace(/\s+AND\s+/g, ", and ").replace(/\s+OR\s+/g, ", or ")
+         .replace(/\s{2,}/g, " ").trim();
+    return { rule: t ? t[0].toUpperCase() + t.slice(1) : "", bars };
+  }
+
   function strategyBacktest(c) {
     const m = c.metrics || {};
     const v = m.trust_verdict || {};
@@ -805,12 +864,14 @@ const Cards = (() => {
 
     // `label` is a written sentence fragment; `verdict` is the raw enum. Only
     // the fallback needs capitalising, and the CSS no longer does it for both.
-    const verdict = v.label || cap(String(v.verdict || "").replace(/_/g, " "));
+    const pv = plainVerdict(v);
+    const verdict = pv.label || cap(String(v.verdict || "").replace(/_/g, " "));
     const verdictBlock = verdict
       ? `<div class="wf-verdict" data-verdict="${esc(String(v.verdict || ""))}">`
         + `<b>${esc(verdict)}</b>`
-        + (v.rationale ? `<span>${esc(v.rationale)}</span>` : "")
+        + (pv.text ? `<span>${esc(pv.text)}</span>` : "")
         + `</div>` : "";
+    const days = periodDays(c.period_label);
 
     // The percentage is the RULE's (fully invested while in a position), so
     // the rupee figure is just capital × it — shown so "+7.6%" also reads as
@@ -819,9 +880,12 @@ const Cards = (() => {
       ? `${Number(m.pnl_inr) < 0 ? "−" : "+"}₹${Math.abs(Math.round(m.pnl_inr)).toLocaleString("en-IN")}`
         + ` on ₹${Math.round(m.starting_capital).toLocaleString("en-IN")}`
       : "";
+    // CAGR annualises: over two months a 6.5% loss prints as -35% a year,
+    // a number nobody experienced. Shown only once the window is a year.
     const strip = stat("Return", pct(m.total_return_pct), way(m.total_return_pct), inr)
-      + stat("CAGR", fin(m.cagr_pct) ? pct(m.cagr_pct) : "—", way(m.cagr_pct))
-      + stat("Max drawdown", depth(m.max_drawdown_pct), "down")
+      + (days == null || days >= 360
+          ? stat("Yearly (CAGR)", fin(m.cagr_pct) ? pct(m.cagr_pct) : "—", way(m.cagr_pct)) : "")
+      + stat("Worst drop", depth(m.max_drawdown_pct), "down")
       /* Hit rate is over CLOSED round-trips, and a strategy that has not
        * closed one has no hit rate — it does not have a hit rate of zero.
        * The engine reports 0.0 for both cases, so beside "Trades 49" the
@@ -830,15 +894,14 @@ const Cards = (() => {
        * honest answer, and the qualifier says why it is undefined. */
       + (closedCount === 0 && openCount > 0
           ? stat("Hit rate", "—", "", "nothing closed yet")
-          : stat("Hit rate", fin(m.hit_rate_pct) ? num(m.hit_rate_pct, "%") : "—",
-                 "", m.n_wins == null ? "" : `${esc(m.n_wins)} won`))
-      + stat("Sharpe", num(m.sharpe), "",
-             fin(fs.deflated_sharpe) ? `deflated ${num(fs.deflated_sharpe)}` : "")
+          : stat("Win rate", fin(m.hit_rate_pct) ? `${Math.round(Number(m.hit_rate_pct))}%` : "—",
+                 "", m.n_wins == null ? "" : `${m.n_wins} of ${closedCount || m.n_trades || 0} won`))
+      + stat("Sharpe", num(m.sharpe), "")
       // …and the count says WHICH it is counting, for the same reason.
       + stat("Trades", m.n_trades ?? "—", "",
              closedCount === 0 && openCount > 0 ? `${openCount} still held`
                : fin(m.capital_utilization_pct)
-                 ? `in the market ${Math.round(m.capital_utilization_pct)}% of the time` : "");
+                 ? `in a trade ${Math.round(m.capital_utilization_pct)}% of the time` : "");
 
     // The comparison that decides whether any of this was worth doing. Two
     // figures the payload already carries, drawn against one shared scale so
@@ -882,36 +945,33 @@ const Cards = (() => {
     // draw, and these are the drawdowns the same edge produced on others.
     const mcRows = [];
     if (fin(mc.dd_median_pct)) mcRows.push({
-      label: "Typical", value: Math.abs(mc.dd_median_pct),
+      label: "Typical worst drop", value: Math.abs(mc.dd_median_pct),
       text: depth(mc.dd_median_pct), tone: "down" });
     if (fin(mc.dd_worst_pct)) mcRows.push({
-      label: "Worst", value: Math.abs(mc.dd_worst_pct),
+      label: "Deepest drop seen", value: Math.abs(mc.dd_worst_pct),
       text: depth(mc.dd_worst_pct), tone: "down" });
     const fan = mcFan(mc, c.equity_curve || []);
     const mcBlock = (mcRows.length || fan)
-      ? section("Monte Carlo",
-                mc.n_sims ? `${mc.n_sims} runs` : "",
+      ? section("Same trades, reshuffled",
+                mc.n_sims ? `${Number(mc.n_sims).toLocaleString("en-IN")} orderings` : "",
                 fan + (mcRows.length ? bars(mcRows) : ""))
       : "";
 
     // The rigor rows only appear when the engine actually computed them — an
     // empty "Monte-Carlo: —" implies a test that ran and said nothing.
     const rigor = [
-      fin(fs.psr) ? ["Probabilistic Sharpe", num(fs.psr)] : null,
-      // Rounded up to a whole bar: min-TRL is a COUNT of observations, and
-      // "54,863.60 obs" prints six-tenths of a trading day.
+      fin(fs.psr) ? ["Odds the gain is real", `${Math.round(Number(fs.psr) * 100)}%`] : null,
+      fs.n_obs ? ["Bars tested", Number(fs.n_obs).toLocaleString("en-IN")] : null,
+      // Rounded up to a whole bar: min-TRL is a COUNT of observations.
       fin(fs.min_trl)
-        ? ["Min track record",
-           `${Math.ceil(Number(fs.min_trl)).toLocaleString("en-IN")} obs`]
+        ? ["Bars needed to judge", Math.ceil(Number(fs.min_trl)).toLocaleString("en-IN")]
         : null,
-      fs.n_obs ? ["Observations", String(fs.n_obs)] : null,
       (fs.num_trials && fs.num_trials > 1)
-        ? ["Deflated for trials", String(fs.num_trials)] : null,
+        ? ["Rules tried, counted against it", String(fs.num_trials)] : null,
       fin(mc.prob_loss) ? ["Chance of a loss", `${Math.round(mc.prob_loss * 100)}%`] : null,
-      fin(sp.concentration) ? ["Return concentration", num(sp.concentration)] : null,
     ].filter(Boolean);
     const rigorBlock = rigor.length
-      ? section("Robustness checks", "",
+      ? section("How far to trust it", "",
           `<dl class="wf-rigor">${rigor.map(([k, val]) =>
             `<div><dt>${esc(k)}</dt><dd>${esc(val)}</dd></div>`).join("")}</dl>`)
       : "";
@@ -920,12 +980,13 @@ const Cards = (() => {
       ? `<ul class="wf-warn">${c.assumptions.map((a) =>
           `<li>${esc(a)}</li>`).join("")}</ul>` : "";
 
+    const pr = plainRule(c.tree_summary, sym);
     return `<div class="wf-card">`
-      + `<div class="wf-top"><span class="wf-chip wf-chip-sim">Simulation</span>`
-      + (c.period_label ? `<span class="wf-state">${esc(c.period_label)}</span>` : "")
+      + `<div class="wf-top"><span class="wf-chip wf-chip-sim">Backtest${pr.bars ? ` · ${esc(pr.bars)}` : ""}</span>`
+      + (c.period_label ? `<span class="wf-state">${esc(plainPeriod(c.period_label))}</span>` : "")
       + `</div>`
-      + `<h3 class="wf-title">${esc(sym)} backtest</h3>`
-      + (c.tree_summary ? `<p class="wf-desc">${esc(c.tree_summary)}</p>` : "")
+      + `<h3 class="wf-title">${esc(sym)}</h3>`
+      + (pr.rule ? `<p class="wf-desc">${esc(pr.rule)}</p>` : "")
       + verdictBlock
       + `<div class="scan-stats">${strip}</div>`
       + versus
@@ -999,8 +1060,8 @@ const Cards = (() => {
       + `<path class="fill" d="${area}"/>`
       + `<line class="base" x1="0" y1="${base}" x2="${W}" y2="${base}"/>`
       + `<path class="line" d="${d}"/></svg>${marks}</div>`
-      + `<div class="wf-axis"><span>${esc(String(rows[0].t).slice(0, 10))}</span>`
-      + `<span>${esc(String(rows[rows.length - 1].t).slice(0, 10))}</span></div></div>`;
+      + `<div class="wf-axis"><span>${esc(plainDay(rows[0].t))}</span>`
+      + `<span>${esc(plainDay(rows[rows.length - 1].t))}</span></div></div>`;
   }
 
   /* The bootstrap, drawn.
@@ -1120,7 +1181,7 @@ const Cards = (() => {
   const EXIT_REASON = {
     exit_tree: "Exit rule", stop_loss: "Stop", take_profit: "Target",
     end_of_window: "Window end", hold_to_end: "Held to end",
-    max_bars: "Time exit", signal: "Signal",
+    max_bars: "Time exit", signal: "Signal", force_close: "Test ended",
   };
   function tradeRows(trades, sym) {
     if (!trades.length) return "";
@@ -1132,8 +1193,8 @@ const Cards = (() => {
       const ret = Number(t.return_pct) * 100;
       const cls = Number.isFinite(ret) ? (ret > 0 ? "up" : ret < 0 ? "down" : "") : "";
       const why = String(t.exit_reason || "");
-      return `<tr><td>${esc(String(t.entry_date || "").slice(0, 10))}</td>`
-        + `<td>${esc(String(t.exit_date || "open").slice(0, 10))}</td>`
+      return `<tr><td>${esc(plainDay(t.entry_date))}</td>`
+        + `<td>${esc(plainDay(t.exit_date || "open"))}</td>`
         + `<td class="wf-num ${cls}">${Number.isFinite(ret)
             ? signed(sym, ret, "%") : "—"}</td>`
         + `<td class="wf-reason">${esc(EXIT_REASON[why]
@@ -2554,9 +2615,11 @@ const Cards = (() => {
       + (c.last_error ? `<p class="wf-stale" role="status">`
           + `${esc(c.last_error)}</p>` : "")
       + `<div class="wf-cta">`
-      + `<button type="button" class="wf-primary" data-plan-go`
-      + (done || live ? " disabled" : "")
-      + `>${esc(live || done ? "Activated" : cta)}</button>`
+      + (window.CHARTO_EXECUTION === true || live || done
+          ? `<button type="button" class="wf-primary" data-plan-go`
+            + (done || live ? " disabled" : "")
+            + `>${esc(live || done ? "Activated" : cta)}</button>`
+          : "")
       + `<div class="wf-ghosts"></div></div>`
       + `<p class="wf-note plan-note">`
       + (live || done

@@ -440,7 +440,7 @@
         `<span class="st-acts">` +
           (chartLabel ? `<button type="button" class="sh-btn" data-st="chart">${ic("candles")}<span>${chartLabel}</span></button>` : "") +
           `<button type="button" class="sh-btn" data-st="ask">${ic("chat")}<span>Ask</span></button>` +
-          (isMine ? "" : `<button type="button" class="sh-btn st-arm-btn" data-st="arm">${ic("zap")}<span>Arm</span></button>`) +
+          (isMine || window.CHARTO_EXECUTION !== true ? "" : `<button type="button" class="sh-btn st-arm-btn" data-st="arm">${ic("zap")}<span>Arm</span></button>`) +
         `</span>`;
       if (m.n_trades === 0 && !err) { /* the verdict already says why: nothing more to add */ }
     }
@@ -771,7 +771,9 @@
       { section: "Defaults" },
       { key: "capital", label: "Starting capital", def: 100000,
         options: [{ v: 50000, label: "₹50k" }, { v: 100000, label: "₹1L" }, { v: 500000, label: "₹5L" }, { v: 1000000, label: "₹10L" }] },
-      { kind: "note", label: "Backtests run after costs on Pivot's bars. Arming fills into the paper book only; no broker is touched." },
+      { kind: "note", label: window.CHARTO_EXECUTION === true
+          ? "Backtests run after costs on Pivot's bars. Arming fills into the paper book only; no broker is touched."
+          : "Backtests run after costs on Pivot's bars. Strategies are tested here, never run." },
     ],
   });
 })();

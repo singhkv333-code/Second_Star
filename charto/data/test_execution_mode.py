@@ -260,8 +260,21 @@ def test_chat_mode_is_untouched_by_the_execution_surface() -> None:
     server._req.chat_mode = "chat"
     names = {tool["name"] for tool in server._tools_for_request()}
     assert "explain_move" in names
-    assert "propose_dsl_workflow" not in names
     assert not (names & server._EXECUTION_ONLY_TOOLS)
+    if server.EXECUTION_ENABLED:
+        assert "propose_dsl_workflow" not in names
+        return
+    # The research launch (2026-10-13): a simple rule can be built and tested
+    # on request, so the small builder is on the wire — but DEFERRED, so none
+    # of it is in the context until the model opens the group — and the one
+    # verb that arms a strategy is gone.
+    lab = set(server._RESEARCH_STRATEGY_TOOLS)
+    borrowed = set(execution_bridge.PIVOT_TOOLS) | set(execution_bridge.OWN_TOOLS)
+    assert names & borrowed <= lab
+    assert "save_strategy" not in names
+    wire = server._tools_wire(server._tools_for_request(), "gpt-6-luna")
+    eager = {t.get("name") for t in wire if t.get("type") == "function"}
+    assert not (eager & lab)
 
 
 def test_bridge_offers_exactly_the_pivot_tools_it_declares() -> None:

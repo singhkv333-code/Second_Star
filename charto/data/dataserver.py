@@ -10423,6 +10423,9 @@ def _news_browse(prompt: str) -> tuple[str, list, int] | dict:
         "input": [{"role": "user", "content": prompt}],
         "tools": [{"type": "web_search_preview",
                    "search_context_size": "low"}],
+        # the pages each search read, for when the clerk names a source in
+        # its line without annotating a link to it
+        "include": ["web_search_call.action.sources"],
         "max_output_tokens": 600,
         "reasoning": {"effort": "low"},
         "service_tier": LLM_SERVICE_TIER,
@@ -10438,10 +10441,12 @@ def _news_browse(prompt: str) -> tuple[str, list, int] | dict:
             data = json.loads(r.read())
     except Exception as exc:  # noqa: BLE001 — a dead browse must not kill the turn
         return {"error": f"web lookup failed: {exc}"}
-    text, sources, searched = [], [], 0
+    text, sources, searched, seen = [], [], 0, []
     for item in data.get("output", []):
         if item.get("type") == "web_search_call":
             searched += 1
+            seen += [x.get("url") for x in ((item.get("action") or {}).get("sources") or [])
+                     if isinstance(x, dict) and x.get("url")]
         elif item.get("type") == "message":
             for c in item.get("content", []):
                 if c.get("type") == "output_text":
@@ -10449,7 +10454,16 @@ def _news_browse(prompt: str) -> tuple[str, list, int] | dict:
                     for a in c.get("annotations") or []:
                         if a.get("type") == "url_citation" and a.get("url"):
                             sources.append(a["url"])
-    return "".join(text).strip(), sources, searched
+    body = "".join(text).strip()
+    # Unannotated lines still end "· source domain": a page the search read on
+    # that domain is the source, and the reply can cite it.
+    named = body.lower()
+    for u in seen:
+        host = urllib.parse.urlparse(u).hostname or ""
+        host = host[4:] if host.startswith("www.") else host
+        if host and host in named and u not in sources:
+            sources.append(u)
+    return body, sources, searched
 
 
 _WEB_CACHE: dict[str, tuple[float, dict]] = {}
@@ -10669,7 +10683,10 @@ def tool_search_news(frm: str = "", to: str = "", focus: str = "",
                  "the chart tools; if a headline implies a number, use the "
                  "tool's number. An event here explains the move only if "
                  "its timing fits the anatomy (a mid-session move is not "
-                 "explained by overnight news).")
+                 "explained by overnight news). Cite an event you use right "
+                 "after its sentence as ([Publisher](url)), the url taken from "
+                 "`sources` by its domain; with no matching url, name the "
+                 "publisher in words rather than inventing a link.")
 
     if scope != "full":
         cached = _news_cache_get(ev_key)
@@ -12921,8 +12938,8 @@ TOOLS = [
          "an id opened earlier in the same list. The widgets on the desk and their ids are under "
          "'Workspace now' at the end of the conversation. "
          "Kinds: chart (an extra chart), screener, watch (watchlist), alerts, journal, notes, news, "
-         "calendar, tv, financials, portfolio, depth (order book), sheet, code, docs, browser, "
-         "strategy. Before setting settings you have not used, call {op:'describe', type} — it "
+         "calendar, tv, financials, portfolio, depth (order book), sheet, code, docs, browser. "
+         "Before setting settings you have not used, call {op:'describe', type} — it "
          "returns the kind's settings with their legal values and the content it accepts. "
          "Content (on open, or op 'write'): screener {name, filters:[{feature, op:'gt'|'lt', value}], "
          "industry, pattern, sort, order} — changes the screen (keys left out keep their values), "
@@ -12931,7 +12948,7 @@ TOOLS = [
          "validates in the sandbox and reports the checks (to change what a study computes in "
          "words, custom_indicator edit rebuilds it); "
          "watch {add, remove}; sheet {table:{title, columns, rows}}; browser {url|q}; "
-         "docs {url}; strategy {name, steps}; notes {text, section, mode, symbol | general} — "
+         "docs {url}; notes {text, section, mode, symbol | general} — "
          "text is light markdown (### heading, - bullet, - [ ] checklist item, **bold**); "
          "`section` names a block of the note (e.g. 'HDFCBANK · timeframe read') and writing the "
          "same section again REPLACES that block, so refine a note in place instead of appending "
@@ -13460,12 +13477,54 @@ _PIVOT_CARD_KINDS = {
 }
 
 
+# The engine's trust verdict, in a trader's words. Pivot writes it for its own
+# research audience ("No demonstrable edge — PSR 1%, indistinguishable from no
+# skill after costs"), and both the card and the model quoted it verbatim, so
+# a backtest read like a statistics paper. Same ladder, same confidence
+# number, said plainly; translated here, at the seam, so Pivot's copy stays
+# right for Pivot and every Charto surface — card and reply — says one thing.
+_PLAIN_VERDICT = {
+    "insufficient_data": ("Too few trades to judge",
+                          "There are not enough trades in this window to tell a real pattern "
+                          "from luck. A longer window would say more."),
+    "no_edge": ("No better than chance",
+                "On this history the rule did not make money reliably after costs: the odds "
+                "that it truly works come out at about {c}%."),
+    "unproven": ("Not proven yet",
+                 "It made money here, but not by enough or over enough trades to rule out "
+                 "luck (about {c}% confidence)."),
+    "promising": ("Holds up on this history",
+                  "About {c}% confidence the gain is real after costs and after counting every "
+                  "rule tried. History, not a forecast."),
+}
+
+
+def _plain_verdicts(obj, depth: int = 0):
+    """Rewrite every trust verdict in a result, in place."""
+    if depth > 6:
+        return
+    if isinstance(obj, dict):
+        plain = _PLAIN_VERDICT.get(obj.get("verdict")) if "rationale" in obj or "label" in obj else None
+        if plain:
+            c = obj.get("confidence")
+            c = round(c) if isinstance(c, (int, float)) else "low"
+            obj["label"] = (plain[0] if not (obj.get("verdict") == "promising" and obj.get("flags"))
+                            else "Holds up, with risks to watch")
+            obj["rationale"] = plain[1].format(c=c)
+        for v in obj.values():
+            _plain_verdicts(v, depth + 1)
+    elif isinstance(obj, list):
+        for v in obj[:200]:
+            _plain_verdicts(v, depth + 1)
+
+
 def _pivot_tool(name: str):
     def call(**args):
         # No identity crosses into Pivot's engine — see execution_bridge
         # .dispatch. Charto's user ids and Pivot's are unrelated numbering
         # schemes over different databases.
         result = execution_bridge.dispatch(name, args)
+        _plain_verdicts(result)
         hint = result.get("_render_hint") if isinstance(result, dict) else None
         kind = _PIVOT_CARD_KINDS.get(hint)
         if kind:
@@ -14090,13 +14149,22 @@ Use a trader's words. Say how strong something is by what it did: "worked
 27 of 41 times (66%), against 52% on an ordinary day", "held on four tests",
 "broke on the first retest", "too few cases (6) to judge". The grades traders
 use are fine: strong, reliable, mixed, weak. Leave out the vocabulary of
-statistics and of machine writing that traders do not use: edge, supported or
-unsupported, statistically significant, sampling noise, coin flip, base rate
-as a bare phrase, robust, conviction, tilt, lift. Tool results use some of
+statistics and of machine writing that traders do not use, in any sense of
+the word: edge ("+DI has a slight lead", not "a slight DI edge"), supported or
+unsupported ("the likeliest explanation", not "the best-supported"),
+statistically significant, sampling noise, coin flip, base rate as a bare
+phrase, robust, conviction, tilt, lift. Tool results use some of
 these words; translate them. A pattern's "edge" is how much better than an
 ordinary bar it did; "within noise" means it did no better than an ordinary
 bar on that many cases, and that is what to say. The same goes for field
 names: "held 3 of 3 retests", never "3 of 3 graded re-tests holding".
+
+Cite outside sources the same way every time. When a sentence rests on
+something from the news or the web, end it with the source as a markdown link
+naming the publisher, inside parentheses: ([Economic Times](https://...)).
+One source per claim, two at most, using a URL a tool returned. No bare URLs,
+no "Sources:" list at the end, and no citation for numbers from the chart
+tools, which are yours.
 
 PLACING A PANEL. Whenever a tool result says a panel was rendered, PLACE IT:
 write `[[panel]]` on its own line, with a blank line either side, at the point
@@ -14606,8 +14674,8 @@ SUGGEST_PROMPT = (
     "peers, fundamentals, deals — and it ACTS ON THE CHART: it marks "
     "patterns, levels, gaps and divergences on the candles, draws "
     "trendlines and zones, plots indicators, opens a peer beside it, "
-    "scans a sector for the same setup on any timeframe, sets price and "
-    "indicator alerts, and backtests a rule. It cannot predict.\n\n"
+    "scans a sector for the same setup on any timeframe, and sets price "
+    "and indicator alerts. It cannot predict.\n\n"
     "Rules:\n"
     "- One of the three must ask the chart to SHOW something, named "
     "concretely: the pattern ('Mark the double bottom on the daily'), the "
@@ -14618,7 +14686,7 @@ SUGGEST_PROMPT = (
     "timeframe, or the index ('Scan oil stocks for this hourly setup', "
     "'Is the weekly trend the same?').\n"
     "- One should TEST or ACT: how often it has held (a base rate), an "
-    "alert at the level just discussed, or a rule to backtest ('Alert me "
+    "alert at the level just discussed ('Alert me "
     "if RELIANCE closes below 1,320').\n"
     "- Follow the thread: use the symbol, timeframe, pattern and numbers "
     "actually in the conversation — never 'this stock' or a level that was "
@@ -14896,8 +14964,14 @@ def _tools_for_request() -> list[dict]:
     its own registration verbs, and subtracts nothing it can research with.
     """
     if getattr(_req, "chat_mode", "chat") != "execution":
-        return [t for t in TOOLS
-                if t.get("name") not in _EXECUTION_ONLY_TOOLS]
+        withheld = _EXECUTION_ONLY_TOOLS | ({"save_strategy"} if not EXECUTION_ENABLED else set())
+        own = [t for t in TOOLS if t.get("name") not in withheld]
+        if EXECUTION_ENABLED:
+            return own
+        ready, _ = execution_bridge.available()
+        lab = ([t for t in execution_bridge.tools() if t.get("name") in _RESEARCH_STRATEGY_TOOLS]
+               if ready else [])
+        return own + lab
     kept = [t for t in TOOLS if t.get("name") in _EXECUTION_CHARTO_TOOLS]
     return kept + execution_bridge.tools()
 
@@ -14917,9 +14991,12 @@ TOOL_GROUPS: dict[str, tuple[str, tuple[str, ...]]] = {
                ("set_alert", "update_alert", "check_alert", "list_alerts", "cancel_alert")),
     "journal": ("The user's trade journal: log a trade, update or edit it, list trades.",
                 ("log_trade", "update_trade", "list_trades", "update_journal_trade")),
-    "paper_strategies": ("Saved strategies armed on live ticks in the paper book: save the draft "
-                         "this turn built, list, pause or delete them.",
+    "paper_strategies": ("Strategies the user saved earlier: list, pause or delete them.",
                          ("save_strategy", "list_strategies", "pause_strategy", "delete_strategy")),
+    "strategy_lab": ("Only when the user explicitly asks to turn a rule into a strategy or to "
+                     "backtest one: build a simple rule for one instrument and test it on "
+                     "history. Never for reading or analysing a chart. Nothing is armed or traded.",
+                     ("propose_dsl_workflow", "backtest_dsl_tree", "evaluate_strategies")),
     "indicator_builder": ("Build, edit, read or manage the user's own custom indicators — anything "
                           "the native catalogue lacks, including sector or basket studies and "
                           "conditions shown as colours.", ("custom_indicator",)),
@@ -14936,6 +15013,23 @@ TOOL_GROUPS: dict[str, tuple[str, tuple[str, ...]]] = {
     "memory": ("Search the user's earlier conversations.", ("recall_conversations",)),
 }
 TOOL_SEARCH = (environ.get("CHARTO_TOOL_SEARCH") or "1") != "0"
+
+# ── the launch is research ──────────────────────────────────────────────────
+# Pivot launches (2026-10-13) as research and analysis. A simple rule can be
+# built and backtested when the trader asks for one, but nothing RUNS: no
+# strategy or plan is armed into the paper book, and the Execution tab —
+# whose whole system prompt is the strategy builder — is closed, because an
+# analysis question asked there came back as a draft and a backtest.
+# CHARTO_EXECUTION=1 restores the tab, the arming routes and save_strategy.
+EXECUTION_ENABLED = (environ.get("CHARTO_EXECUTION")
+                     or _env_values("CHARTO_EXECUTION")["CHARTO_EXECUTION"] or "0") == "1"
+_NOT_RUNNING = ("Running strategies is not part of this release. Rules can be "
+                "built and backtested; nothing is armed or traded.")
+
+# Build and test a rule, in the research chat, on request. Pivot's own tools
+# (execution_bridge) behind tool search, so none of their text is in the
+# context until the trader asks for a rule and the model opens the group.
+_RESEARCH_STRATEGY_TOOLS = ("propose_dsl_workflow", "backtest_dsl_tree", "evaluate_strategies")
 
 
 def _supports_tool_search(model: str) -> bool:
@@ -15451,6 +15545,31 @@ def _execution_unavailable_reply() -> str | None:
     )
 
 
+_SOURCE_TOOLS = ("search_news", "search_web", "explain_move")
+_URL_IN_TEXT = re.compile(r"https?://[^\s<>()\"']+")
+
+
+def _sources_of(name: str, result) -> list[str]:
+    """The pages a news or web tool actually returned, for the reply's
+    sources row. The model cites some of them inline when it remembers to;
+    this row is what makes a sourced answer show its sources every time."""
+    if name not in _SOURCE_TOOLS or not isinstance(result, dict):
+        return []
+    out: list[str] = []
+    for x in result.get("sources") or []:
+        u = x.get("url") if isinstance(x, dict) else x
+        if isinstance(u, str) and u.startswith(("https://", "http://")):
+            out.append(u)
+    for k in ("events", "open_overhangs", "upcoming", "results"):
+        v = result.get(k)
+        text = v if isinstance(v, str) else json.dumps(v, default=str) if v else ""
+        out += [u.rstrip(".,;:") for u in _URL_IN_TEXT.findall(text)]
+    news = result.get("news") if isinstance(result.get("news"), dict) else None
+    if news:
+        out += _sources_of("search_news", news)
+    return out
+
+
 def _call_args(call: dict) -> dict:
     try:
         args = call.get("arguments") or "{}"
@@ -15635,6 +15754,7 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
     view_ops: list[dict] = []
     cards: list[dict] = []
     tok_in = tok_out = 0
+    turn_sources: list[str] = []
 
     _rounds = _max_tool_rounds()
     for _round in range(_rounds):
@@ -15741,7 +15861,7 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
                        "usage": {"input_tokens": tok_in, "output_tokens": tok_out},
                        "context_preview": build_context_block(context),
                        "tools_used": tool_trace, "scene_patch": scene_patch,
-                       "view_ops": view_ops, "cards": cards}
+                       "view_ops": view_ops, "cards": cards, "sources": turn_sources[:8]}
                 return
             yield {"type": "done",
                    "text": answer,
@@ -15750,7 +15870,7 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
                    "context_preview": block,
                    "tools_used": tool_trace,
                    "scene_patch": scene_patch, "view_ops": view_ops,
-                   "cards": cards}
+                   "cards": cards, "sources": turn_sources[:8]}
             # The turn is complete and delivered. What follows is the three
             # follow-ups on the same connection — see _suggest_events.
             yield from _suggest_events(messages, answer)
@@ -15779,6 +15899,9 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
             call, args = calls[i], parsed[i]
             outcomes[i] = got
             result = got["result"]
+            for u in _sources_of(call.get("name", ""), result):
+                if u not in turn_sources:
+                    turn_sources.append(u)
             scene_patch.extend(got["scene"])
             view_ops.extend(got["views"])
             for vop in got["views"]:
@@ -19759,6 +19882,8 @@ class Handler(BaseHTTPRequestHandler):
                 if u.path.startswith("/api/strategies") \
                 else u.path[len("/strategies"):].strip("/")
             if not tail:
+                if not EXECUTION_ENABLED and body.get("arm") is not False:
+                    return self._send(403, {"error": _NOT_RUNNING})
                 # Saving from the CARD: the draft travels in the body exactly
                 # as the card holds it, so what is armed is what was shown.
                 try:
@@ -19781,6 +19906,8 @@ class Handler(BaseHTTPRequestHandler):
             if tail.endswith("/delete"):
                 _analytics.capture(me[0], "strategy_updated", {"action": "delete", "source": "page"})
                 return self._send(*_strategies.api_delete(me[0], int(sid)))
+            if not EXECUTION_ENABLED and str(body.get("state") or "").lower() == "armed":
+                return self._send(403, {"error": _NOT_RUNNING})
             _analytics.capture(me[0], "strategy_updated", {
                 "action": str(body.get("state") or body.get("action") or "edit")[:24], "source": "page"})
             return self._send(*_strategies.api_patch(me[0], int(sid), body))
@@ -19814,6 +19941,8 @@ class Handler(BaseHTTPRequestHandler):
             if not pid.isdigit():
                 return self._send(404, {"error": f"no plan route '{tail}'"})
             if tail.endswith("/activate"):
+                if not EXECUTION_ENABLED:
+                    return self._send(403, {"error": _NOT_RUNNING})
                 return self._send(*_plans.activate(me[0], int(pid)))
             if tail.endswith("/retire") or tail.endswith("/delete"):
                 return self._send(*_plans.api_delete(me[0], int(pid)))
@@ -20095,7 +20224,8 @@ class Handler(BaseHTTPRequestHandler):
             _req.bearer = self.headers.get("Authorization") or ""
             _req.chat_id = str(body.get("chat_id") or "")[:64]
             _req.chat_mode = ("execution"
-                              if body.get("mode") == "execution" else "chat")
+                              if body.get("mode") == "execution" and EXECUTION_ENABLED
+                              else "chat")
             # the desk, for the workspace tool — out of the chart envelope, so
             # neither the manifest's contents nor the catalog reach the prompt
             # except through the tool and the short "Workspace now" block

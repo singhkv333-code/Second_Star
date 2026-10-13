@@ -11,6 +11,10 @@
      belongs here. embed.js still sets it — it owns the seam, and re-adding a
      class that is present is a no-op. See `.in-shell` in the stylesheet. -->
 <script>try{if(window.parent!==window)document.documentElement.classList.add("in-shell")}catch(e){}</script>
+<!-- The launch is research: rules can be built and backtested, nothing is armed.
+     Read by chat.js (the Execution tab), cards.js and w-strategy.js (Arm buttons).
+     The server holds the same switch (CHARTO_EXECUTION) and refuses arming. -->
+<script>window.CHARTO_EXECUTION = false;</script>
 <title>Pivot</title>
 <script src="./js/workspace-theme.js?v=5" data-surface="chart"></script>
 <link rel="stylesheet" href="./css/workspace-theme.css?v=5" />
@@ -3974,6 +3978,21 @@ body.two-columns .readout .row { display: none; }
 .prose li > ul, .prose li > ol { margin: 7px 0 0; }
 .prose li::marker { color: var(--faint); }
 .prose strong { font-weight: 650; }
+/* A link written into the prose reads as words; a citation is a quiet chip
+   naming the publisher, sitting on the line it supports (chat.js linkify). */
+.prose a { color: inherit; text-decoration: underline; text-decoration-color: var(--faint);
+  text-underline-offset: 2px; }
+.prose a:hover { text-decoration-color: currentColor; }
+.prose a.cite, .reply-sources a.cite {
+  display: inline-block; vertical-align: 1px; margin: 0 1px; padding: 0 7px;
+  font-size: var(--text-2xs); line-height: 18px; font-weight: var(--weight-medium);
+  color: var(--muted-foreground); background: var(--muted); border-radius: 999px;
+  text-decoration: none; white-space: nowrap; max-width: 22ch;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.prose a.cite:hover, .reply-sources a.cite:hover { color: var(--foreground); background: var(--border-soft); }
+.reply-sources { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 2px 0 6px; }
+.reply-sources .rs-k { font-size: var(--text-2xs); color: var(--faint); margin-right: 2px; }
 .prose em { font-style: italic; }
 .prose code {
   font-family: var(--mono); font-size: var(--text-base); background: var(--muted);
@@ -4557,6 +4576,10 @@ body.two-columns .readout .row { display: none; }
    sentence into a headline nobody wrote. The raw enum fallback is
    capitalised in JS instead, where only that case is affected. */
 .wf-verdict b { font-size: var(--text-sm); }
+/* Inside a strategy card the qualifier under a figure is a short phrase that
+   has to be read whole ("−₹6,520 on ₹1,00,000"); clipping it mid-number is
+   worse than a second line. */
+.wf-card .scan-stat .q { white-space: normal; overflow: visible; line-height: 1.35; }
 .wf-verdict span { font-size: var(--text-xs); line-height: 1.5; color: var(--muted-foreground); }
 /* The four figures the sweep is ABOUT, before any of the detail. They wrap
    rather than scroll: the pane is user-resizable and a stat strip that
@@ -11955,11 +11978,11 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- before chat.js, which asks it to render the panels a tool prints as the
        reply streams in. It reads Sym (store.js) for the instrument's currency
        and grouping, and nothing else — a renderer with no state of its own -->
-  <script src="./js/cards.js?v=69"></script>
+  <script src="./js/cards.js?v=71"></script>
   <script src="./js/layers-panel.js?v=12"></script>
   <script src="./js/model-logos.js?v=2"></script>
   <script src="./js/models.js?v=4"></script>
-  <script src="./js/chat.js?v=188"></script>
+  <script src="./js/chat.js?v=192"></script>
   <script src="./js/codeview.js?v=6"></script>
   <script src="./js/journal.js?v=9"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
@@ -11977,7 +12000,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/w-fin.js?v=7"></script>
   <script src="./js/w-news.js?v=4"></script>
   <script src="./js/w-portfolio.js?v=5"></script>
-  <script src="./js/w-strategy.js?v=3"></script>
+  <script src="./js/w-strategy.js?v=4"></script>
   <script src="./js/w-browser.js?v=10"></script>
   <script src="./js/w-code.js?v=7"></script>
   <script src="./js/w-docs.js?v=8"></script>

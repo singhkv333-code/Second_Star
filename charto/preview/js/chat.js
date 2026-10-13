@@ -25,8 +25,10 @@
    *
    * One flag, read in setChatMode below, so the click, the arrow keys and the
    * phone menu are all governed by a single rule. Set false and the switch
-   * stays, inert, saying "Coming soon" on hover. */
-  const EXECUTION_ENABLED = true;
+   * stays, inert, saying "Coming soon" on hover.
+   *
+   * Off for the research launch (2026-10-13): the page's CHARTO_EXECUTION. */
+  const EXECUTION_ENABLED = window.CHARTO_EXECUTION === true;
   const el = (id) => document.getElementById(id);
   const msgsEl = el("chatMsgs"), threadEl = el("thread"), input = el("chatInput"),
         sendBtn = el("chatSend"), panel = el("chatPanel");
@@ -373,14 +375,65 @@
   // so nothing the model emits can inject markup.
   const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 
-  function inline(t) {
+  /* ── links and sources ──────────────────────────────────────────────
+   * The renderer had no link syntax at all, so every cited reply printed
+   * "([Reuters](https://www.reuters.com/markets/...))" mid-sentence. A
+   * citation — a link in parentheses, or a bare URL — becomes a small chip
+   * naming the publisher; a link written into the prose stays a link. Only
+   * http(s) is ever made clickable. The text arrives already escaped (md()
+   * escapes the whole source first), so it is safe inside the attribute. */
+  const hostOf = (u) => {
+    try {
+      return new URL(u.replace(/&amp;/g, "&")).hostname.replace(/^www\./, "");
+    } catch { return ""; }
+  };
+  const looksLikeUrl = (s) => /^(https?:\/\/|www\.)/i.test(s) || /^[\w-]+(\.[\w-]+)+\/?$/.test(s);
+  function citeChip(label, url) {
+    const host = hostOf(url);
+    if (!host) return label || url;
+    const text = label && !looksLikeUrl(label) && label.length <= 28 ? label : host;
+    return `<a class="cite" href="${url}" target="_blank" rel="noopener noreferrer" `
+      + `title="${host}">${text}</a>`;
+  }
+  // A URL may carry one level of balanced parentheses (Wikipedia-style).
+  const URL_SRC = String.raw`https?:\/\/[^\s<>()"]+(?:\([^\s<>()"]*\)[^\s<>()"]*)*`;
+  // …and the punctuation that closes the sentence, which goes in front of the
+  // chips: "concerns ([BS](u))." would leave the full stop wrapping alone
+  // after an inline-block chip.
+  const CITE_GROUP = new RegExp(String.raw`\s*\(\s*((?:\[[^\]]+\]\(${URL_SRC}\)[\s,;]*)+)\)([.,;:!?]?)`, "g");
+  const MD_LINK = new RegExp(String.raw`\[([^\]]+)\]\((${URL_SRC})\)`, "g");
+  const BARE_URL = new RegExp(String.raw`(^|[\s(])(${URL_SRC})(\)?)`, "g");
+  function linkify(t) {
     return t
-      .replace(/`([^`]+)`/g, "<code>$1</code>")
-      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-      .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,;:!?]|$)/g, "$1<em>$2</em>")
-      // models escape markdown punctuation ("\*09:15") — unescape last, so the
-      // escaped char can't be re-read as emphasis
-      .replace(/\\([*_`|#[\]])/g, "$1");
+      // ([Publisher](url)) or ([a](u), [b](v)): a citation, so chips, no brackets
+      .replace(CITE_GROUP, (m, inner, punct) =>
+        `${punct} ` + [...inner.matchAll(MD_LINK)].map((x) => citeChip(x[1], x[2])).join(" "))
+      // [text](url) in a sentence reads as words; [reuters.com](url) is a source
+      .replace(MD_LINK, (m, l, u) => (looksLikeUrl(l)
+        || (l.length <= 28 && hostOf(u).replace(/\./g, "").includes(l.toLowerCase().replace(/[\s.]+/g, "")))
+          ? citeChip(l, u)
+          : `<a href="${u}" target="_blank" rel="noopener noreferrer">${l}</a>`))
+      // a bare URL; punctuation that ends the sentence stays outside the chip,
+      // and a bare URL in parentheses loses them
+      .replace(BARE_URL, (m, pre, u, close) => {
+        const tail = (u.match(/[.,;:!?]+$/) || [""])[0];
+        const url = u.slice(0, u.length - tail.length);
+        const wrapped = pre.includes("(") && close;
+        return (wrapped ? pre.replace("(", "") : pre) + citeChip("", url) + tail
+          + (wrapped ? "" : close);
+      });
+  }
+
+  function inline(t) {
+    // code spans are never linked or emphasised: split them out first
+    return t.split(/(`[^`]+`)/).map((part, i) => (i % 2
+      ? `<code>${part.slice(1, -1)}</code>`
+      : linkify(part)
+        .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+        .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,;:!?]|$)/g, "$1<em>$2</em>")
+        // models escape markdown punctuation ("\*09:15") — unescape last, so
+        // the escaped char can't be re-read as emphasis
+        .replace(/\\([*_`|#[\]])/g, "$1"))).join("");
   }
 
   const TABLE_ROW = (t) => t.startsWith("|") && t.endsWith("|") && t.length > 2;
@@ -1058,6 +1111,9 @@
     const tidy = (s) => {
       if ((s.match(/\*\*/g) || []).length % 2) s = s.replace(/\*\*(?![\s\S]*\*\*)/, "");
       if ((s.match(/`/g) || []).length % 2) s = s.replace(/`(?![\s\S]*`)/, "");
+      // a citation still being written ("([Reute", "([Reuters](https://ww")
+      // is held back until it closes, so raw link syntax never flashes up
+      s = s.replace(/\s*\(?\[[^\]\n]*(?:\]\([^)\s]*)?$/, "");
       return s.replace(/(^|\s)\*(\S*)$/, "$1$2");
     };
 
@@ -1547,8 +1603,29 @@
     }
   }
 
+  /** The pages this turn's news and web reads returned, as one quiet row of
+   *  publisher chips under the answer. A publisher already cited inline is
+   *  not repeated; a reply that cited everything gets no row. Same chip as an
+   *  inline citation (citeChip), so a source looks the same wherever it is. */
+  function paintSources(turn, prose, sources) {
+    turn.querySelector(".reply-sources")?.remove();
+    const inline = new Set([...prose.querySelectorAll("a[href]")].map((a) => hostOf(a.getAttribute("href"))));
+    const seen = new Set();
+    const rest = (sources || []).filter((u) => {
+      const h = hostOf(u);
+      if (!h || inline.has(h) || seen.has(h)) return false;
+      seen.add(h);
+      return true;
+    }).slice(0, 6);
+    if (!rest.length) return;
+    const row = document.createElement("div");
+    row.className = "reply-sources";
+    row.innerHTML = `<span class="rs-k">Sources</span>` + rest.map((u) => citeChip("", esc(u))).join("");
+    prose.after(row);
+  }
+
   /** Fill an assistant turn with the final answer + its provenance footer. */
-  function finishTurn(turn, text, bits, acts, cards) {
+  function finishTurn(turn, text, bits, acts, cards, sources) {
     endWait(turn);
     // Only on a repaint: a live turn already has its panels, put there by the
     // stream. Painting them again here would double every card in the thread.
@@ -1571,6 +1648,7 @@
     fillCardSlots(turn, !turn.__streamText);
     mountUnplacedCards(turn);
     linkCompanies(prose);
+    paintSources(turn, prose, sources);
     const meta = document.createElement("div");
     meta.className = "turn-meta";
     // The marker is placement, not prose — nobody wants `[[panel]]` in a
@@ -2087,7 +2165,7 @@
     for (const t of turns) {
       if (t.role === "user") { addUserTurn(t.content, t.image, t.drawing, t.ts, t.journal, t.widget); continue; }
       const turn = addAssistantTurn(false);
-      finishTurn(turn, t.content, t.meta || [], t.acts || [], t.cards || []);
+      finishTurn(turn, t.content, t.meta || [], t.acts || [], t.cards || [], t.sources || []);
       if (t.thought) turn.prepend(thoughtLog(t.thought.secs, t.thought.parts || []));
       // The questions offered under that reply come back with it. Only the
       // newest turn can be carrying any — clearSuggest drops the rest the
@@ -2242,6 +2320,7 @@
         ? { secs: turn.__wait.elapsed(), parts: turn.__wait.thoughts() } : null;
       turns.push({ role: "assistant", content: d.text, meta, acts,
                    ...(cards.length ? { cards } : {}),
+                   ...((d.sources || []).length ? { sources: d.sources } : {}),
                    ...(thought ? { thought } : {}) });
       saveTurns();
       // The row's record now exists. If the follow-ups already landed they are
@@ -2315,7 +2394,7 @@
       // `cards` is the fallback, not the norm: the stream already inserted
       // them, and finishTurn skips any turn that has one. It matters for the
       // non-streaming path, which has no card event to insert from.
-      finishTurn(turn, d.text, meta, acts, cards);
+      finishTurn(turn, d.text, meta, acts, cards, d.sources || []);
     } catch (e) {
       if (e && e.name === "AbortError") {
         const partial = turn.__streamText || "Response interrupted.";

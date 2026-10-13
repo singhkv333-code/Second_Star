@@ -209,3 +209,20 @@ def test_parallel_calls_keep_request_state_and_merge_it_in_call_order():
     assert server._req.ctx_interval == "1h"
     # both marks are in the turn's ledger of what is on the chart
     assert {"L-1W", "L-1H"} <= set(server._scene.placed)   # ids are kept upper-cased
+
+
+def test_backtest_verdicts_reach_card_and_model_in_plain_words():
+    res = {"metrics": {"trust_verdict": {"verdict": "no_edge", "label": "No demonstrable edge",
+                                         "confidence": 1, "rationale": "PSR 1% — indistinguishable"}}}
+    server._plain_verdicts(res)
+    v = res["metrics"]["trust_verdict"]
+    assert v["label"] == "No better than chance" and "about 1%" in v["rationale"]
+    assert "edge" not in v["label"].lower() and "PSR" not in v["rationale"]
+
+
+def test_sources_come_from_news_tools_only():
+    news = {"events": "2026-08-29 · CEO exit · bs ([bs](https://www.business-standard.com/a))",
+            "sources": ["https://www.livemint.com/b"]}
+    got = server._sources_of("search_news", news)
+    assert "https://www.livemint.com/b" in got and "https://www.business-standard.com/a" in got
+    assert server._sources_of("get_levels", news) == []
