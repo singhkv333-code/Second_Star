@@ -137,6 +137,9 @@
     if (!d || typeof d !== "object") return;
     if (d.type === "pivot:hello") announce();
 
+    if (d.type === "pivot:workspace-theme") {
+      window.PivotWorkspaceTheme?.setTheme(d.theme, false);
+    }
     if (d.type === "pivot:theme" && (d.mode === "dark" || d.mode === "light")) {
       // `persist` left true on purpose: if the user goes back to the chart
       // standalone, it should still be wearing the theme they chose in the

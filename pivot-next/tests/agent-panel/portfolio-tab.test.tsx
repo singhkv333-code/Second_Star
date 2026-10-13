@@ -71,6 +71,37 @@ beforeEach(() => {
 });
 
 describe("PortfolioTab", () => {
+  it("renders a complete one-color ring for one holding in both allocation tabs", async () => {
+    vi.spyOn(api, "getPortfolioSummary").mockResolvedValue({ data: { ...SUMMARY, num_holdings: 1 } });
+    vi.spyOn(api, "getPortfolioHoldings").mockResolvedValue({ data: [HOLDINGS[0]!] });
+    render(<PortfolioTab />);
+    const sectors = await screen.findByRole("group", { name: "Sectors allocation" });
+    const ring = sectors.querySelector("circle");
+    expect(ring).not.toBeNull();
+    expect(ring).toHaveAttribute("fill", "none");
+    expect(Number(ring?.getAttribute("stroke-width"))).toBeGreaterThan(0);
+    expect(sectors.querySelector("path")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Stocks" }));
+    expect(screen.getByRole("group", { name: "Stocks allocation" }).querySelector("circle"))
+      .toHaveAttribute("aria-label", "INFY: 100.00%");
+  });
+
+  it("keeps multiple stock slices and supports keyboard selection", async () => {
+    vi.spyOn(api, "getPortfolioSummary").mockResolvedValue({ data: SUMMARY });
+    vi.spyOn(api, "getPortfolioHoldings").mockResolvedValue({ data: HOLDINGS });
+    render(<PortfolioTab />);
+    await screen.findByRole("group", { name: "Sectors allocation" });
+    fireEvent.click(screen.getByRole("button", { name: "Stocks" }));
+    const chart = screen.getByRole("group", { name: "Stocks allocation" });
+    expect(chart.querySelectorAll("path")).toHaveLength(3);
+    expect(chart.querySelector("circle")).toBeNull();
+    const slice = chart.querySelector("path")!;
+    fireEvent.keyDown(slice, { key: "Enter" });
+    expect(slice).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Sectors" }));
+    expect(screen.getByRole("group", { name: "Sectors allocation" }).querySelector('[aria-pressed="true"]')).toBeNull();
+  });
+
   it("shows loading skeleton while data is in flight", () => {
     vi.spyOn(api, "getPortfolioSummary").mockReturnValue(new Promise(() => {}));
     vi.spyOn(api, "getPortfolioHoldings").mockReturnValue(new Promise(() => {}));

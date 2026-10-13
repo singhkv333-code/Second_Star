@@ -28,6 +28,33 @@ const props = {
 describe("AssistantPanel", () => {
   beforeEach(() => { sessionStorage.clear(); script.fail = undefined; });
 
+  it("restores saved answers without showing response or reasoning latency", async () => {
+    sessionStorage.setItem("pivot:assist-thread", JSON.stringify({ id: "saved", turns: [{
+      id: "one", question: "hi", answer: "Hello.", thought: "Checked the page.",
+      thoughtMs: 6000, ms: 7000, status: "done", steps: [{ label: "Reading this page", done: true, ok: true }],
+    }] }));
+    render(<AssistantPanel {...props} />);
+    await screen.findByText("Hello.");
+    expect(screen.getByText("Reasoning · From this page")).toBeInTheDocument();
+    expect(screen.queryByText(/7\.0s|Thought for/)).toBeNull();
+  });
+
+  it("preserves drafts on Shift+Enter and IME, and sends on Enter", async () => {
+    script.events = [{ type: "done", response: "Answer." }];
+    render(<AssistantPanel {...props} />);
+    const input = screen.getByRole("textbox", { name: "Ask the assistant" });
+    fireEvent.change(input, { target: { value: "My question" } });
+    fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
+    expect(input).toHaveValue("My question");
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+    expect(input).toHaveValue("My question");
+    fireEvent.keyDown(input, { key: "Enter" });
+    await screen.findByText("Answer.");
+    expect(input).toHaveValue("");
+    window.dispatchEvent(new Event("pivot:focus-composer"));
+    expect(input).toHaveFocus();
+  });
+
   it("shows the lookups it ran and the answer", async () => {
     script.events = [
       { type: "start" },

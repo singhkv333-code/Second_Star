@@ -11,13 +11,14 @@
  *
  * What the user sees while it works is what is actually happening: reading
  * the page, then each lookup by name, then the answer. When the model
- * reasons, its summaries stream under the steps and fold into "Thought for
- * Ns" afterwards. A failure is one plain sentence from the server, never a
- * status code or a trace.
+ * reasons, its summaries stream under the steps and fold into a collapsible
+ * reasoning section afterwards. A failure is one plain sentence from the
+ * server, never a status code or a trace.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, Check, ChevronDown, Loader2, MessageSquarePlus, Square, X } from "lucide-react";
+import { Check, ChevronDown, Loader2, MessageSquarePlus, X } from "lucide-react";
+import { AssistantComposer } from "@/components/copilot/AssistantComposer";
 import AssistantMessage from "@/components/chat/AssistantMessage";
 import { ScreenResultsCard, type ScreenResultsPayload } from "@/components/chat/ScreenResultsCard";
 import { getAccessToken } from "@/lib/authToken";
@@ -106,7 +107,6 @@ export function AssistantPanel({
   const [busy, setBusy] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => setThread(loadThread()), []);
   useEffect(() => {
@@ -227,13 +227,8 @@ export function AssistantPanel({
     void ask(seed);
   }, [seed, thread.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    const focus = (): void => inputRef.current?.focus();
-    window.addEventListener("pivot:focus-composer", focus);
-    return () => window.removeEventListener("pivot:focus-composer", focus);
-  }, []);
-
   const send = (): void => {
+    if (busy || !value.trim()) return;
     const q = value;
     setValue("");
     void ask(q);
@@ -296,44 +291,12 @@ export function AssistantPanel({
         )}
       </div>
 
-      <div className="border-t border-border/60 p-3">
-        <div className="flex items-end gap-2 rounded-xl border border-border bg-background px-3 py-2">
-          <textarea
-            ref={inputRef}
-            rows={1}
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                e.preventDefault();
-                send();
-              }
-            }}
-            placeholder={page === "stock" ? `Ask about ${symbol}…` : "Ask Pivot…"}
-            aria-label="Ask the assistant"
-            className="max-h-32 min-h-[24px] flex-1 resize-none bg-transparent text-[14px] leading-6 outline-none"
-          />
-          {busy ? (
-            <button
-              type="button"
-              onClick={() => abortRef.current?.abort()}
-              className="flex h-8 w-8 items-center justify-center rounded-full bg-foreground text-background"
-              aria-label="Stop"
-            >
-              <Square size={12} fill="currentColor" aria-hidden />
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={send}
-              disabled={!value.trim()}
-              className="flex h-8 w-8 items-center justify-center rounded-full bg-foreground text-background disabled:opacity-30"
-              aria-label="Send"
-            >
-              <ArrowUp size={16} strokeWidth={2.2} aria-hidden />
-            </button>
-          )}
-        </div>
+      <div className="assistant-composer-dock">
+        <AssistantComposer value={value} onValueChange={setValue} onSubmit={send}
+          placeholder={page === "stock" ? `Ask about ${symbol}…` : "Ask Pivot…"}
+          ariaLabel="Ask the assistant" busy={busy} onStop={() => abortRef.current?.abort()}
+          focusEvent="pivot:focus-composer" />
+        <p className="assistant-composer-hint">Enter to send · Shift + Enter for a new line</p>
       </div>
     </div>
   );
@@ -345,9 +308,8 @@ function TurnView({ turn, onRetry }: { turn: Turn; onRetry: () => void }): React
   const lookups = turn.steps.length - 1;
   const showSteps = working || open;
   const summary = [
-    turn.thoughtMs ? `Thought for ${Math.max(1, Math.round(turn.thoughtMs / 1000))}s` : null,
+    turn.thought ? "Reasoning" : null,
     lookups > 0 ? `${lookups} lookup${lookups === 1 ? "" : "s"}` : "From this page",
-    turn.ms ? `${(turn.ms / 1000).toFixed(1)}s` : null,
   ].filter(Boolean).join(" · ");
 
   return (

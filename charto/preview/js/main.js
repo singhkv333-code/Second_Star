@@ -39,8 +39,18 @@
   // restore has put everything back. Null until then, which is exactly what
   // stops a layout being saved from a half-restored chart.
   let workspace = null;
-  const IV_SEC = { "1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "1d": 86400, "1w": 604800, "1mo": 2592000 };
-  const PAGE = { "1m": 5000, "5m": 4000, "15m": 3000, "30m": 3000, "1h": 3000, "1d": 3000, "1w": 700, "1mo": 200 };
+  const IV_SEC = {
+    "1m": 60, "2m": 120, "3m": 180, "5m": 300, "10m": 600,
+    "15m": 900, "20m": 1200, "30m": 1800, "45m": 2700, "1h": 3600,
+    "2h": 7200, "3h": 10800, "4h": 14400, "1d": 86400, "1w": 604800,
+    "1mo": 2592000,
+  };
+  const PAGE = {
+    "1m": 5000, "2m": 4000, "3m": 4000, "5m": 4000, "10m": 3000,
+    "15m": 3000, "20m": 3000, "30m": 3000, "45m": 3000, "1h": 3000,
+    "2h": 1500, "3h": 1000, "4h": 750, "1d": 3000, "1w": 700,
+    "1mo": 200,
+  };
 
   const el = (id) => document.getElementById(id);
   /* The app's status strip is gone from the page, but the messages it used to
@@ -62,6 +72,8 @@
     vp: null,          // active volume-profile window, in sessions
   };
 
+  let primaryCompare = null;
+
   // ── chart ─────────────────────────────────────────────
   /* The axes are canvas text, so they cannot inherit --font — the stack has
      to be repeated here. Inter leads, exactly as --font does: with the system
@@ -73,7 +85,7 @@
     const P = Theme.palette;
     return {
       layout: {
-        background: { color: P.chartBg }, textColor: P.axisText,
+        background: { color: P.canvasBg || P.chartBg }, textColor: P.axisText,
         panes: { separatorColor: P.separator, separatorHoverColor: P.separatorHover, enableResize: true },
         // The chart library signs its own work bottom-left. Pivot's mark
         // stands there instead — see `.chart-mark` below. The library ships
@@ -113,20 +125,10 @@
   const priceLocale = () => (narrow()
     ? { priceFormatter: compactPrice } : {});
 
-  /* A FLOOR under the price scale's width, so the scale — and every plate
-   * drawn on it — is one size and stays there.
-   *
-   * Left to itself the scale is exactly as wide as its widest number plus a
-   * constant, so it breathes in and out by a digit's width as you scroll from
-   * 980 to 1,005: the column of prices shifts, and so does the crosshair plate
-   * and the ⊕ pinned to its edge. Groww's does not move, and neither should
-   * this one. 84 clears every NSE price up to six figures, and the scale still
-   * grows past it on its own if a number ever needs more.
-   *
-   * Not on a phone. There the compact formatter above exists to WIN back this
-   * width, and the ⊕ that needs the room is hidden anyway (it has no hover to
-   * appear on). */
-  const AXIS_MIN = 84;
+  /* A modest floor stabilises ordinary equity labels without reserving room
+   * for six-figure prices in every pane. LWC still grows for longer labels;
+   * prices retain their precision and the alert control uses measured width. */
+  const AXIS_MIN = 60;
   const axisMin = () => (narrow() ? 0 : AXIS_MIN);
 
   const chart = LWC.createChart(chartEl, {
@@ -184,47 +186,10 @@
       stageEl.style.setProperty("--axis-w", ps + "px");
     }
   }
-  /* THE CHART CAN COME UP TWO PIXELS TALL, and then stay that way.
-   *
-   * `autoSize: true` hands sizing to the library's own ResizeObserver, which
-   * measures the container when the chart is created. On the phone layout
-   * that measurement can land while `.charts` is still zero-height — it is
-   * `flex: 1 1 0; min-height: 0` inside a `position: fixed` body, so the
-   * first pass legitimately has no height to give it. The library builds
-   * 2px panes from that, and because the container's size never changes
-   * again afterwards, no further observation ever arrives to correct it.
-   *
-   * The symptom is a chart element of the right size containing canvases of
-   * the wrong one: 375x286 holding 374x2. Nothing renders, priceToCoordinate
-   * answers in fractions of a pixel, and no drawing can be placed because
-   * there is nowhere to place it.
-   *
-   * So the observer also checks the result and re-applies the size when the
-   * panes have plainly not taken it. Cheap — a rect read and a comparison —
-   * and a no-op on every healthy layout, which is every desktop one. */
-  function ensureChartSized() {
-    const w = chartEl.clientWidth, h = chartEl.clientHeight;
-    if (w < 40 || h < 80) return;          // genuinely small: nothing to correct
-    const cv = chartEl.querySelector("canvas");
-    if (!cv) return;
-    if (cv.getBoundingClientRect().height >= h * 0.4) return;   // laid out fine
-    // resize() alone does nothing here: with autoSize on, the library owns
-    // the dimensions and discards a manual one. Turning it off, stating the
-    // size, and turning it back on is what makes it re-measure — and leaves
-    // it in the same mode it was in, so nothing downstream has to know this
-    // happened.
-    try {
-      chart.applyOptions({ autoSize: false, width: w, height: h });
-      chart.applyOptions({ autoSize: true });
-    } catch { /* pre-init */ }
-  }
+  // Docking and restored split panes can resize hosts after chart creation.
+  ChartSize.watch(chart, chartEl);
   syncChartMetrics();
-  new ResizeObserver(() => { syncChartMetrics(); ensureChartSized(); }).observe(chartEl);
-  // …and once after the first frames, for the case the observer's own first
-  // callback WAS the zero-height one and nothing resizes the container again.
-  requestAnimationFrame(() => requestAnimationFrame(ensureChartSized));
-  setTimeout(ensureChartSized, 400);
-  setTimeout(ensureChartSized, 1500);
+  new ResizeObserver(syncChartMetrics).observe(chartEl);
 
   const publishPlate = () =>
     stageEl.style.setProperty("--plate", Theme.c("crosshairLabel"));
@@ -309,6 +274,7 @@
   }
 
   function paint() {
+    primaryCompare?.refresh();
     // Both series are built by js/chartsettings.js, never here: the bar
     // colours are a setting (and, with "colour bars based on previous
     // close", a per-POINT one), and a second place deciding what green means
@@ -508,11 +474,8 @@
   let indTimer = null, es = null;
   function openStream() {
     if (es) return;
-    es = new EventSource(`${API}/stream?symbol=${encodeURIComponent(SYMBOL)}`);
-    es.onmessage = (msg) => {
+    es = { close: ChartCompare.subscribeBars(SYMBOL, (ev) => {
       if (state.loadingOlder || state.switching) return;   // bars array is being rewritten
-      let ev;
-      try { ev = JSON.parse(msg.data); } catch { return; }
       if (!ev || ev.type !== "bar" || !ev.bars) return;
       const b = ev.bars[state.interval];
       if (!b) return;                   // 1w/1mo aren't streamed
@@ -547,8 +510,7 @@
           ind.recomputeAll(state.bars, { interval: state.interval, limit: state.bars.length });
         }, 1000);
       }
-    };
-    es.onerror = () => status("live stream reconnecting…");
+    }, () => status("live stream reconnecting…")) };
   }
 
   // ── readout ───────────────────────────────────────────
@@ -794,6 +756,8 @@
    *  indicators onto one would be restoring them onto a different chart than
    *  the one they were added to. */
   function saveIndicators(alsoKeep) {
+    const selected = Panes.activeSub();
+    if (selected?.widgetId) selected.onState?.();
     // `alsoKeep` is for studies the CURRENT instrument refused but the user
     // still wants. A volume study on an index cannot draw — the backend says
     // so rather than plotting a row of zeros — and charto reloads the page on
@@ -1047,13 +1011,19 @@
    * — a strip of eight has to *state* a value anyway, which a tinted button
    * among seven others does badly and a filled word does at a glance.
    *
-   * The set is exactly the eight IV_SEC/PAGE know how to page. A ninth row
-   * here would offer a timeframe the loader cannot fetch, which is the same
-   * class of lie as an invented number. */
+   * Every option has matching IV_SEC/PAGE entries and uses the server
+   * aggregation path. Longer hourly pages keep the minute-read budget
+   * at the existing 1h maximum when a rollup is unavailable. */
   const IV_MENU = [
-    ["Minutes", [["1m", "1m", "1 minute"], ["5m", "5m", "5 minutes"],
-                 ["15m", "15m", "15 minutes"], ["30m", "30m", "30 minutes"]]],
-    ["Hours", [["1h", "1h", "1 hour"]]],
+    ["Minutes", [
+      ["1m", "1m", "1 minute"], ["2m", "2m", "2 minutes"], ["3m", "3m", "3 minutes"],
+      ["5m", "5m", "5 minutes"], ["10m", "10m", "10 minutes"], ["15m", "15m", "15 minutes"],
+      ["20m", "20m", "20 minutes"], ["30m", "30m", "30 minutes"], ["45m", "45m", "45 minutes"],
+    ]],
+    ["Hours", [
+      ["1h", "1h", "1 hour"], ["2h", "2h", "2 hours"], ["3h", "3h", "3 hours"],
+      ["4h", "4h", "4 hours"],
+    ]],
     ["Days", [["1d", "1D", "1 day"], ["1w", "W", "1 week"], ["1mo", "M", "1 month"]]],
   ];
   const ivBtn = el("intervalBtn"), ivMenu = el("intervalMenu");
@@ -1134,6 +1104,7 @@
   /** Paint the pill and its list without claiming either as the primary's
    *  state — a selected secondary pane drives this too. */
   function markInterval(iv) {
+    iv = Panes.activeSub()?.interval || iv;
     const row = ivMenu.querySelector(`[data-iv="${iv}"]`);
     ivBtn.textContent = row ? row.dataset.short : iv;
     // dataset.name, not textContent: the row carries a tick now, and reading
@@ -4230,11 +4201,12 @@
    * size this file knows.
    */
   function paneShots() {
-    const out = [[chart.takeScreenshot(true), chartEl.getBoundingClientRect()]];
+    const comparisonShot = primaryCompare?.capture();
+    const out = [comparisonShot || [chart.takeScreenshot(true), chartEl.getBoundingClientRect()]];
     for (let i = 1; ; i++) {
       const s = Panes.paneAt(i);
       if (!s) break;
-      if (s.chart && s.root) out.push([s.chart.takeScreenshot(true),
+      if (s.chart && s.root && (!s.widgetId || s.widgetVisible)) out.push(s.compare?.capture() || [s.chart.takeScreenshot(true),
                                        s.root.getBoundingClientRect()]);
     }
     return out;
@@ -4370,6 +4342,19 @@
   // Panes wraps #stage in a grid; the primary chart keeps its element, its
   // instance and every overlay bound to it, so nothing here can disturb it.
   Panes.init(stageEl);
+  primaryCompare = ChartCompare.create({ chart, root: stageEl, settings: { slot: 0 },
+    getBars: () => state.bars, getSymbol: () => SYMBOL,
+    getInterval: () => state.interval,
+    save: (comparison) => Store.set("comparison", comparison),
+  });
+  primaryCompare.restore(Store.get("comparison", {}));
+  el("compareBtn").innerHTML = Icons.svg("plus", "sm") + "<span>Compare</span>";
+  el("compareBtn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    const target = Panes.activeSub()?.compare || primaryCompare;
+    target.add(el("compareBtn"));
+  });
+
   // a gear on a secondary pane's legend row opens the one settings dialog,
   // pointed at that pane's own indicator manager
   Panes.onSettings((id, mgr) => openIndSettings(id, mgr));
@@ -4619,15 +4604,7 @@
     });
   }
 
-  const themeBtn = document.createElement("button");
-  function paintThemeBtn() {
-    // show what you'd switch TO, the way macOS/Linear do it
-    themeBtn.innerHTML = (Theme.mode === "dark" ? Icons.svg("sun", "xs") : Icons.svg("moon", "xs"))
-      + `<span>${Theme.mode === "dark" ? "Light mode" : "Dark mode"}</span>`;
-  }
-  themeBtn.addEventListener("click", () => { Theme.toggle(); });
   Theme.onChange(() => {
-    paintThemeBtn();
     chart.applyOptions(chartTheme());
     publishPlate();
     if (state.bars.length) {          // a toggle mid-load must not wipe series
@@ -4645,7 +4622,6 @@
     draw.requestUpdate();
     scene.requestUpdate();
   });
-  paintThemeBtn();
 
   window.matchMedia(SMALL).addEventListener("change", () => {
     chart.applyOptions({
@@ -4654,7 +4630,11 @@
     });
   });
 
-  el("chatToggle").innerHTML = Icons.svg("chat", "sm") + "Chat";
+  // The label is its own element so a narrow bar (the Pivot shell's) can
+  // show the glyph alone; the name stays reachable through aria-label.
+  el("chatToggle").innerHTML = Icons.svg("chat", "sm") + "<span>Chat</span>";
+  el("chatToggle").setAttribute("aria-label", "Chat");
+  el("chatToggle").title = "Chat";
 
   // ── account ───────────────────────────────────────────
   /* TradingView's avatar, and everything about WHO this is behind it. The
@@ -4684,10 +4664,8 @@
     `<div class="item" data-acct="shortcuts"><span class="lead">`
     + Icons.svg("keyboard", "xs") + `Keyboard shortcuts</span>`
     + `<span class="sc">Ctrl + /</span></div>`;
-  const THEME_ROW = () => `<div class="item" data-acct="theme" role="switch" `
-    + `aria-checked="${Theme.mode === "dark"}"><span class="lead">`
-    + Icons.svg(Theme.mode === "dark" ? "moon" : "sun", "xs")
-    + `<span>Dark mode</span></span><span class="switch${Theme.mode === "dark" ? " on" : ""}" aria-hidden="true"><i></i></span></div>`;
+  const THEME_ROW = () => `<button type="button" class="item" data-acct="theme"><span class="lead">`
+    + Icons.svg("settings", "xs") + `<span>Workspace colors</span></span></button>`;
 
   function paintAccount(u) {
     acctBtn.classList.toggle("in", !!u);
@@ -4806,7 +4784,7 @@
     const it = e.target.closest("[data-acct]");
     if (!it) return;
     closeMenus(null);
-    if (it.dataset.acct === "theme") { Theme.toggle(); paintAccount(Auth.user); return; }
+    if (it.dataset.acct === "theme") { acctMenu.classList.remove("open"); window.PivotWorkspaceTheme?.openPicker(acctBtn); return; }
     if (it.dataset.acct === "billing") { if (typeof Paywall !== "undefined") Paywall.openBilling(); return; }
     if (it.dataset.acct === "settings") { el("settingsBtn").click(); return; }
     if (it.dataset.acct === "help") return Shortcuts.open();

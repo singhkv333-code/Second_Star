@@ -45,6 +45,7 @@ const IndLegend = (() => {
 
     let collapsed = o.storeKey ? !!Store.get(o.storeKey, false) : false;
     let at = null;                       // crosshair time, null = latest bar
+    let destroyed = false;
     const boxes = new Map();             // pane index -> floating box element
     const valEls = new Map();            // indicator id -> its .ind-vals span
     /* The plate behind a row is a fact about the CHART, not about the pointer
@@ -72,7 +73,7 @@ const IndLegend = (() => {
       const cls = r.hidden ? " muted" : (r.off ? " off" : "");
       return `<div class="ind-row${cls}" data-ind-row="${esc(r.id)}">` +
         `<span class="ind-name" style="color:${esc(r.color)}">${esc(r.label)}</span>` +
-        `<span class="ind-vals">${valsHTML(r)}</span>` +
+        `<span class="ind-vals" title="${esc(r.values.map((v) => v.text).join(" · "))}">${valsHTML(r)}</span>` +
         `<span class="ind-acts">` +
         `<span class="ind-act${r.hidden ? " pinned" : ""}" data-eye="${esc(r.id)}" ` +
           `title="${r.hidden ? "Show" : "Hide"}">` +
@@ -159,6 +160,7 @@ const IndLegend = (() => {
         if (!el) continue;
         const next = valsHTML(r);
         if (el.innerHTML !== next) el.innerHTML = next;   // no needless reflow
+        el.title = r.values.map((v) => v.text).join(" · ");
       }
       // A reading is what sets a row's WIDTH, so the box the plate has to
       // cover changed with it.
@@ -178,6 +180,9 @@ const IndLegend = (() => {
     }
 
     function position() {
+      if (destroyed) return;
+      const axisWidth = chart.priceScale("right").width();
+      if (axisWidth) stage.style.setProperty("--axis-w", `${axisWidth}px`);
       if (!boxes.size) return;
       const rows = paneRows();
       const base = stage.getBoundingClientRect();
@@ -190,7 +195,7 @@ const IndLegend = (() => {
         box.style.visibility = "";
         box.style.top = `${r.top - base.top + 4}px`;
         box.style.left = `${r.left - base.left + 10}px`;
-        box.style.maxWidth = `${Math.max(80, r.width - 84)}px`;
+        box.style.maxWidth = `${Math.max(0, r.width - axisWidth - 18)}px`;
       }
     }
 
@@ -373,9 +378,10 @@ const IndLegend = (() => {
       // legend that never moved.
       schedulePlates();
     });
-    if (window.ResizeObserver) {
-      new ResizeObserver(() => { position(); schedulePlates(); }).observe(stage);
-    }
+    const resizeObserver = window.ResizeObserver
+      ? new ResizeObserver(() => requestAnimationFrame(() => { position(); schedulePlates(); }))
+      : null;
+    if (resizeObserver) resizeObserver.observe(stage);
     /* Pan, zoom and the auto-scroll on a fresh tick move the series behind a
      * legend with no pointer on the chart at all — the one repaint the
      * crosshair stream never sees. */
@@ -395,6 +401,8 @@ const IndLegend = (() => {
        *  one frame later is when the rows can actually be measured. */
       reposition: () => requestAnimationFrame(() => { position(); paintPlates(); }),
       destroy() {
+        destroyed = true;
+        if (resizeObserver) resizeObserver.disconnect();
         mgr.setLegendSink(null);
         for (const [, box] of boxes) box.remove();
         boxes.clear();

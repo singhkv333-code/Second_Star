@@ -1,0 +1,18 @@
+.page { height: 100dvh; overflow-y: auto; overflow-x: hidden; background: #fff; color: #000; font-family: Inter, system-ui, sans-serif; }
+.page * { box-sizing: border-box; }
+.page a { color: #000; text-decoration: underline; text-underline-offset: 3px; }
+.page a:focus-visible { outline: 2px solid #000; outline-offset: 4px; }
+.skip { position: absolute; top: 12px; left: 12px; padding: 10px; background: #fff; transform: translateY(-150%); z-index: 5; }
+.skip:focus { transform: translateY(0); }
+.header, .main, .footer { width: min(760px, calc(100% - 48px)); margin: 0 auto; }
+.header { padding: 28px 0; display: flex; align-items: center; justify-content: space-between; gap: 24px; font-size: 14px; }
+.header .brand { font: 600 30px/1 Newsreader, Georgia, serif; letter-spacing: -.04em; text-decoration: none; }
+.main { padding: 38px 0 48px; outline: none; }
+.main h1 { margin: 0 0 24px; font: 500 clamp(36px, 4vw, 46px)/1.15 Newsreader, Georgia, serif; letter-spacing: -.02em; }
+.main h2 { margin: 36px 0 14px; font-size: 19px; line-height: 1.5; font-weight: 600; }
+.main p { margin: 0 0 18px; font-size: 16px; line-height: 1.85; overflow-wrap: anywhere; }
+.main .updated { margin-bottom: 26px; font-size: 14px; }
+.footer { padding: 0 0 36px; font-size: 14px; }
+.footer nav { display: flex; flex-wrap: wrap; gap: 14px 24px; }
+.footer p { margin: 24px 0 0; font-size: 13px; }
+@media (max-width: 600px) { .header, .main, .footer { width: calc(100% - 40px); } .header { padding: 24px 0; } .main { padding-top: 24px; } .main h2 { font-size: 18px; } }

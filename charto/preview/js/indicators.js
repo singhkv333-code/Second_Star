@@ -408,19 +408,19 @@ const Indicators = (() => {
   // Seconds are absent because this chart has no such interval — an always-off
   // checkbox is worse than no checkbox.
   const BUCKETS = [
-    { key: "minutes", label: "Minutes", note: "1m · 5m · 15m · 30m" },
-    { key: "hours", label: "Hours", note: "1h" },
+    { key: "minutes", label: "Minutes", note: "1m–45m" },
+    { key: "hours", label: "Hours", note: "1h–4h" },
     { key: "days", label: "Days", note: "D" },
     { key: "weeks", label: "Weeks", note: "W" },
     { key: "months", label: "Months", note: "M" },
   ];
   const BUCKET_OF = {
-    "1m": "minutes", "5m": "minutes", "15m": "minutes", "30m": "minutes",
-    "1h": "hours", "1d": "days", "1w": "weeks", "1mo": "months",
+    "1m": "minutes", "2m": "minutes", "3m": "minutes", "5m": "minutes", "10m": "minutes", "15m": "minutes", "20m": "minutes", "30m": "minutes", "45m": "minutes", "1h": "hours", "2h": "hours", "3h": "hours", "4h": "hours",
+    "1d": "days", "1w": "weeks", "1mo": "months",
   };
   const VALUE_OF = {
-    "1m": 1, "5m": 5, "15m": 15, "30m": 30,
-    "1h": 1, "1d": 1, "1w": 1, "1mo": 1,
+    "1m": 1, "2m": 2, "3m": 3, "5m": 5, "10m": 10, "15m": 15, "20m": 20, "30m": 30, "45m": 45, "1h": 1, "2h": 2, "3h": 3, "4h": 4,
+    "1d": 1, "1w": 1, "1mo": 1,
   };
   const RANGE_DEFAULTS = {
     minutes: { min: 1, max: 59 }, hours: { min: 1, max: 24 },

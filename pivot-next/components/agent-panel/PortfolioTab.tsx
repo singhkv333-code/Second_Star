@@ -1909,6 +1909,8 @@ function AssetAllocation({ holdings }: { holdings: Holding[] }): React.ReactElem
   }, [data]);
 
   const cx = 110, cy = 110, rOuter = 96, rInner = 64;
+  const singleAllocation = segments.length === 1;
+  const Segment = singleAllocation ? "circle" : "path";
   const tabLabel = ALLOC_TABS.find((t) => t.id === tab)?.label ?? "";
 
   return (
@@ -1930,7 +1932,7 @@ function AssetAllocation({ holdings }: { holdings: Holding[] }): React.ReactElem
               <button
                 key={t.id}
                 type="button"
-                onClick={() => setTab(t.id)}
+                onClick={() => { setTab(t.id); setHover(null); }}
                 style={{
                   padding: "6px 14px",
                   background: active ? "var(--bg-elevated)" : "transparent",
@@ -1970,14 +1972,28 @@ function AssetAllocation({ holdings }: { holdings: Holding[] }): React.ReactElem
           >
             {/* Donut */}
             <div style={{ position: "relative", width: 220, height: 220, flexShrink: 0 }}>
-              <svg width={220} height={220} viewBox="0 0 220 220">
+              <svg width={220} height={220} viewBox="0 0 220 220" role="group" aria-label={`${tabLabel} allocation`}>
                 {segments.map((seg, i) => (
-                  <path
+                  <Segment
                     key={i}
-                    d={arcPath(cx, cy, rOuter, rInner, seg.start, seg.end)}
-                    fill={seg.color}
-                    stroke="var(--bg-primary)"
-                    strokeWidth={1.25}
+                    {...(singleAllocation
+                      ? { cx, cy, r: (rOuter + rInner) / 2 }
+                      : { d: arcPath(cx, cy, rOuter, rInner, seg.start, seg.end) })}
+                    fill={singleAllocation ? "none" : seg.color}
+                    stroke={singleAllocation ? seg.color : "var(--bg-primary)"}
+                    strokeWidth={singleAllocation ? rOuter - rInner : 1.25}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`${seg.label}: ${seg.pct.toFixed(2)}%`}
+                    aria-pressed={hover?.label === seg.label}
+                    onFocus={() => setHover(seg)}
+                    onBlur={() => setHover(null)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setHover((curr) => curr?.label === seg.label ? null : seg);
+                      }
+                    }}
                     onPointerEnter={(e) => {
                       if (e.pointerType === "mouse") setHover(seg);
                     }}

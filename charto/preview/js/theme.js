@@ -83,16 +83,23 @@ const Theme = (() => {
   };
 
   let mode = "dark";
+  const palette = () => ({...PALETTES[mode], ...window.PivotWorkspaceTheme?.chartPalette()});
   const subs = [];
 
   function apply(next, persist = true) {
     mode = next === "light" ? "light" : "dark";
     document.documentElement.setAttribute("data-theme", mode);
     if (persist) { try { localStorage.setItem(KEY, mode); } catch {} }
-    for (const fn of subs) { try { fn(mode, PALETTES[mode]); } catch (e) { console.error(e); } }
+    for (const fn of subs) { try { fn(mode, palette()); } catch (e) { console.error(e); } }
   }
 
   function init() {
+    if (window.PivotWorkspaceTheme) {
+      const sync = () => apply(window.PivotWorkspaceTheme.chartPalette().dark ? "dark" : "light", false);
+      sync();
+      window.addEventListener("pivot:workspace-colors", sync);
+      return;
+    }
     let saved = null;
     try { saved = localStorage.getItem(KEY); } catch {}
     // The embedded chart takes the shell's resolved theme before its first
@@ -112,9 +119,9 @@ const Theme = (() => {
   return {
     init,
     get mode() { return mode; },
-    get palette() { return PALETTES[mode]; },
+    get palette() { return palette(); },
     /** Read one colour at paint time. */
-    c: (k) => PALETTES[mode][k],
+    c: (k) => palette()[k],
     toggle() { apply(mode === "dark" ? "light" : "dark"); return mode; },
     set: apply,
     /** cb(mode, palette) — fired on every change, never on init. */

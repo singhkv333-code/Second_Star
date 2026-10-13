@@ -1795,3 +1795,14 @@ body:has(.app-shell-root) {
   .cas-modal-head, .cas-category-tabs { padding-left: 16px; padding-right: 16px; }
   .cas-modal-query { margin-left: 16px; margin-right: 16px; }
 }
+
+/* Keep every page and nested pane scrollable without visible scrollbar rails. */
+* {
+  scrollbar-width: none !important;
+  scrollbar-gutter: auto !important;
+}
+*::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}

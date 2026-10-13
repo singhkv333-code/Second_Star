@@ -5,7 +5,7 @@
  * and (on dashboard) right Active Agents rail.
  *
  * Layout:
- *   [Sticky top header: logo + search + metric strip + theme toggle + avatar]
+ *   [Sticky top header: logo + search + metric strip + workspace colors + avatar]
  *   [Left sidebar nav | Center content pane | Right rail (dashboard only)]
  *
  * Nav items: Chat / Portfolio / Agents / Screener
@@ -21,6 +21,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { openWorkspaceColors, workspaceMode } from "@/lib/workspace-theme";
 import { toast } from "sonner";
 import {
   BarChart2,
@@ -36,8 +37,6 @@ import {
   LogOut,
   Menu,
   MessageSquare,
-  Monitor,
-  Moon,
   PieChart,
   PanelLeftClose,
   PanelLeftOpen,
@@ -47,7 +46,7 @@ import {
   Search,
   Settings,
   ShieldCheck,
-  Sun,
+  Palette,
   Telescope,
   Trash2,
   X,
@@ -139,37 +138,12 @@ function readHashTab(): TabKey {
 }
 
 // ---------------------------------------------------------------------------
-// Theme helpers — three modes (Dark / Light / System).
-//
-// "system" defers to the OS preference and live-updates if the user changes
-// their system theme. The actual class applied to <html> is always "dark"
-// or no class — only the *resolution* is three-state.
+// Workspace palettes own appearance; this mode is only a contrast bridge.
 // ---------------------------------------------------------------------------
-
 type Theme = "light" | "dark" | "system";
-const LS_KEY = "pivot-theme";
-
-function readStoredTheme(): Theme | null {
-  try {
-    const v = localStorage.getItem(LS_KEY);
-    return v === "light" || v === "dark" || v === "system" ? v : null;
-  } catch {
-    return null;
-  }
-}
-
-function osPrefersDark(): boolean {
-  if (typeof window === "undefined") return false;
-  return window.matchMedia("(prefers-color-scheme: dark)").matches;
-}
-
-/** Apply a theme choice to the <html> element. With "system", resolve to
- *  the current OS preference; otherwise honor the explicit choice. */
-function applyTheme(t: Theme): void {
-  if (typeof document === "undefined") return;
-  const isDark = t === "dark" || (t === "system" && osPrefersDark());
-  document.documentElement.classList.toggle("dark", isDark);
-}
+function readStoredTheme(): Theme { return workspaceMode(); }
+function osPrefersDark(): boolean { return workspaceMode() === "dark"; }
+function applyTheme(_theme: Theme): void { window.PivotWorkspaceTheme?.apply(); }
 
 // ---------------------------------------------------------------------------
 // Conversation history — GET /api/conversations (wired Day 8)
@@ -434,22 +408,19 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
-  // Live-react to OS theme changes when in "system" mode.
+  // Keep native chart contrast and account settings in step with the palette.
   useEffect(() => {
-    if (theme !== "system") return;
-    if (typeof window === "undefined") return;
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const onChange = (): void => applyTheme("system");
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, [theme]);
-
-  const chooseTheme = useCallback((next: Theme): void => {
-    setTheme(next);
-    applyTheme(next);
-    try {
-      localStorage.setItem(LS_KEY, next);
-    } catch { /* ignore */ }
+    const sync = (): void => {
+      const next = workspaceMode();
+      setTheme(next);
+    };
+    sync();
+    window.addEventListener("pivot:workspace-colors", sync);
+    return () => window.removeEventListener("pivot:workspace-colors", sync);
+  }, []);
+  const chooseTheme = useCallback((_next: Theme): void => {
+    setSettingsOpen(false);
+    window.setTimeout(() => openWorkspaceColors(), 0);
   }, []);
 
   // Metric strip loading
@@ -1319,9 +1290,7 @@ function TopHeader({
 // ---------------------------------------------------------------------------
 // AccountMenu — Quartr-style avatar dropdown.
 //
-// Mirrors frontend-quartr/.../TopHeader.jsx::MenuItem usage (Settings, Help,
-// Log out). Adds a single-row icon-only theme toggle BENEATH those items
-// (Moon / Sun / Monitor) to switch between Dark / Light / System.
+// Profile actions include the shared workspace color editor.
 // ---------------------------------------------------------------------------
 
 function AccountMenu({
@@ -1713,38 +1682,7 @@ function AccountMenu({
             }}
           />
 
-          {/* Theme toggle row — three icon-only buttons in one horizontal row */}
-          <div
-            role="radiogroup"
-            aria-label="Theme"
-            className="flex items-center justify-between"
-            style={{ padding: "6px 8px", gap: 6 }}
-          >
-            <ThemeIconButton
-              active={theme === "dark"}
-              onClick={() => onChooseTheme("dark")}
-              ariaLabel="Dark mode"
-              testId="theme-dark"
-            >
-              <Moon size={14} strokeWidth={2} aria-hidden={true} />
-            </ThemeIconButton>
-            <ThemeIconButton
-              active={theme === "light"}
-              onClick={() => onChooseTheme("light")}
-              ariaLabel="Light mode"
-              testId="theme-light"
-            >
-              <Sun size={14} strokeWidth={2} aria-hidden={true} />
-            </ThemeIconButton>
-            <ThemeIconButton
-              active={theme === "system"}
-              onClick={() => onChooseTheme("system")}
-              ariaLabel="System mode"
-              testId="theme-system"
-            >
-              <Monitor size={14} strokeWidth={2} aria-hidden={true} />
-            </ThemeIconButton>
-          </div>
+          <MenuItem icon={Palette} label="Workspace colors" onClick={() => { const anchor = ref.current?.querySelector<HTMLButtonElement>("button"); setOpen(false); openWorkspaceColors(anchor); }} />
         </div>
       )}
     </div>
@@ -1829,55 +1767,6 @@ function MenuItem({
   );
 }
 
-function ThemeIconButton({
-  active,
-  onClick,
-  ariaLabel,
-  testId,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  ariaLabel: string;
-  testId: string;
-  children: React.ReactNode;
-}): React.ReactElement {
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={active}
-      aria-label={ariaLabel}
-      data-testid={testId}
-      onClick={onClick}
-      className="flex flex-1 items-center justify-center"
-      style={{
-        // Borderless — same active treatment as the sidebar nav:
-        // subtle elevated bg + ink text, no border, no ring.
-        height: 28,
-        background: active ? "var(--surface-active)" : "transparent",
-        border: "none",
-        borderRadius: "var(--radius-sm)",
-        color: active ? "var(--text-primary)" : "var(--text-tertiary)",
-        cursor: "pointer",
-        transition:
-          "color 0.2s var(--ease-quartr), background-color 0.2s var(--ease-quartr)",
-      }}
-      onMouseEnter={(e) => {
-        if (active) return;
-        e.currentTarget.style.background = "var(--surface-active)";
-        e.currentTarget.style.color = "var(--text-primary)";
-      }}
-      onMouseLeave={(e) => {
-        if (active) return;
-        e.currentTarget.style.background = "transparent";
-        e.currentTarget.style.color = "var(--text-tertiary)";
-      }}
-    >
-      {children}
-    </button>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Metric strip

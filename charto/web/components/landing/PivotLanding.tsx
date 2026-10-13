@@ -4,9 +4,18 @@ import { useEffect, useId, useState } from "react";
 import {
   ArrowDown, ArrowRight, ArrowUp, Check, Instagram,
 } from "lucide-react";
-import { ProductFilm } from "@/components/landing/film/film-demo";
-import { FeaturesSection } from "@/components/landing/features/FeaturesSection";
+import { Patterns } from "@/components/landing/v3/Patterns";
+import { Workspace } from "@/components/landing/v3/Workspace";
+import { Figures } from "@/components/landing/v3/Figures";
+import { Honest } from "@/components/landing/v3/Honest";
+import { Gallery } from "@/components/landing/v3/Gallery";
+import { Tour } from "@/components/landing/v3/Tour";
 import { useLandingScroll } from "@/components/landing/landing-scroll";
+import "@/components/landing/v3/paper.css";
+
+/** The pivotnow.in paper ground — cream, dot grain, dithered space objects
+ *  (v3/paper.css). False restores the white page; nothing else changes. */
+const PAPER = true;
 
 const examples = [
   "Mark the major support and resistance levels",
@@ -112,23 +121,6 @@ function Hero() {
       <div className="pl-actions"><a href="#waitlist">Get early access <ArrowRight size={15}/></a><a href="#demo">See how it works <ArrowDown size={14}/></a></div>
     </div>
   </section>;
-}
-
-/**
- * The product film — a looping, scripted walkthrough of the real thing, sitting
- * directly under the hero the way TradingView puts its product shot there. The
- * choreography lives in `film/film-demo.tsx`; this is only its frame on the
- * page. It owns `id="demo"` — the hero's "See how it works" lands here. The
- * static terminal mock that used to follow it is gone: two chart-and-chat
- * demos back to back said the same thing twice, and only one of them moved.
- */
-function Film() {
-  return <section id="demo" className="film-section" data-nav-theme="dark"><div className="film-shell">
-    <div className="film-head" data-reveal>
-      <h2>Trade with <em>conviction.</em></h2>
-    </div>
-    <ProductFilm/>
-  </div></section>;
 }
 
 /**
@@ -287,6 +279,12 @@ function Footer() {
       <div className="pl-footer2-lines" aria-hidden="true"><i/><i/><i/></div>
       <div className="pl-footer2-inner">
         <div className="pl-footer2-wordmark"><span>Pivot<i className="pl-brand-dot">.</i></span></div>
+        <nav className="pl-footer2-links" aria-label="Company and legal">
+          <a href="/about">About us</a>
+          <a href="/terms">Terms & conditions</a>
+          <a href="/privacy">Privacy policy</a>
+          <a href="/checkout">Checkout</a>
+        </nav>
         <div className="pl-footer2-social">
           <a href="https://www.instagram.com/investwithpivot/" target="_blank" rel="noopener noreferrer" aria-label="Pivot on Instagram (opens in a new tab)"><Instagram size={15}/></a>
           <a href="https://x.com/investwithpivot" target="_blank" rel="noopener noreferrer" aria-label="Pivot on X (opens in a new tab)"><XGlyph/></a>
@@ -304,4 +302,4 @@ function XGlyph(): React.ReactElement {
   </svg>;
 }
 
-export function PivotLanding(): React.ReactElement { useLandingScroll(); return <main className="pivot-landing"><Nav/><Hero/><Film/><FeaturesSection/><FAQ/><Footer/></main>; }
+export function PivotLanding(): React.ReactElement { useLandingScroll(); return <main className="pivot-landing" data-bg={PAPER ? "paper" : undefined}><Nav/><Hero/><Tour/><Figures/><Patterns/><Gallery/><Workspace/><Honest/><FAQ/><Footer/></main>; }

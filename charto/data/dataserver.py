@@ -4,7 +4,7 @@ Resamples the raw 1-minute bars (charto_bars.db) into any interval the chart
 asks for, with paging for infinite-scroll history. Stdlib only; CORS open to
 the preview origin.
 
-Intervals: 1m 3m 5m 15m 30m 1h  (anchored to each session's first bar, so
+Intervals: 1m 2m 3m 5m 10m 15m 20m 30m 45m 1h 2h 3h 4h  (anchored to each session's first bar, so
 09:15 IST opens a bucket exactly like Kite/TradingView do), plus 1d 1w 1mo
 (aggregated on IST trade dates; note: daily close here = last 1-min close,
 which differs slightly from NSE's official 30-min-VWAP close).
@@ -15586,7 +15586,11 @@ def _tool_hint(name: str, args: dict) -> str:
 IST_OFF = 19800  # +05:30
 SESSION_OPEN_MIN = 9 * 60 + 15  # 09:15 IST, minutes past midnight
 
-INTRADAY_MIN = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30, "1h": 60}
+INTRADAY_MIN = {
+    "1m": 1, "2m": 2, "3m": 3, "5m": 5, "10m": 10,
+    "15m": 15, "20m": 20, "30m": 30, "45m": 45, "1h": 60,
+    "2h": 120, "3h": 180, "4h": 240,
+}
 
 # A bucket anchor is (session-open minute-of-day, tz offset from UTC). NSE is
 # the default everywhere; the others exist because backfill_crypto.py and
@@ -17715,10 +17719,13 @@ def get_bars(symbol: str, interval: str, to: int | None, limit: int) -> dict:
             rows = _intraday_rows(symbol, upper, raw_needed, mins)
             if live_bar:
                 _merge_form_intraday(rows, form)
-            bars = _resample_intraday(rows, mins, session_for(symbol))[-limit:]
-            has_more = bool(rows) and _con.execute(
+            series = _resample_intraday(rows, mins, session_for(symbol))
+            bars = series[-limit:]
+            # Older buckets trimmed from this page are history too, even if
+            # the minute query already reached the beginning of the store.
+            has_more = len(series) > len(bars) or (bool(rows) and _con.execute(
                 "SELECT 1 FROM bars WHERE symbol=? AND ts<? LIMIT 1",
-                (symbol, rows[0][0])).fetchone() is not None
+                (symbol, rows[0][0])).fetchone() is not None)
             if key:
                 _intra_store(key, bars, has_more)
     else:

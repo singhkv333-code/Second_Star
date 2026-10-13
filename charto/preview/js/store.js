@@ -11,6 +11,25 @@
  */
 "use strict";
 
+/* The shell remounts this document without a symbol on refresh. Resolve it
+ * before any per-symbol store or chart is constructed. Explicit links win;
+ * shared setups must not replace the viewer's remembered working instrument. */
+(() => {
+  const u = new URL(location.href);
+  if (u.searchParams.has("view")) return;
+  try {
+    const explicit = u.searchParams.get("symbol");
+    const symbol = (explicit || localStorage.getItem("charto:last-symbol") || "RELIANCE")
+      .trim().toUpperCase();
+    if (!symbol || symbol.length > 64) return;
+    localStorage.setItem("charto:last-symbol", symbol);
+    if (!explicit) {
+      u.searchParams.set("symbol", symbol);
+      history.replaceState(history.state, "", u.toString());
+    }
+  } catch { /* Storage may be unavailable; the explicit URL still works. */ }
+})();
+
 /* What a symbol is quoted in, and which clock its bars sit on.
  *
  * One place decides both, because the axis, the readout, the drawing labels

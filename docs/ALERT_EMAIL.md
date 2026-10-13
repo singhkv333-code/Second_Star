@@ -41,6 +41,29 @@ pending, never falsely marked sent. The dialog reports sender unavailability.
 An environment-only `CHARTO_SMTP_PASSWORD` is also supported for a secret
 manager that injects process environment, but the private file is preferred.
 
+### Deployment verification — 10 October 2026
+
+The scoped deployment completed on `pivot-clean-stage`:
+`pivot-clean-patch-c3bb7fa009bb60f9` reports execution `Succeeded`, exit code
+`0`, and `ALERT_EMAIL_DEPLOYED`. Source and the entire user-state database
+were backed up before installation. The source rollback directory is
+`/opt/pivot/alert-email-rollbacks/c3bb7fa009bb60f9`.
+The subsequent VM check confirmed `charto` active, the outbox installed with
+no queued messages, and `/health` reporting `ready: true`, including healthy
+alert evaluation, market/user databases and a fresh user-state backup.
+
+The isolated alert/email suite passes all 47 tests; both edited JavaScript
+files pass syntax checks. The public `/alerts` endpoint returns the expected
+`401` without an authenticated session.
+
+**Live sending is not enabled or verified.** Local Google SMTP checks on
+ports 465 and 587 disconnected before authentication could be confirmed.
+The available credentials belong to `Karan@pivotnow.in`; approval of
+`info@pivotnow.in` as its send-as alias remains unverified. No test or customer
+email was sent. Enable only after verifying a Google app password and the
+sender alias, then validate an approved recipient's inbox. The source
+deployment does not install credentials or enable sending.
+
 The scoped deployment helper `charto/deploy/deploy_alert_email.py` reuses the
 existing private-blob transport, checks original source hashes, preserves a
 whole-plane SQLite backup and updates only this feature's files/contexts.

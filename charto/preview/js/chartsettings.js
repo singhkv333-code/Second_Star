@@ -219,7 +219,7 @@ const ChartSettings = (() => {
     const layout = {
       background: cfg.canvas.gradient
         ? { type: "gradient", topColor: E.bg, bottomColor: E.bgBottom }
-        : { type: "solid", color: E.bg },
+        : { type: "solid", color: cfg.canvas.bg ? E.bg : (Theme.c("canvasBg") || E.bg) },
       panes: { separatorColor: E.sep, separatorHoverColor: Theme.c("separatorHover") },
       fontSize: s.textSize || own.fontSize,
     };
@@ -903,7 +903,7 @@ const ChartSettings = (() => {
      *  on previous close"; the volume study reads it through here rather than
      *  deciding again. */
     barUp: (bar, prev) => up(bar, prev),
-    onChange(fn) { subs.push(fn); },
+    onChange(fn) { subs.push(fn); return () => { const index = subs.indexOf(fn); if (index >= 0) subs.splice(index, 1); }; },
     open, close,
     isOpen: () => !!(wrap && wrap.classList.contains("open")),
   };
