@@ -107,9 +107,9 @@ function Hero() {
     <div className="pl-hero-content">
       <h1>Talk to the<span className="pl-mobile-break"><br /></span> Charts</h1>
       {/* Charto's composer shape, SHOWN rather than offered: the questions
-          type themselves and nothing here takes input. The real thing is
-          behind the waitlist, so a live box that answered with two canned
-          strings would be promising a product this page cannot hand over.
+          type themselves and nothing here takes input. A live box that
+          answered with two canned strings would promise answers this page
+          cannot give; the real composer is one click away on the platform.
           Decorative end to end — hence aria-hidden and no focusable child. */}
       <div className="pl-hero-prompt" aria-hidden="true">
         <p className="pl-prompt-line">{typedExample}|</p>
@@ -118,7 +118,7 @@ function Hero() {
           <span className="pl-prompt-send"><ArrowUp size={16}/></span>
         </div>
       </div>
-      <div className="pl-actions"><a href="#waitlist">Get early access <ArrowRight size={15}/></a><a href="#demo">See how it works <ArrowDown size={14}/></a></div>
+      <div className="pl-actions"><a href="https://app.pivotnow.in/">Open platform <ArrowRight size={15}/></a><a href="#demo">See how it works <ArrowDown size={14}/></a></div>
     </div>
   </section>;
 }
