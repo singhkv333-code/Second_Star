@@ -45,100 +45,10 @@
   position: relative;
   isolation: isolate;
   overflow: hidden;
-  background:
-    radial-gradient(118% 52% at 82% -4%, rgba(248, 245, 238, 0.92), rgba(238, 234, 224, 0) 62%),
-    radial-gradient(90% 40% at 6% 104%, rgba(246, 243, 235, 0.7), rgba(238, 234, 224, 0) 60%),
-    /* A shade lighter than `--paper` on purpose: the grain above puts about
-       two per cent back, landing the section on the page's own cream rather
-       than a greyer version of it. */
-    #f1eee5;
-}
-
-/* Grain.
-
-   The grain is an ordered-dither cell — two pixels lit out of thirty-six —
-   tiled across the whole section. At the 4px cell it started as, the coverage
-   read as linen and pulled the warmth out of the cream; the point is a machine
-   halftone you notice at reading distance, not a texture. Every other surface on this page is a DITHERED
-   image, and the flatness being complained about is really the absence of that
-   grain: cream printed by a machine that has no halftone. It is drawn rather
-   than shipped as an asset because a 4px SVG beats a tiling PNG request.
-
-   No ruled columns sit beside the artwork. */
-.cf::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='6' height='6'><rect width='1' height='1' fill='%23111312' opacity='.3'/><rect x='3' y='3' width='1' height='1' fill='%23111312' opacity='.3'/></svg>");
-  background-repeat: repeat;
-  background-position: 0 0;
-  background-size: 6px 6px;
-  /* The rules stop short of both seams: hard against the film's black edge
-     they read as a leak out of the video, and hard against the closing
-     surface they fight the wordmark. */
-  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 5%, #000 92%, transparent 100%);
-  mask-image: linear-gradient(180deg, transparent 0, #000 5%, #000 92%, transparent 100%);
-}
-
-/* The artwork, in daylight. `invert` turns the white-on-black dither into
-   black-on-white, and `multiply` then lets the white fall away so only the
-   dithered form darkens the paper — the alternative, a pre-inverted asset,
-   would be a second copy of a 500 KB image to keep in step with the first.
-
-   ONE plate: the ORB, opening the section from the top-right corner.
-
-   There used to be a second, laying a dithered horizon under the close. It is
-   gone, and the slot is not to be refilled. The section ends on two product
-   cards, and the only paper a closing plate can reach is the 90px strip
-   beneath them, the page margins, and the 51px gutter between the columns — so
-   whatever goes there is not a picture, it is a wash leaking around the edges
-   of a table of figures. The close reads better as clean cream.
-
-   The plate is feathered by a radial in the mask rather than trimmed by a band
-   across the section. A rectangular crop of a halftone ends on a hard edge of
-   dots, which is what made this read as a smudge behind the heading instead of
-   as a picture; a radial lets the subject stay whole and dissolve into the
-   paper, and it also keeps the ink off the two text columns rather than merely
-   under them. */
-.cf::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  opacity: 0.19;
-  /* Set by the scroll layer (`landing-scroll`) so the plate on this
-     pseudo-element drifts a little slower than the page. `translate` rather
-     than `transform`, because nothing else here uses either and a bare
-     property cannot be clobbered by a rule that wants to rotate something. */
-  translate: 0 var(--cf-art-y, 0px);
-  filter: invert(1) grayscale(1);
-  mix-blend-mode: multiply;
-  background-image: url("/charto-feature-orb.png");
-  background-repeat: no-repeat;
-  /* The orb is a PLUME — a disc, the column under it, and the billow it rose
-     out of — and it only means that if all three are on the page. It used to
-     be hung twice as large and half off the right edge, with the feather
-     centred on the image's own right border rather than on the subject, which
-     left a disc cut in half above a line that stopped in mid-air: a lollipop.
-     Smaller and whole beats larger and cropped for a shape whose whole
-     argument is what happens underneath it.
-     Sized so the entire plume clears the sentence below it: at 560px the
-     artwork stands 373px tall and the last of the smoke dissolves above the
-     line, rather than laying a halftone under a 13px sentence. */
-  background-position: right -6px top -14px;
-  background-size: min(560px, 42vw) auto;
-  /* Anchored to the right edge and to the bottom in PIXELS, not per cent: the
-     section's height changes with every copy edit, and a percentage centre
-     would slide the feather off its own subject the moment a line wrapped.
-     The centre sits on the PLUME's axis (about 250px in from the right, not on
-     the image's edge) and reaches far enough down to carry the smoke. */
-  -webkit-mask-image:
-    radial-gradient(300px 250px at calc(100% - 250px) 178px, #000 0%, rgba(0, 0, 0, 0.72) 54%, transparent 86%);
-  mask-image:
-    radial-gradient(300px 250px at calc(100% - 250px) 178px, #000 0%, rgba(0, 0, 0, 0.72) 54%, transparent 86%);
+  /* White, untextured: the page is black and white, and colour lives only
+     inside the components. The cream ground, the dot grain and the halftone
+     plates that used to sit here are gone with that decision. */
+  background: #fff;
 }
 
 /* The content rides above all three. */

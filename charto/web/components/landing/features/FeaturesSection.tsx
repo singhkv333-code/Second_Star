@@ -16,7 +16,7 @@
  *
  * The order is the product's own, from the chart outward:
  *
- *   01  STRUCTURE     what the detectors found      ── the anchor, largest slot
+ *   01  (moved out: the OneChart and TradeSentence sections above)
  *   02  WORKSPACE     the room it all happens in    ── figures, full measure
  *   03  CONTEXT       every timeframe at once       ┐ paired: both widen the
  *   04  REACH         the whole universe            ┘ question past this chart
@@ -45,7 +45,6 @@ import {
   DEMO_SCREEN,
   DEMO_WORKSPACE_FIGURES,
 } from "./feature-data";
-import { FeatureDemo } from "./feature-demo";
 import { FigureRow } from "./feature-figures";
 import {
   AlertPanel,
@@ -83,35 +82,13 @@ export function FeaturesSection(): React.ReactElement {
   return (
     <section id="features" className="cf">
       <div className="pl-shell">
-        <div className="pl-heading" data-reveal>
-          <h2>
-            Control the chart
-            <br />
-            <em>with words.</em>
-          </h2>
-        </div>
-
-        {/* ── 01 · the anchor ─────────────────────────────────────────────
-            Copy left, product right, and the product is the larger column: the
-            claim is about what is IN the panel, so the panel has to be legible
-            at a glance rather than illustrative. */}
-        <article className="cf-story cf-wide cf-structure" data-reveal>
-          <FeatureCopy title={<>Find the structure</>}>
-            Patterns, levels, and key zones drawn automatically.
-          </FeatureCopy>
-
-          <div className="cf-visual">
-            <FeatureDemo />
-          </div>
-        </article>
-
         {/* ── 02 · the first figure row ───────────────────────────────────
             The one claim in the section that a pane cannot make: it is about
             how much fits on screen AT ONCE, and a four-pane workspace shrunk
             into a landing card demonstrates the opposite. Told as drawings
             instead — the app's own 40-unit tiles — one per noun in the
             sentence above them. */}
-        <article className="cf-story cf-wide cf-figs cf-plate cf-plate-orbit">
+        <article className="cf-story cf-wide cf-figs">
           <FeatureCopy reveal title={<>A complete trading workspace</>}>
             Indicators, layouts, fundamentals, and multi-chart views.
           </FeatureCopy>

@@ -1,0 +1,89 @@
+/*
+ * paper.css — the pivotnow.in ground, as a switchable layer.
+ *
+ * Cream paper with a fine dot grain, and the old site's dithered space
+ * objects (the orb, the ringed planets, the cloud world) set into the light
+ * sections, inverted to ink and multiplied into the paper. Everything here is
+ * scoped to `.pivot-landing[data-bg="paper"]`: flip `PAPER` off in
+ * PivotLanding.tsx (or drop this file's import) and the page is exactly the
+ * white one again. The dark sections — tour, honest, closing — are untouched.
+ *
+ * Ground, grain and orb treatment are the values from the old features band
+ * (git: components/landing/features/Features.css, `.cf`).
+ */
+
+.pivot-landing[data-bg="paper"] {
+  --paper: #f1eee5;
+  --paper-hi: #f8f6f0;
+  --paper-card: #fbfaf6;
+  --paper-hair: rgba(17, 19, 18, 0.1);
+  background:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='6' height='6'><rect width='1' height='1' fill='%23111312' opacity='.22'/><rect x='3' y='3' width='1' height='1' fill='%23111312' opacity='.22'/></svg>") 0 0 / 6px 6px,
+    var(--paper);
+}
+
+/* the light sections let the paper through */
+.pivot-landing[data-bg="paper"] :is(.fg, .pt, .gl, .ws, .pl-faq2) { background: transparent; }
+
+/* light washes where the paper meets black, as the old band had */
+.pivot-landing[data-bg="paper"] .fg {
+  background:
+    radial-gradient(118% 52% at 82% -4%, rgba(248, 245, 238, 0.92), rgba(238, 234, 224, 0) 62%);
+}
+.pivot-landing[data-bg="paper"] .pl-faq2 {
+  background:
+    radial-gradient(90% 60% at 6% 104%, rgba(246, 243, 235, 0.8), rgba(238, 234, 224, 0) 60%);
+}
+
+/* ── the space objects ─────────────────────────────────────────────────────
+   One per section, behind the heading's empty right side, feathered by a
+   radial mask so none has an edge. invert + multiply turns white-on-black
+   art into ink on paper with the black sky dropping out. */
+.pivot-landing[data-bg="paper"] :is(.pt, .gl, .ws) { position: relative; isolation: isolate; }
+.pivot-landing[data-bg="paper"] :is(.pt, .gl, .ws) > .v3-shell { position: relative; z-index: 1; }
+.pivot-landing[data-bg="paper"] :is(.pt, .gl, .ws)::before {
+  content: ""; position: absolute; z-index: 0; pointer-events: none;
+  background-repeat: no-repeat; background-size: contain; background-position: center;
+  filter: invert(1) grayscale(1); mix-blend-mode: multiply;
+  -webkit-mask-image: radial-gradient(closest-side, #000 0%, rgba(0, 0, 0, 0.72) 58%, transparent 100%);
+  mask-image: radial-gradient(closest-side, #000 0%, rgba(0, 0, 0, 0.72) 58%, transparent 100%);
+}
+/* the orb on its beam, where it sat on the old site: beside the widgets */
+.pivot-landing[data-bg="paper"] .gl::before {
+  background-image: url("/charto-feature-orb.png");
+  width: min(440px, 34vw); aspect-ratio: 916 / 612;
+  top: 28px; right: max(96px, calc((100% - 1240px) / 2 + 150px));
+  opacity: 0.26;
+}
+/* the ringed planets, low behind the pattern heading */
+.pivot-landing[data-bg="paper"] .pt::before {
+  background-image: url("/pivot-dither-hero.png");
+  width: min(760px, 56vw); aspect-ratio: 3 / 2;
+  top: calc(var(--sec) - 250px); right: max(-60px, calc((100% - 1240px) / 2 - 140px));
+  opacity: 0.3;
+}
+/* the cloud world, behind the desk heading */
+.pivot-landing[data-bg="paper"] .ws::before {
+  background-image: url("/pivot-dither-footer.png");
+  width: min(640px, 48vw); aspect-ratio: 3 / 2;
+  top: -40px; right: max(-60px, calc((100% - 1240px) / 2 - 100px));
+  opacity: 0.26;
+}
+
+/* ── components on paper ───────────────────────────────────────────────────
+   Grey-on-white surfaces become white-on-cream: tiles and cards lift off the
+   paper by a shade and a hairline instead of sinking into it. */
+.pivot-landing[data-bg="paper"] .v3 {
+  --tile: var(--paper-hi);
+  --card: var(--paper-card);
+  --well: #f3f0e8;
+  --hair: var(--paper-hair);
+}
+.pivot-landing[data-bg="paper"] .gl-tile { box-shadow: inset 0 0 0 1px var(--paper-hair); }
+.pivot-landing[data-bg="paper"] .gl-nav button { background: var(--paper-card); box-shadow: inset 0 0 0 1px var(--paper-hair); }
+.pivot-landing[data-bg="paper"] :is(.ws-fog, .ws-bone) { background: var(--paper-card); box-shadow: inset 0 0 0 1px var(--paper-hair); }
+.pivot-landing[data-bg="paper"] .ws-win-bar { background: var(--paper-hi); }
+.pivot-landing[data-bg="paper"] .mw-light { box-shadow: 0 0 0 1px rgba(17, 19, 18, 0.12), 0 40px 80px -40px rgba(60, 48, 20, 0.35); }
+
+/* the nav's light glass takes the paper's tint */
+.pivot-landing[data-bg="paper"] .pl-nav.light.scrolled { background: rgba(241, 238, 229, 0.88); border-bottom-color: var(--paper-hair); }

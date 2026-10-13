@@ -3,6 +3,7 @@ import "./globals.css";
 import "@/components/landing/PivotLanding.css";
 import "@/components/landing/film/ProductFilm.css";
 import "@/components/landing/features/Features.css";
+import "@/components/landing/v3/v3.css";
 import { Toaster } from "@/components/ui/sonner";
 import { AppBootstrap } from "@/components/AppBootstrap";
 
@@ -34,6 +35,8 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        <script src="/workspace-theme.js?v=5" data-surface="shell" />
+        <link rel="stylesheet" href="/workspace-theme.css?v=5" />
         {/* Load Inter / Newsreader via explicit <link> tags. globals.css also
             @imports the same families, but a CSS @import to a remote URL is
             unreliable under Next + Tailwind/PostCSS (it can be reordered or
@@ -51,21 +54,7 @@ export default function RootLayout({
           href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;550;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400;1,6..72,500&display=swap"
           rel="stylesheet"
         />
-        {/* charto: apply the theme BEFORE first paint. Without this the page
-            paints light, then flips to dark a frame later — a white flash
-            every time you open a company from a dark chart. Same source of
-            truth as view.tsx: ?theme= from the chart, else the remembered
-            choice, else the OS. */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html:
-              "try{var u=new URLSearchParams(location.search).get('theme');" +
-              "var m=(u==='dark'||u==='light')?u:localStorage.getItem('charto_theme');" +
-              "if(m!=='dark'&&m!=='light')m=matchMedia('(prefers-color-scheme: dark)')" +
-              ".matches?'dark':'light';" +
-              "document.documentElement.classList.toggle('dark',m==='dark');}catch(e){}",
-          }}
-        />
+
       </head>
       <body className="min-h-screen bg-background text-foreground antialiased">
         <AppBootstrap>{children}</AppBootstrap>
