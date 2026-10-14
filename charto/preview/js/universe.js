@@ -184,6 +184,17 @@ const Universe = (() => {
    *  it; the in-chart picker does not). `cold` marks a symbol whose bars are
    *  still in the blob store — it has no price to show and saying "~6s" is
    *  more use than an em dash. */
+  /* A company with no logo anywhere keeps its initial, tinted in one of the
+   * round instrument badges' colours and chosen by the symbol, so it is the
+   * same colour on every open. Indices, futures and funds get real badges
+   * from /symbols (data/instrument_marks.py); this is only the brandless rest. */
+  const MONO = ["#2962ff", "#0f7b6c", "#b45309", "#7c3aed", "#db2777", "#0891b2", "#4d7c0f", "#475569"];
+  function monoHue(sym) {
+    let h = 0;
+    for (const ch of String(sym)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    return MONO[h % MONO.length];
+  }
+
   function rowHTML(sym, { current, link, cold, companyBase, theme } = {}) {
     const nm = (data && data.names[sym]) || "";
     const src = logo(sym);
@@ -193,7 +204,7 @@ const Universe = (() => {
         (src ? (warmLogo(src), `<img class="ir-logo" src="${src}" alt=""
                  loading="lazy" decoding="async"
                  onerror="this.classList.add('ir-dead')"/>`)
-             : `<span class="ir-logo ir-blank">${sym.slice(0, 1)}</span>`) +
+             : `<span class="ir-logo ir-blank" style="--mh:${monoHue(sym)}">${sym.replace(/^[A-Z]+:/, "").slice(0, 1)}</span>`) +
         `<span class="ir-copy">` +
           `<span class="ir-tick">${shown(sym)}<span class="ir-ex">${venue(sym)}</span></span>` +
           (nm && nm !== sym ? `<span class="ir-name">${nm}</span>` : "") +

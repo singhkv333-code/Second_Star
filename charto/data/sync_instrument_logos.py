@@ -205,7 +205,8 @@ def fx_svg(base: str, quote: str, flags: dict[str, str]) -> str:
 
 
 # ── indices / commodities: a tinted badge with a glyph ────────────
-def badge_svg(glyph: str, tint: str, label: str) -> str:
+def badge_svg(glyph: str, tint: str, label: str,
+              glyphs: dict[str, str] | None = None) -> str:
     """A filled disc in the instrument's tint, with a stroked glyph on top.
 
     The disc carries the colour so the mark holds its identity at 16px, where
@@ -221,7 +222,7 @@ def badge_svg(glyph: str, tint: str, label: str) -> str:
         f'<circle cx="20" cy="20" r="20" fill="{tint}"/>'
         '<g transform="translate(8,8)" fill="none" stroke="#fff" '
         'stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">'
-        f'<path d="{GLYPH[glyph]}"/></g></svg>')
+        f'<path d="{(glyphs or GLYPH)[glyph]}"/></g></svg>')
 
 
 def main(check_only: bool = False) -> int:

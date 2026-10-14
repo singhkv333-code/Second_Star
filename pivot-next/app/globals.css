@@ -2816,7 +2816,8 @@ body:has(.app-shell-root) {
 .cas-instrument-lead { display: flex; align-items: center; gap: 11px; min-width: 0; }
 .cas-instrument-lead > img, .cas-instrument-lead > div { flex: none; width: 34px !important; height: 34px !important; }
 .cas-instrument-lead > img { padding: 0 !important; border: 0 !important; border-radius: 0 !important; background: none !important; }
-.cas-instrument-lead > div { background: none !important; color: var(--text-tertiary) !important; font-size: 15px !important; }
+.cas-instrument-lead > div { border-radius: 50% !important; background: color-mix(in srgb, currentColor 14%, transparent) !important; font-size: 14px !important; }
+/* the monogram's colour comes from CompanyLogo's `hue` (monogramHue in CompanyAutosuggest) */
 .cas-instrument-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .cas-instrument-symbol { display: flex; align-items: center; gap: 7px; font-size: 14px; font-weight: 600; letter-spacing: -.012em; color: var(--text-primary); }
 .cas-instrument-symbol small { flex: none; padding: 2px 5px; border-radius: 4px; background: var(--bg-elevated); color: var(--text-tertiary); font-size: 9.5px; font-weight: 600; letter-spacing: .04em; }

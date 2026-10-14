@@ -62,6 +62,7 @@ sys.modules.setdefault("dataserver", sys.modules[__name__])
 import company_scores   # sibling module: Altman / Ohlson / Graham / DuPont
 import depth as _depth   # sibling module: order-book snapshots for the depth widget
 import options as _options   # sibling module: option chains (NSE F&O file + live Kite quotes)
+import instrument_marks as _marks   # sibling module: a logo for every listing without one
 import footprint as _fp   # sibling module: buy/sell volume at price per bar (crypto tape)
 import calfeed as _calfeed     # sibling module: the Calendar widget's NSE + macro feeds
 import webfeeds as _webfeeds   # sibling module: news feeds + frame checks for widgets
@@ -19183,6 +19184,9 @@ class Handler(BaseHTTPRequestHandler):
                                         "meta": meta,
                                         "hydrated": sorted(have),
                                         "names": names, "long": longs,
+                # every listing without a stored logo gets one from what it
+                # is: a future its underlying's, an index its venue + theme
+                logos = _marks.fill(logos, names, master)
                                         "alias": alias, "logos": logos})
             if u.path == "/bars":
                 interval = q.get("interval", "5m")

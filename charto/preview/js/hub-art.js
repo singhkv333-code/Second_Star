@@ -217,6 +217,30 @@ const HubArt = (() => {
       return frame(id, bar(20, 20, 280, 140, .04, 10),
         `<g transform="rotate(-90 104 90)">${arcs}</g>` + bar(86, 84, 36, 7, .7) + bar(92, 96, 24, 5, .25) + legend);
     },
+    // a backtest: the verdict leads, the equity curve climbs past a dashed
+    // buy-and-hold line, trades sit on the curve, the drawdown hangs below
+    strategy(id) {
+      const r = rng(21), eq = [], bh = [], dd = [];
+      let e = 126, b = 124, peak = e;
+      for (let i = 0, x = 34; x <= 286; i++, x += 12) {
+        e -= (r() - .22) * 12; b -= (r() - .4) * 6;
+        e = Math.max(44, Math.min(130, e)); b = Math.max(70, Math.min(130, b));
+        peak = Math.min(peak, e);
+        eq.push([x, e]); bh.push([x, b]); dd.push([x, Math.min(168, 146 + (e - peak) * 1.1)]);
+      }
+      const trades = [3, 8, 13, 18].map((i) => eq[i]).filter(Boolean).map(([x, y], i) =>
+        `<circle cx="${x}" cy="${y}" r="3.4" fill="var(--background)" stroke="${i % 2 ? "var(--down)" : "var(--up)"}" stroke-width="1.6"/>`).join("");
+      return frame(id, candleSvg(candles(9, 26, 0, 320, 86, 46), .45),
+        `<rect x="34" y="16" width="62" height="16" rx="8" fill="var(--up)" fill-opacity=".16" stroke="var(--up)" stroke-opacity=".6"/>` +
+        `<circle cx="45" cy="24" r="3" fill="var(--up)"/>` + bar(53, 21.5, 34, 5, .55, 2.5) +
+        bar(232, 21.5, 54, 5, .2, 2.5) +
+        `<path d="${smooth(bh)}" ${stroke(.35, 1.2)} stroke-dasharray="3 3"/>` +
+        `<path d="${smooth(eq)} L${eq[eq.length - 1][0]} 136 L34 136 Z" fill="var(--up)" fill-opacity=".10"/>` +
+        `<path d="${smooth(eq)}" stroke="var(--up)" stroke-width="2" fill="none" stroke-linejoin="round"/>` +
+        trades +
+        `<path d="M34 146 ${dd.map(([x, y]) => `L${x} ${y.toFixed(1)}`).join(" ")} L${dd[dd.length - 1][0]} 146 Z" fill="var(--down)" fill-opacity=".28"/>` +
+        bar(34, 145.5, 252, 1, .25, 0));
+    },
     calendar(id) {
       const cells = [];
       for (let r = 0; r < 4; r++) for (let c = 0; c < 7; c++) {
@@ -228,6 +252,9 @@ const HubArt = (() => {
         bar(50, 30, 90, 9, .7) + bar(230, 30, 40, 9, .2) + cells.join(""));
     },
   };
+
+  // the chart widget registers as "main", its instance id (dock.js CHART)
+  ART.main = ART.chart;
 
   /** The picture for a widget type, or a quiet blank plate. */
   function svg(type) {

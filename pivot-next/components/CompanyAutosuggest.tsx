@@ -30,6 +30,16 @@ import { CompanyLogo } from "@/components/CompanyLogo";
 import { VoiceInputButton } from "@/components/VoiceInputButton";
 import { Search, X } from "lucide-react";
 
+/** A company with no logo anywhere keeps its initial, in one of the round
+ *  instrument badges' tints, picked from the symbol so it is the same colour
+ *  on every open. Indices, futures and funds get real badges from /symbols. */
+const MONOGRAM_HUES = ["#2962ff", "#0f7b6c", "#b45309", "#7c3aed", "#db2777", "#0891b2", "#4d7c0f", "#475569"];
+function monogramHue(symbol: string): string {
+  let h = 0;
+  for (const ch of symbol) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return MONOGRAM_HUES[h % MONOGRAM_HUES.length]!;
+}
+
 interface CompanyAutosuggestProps {
   placeholder?: string;
   onSelect: (symbol: string, name: string) => void;
@@ -419,7 +429,7 @@ function DropdownRow({
       className={`cas-instrument-row${highlighted ? " active" : ""}`}
     >
       <span className="cas-instrument-lead">
-        <CompanyLogo logoUrl={result.logo_url} name={result.name} symbol={result.symbol} size={34} />
+        <CompanyLogo logoUrl={result.logo_url} name={result.name} symbol={result.symbol} hue={monogramHue(result.symbol)} size={34} />
         <span className="cas-instrument-copy">
           <span className="cas-instrument-symbol">{result.symbol}<small>{result.exchange || result.searchCategory || "Stocks"}</small></span>
           {result.name !== result.symbol && <span className="cas-instrument-name">{result.name}</span>}
