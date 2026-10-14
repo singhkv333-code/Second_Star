@@ -1781,6 +1781,8 @@ function MoversCard({ direction }: { direction: "gainers" | "losers" }): React.R
       Icon={Icon}
       title={label}
       bodyClassName="min-h-0"
+      actionLabel="Markets"
+      onAction={() => { window.location.hash = "#markets"; }}
     >
       {state.kind === "loading" ? (
         <div className="flex h-full flex-col" style={{ gap: 6 }}>

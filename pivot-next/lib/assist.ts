@@ -14,7 +14,7 @@ import { chatStreamUrl } from "@/lib/chatStream";
 import type { ScreenResultsPayload } from "@/components/chat/ScreenResultsCard";
 
 export type AssistPage =
-  | "home" | "portfolio" | "screener" | "agents" | "brokers" | "stock" | "chat";
+  | "home" | "markets" | "portfolio" | "screener" | "agents" | "brokers" | "stock" | "chat";
 
 export type AssistEvent =
   | { type: "start" }

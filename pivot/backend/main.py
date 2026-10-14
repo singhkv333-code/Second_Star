@@ -44,6 +44,7 @@ from backend.routers.webhooks import router as webhooks_router
 from backend.routers.run_stream import router as run_stream_router
 from backend.routers.scheduled import router as scheduled_router
 from backend.routers.markets import router as markets_router
+from backend.routers.markets_explore import router as markets_explore_router
 from backend.routers.conversations import router as conversations_router
 from backend.routers.backtest_alias import router as backtest_alias_router
 from backend.routers.financials import router as financials_router
@@ -157,6 +158,7 @@ app.include_router(backtest_alias_router)
 # /api/workflows/{id} route in workflows_router.
 app.include_router(scheduled_router)
 app.include_router(markets_router)
+app.include_router(markets_explore_router)
 app.include_router(quotes_router)
 app.include_router(portfolio_perf_router)
 app.include_router(paper_router)

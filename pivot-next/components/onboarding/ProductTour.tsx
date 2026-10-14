@@ -33,7 +33,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-type TabKey = "home" | "chat" | "portfolio" | "agents" | "screener" | "brokers" | "chart";
+type TabKey = "home" | "markets" | "chat" | "portfolio" | "agents" | "screener" | "brokers" | "chart";
 
 /** Bump when the flow changes enough that people should see it again. */
 const DONE_KEY = "pivot-tour-v2";

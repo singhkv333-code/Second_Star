@@ -51,7 +51,7 @@ HISTORY_MESSAGES = 8
 SECTION_CHARS = 1800
 CLIENT_CHARS = 6000
 
-PAGES = ("home", "portfolio", "screener", "agents", "brokers", "stock", "chat")
+PAGES = ("home", "markets", "portfolio", "screener", "agents", "brokers", "stock", "chat")
 
 # Read-only tools for what the page block lacks, per page. Nothing here
 # places, arms or deletes anything: acting stays in the full chat, where drafts
@@ -68,6 +68,8 @@ PAGE_TOOLS: dict[str, tuple[str, ...]] = {
     "brokers": ("get_portfolio", "get_market_data"),
     "screener": ("screen_fundamentals", "scan_technicals", "get_market_data",
                  "fetch_fundamentals"),
+    "markets": ("scan_technicals", "screen_fundamentals", "get_market_data",
+                "fetch_fundamentals", "get_symbol_news"),
     "stock": ("get_market_data", "fetch_fundamentals", "get_company_research",
               "get_symbol_news", "screen_fundamentals"),
 }
@@ -106,6 +108,9 @@ APP_MAP = """\
 ## App map
 - [Home](/#home): indices, paper portfolio summary, watchlist, top movers, \
 prebuilt strategies.
+- [Markets](/#markets): the 500 largest stocks by sector, breadth, movers, \
+value and trend lists, head-to-head battles, indices, commodities, crypto, \
+currencies, market news and the events calendar.
 - [Chart](/#chart): live charts, indicators, drawings, patterns, chart chat.
 - [Chat](/#chat): the full research chat, for deep analysis, building \
 strategies and backtests.
@@ -150,6 +155,12 @@ _SOURCES: dict[str, list[tuple[str, str, dict]]] = {
         ("Portfolio summary", "get_portfolio", {"view": "summary"}),
         ("Top gainers (NIFTY 50)", "get_top_movers", {"direction": "gainers", "limit": 5}),
         ("Top losers (NIFTY 50)", "get_top_movers", {"direction": "losers", "limit": 5}),
+    ],
+    "markets": [
+        ("NIFTY 50", "get_index_level", {"index": "NIFTY50"}),
+        ("SENSEX", "get_index_level", {"index": "SENSEX"}),
+        ("BANK NIFTY", "get_index_level", {"index": "BANKNIFTY"}),
+        ("NIFTY MIDCAP 100", "get_index_level", {"index": "NIFTYMIDCAP"}),
     ],
     "portfolio": [
         ("Portfolio summary", "get_portfolio", {"view": "summary"}),
@@ -300,7 +311,7 @@ def _tool_output(r: Any) -> str:
 
 def _page_title(page: str, symbol: str | None) -> str:
     return {
-        "home": "Home", "portfolio": "Portfolio", "screener": "Screener",
+        "home": "Home", "markets": "Markets", "portfolio": "Portfolio", "screener": "Screener",
         "agents": "Strategy", "brokers": "Brokers", "chat": "Chat",
         "stock": f"Company page for {symbol}",
     }.get(page, "Home")
