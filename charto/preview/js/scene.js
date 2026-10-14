@@ -1511,6 +1511,10 @@ const Scene = (() => {
             // because the panel addresses items by key and never sees the
             // annotation itself.
             detail: a.detail || "", strength: a.strength || "",
+            // the interval it was drawn on: the call's own (stamped by the
+            // server as `chart`), else the one its source computed on
+            interval: a.interval || (a.chart && a.chart.interval)
+              || (a.source && a.source.interval) || "",
             hidden: !!a.hidden, legs: 1,
           });
         }

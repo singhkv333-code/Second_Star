@@ -5655,6 +5655,7 @@ body.two-columns .readout .row { display: none; }
   transition: opacity var(--dur) ease; user-select: text;
 }
 .turn.assistant:hover .turn-meta { opacity: 1; }
+.turn-meta .turn-disc { order: 99; margin-left: auto; white-space: nowrap; }
 /* The action buttons in a footnote row, on Pivot's geometry: a 28px square
    target holding a 14px glyph, quiet by default and warming to full ink on a
    surface when reached. Both turns wear the same button — a prompt's Retry
@@ -6751,7 +6752,7 @@ body.two-columns .readout .row { display: none; }
    at 10px tabular with room to spare, so the column is a straight rule down
    the right of the list and the eye can run it. */
 .lyr-row {
-  display: grid; grid-template-columns: 26px 18px minmax(0, 1fr) auto 56px;
+  display: grid; grid-template-columns: 26px 18px minmax(0, 1fr) auto 30px 50px;
   align-items: center; column-gap: 6px;
   margin: 1px 4px; padding: 0 4px 0 0; min-height: 32px;
   border-radius: 7px; color: var(--foreground);
@@ -6796,8 +6797,18 @@ body.two-columns .readout .row { display: none; }
    than printing an em-dash on two rows in three — a column of placeholders is
    noise pretending to be data. The full window (from → to) is the cell's title
    and is spelled out in the row's detail. */
+/* The interval every row was drawn on — always shown, because a level found on
+   the 5-minute and one found on the weekly are different claims at a glance. */
+.lyr-iv {
+  grid-column: 5; grid-row: 1; justify-self: center;
+  padding: 1px 5px; border-radius: 4px;
+  background: color-mix(in srgb, var(--foreground) 8%, transparent);
+  font-size: 10px; font-weight: var(--weight-semi); color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+  transition: opacity var(--dur-fast);
+}
 .lyr-date {
-  grid-column: 5; grid-row: 1; justify-self: end;
+  grid-column: 6; grid-row: 1; justify-self: end;
   font-size: 10px; color: var(--faint);
   font-variant-numeric: tabular-nums; white-space: nowrap;
   transition: opacity var(--dur-fast);
@@ -6808,13 +6819,14 @@ body.two-columns .readout .row { display: none; }
    with the icons. Spanning both tracks, so the icons have the full right edge
    to sit on rather than being squeezed into the 56px the date needs. */
 .lyr-actions {
-  grid-column: 4 / 6; grid-row: 1; justify-self: end;
+  grid-column: 4 / 7; grid-row: 1; justify-self: end;
   display: flex; align-items: center; gap: 1px;
   opacity: 0; pointer-events: none;
   transition: opacity var(--dur-fast);
 }
 .lyr-row:hover .lyr-meta, .lyr-row:focus-within .lyr-meta,
-.lyr-row:hover .lyr-date, .lyr-row:focus-within .lyr-date { opacity: 0; }
+.lyr-row:hover .lyr-date, .lyr-row:focus-within .lyr-date,
+.lyr-row:hover .lyr-iv, .lyr-row:focus-within .lyr-iv { opacity: 0; }
 .lyr-row:hover .lyr-actions, .lyr-row:focus-within .lyr-actions { opacity: 1; pointer-events: auto; }
 .lyr-act {
   width: 24px; height: 24px; padding: 0; border: 0; border-radius: 5px;
@@ -12131,8 +12143,8 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/chartsettings.js?v=10"></script>
   <script src="./js/geometry.js?v=25"></script>
   <script src="./js/tools.js?v=23"></script>
-  <script src="./js/drawings.js?v=45"></script>
-  <script src="./js/scene.js?v=53"></script>
+  <script src="./js/drawings.js?v=46"></script>
+  <script src="./js/scene.js?v=54"></script>
   <script src="./js/chartsize.js?v=2"></script>
   <script src="./js/compare.js?v=17"></script>
   <script src="./js/panes.js?v=38"></script>
@@ -12158,12 +12170,12 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- before chat.js, which asks it to render the panels a tool prints as the
        reply streams in. It reads Sym (store.js) for the instrument's currency
        and grouping, and nothing else — a renderer with no state of its own -->
-  <script src="./js/cards.js?v=72"></script>
-  <script src="./js/layers-panel.js?v=12"></script>
+  <script src="./js/cards.js?v=73"></script>
+  <script src="./js/layers-panel.js?v=13"></script>
   <script src="./js/model-logos.js?v=2"></script>
   <script src="./js/models.js?v=4"></script>
   <script src="./js/pricehover.js?v=1"></script>
-  <script src="./js/chat.js?v=193"></script>
+  <script src="./js/chat.js?v=194"></script>
   <script src="./js/codeview.js?v=6"></script>
   <script src="./js/journal.js?v=9"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it

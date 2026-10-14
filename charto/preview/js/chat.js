@@ -1625,8 +1625,17 @@
   }
 
   /** Fill an assistant turn with the final answer + its provenance footer. */
+  /* The "analysis, not advice" line is the app's to say, once, in the
+   * footnote row under every answer (below). Written into the reply as well
+   * it was a closing paragraph repeating that footnote, so a sentence or
+   * paragraph that is ONLY the disclaimer is taken out of the finished text.
+   * A sentence that carries anything else is left exactly as written. */
+  const DISCLAIMER = /(^|\n\n|(?<=[.!?])[ \t]+)(?:\*{0,2})(?:this is |that is |all of this is |it is |the above is )?(?:(?:chart|technical|historical|descriptive) )?analysis(?: only)?,? (?:and )?not (?:financial |investment )?(?:advice|a recommendation)(?: to [^.\n]*)?\.?(?:\*{0,2})(?=\s*$)/i;
+  const stripDisclaimer = (t) => String(t || "").replace(DISCLAIMER, "").replace(/\s+$/, "");
+
   function finishTurn(turn, text, bits, acts, cards, sources) {
     endWait(turn);
+    text = stripDisclaimer(text);
     // Only on a repaint: a live turn already has its panels, put there by the
     // stream. Painting them again here would double every card in the thread.
     // Registration, not mounting — and guarded on the REGISTER, not on the
@@ -1661,6 +1670,12 @@
       .filter((b) => b && !TOKENS_RE.test(String(b).trim()))
       .join("  ·  ");
     meta.append(copy, label);
+    // the standing disclaimer, said by the app under every answer rather
+    // than by the model at the end of each one (stripDisclaimer above)
+    const disc = document.createElement("span");
+    disc.className = "turn-disc";
+    disc.textContent = "Analysis, not advice";
+    meta.append(disc);
     // A turn that rearranged the desk can put it back, in one click.
     if (turn.__wsKey && typeof AgentWS !== "undefined" && AgentWS.canUndo(turn.__wsKey)) {
       const u = document.createElement("button");

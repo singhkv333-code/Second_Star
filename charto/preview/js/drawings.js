@@ -12,6 +12,16 @@
  */
 "use strict";
 
+/** Seconds per bar → the chart header's interval label (5m, 1h, D, W, M). */
+function ivLabel(sec) {
+  const n = Number(sec) || 0;
+  if (n >= 2592000) return "M";
+  if (n >= 604800) return "W";
+  if (n >= 86400) return "D";
+  if (n >= 3600) return `${Math.round(n / 3600)}h`;
+  return n ? `${Math.round(n / 60)}m` : "";
+}
+
 const Drawings = (() => {
   const STORE_KEY = "charto_drawings_v2_" +
     ((new URLSearchParams(location.search).get("symbol") || "RELIANCE").toUpperCase());
@@ -1037,6 +1047,10 @@ const Drawings = (() => {
       const spec = Tools.SPECS[d.type];
       d.id = newId();
       d.ref = "D" + (++refSeq);
+      // the interval it was drawn on, for the Layers panel: a trendline
+      // through 5-minute swings and one through daily swings are not the
+      // same claim, though both render on every interval
+      if (!d.iv) d.iv = ivLabel(env.getIntervalSec());
       state.drawings.push(d);
       state.selId = d.id;
       save(); logUse(d.type);
@@ -1312,7 +1326,7 @@ const Drawings = (() => {
        *  chat already addresses shapes by, so a row here and a mention in the
        *  conversation name the same object. */
       inventory: () => state.drawings.map((d) => ({
-        key: d.id, ref: d.ref || "", kind: d.type, pane: d.pane || "price",
+        key: d.id, ref: d.ref || "", kind: d.type, pane: d.pane || "price", interval: d.iv || "",
         hidden: !!d.hidden, locked: !!d.locked,
         label: d.text || (Tools.SPECS[d.type] && Tools.SPECS[d.type].label) || d.type,
       })),

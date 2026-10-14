@@ -249,7 +249,7 @@ window.LayersPanel = (() => {
           group: o.group,
           icon: o.icon,
           meta: KINDS[i.kind] || title(i.kind),
-          interval: "",
+          interval: i.interval,
           // The annotation's own detail when it has one — for a level that
           // is its held/broke record, which used to be crammed into the chart
           // label where six of them stacked down the price scale and asked
@@ -285,7 +285,7 @@ window.LayersPanel = (() => {
       icon: (Icons.paths && Icons.paths[d.kind]) ? d.kind : "brush",
       meta: d.ref || "",
       status: d.locked ? "Locked" : "",
-      interval: "",
+      interval: d.interval,
       detail: `Placed by you${d.locked ? ", and locked against edits" : ""}.`,
       live: !d.hidden,
       removable: true,
@@ -510,6 +510,11 @@ window.LayersPanel = (() => {
 
   /* ══ rendering ════════════════════════════════════════════════════════ */
 
+  /** The interval as the chart header writes it: 5m, 1h, D, W, M. Rows
+   *  arrive with the server's ids (1d, 1w, 1mo) or already in that form. */
+  const IV_TEXT = { "1d": "D", "1w": "W", "1mo": "M", daily: "D", weekly: "W", monthly: "M" };
+  const ivText = (iv) => { const v = String(iv || "").trim(); return IV_TEXT[v.toLowerCase()] || v; };
+
   function rowHtml(r) {
     const open = expanded.has(r.rowId);
     const date = r.from
@@ -523,6 +528,7 @@ window.LayersPanel = (() => {
       <span class="lyr-glyph" aria-hidden="true">${icon(r.icon)}</span>
       <span class="lyr-name" title="${esc(r.name)}">${esc(r.name)}</span>
       <span class="lyr-meta">${esc(r.meta)}</span>
+      <span class="lyr-iv" title="${r.interval === "MTF" ? "Combined from several timeframes" : `Drawn on the ${esc(ivText(r.interval) || "unrecorded")} chart`}">${esc(ivText(r.interval) || "–")}</span>
       <span class="lyr-date"${date ? ` title="${esc(date)}"` : ""}>${esc(dayOf(r.to || r.from))}</span>
       <span class="lyr-actions">
         ${r.species === "pattern" ? `<button class="lyr-act${r.pinned ? " active" : ""}" type="button" data-lyr-pin="${esc(r.rowId)}" aria-label="${r.pinned ? "Unpin" : "Pin"}" title="${r.pinned ? "Unpin" : "Pin"}">${icon("pin")}</button>` : ""}
@@ -533,7 +539,7 @@ window.LayersPanel = (() => {
         <div class="lyr-detail-grid">
           <span>State</span><strong>${esc(state)}</strong>
           ${r.status ? `<span>Reading</span><strong>${esc(r.status)}</strong>` : ""}
-          ${r.interval ? `<span>Interval</span><strong>${esc(r.interval)}</strong>` : ""}
+          <span>Interval</span><strong>${esc(ivText(r.interval) || "Not recorded")}</strong>
           ${date ? `<span>Window</span><strong>${esc(date)}</strong>` : ""}
         </div>
         <p class="lyr-note">${esc(r.detail)}</p>

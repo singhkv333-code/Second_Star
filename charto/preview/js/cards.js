@@ -2360,8 +2360,10 @@ const Cards = (() => {
         + withPrice.map((x) => rung(x.cls, x.price, sym, x.label, x.note)).join("")
         + `</div>` : "";
 
-    const gone = (c.unavailable || []).length
-      ? callout(`Not measured: ${(c.unavailable || []).join(" · ")}`) : "";
+    // Timeframes without enough history are counted in the stat row above
+    // ("2 unavailable"). A boxed list of their bar counts
+    // under the table was bookkeeping the reader had no use for.
+    const gone = "";
 
     const momentum = section("Each timeframe", "RSI · MACD · ADX · EMA 50", rows)
       + section("ADX by timeframe", "25 marks a trending phase", adxBars)

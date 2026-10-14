@@ -3322,8 +3322,8 @@ def tool_evaluate_drawing(kind: str = "", points: list | None = None,
         "no sizing, no expectancy in rupees. Lead with the break-even "
         "comparison: a hit rate alone always looks better than it is, and against the "
         "R:R it usually is not. Obey hit_rate_withheld. 'unresolved' trials hit "
-        "neither level inside the horizon — never fold them into wins. Close by "
-        "saying this is historical analysis, not advice.")
+        "neither level inside the horizon — never fold them into wins. It is "
+        "historical analysis, not advice: describe, don't recommend.")
     return res
 
 
@@ -3578,7 +3578,7 @@ def tool_plan_position(entry: float | None = None, stop: float | None = None,
         "put history.hit_rate NEXT TO target-1's breakeven_hit_pct — a hit "
         "rate without that benchmark looks better than it is (within ~8 "
         "points of break-even means nothing: say so). This prices the USER'S stated plan; it "
-        "is analysis, not a recommendation, and must close as such.")}
+        "is analysis, not a recommendation — never word it as one.")}
 
 
 def _logo_map() -> dict[str, str]:
@@ -5370,8 +5370,7 @@ def tool_compare_symbols(symbols: list | None = None, interval: str = "1d",
         "`lost_to` are already correct for negative returns, where ordering "
         "by eye goes wrong; if you write a sentence naming who the subject "
         "finished ahead of, every name in it must come from `beat`. This is "
-        "descriptive comparison, not a ranking of what to buy — close as "
-        "analysis, not advice.")
+        "descriptive comparison, not a ranking of what to buy.")
     return res
 
 
@@ -6239,8 +6238,7 @@ def tool_screen_universe(filters: list | None = None, industry: str = "",
         "Symbols lacking the history a filter needs are excluded, never "
         "defaulted to zero.",
         "This is arithmetic on price and volume, not a view on any company: "
-        "present the rows as a markdown table and close as analysis, not "
-        "advice.",
+        "present the rows as a markdown table.",
     ]
     if not survivors:
         # A screen that finds nothing is an answer. Left unmarked it reads as
@@ -7679,11 +7677,11 @@ _MTF_LADDER = ("5m", "15m", "1h", "4h", "1d", "1w", "1mo")
 # The label an interval wears in a panel. "1d" is what the API calls it and
 # "Daily" is what a person calls it; the ladder is read by people.
 _IV_LABEL = {"1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m", "1h": "1h",
+             "2h": "2h", "4h": "4h",
              "1d": "Daily", "1w": "Weekly", "1mo": "Monthly"}
 
 
 def _rsi_band(v) -> str:
-             "2h": "2h", "4h": "4h",
     if not isinstance(v, (int, float)) or isinstance(v, bool):
         return ""
     return next((w for cut, w in _RSI_BANDS if v >= cut), "oversold")
@@ -8462,11 +8460,6 @@ def _mtf_card(rungs: list[dict], levels: list[dict], price: float,
             **({"unavailable": unavailable} if unavailable else {})}
 
 
-def tool_multi_timeframe(intervals: list | None = None,
-                         lookback_bars: int = 300,
-                         focus: str | None = None,
-                         draw: bool = True, draw_per_side: int = 2) -> dict:
-    """The same four readings on every rung of the ladder, in one call."""
 def _mtf_draw(levels: list[dict], price: float, per_side: int = 2) -> list[dict]:
     """Put the strongest shared zones on the chart, nearest to price first.
 
@@ -8483,7 +8476,8 @@ def _mtf_draw(levels: list[dict], price: float, per_side: int = 2) -> list[dict]
     for i, m in enumerate(sup + res):
         tfs = ", ".join(m.get("intervals") or [])
         label = f"{'Support' if m['role'] == 'support' else 'Resistance'} · {tfs}"
-        _scene_add({"kind": "zone", "id": f"MTF{i}", "price": m["price"],
+        # interval "MTF": several timeframes found it, so it belongs to none
+        _scene_add({"kind": "zone", "id": f"MTF{i}", "price": m["price"], "interval": "MTF",
                     "lo": m["lo"], "hi": m["hi"], "pane": "price",
                     "role": m["role"], "label": label, "owner": "multi_timeframe",
                     "detail": f"Found on {len(m.get('intervals') or [])} timeframe(s): {tfs}",
@@ -8494,6 +8488,11 @@ def _mtf_draw(levels: list[dict], price: float, per_side: int = 2) -> list[dict]
     return out
 
 
+def tool_multi_timeframe(intervals: list | None = None,
+                         lookback_bars: int = 300,
+                         focus: str | None = None,
+                         draw: bool = True, draw_per_side: int = 2) -> dict:
+    """The same four readings on every rung of the ladder, in one call."""
     want = [str(s).lower().strip() for s in (intervals or _MTF_LADDER)]
     want = [s for s in dict.fromkeys(want) if s in _IV_LABEL][:8]
     if not want:
@@ -8585,16 +8584,17 @@ def _mtf_draw(levels: list[dict], price: float, per_side: int = 2) -> list[dict]
                 "tried": want, "detail": unavailable}
 
     levels = _mtf_levels(per_iv, price)
+    drawn_zones = _mtf_draw(levels, price, draw_per_side) if draw else []
     res: dict = {"last_price": price, "timeframes": rungs,
                  "stance_tally": _mtf_tally(rungs),
                  "pooled_levels": levels}
     if unavailable:
-    drawn_zones = _mtf_draw(levels, price, draw_per_side) if draw else []
         res["not_measured"] = unavailable
         res["_missing_note"] = (
-            "These timeframes could not be measured. Name them in one short "
-            "line — an answer that quietly skips two has told the user it "
-            "covered them.")
+            "These timeframes have too little history to read. Say so in one "
+            "short clause where that timeframe would have been ('no weekly or "
+            "monthly history here'), never with bar counts and never as a "
+            "separate list.")
     if drawn_zones:
         res["drawn_on_chart"] = drawn_zones
         res["_drawn_note"] = (
@@ -8656,7 +8656,7 @@ def _mtf_draw(levels: list[dict], price: float, per_side: int = 2) -> list[dict]
         "timeframes found each one. Use plain trader words (trend, support, "
         "resistance, pullback, momentum); never this tool's own words — "
         "'rung', 'ladder', 'pooled', 'stance', 'vote', 'panel'. Not a "
-        "forecast; close as analysis, not advice.")
+        "forecast.")
     return res
 
 
@@ -9894,8 +9894,8 @@ def tool_get_option_chain(symbol: str = "", expiry: str = "", strikes: int = 12)
         "PCR, max pain, IV and the straddle's expected move, and what that says about the "
         "range the market is pricing. OI, OI change and volume are in contracts. Quote "
         "numbers from here only. To keep the chain on the desk, open the 'options' widget "
-        "with the workspace tool (symbol, settings {expiry}). This is analysis, not advice "
-        "to buy or sell any option.")}
+        "with the workspace tool (symbol, settings {expiry}). Describe the chain; never "
+        "advise buying or selling an option.")}
 
 
 def tool_get_flows(frm: str = "", to: str = "", lookback_sessions: int = 10) -> dict:
@@ -14259,10 +14259,6 @@ ordinary bar it did; "within noise" means it did no better than an ordinary
 bar on that many cases, and that is what to say. The same goes for field
 names: "held 3 of 3 retests", never "3 of 3 graded re-tests holding".
 
-Cite outside sources the same way every time. When a sentence rests on
-something from the news or the web, end it with the source as a markdown link
-naming the publisher, inside parentheses: ([Economic Times](https://...)).
-One source per claim, two at most, using a URL a tool returned. No bare URLs,
 Keep it plain enough for any trader to follow on one read. Short sentences,
 one idea each. Use the standard terms traders already know (trend, support,
 resistance, breakout, pullback, higher highs, RSI, MACD, EMA, volume), and
@@ -14274,6 +14270,10 @@ matched. Say "on the 1h chart", not "the 1h rung"; "levels several
 timeframes agree on", not "pooled levels"; "the table below", not "the
 panel". If a sentence needs rereading to make sense, rewrite it.
 
+Cite outside sources the same way every time. When a sentence rests on
+something from the news or the web, end it with the source as a markdown link
+naming the publisher, inside parentheses: ([Economic Times](https://...)).
+One source per claim, two at most, using a URL a tool returned. No bare URLs,
 no "Sources:" list at the end, and no citation for numbers from the chart
 tools, which are yours.
 
@@ -14745,8 +14745,9 @@ def _render_chart(ctx: dict, focused: bool = True) -> str:
 _RESEARCH_CONTRACT = (
         " Describe structure rather than prescribing trades: give the levels "
         "and what would invalidate them, and let the reader draw the "
-        "conclusion. Where the answer bears on a position, close it with one "
-        "plain sentence saying this is analysis, not advice."
+        "conclusion. Do not write a disclaimer line ('this is analysis, not "
+        "advice'): the app prints it under every answer, so in the reply it "
+        "is only repetition."
 )
 
 
@@ -19259,13 +19260,13 @@ class Handler(BaseHTTPRequestHandler):
                         meta[sid] = [m["exchange"], m["kind"], m["decimals"],
                                      quote_ccy(sid)]
                 listed = have | set(master)
+                # every listing without a stored logo gets one from what it
+                # is: a future its underlying's, an index its venue + theme
+                logos = _marks.fill(logos, names, master)
                 return self._send(200, {"symbols": sorted(set(_known_symbols()) | listed),
                                         "meta": meta,
                                         "hydrated": sorted(have),
                                         "names": names, "long": longs,
-                # every listing without a stored logo gets one from what it
-                # is: a future its underlying's, an index its venue + theme
-                logos = _marks.fill(logos, names, master)
                                         "alias": alias, "logos": logos})
             if u.path == "/bars":
                 interval = q.get("interval", "5m")
