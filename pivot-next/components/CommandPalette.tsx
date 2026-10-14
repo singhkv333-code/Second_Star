@@ -30,6 +30,7 @@ import {
 import { Dialog } from "@/components/ui/dialog";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { cn } from "@/lib/utils";
+import { tabEnabled } from "@/lib/launch";
 
 type TabKey =
   | "chat"
@@ -38,7 +39,7 @@ type TabKey =
   | "screener"
   | "brokers";
 
-const NAV_ITEMS: {
+const ALL_NAV_ITEMS: {
   key: TabKey;
   label: string;
   Icon: React.ComponentType<{ className?: string }>;
@@ -49,6 +50,8 @@ const NAV_ITEMS: {
   { key: "screener", label: "Screener", Icon: BarChart2 },
   { key: "brokers", label: "Brokers", Icon: Link2 },
 ];
+// Chat and Strategy are off for launch (lib/launch.ts); their code stays.
+const NAV_ITEMS = ALL_NAV_ITEMS.filter((t) => tabEnabled(t.key));
 
 export type CommandPaletteProps = {
   conversations: { id: string; preview: string }[];

@@ -85,6 +85,7 @@ import { HomeTab } from "@/components/HomeTab";
 import { CompanyAutosuggest } from "@/components/CompanyAutosuggest";
 import { PivotWordmark } from "@/components/brand/PivotLogo";
 import { ProductTour, START_TOUR_EVENT } from "@/components/onboarding/ProductTour";
+import { ASK_EVENT, LAUNCH, tabEnabled } from "@/lib/launch";
 import { LoginIntroGate } from "@/components/onboarding/LoginIntroGate";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -123,7 +124,7 @@ type TabKey =
   | "brokers"
   | "chart";
 
-const NAV_ITEMS: {
+const ALL_NAV_ITEMS: {
   key: TabKey;
   label: string;
   Icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
@@ -139,6 +140,8 @@ const NAV_ITEMS: {
   // <BrokerSidebarButton/>, which opens the same onboarding dialog. The
   // "brokers" tab/pane is kept (deep-linkable via #brokers) but has no rail entry.
 ];
+// Chat and Strategy are off for launch (lib/launch.ts); their code stays.
+const NAV_ITEMS = ALL_NAV_ITEMS.filter((t) => tabEnabled(t.key));
 
 // Home is the landing surface — a fresh visit to "/" (no hash), and every
 // post-login/signup redirect (which lands on "/"), opens on Home, not Chat.
@@ -574,8 +577,17 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
 
   // Hash + theme init
   useEffect(() => {
-    setActive(readHashTab());
-    const onHash = (): void => setActive(readHashTab());
+    // A tab switched off for launch (an old #chat or #agents link) shows
+    // Home and says so in the address bar.
+    const syncHash = (): void => {
+      const raw = window.location.hash.replace(/^#/, "");
+      if ((raw === "chat" || raw === "agents" || raw === "brokers") && !tabEnabled(raw)) {
+        window.history.replaceState(null, "", `#${DEFAULT_TAB}`);
+      }
+      setActive(readHashTab());
+    };
+    syncHash();
+    const onHash = (): void => syncHash();
     window.addEventListener("hashchange", onHash);
 
     const initial = readStoredTheme() ?? "system";
@@ -601,6 +613,15 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
       const justSignedIn = sessionStorage.getItem("pivot:just-signed-in");
       if (justSignedIn === "1") {
         sessionStorage.removeItem("pivot:just-signed-in");
+        // A new account was sent a confirmation link: say so once.
+        const verifyTo = sessionStorage.getItem("pivot:verify-sent");
+        if (verifyTo) {
+          sessionStorage.removeItem("pivot:verify-sent");
+          window.setTimeout(() => toast("Confirm your email", {
+            description: `We sent a link to ${verifyTo}. It works for 24 hours.`,
+            duration: 9000,
+          }), 1600);
+        }
         if (storedMode === "paper") {
           // Defer until the brand intro (if any) finishes so the toast
           // doesn't overlap with the post-login animation.
@@ -608,7 +629,9 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
             window.setTimeout(() => {
               toast("You're in Paper Trading mode", {
                 description:
-                  "Trades are simulated — no real money is used. Switch to Live in the sidebar when ready.",
+                  LAUNCH.execution
+                    ? "Trades are simulated — no real money is used. Switch to Live in the sidebar when ready."
+                    : "Trades are simulated — no real money is used.",
                 duration: 7000,
               });
             }, 800);
@@ -751,6 +774,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   // isn't actually in.
   const chooseTradingMode = useCallback(
     async (next: TradingMode): Promise<void> => {
+      if (!LAUNCH.execution && next === "real") return;   // locked to paper for launch
       const prev = getTradingMode();
       if (next === prev) return;
       setTradingMode(next);
@@ -855,7 +879,10 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     goTabRef.current?.("screener");
   }, []);
 
-  const goTab = useCallback((key: TabKey): void => {
+  const goTab = useCallback((target: TabKey): void => {
+    // A tab switched off for launch (lib/launch.ts) lands on Home, so no link,
+    // shortcut or old bookmark opens a page that is not there.
+    const key: TabKey = tabEnabled(target) ? target : DEFAULT_TAB;
     setActive(key);
     if (key === "chat" || key === "chart") setCopilotPanelOpen(false);
     setMobileNavOpen(false);
@@ -936,12 +963,6 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     return () => window.removeEventListener("pivot:open-chart", handleOpenChart);
   }, [openChart]);
 
-  // Seed a prompt from the Home tab into the chat composer and jump there.
-  const sendChatPrompt = useCallback((prompt: string): void => {
-    setSeededChatPrompt(prompt);
-    goTab("chat");
-  }, [goTab]);
-
   const askFromQuickComposer = useCallback((question: string): void => {
     if (!children && active === "chart") {
       setChartChatOpen(true);
@@ -951,6 +972,46 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     setCopilotPanelOpen(true);
     setAssistSeed(question);
   }, [active, children]);
+
+  // The workspace chat is the full engine (tools, cards, drawings, alerts):
+  // without the main chat, a question that needs it continues there.
+  const askInChartChat = useCallback((question?: string): void => {
+    goTab("chart");
+    setChartChatOpen(true);
+    if (!question) return;
+    // On a first visit the chart is still loading and would drop the
+    // question: hand it over once the frame is up (it is hidden until then).
+    const started = Date.now();
+    const handOver = (): void => {
+      const frame = document.querySelector<HTMLIFrameElement>('iframe[src*="/chart-app/"]');
+      if (frame && getComputedStyle(frame).visibility === "visible") {
+        window.setTimeout(() => window.dispatchEvent(
+          new CustomEvent("pivot:chart-ask", { detail: { text: question } })), 400);
+      } else if (Date.now() - started < 20_000) {
+        window.setTimeout(handOver, 250);
+      }
+    };
+    handOver();
+  }, [goTab]);
+
+  // Seed a prompt from the Home tab into the chat composer and jump there.
+  // Without the main chat, Home's prompts (an alert, an option chain, an
+  // analysis) need the full engine, so they go to the workspace chat.
+  const sendChatPrompt = useCallback((prompt: string): void => {
+    if (!LAUNCH.mainChat) { askInChartChat(prompt); return; }
+    setSeededChatPrompt(prompt);
+    goTab("chat");
+  }, [goTab, askInChartChat]);
+
+  // Ask Pivot from anywhere (lib/launch.ts askPivot): stock rows, cards.
+  useEffect(() => {
+    const onAsk = (e: Event): void => {
+      const text = (e as CustomEvent<{ text?: string }>).detail?.text;
+      if (text) askFromQuickComposer(text);
+    };
+    window.addEventListener(ASK_EVENT, onAsk);
+    return () => window.removeEventListener(ASK_EVENT, onAsk);
+  }, [askFromQuickComposer]);
   const clearSeededChatPrompt = useCallback(() => setSeededChatPrompt(undefined), []);
 
   const openWorkflow = useCallback(
@@ -1157,7 +1218,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
           if (isDesktop) setSidebarCollapsed((c) => !c);
           return;
         }
-        if (e.shiftKey && k === "o") {
+        if (e.shiftKey && k === "o" && LAUNCH.mainChat) {
           e.preventDefault();
           startNewChat();
           return;
@@ -1480,8 +1541,10 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
                 contextLabel={quickAskContextLabel}
                 seed={assistSeed}
                 onSeedConsumed={() => setAssistSeed(undefined)}
+                fullChatLabel={LAUNCH.mainChat ? "Open in Chat" : "Continue in the chart chat"}
                 onOpenFullChat={(question) => {
                   setCopilotPanelOpen(false);
+                  if (!LAUNCH.mainChat) { askInChartChat(question); return; }
                   if (question) setSeededChatPrompt(question);
                   goTab("chat");
                 }}
@@ -1658,7 +1721,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
       />
 
       <CommandPalette
-        conversations={conversations}
+        conversations={LAUNCH.mainChat ? conversations : []}
         onNavigate={goTab}
         onOpenConversation={() => goTab("chat")}
       />
@@ -2420,6 +2483,10 @@ function Sidebar({
         })}
       </nav>
 
+      {/* Chat history belongs to the main chat, off for launch (lib/launch.ts):
+          a spacer keeps the broker row at the foot. */}
+      {!LAUNCH.mainChat && <div className="flex-1" />}
+      {LAUNCH.mainChat && <>
       {/* Divider */}
       <div
         className="sidebar-global-history"
@@ -2529,6 +2596,7 @@ function Sidebar({
           </div>
         )}
       </div>
+      </>}
 
       {/* Broker connection — docked at the sidebar foot (moved here from the
           top header). It sits below the flex-1 history list so it stays pinned
@@ -2536,9 +2604,10 @@ function Sidebar({
           In the collapsed 48px rail it is a single centred broker glyph; in the
           expanded drawer it becomes a full row with a label (see globals.css
           .broker-sidebar-row). */}
-      <div className="broker-sidebar-row shrink-0">
+      {/* A broker is for live orders, which are off for launch. */}
+      {LAUNCH.execution && <div className="broker-sidebar-row shrink-0">
         <BrokerSidebarButton />
-      </div>
+      </div>}
     </nav>
   );
 }

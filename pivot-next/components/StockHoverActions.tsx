@@ -22,6 +22,7 @@
 import { useRouter, usePathname } from "next/navigation";
 import { LayoutGrid, LineChart, MessageCircle } from "lucide-react";
 import { openOrderTicket } from "@/components/OrderTicket";
+import { askPivot, LAUNCH } from "@/lib/launch";
 
 // ---------------------------------------------------------------------------
 // Chat seeding — shared jump helper
@@ -75,6 +76,11 @@ export function StockHoverActions({
   const sym = symbol.toUpperCase();
 
   const goChat = (seed: ChatSeed): void => {
+    // Without the main chat, ask the one chat on this page instead.
+    if (!LAUNCH.mainChat) {
+      askPivot(seed.text || `Tell me about ${seed.attach?.name || sym} (${sym}).`);
+      return;
+    }
     if (pathname === "/") {
       window.location.hash = "#chat";
     } else {

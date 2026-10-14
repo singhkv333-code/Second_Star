@@ -65,6 +65,7 @@ import { isError } from "@/lib/types";
 import type { Workflow } from "@/lib/types";
 import { useTradingMode } from "@/lib/trading-mode";
 import { useWatchlists, setActiveWatchlist, type Watchlist } from "@/lib/watchlists";
+import { LAUNCH } from "@/lib/launch";
 import { chartQuotes, chartSpark, fallback, kindOf, loadUniverse, opensInChart } from "@/lib/instruments";
 import { publishVisible } from "@/lib/assist";
 import { useCompanyLogos } from "@/hooks/useCompanyLogos";
@@ -367,7 +368,7 @@ const CHAT_PROMPTS: ChatPrompt[] = [
   { label: "Show me the NIFTY option chain with max pain and PCR.", Icon: CandlestickChart },
   { label: "Alert me when RELIANCE crosses ₹1,500.", Icon: Bell },
   { label: "Build and backtest a simple NIFTY momentum strategy.", Icon: Sparkles },
-];
+].filter((p) => LAUNCH.strategies || !/backtest|strategy/i.test(p.label));
 
 // ---------------------------------------------------------------------------
 // HomeTab
@@ -461,14 +462,17 @@ export function HomeTab({ onGoTab, onSendPrompt, onOpenAgent, onOpenStrategies }
           <ChatPromptsCard onGoTab={onGoTab} onSend={onSendPrompt} />
         </div>
 
-        {/* Row 2: a compact strategy launcher plus both sides of today's tape. */}
-        <div className="lg:col-span-2 lg:col-start-1 lg:row-start-2 min-h-0">
-          <StrategiesCard onOpenAgent={onOpenAgent} onOpenStrategies={onOpenStrategies} />
-        </div>
-        <div className="lg:col-span-2 lg:col-start-3 lg:row-start-2 min-h-0">
+        {/* Row 2: a compact strategy launcher plus both sides of today's tape.
+            With strategies off for launch, the two sides share the row. */}
+        {LAUNCH.strategies && (
+          <div className="lg:col-span-2 lg:col-start-1 lg:row-start-2 min-h-0">
+            <StrategiesCard onOpenAgent={onOpenAgent} onOpenStrategies={onOpenStrategies} />
+          </div>
+        )}
+        <div className={`${LAUNCH.strategies ? "lg:col-span-2 lg:col-start-3" : "lg:col-span-3 lg:col-start-1"} lg:row-start-2 min-h-0`}>
           <MoversCard direction="gainers" />
         </div>
-        <div className="lg:col-span-2 lg:col-start-5 lg:row-start-2 min-h-0">
+        <div className={`${LAUNCH.strategies ? "lg:col-span-2 lg:col-start-5" : "lg:col-span-3 lg:col-start-4"} lg:row-start-2 min-h-0`}>
           <MoversCard direction="losers" />
         </div>
       </div>
@@ -1513,8 +1517,8 @@ function ChatPromptsCard({
     <CardShell
       Icon={MessageSquare}
       title="Chat with Pivot"
-      actionLabel="Open"
-      onAction={() => onGoTab("chat")}
+      actionLabel={LAUNCH.mainChat ? "Open" : undefined}
+      onAction={LAUNCH.mainChat ? () => onGoTab("chat") : undefined}
       bodyClassName="flex min-h-0 flex-col"
     >
       <div

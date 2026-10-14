@@ -26,6 +26,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { driver, type Driver } from "driver.js";
 import "driver.js/dist/driver.css";
 import "./product-tour.css";
+import { LAUNCH } from "@/lib/launch";
 import { Welcome } from "./Welcome";
 import {
   Blocks, ChartCandlestick, Compass, House, MessageSquareText, MessagesSquare, X,
@@ -132,7 +133,9 @@ const STEPS: Step[] = [
     align: "start",
     icon: Compass,
     title: "The rest of Pivot",
-    text: "Chat for longer questions, Portfolio for paper trading, Strategy to test ideas and Screener to filter the market.",
+    text: LAUNCH.mainChat && LAUNCH.strategies
+      ? "Chat for longer questions, Portfolio for paper trading, Strategy to test ideas and Screener to filter the market."
+      : "Portfolio for paper trading and Screener to filter the market. Ask Pivot from the bar on any page.",
   },
 ];
 

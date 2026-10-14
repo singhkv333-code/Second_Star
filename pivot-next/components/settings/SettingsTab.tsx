@@ -65,6 +65,8 @@ import { fmtDate, inr, num } from "@/lib/billing/format";
 import { track } from "@/lib/billing/analytics";
 import type { BillingMe, Cycle, InvoiceList, PaidPlanId, PlanId, PublicCatalog } from "@/lib/billing/types";
 import { brokerLogo } from "@/lib/publicAssets";
+import { LAUNCH } from "@/lib/launch";
+import { emailVerified, resendVerification } from "@/lib/emailVerification";
 
 type SectionKey = "profile" | "account" | "usage" | "billing" | "trading" | "notifications";
 
@@ -1059,6 +1061,15 @@ function AccountSection(): React.ReactElement {
   const [reset, setReset] = useState<"idle" | "busy" | "sent" | "error">("idle");
   const [del, setDel] = useState<"idle" | "confirm" | "busy" | "sent" | "error">("idle");
   const email = state.kind === "ok" ? state.value.email : "";
+  // Whether the address is confirmed (auth_guard.py); null while unknown.
+  const [verified, setVerified] = useState<boolean | null>(null);
+  const [confirm, setConfirm] = useState<{ kind: "idle" | "busy" | "sent" | "error"; message?: string }>({ kind: "idle" });
+  useEffect(() => { void emailVerified().then(setVerified); }, []);
+  const sendConfirm = async (): Promise<void> => {
+    setConfirm({ kind: "busy" });
+    const res = await resendVerification();
+    setConfirm(res.ok ? { kind: "sent" } : { kind: "error", message: res.message });
+  };
 
   const sendReset = async (): Promise<void> => {
     setReset("busy");
@@ -1088,8 +1099,18 @@ function AccountSection(): React.ReactElement {
         <>
           <Row
             label="Email"
-            hint={<span style={{ wordBreak: "break-all" }}>{email}</span>}
-
+            hint={
+              <span style={{ wordBreak: "break-all" }}>
+                {email}
+                {verified === true && " · Confirmed"}
+                {verified === false && confirm.kind === "idle" && " · Not confirmed yet"}
+                {confirm.kind === "sent" && ` · We sent a link to confirm it. Check your inbox.`}
+                {confirm.kind === "error" && <span style={{ color: DANGER }}> · {confirm.message || "The link could not be sent. Try again."}</span>}
+              </span>
+            }
+            control={verified === false && confirm.kind !== "sent" ? (
+              <Btn onClick={() => void sendConfirm()} busy={confirm.kind === "busy"}>Send link</Btn>
+            ) : undefined}
           />
           <Row
             label="Password"
@@ -1739,13 +1760,17 @@ function ModeToggle({
     <div role="radiogroup" aria-label="Trading mode" className="inline-flex" style={{ padding: 3, gap: 2, background: FILL, borderRadius: RADIUS + 2 }}>
       {MODES.map((m) => {
         const on = m.value === value;
+        // Live is locked for launch (lib/launch.ts).
+        const locked = m.value === "real" && !LAUNCH.execution;
         return (
           <button
             key={m.value}
             type="button"
             role="radio"
             aria-checked={on}
-            onClick={() => onChange(m.value)}
+            aria-disabled={locked || undefined}
+            title={locked ? "Live trading is coming soon" : undefined}
+            onClick={() => { if (!locked) onChange(m.value); }}
             style={{
               height: 30,
               minWidth: 76,
@@ -1757,7 +1782,8 @@ function ModeToggle({
               boxShadow: on ? "0 1px 2px rgba(0,0,0,0.10)" : "none",
               fontSize: 13.5,
               fontWeight: on ? 600 : 500,
-              cursor: "pointer",
+              cursor: locked ? "not-allowed" : "pointer",
+              opacity: locked ? 0.5 : 1,
               transition: "background 0.15s var(--ease-quartr), color 0.15s var(--ease-quartr)",
             }}
           >
@@ -1822,7 +1848,9 @@ function TradingSection({
           last
           label="Trading mode"
           hint={
-            mode === "paper"
+            !LAUNCH.execution
+              ? "Orders fill in a simulated paper book. Live trading is coming soon."
+              : mode === "paper"
               ? "Orders fill in a simulated paper book."
               : "Portfolio and P&L come from your connected broker. Pivot does not place live orders."
           }

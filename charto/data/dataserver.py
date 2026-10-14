@@ -17021,13 +17021,17 @@ def _session_reply(user_id: int, user: dict) -> tuple[int, dict]:
 
 
 def _auth_signup(body: dict) -> tuple[int, dict]:
-    email = str(body.get("email") or "").strip().lower()
+    # A real address (email_check.py: syntax, a domain that receives mail, no
+    # throwaway inboxes, no provider typos) and a password worth having
+    # (auth_guard.py). Both answers are sentences for the person signing up.
+    email, problem = _email_check.check(body.get("email"))
+    if problem:
+        return 400, {"error": problem}
     pw = str(body.get("password") or "")
-    name = (str(body.get("name") or "").strip() or None)
-    if "@" not in email or "." not in email.split("@")[-1]:
-        return 400, {"error": "enter a valid email address"}
-    if len(pw) < 8:
-        return 400, {"error": "password must be at least 8 characters"}
+    problem = _guard.password_problem(pw, email)
+    if problem:
+        return 400, {"error": problem}
+    name = (str(body.get("name") or "").strip()[:80] or None)
     salt = secrets.token_bytes(16)
     now = int(time.time())
     try:
@@ -17040,7 +17044,13 @@ def _auth_signup(body: dict) -> tuple[int, dict]:
             uid = cur.lastrowid
     except sqlite3.IntegrityError:
         return 409, {"error": "an account already exists for that email"}
-    return _session_reply(uid, {"id": uid, "email": email, "name": name})
+    # Confirm the address is theirs. Mail goes out on a worker thread; when
+    # mail is not configured the account still works and can ask again later.
+    sent = _verifs.start(uid, email, name) if _verifs else False
+    code, out = _session_reply(uid, {"id": uid, "email": email, "name": name,
+                                     "email_verified": False})
+    out["verification_sent"] = bool(sent)
+    return code, out
 
 
 def _auth_login(body: dict) -> tuple[int, dict]:
@@ -17160,12 +17170,48 @@ def _auth_google(body: dict) -> tuple[int, dict]:
             uid, name = cur.lastrowid, who["name"]
         else:
             uid, name = row[0], row[2]
+            # Google has confirmed this address. If the account's own email
+            # never was, whoever set its password may not own the inbox (an
+            # account made in someone else's name, waiting for them): their
+            # password and sessions go, and the owner signs in.
+            ver = _users.execute("SELECT email_verified FROM users WHERE id=?",
+                                 (uid,)).fetchone()
+            if _verifs and not (ver and ver[0]):
+                _users.execute("UPDATE users SET pw_hash=?, pw_salt=? WHERE id=?",
+                               (secrets.token_bytes(32), secrets.token_bytes(16), uid))
+                _users.execute("DELETE FROM sessions WHERE user_id=?", (uid,))
+                _users.commit()
             if not name and who["name"]:      # an account that never had one
                 _users.execute("UPDATE users SET name=? WHERE id=?",
                                (who["name"], uid))
                 _users.commit()
                 name = who["name"]
-    return _session_reply(uid, {"id": uid, "email": who["email"], "name": name})
+    if _verifs:
+        _verifs.mark(uid)
+    return _session_reply(uid, {"id": uid, "email": who["email"], "name": name,
+                                "email_verified": True})
+
+
+# ── sign-up checks, attempt limits, email confirmation (auth_guard.py) ─────
+import auth_guard as _guard
+import email_check as _email_check
+_limiter = _guard.Limiter()
+try:
+    _verifs = _guard.Verifications(_users, _users_lock)
+except Exception as _e:          # never take sign-in down with it
+    logging.warning("email confirmation unavailable: %s", _e)
+    _verifs = None
+
+
+def _auth_rate_ok(path: str, ip: str, body: dict) -> bool:
+    """Count this attempt against its limits (auth_guard.LIMITS)."""
+    if path == "/auth/login":
+        email = str(body.get("email") or "").strip().lower()
+        return (_limiter.allow("login_ip", ip)
+                and _limiter.allow("login_account", f"{ip}|{email}"))
+    rule = {"/auth/signup": "signup_ip", "/auth/google": "google_ip",
+            "/auth/verify": "verify_ip"}.get(path)
+    return _limiter.allow(rule, ip) if rule else True
 
 
 # ── forgotten passwords (password_reset.py) ────────────────────────────────
@@ -18861,9 +18907,34 @@ class Handler(BaseHTTPRequestHandler):
                 row = _users.execute("SELECT id, email, name FROM users WHERE id=?",
                                      (out,)).fetchone()
             return _session_reply(row[0], _user_public(row))
+        if path == "/auth/verify":
+            if not _auth_rate_ok(path, self._client_ip(), body):
+                return 429, {"error": _guard.TOO_MANY}
+            if _verifs is None:
+                return 503, {"error": "Email confirmation is not available right now."}
+            return _verifs.confirm(body.get("token"))
+        if path == "/auth/verify/resend":
+            me = _auth_user(self.headers)
+            if not me:
+                return 401, {"error": "sign in to confirm your email"}
+            if _verifs is None:
+                return 503, {"error": "Email confirmation is not available right now."}
+            if _verifs.verified(me[0]):
+                return 200, {"ok": True, "already": True}
+            if not _limiter.allow("resend_account", str(me[0])):
+                return 429, {"error": "We've sent a few already. Check your inbox and spam folder, "
+                                      "or try again in an hour."}
+            if not _verifs.start(me[0], me[1], me[2]):
+                return 503, {"error": "We couldn't send the email just now. Please try again later."}
+            return 200, {"ok": True}
         if path in ("/auth/signup", "/auth/login", "/auth/google"):
+            if not _auth_rate_ok(path, self._client_ip(), body):
+                return 429, {"error": _guard.TOO_MANY}
             code, out = {"/auth/signup": _auth_signup, "/auth/login": _auth_login,
                          "/auth/google": _auth_google}[path](body)
+            if code == 200 and path == "/auth/login":
+                _limiter.clear("login_account",
+                               f"{self._client_ip()}|{str(body.get('email') or '').strip().lower()}")
             if code == 200 and isinstance(out.get("user"), dict):
                 _analytics.capture(out["user"].get("id"),
                                    "user_signed_up" if path == "/auth/signup" else "user_logged_in",
@@ -19849,7 +19920,8 @@ class Handler(BaseHTTPRequestHandler):
                     # complete. A button drawn from a hardcoded front-end
                     # constant is one that can promise a sign-in this box has
                     # no credentials to finish.
-                    return self._send(200, {"user": _user_public(me),
+                    return self._send(200, {"user": {**_user_public(me), "email_verified":
+                                                     _verifs.verified(me[0]) if _verifs else None},
                                             "google_client_id": GOOGLE_CLIENT_ID})
                 if u.path == "/setups":
                     if _shares is None:

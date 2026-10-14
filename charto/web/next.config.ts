@@ -79,7 +79,7 @@ const nextConfig: NextConfig = {
    * are redirected, so the VM's own pages keep working. */
   async redirects() {
     const site = [{ type: "host" as const, value: "(www\\.)?pivotnow\\.in" }];
-    return ["login", "signup", "reset-password"].map((page) => ({
+    return ["login", "signup", "reset-password", "verify-email"].map((page) => ({
       source: `/${page}`,
       has: site,
       destination: `https://app.pivotnow.in/${page}`,

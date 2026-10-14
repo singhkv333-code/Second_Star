@@ -92,6 +92,7 @@ export function AssistantPanel({
   seed,
   onSeedConsumed,
   onOpenFullChat,
+  fullChatLabel = "Open in Chat",
   onClose,
 }: {
   page: AssistPage;
@@ -100,6 +101,8 @@ export function AssistantPanel({
   seed?: string;
   onSeedConsumed?: () => void;
   onOpenFullChat: (question?: string) => void;
+  /** Where "go deeper" leads: the Chat tab, or the chart chat when it is off. */
+  fullChatLabel?: string;
   onClose: () => void;
 }): React.ReactElement {
   const [thread, setThread] = useState<{ id: string; turns: Turn[] }>(() => ({ id: "", turns: [] }));
@@ -247,8 +250,8 @@ export function AssistantPanel({
           type="button"
           className="copilot-panel-action"
           onClick={() => onOpenFullChat(lastQuestion)}
-          title="Open in Chat for a deeper answer"
-          aria-label="Open in Chat"
+          title={`${fullChatLabel} for a deeper answer`}
+          aria-label={fullChatLabel}
         >
           <MessageSquarePlus size={16} aria-hidden />
         </button>

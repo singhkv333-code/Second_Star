@@ -16,13 +16,19 @@
  * card and the armed rule drift apart.
  */
 
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
+import { useRouter } from "next/navigation";
 
 import { AgentsTab } from "@/components/agent-panel/AgentsTab";
 import { BookShell, askOnChart } from "@/components/paper/BookShell";
 import type { Workflow, WorkflowSummary } from "@/lib/types";
+import { LAUNCH } from "@/lib/launch";
 
-export default function StrategiesPage(): React.ReactElement {
+export default function StrategiesPage(): React.ReactElement | null {
+  // Off for launch (lib/launch.ts): an old link lands on the paper book.
+  const router = useRouter();
+  useEffect(() => { if (!LAUNCH.strategies) router.replace("/paper"); }, [router]);
+
   const editWithChat = useCallback((wf: Workflow) => {
     askOnChart(
       `Change my saved strategy "${wf.name}" — `,
@@ -39,6 +45,7 @@ export default function StrategiesPage(): React.ReactElement {
     );
   }, []);
 
+  if (!LAUNCH.strategies) return null;
   return (
     <BookShell active="/strategies">
       <AgentsTab onOpenWorkflow={openWorkflow} onEditWithChat={editWithChat} />

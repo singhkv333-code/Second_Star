@@ -105,13 +105,10 @@ type SignupFormData = z.infer<typeof signupSchema>;
 // ---------------------------------------------------------------------------
 
 function mapSignupError(status: number, message: string, retryAfter?: string | null): string {
-  if (status === 409 || status === 400) {
-    const lower = message.toLowerCase();
-    if (lower.includes("email") || lower.includes("already") || lower.includes("exist")) {
-      return "That email is already registered. Try signing in instead.";
-    }
-    return message;
-  }
+  // Only a conflict means the address is taken. A 400 is the server saying
+  // what is wrong with the address or password, in a sentence: show it as is.
+  if (status === 409) return "That email is already registered. Try signing in instead.";
+  if (status === 400) return message || "Please check your details and try again.";
   if (status === 429) {
     const mins = retryAfter ? Math.ceil(Number(retryAfter) / 60) : null;
     return mins
@@ -181,6 +178,10 @@ export default function SignupPage(): React.ReactElement {
     try {
       localStorage.setItem(TOUR_PENDING_KEY, "1");
       sessionStorage.setItem("pivot:just-signed-in", "1");
+      // The server emailed a confirmation link; the shell says so once.
+      if ((result.data as { verification_sent?: boolean }).verification_sent) {
+        sessionStorage.setItem("pivot:verify-sent", data.email);
+      }
     } catch {
       /* private mode / storage full — skip; no functional impact */
     }

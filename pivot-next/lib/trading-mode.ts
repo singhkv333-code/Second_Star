@@ -14,6 +14,7 @@
  */
 
 import { useSyncExternalStore } from "react";
+import { LAUNCH } from "@/lib/launch";
 
 export type TradingMode = "real" | "paper";
 
@@ -40,7 +41,9 @@ function readStored(): TradingMode {
 // Hydrate from storage at module load (client only). On the server `current`
 // stays DEFAULT_MODE; `useTradingMode`'s server snapshot returns the same,
 // so the first client paint matches the server HTML (no hydration drift).
-current = readStored();
+// Live trading is off for launch (lib/launch.ts): the book is always paper,
+// whatever an earlier visit stored.
+current = LAUNCH.execution ? readStored() : "paper";
 
 /** Synchronous getter — imported by `lib/api.ts` to route reads. */
 export function getTradingMode(): TradingMode {
@@ -53,6 +56,7 @@ export function isPaperMode(): boolean {
 
 /** Update the mode: persist to localStorage and notify subscribers. */
 export function setTradingMode(mode: TradingMode): void {
+  if (!LAUNCH.execution && mode === "real") return;
   if (mode === current) return;
   current = mode;
   if (typeof window !== "undefined") {

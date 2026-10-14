@@ -26,6 +26,7 @@ import time
 from typing import Callable
 from zoneinfo import ZoneInfo
 
+import auth_guard
 import mail_templates
 import mailer
 
@@ -107,8 +108,9 @@ class Resets:
     def reset(self, token: str, password: str) -> tuple[int, dict | int]:
         """(200, user_id) on success — the caller issues the new session."""
         token, password = str(token or ""), str(password or "")
-        if len(password) < MIN_PASSWORD:
-            return 400, {"error": f"password must be at least {MIN_PASSWORD} characters"}
+        problem = auth_guard.password_problem(password)     # the same rules as sign-up
+        if problem:
+            return 400, {"error": problem}
         now = int(time.time())
         salt = secrets.token_bytes(16)
         hashed = self.pw_hash(password, salt)       # slow; never under the lock

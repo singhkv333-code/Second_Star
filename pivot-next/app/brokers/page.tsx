@@ -9,17 +9,23 @@
  * chore buried somewhere else.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { BrokerGrid } from "@/components/brokers/BrokerGrid";
 import { BookShell } from "@/components/paper/BookShell";
+import { LAUNCH } from "@/lib/launch";
 
-export default function BrokersPage(): React.ReactElement {
+export default function BrokersPage(): React.ReactElement | null {
+  // Live orders are off for launch (lib/launch.ts): the book is simulated.
+  const router = useRouter();
+  useEffect(() => { if (!LAUNCH.execution) router.replace("/paper"); }, [router]);
   // The shell's default caption says no order reaches a broker. On this page
   // that can stop being true, so the grid reports the real state up.
   const [status, setStatus] = useState<string>(
     "Simulated · no order reaches a broker",
   );
+  if (!LAUNCH.execution) return null;
   return (
     <BookShell active="/brokers" status={status}>
       <BrokerGrid onStatus={setStatus} />

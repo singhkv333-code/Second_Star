@@ -16,12 +16,16 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { getStoredToken } from "@/components/AppBootstrap";
+import { LAUNCH } from "@/lib/launch";
 
-const TABS = [
+// Strategies and Brokers are off for launch (lib/launch.ts): a broker is
+// where live orders go. The pages and their code stay.
+const TABS = ([
   { href: "/paper", label: "Portfolio" },
   { href: "/strategies", label: "Strategies" },
   { href: "/brokers", label: "Brokers" },
-] as const;
+] as const).filter((t) => (LAUNCH.strategies || t.href !== "/strategies")
+  && (LAUNCH.execution || t.href !== "/brokers"));
 
 export function BookShell({
   active,
