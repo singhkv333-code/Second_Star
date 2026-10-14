@@ -236,6 +236,19 @@ def systemctl(*a: str) -> None:
     run(["systemctl", *a], timeout=120)
 
 
+DEPS_MARK = ".pivot-release-deps-installed"
+
+
+def _deps_current(app_dir: Path) -> bool:
+    """node_modules was installed from this app's pnpm-lock.yaml (pnpm keeps
+    a copy of the lockfile it installed at node_modules/.pnpm/lock.yaml)."""
+    want, have = app_dir / "pnpm-lock.yaml", app_dir / "node_modules" / ".pnpm" / "lock.yaml"
+    try:
+        return want.read_bytes() == have.read_bytes()
+    except OSError:
+        return False
+
+
 def build_next(app: str, new: str, actions, R: Path, tag: str) -> Path:
     """Build `app` at `new` beside the release. Returns the build dir."""
     B = BUILD_ROOT / f"build-{tag}" / app
@@ -263,10 +276,16 @@ def build_next(app: str, new: str, actions, R: Path, tag: str) -> Path:
         deps |= dst.name in ("package.json", "pnpm-lock.yaml")
     if BUILD_USER:
         run(["chown", "-R", f"{BUILD_USER}:{BUILD_USER}", str(B.parent.parent)])
-    if deps:
-        say(f"  {app}: dependencies changed, installing")
+    # node_modules comes from the release copy. A lockfile that no longer
+    # matches the one pnpm last installed means a past install never reached
+    # the release (8d088f4c failed on a missing `razorpay` exactly so):
+    # install again, whatever this diff touched.
+    stale = not _deps_current(B)
+    if deps or stale:
+        say(f"  {app}: dependencies {'changed' if deps else 'out of date'}, installing")
         run(["/usr/local/bin/pnpm", "install", "--frozen-lockfile", "--ignore-scripts"],
             as_build=True, cwd=B, env={"NEXT_TELEMETRY_DISABLED": "1"}, timeout=1200)
+        (B / DEPS_MARK).touch()
     say(f"  {app}: next build")
     run(["nice", "-n", "10", "/usr/local/bin/pnpm", "exec", "next", "build"],
         as_build=True, cwd=B, env=NEXT_ENV, timeout=2400)
@@ -352,6 +371,17 @@ def deploy(base: str, new: str, state: dict) -> dict:
             os.replace(live, prev)
             os.replace(B / ".next", live)
             undo.append(lambda l=live, p=prev, u=unit: (shutil.rmtree(l), os.replace(p, l), systemctl("restart", u)))
+            # Packages installed for this build go into the release with it,
+            # or the next build starts from the old node_modules again.
+            if (B / DEPS_MARK).exists():
+                nm, nm_prev = R / app / "node_modules", R / app / f"node_modules.before-{tag}"
+                if nm_prev.exists():
+                    shutil.rmtree(nm_prev)
+                if nm.exists():
+                    os.replace(nm, nm_prev)
+                os.replace(B / "node_modules", nm)
+                undo.append(lambda n=nm, p=nm_prev: (shutil.rmtree(n, ignore_errors=True),
+                                                     p.exists() and os.replace(p, n)))
             say(f"  restart {unit}")
             systemctl("restart", unit)
             if not healthy(f"http://127.0.0.1:{port}/", ok=lambda c: 200 <= c < 400):
@@ -371,8 +401,8 @@ def deploy(base: str, new: str, state: dict) -> dict:
 
     # Keep exactly one previous .next per app, the one this deploy replaced.
     for app, _, _, _ in builds:
-        for old in (R / app).glob(".next.before-*"):
-            if old.name != f".next.before-{tag}":
+        for old in [*(R / app).glob(".next.before-*"), *(R / app).glob("node_modules.before-*")]:
+            if not old.name.endswith(f".before-{tag}"):
                 shutil.rmtree(old, ignore_errors=True)
     state.update(deployed=new, deployed_at=int(time.time()))
     state.pop("failed", None)

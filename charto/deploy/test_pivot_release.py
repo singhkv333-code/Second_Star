@@ -152,3 +152,15 @@ def test_no_branch_on_the_remote_means_nothing_to_follow(env):
     sh(env["origin"], "git", "branch", "-m", "production-live", "other")
     assert pr.main([]) == 0
     assert pr.load_state() == {"deployed": env["base"]}
+
+
+def test_dependencies_are_current_only_when_pnpm_installed_this_lockfile(tmp_path):
+    app = tmp_path / "app"
+    (app / "node_modules" / ".pnpm").mkdir(parents=True)
+    (app / "pnpm-lock.yaml").write_text("lockfileVersion: '9.0'\nrazorpay: 2.9.8\n")
+    assert not pr._deps_current(app)                      # never installed from it
+    (app / "node_modules" / ".pnpm" / "lock.yaml").write_text("lockfileVersion: '9.0'\n")
+    assert not pr._deps_current(app)                      # installed from an older lockfile
+    (app / "node_modules" / ".pnpm" / "lock.yaml").write_text("lockfileVersion: '9.0'\nrazorpay: 2.9.8\n")
+    assert pr._deps_current(app)
+    assert not pr._deps_current(tmp_path / "missing")
