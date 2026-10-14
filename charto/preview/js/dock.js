@@ -540,6 +540,7 @@ const Dock = (() => {
   // detached node is no longer found by id
   let chartTools = null;
   let chartToolsTarget = CHART;
+  let toolsHost = null, toolsRo = null, toolsMo = null, toolsRaf = 0;
   document.addEventListener("charto:chart-widget-active", (e) => {
     chartToolsTarget = e.detail.id;
     syncChartTools();
@@ -560,6 +561,43 @@ const Dock = (() => {
     else if (home.nextElementSibling !== tools) home.after(tools);
     for (const n of groupEls.values()) n.classList.toggle("has-tools", !!slot && n === node);
     document.body.classList.toggle("ct-docked", !!slot);
+    toolsHost = slot ? node : null;
+    if (slot && window.ResizeObserver) {
+      toolsRo = toolsRo || new ResizeObserver(() => fitTools());
+      toolsRo.disconnect();
+      toolsRo.observe(node);
+      // a longer symbol or interval label widens the row without resizing
+      // the tile, so the head's text changing re-measures too
+      toolsMo = toolsMo || new MutationObserver(() => {
+        if (!toolsRaf) toolsRaf = requestAnimationFrame(() => { toolsRaf = 0; fitTools(); });
+      });
+      toolsMo.disconnect();
+      toolsMo.observe(node.querySelector(".dk-head"), { subtree: true, childList: true, characterData: true });
+    }
+    fitTools();
+  }
+
+  /* The chart's controls ride in a tile whose width the user sets. The tile
+   * lets them overflow (their menus have to drop out of it), so a row wider
+   * than the tile used to paint straight over the tile's own maximise and
+   * gear. Width breakpoints cannot fix that — the tab's title and the symbol
+   * vary — so the row is MEASURED and folded a step at a time until it fits:
+   * labels go first, then undo/redo and the layout picker, then the chart
+   * type and gear, then Compare. Every folded control stays reachable
+   * elsewhere (the layout menu's twin is the tile's settings; widen the tile
+   * and it returns). */
+  const FOLDS = ["ct-f1", "ct-f2", "ct-f3", "ct-f4"];
+  function fitTools() {
+    const node = toolsHost;
+    for (const n of groupEls.values()) if (n !== node) n.classList.remove(...FOLDS);
+    if (!node || !node.isConnected) return;
+    const head = node.querySelector(".dk-head"), tools = chartTools;
+    node.classList.remove(...FOLDS);
+    const over = () => head.scrollWidth > head.clientWidth + 1 || tools.scrollWidth > tools.clientWidth + 1;
+    for (const f of FOLDS) {
+      if (!over()) break;
+      node.classList.add(f);
+    }
   }
 
   /** The active tab's underline is ONE element that slides between tabs. */

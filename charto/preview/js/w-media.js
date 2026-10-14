@@ -200,9 +200,11 @@
 
   /** The one fact a row states, in words a trader reads at a glance. */
   function fact(it, all) {
-    if (it.kind === "results") return { v: it.period || "Results", sub: all ? "Results" : (it.also || []).join(" · ") };
-    if (it.kind === "dividend") return { v: it.amount != null ? money(it.amount) : "Dividend",
-      sub: [all ? "Dividend" : it.dtype, it.record && it.record !== it.date ? `Record ${short(it.record)}` : ""].filter(Boolean).join(" · ") };
+    // The value has to say what it is on its own: in a narrow tile the
+    // second line is hidden, and a bare "₹12" beside TCS read as a price.
+    if (it.kind === "results") return { v: it.period ? `${it.period} results` : "Results", sub: all ? "Board meeting" : (it.also || []).join(" · ") };
+    if (it.kind === "dividend") return { v: it.amount != null ? `${money(it.amount)} dividend` : "Dividend",
+      sub: ["Per share, ex-date", all ? "" : it.dtype, it.record && it.record !== it.date ? `Record ${short(it.record)}` : ""].filter(Boolean).join(" · ") };
     if (it.kind === "action") return { v: it.ratio ? `${ACT[it.action] || "Action"} ${it.ratio}` : ACT[it.action] || "Corporate action",
       sub: it.record && it.record !== it.date ? `Record ${short(it.record)}` : "" };
     if (it.kind === "board") return { v: (it.also && it.also[0]) || "Board meeting", sub: all ? "Board meeting" : "" };

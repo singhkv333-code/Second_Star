@@ -83,6 +83,10 @@ KIND = {
     "hline": "level", "band": "zone", "vline": "vline", "vband": "vband",
     "segment": "segment", "ray": "segment", "box": "box", "poly": "poly",
     "dot": "point", "candle": "candle", "note": "label", "marker": "markers",
+    # a ruler: a solid line from one address to the other, captioned with the
+    # move between them — size, percent and bars, all computed here, so a
+    # "this leg was +28 (+86%)" on the chart is arithmetic, not the model's
+    "measure": "segment",
 }
 
 # ── the ratio family ────────────────────────────────────────────────────
@@ -108,14 +112,14 @@ AXIS = {
     "hline": "price", "band": "price",
     "vline": "time", "vband": "time", "candle": "time", "marker": "time",
     "segment": "tv", "ray": "tv", "box": "tv", "poly": "tv",
-    "dot": "tv", "note": "tv",
+    "dot": "tv", "note": "tv", "measure": "tv",
 }
 AXIS.update({t: "tv" for t in drawtools.TOOLS})
 
 # how many addresses each shape consumes
 NEED = {"hline": 1, "band": 2, "vline": 1, "vband": 2, "segment": 2,
         "ray": 2, "box": 2, "poly": 3, "dot": 1, "candle": 1, "note": 1,
-        "marker": 1}
+        "marker": 1, "measure": 2}
 NEED.update({t: s["anchors"] for t, s in drawtools.TOOLS.items()})
 
 
@@ -445,9 +449,12 @@ def build(specs: list, rows: list, env: dict, pane: str = "price",
             ann = _annotate(shape, pts, base, rows, marks, label, role)
             if ann is None:
                 continue
-            items.append(ann)
+            anns = ann if isinstance(ann, list) else [ann]
+            items.extend(anns)
             rep = {"id": aid, "shape": shape, "label": label,
                    "at": [_describe(p, axis, env) for p in pts]}
+            if shape == "measure":
+                rep["move"] = anns[0]["move"]
             if shape in drawtools.TOOLS:
                 # what the ratios actually resolved to, so the reply quotes
                 # the ladder on the chart instead of recomputing one
@@ -505,6 +512,18 @@ def _annotate(shape, pts, base, rows, marks, label, role):
         return {**base, "kind": "vband",
                 "t1": min(p[0]["t"], p[1]["t"]),
                 "t2": max(p[0]["t"], p[1]["t"])}
+    if shape == "measure":
+        a, b = p[0], p[1]
+        d = b["v"] - a["v"]
+        pct = d / a["v"] * 100 if a["v"] else 0.0
+        bars = (b["i"] - a["i"]) if a["i"] is not None and b["i"] is not None else None
+        move = f"{d:+,.2f} ({pct:+.2f}%)" + (f" · {abs(bars)} bars" if bars else "")
+        text = f"{label} {move}" if label else move
+        # the segment paints its own caption chip, so one annotation is the
+        # whole ruler
+        return {**base, "kind": "segment", "dashed": False, "move": move,
+                "p1": {"t": a["t"], "v": a["v"]}, "p2": {"t": b["t"], "v": b["v"]},
+                "extend": "none", "label": text}
     if shape in ("segment", "ray"):
         return {**base, "kind": "segment", "dashed": True,
                 "p1": {"t": p[0]["t"], "v": p[0]["v"]},

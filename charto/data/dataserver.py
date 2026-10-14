@@ -7670,7 +7670,11 @@ _RSI_BANDS = ((70.0, "overbought"), (55.0, "firm"), (45.0, "neutral"),
 # panel reads the way traders read it — the fast frames on top, the frame
 # that outranks them at the bottom. An interval with no stored bars drops out
 # and is named; it is never silently skipped.
-_MTF_LADDER = ("5m", "15m", "30m", "1h", "1d", "1w")
+# Top-down, slowest that is stored first in the reply: monthly and weekly set
+# the bias, daily and 4h the swing, 1h-15m the setup, 5m the entry. Seven, so
+# a "full top-down" covers what a trader actually walks rather than six that
+# stopped at the weekly and skipped the 4h.
+_MTF_LADDER = ("5m", "15m", "1h", "4h", "1d", "1w", "1mo")
 
 # The label an interval wears in a panel. "1d" is what the API calls it and
 # "Daily" is what a person calls it; the ladder is read by people.
@@ -7679,6 +7683,7 @@ _IV_LABEL = {"1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m", "1h": "1h",
 
 
 def _rsi_band(v) -> str:
+             "2h": "2h", "4h": "4h",
     if not isinstance(v, (int, float)) or isinstance(v, bool):
         return ""
     return next((w for cut, w in _RSI_BANDS if v >= cut), "oversold")
@@ -8381,7 +8386,12 @@ def _mtf_levels(per_iv: list[tuple], price: float, per_side: int = 3) -> list[di
         # the level came from: a weekly level under price is support today
         # whatever it was when it formed.
         m["role"] = "resistance" if m["price"] > price else "support"
-        m["intervals"] = [s["interval"] for s in m["sources"]]
+        # each timeframe once, slowest first — a zone merged from three 5m
+        # pivots was found by ONE timeframe, and counting it three times is
+        # how "found on 10 timeframes" appeared beside a 7-timeframe read
+        order = {_IV_LABEL[iv]: i for i, iv in enumerate(reversed(_MTF_LADDER))}
+        m["intervals"] = sorted(dict.fromkeys(s["interval"] for s in m["sources"]),
+                                key=lambda x: order.get(x, 99))
     above = [m for m in merged if m["role"] == "resistance"][:per_side]
     below = [m for m in merged if m["role"] == "support"][-per_side:]
     return below + above
@@ -8454,8 +8464,36 @@ def _mtf_card(rungs: list[dict], levels: list[dict], price: float,
 
 def tool_multi_timeframe(intervals: list | None = None,
                          lookback_bars: int = 300,
-                         focus: str | None = None) -> dict:
+                         focus: str | None = None,
+                         draw: bool = True, draw_per_side: int = 2) -> dict:
     """The same four readings on every rung of the ladder, in one call."""
+def _mtf_draw(levels: list[dict], price: float, per_side: int = 2) -> list[dict]:
+    """Put the strongest shared zones on the chart, nearest to price first.
+
+    A top-down read that only TALKS about zones leaves the user to find them;
+    drawn, each zone says which timeframes found it. Replaces this tool's own
+    earlier zones (owner-scoped, so a get_levels drawing survives) and keeps
+    the count low — a top-down chart with twenty bands is unreadable."""
+    per_side = max(1, min(int(per_side or 2), 3))
+    rank = lambda m: (-len(m.get("intervals") or []), abs(m["price"] - price))
+    sup = sorted([m for m in levels if m["role"] == "support"], key=rank)[:per_side]
+    res = sorted([m for m in levels if m["role"] == "resistance"], key=rank)[:per_side]
+    _scene_add({"kind": "clear_levels", "owner": "multi_timeframe"})
+    out = []
+    for i, m in enumerate(sup + res):
+        tfs = ", ".join(m.get("intervals") or [])
+        label = f"{'Support' if m['role'] == 'support' else 'Resistance'} · {tfs}"
+        _scene_add({"kind": "zone", "id": f"MTF{i}", "price": m["price"],
+                    "lo": m["lo"], "hi": m["hi"], "pane": "price",
+                    "role": m["role"], "label": label, "owner": "multi_timeframe",
+                    "detail": f"Found on {len(m.get('intervals') or [])} timeframe(s): {tfs}",
+                    "source": {"tool": "multi_timeframe", "method": "levels shared across timeframes",
+                               "intervals": m.get("intervals") or []}})
+        out.append({"zone": f"{m['lo']:g}-{m['hi']:g}", "role": m["role"],
+                    "timeframes": m.get("intervals") or []})
+    return out
+
+
     want = [str(s).lower().strip() for s in (intervals or _MTF_LADDER)]
     want = [s for s in dict.fromkeys(want) if s in _IV_LABEL][:8]
     if not want:
@@ -8551,11 +8589,23 @@ def tool_multi_timeframe(intervals: list | None = None,
                  "stance_tally": _mtf_tally(rungs),
                  "pooled_levels": levels}
     if unavailable:
+    drawn_zones = _mtf_draw(levels, price, draw_per_side) if draw else []
         res["not_measured"] = unavailable
         res["_missing_note"] = (
-            "These rungs are NOT in the answer. Name them — an answer that "
-            "silently covers four of six timeframes has told the user it "
-            "covered six.")
+            "These timeframes could not be measured. Name them in one short "
+            "line — an answer that quietly skips two has told the user it "
+            "covered them.")
+    if drawn_zones:
+        res["drawn_on_chart"] = drawn_zones
+        res["_drawn_note"] = (
+            "These zones are now ON the chart, labelled with the timeframes "
+            "that found them. Refer to them as drawn. Finish the analysis on "
+            "the chart too: on the chart's own interval add the trendline(s) "
+            "that matter (get_trendlines, draw), the ONE pattern the read rests "
+            "on if any (get_patterns, draw, max_draw=1, mark_limit=0), and a "
+            "`mark` measure for the last leg "
+            "or the move to the next zone where it helps. Keep the whole "
+            "picture to about six to eight drawings.")
     card = _mtf_card(rungs, levels, price, unavailable, focus)
     if card:
         _card_add(card)
@@ -8565,21 +8615,17 @@ def tool_multi_timeframe(intervals: list | None = None,
         # sections the panel had folded away.
         if card["focus"] == "levels":
             res["_card_note"] = (
-                f"A ladder panel is already rendered beside your reply, LED BY "
-                f"THE POOLED LEVELS: {len(levels)} zone(s), each with the "
-                f"intervals that found it. The four momentum readings are "
-                f"folded behind a control. Do not read the level rows back "
-                f"out — say which zones more than one timeframe found, since "
-                f"that is what pooling them was for, and which rung the "
-                f"user's own horizon sits on.")
+                f"A timeframe table is shown under your reply, led by the "
+                f"{len(levels)} price zone(s) and the timeframes that found "
+                f"each. Don't repeat its rows. Say which zones several "
+                f"timeframes agree on, and which timeframe matters for the "
+                f"user's trade.")
         else:
             res["_card_note"] = (
-                "A ladder panel is already rendered beside your reply: every "
-                "rung with its stance and its four readings, ADX and RSI drawn "
-                "against each other across the rungs, and the pooled levels "
-                "with the intervals that found each one. Do not read the rows "
-                "back out. Say where the ladder AGREES and where it splits, "
-                "and which rung the user's question is actually on.")
+                "A timeframe table is shown under your reply with each "
+                "timeframe's reading and the shared price zones. Don't repeat "
+                "its rows. Say where the timeframes agree, where they don't, "
+                "and which one matters for the user's trade.")
     res["provenance"] = {
         "intervals_measured": [r["interval"] for r in rungs],
         "lookback_bars": lookback_bars,
@@ -8598,16 +8644,19 @@ def tool_multi_timeframe(intervals: list | None = None,
                       "absent": "< 20", "source": "Wilder's own thresholds"},
     }
     res["_note"] = (
-        "Rungs are NOT votes in one election and must not be tallied into a "
-        "single word — a 5-minute chart and a weekly chart disagreeing is the "
-        "normal state of a market in a pullback, and saying which is which IS "
-        "the answer. Weight by the user's horizon, not by count. `adx` "
-        "qualifies its own rung and nothing else: a stance of 'bearish' at "
-        "ADX 12 is four readings agreeing about a chart that is not moving. "
-        "A pooled level found by three intervals is better evidenced than one "
-        "found by a single rung — say how many found it, and quote the "
-        "held/broke record rather than describing a level as strong. None of "
-        "this is a forecast.")
+        "Write it top-down, the way a trader reads charts: start with the "
+        "slowest timeframe measured (monthly/weekly = the bigger trend), then "
+        "daily/4h (the swing), then 1h-15m (the setup), then 5m (timing). One "
+        "or two plain sentences each — e.g. 'Weekly: uptrend, price above the "
+        "50 EMA, RSI 61.' Then one line on how they fit together: a short-term "
+        "dip inside a higher-timeframe uptrend is a pullback, not a reversal. "
+        "Don't count timeframes into a vote; say which one decides it for the "
+        "user's horizon. ADX under 20 means that timeframe isn't trending, "
+        "whatever the other readings say. For price zones, say how many "
+        "timeframes found each one. Use plain trader words (trend, support, "
+        "resistance, pullback, momentum); never this tool's own words — "
+        "'rung', 'ladder', 'pooled', 'stance', 'vote', 'panel'. Not a "
+        "forecast; close as analysis, not advice.")
     return res
 
 
@@ -12493,14 +12542,16 @@ TOOLS = [
          "lookback_bars": {"type": "integer", "description": "bars to scan. OMIT IT and the scan covers exactly what is on the user's screen — the visible bar count is in the chart context above, and the window they are looking at is the window they mean. Pass a number ONLY when the question needs history the screen does not show ('over the last six months', 'has this level held all year'). Reaching past the visible window uninvited reports findings against a chart the user cannot see, and they have no way to tell those from the ones they can."}},
          "required": ["direction", "interval"]}},
     {"type": "function", "name": "multi_timeframe",
-     "description": "ONLY for a question that spans MORE THAN ONE interval: 'analyse this across timeframes', 'what does it look like on the higher timeframes', 'is the daily confirming the hourly', 'multi-timeframe read'. A question that names a SINGLE interval — 'what's the trend on the hourly', 'read the indicators on the daily' — is get_trend or read_indicators at that interval and calling this instead answers a question the user did not ask, with six rows where they wanted one. It refuses a single-interval call for that reason. It walks the ladder and measures every rung the IDENTICAL four ways — RSI 14 against 50, the MACD histogram's sign, +DI against -DI, and the close against EMA 50 — plus ADX on each rung as the qualifier that has no side. It also pools the level detector's output across the rungs, merging levels the intervals agree on and keeping every contributing interval by name, so a level three timeframes found is visibly better evidenced than one only the 5-minute saw. Rungs are NOT votes in one election: do not tally them into a single word. A fast rung disagreeing with a slow one is the normal state of a pullback and saying which is which is the answer — weight by the user's own horizon. Intervals with too little stored history are reported unavailable and must be named, not silently dropped. A ladder panel is rendered beside your reply.",
+     "description": "For a question that spans MORE THAN ONE timeframe: a top-down analysis, 'analyse this across timeframes', 'what do the higher timeframes say', 'is the daily confirming the hourly'. A question about ONE timeframe is get_trend or read_indicators at that interval (this tool refuses a single interval). For a general or 'full' top-down, omit `intervals`: it reads monthly, weekly, daily, 4h, 1h, 15m and 5m. Each timeframe gets the same four readings (RSI 14 vs 50, MACD histogram sign, +DI vs -DI, close vs EMA 50) plus ADX for trend strength, and the support/resistance zones are combined across timeframes with the timeframes that found each one. The strongest shared zones are drawn on the chart (draw=true by default). Timeframes without enough history are listed as not measured. A timeframe table is shown under your reply.",
      "parameters": {"type": "object", "properties": {
-         "intervals": {"type": "array", "items": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "1d", "1w", "1mo"]},
-                       "description": "the rungs to measure, coarsest last — at least TWO, or the call is refused. Name the ones the question is about; for a general 'across timeframes' ask pass the full ['5m','15m','30m','1h','1d','1w']"},
+         "intervals": {"type": "array", "items": {"type": "string", "enum": ["5m", "15m", "30m", "1h", "2h", "4h", "1d", "1w", "1mo"]},
+                       "description": "the timeframes to read — at least TWO. Name them only when the user did ('daily and hourly'); omit for a general or full top-down, which reads all seven: 1mo, 1w, 1d, 4h, 1h, 15m, 5m"},
+         "draw": {"type": "boolean", "description": "draw the strongest shared support/resistance zones on the chart, labelled with the timeframes that found them. Default true; false only when the user asked not to draw"},
+         "draw_per_side": {"type": "integer", "description": "zones drawn per side, default 2"},
          "lookback_bars": {"type": "integer", "description": "bars per rung, default 300"},
          "focus": {"type": "string", "enum": ["momentum", "levels"],
                    "description": "which half of this tool's output the question is about, and therefore what the panel leads with. 'momentum' (default) for a read on direction or strength — 'what does this look like across timeframes', 'is the daily confirming the hourly', 'how strong is the move'. 'levels' when the ask is about PRICE — where it finds support or resistance, what zones the bigger charts respect, what price it keeps reacting to. Set it by what was asked, not by what came back: this tool measures both every time, and the panel showing the wrong half first is how a correct answer still misses the question."}},
-         "required": ["intervals"]}},
+         "required": []}},
     {"type": "function", "name": "get_divergences",
      "description": "Find price/oscillator divergences (RSI or MACD) and, crucially, how often they actually resolved on this symbol in this window. Use when asked about divergence, momentum disagreement, or whether a move is losing steam. Drawing one marks both the price leg and the oscillator leg in its own pane.",
      "parameters": {"type": "object", "properties": {
@@ -12602,7 +12653,12 @@ TOOLS = [
          "window) · segment (two points) · ray (extended right) · box (a "
          "region in time AND price) · poly (3+ points) · dot (pin one point) "
          "· candle (a dot above one bar — 'that bar') · note (a text chip at "
-         "a point) · marker (an arrow or circle ON a bar).\n"
+         "a point) · marker (an arrow or circle ON a bar) · measure (a ruler "
+         "between two points, captioned with the move's size, percent and "
+         "bar count, computed for you — the shape for 'this leg was', a "
+         "prior swing's height, or how far price is from a level; label it "
+         "'Achieved' / 'Target' / the leg's name and quote the `move` the "
+         "result reports, never your own arithmetic).\n"
          "The Fibonacci and Gann rail is addressable here too, when the "
          "anchors are moments the conversation located rather than detected "
          "swings — write one address per anchor, in order, via points:[…]: "
@@ -12620,7 +12676,7 @@ TOOLS = [
                         "shape": {"type": "string",
                                   "enum": ["hline", "band", "vline", "vband",
                                            "segment", "ray", "box", "poly",
-                                           "dot", "candle", "note", "marker",
+                                           "dot", "candle", "note", "marker", "measure",
                                            "fib", "fibExtension", "fibChannel",
                                            "fibTimeZone", "fibSpeedFan",
                                            "fibTimeExtension", "fibCircles",
@@ -14207,6 +14263,17 @@ Cite outside sources the same way every time. When a sentence rests on
 something from the news or the web, end it with the source as a markdown link
 naming the publisher, inside parentheses: ([Economic Times](https://...)).
 One source per claim, two at most, using a URL a tool returned. No bare URLs,
+Keep it plain enough for any trader to follow on one read. Short sentences,
+one idea each. Use the standard terms traders already know (trend, support,
+resistance, breakout, pullback, higher highs, RSI, MACD, EMA, volume), and
+give a technical one its meaning in a few words the first time it matters:
+"ADX is 14, so there is no real trend". Never pass on the tools' own internal
+words, which mean nothing to a reader: rung, ladder, pooled, panel, stance,
+vote or tally, reading set, provenance, detector, candidate, conditions
+matched. Say "on the 1h chart", not "the 1h rung"; "levels several
+timeframes agree on", not "pooled levels"; "the table below", not "the
+panel". If a sentence needs rereading to make sense, rewrite it.
+
 no "Sources:" list at the end, and no citation for numbers from the chart
 tools, which are yours.
 
@@ -14292,24 +14359,36 @@ multi-timeframe question. When the work is bigger (a full read, a walk
 through the timeframes) use as many as it needs.
 
 ## Reading across timeframes
-Choose the ladder from the trader's horizon, not from a fixed set. The middle
-rung is the timeframe they trade or asked about; a rung roughly four to six
-times slower gives the direction and the levels that matter; a faster rung
-times the entry. An intraday trader on 5m reads 1h, 15m and 5m, with the daily
-for the big levels; a swing trader reads 1w, 1d and 1h; a position investor
-1mo, 1w and 1d. Add or drop rungs when the question needs it, and say in one
-clause why these.
-Work top-down. Start on the slowest rung for the direction and the big levels,
-then step down. On each rung read what the question is about, which is usually
-some of: the structure (higher highs and higher lows or not), the formation
-forming there and how far along it is, how price is behaving at the nearest
-levels, momentum, and volume. Each get_patterns call prints its own panel, so
-name the few formations that matter and leave the rest to the panels.
-The answer lives across the rungs: where they agree, where they conflict, and
-which one decides for this trader. A slow rung outranks a fast one; a fast rung
-running against a slow one is usually a pullback inside the bigger move, and
-saying which is which is the read. Head each rung, coarsest first, so every
-formation sits under the timeframe it was found on."""
+A "top-down", "full" or "all timeframes" request means all of them: call
+multi_timeframe with no intervals and it reads monthly, weekly, daily, 4h, 1h,
+15m and 5m in one call. When the trader names a horizon or a few timeframes,
+read those, plus one slower timeframe for the bigger trend.
+Write it top-down, slowest first, one short paragraph or line per timeframe
+headed by its name (Monthly, Weekly, Daily, 4h, 1h, 15m, 5m): the trend
+(higher highs and higher lows or not), where price sits against the nearest
+support and resistance, momentum, and any pattern forming. Then say how they
+fit together in plain words: which timeframe sets the direction, whether the
+short-term move is a pullback inside it or a real turn, and which levels
+matter most. A slower timeframe outranks a faster one. Each get_patterns call
+prints its own table, so name the few formations that matter.
+
+## Put the analysis on the chart
+When the trader asks you to analyse the chart (a technical read, a setup, a
+top-down, "what do you see"), the chart is part of the answer: draw what you
+are describing, on the chart's own interval, the way a trader marks up a chart.
+Pick what the read actually rests on, typically:
+- the key support and resistance (get_levels draw, or the zones
+  multi_timeframe draws, labelled with the timeframes that found them);
+- the trendline(s) that define the move (get_trendlines draw);
+- the pattern, if one is forming (get_patterns draw);
+- the last leg or the room to the next level as a ruler (mark measure, which
+  prints the move's size and percent), labelled e.g. "Last leg" or "To
+  resistance";
+- a short note at a key point (mark note) for what to watch, e.g. "Close above
+  confirms breakout".
+Batch the drawings in as few calls as you can, keep the chart clean (about six
+to eight marks, no duplicates), and say in one line what you drew. Don't draw
+for a quick factual question, or when the trader asked you not to."""
 
 
 # How a longer turn is worked. Written 2026-10-13 when the chat stopped being a

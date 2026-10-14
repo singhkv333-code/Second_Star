@@ -1024,11 +1024,29 @@ const Panes = (() => {
     requestAnimationFrame(() => { paintRects(); mountSplitters(); });
   }
 
+  /* A side-by-side split in a narrow tile gives each chart a sliver: the
+   * price axis alone takes a quarter of it and the candles crush together.
+   * Below MIN_PANE_W a pane is not worth keeping beside its neighbour, so
+   * while the tile is that narrow the panes are DRAWN stacked, full width,
+   * one under another. The saved split is untouched — widen the tile and the
+   * columns come back. Only when the stack still leaves each pane a usable
+   * height; otherwise the user's split is the lesser evil. */
+  const MIN_PANE_W = 300, MIN_PANE_H = 150;
+  function stackedNow() {
+    if (!gridEl || rects.length < 2 || expanded) return false;
+    const W = gridEl.clientWidth, H = gridEl.clientHeight;
+    if (!W || !H) return false;
+    return rects.some((r) => r.w * W < MIN_PANE_W) && H / rects.length >= MIN_PANE_H;
+  }
+
   function paintRects() {
     const nodes = [stage, ...subs.map((s) => s.root)];
+    const stack = stackedNow();
+    gridEl.classList.toggle("pane-stacked", stack);
+    const shown = stack ? rects.map((_, i) => ({ x: 0, y: i / rects.length, w: 1, h: 1 / rects.length })) : rects;
     nodes.forEach((node, i) => {
-      if (!node || !rects[i]) return;
-      const r = rects[i];
+      if (!node || !shown[i]) return;
+      const r = shown[i];
       node.style.left = `calc(${r.x * 100}% + ${r.x ? 0.5 : 0}px)`;
       node.style.top = `calc(${r.y * 100}% + ${r.y ? 0.5 : 0}px)`;
       node.style.width = `calc(${r.w * 100}% - ${r.x + r.w < 0.999 ? 0.5 : 0}px - ${r.x ? 0.5 : 0}px)`;
@@ -1043,7 +1061,8 @@ const Panes = (() => {
   function mountSplitters() {
     if (!gridEl) return;
     for (const el of [...gridEl.querySelectorAll(".pane-split")]) el.remove();
-    if (expanded) return;
+    // stacked for want of width: the handles would drag a split nobody can see
+    if (expanded || gridEl.classList.contains("pane-stacked")) return;
     const L = LAYOUTS[layout];
     if (!L || (L.cols < 2 && L.rows < 2)) return;
     const near = (a, b) => Math.abs(a - b) < 0.00001;
@@ -1219,7 +1238,14 @@ const Panes = (() => {
     gridEl.addEventListener("pointerdown", beginDrag);
     // the handles are positioned in px off resolved track sizes, so they have
     // to be re-laid whenever the grid's own box changes
-    if (window.ResizeObserver) new ResizeObserver(mountSplitters).observe(gridEl);
+    // …and a tile narrowed past MIN_PANE_W restacks its panes (paintRects)
+    if (window.ResizeObserver) new ResizeObserver(() => {
+      if (gridEl.classList.contains("pane-free") && !expanded) {
+        const was = gridEl.classList.contains("pane-stacked");
+        if (stackedNow() !== was) paintRects();
+      }
+      mountSplitters();
+    }).observe(gridEl);
     Theme.onChange(() => { for (const s of peers()) s.retheme(); });
   }
 

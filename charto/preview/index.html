@@ -8061,6 +8061,12 @@ svg.icon.op {
 body:not(.ct-docked) .chart-tools .ct-gap { display: none; }
 @container (max-width: 640px) { .dk-tools .ind-l { display: none; } .dk-tools #indBtn { padding: 0 7px; } }
 @container (max-width: 520px) { .dk-tools #layoutBtn, .dk-tools #undoBtn, .dk-tools #redoBtn, .dk-tools .vsep { display: none; } }
+/* measured folds (dock.js fitTools): applied one at a time until the row fits */
+.ct-f1 .dk-tools .ind-l, .ct-f1 .dk-tools #compareBtn span, .ct-f1 .dk-tab.on[data-inst="main"] .s { display: none !important; }
+.ct-f1 .dk-tools #indBtn, .ct-f1 .dk-tools #compareBtn { padding: 0 7px; }
+.ct-f2 .dk-tools #layoutBtn, .ct-f2 .dk-tools #undoBtn, .ct-f2 .dk-tools #redoBtn, .ct-f2 .dk-tools .vsep { display: none; }
+.ct-f3 .dk-tools .menu-wrap:has(#chartTypeBtn), .ct-f3 .dk-tools #settingsBtn, .ct-f3 .dk-tools #indBtn .chev { display: none; }
+.ct-f4 .dk-tools #compareBtn { display: none; }
 .dk-act {
   width: 26px; height: 26px; padding: 0; border: 0; border-radius: 7px;
   background: transparent; color: var(--foreground); cursor: pointer; opacity: 0;
@@ -9351,7 +9357,7 @@ i.mg { height: 3px !important; border-radius: 2px !important; background: var(--
 .cl-who b, .cl-fact b { font-size: var(--text-base); font-weight: var(--weight-medium); color: var(--foreground);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cl-who em, .cl-fact em { font-style: normal; font-size: 11.5px; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cl-fact { align-items: flex-end; text-align: right; max-width: 132px; overflow: hidden; }
+.cl-fact { align-items: flex-end; text-align: right; max-width: 150px; overflow: hidden; }
 .cl-fact b, .cl-fact em { max-width: 100%; }
 .cl-fact b { font-variant-numeric: tabular-nums; }
 .cl-more { width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--foreground);
@@ -9722,6 +9728,27 @@ i.mg { height: 3px !important; border-radius: 2px !important; background: var(--
 .oc-card-foot { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 .oc-card-foot .note { flex: 1; min-width: 0; font-size: var(--text-3xs); color: var(--muted-foreground); }
 
+/* ── hover a price in a reply → see it on the chart (js/pricehover.js) ── */
+/* no underline or colour; only the pointing hand says the number does something */
+.px-hv { cursor: pointer; }
+.px-hl { position: absolute; left: 0; z-index: 6; pointer-events: none;
+  background: color-mix(in srgb, var(--primary) 13%, transparent);
+  border-top: 1px dashed color-mix(in srgb, var(--primary) 70%, transparent);
+  border-bottom: 1px dashed color-mix(in srgb, var(--primary) 70%, transparent); }
+.px-hl.line, .px-hl.off { background: none; border-bottom: 0; }
+.px-hl-tag { position: absolute; right: 6px; top: 0; transform: translateY(-50%);
+  padding: 2px 7px; border-radius: 6px; white-space: nowrap;
+  background: var(--primary); color: var(--primary-foreground, #fff);
+  font: 600 11px/1.4 var(--font); font-variant-numeric: tabular-nums; }
+.px-hl.off .px-hl-tag { top: auto; }
+.px-hl.off:not([style*="top: 0px"]) .px-hl-tag { transform: translateY(-110%); }
+.px-hint { position: fixed; z-index: 400; pointer-events: none;
+  padding: 6px 10px; border-radius: 8px; background: var(--foreground); color: var(--background);
+  font: 500 12px/1.3 var(--font); box-shadow: 0 6px 20px rgba(0,0,0,.18);
+  animation: px-hint-in .18s var(--ease-quartr, ease-out); }
+.px-hint::after { content: ""; position: absolute; left: 50%; bottom: -4px; width: 8px; height: 8px;
+  background: inherit; transform: translateX(-50%) rotate(45deg); }
+@keyframes px-hint-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 /* ── market depth ── */
 .dp-head .dp-live {
   width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: var(--up);
@@ -12108,17 +12135,17 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/scene.js?v=53"></script>
   <script src="./js/chartsize.js?v=2"></script>
   <script src="./js/compare.js?v=17"></script>
-  <script src="./js/panes.js?v=37"></script>
+  <script src="./js/panes.js?v=38"></script>
   <!-- the Footprint chart type: a primitive on the price series, mounted by main.js -->
   <script src="./js/footprint.js?v=9"></script>
-  <script src="./js/main.js?v=187"></script>
+  <script src="./js/main.js?v=188"></script>
   <!-- the floating drawing edit toolbar — listens for charto:draw-select and
        drives js/drawings.js's setStyle/clone/lock/remove. After main.js so
        __charto and ChartSettings exist by the first selection. -->
   <script src="./js/drawedit.js?v=7"></script>
   <script src="./js/wkit.js?v=2"></script>
   <script src="./js/hub-art.js?v=7"></script>
-  <script src="./js/dock.js?v=35"></script>
+  <script src="./js/dock.js?v=36"></script>
   <script src="./js/agentws.js?v=1"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
@@ -12135,7 +12162,8 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/layers-panel.js?v=12"></script>
   <script src="./js/model-logos.js?v=2"></script>
   <script src="./js/models.js?v=4"></script>
-  <script src="./js/chat.js?v=192"></script>
+  <script src="./js/pricehover.js?v=1"></script>
+  <script src="./js/chat.js?v=193"></script>
   <script src="./js/codeview.js?v=6"></script>
   <script src="./js/journal.js?v=9"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
@@ -12158,7 +12186,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/w-browser.js?v=10"></script>
   <script src="./js/w-code.js?v=7"></script>
   <script src="./js/w-docs.js?v=8"></script>
-  <script src="./js/w-media.js?v=12"></script>
+  <script src="./js/w-media.js?v=13"></script>
   <!-- every widget is registered by now; build the rail before js/mobile.js
        reads it for the phone toolbar -->
   <script>Dock.start();</script>

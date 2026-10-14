@@ -1648,6 +1648,8 @@
     fillCardSlots(turn, !turn.__streamText);
     mountUnplacedCards(turn);
     linkCompanies(prose);
+    // prices in the reply show on the chart while hovered (js/pricehover.js)
+    if (typeof PriceHover !== "undefined") PriceHover.mark(prose);
     paintSources(turn, prose, sources);
     const meta = document.createElement("div");
     meta.className = "turn-meta";

@@ -112,13 +112,24 @@
    * figure, because there the width costs nothing and precision is free.
    * The crosshair label and the OHLC readout are untouched — the exact price
    * is still one tap away, it just stops paying rent on the axis. */
+  /* Compact, but never at the cost of telling two ticks apart. It used to
+   * round 100-10,000 to whole numbers and 10,000+ to one decimal of a
+   * thousand, so ticks 0.5 apart printed "1312, 1312, 1311, 1311" and BTC's
+   * 50-wide ticks printed "83.5k" twice: an axis that repeats itself is
+   * worse than a wide one. Now only the decimals that a price that size
+   * never ticks in are dropped (83,500.00 → 83500), and millions shorten. */
   const compactPrice = (v) => {
     const a = Math.abs(v);
-    if (a >= 1e6) return (v / 1e6).toFixed(2) + "M";
-    if (a >= 1e4) return (v / 1e3).toFixed(1) + "k";
-    if (a >= 100) return v.toFixed(0);
-    if (a >= 1) return v.toFixed(2);
-    return v.toPrecision(3);
+    if (a >= 1e6) return (v / 1e6).toFixed(3) + "M";
+    if (a >= 1e4) return v.toFixed(0);
+    return fullPrice(v);
+  };
+  /* The desktop label, said explicitly. Widening back from a narrow window
+   * used to pass `priceFormatter: undefined`, which the library ignores —
+   * the compact axis then stayed for the rest of the session. */
+  const fullPrice = (v) => {
+    const d = typeof Universe !== "undefined" && Universe.decimals ? Universe.decimals(Sym.name) : null;
+    return v.toFixed(Number.isFinite(d) ? d : Math.abs(v) < 1 ? 4 : 2);
   };
   const SMALL = "(max-width: 820px), (max-height: 520px)";
   const narrow = () => window.matchMedia(SMALL).matches;
@@ -4634,7 +4645,7 @@
 
   window.matchMedia(SMALL).addEventListener("change", () => {
     chart.applyOptions({
-      localization: { priceFormatter: narrow() ? compactPrice : undefined },
+      localization: { priceFormatter: narrow() ? compactPrice : fullPrice },
       rightPriceScale: { minimumWidth: axisMin() },
     });
   });
