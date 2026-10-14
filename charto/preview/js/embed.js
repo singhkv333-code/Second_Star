@@ -72,11 +72,12 @@
     tell({ type: "charto:open-company", symbol });
   }, true);
 
-  // Inside the unified shell, the chart starts with its own conversation
-  // collapsed. The shell's Quick Ask is the entry point; showing both it and
-  // the full chart conversation at once duplicates the same presentation.
-  // Use the chart's real toggle so its splitter and toolbar state stay in
-  // sync, then report every later open/close back to the shell.
+  // Inside the unified shell the chart's conversation keeps whatever state
+  // the user left it in (js/chat.js remembers it). It used to be closed here
+  // on EVERY load, so each refresh took away a chat that was open — and the
+  // close, landing while the desk was still being laid out, resized the
+  // chart mid-restore. The shell hides its Quick Ask while this chat is open,
+  // so the two never show at once; every open/close is reported to it.
   const chatPanel = document.getElementById("chatPanel");
   const chatToggle = document.getElementById("chatToggle");
   const tellChatVisibility = () => tell({
@@ -84,7 +85,6 @@
     open: !!chatPanel && !chatPanel.classList.contains("hidden"),
   });
   if (chatPanel && chatToggle) {
-    if (!chatPanel.classList.contains("hidden")) chatToggle.click();
     new MutationObserver(tellChatVisibility).observe(chatPanel, {
       attributes: true,
       attributeFilter: ["class"],

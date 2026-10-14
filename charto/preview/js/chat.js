@@ -3242,12 +3242,25 @@
   });
 
   const chatToggle = el("chatToggle");
+  /* Open or closed is REMEMBERED. It used to be decided afresh on every load
+   * — open here, then closed again by js/embed.js inside the Pivot shell — so
+   * a refresh took the conversation away from someone who had it open. Only
+   * a desktop choice is kept: on a phone the dock hides the chat itself to
+   * make room for a widget, and that is not the user saying "closed". */
+  const CHAT_OPEN = "chat_open";
+  const phoneish = () => window.matchMedia("(max-width: 820px), (max-height: 520px)").matches;
   chatToggle.addEventListener("click", () => {
     const hidden = panel.classList.toggle("hidden");
     splitter.classList.toggle("hidden", hidden);
     chatToggle.classList.toggle("on", !hidden);
+    if (!phoneish()) Store.set(CHAT_OPEN, !hidden);
   });
   chatToggle.classList.add("on");
+  if (Store.get(CHAT_OPEN, true) === false && !phoneish()) {
+    panel.classList.add("hidden");
+    splitter.classList.add("hidden");
+    chatToggle.classList.remove("on");
+  }
 
   /* The three things a saved LAYOUT needs from the conversation: which one is
    * open (it is stored with the layout), and the two ways of changing that.
