@@ -65,6 +65,7 @@ import { isError } from "@/lib/types";
 import type { Workflow } from "@/lib/types";
 import { useTradingMode } from "@/lib/trading-mode";
 import { useWatchlists, setActiveWatchlist, type Watchlist } from "@/lib/watchlists";
+import { chartQuotes, chartSpark, fallback, kindOf, loadUniverse, opensInChart } from "@/lib/instruments";
 import { publishVisible } from "@/lib/assist";
 import { useCompanyLogos } from "@/hooks/useCompanyLogos";
 import { Panel } from "@/components/ds/surfaces";
@@ -1253,6 +1254,8 @@ function InvestedBar({ summary }: { summary: PortfolioSummary }): React.ReactEle
 
 type WlRow = {
   symbol: string;
+  /** Shown in place of the symbol when set: "Bitcoin", "Nifty 50", "Gold". */
+  title?: string;
   name: string | null;
   sector: string | null;
   logoUrl: string | null;
@@ -1279,19 +1282,35 @@ function WatchlistCard({
     }
     let alive = true;
     setRows(null);
+    // Stocks and indices price through the company quote. Crypto, MCX
+    // commodities and currencies are not listed companies: the chart server
+    // prices them (one batch call) and holds their names and logos.
+    const others = tickers.filter((t) => kindOf(t) !== "stock" && kindOf(t) !== "index");
+    const chartSide = Promise.all([chartQuotes(others), loadUniverse()]);
     Promise.all(
       tickers.map(async (sym): Promise<WlRow> => {
+        const meta = (await chartSide)[1].get(sym) ?? fallback(sym);
+        if (others.includes(sym)) {
+          const [quotes] = await chartSide;
+          const q = quotes.get(sym);
+          return {
+            symbol: sym, title: meta.title, name: meta.sub, sector: null, logoUrl: meta.logo,
+            ltp: q?.last ?? null, changePct: q?.change_pct ?? null, spark: await chartSpark(sym),
+          };
+        }
         const [r, spark] = await Promise.all([
           getStockQuote(sym).catch(() => null),
           fetchSpark(sym),
         ]);
+        const title = meta.kind === "index" ? meta.title : undefined;
         if (!r || isError(r))
-          return { symbol: sym, name: null, sector: null, logoUrl: null, ltp: null, changePct: null, spark };
+          return { symbol: sym, title, name: null, sector: null, logoUrl: meta.logo, ltp: null, changePct: null, spark };
         return {
           symbol: sym,
+          title,
           name: r.data.name,
-          sector: r.data.sector,
-          logoUrl: r.data.logo_url ?? null,
+          sector: meta.kind === "index" ? "Index" : r.data.sector,
+          logoUrl: r.data.logo_url ?? meta.logo,
           ltp: r.data.ltp,
           changePct: r.data.change_pct,
           spark,
@@ -1412,6 +1431,12 @@ function WatchlistRow({ row, last }: { row: WlRow; last: boolean }): React.React
     >
       <Link
         href={`/stock/${encodeURIComponent(row.symbol)}`}
+        onClick={(e) => {
+          // Crypto, indices, commodities and currencies have no company page.
+          if (!opensInChart(row.symbol)) return;
+          e.preventDefault();
+          window.dispatchEvent(new CustomEvent("pivot:open-chart", { detail: { symbol: row.symbol } }));
+        }}
         className="flex items-center"
         style={{
           gap: 10,
@@ -1430,7 +1455,7 @@ function WatchlistRow({ row, last }: { row: WlRow; last: boolean }): React.React
             letterSpacing: "-0.01em",
           }}
         >
-          {row.symbol}
+          {row.title ?? row.symbol}
         </span>
         {(row.sector || row.name) && (
           <span

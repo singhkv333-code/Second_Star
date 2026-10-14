@@ -1,12 +1,14 @@
-/* Welcome — a large rounded square: a painting above, the choice below. */
+/* Welcome — a large rounded square: a painting above, the choice below.
+   Pivot's palette: ink, bone and greys, Newsreader over Inter, film grain
+   (the referral page's language). Motion lives inside the painting only. */
 
 .welcome-scrim {
-  --w-ink: #111312;
-  --w-text: #3a3f3c;
+  --w-ink: #0b0b0b;
+  --w-text: #34322e;
   --w-paper: #ffffff;
   --w-line: rgb(17 19 18 / 9%);
   --w-soft: rgb(17 19 18 / 4.5%);
-  --w-pick: #111312;
+  --w-pick: #0b0b0b;
   position: fixed;
   inset: 0;
   z-index: 10050;
@@ -20,13 +22,13 @@
   font-family: var(--font-sans, Inter, system-ui, sans-serif);
 }
 .dark .welcome-scrim {
-  --w-ink: #f3f0e7;
-  --w-text: #c9c5bb;
-  --w-paper: #17181c;
+  --w-ink: #f4f1ea;
+  --w-text: #cdc8bd;
+  --w-paper: #0e0e0e;
   --w-line: rgb(255 255 255 / 10%);
   --w-soft: rgb(255 255 255 / 5%);
-  --w-pick: #f3f0e7;
-  background: rgb(0 0 0 / 45%);
+  --w-pick: #f4f1ea;
+  background: rgb(0 0 0 / 50%);
 }
 
 .welcome-card {
@@ -60,28 +62,46 @@
   height: 112%;
   object-fit: cover;
   opacity: 0;
-  transition: opacity .7s ease;
+  /* Each painting develops in: out of focus and bright, then settles. */
+  filter: blur(14px) brightness(1.5) contrast(.8);
+  transition: opacity .9s ease, filter 1.4s cubic-bezier(.22, 1, .36, 1);
   animation: welcomeDrift 26s ease-in-out infinite alternate;
 }
-.welcome-art img.on { opacity: 1; }
-/* A soft fade into the paper below, so the painting has no hard edge. */
-.welcome-art::after {
-  content: "";
+.welcome-art img.on { opacity: 1; filter: none; }
+/* A slow band of light passing over the painting. */
+.welcome-sheen {
   position: absolute;
-  inset: auto 0 0;
-  height: 56px;
-  background: linear-gradient(to bottom, transparent, rgb(255 255 255 / 18%));
+  inset: -40% -60%;
+  pointer-events: none;
+  background: linear-gradient(105deg, transparent 38%, rgb(244 241 234 / 9%) 47%, rgb(244 241 234 / 16%) 50%,
+    rgb(244 241 234 / 9%) 53%, transparent 62%);
+  mix-blend-mode: screen;
+  animation: welcomeSweep 9s cubic-bezier(.45, 0, .2, 1) infinite;
+}
+/* Film grain, the referral page's tile, stepping so it flickers like film. */
+.welcome-grain {
+  position: absolute;
+  inset: -50%;
+  pointer-events: none;
+  opacity: .32;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  background-size: 220px 220px;
+  animation: welcomeGrain .9s steps(6) infinite;
 }
 .welcome-mark {
   position: absolute;
-  top: 20px;
-  left: 20px;
-  width: 44px;
-  height: 44px;
-  border-radius: 13px;
-  object-fit: contain;
-  background: #111312;      /* the icon file is a white mark centred at 40% */
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 12%), 0 10px 22px -12px rgb(0 0 0 / 55%);
+  z-index: 1;
+  top: 18px;
+  left: 18px;
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  object-fit: contain;      /* the icon file is a white mark centred at 40% */
+  background: rgb(244 241 234 / 8%);
+  box-shadow: inset 0 0 0 1px rgb(244 241 234 / 18%);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
 }
 
 .welcome-skip {
@@ -99,14 +119,14 @@
   border-radius: 11px;
   cursor: pointer;
   font: 600 14px/1 var(--font-sans, Inter, system-ui, sans-serif);
-  color: #1b1d1c;
-  background: rgb(255 255 255 / 42%);
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 60%), 0 6px 16px -10px rgb(0 0 0 / 30%);
-  -webkit-backdrop-filter: blur(10px) saturate(160%);
-  backdrop-filter: blur(10px) saturate(160%);
+  color: #f4f1ea;
+  background: rgb(244 241 234 / 8%);
+  box-shadow: inset 0 0 0 1px rgb(244 241 234 / 18%);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   transition: background-color .15s ease;
 }
-.welcome-skip:hover { background: rgb(255 255 255 / 68%); }
+.welcome-skip:hover { background: rgb(244 241 234 / 16%); }
 
 .welcome-body {
   display: flex;
@@ -121,8 +141,8 @@
 }
 .welcome-pane h2 {
   margin: 0 0 8px;
-  font: 600 26px/1.2 var(--font-sans, Inter, system-ui, sans-serif);
-  letter-spacing: -0.02em;
+  font: 450 32px/1.1 Newsreader, Georgia, serif;
+  letter-spacing: -0.03em;
   color: var(--w-ink);
 }
 .welcome-pane p {
@@ -133,6 +153,32 @@
 }
 
 /* Watchlist */
+.welcome-groups {
+  display: flex;
+  gap: 4px;
+  margin: -2px 0 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.welcome-groups button {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
+  flex: none;
+  height: 32px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--w-text);
+  transition: background-color .15s ease, color .15s ease;
+}
+.welcome-groups button:hover { background: var(--w-soft); color: var(--w-ink); }
+.welcome-groups button[aria-selected="true"] { background: var(--w-ink); color: var(--w-paper); font-weight: 600; }
+.welcome-groups button:focus-visible { outline: 2px solid #2b9bb1; outline-offset: 2px; }
+.welcome-grid { animation: welcomeIn .3s ease both; }
 .welcome-search {
   margin: 16px 0 14px;
   height: 46px;
@@ -236,7 +282,7 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  height: 376px;              /* the popular grid's height, so the card holds still */
+  height: 420px;              /* the kinds row and popular grid's height, so the card holds still */
   overflow-y: auto;
   padding: 2px;
 }
@@ -365,6 +411,18 @@
 @keyframes welcomeFade { from { opacity: 0; } }
 @keyframes welcomeRise { from { opacity: 0; transform: translateY(18px) scale(.97); } }
 @keyframes welcomeIn { from { opacity: 0; transform: translateY(6px); } }
+@keyframes welcomeSweep {
+  0%, 30% { transform: translateX(-45%); }
+  100%    { transform: translateX(45%); }
+}
+@keyframes welcomeGrain {
+  0%   { transform: translate(0, 0); }
+  20%  { transform: translate(-6%, 4%); }
+  40%  { transform: translate(5%, -7%); }
+  60%  { transform: translate(-3%, 8%); }
+  80%  { transform: translate(7%, 2%); }
+  100% { transform: translate(-4%, -5%); }
+}
 @keyframes welcomeDrift {
   0%   { transform: scale(1) translate3d(0, 0, 0); }
   100% { transform: scale(1.06) translate3d(-2.5%, 1.5%, 0); }
@@ -377,13 +435,15 @@
   .welcome-body { padding: 22px 20px 20px; }
   .welcome-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .welcome-palettes { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .welcome-pane h2 { font-size: 23px; }
+  .welcome-pane h2 { font-size: 28px; }
 }
 @media (max-height: 760px) {
   .welcome-art { height: 220px; }
   .welcome-card:not([data-step="0"]) .welcome-art { height: 110px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .welcome-scrim, .welcome-card, .welcome-pane, .welcome-palettes, .welcome-art img { animation: none; }
-  .welcome-art { transition: none; }
+  .welcome-scrim, .welcome-card, .welcome-pane, .welcome-palettes, .welcome-art img,
+  .welcome-sheen, .welcome-grain, .welcome-grid { animation: none; }
+  .welcome-sheen { display: none; }
+  .welcome-art, .welcome-art img { transition: opacity .3s ease; }
 }

@@ -24,9 +24,9 @@ export const PIVOT_ICON = asset(new URL("../public/pivot-icon.png", import.meta.
 export const PIVOT_LIGHT = asset(new URL("../public/pivot-light.png", import.meta.url));
 /** The welcome cards' paintings (scripts/welcome-art.py). */
 export const WELCOME_ART = {
-  dune: asset(new URL("../public/welcome/dune.webp", import.meta.url)),
-  tide: asset(new URL("../public/welcome/tide.webp", import.meta.url)),
-  dusk: asset(new URL("../public/welcome/dusk.webp", import.meta.url)),
+  smoke: asset(new URL("../public/welcome/smoke.webp", import.meta.url)),
+  silk: asset(new URL("../public/welcome/silk.webp", import.meta.url)),
+  glow: asset(new URL("../public/welcome/glow.webp", import.meta.url)),
 };
 
 const BROKER_LOGOS: Record<string, string> = {

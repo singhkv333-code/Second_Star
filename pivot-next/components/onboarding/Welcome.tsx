@@ -10,6 +10,7 @@
  *      Choices apply at once, through the same runtime as Workspace colors.
  *
  * Each card is a large rounded square: a painting on top (scripts/welcome-art.py)
+ * in Pivot's dark palette, with moving film grain and a slow sweep of light,
  * and the choice below it. "Show me around" hands over to the tour; Skip ends
  * here and keeps the defaults.
  */
@@ -18,29 +19,25 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom";
 import { ArrowLeft, Check, Plus, Search, X } from "lucide-react";
 import { CompanyLogo } from "@/components/CompanyLogo";
-import { getCompanyLogos, getMe, searchCompanies, type CompanySearchResult } from "@/lib/api";
+import { getCompanyLogos, getMe } from "@/lib/api";
+import { fallback, loadUniverse, searchInstruments, type Instrument } from "@/lib/instruments";
 import { isError } from "@/lib/types";
 import { PIVOT_ICON, WELCOME_ART } from "@/lib/publicAssets";
 import { setWatchlist, useWatchlists } from "@/lib/watchlists";
 import type { WorkspacePalette } from "@/lib/workspace-theme";
 import "./welcome.css";
 
-const POPULAR: { symbol: string; name: string }[] = [
-  { symbol: "RELIANCE", name: "Reliance Industries" },
-  { symbol: "HDFCBANK", name: "HDFC Bank" },
-  { symbol: "TCS", name: "Tata Consultancy" },
-  { symbol: "INFY", name: "Infosys" },
-  { symbol: "ICICIBANK", name: "ICICI Bank" },
-  { symbol: "SBIN", name: "State Bank of India" },
-  { symbol: "BHARTIARTL", name: "Bharti Airtel" },
-  { symbol: "ITC", name: "ITC" },
-  { symbol: "LT", name: "Larsen & Toubro" },
-  { symbol: "BAJFINANCE", name: "Bajaj Finance" },
-  { symbol: "HINDUNILVR", name: "Hindustan Unilever" },
-  { symbol: "MARUTI", name: "Maruti Suzuki" },
-];
+/* Popular picks by kind. "All" mixes the headline names of each. */
+const GROUPS = {
+  All: ["NIFTY 50", "SENSEX", "BTCUSDT", "ETHUSDT", "GOLD", "CRUDEOIL", "RELIANCE", "HDFCBANK", "TCS", "INFY", "ICICIBANK", "SBIN"],
+  Stocks: ["RELIANCE", "HDFCBANK", "TCS", "INFY", "ICICIBANK", "SBIN", "BHARTIARTL", "ITC", "LT", "BAJFINANCE", "HINDUNILVR", "MARUTI"],
+  Indices: ["NIFTY 50", "NIFTY BANK", "SENSEX", "NIFTY NEXT 50", "NIFTY MIDCAP 100", "NIFTY IT", "NIFTY FIN SERVICE", "INDIA VIX"],
+  Crypto: ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "DOGEUSDT", "ADAUSDT", "AVAXUSDT"],
+  Commodities: ["GOLD", "SILVER", "CRUDEOIL", "NATURALGAS", "COPPER", "ZINC", "ALUMINIUM", "USDINR"],
+} as const;
+type Group = keyof typeof GROUPS;
 
-const ART = [WELCOME_ART.dune, WELCOME_ART.tide, WELCOME_ART.dusk];
+const ART = [WELCOME_ART.smoke, WELCOME_ART.silk, WELCOME_ART.glow];
 const LAST = 2;
 
 type Look = "light" | "dark" | "custom";
@@ -93,9 +90,11 @@ export function Welcome({ onDone }: { onDone: (tour: boolean) => void }): React.
   const wl = useWatchlists();
   const [picked, setPicked] = useState<string[] | null>(null);
   const chosen = useMemo(() => picked ?? wl.lists[0]?.tickers ?? [], [picked, wl]);
-  const [logos, setLogos] = useState<Record<string, string | null>>({});
+  const [known, setKnown] = useState<Map<string, Instrument>>(new Map());
+  const [stockLogos, setStockLogos] = useState<Record<string, string | null>>({});
+  const [group, setGroup] = useState<Group>("All");
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<CompanySearchResult[]>([]);
+  const [results, setResults] = useState<Instrument[]>([]);
   const [searching, setSearching] = useState(false);
   const toggle = useCallback((symbol: string): void => {
     setPicked((cur) => {
@@ -104,19 +103,29 @@ export function Welcome({ onDone }: { onDone: (tour: boolean) => void }): React.
     });
   }, [wl]);
 
-  useEffect(() => { void getCompanyLogos(POPULAR.map((p) => p.symbol)).then(setLogos); }, []);
+  useEffect(() => {
+    void loadUniverse().then(setKnown);
+    void getCompanyLogos([...GROUPS.Stocks]).then(setStockLogos);
+  }, []);
+  const describe = useCallback((symbol: string): Instrument => {
+    const i = known.get(symbol) ?? fallback(symbol);
+    return i.logo || !stockLogos[symbol] ? i : { ...i, logo: stockLogos[symbol] ?? null };
+  }, [known, stockLogos]);
 
   useEffect(() => {
     const q = query.trim();
     if (!q) { setResults([]); setSearching(false); return; }
     setSearching(true);
+    // A slower, older search must never replace the answer to a newer one.
+    let current = true;
     const t = window.setTimeout(() => {
-      searchCompanies(q, 8).then((r) => {
-        setResults(isError(r) ? [] : r.data.results);
+      searchInstruments(q, 10).then((r) => {
+        if (!current) return;
+        setResults(r);
         setSearching(false);
-      }).catch(() => { setResults([]); setSearching(false); });
+      }).catch(() => { if (current) { setResults([]); setSearching(false); } });
     }, 180);
-    return () => window.clearTimeout(t);
+    return () => { current = false; window.clearTimeout(t); };
   }, [query]);
 
   // ── Look ────────────────────────────────────────────────
@@ -148,9 +157,14 @@ export function Welcome({ onDone }: { onDone: (tour: boolean) => void }): React.
 
   // ── Flow ────────────────────────────────────────────────
   const finish = useCallback((tour: boolean): void => {
-    if (picked) setWatchlist(picked);
+    if (picked) {
+      // What they added goes first: Home shows the first seven, and their own
+      // picks should not fall behind the defaults they happened to keep.
+      const before = wl.lists[0]?.tickers ?? [];
+      setWatchlist([...picked.filter((s) => !before.includes(s)), ...picked.filter((s) => before.includes(s))]);
+    }
     onDone(tour);
-  }, [picked, onDone]);
+  }, [picked, wl, onDone]);
 
   useEffect(() => { primary.current?.focus({ preventScroll: true }); }, [step]);
   useEffect(() => {
@@ -161,15 +175,15 @@ export function Welcome({ onDone }: { onDone: (tour: boolean) => void }): React.
 
   if (!mounted) return null;
 
-  const tile = (symbol: string, label: string, logo: string | null | undefined, wide = false): React.ReactElement => {
-    const on = chosen.includes(symbol);
+  const tile = (i: Instrument, wide = false): React.ReactElement => {
+    const on = chosen.includes(i.symbol);
     return (
-      <button key={symbol} type="button" className={wide ? "welcome-row" : "welcome-tile"} aria-pressed={on}
-        onClick={() => toggle(symbol)}>
-        <CompanyLogo logoUrl={logo} name={label} symbol={symbol} size={wide ? 40 : 46} />
+      <button key={i.symbol} type="button" className={wide ? "welcome-row" : "welcome-tile"} aria-pressed={on}
+        onClick={() => toggle(i.symbol)}>
+        <CompanyLogo logoUrl={i.logo} name={i.title} symbol={i.symbol} size={wide ? 40 : 46} />
         <span className="welcome-tile-text">
-          <strong>{symbol}</strong>
-          <span>{label}</span>
+          <strong>{i.title}</strong>
+          <span>{i.sub}</span>
         </span>
         <span className="welcome-tick" aria-hidden="true">{on ? <Check size={14} strokeWidth={2.5} /> : <Plus size={14} strokeWidth={2.25} />}</span>
       </button>
@@ -187,6 +201,8 @@ export function Welcome({ onDone }: { onDone: (tour: boolean) => void }): React.
           ))}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={PIVOT_ICON} alt="" className="welcome-mark" />
+          <i className="welcome-sheen" />
+          <i className="welcome-grain" />
         </div>
         <button type="button" className="welcome-skip" onClick={() => finish(false)}>
           Skip <X size={14} strokeWidth={2} aria-hidden="true" />
@@ -204,11 +220,11 @@ export function Welcome({ onDone }: { onDone: (tour: boolean) => void }): React.
           {step === 1 && (
             <div className="welcome-pane" key="watch">
               <h2 id={titleId}>Build your watchlist</h2>
-              <p>Pick the stocks you follow. They appear on Home, and you can change them any time.</p>
+              <p>Pick what you follow: stocks, indices, crypto or commodities. They appear on Home, and you can change them any time.</p>
               <label className="welcome-search">
                 <Search size={17} strokeWidth={2} aria-hidden="true" />
                 <input type="search" value={query} onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search any NSE or BSE stock" aria-label="Search stocks"
+                  placeholder="Search any stock, index, crypto or commodity" aria-label="Search symbols"
                   onKeyDown={(e) => { if (e.key === "Enter" && results[0]) { e.preventDefault(); toggle(results[0].symbol); } }} />
                 {query && (
                   <button type="button" className="welcome-clear" onClick={() => setQuery("")} aria-label="Clear search">
@@ -218,13 +234,20 @@ export function Welcome({ onDone }: { onDone: (tour: boolean) => void }): React.
               </label>
               {query.trim() ? (
                 <div className="welcome-results" aria-live="polite">
-                  {results.map((r) => tile(r.symbol, r.name, r.logo_url, true))}
-                  {!searching && results.length === 0 && <p className="welcome-empty">No stock matches &ldquo;{query.trim()}&rdquo;.</p>}
+                  {results.map((r) => tile(r, true))}
+                  {!searching && results.length === 0 && <p className="welcome-empty">Nothing matches &ldquo;{query.trim()}&rdquo;.</p>}
                 </div>
               ) : (
-                <div className="welcome-grid">
-                  {POPULAR.map((p) => tile(p.symbol, p.name, logos[p.symbol]))}
-                </div>
+                <>
+                  <div className="welcome-groups" role="tablist" aria-label="Kinds">
+                    {(Object.keys(GROUPS) as Group[]).map((g) => (
+                      <button key={g} type="button" role="tab" aria-selected={group === g} onClick={() => setGroup(g)}>{g}</button>
+                    ))}
+                  </div>
+                  <div className="welcome-grid" key={group}>
+                    {GROUPS[group].map((sym) => tile(describe(sym)))}
+                  </div>
+                </>
               )}
             </div>
           )}

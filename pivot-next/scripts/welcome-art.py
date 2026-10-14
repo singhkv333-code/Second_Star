@@ -1,9 +1,14 @@
-"""Paint the welcome cards' art: blurred oil-paint swirls with a sandy grain.
+"""Paint the welcome cards' art in Pivot's dark palette: ink, greys and bone,
+with only a breath of colour in each.
 
-Domain warping (Inigo Quilez, https://iquilezles.org/articles/warp): fBm noise
-read at coordinates that are themselves pushed around by fBm, twice. That is
-what folds smooth colour into the marbled, brushed swirls. Then a soft blur,
-and a fine monochrome grain on top for the sand.
+    smoke  a grayscale oil-painted sky, wisps of bone light in black (welcome)
+    silk   folds of liquid steel, a cool blue-grey sheen (watchlist)
+    glow   a soft spotlight on black, warm grey, heavy grain (appearance)
+
+All three start from domain warping (Inigo Quilez,
+https://iquilezles.org/articles/warp): fBm noise read at coordinates that
+fBm itself pushes around. That folds plain noise into painted clouds and
+draped cloth. Each ends with the same fine film grain the referral page uses.
 
     python3.11 scripts/welcome-art.py      # writes public/welcome/*.webp
 
@@ -18,18 +23,8 @@ from scipy import ndimage
 W, H = 1120, 640          # twice the card's art panel, for sharp screens
 OUT = Path(__file__).resolve().parent.parent / "public" / "welcome"
 
-PALETTES = {
-    # name: colours from the quiet end of the ramp to the deep end
-    "dune": ["#f6ead9", "#f1c9a5", "#e49a74", "#c9785f", "#b98aa0", "#7a5470"],
-    "tide": ["#eef3ef", "#d3e6e3", "#a8cfd0", "#ead6b6", "#7fb0b8", "#5d8fa3"],
-    "dusk": ["#f4e4dc", "#f2c4ab", "#e7a0b4", "#b9a3dc", "#8577c4", "#3a3566"],
-}
 
-# Chosen by eye: each gives one or two broad folds and no lone dark blot.
-SEEDS = {"dune": 11, "tide": 41, "dusk": 25}
-
-
-def fbm_field(rng: np.random.Generator, size: int, octaves: int = 5) -> np.ndarray:
+def fbm_field(rng: np.random.Generator, size: int, octaves: int) -> np.ndarray:
     """A smooth, wrapping noise field: random grids, upsampled and summed."""
     out = np.zeros((size, size))
     amp, total = 1.0, 0.0
@@ -49,48 +44,82 @@ def sample(field: np.ndarray, x: np.ndarray, y: np.ndarray) -> np.ndarray:
     return ndimage.map_coordinates(field, [(y * n) % n, (x * n) % n], order=1, mode="grid-wrap")
 
 
-def hex_rgb(h: str) -> np.ndarray:
+def rgb(h: str) -> np.ndarray:
     return np.array([int(h[i:i + 2], 16) for i in (1, 3, 5)], dtype=float)
 
 
-def ramp(t: np.ndarray, colours: list[str]) -> np.ndarray:
-    stops = np.array([hex_rgb(c) for c in colours])
-    pos = np.clip(t, 0, 1) * (len(stops) - 1)
-    i = np.clip(pos.astype(int), 0, len(stops) - 2)
-    f = (pos - i)[..., None]
-    f = f * f * (3 - 2 * f)                       # smoothstep between stops
-    return stops[i] * (1 - f) + stops[i + 1] * f
+def ramp(t: np.ndarray, stops: list[tuple[float, str]]) -> np.ndarray:
+    """Piecewise colour ramp over t in [0, 1]."""
+    t = np.clip(t, 0, 1)
+    out = np.zeros(t.shape + (3,))
+    for (p0, c0), (p1, c1) in zip(stops, stops[1:]):
+        m = (t >= p0) & (t <= p1)
+        f = ((t[m] - p0) / max(p1 - p0, 1e-6))[:, None]
+        f = f * f * (3 - 2 * f)
+        out[m] = rgb(c0) * (1 - f) + rgb(c1) * f
+    return out
 
 
-def paint(name: str, colours: list[str], seed: int) -> Image.Image:
-    rng = np.random.default_rng(seed)
-    a, b, c = (fbm_field(rng, 512, octaves=3) for _ in range(3))
-    yy, xx = np.mgrid[0:H, 0:W] / W * 0.38       # a small window: large, slow swirls
-    # q pushes the coordinates, r pushes them again: two folds of the paint.
+def norm(a: np.ndarray) -> np.ndarray:
+    return (a - a.min()) / (a.max() - a.min())
+
+
+def warped(rng, scale: float, fold: float, octaves: int):
+    a, b, c = (fbm_field(rng, 512, octaves) for _ in range(3))
+    yy, xx = np.mgrid[0:H, 0:W] / W * scale
     qx, qy = sample(a, xx, yy), sample(b, xx + 0.52, yy + 0.13)
-    rx = sample(c, xx + 0.9 * qx + 0.17, yy + 0.9 * qy + 0.92)
-    ry = sample(a, xx + 0.9 * qx + 0.83, yy + 0.9 * qy + 0.28)
-    f = sample(b, xx + 1.1 * rx, yy + 1.1 * ry)
-    t = 0.7 * f + 0.2 * rx + 0.1 * qy
-    t = (t - t.min()) / (t.max() - t.min())
-    rgb = ramp(t, colours)
-    # Lift the light end a touch so the swirls read as light on paint.
-    rgb += (np.clip(qx - 0.5, 0, 1) * 70)[..., None]
-    # Light falls from the top left.
-    rgb += ((1 - yy / yy.max()) * (1 - xx / xx.max()) * 26)[..., None]
-    # Blur along the paint, then a second soft pass: brushed, then out of focus.
-    rgb = ndimage.gaussian_filter(rgb, sigma=(4, 14, 0))
-    rgb = ndimage.gaussian_filter(rgb, sigma=(10, 10, 0))
-    # Sand: fine monochrome grain plus a sparse coarser speckle.
-    grain = rng.normal(0, 7.5, (H, W))
-    speck = ndimage.gaussian_filter(rng.normal(0, 1, (H, W)), 0.8) * 9
-    rgb += (grain + speck)[..., None]
-    return Image.fromarray(np.clip(rgb, 0, 255).astype(np.uint8))
+    rx = sample(c, xx + fold * qx + 0.17, yy + fold * qy + 0.92)
+    ry = sample(a, xx + fold * qx + 0.83, yy + fold * qy + 0.28)
+    f = sample(b, xx + fold * 1.2 * rx, yy + fold * 1.2 * ry)
+    return norm(f), qx, rx, xx / xx.max(), yy / yy.max()
 
+
+def grain(rng, img: np.ndarray, amount: float) -> np.ndarray:
+    fine = rng.normal(0, amount, (H, W))
+    speck = ndimage.gaussian_filter(rng.normal(0, 1, (H, W)), 0.8) * amount * 1.1
+    return img + (fine + speck)[..., None]
+
+
+def smoke(rng) -> np.ndarray:
+    f, q, r, x, y = warped(rng, scale=0.3, fold=1.1, octaves=5)
+    t = norm(0.7 * f + 0.3 * r)
+    # Broad dark masses; light gathers along the cloud banks, strongest in
+    # one region, as in a night-sky oil sketch.
+    light = np.clip((t - 0.3) / 0.62, 0, 1) ** 1.25
+    light *= 0.45 + 0.55 * np.exp(-(((x - 0.66) / 0.5) ** 2 + ((y - 0.32) / 0.7) ** 2))
+    img = ramp(light, [(0, "#070707"), (0.3, "#1d1c19"), (0.62, "#6f6a60"), (1, "#ece6da")])
+    img = ndimage.gaussian_filter(img, sigma=(5.5, 5.5, 0))
+    return grain(rng, img, 7.5)
+
+
+def silk(rng) -> np.ndarray:
+    f, q, r, x, y = warped(rng, scale=0.2, fold=0.7, octaves=3)
+    phase = f * 4.2 + r * 1.6
+    sheen = (0.5 + 0.5 * np.sin(phase * np.pi)) ** 3     # a few broad crests on the folds
+    body = norm(0.6 * f + 0.4 * q)
+    img = ramp(body, [(0, "#08090b"), (0.55, "#171a1e"), (1, "#323941")])
+    img += sheen[..., None] * (rgb("#aab4be") - 30) * (0.25 + 0.75 * body)[..., None] * 0.8
+    img = ndimage.gaussian_filter(img, sigma=(5, 12, 0))
+    img = ndimage.gaussian_filter(img, sigma=(8, 8, 0))
+    return grain(rng, img, 6.5)
+
+
+def glow(rng) -> np.ndarray:
+    f, q, r, x, y = warped(rng, scale=0.5, fold=1.0, octaves=4)
+    d = ((x - 0.7) / 0.5) ** 2 + ((y - 0.15) / 0.75) ** 2
+    spot = np.exp(-d * 1.4) * (0.94 + 0.12 * (f - 0.5))  # light on a faintly textured wall
+    img = ramp(spot, [(0, "#060606"), (0.3, "#171614"), (0.7, "#5a5751"), (1, "#b3ada2")])
+    img = ndimage.gaussian_filter(img, sigma=(10, 10, 0))
+    return grain(rng, img, 10)
+
+
+PAINTINGS = {"smoke": (smoke, 7), "silk": (silk, 41), "glow": (glow, 3)}
 
 if __name__ == "__main__":
     OUT.mkdir(parents=True, exist_ok=True)
-    for name, colours in PALETTES.items():
-        img = paint(name, colours, seed=SEEDS[name])
-        img.save(OUT / f"{name}.webp", "WEBP", quality=84, method=6)
+    for old in OUT.glob("*.webp"):
+        old.unlink()
+    for name, (paint, seed) in PAINTINGS.items():
+        img = Image.fromarray(np.clip(paint(np.random.default_rng(seed)), 0, 255).astype(np.uint8))
+        img.save(OUT / f"{name}.webp", "WEBP", quality=86, method=6)
         print(name, (OUT / f"{name}.webp").stat().st_size // 1024, "KB")
