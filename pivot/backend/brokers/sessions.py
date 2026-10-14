@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from backend.models import BrokerSession
@@ -81,17 +82,27 @@ def get_active_broker_session(
 
 
 def get_active_kite_session(db: Session) -> Optional[BrokerSession]:
-    """The most-recent active *Kite* session, app-level (any user). Kite stays
-    the market-data provider, so historical/ticker/system reads pull a Kite
-    token regardless of which user owns it. Replaces the old
-    ``db.query(KiteSession).filter(is_active)`` pattern."""
+    """The platform's market-data Kite session: the most recent active session
+    of the Zerodha account named in ``settings.kite_data_account``.
+
+    Every market-data reader (historical, live quotes, the ticker, screener,
+    charto's stream and backfills) comes through here. Pinning it to one
+    Zerodha account means a user connecting their own Kite can never take over
+    everyone's feed, and nobody else's token is ever used for shared data.
+    When the pinned account has no live session this answers None and callers
+    fall back to the tagged yfinance path, rather than borrowing a user's."""
+    from backend.config import settings
+
+    pinned = (settings.kite_data_account or "").strip().upper()
+    q = db.query(BrokerSession).filter(
+        BrokerSession.broker == "kite",
+        BrokerSession.is_active.is_(True),
+        BrokerSession.access_token.isnot(None),
+    )
+    if pinned and pinned != "*":
+        q = q.filter(func.upper(BrokerSession.broker_user_id) == pinned)
     return (
-        db.query(BrokerSession)
-        .filter(
-            BrokerSession.broker == "kite",
-            BrokerSession.is_active.is_(True),
-            BrokerSession.access_token.isnot(None),
-        )
+        q
         .order_by(
             BrokerSession.updated_at.desc().nullslast(),
             BrokerSession.id.desc(),

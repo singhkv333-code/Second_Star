@@ -50,6 +50,13 @@ class Settings(BaseSettings):
     # Kite
     kite_api_key: str = ""
     kite_api_secret: str = ""
+    # The ONE Zerodha account whose session feeds the platform's market data
+    # (quotes, history, the ticker, the option chain). Every other user's Kite
+    # connection serves only that user. Without this, the most recent Kite
+    # connection on ANY account became everyone's feed, and the feed died
+    # when that person's session did. Env: KITE_DATA_ACCOUNT. "*" restores
+    # the old any-account behaviour (local experiments only).
+    kite_data_account: str = "NHB457"
     # Phase 0: token encryption at rest. Generate with:
     #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
     # Used for ALL broker secrets at rest (kite/dhan/fyers access+refresh+api

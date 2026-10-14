@@ -185,3 +185,45 @@ def test_active_broker_session_none_when_no_active(db):
     db.flush()
     db.refresh(user)
     assert user.active_broker_session is None
+
+
+# ── the market-data session is pinned to one Zerodha account ────────────────
+
+def _kite(db, user, zerodha_id, token="tok"):
+    row = BrokerSession(user_id=user.id, broker="kite", access_token=token,
+                        broker_user_id=zerodha_id, is_active=True)
+    db.add(row)
+    db.flush()
+    return row
+
+
+def test_market_data_session_is_the_pinned_account_only(db, monkeypatch):
+    from backend.brokers.sessions import get_active_kite_session
+    from backend.config import settings
+
+    monkeypatch.setattr(settings, "kite_data_account", "NHB457")
+    owner = _make_user(db, "owner@pivot.com")
+    other = _make_user(db, "someone@pivot.com")
+    mine = _kite(db, owner, "nhb457")
+    _kite(db, other, "XY1234")                    # connected later, by someone else
+    assert get_active_kite_session(db).id == mine.id
+
+
+def test_no_pinned_session_means_no_borrowed_token(db, monkeypatch):
+    from backend.brokers.sessions import get_active_kite_session
+    from backend.config import settings
+
+    monkeypatch.setattr(settings, "kite_data_account", "NHB457")
+    other = _make_user(db, "someone2@pivot.com")
+    _kite(db, other, "XY1234")
+    assert get_active_kite_session(db) is None
+
+
+def test_star_restores_any_account(db, monkeypatch):
+    from backend.brokers.sessions import get_active_kite_session
+    from backend.config import settings
+
+    monkeypatch.setattr(settings, "kite_data_account", "*")
+    other = _make_user(db, "someone3@pivot.com")
+    row = _kite(db, other, "XY1234")
+    assert get_active_kite_session(db).id == row.id
