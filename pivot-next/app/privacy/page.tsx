@@ -3,7 +3,7 @@ import { CompanyPage } from "@/components/company/CompanyPage";
 
 export const metadata: Metadata = {
   title: "Privacy policy | Pivot",
-  description: "Learn how Pivot Tech handles account information, saved work, AI requests, analytics and payments.",
+  description: "What personal data Pivot collects, why, who processes it, where it is stored, how long it is kept, and your rights under India's DPDP Act.",
 };
 
 export default function Page(): React.ReactElement {

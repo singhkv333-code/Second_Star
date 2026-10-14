@@ -11,8 +11,14 @@
 .main h1 { margin: 0 0 24px; font: 500 clamp(36px, 4vw, 46px)/1.15 Newsreader, Georgia, serif; letter-spacing: -.02em; }
 .main h2 { margin: 36px 0 14px; font-size: 19px; line-height: 1.5; font-weight: 600; }
 .main p { margin: 0 0 18px; font-size: 16px; line-height: 1.85; overflow-wrap: anywhere; }
-.main .updated { margin-bottom: 26px; font-size: 14px; }
+.main .updated { margin-bottom: 26px; font-size: 15px; color: #2a2e2c; }
+.main .lead { font-size: 18px; line-height: 1.75; }
+.main ul { margin: 0 0 20px; padding-left: 22px; list-style: disc; }
+.main li { margin: 0 0 10px; font-size: 16px; line-height: 1.75; padding-left: 4px; overflow-wrap: anywhere; }
+.main li::marker { color: #2b9bb1; }
+.main li strong { font-weight: 600; }
+.main .who { margin-top: 44px; padding-top: 8px; border-top: 1px solid #e4e1d8; }
 .footer { padding: 0 0 36px; font-size: 14px; }
 .footer nav { display: flex; flex-wrap: wrap; gap: 14px 24px; }
-.footer p { margin: 24px 0 0; font-size: 13px; }
+.footer p { margin: 24px 0 0; font-size: 14px; color: #2a2e2c; }
 @media (max-width: 600px) { .header, .main, .footer { width: calc(100% - 40px); } .header { padding: 24px 0; } .main { padding-top: 24px; } .main h2 { font-size: 18px; } }

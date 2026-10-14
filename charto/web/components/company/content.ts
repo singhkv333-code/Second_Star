@@ -1,9 +1,22 @@
-export type CompanyPageKey = "about" | "terms" | "privacy";
+/* The company and legal pages: About, Terms, Privacy, Refunds, Contact.
+ *
+ * Every statement here describes how Pivot actually works today. When the
+ * product changes (a new data provider, a new region, a new way to pay),
+ * change this file in the same commit, bump UPDATED, and send the
+ * policy_update email (charto/data/mail_templates.py) for material changes.
+ *
+ * Written against: the Digital Personal Data Protection Act 2023 and DPDP
+ * Rules 2025; the IT Act 2000 and its Reasonable Security Practices (SPDI)
+ * Rules 2011; the Consumer Protection (E-Commerce) Rules 2020; SEBI's
+ * position on unregistered investment advice; Razorpay's website checks. */
+
+export type CompanyPageKey = "about" | "terms" | "privacy" | "refunds" | "contact";
 
 export interface CompanySection {
   id: string;
   title: string;
   paragraphs: string[];
+  list?: string[];
 }
 
 export interface CompanyContent {
@@ -12,105 +25,353 @@ export interface CompanyContent {
   sections: CompanySection[];
 }
 
+/* Who operates Pivot. LEGAL_NAME and ADDRESS must match the company's
+ * registration documents; ADDRESS prints only once it is filled in. */
 export const COMPANY_NAME = "Pivot Tech";
-export const CONTACT_EMAIL = "info@pivotnow.in";
-export const UPDATED_DATE = "11 October 2026";
+export const LEGAL_NAME = "Pivot Tech";
+export const ADDRESS = "";
+export const CONTACT_EMAIL = "contact@pivotnow.in";
+export const GRIEVANCE_OFFICER = { name: "", title: "Grievance Officer", email: "contact@pivotnow.in" };
+export const UPDATED = { iso: "2026-10-14", label: "14 October 2026" };
+
+const ADVICE_LINE = "Pivot is not registered with SEBI as an investment adviser or research analyst, and it is not a stock broker. Nothing on Pivot is a recommendation to buy, sell or hold any security.";
 
 export const COMPANY_PAGES: Record<CompanyPageKey, CompanyContent> = {
   about: {
     title: "About Pivot",
-    introduction: "Pivot is a financial analysis platform built by Pivot Tech for traders and investors in India. It brings charts, company research, strategy testing and paper trading into one workspace.",
+    introduction: "Pivot is a market research platform for traders and investors in India. You ask a question about a stock, an index or a commodity, and Pivot answers it with real market data, draws the answer on a live chart, and shows the evidence behind it.",
     sections: [
       {
-        id: "why-pivot", title: "Why we built Pivot",
-        paragraphs: ["A market question rarely ends at a price chart. It can lead to a company filing, a comparison, a trading rule or a portfolio decision. Pivot brings these parts together so your research can stay connected.", "You can ask questions in plain language, explore charts and fundamentals, build a strategy and see how it behaves in a backtest or a simulated paper book."],
+        id: "why", title: "Why we built it",
+        paragraphs: [
+          "Most market tools give you either a chart or an opinion. A chart without context leaves you to do all the reading yourself; an opinion without evidence asks you to trust it. We wanted something in between: a chart that can explain itself, and answers you can check.",
+          "So every level Pivot marks comes with the bars that made it, every pattern comes with how often that pattern has actually worked, and every number in an answer comes from the data, not from the model's memory.",
+        ],
       },
       {
-        id: "what-we-build", title: "What you can do",
-        paragraphs: ["Use Pivot to explore charts, indicators and annotations, investigate company fundamentals and filings, compare securities and screen markets. You can ask questions in plain language while working with the data.", "Strategy tools help you define trading rules, examine historical results and follow trades in a simulated paper book. These tools are intended to help you understand and test an idea before making your own decisions."],
+        id: "what", title: "What you can do with Pivot",
+        paragraphs: ["Pivot covers NSE and BSE equities, the major indices, NSE futures and options, MCX commodities and leading crypto pairs. With it you can:"],
+        list: [
+          "Ask questions on a live chart and see the answer drawn as levels, trendlines, zones and notes.",
+          "Read companies in depth: quarterly results, ratios, shareholding and facts taken from annual-report filings.",
+          "Compare companies, screen the market and follow an option chain.",
+          "Set price, indicator and multi-condition alerts that notify you in the app and by email.",
+          "Publish a chart setup as a read-only link that others can copy into their own workspace.",
+          "Test trading ideas against history and follow them in a simulated paper book. These tools are opening to accounts in stages.",
+        ],
       },
       {
-        id: "our-approach", title: "How we approach analysis",
-        paragraphs: ["AI should help you examine a market, not make an uncertain answer sound certain. We build around real data, visible sources and clear limits. A backtest should expose an idea’s weaknesses as well as its strengths.", "Pivot is an early-stage product from Pivot Tech. Features and coverage continue to develop, and we welcome feedback on what is useful, unclear or missing."],
+        id: "principles", title: "How we work",
+        paragraphs: ["A few rules shape every part of the product:"],
+        list: [
+          "Evidence first. If the data to answer a question is not available, Pivot says so instead of guessing.",
+          "Honest testing. A backtest reports its sample size and how it compares with chance, so a lucky result is not presented as an edge.",
+          "Simulation, not execution. Pivot does not place orders with a broker. Paper trades are simulations and never move money.",
+          "Your data stays yours. We do not sell personal data, and our privacy policy names every service that processes it.",
+        ],
       },
       {
-        id: "our-role", title: "What Pivot provides",
-        paragraphs: ["Pivot provides tools for analysis and learning. We are not a broker or a registered investment adviser. Strategies and orders in the paper book are simulations; Pivot does not place live broker orders.", "Market analysis can be wrong, and historical performance does not guarantee future results. This is analysis, not financial advice."],
+        id: "role", title: "What Pivot is not",
+        paragraphs: [
+          ADVICE_LINE,
+          "Pivot gives you data, analysis and tools to form your own view. Markets carry risk, analysis can be wrong, and past or simulated results do not promise future ones. Please make your own decisions, and consult a SEBI-registered adviser for advice on your situation.",
+        ],
+      },
+      {
+        id: "company", title: "The company",
+        paragraphs: [
+          "Pivot is built and operated by Pivot Tech, an early-stage team in India. We ship often and listen closely. If something is unclear, missing or wrong, write to contact@pivotnow.in and a member of the team will reply.",
+        ],
       },
     ],
   },
+
   terms: {
-    title: "Terms & conditions",
-    introduction: "These terms explain how you can use Pivot and what you can expect from us. Pivot is operated by Pivot Tech. By using the service, you agree to these terms.",
+    title: "Terms of service",
+    introduction: "These terms are an agreement between you and Pivot Tech (“Pivot”, “we”, “us”) for your use of pivotnow.in, app.pivotnow.in and the services linked to them (together, “Pivot”). Please read them carefully. By creating an account or using Pivot, you agree to them. If you do not agree, please do not use Pivot.",
     sections: [
       {
-        id: "using-pivot", title: "1. Using Pivot",
-        paragraphs: ["These terms cover pivotnow.in and the Pivot services linked to it. You must be at least 18 and able to enter a binding agreement to create an account or purchase access. If you use Pivot for an organisation, you must have permission to act for it.", "Provide accurate account information, protect your sign-in details and tell us if you believe someone has accessed your account without permission. You are responsible for activity you authorise through your account."],
+        id: "eligibility", title: "1. Your account",
+        paragraphs: [
+          "You must be at least 18 years old and able to enter a binding contract under Indian law to use Pivot. If you use Pivot on behalf of an organisation, you confirm you are authorised to accept these terms for it.",
+          "Keep your account details accurate and your password private. One account is for one person; do not share it. You are responsible for activity under your account. Tell us at contact@pivotnow.in straight away if you think someone else has used it.",
+        ],
       },
       {
-        id: "analysis-and-simulation", title: "2. Analysis and simulated trading",
-        paragraphs: ["Pivot provides charts, market research, AI assistance, strategy tools, backtests and paper trading. Available features depend on your access and data coverage. Pivot is not a broker or a registered investment adviser, and its output is not personalised financial advice.", "Paper trades, balances and strategy fills are simulated. They do not buy or sell securities or create real investment returns. Paying for Pivot buys software access or the item described at checkout; it does not fund a trading account.", "Backtests depend on historical data and modelling assumptions. They may not reflect liquidity, slippage, fees or the conditions of a real trade. Past or simulated performance does not guarantee future results."],
+        id: "service", title: "2. What Pivot provides",
+        paragraphs: [
+          "Pivot provides market data, charts, company research, an AI assistant, alerts, screening, shared chart setups, backtests and a simulated paper book. Features differ by plan and some are released to accounts in stages.",
+          ADVICE_LINE,
+          "Pivot's output is general information and analysis. It does not take into account your financial situation, objectives or risk tolerance, and it is not personalised investment advice. You are solely responsible for your investment and trading decisions.",
+          "Pivot does not place live orders with any broker. Strategies, orders, balances and positions in the paper book are simulated: they do not buy or sell securities, and they do not create real profits or losses. Connecting a broker or data account does not enable live trading through Pivot.",
+        ],
       },
       {
-        id: "data-and-ai", title: "3. Data and AI have limits",
-        paragraphs: ["Prices, filings and other information can be delayed, incomplete or incorrect. Data availability and sources may change. AI responses can also contain errors. Check important information against the underlying source before relying on it.", "We do not guarantee a trading outcome, uninterrupted availability or the accuracy of every response. You remain responsible for your financial decisions and for seeking qualified advice when needed."],
+        id: "data", title: "3. Market data and AI have limits",
+        paragraphs: [
+          "Market data comes from third-party sources and may be delayed, incomplete or occasionally wrong. Company figures are taken from public filings and financial-data sources and may contain errors or be restated. The source of a price is shown where it is not the primary feed.",
+          "Answers from the AI assistant can contain mistakes, even when they cite data. Check anything important against the underlying source before you rely on it.",
+          "Backtests apply your rules to historical data under stated assumptions. They cannot fully reflect liquidity, slippage, costs, taxes or how you would actually have acted. A good backtest does not mean a strategy will work in future.",
+          "Market and company data in Pivot comes from third parties and is for your personal use inside Pivot. You may not copy, scrape, resell or redistribute it.",
+        ],
       },
       {
-        id: "fair-use", title: "4. Use the platform responsibly", paragraphs: ["Use Pivot lawfully and respect other users and our data providers. Do not attempt to access another person’s account, bypass access controls, disrupt the service or use it for fraud or market manipulation.", "Only submit material you have permission to use. Do not redistribute licensed market data without permission, abuse automated requests or attempt to extract confidential information, credentials or private user data."],
+        id: "use", title: "4. Using Pivot responsibly",
+        paragraphs: ["You agree not to:"],
+        list: [
+          "use Pivot for market manipulation, insider trading, fraud or any other unlawful purpose;",
+          "present Pivot's output as investment advice or research to others, or use Pivot to provide paid tips, unless you are registered with SEBI to do so and comply with its rules;",
+          "access another person's account, test or bypass our security, or disrupt the service;",
+          "scrape, bulk-download or use automated tools against Pivot, or attempt to extract its source code, prompts or data;",
+          "upload content that is unlawful, infringes someone's rights, or contains another person's personal data without their consent.",
+        ],
       },
       {
-        id: "your-work", title: "5. Your work and our software",
-        paragraphs: ["You retain your rights in the content you submit, including notes and strategy ideas. You give Pivot permission to store and process that content as needed to provide the service, subject to our Privacy Policy.", "Pivot’s software, branding and original materials belong to Pivot Tech or their respective owners. Your access permits you to use the service; it does not transfer ownership of our software or third-party data."],
+        id: "content", title: "5. Your content and shared setups",
+        paragraphs: [
+          "You own what you create in Pivot: notes, drawings, layouts, alerts, strategies and conversations. You give us permission to store, process and display that content only as needed to run Pivot for you, as described in our Privacy Policy.",
+          "When you publish a setup, anyone with its link can view it, and anyone who views it can copy it into their own workspace. Your display name stays on it as the original author. You can stop sharing at any time; copies already made remain with the people who made them. Do not include anything in a shared setup that you would not want made public.",
+        ],
       },
       {
-        id: "payments", title: "6. Payments and access",
-        paragraphs: ["Before confirming a paid purchase, review the displayed price, applicable taxes, access period and any purchase-specific cancellation or refund conditions. If an offering does not explain what you are buying, contact us before paying. Do not assume a one-time payment creates a recurring subscription.", "Payments are processed through Razorpay. A successful payment must be verified before it is treated as complete. Test-mode checkout uses simulated payments and does not represent a live charge.", "For a failed payment, duplicate charge, billing error or refund request, email info@pivotnow.in with your order reference. Never send a card number, CVV or payment password. Your rights under applicable consumer law are not limited by these terms."],
+        id: "keys", title: "6. Your own AI keys",
+        paragraphs: [
+          "If you connect your own AI provider key or AI subscription, requests you make with it are sent to that provider and billed by it under its terms. We store your key encrypted and use it only for your requests. You are responsible for your arrangement with that provider.",
+        ],
       },
       {
-        id: "third-parties", title: "7. Connected services",
-        paragraphs: ["Some features rely on market-data providers, AI providers, hosting services, payment processors or integrations you choose to connect. Their own terms and availability may apply. Connecting a broker or data account does not enable live order execution through Pivot."],
+        id: "billing", title: "7. Plans, billing and renewals",
+        paragraphs: [
+          "Pivot has a Free plan and paid plans. Each plan's price, features and usage limits are shown on the pricing page before you pay. Prices are in Indian rupees and include GST.",
+          "Paid plans are subscriptions that renew automatically each month or year through a payment mandate processed by Razorpay, until you cancel. You receive a notice before each renewal debit, as RBI rules for recurring payments require.",
+          "You can cancel anytime from your billing settings. Cancelling stops future renewals; you keep your plan until the end of the period you have paid for. An upgrade starts straight away and is charged the difference for the current period; a downgrade takes effect at the end of the period.",
+          "If a renewal payment fails, we retry and keep your plan for a short grace period. If it still cannot be collected, your account moves to the Free plan. Your saved work is not deleted.",
+          "We may change plan prices with at least 30 days' notice by email. A change applies from your next renewal after the notice period, and you can cancel before it takes effect. Refunds are covered by our Refund and Cancellation Policy.",
+        ],
       },
       {
-        id: "availability", title: "8. Changes, suspension and responsibility",
-        paragraphs: ["We may update features, perform maintenance or restrict access to protect the service, investigate misuse or comply with law. Where practical, we will explain a material restriction or change. You may stop using Pivot at any time and contact us about account closure.", "To the extent permitted by law, Pivot Tech is not responsible for investment losses, lost opportunities or indirect losses arising from reliance on platform output. Nothing here excludes liability or rights that cannot legally be excluded.", "These terms are governed by applicable Indian law. We will update the date on this page when the terms change and give notice of material changes through the service or an available account contact. Questions or concerns can be sent to info@pivotnow.in."],
+        id: "ip", title: "8. Our software and brand",
+        paragraphs: [
+          "Pivot's software, design, text and brand belong to Pivot Tech or its licensors. Your plan gives you a personal, non-transferable right to use Pivot under these terms; it does not transfer any ownership. Company names and logos shown in Pivot belong to their owners and are used only to identify them.",
+        ],
+      },
+      {
+        id: "changes", title: "9. Changes and suspension",
+        paragraphs: [
+          "We improve Pivot continuously and may add, change or remove features. If we remove a paid feature that is central to your plan, we will tell you in advance and you may cancel and receive a proportionate refund for the unused period.",
+          "We may suspend or close an account that breaches these terms, puts other users or the service at risk, or where the law requires it. Where it is safe and lawful, we will tell you why and give you a chance to respond. You may close your account at any time by writing to us.",
+        ],
+      },
+      {
+        id: "liability", title: "10. Responsibility and liability",
+        paragraphs: [
+          "Pivot is provided “as is” and “as available”. We work to keep it accurate and running, but we do not promise it will be uninterrupted, error-free or suitable for any particular purpose.",
+          "To the extent the law allows, Pivot Tech is not liable for any trading or investment loss, lost profit or opportunity, or indirect or consequential loss arising from your use of Pivot or reliance on its output. Our total liability for any claim is limited to the amount you paid us in the 12 months before the claim.",
+          "Nothing in these terms limits rights you have under the Consumer Protection Act, 2019, or any liability that cannot be limited by law.",
+        ],
+      },
+      {
+        id: "law", title: "11. Complaints, governing law and updates",
+        paragraphs: [
+          "If you have a complaint, write to our Grievance Officer at contact@pivotnow.in. We acknowledge complaints within 48 hours and aim to resolve them within one month.",
+          "These terms are governed by the laws of India. Any dispute that we cannot resolve together is subject to the jurisdiction of the competent courts in India.",
+          "We may update these terms. For material changes, we will email you at least 15 days before they take effect. If you keep using Pivot after that, the updated terms apply.",
+        ],
       },
     ],
   },
+
   privacy: {
     title: "Privacy policy",
-    introduction: "This policy explains how Pivot Tech handles personal information when you visit pivotnow.in or use Pivot. It covers the information you provide, the activity the service records and the providers involved in running it.",
+    introduction: "This policy explains what personal data Pivot Tech collects when you use Pivot, why, who processes it, how long we keep it, and the rights you have over it. Pivot Tech is the Data Fiduciary for this data under India's Digital Personal Data Protection Act, 2023. We do not sell your personal data.",
     sections: [
       {
-        id: "information", title: "1. Information we handle",
-        paragraphs: ["When you create an account, we handle your name, email and sign-in information. If you sign in through a provider such as Google, we receive the profile details supplied through that sign-in process.", "When you use the workspace, we store information such as conversations, prompts, saved layouts, chart drawings, alerts, notes, strategies and simulated portfolio or trade records. If you connect an integration, we process its authorisation tokens and the data available within the permissions you grant.", "The service may also record account identifiers, feature usage, request metadata, browser or device information and error logs. For checkout and support, we handle order references, payment status, verification details and the information you include when contacting us."],
+        id: "collect", title: "1. The data we collect",
+        paragraphs: ["We collect only what we need to run Pivot:"],
+        list: [
+          "Account: your name, email address and password. Passwords are stored only as a salted scrypt hash; we never store or see the password itself. If you sign in with Google, we receive your name and verified email address from Google.",
+          "Your work: questions and conversations with the assistant, screenshots you attach, saved layouts, chart drawings, watchlists, alerts, notes, screens, strategies, backtests, paper trades and setups you publish.",
+          "Voice input: if you use the microphone, the recording is sent for transcription and is not stored by us after the text is returned.",
+          "Your own AI keys: if you connect an AI provider key or AI subscription, we store it encrypted (AES-256-GCM), never show it back in full, and send it only to that provider. For a ChatGPT sign-in we keep your display name, not your email.",
+          "Payments: your plan, subscription and payment references and their status. Card, UPI and bank details are entered with Razorpay and never reach our servers.",
+          "Waitlist: your email address and the experience level you choose.",
+          "Usage and device data: which features you use, error reports, your browser and device type, and your IP address, which we use for security and abuse limits.",
+          "Messages you send us: the content of emails to our support address.",
+        ],
       },
       {
-        id: "purpose", title: "2. Why we use it",
-        paragraphs: ["We use information to sign you in, save your work, answer your questions, run the features you request, verify payments and respond to support requests. We also use service activity to diagnose errors, understand which features work well, protect accounts and improve the platform.", "We may send account, security, payment and service notices. Where a separate permission is required for a use of your information, we will request it for that purpose."],
+        id: "use", title: "2. Why we use it",
+        paragraphs: ["We use your data for these purposes, and no others:"],
+        list: [
+          "to create and secure your account, sign you in and recover access;",
+          "to provide the features you use: answering your questions, saving your work, running your alerts and sending their notifications;",
+          "to process payments, issue invoices and meet tax and accounting obligations;",
+          "to send account, security, billing and service emails, and product emails you can switch off;",
+          "to understand how Pivot is used, fix errors and improve the product;",
+          "to prevent fraud and abuse, and to comply with the law and lawful requests from authorities.",
+        ],
       },
       {
-        id: "ai", title: "3. AI assistance",
-        paragraphs: ["To answer a question, Pivot may send your prompt and relevant conversation or workspace context to the AI provider handling that feature. This can include information you supply about a portfolio or strategy. Only include information you are comfortable processing through the feature, and avoid passwords, payment credentials or unnecessary sensitive details.", "Processing by an AI provider is subject to that provider’s terms and data practices. Providers may have different rules for retaining data and using it to improve their models."],
+        id: "basis", title: "3. Consent and your choices",
+        paragraphs: [
+          "We process your data on the basis of your consent, given when you create an account or use a feature, or for the legitimate uses the DPDP Act allows, such as data you share with us voluntarily for a specific purpose and compliance with law.",
+          "You can withdraw consent at any time by writing to contact@pivotnow.in. Withdrawal does not affect processing that happened before it, but some features will stop working, and closing the account may be the only way to withdraw from all processing.",
+        ],
       },
       {
-        id: "providers", title: "4. Providers and sharing",
-        paragraphs: ["Service providers process information needed for hosting, authentication, AI responses, analytics and payments. Razorpay processes checkout information under its own privacy policy. Pivot receives order and payment verification information; the standard checkout does not send your card number or CVV to Pivot’s application server.", "Where enabled, Pivot’s backend uses PostHog for product analytics and error reporting. Events can include an account identifier, actions such as signing in or running a backtest, and feature metadata. Your account email may be included in analytics profile properties. The current integration uses PostHog’s US ingestion endpoint, so this information may be processed outside India.", "Information may also be disclosed when required by applicable law, to respond to a valid legal request or to investigate security incidents. An integration you choose to use may process information under its own policy."],
+        id: "ai", title: "4. How the AI assistant handles your data",
+        paragraphs: [
+          "When you ask a question, the question, the relevant part of the conversation and the context of the chart you are viewing are sent to the AI model that answers it. Pivot's assistant runs on Microsoft Azure's AI services, currently in Microsoft's United States data centres. Microsoft processes this data to provide the service and, under its terms, does not use it to train its models.",
+          "When the assistant searches the web, the search terms go through our own search service to public search engines and to Brave Search; they are not linked to your name or email. Pages you open in the Browser widget may load through a browser running on our servers, so the site sees our address rather than yours. When you use your own AI key or subscription, your requests go to that provider and its own data terms apply.",
+          "Please do not share passwords, card details, Aadhaar or PAN numbers, or other sensitive information in a conversation.",
+        ],
       },
       {
-        id: "device-storage", title: "5. Cookies and device storage",
-        paragraphs: ["Pivot uses browser storage and, where needed, cookies to maintain sign-in sessions, remember preferences and preserve local workspace state. Checkout also uses a temporary cookie to associate a payment verification request with the order created for that browser.", "You can clear cookies and local storage in your browser. Doing so may sign you out or remove preferences and work stored only on that device. Blocking necessary storage can prevent some features from working."],
+        id: "share", title: "5. Who processes your data",
+        paragraphs: ["We share personal data only with service providers that process it on our behalf, under contract, for the purposes above:"],
+        list: [
+          "Microsoft Azure: hosting, databases and backups (Central India region), the AI assistant and voice transcription (United States).",
+          "Vercel: hosting of our website, pivotnow.in, and its waitlist form.",
+          "Hostinger: our email service, including the emails we send you.",
+          "Razorpay: payments and subscription mandates.",
+          "PostHog: product analytics and error monitoring (United States).",
+          "Google: sign-in, if you choose Sign in with Google, and YouTube searches when the assistant looks for videos.",
+          "Brave Search: web searches the assistant runs for you.",
+        ],
       },
       {
-        id: "retention", title: "6. Retention and security",
-        paragraphs: ["Saved account and workspace information is retained to provide the service. Some records may need to remain for payment reconciliation, security investigations or legal obligations. Retention can differ between the application, operational logs, backups and service providers; deleting a local copy does not automatically delete every server copy.", "We use access controls and other safeguards appropriate to the service. No online system is completely secure. Keep your sign-in details private and contact us if you suspect unauthorised access."],
+        id: "share-more", title: "6. Other disclosures",
+        paragraphs: [
+          "We may disclose personal data when the law requires it, to respond to a valid request from a court, regulator or law-enforcement agency, or to protect the rights and safety of our users and the public. If Pivot Tech is involved in a merger or acquisition, your data may transfer to the successor, which will be bound by this policy.",
+          "Market-data and financial-data providers receive no personal data from us.",
+        ],
       },
       {
-        id: "choices", title: "7. Your choices and requests",
-        paragraphs: ["Email info@pivotnow.in to request access to, correction of or deletion of your personal information, to close your account, to withdraw a permission or to raise a privacy concern. Please identify the account and the request without sending your password. We may need to verify that the account belongs to you before acting.", "We will handle requests in accordance with applicable law and explain any information we must retain or request we cannot fulfil. Withdrawing permission may affect features that depend on it. You can also disconnect an integration through its provider’s account controls.", "Pivot accounts are intended for adults aged 18 or over. If you believe a child has provided personal information, contact us so we can investigate."],
+        id: "where", title: "7. Where your data is stored",
+        paragraphs: [
+          "Your account and saved work are stored in India, in Microsoft Azure's Central India region. Some of the providers listed above process data outside India, mainly in the United States. We transfer data abroad only as the DPDP Act permits, and never to a country the Government of India has restricted.",
+        ],
       },
       {
-        id: "contact", title: "8. Contact and updates",
-        paragraphs: ["Pivot Tech is responsible for the Pivot service described in this policy. For privacy questions or complaints, contact info@pivotnow.in.", "We will update the date on this page when our practices or this policy change. For material changes, we will provide notice through the service or an available account contact where appropriate."],
+        id: "retention", title: "8. How long we keep it",
+        list: [
+          "Account and saved work: for as long as your account is open. When you close it, we delete it from our live systems within 30 days.",
+          "Backups: copies of deleted data can remain in our encrypted backups. Backups are used only to recover from a failure and never to restore a closed account.",
+          "Payment and invoice records: for 8 years, as Indian tax and accounting law requires.",
+          "Security and server logs: up to 180 days.",
+          "Email delivery records: 30 days. Password-reset links: they expire after 30 minutes and their records are deleted within a day.",
+          "Waitlist entries: until you get access or ask us to remove you.",
+        ],
+        paragraphs: ["We keep personal data only as long as we need it for the purposes in this policy:"],
+      },
+      {
+        id: "security", title: "9. How we protect it",
+        paragraphs: [
+          "Data travels over encrypted connections (TLS), passwords are hashed, AI keys are encrypted with a key that is not stored in the database, and backups are encrypted at rest. Access to production systems is limited to the people who need it.",
+          "No system is perfectly secure. If a personal-data breach affects you, we will tell you without delay, explain what happened and what you can do, and report it to the Data Protection Board of India and CERT-In as the law requires.",
+        ],
+      },
+      {
+        id: "rights", title: "10. Your rights",
+        paragraphs: ["Under the DPDP Act you have the right to:"],
+        list: [
+          "get a summary of the personal data we hold about you and how we process it;",
+          "have inaccurate or incomplete data corrected, completed or updated;",
+          "have your data erased when it is no longer needed, or close your account;",
+          "withdraw consent;",
+          "nominate someone to exercise these rights if you die or become unable to;",
+          "have a grievance addressed by us, and then by the Data Protection Board of India if you are not satisfied.",
+        ],
+      },
+      {
+        id: "exercise", title: "11. How to exercise them",
+        paragraphs: [
+          "Email contact@pivotnow.in from the address on your account, saying what you would like us to do. We may need to confirm the request is yours before acting. We respond within 30 days, and tell you if there is a legal reason we must keep some data.",
+          "You can also clear the data Pivot stores in your browser at any time.",
+        ],
+      },
+      {
+        id: "cookies", title: "12. Cookies and browser storage",
+        paragraphs: [
+          "Pivot uses your browser's local storage to keep you signed in and to remember your workspace and preferences, and a short-lived cookie during checkout. Our analytics service uses browser storage to tell visits apart; it creates a profile only once you sign in. We do not use advertising cookies and do not show third-party ads.",
+          "Clearing your browser storage signs you out and removes preferences saved on that device.",
+        ],
+      },
+      {
+        id: "children", title: "13. Children",
+        paragraphs: [
+          "Pivot is for adults aged 18 and over. We do not knowingly collect data from children. If you believe a child has created an account, write to us and we will delete it.",
+        ],
+      },
+      {
+        id: "changes", title: "14. Changes to this policy",
+        paragraphs: [
+          "We will update this page when our practices change and show the date of the change at the top. For material changes, we will email you before they take effect.",
+        ],
+      },
+    ],
+  },
+
+  refunds: {
+    title: "Refund and cancellation policy",
+    introduction: "This policy explains how to cancel a paid Pivot plan and when we refund a payment. It forms part of our Terms of Service.",
+    sections: [
+      {
+        id: "cancel", title: "1. Cancelling your plan",
+        paragraphs: [
+          "You can cancel a paid plan at any time from your billing settings, or by writing to contact@pivotnow.in. Cancelling stops all future renewals and the payment mandate.",
+          "You keep your plan's features until the end of the period you have already paid for. After that your account moves to the Free plan, and your saved work stays.",
+        ],
+      },
+      {
+        id: "refund", title: "2. When we refund",
+        paragraphs: ["We refund the full amount when:"],
+        list: [
+          "you were charged twice for the same period, or charged in error;",
+          "you were charged after you cancelled;",
+          "a paid feature central to your plan was unavailable for a substantial part of the period because of a fault on our side.",
+        ],
+      },
+      {
+        id: "no-refund", title: "3. Partly used periods",
+        paragraphs: [
+          "Apart from the cases above, a period that has started is not refunded in part when you cancel, because you keep access until it ends. If you believe your situation deserves an exception, write to us; we look at every request.",
+          "Nothing in this policy limits your rights under the Consumer Protection Act, 2019.",
+        ],
+      },
+      {
+        id: "how", title: "4. How to request a refund",
+        paragraphs: [
+          "Write to contact@pivotnow.in from the email on your account within 30 days of the payment, with the payment reference from your receipt. Never send card numbers, CVV, UPI PIN or OTPs.",
+          "We reply within 2 working days. Approved refunds are issued to the original payment method within 7 working days, and banks usually take a further 5 to 7 working days to show them.",
+        ],
+      },
+    ],
+  },
+
+  contact: {
+    title: "Contact us",
+    introduction: "We read every message and reply personally. The quickest way to reach us is email.",
+    sections: [
+      {
+        id: "email", title: "Email",
+        paragraphs: [
+          "For support, billing, privacy requests, press and partnerships: contact@pivotnow.in. We reply within 2 working days.",
+          "Please never send your password, card details, UPI PIN or OTPs. We will never ask for them.",
+        ],
+      },
+      {
+        id: "grievance", title: "Grievance Officer",
+        paragraphs: [
+          "For complaints about the service, billing or how we handle your personal data, write to our Grievance Officer at contact@pivotnow.in with the subject “Grievance”. We acknowledge every complaint within 48 hours and aim to resolve it within one month.",
+          "If you are not satisfied with our response to a personal-data complaint, you may approach the Data Protection Board of India.",
+        ],
+      },
+      {
+        id: "security", title: "Reporting a security issue",
+        paragraphs: [
+          "If you have found a security vulnerability, write to contact@pivotnow.in with the subject “Security”. Please give us reasonable time to fix it before disclosing it, and do not access other people's data while testing.",
+        ],
       },
     ],
   },

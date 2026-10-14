@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import { CompanyPage } from "@/components/company/CompanyPage";
 
 export const metadata: Metadata = {
-  title: "Terms & conditions | Pivot",
-  description: "Read the terms for using Pivot, including analysis, simulated trading, accounts and payments.",
+  title: "Terms of service | Pivot",
+  description: "The terms for using Pivot: accounts, what Pivot is and is not, data limits, billing, renewals and complaints.",
 };
 
 export default function Page(): React.ReactElement {

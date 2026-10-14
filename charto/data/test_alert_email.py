@@ -39,7 +39,7 @@ def setup(monkeypatch):
 
     class SMTP:
         def __init__(self, host, port, **kwargs):
-            assert host == "smtp.gmail.com"
+            assert host == "smtp.hostinger.com"
             assert port in (465, 587)
             assert kwargs["timeout"] == 15
             assert not alerts.ds._users_lock.locked()
@@ -90,7 +90,7 @@ def test_trigger_to_owner_email_and_log_end_to_end(setup):
     assert status(s) == "sent"
     assert len(s.sent) == 1
     msg = s.sent[0]
-    assert msg["From"] == "Pivot <info@pivotnow.in>"
+    assert msg["From"] == "Pivot <contact@pivotnow.in>"
     assert msg["To"] == "owner@example.com"
     assert "101" in msg.get_body(preferencelist=("plain",)).get_content()
     assert alerts.evaluate(s.rule, ctx) is None
@@ -305,7 +305,7 @@ def test_late_trigger_is_explicit_in_message(setup):
     fire(setup)
     setup.box.deliver_one()
     body = setup.sent[0].get_body(preferencelist=("plain",)).get_content()
-    assert "historical" in body
+    assert "this email is late" in body
     assert "IST" in body
 
 

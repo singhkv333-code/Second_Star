@@ -7,27 +7,26 @@ are retried. `sent` means accepted by SMTP, not delivered to the inbox.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from email.message import EmailMessage
-from email.utils import formatdate
-import html
 import json
 import logging
-import os
-from pathlib import Path
-import re
 import smtplib
-import ssl
 import threading
 import time
 from zoneinfo import ZoneInfo
 
+import mail_templates
+import mailer
+
 log = logging.getLogger("charto.alert_email")
-SENDER = "info@pivotnow.in"
+SENDER = mailer.CONTACT
 MAX_AGE = 86400
 MAX_ATTEMPTS = 6
-DAILY_LIMIT = 1000  # headroom under Google's Workspace SMTP account limit
+# Hostinger Business Starter sends 1,000 a day on a rolling window, shared with
+# every other message from this address; the rest is headroom for account mail
+# such as password resets.
+DAILY_LIMIT = 900
 HOURLY_USER_LIMIT = 60  # one noisy account cannot flood its mailbox
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS alert_email_outbox (
@@ -54,82 +53,33 @@ CREATE INDEX IF NOT EXISTS alert_email_user_sent
 """
 
 
-def valid_address(value: str) -> bool:
-    # One addr-spec only: never a display name, recipient list or header.
-    return bool(re.fullmatch(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@"
-                            r"[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?"
-                            r"\.[A-Za-z]{2,63}", value)) and len(value) <= 254
+valid_address = mailer.valid_address
+Config = mailer.Config
 
 
-@dataclass(frozen=True)
-class Config:
-    enabled: bool = False
-    username: str = SENDER
-    password: str = field(default="", repr=False)
-    port: int = 465
-    origin: str = "https://pivot-india.centralindia.cloudapp.azure.com"
-
-    @classmethod
-    def from_env(cls) -> Config:
-        enabled = os.getenv("CHARTO_ALERT_EMAIL_ENABLED", "").lower() == "true"
-        password = os.getenv("CHARTO_SMTP_PASSWORD", "")
-        filename = os.getenv("CHARTO_SMTP_PASSWORD_FILE", "")
-        if enabled and filename:
-            try:
-                path = Path(filename)
-                if path.stat().st_mode & 0o027:
-                    raise ValueError("password file must be private")
-                password = path.read_text().strip()
-            except (OSError, ValueError):
-                log.warning("Alert mail password file is unavailable or not private")
-                password = ""
-        try:
-            port = int(os.getenv("CHARTO_SMTP_PORT", "465"))
-        except ValueError:
-            port = 0
-        return cls(enabled, os.getenv("CHARTO_SMTP_USER", SENDER),
-                   password.replace(" ", ""), port)
-
-    @property
-    def configured(self) -> bool:
-        return (self.enabled and valid_address(self.username)
-                and bool(self.password) and self.port in (465, 587))
+def _num(value) -> str:
+    """A reading as people write it: grouped, and no more decimals than it has."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return str(value)
+    a = abs(value)
+    d = 2 if a >= 100 else 3 if a >= 10 else 4 if a >= 1 else 6
+    s = f"{value:,.{d}f}"
+    return s.rstrip("0").rstrip(".") if "." in s else s
 
 
 def message(recipient: str, payload: dict, log_id: int, config: Config) -> EmailMessage:
     if not valid_address(recipient):
         raise ValueError("invalid recipient")
-    symbol = str(payload["symbol"])
-    # Subject is a header; user-controlled notes belong only in the body.
-    subject_symbol = re.sub(r"[\r\n\x00-\x1f\x7f]", "", symbol)[:80]
     stamp = datetime.fromtimestamp(payload["ts"], timezone.utc).astimezone(
         ZoneInfo("Asia/Kolkata")).strftime("%d %b %Y, %H:%M:%S IST")
-    url = config.origin + "/#chart"
-    details = [f"{symbol} · {payload['interval']}", payload["condition"],
-               f"Observed: {payload['value']}", f"Target: {payload['level']}",
-               f"Triggered: {stamp}", f"Alert #{payload['alert_id']}"]
-    if payload.get("late"):
-        details.append("Detected after reconnection; the trigger time above is historical.")
-    if payload.get("note"):
-        details.append("Your note: " + payload["note"])
-    footer = "Manage email notifications in this alert's settings. This is analysis, not financial advice."
-    msg = EmailMessage()
-    msg["From"] = f"Pivot <{SENDER}>"
-    msg["To"] = recipient
-    msg["Reply-To"] = SENDER
-    msg["Subject"] = f"Pivot alert · {subject_symbol}"
-    msg["Date"] = formatdate(localtime=False)
-    msg["Message-ID"] = f"<pivot-alert-{log_id}@pivotnow.in>"
-    msg["Auto-Submitted"] = "auto-generated"
-    msg.set_content("Your Pivot alert triggered\n\n" + "\n".join(details)
-                    + f"\n\nOpen Pivot: {url}\n\n{footer}")
-    paragraphs = "".join(f"<p>{html.escape(str(d))}</p>" for d in details)
-    msg.add_alternative(
-        '<div style="font-family:Arial,sans-serif;max-width:560px;padding:24px;color:#171717">'
-        '<h2>Your Pivot alert triggered</h2>' + paragraphs
-        + f'<p><a href="{html.escape(url, quote=True)}">Open Pivot</a></p>'
-        + f'<p style="font-size:12px;color:#666">{footer}</p></div>', subtype="html")
-    return msg
+    mail = mail_templates.alert_triggered(
+        symbol=str(payload["symbol"]), condition=str(payload["condition"]),
+        value=_num(payload["value"]), level=str(payload.get("level") or ""),
+        verb=str(payload.get("verb") or ""), interval=str(payload["interval"]),
+        when=stamp, alert_id=int(payload["alert_id"]),
+        note_text=str(payload.get("note") or ""), late=bool(payload.get("late")),
+        origin=config.origin)
+    return mailer.build(mail, recipient, config, f"pivot-alert-{log_id}")
 
 
 class Outbox:
@@ -167,7 +117,7 @@ class Outbox:
         return status
 
     def status(self) -> dict:
-        return {"configured": self.config.configured, "sender": SENDER,
+        return {"configured": self.config.configured, "sender": self.config.sender,
                 "error": self.transport_error,
                 "note": ("Email sends even with the browser closed."
                          if self.config.configured and not self.transport_error else
@@ -234,16 +184,10 @@ class Outbox:
         sending = False
         try:
             msg = message(job[2], json.loads(job[3]), job[0], self.config)
-            context = ssl.create_default_context()
-            client = (smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15, context=context)
-                      if self.config.port == 465 else
-                      smtplib.SMTP("smtp.gmail.com", 587, timeout=15))
+            client = mailer.connect(self.config)
             try:
-                if self.config.port == 587:
-                    client.starttls(context=context)
-                client.login(self.config.username, self.config.password)
                 sending = True
-                client.send_message(msg, from_addr=SENDER, to_addrs=[job[2]])
+                client.send_message(msg, from_addr=self.config.sender, to_addrs=[job[2]])
                 self.transport_error = ""
                 self._finish(job, "sent")
             finally:

@@ -17168,6 +17168,17 @@ def _auth_google(body: dict) -> tuple[int, dict]:
     return _session_reply(uid, {"id": uid, "email": who["email"], "name": name})
 
 
+# ── forgotten passwords (password_reset.py) ────────────────────────────────
+# A one-time emailed link replaces "Forgot? Contact support". The module owns
+# the table, the rate limits and the emails; this file only routes to it.
+try:
+    import password_reset as _pwreset
+    _resets = _pwreset.Resets(_users, _users_lock, _pw_hash)
+except Exception as _exc:                     # noqa: BLE001
+    logging.getLogger("charto").warning("password reset not loaded: %s", _exc)
+    _resets = None
+
+
 # ── saved work: per-symbol workspace state, and named layouts ──────────────
 #
 # workspace_state mirrors exactly what Store already keeps in localStorage
@@ -18837,6 +18848,19 @@ class Handler(BaseHTTPRequestHandler):
 
     def _account_post(self, path: str, body: dict) -> tuple[int, dict]:
         """Accounts and saved work. Everything past /auth/* needs a session."""
+        if path in ("/auth/reset/request", "/auth/reset"):
+            if _resets is None:
+                return 503, {"error": "Password reset is not available right now. "
+                                      "Write to contact@pivotnow.in."}
+            if path == "/auth/reset/request":
+                return _resets.request(body.get("email"), self._client_ip())
+            code, out = _resets.reset(body.get("token"), body.get("password"))
+            if code != 200:
+                return code, out
+            with _users_lock:
+                row = _users.execute("SELECT id, email, name FROM users WHERE id=?",
+                                     (out,)).fetchone()
+            return _session_reply(row[0], _user_public(row))
         if path in ("/auth/signup", "/auth/login", "/auth/google"):
             code, out = {"/auth/signup": _auth_signup, "/auth/login": _auth_login,
                          "/auth/google": _auth_google}[path](body)

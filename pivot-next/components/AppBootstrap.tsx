@@ -34,7 +34,7 @@ const TOKEN_KEY = "pivot_jwt";
 /** Routes that render without the auth gate: the /design showcase, public
  *  marketing and legal pages, the auth routes themselves, the plans (a
  *  visitor reads them before signing up) and the paywall design gallery. */
-const UNGATED_PATHS = ["/about", "/terms", "/privacy", "/design", "/waitlist", "/login", "/signup", "/affiliate", "/pricing", "/paywall-gallery"];
+const UNGATED_PATHS = ["/about", "/terms", "/privacy", "/design", "/waitlist", "/login", "/signup", "/reset-password", "/refunds", "/contact", "/affiliate", "/pricing", "/paywall-gallery"];
 
 type Phase = "loading" | "needs-auth" | "ready";
 

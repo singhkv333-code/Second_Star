@@ -2184,7 +2184,7 @@ def _delivery_note(alert: dict) -> str:
     status = _MAIL.status() if _MAIL else {}
     if status.get("configured") and not status.get("error"):
         return base + ("Email is enabled to the owner's account email, from "
-                       "info@pivotnow.in, even with the browser closed. "
+                       "contact@pivotnow.in, even with the browser closed. "
                        "Delivery can be delayed or fail; no SMS or phone push.")
     return base + "Email delivery is unavailable until the sender is configured. No SMS or phone push."
 

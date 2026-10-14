@@ -122,7 +122,7 @@ export function RazorpayCheckout({ testMode, configured }: { testMode: boolean; 
         </button>
         <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
           Review our <Link href="/terms" className="underline underline-offset-4">Terms & conditions</Link> and <Link href="/privacy" className="underline underline-offset-4">Privacy policy</Link>.
-          {" "}Payment questions? <a href="mailto:info@pivotnow.in" className="underline underline-offset-4">Contact Pivot</a>.
+          {" "}Payment questions? <a href="mailto:contact@pivotnow.in" className="underline underline-offset-4">Contact Pivot</a>.
         </p>
         {!configured && <p className="mt-4 text-sm" role="alert">Checkout is not configured yet.</p>}
         {message && <p className={`mt-4 text-sm ${failed ? "text-red-600" : "text-muted-foreground"}`}

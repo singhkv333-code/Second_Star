@@ -10464,6 +10464,8 @@ i.mg { height: 3px !important; border-radius: 2px !important; background: var(--
 .label-row .aside {
   margin-left: auto; font-size: var(--text-xs); color: var(--muted-foreground);
 }
+a.aside { font-size: var(--text-sm); color: var(--foreground); text-decoration: none; }
+a.aside:hover { text-decoration: underline; text-underline-offset: 3px; }
 
 .auth-screen {
   position: fixed; inset: 0; z-index: 200; display: none;
@@ -11729,7 +11731,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
               <div class="field">
                 <div class="label-row">
                   <label class="label" for="authPassword">Password</label>
-                  <span class="aside" id="authPwAside">Forgot? Contact support</span>
+                  <a class="aside" id="authPwAside" href="/reset-password" target="_top">Forgot password?</a>
                 </div>
                 <div class="pw-wrap">
                   <input class="input" id="authPassword" type="password" required
@@ -12182,7 +12184,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it
        uses. Everything it needs from main.js (SYMBOL) and panels.js
        (openWidget) is read inside handlers, so those may come later. -->
-  <script src="./js/alerts.js?v=23"></script>
+  <script src="./js/alerts.js?v=24"></script>
   <!-- after chat.js: the widget panels share the phone's one panel slot with
        the conversation, and close it by clicking its real toggle -->
   <script src="./js/panels.js?v=26"></script>

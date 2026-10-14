@@ -157,7 +157,7 @@ export default function LoginPage(): React.ReactElement {
               <div className="grid gap-2">
                 <div className="flex items-center">
                   <Label htmlFor="password">Password</Label>
-                  <span className="ml-auto text-xs text-muted-foreground">Forgot? Contact support</span>
+                  <Link href="/reset-password" className="ml-auto text-sm text-foreground underline-offset-4 hover:underline">Forgot password?</Link>
                 </div>
                 <div className="relative">
                   <Input

@@ -988,7 +988,7 @@ const Alerts = (() => {
       ${row("Email", `<div class="al-stack">` +
         sel("email", [["on", "On"], ["off", "Off"]], draft.email) +
         `<small class="al-email-note">${esc(state.emailDelivery?.configured && !state.emailDelivery?.error
-          ? "To " + Auth.user.email + " · from info@pivotnow.in"
+          ? "To " + Auth.user.email + " · from contact@pivotnow.in"
           : "Email unavailable until sender setup is complete")}</small></div>`)}
       ${row("Note", `<input class="dlg-input wide" data-f="note" ` +
             `value="${esc(draft.note)}" placeholder="Optional">`)}`;
