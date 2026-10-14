@@ -152,6 +152,13 @@ export function removeFromWatchlist(ticker: string, listId?: number): void {
   });
 }
 
+/** Replace one list's tickers in the order given (the welcome flow's picks). */
+export function setWatchlist(tickers: string[], listId = 1): void {
+  const clean = Array.from(new Set(tickers.map((t) => t.trim().toUpperCase()).filter(Boolean)));
+  const s = getSnapshot();
+  commit({ ...s, lists: s.lists.map((l) => (l.id === listId ? { ...l, tickers: clean } : l)) });
+}
+
 export function setActiveWatchlist(id: number): void {
   if (!(id >= 1 && id <= MAX_WATCHLISTS)) return;
   commit({ ...getSnapshot(), activeId: id });

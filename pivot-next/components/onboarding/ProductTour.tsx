@@ -21,11 +21,12 @@
  * Closing it at any point ends it; it never comes back by itself.
  */
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { driver, type Driver } from "driver.js";
 import "driver.js/dist/driver.css";
 import "./product-tour.css";
+import { Welcome } from "./Welcome";
 import {
   Blocks, ChartCandlestick, Compass, House, MessageSquareText, MessagesSquare, X,
   type LucideIcon,
@@ -37,6 +38,8 @@ type TabKey = "home" | "chat" | "portfolio" | "agents" | "screener" | "brokers" 
 const DONE_KEY = "pivot-tour-v2";
 export const TOUR_PENDING_KEY = "pivot:tour-pending";
 export const START_TOUR_EVENT = "pivot:start-tour";
+/** Opens the welcome cards again (they lead into the tour). */
+export const START_WELCOME_EVENT = "pivot:start-welcome";
 /** Below this width the rail and the workspace are laid out for phones. */
 const MIN_VIEWPORT = 1024;
 const FRAME = 'iframe[src*="/chart-app/"]';
@@ -81,8 +84,8 @@ const STEPS: Step[] = [
   {
     tab: "home",
     icon: House,
-    title: "Welcome to Pivot",
-    text: "This is Home: the market, your watchlist and your portfolio at a glance.",
+    title: "This is Home",
+    text: "The market, your watchlist and your portfolio at a glance.",
   },
   {
     tab: "home",
@@ -224,7 +227,7 @@ export function ProductTour({
   onTabChange: (tab: TabKey) => void;
   /** False on sub-routes (e.g. /stock/…) where the shell targets are absent. */
   enabled?: boolean;
-}): null {
+}): React.ReactElement | null {
   const tabRef = useRef(activeTab);
   tabRef.current = activeTab;
   const tabChangeRef = useRef(onTabChange);
@@ -374,22 +377,24 @@ export function ProductTour({
     void arrive(0).then(() => d.drive());
   }, []);
 
-  // Once, right after a new account is created.
+  // Once, right after a new account is created: the welcome cards, then the tour.
+  const [welcome, setWelcome] = useState(false);
+  const afterWelcome = useCallback((tour: boolean): void => {
+    // Clear the flag only when the welcome is answered. Clearing it on mount
+    // lost the whole flow whenever the shell mounted twice: the first mount
+    // took the flag and was torn down before it showed anything.
+    try { localStorage.removeItem(TOUR_PENDING_KEY); } catch { /* private mode */ }
+    setWelcome(false);
+    if (tour && window.innerWidth >= MIN_VIEWPORT) window.setTimeout(start, 450);
+  }, [start]);
+
   useEffect(() => {
     if (!enabled) return;
     let pending = false;
     try { pending = localStorage.getItem(TOUR_PENDING_KEY) === "1"; } catch { pending = false; }
-    if (!pending || window.innerWidth < MIN_VIEWPORT) return;
+    if (!pending) return;
     let timer = 0;
-    // Clear the flag only as the tour starts. Clearing it on mount lost the
-    // tour whenever the shell mounted twice: the first mount took the flag
-    // and was torn down before its timer fired.
-    const arm = (): void => {
-      timer = window.setTimeout(() => {
-        try { localStorage.removeItem(TOUR_PENDING_KEY); } catch { /* private mode */ }
-        start();
-      }, 900);
-    };
+    const arm = (): void => { timer = window.setTimeout(() => setWelcome(true), 600); };
     if (window.__pivotIntroPending) window.addEventListener("pivot:intro-done", arm, { once: true });
     else arm();
     return () => { window.clearTimeout(timer); window.removeEventListener("pivot:intro-done", arm); };
@@ -398,13 +403,18 @@ export function ProductTour({
   // On demand, from the account menu.
   useEffect(() => {
     const onStart = (): void => start();
+    const onWelcome = (): void => setWelcome(true);
     window.addEventListener(START_TOUR_EVENT, onStart);
-    return () => window.removeEventListener(START_TOUR_EVENT, onStart);
+    window.addEventListener(START_WELCOME_EVENT, onWelcome);
+    return () => {
+      window.removeEventListener(START_TOUR_EVENT, onStart);
+      window.removeEventListener(START_WELCOME_EVENT, onWelcome);
+    };
   }, [start]);
 
   useEffect(() => () => { driverRef.current?.destroy(); driverRef.current = null; }, []);
 
-  return null;
+  return welcome ? <Welcome onDone={afterWelcome} /> : null;
 }
 
 export default ProductTour;

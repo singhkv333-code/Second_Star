@@ -22,6 +22,12 @@ export const LOADER_CUBES = asset(new URL("../public/loaders/isometric-cubes.svg
 export const CHARTO_MARK = asset(new URL("../public/charto-mark.png", import.meta.url));
 export const PIVOT_ICON = asset(new URL("../public/pivot-icon.png", import.meta.url));
 export const PIVOT_LIGHT = asset(new URL("../public/pivot-light.png", import.meta.url));
+/** The welcome cards' paintings (scripts/welcome-art.py). */
+export const WELCOME_ART = {
+  dune: asset(new URL("../public/welcome/dune.webp", import.meta.url)),
+  tide: asset(new URL("../public/welcome/tide.webp", import.meta.url)),
+  dusk: asset(new URL("../public/welcome/dusk.webp", import.meta.url)),
+};
 
 const BROKER_LOGOS: Record<string, string> = {
   angelone: asset(new URL("../public/brokers/angelone.svg", import.meta.url)),
