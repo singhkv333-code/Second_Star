@@ -27,7 +27,7 @@ import { driver, type Driver } from "driver.js";
 import "driver.js/dist/driver.css";
 import "./product-tour.css";
 import {
-  Blocks, ChartCandlestick, Compass, House, MessageSquareText, MessagesSquare,
+  Blocks, ChartCandlestick, Compass, House, MessageSquareText, MessagesSquare, X,
   type LucideIcon,
 } from "lucide-react";
 
@@ -135,6 +135,50 @@ const STEPS: Step[] = [
 
 const ICONS = STEPS.map((s) =>
   renderToStaticMarkup(<s.icon size={18} strokeWidth={1.75} aria-hidden />));
+const CLOSE_ICON = renderToStaticMarkup(<X size={15} strokeWidth={2} aria-hidden />);
+
+/* Liquid glass: the card bends what is behind it near its edges, like a lens.
+   An SVG displacement map does the bending — red shifts pixels sideways,
+   green up and down, and the flat grey middle leaves them alone. Only
+   Chromium applies an SVG filter to a backdrop, so other browsers keep the
+   frosted glass without the bend. */
+const LENS_ID = "pivot-tour-lens";
+const LENS_EDGE = 22;
+
+function canBend(): boolean {
+  const brands = (navigator as Navigator & { userAgentData?: { brands?: { brand: string }[] } })
+    .userAgentData?.brands;
+  return !!brands?.some((b) => b.brand === "Chromium");
+}
+
+function lensMap(w: number, h: number, radius: number): string {
+  const e = LENS_EDGE;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">`
+    + `<defs><linearGradient id="x" x2="1"><stop offset="0" stop-color="#000"/><stop offset="1" stop-color="#f00"/></linearGradient>`
+    + `<linearGradient id="y" x2="0" y2="1"><stop offset="0" stop-color="#000"/><stop offset="1" stop-color="#0f0"/></linearGradient>`
+    + `<filter id="b"><feGaussianBlur stdDeviation="${e / 2}"/></filter></defs>`
+    + `<rect width="${w}" height="${h}" fill="url(#x)"/>`
+    + `<rect width="${w}" height="${h}" fill="url(#y)" style="mix-blend-mode:screen"/>`
+    + `<rect x="${e}" y="${e}" width="${w - 2 * e}" height="${h - 2 * e}" rx="${Math.max(0, radius - e / 2)}" fill="#808080" filter="url(#b)"/></svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+function mountLens(): SVGFEImageElement {
+  const ns = "http://www.w3.org/2000/svg";
+  let host = (document.getElementById(LENS_ID) as SVGFilterElement | null)?.ownerSVGElement;
+  if (!host) {
+    host = document.createElementNS(ns, "svg");
+    host.setAttribute("aria-hidden", "true");
+    host.setAttribute("width", "0");
+    host.setAttribute("height", "0");
+    host.style.position = "absolute";
+    host.innerHTML = `<filter id="${LENS_ID}" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">`
+      + `<feImage x="0" y="0" preserveAspectRatio="none" result="map"/>`
+      + `<feDisplacementMap in="SourceGraphic" in2="map" scale="-60" xChannelSelector="R" yChannelSelector="G"/></filter>`;
+    document.body.appendChild(host);
+  }
+  return host.querySelector("feImage") as SVGFEImageElement;
+}
 
 function resolve(target: Target): Element | null {
   if ("page" in target) {
@@ -205,6 +249,7 @@ export function ProductTour({
     document.body.appendChild(anchor);
     let current: Target | undefined;
     let pinLeft = false;
+    const lens = canBend() ? mountLens() : null;
     let raf = 0;
     const place = (): void => {
       const hit = current ? rectOf(current) : null;
@@ -249,7 +294,9 @@ export function ProductTour({
       moving = true;
       void arrive(index).then(() => {
         moving = false;
-        if (driverRef.current === d) (dir === 1 ? d.moveNext() : d.movePrevious());
+        if (driverRef.current !== d) return;
+        if (dir === 1) d.moveNext();
+        else d.movePrevious();
       });
     };
 
@@ -282,6 +329,21 @@ export function ProductTour({
         dots.setAttribute("aria-label", `Step ${i + 1} of ${STEPS.length}`);
         dots.innerHTML = STEPS.map((_, n) => `<i class="${n === i ? "on" : ""}"></i>`).join("");
         popover.footer.insertBefore(dots, popover.footer.firstChild);
+        popover.closeButton.innerHTML = CLOSE_ICON;
+        popover.closeButton.setAttribute("aria-label", "Close the tour");
+        // driver.js focuses the first button, the close; Enter should move on.
+        requestAnimationFrame(() => popover.nextButton.focus({ preventScroll: true }));
+        if (lens) {
+          const card = popover.wrapper;
+          requestAnimationFrame(() => {
+            const w = Math.round(card.offsetWidth), h = Math.round(card.offsetHeight);
+            const radius = parseFloat(getComputedStyle(card).borderTopLeftRadius) || 0;
+            lens.setAttribute("width", String(w));
+            lens.setAttribute("height", String(h));
+            lens.setAttribute("href", lensMap(w, h, radius));
+            card.classList.add("is-lens");
+          });
+        }
       },
       onDestroyed: (_el, _step, { state }) => {
         try { localStorage.setItem(DONE_KEY, "done"); } catch { /* private mode */ }
@@ -289,6 +351,7 @@ export function ProductTour({
         window.removeEventListener("resize", onResize);
         ring.remove();
         anchor.remove();
+        (document.getElementById(LENS_ID) as SVGFilterElement | null)?.ownerSVGElement?.remove();
         driverRef.current = null;
         running = false;
         if (state.activeIndex === STEPS.length - 1) {
@@ -315,13 +378,18 @@ export function ProductTour({
   useEffect(() => {
     if (!enabled) return;
     let pending = false;
-    try {
-      pending = localStorage.getItem(TOUR_PENDING_KEY) === "1";
-      if (pending) localStorage.removeItem(TOUR_PENDING_KEY);
-    } catch { pending = false; }
+    try { pending = localStorage.getItem(TOUR_PENDING_KEY) === "1"; } catch { pending = false; }
     if (!pending || window.innerWidth < MIN_VIEWPORT) return;
     let timer = 0;
-    const arm = (): void => { timer = window.setTimeout(start, 900); };
+    // Clear the flag only as the tour starts. Clearing it on mount lost the
+    // tour whenever the shell mounted twice: the first mount took the flag
+    // and was torn down before its timer fired.
+    const arm = (): void => {
+      timer = window.setTimeout(() => {
+        try { localStorage.removeItem(TOUR_PENDING_KEY); } catch { /* private mode */ }
+        start();
+      }, 900);
+    };
     if (window.__pivotIntroPending) window.addEventListener("pivot:intro-done", arm, { once: true });
     else arm();
     return () => { window.clearTimeout(timer); window.removeEventListener("pivot:intro-done", arm); };
