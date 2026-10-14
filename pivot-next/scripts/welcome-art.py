@@ -1,125 +1,132 @@
-"""Paint the welcome cards' art in Pivot's dark palette: ink, greys and bone,
-with only a breath of colour in each.
+"""Make the welcome cards' art in Pivot's dark palette: ink, greys and bone.
 
-    smoke  a grayscale oil-painted sky, wisps of bone light in black (welcome)
-    silk   folds of liquid steel, a cool blue-grey sheen (watchlist)
-    glow   a soft spotlight on black, warm grey, heavy grain (appearance)
-
-All three start from domain warping (Inigo Quilez,
-https://iquilezles.org/articles/warp): fBm noise read at coordinates that
-fBm itself pushes around. That folds plain noise into painted clouds and
-draped cloth. Each ends with the same fine film grain the referral page uses.
+    sunset   an oil painting: Arkhip Kuindzhi, "Red Sunset" (1905-8), toned to
+             ink and bone with film grain. The Metropolitan Museum of Art,
+             Rogers Fund 1974, object 436833. Public domain; The Met releases
+             the image under CC0 (Open Access).
+    orb      sand: a planet and its moon rising in the dark, lit low from the
+             upper left, every bit of light made of sand grains, with two
+             faint orbits. Generated.
+    moonlight  something more playful: Ivan Aivazovsky, "Ship by Moonlight",
+             printed as a 1-bit dither in bone dots on ink, like the referral
+             page's planets. The Met, Bequest of Mary Jane Dastich 1975,
+             object 437979. Public domain, CC0.
 
     python3.11 scripts/welcome-art.py      # writes public/welcome/*.webp
 
-Deterministic: the same seed gives the same picture.
+The paintings are fetched from The Met's open-access image server each run;
+everything else is deterministic.
 """
+import io
+import subprocess
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 from scipy import ndimage
 
 W, H = 1120, 640          # twice the card's art panel, for sharp screens
 OUT = Path(__file__).resolve().parent.parent / "public" / "welcome"
+INK, BONE = np.array([7, 7, 7], float), np.array([239, 233, 221], float)
+
+SOURCES = {
+    "sunset": "https://images.metmuseum.org/CRDImages/ep/original/DT2557.jpg",
+    "moonlight": "https://images.metmuseum.org/CRDImages/ep/original/DP-23290-001.jpg",
+}
 
 
-def fbm_field(rng: np.random.Generator, size: int, octaves: int) -> np.ndarray:
-    """A smooth, wrapping noise field: random grids, upsampled and summed."""
-    out = np.zeros((size, size))
-    amp, total = 1.0, 0.0
-    for o in range(octaves):
-        cells = 4 * 2 ** o
-        grid = rng.standard_normal((cells, cells))
-        out += amp * ndimage.zoom(np.tile(grid, (2, 2)), size * 2 / (cells * 2), order=3,
-                                  mode="grid-wrap")[:size, :size]
-        total += amp
-        amp *= 0.5
-    out /= total
-    return (out - out.min()) / (out.max() - out.min())
+def fetch(url: str) -> Image.Image:
+    # curl, not urllib: it uses the system's certificate store.
+    data = subprocess.run(["curl", "-sfL", "--max-time", "120", "-A", "pivot-welcome-art", url],
+                          check=True, capture_output=True).stdout
+    return Image.open(io.BytesIO(data)).convert("L")
 
 
-def sample(field: np.ndarray, x: np.ndarray, y: np.ndarray) -> np.ndarray:
-    n = field.shape[0]
-    return ndimage.map_coordinates(field, [(y * n) % n, (x * n) % n], order=1, mode="grid-wrap")
+def band(im: Image.Image, top: float) -> Image.Image:
+    """Crop a W:H band starting `top` of the way down, scaled to W x H."""
+    w, h = im.size
+    bh = int(w * H / W)
+    y = int((h - bh) * top)
+    return im.crop((0, y, w, y + bh)).resize((W, H), Image.LANCZOS)
 
 
-def rgb(h: str) -> np.ndarray:
-    return np.array([int(h[i:i + 2], 16) for i in (1, 3, 5)], dtype=float)
-
-
-def ramp(t: np.ndarray, stops: list[tuple[float, str]]) -> np.ndarray:
-    """Piecewise colour ramp over t in [0, 1]."""
-    t = np.clip(t, 0, 1)
-    out = np.zeros(t.shape + (3,))
-    for (p0, c0), (p1, c1) in zip(stops, stops[1:]):
-        m = (t >= p0) & (t <= p1)
-        f = ((t[m] - p0) / max(p1 - p0, 1e-6))[:, None]
-        f = f * f * (3 - 2 * f)
-        out[m] = rgb(c0) * (1 - f) + rgb(c1) * f
+def tone(gray: np.ndarray, warm: float = 0.0) -> np.ndarray:
+    """Map 0..1 grey to ink..bone; `warm` lifts the highlights a touch."""
+    g = gray[..., None]
+    out = INK * (1 - g) + BONE * g
+    out[..., 0] += warm * 10 * gray
+    out[..., 2] -= warm * 8 * gray
     return out
 
 
-def norm(a: np.ndarray) -> np.ndarray:
-    return (a - a.min()) / (a.max() - a.min())
-
-
-def warped(rng, scale: float, fold: float, octaves: int):
-    a, b, c = (fbm_field(rng, 512, octaves) for _ in range(3))
-    yy, xx = np.mgrid[0:H, 0:W] / W * scale
-    qx, qy = sample(a, xx, yy), sample(b, xx + 0.52, yy + 0.13)
-    rx = sample(c, xx + fold * qx + 0.17, yy + fold * qy + 0.92)
-    ry = sample(a, xx + fold * qx + 0.83, yy + fold * qy + 0.28)
-    f = sample(b, xx + fold * 1.2 * rx, yy + fold * 1.2 * ry)
-    return norm(f), qx, rx, xx / xx.max(), yy / yy.max()
-
-
 def grain(rng, img: np.ndarray, amount: float) -> np.ndarray:
-    fine = rng.normal(0, amount, (H, W))
-    speck = ndimage.gaussian_filter(rng.normal(0, 1, (H, W)), 0.8) * amount * 1.1
+    fine = rng.normal(0, amount, img.shape[:2])
+    speck = ndimage.gaussian_filter(rng.normal(0, 1, img.shape[:2]), 0.8) * amount
     return img + (fine + speck)[..., None]
 
 
-def smoke(rng) -> np.ndarray:
-    f, q, r, x, y = warped(rng, scale=0.3, fold=1.1, octaves=5)
-    t = norm(0.7 * f + 0.3 * r)
-    # Broad dark masses; light gathers along the cloud banks, strongest in
-    # one region, as in a night-sky oil sketch.
-    light = np.clip((t - 0.3) / 0.62, 0, 1) ** 1.25
-    light *= 0.45 + 0.55 * np.exp(-(((x - 0.66) / 0.5) ** 2 + ((y - 0.32) / 0.7) ** 2))
-    img = ramp(light, [(0, "#070707"), (0.3, "#1d1c19"), (0.62, "#6f6a60"), (1, "#ece6da")])
-    img = ndimage.gaussian_filter(img, sigma=(5.5, 5.5, 0))
-    return grain(rng, img, 7.5)
+def sunset(rng) -> np.ndarray:
+    im = fetch(SOURCES["sunset"])
+    w, h = im.size
+    im = im.crop((int(w * 0.03), int(h * 0.03), int(w * 0.97), int(h * 0.97)))   # no frame edge
+    im = band(im, top=0.34)
+    g = np.asarray(ImageOps.autocontrast(im, cutoff=0.5), float) / 255
+    g = np.clip((g - 0.04) / 0.94, 0, 1) ** 2.1         # a night sky; the sun and its path stay lit
+    yy, xx = np.mgrid[0:H, 0:W]
+    vignette = 1 - 0.35 * (((xx / W - 0.5) / 0.7) ** 2 + ((yy / H - 0.45) / 0.8) ** 2)
+    return grain(rng, tone(np.clip(g * vignette, 0, 1), warm=0.6), 6)
 
 
-def silk(rng) -> np.ndarray:
-    f, q, r, x, y = warped(rng, scale=0.2, fold=0.7, octaves=3)
-    phase = f * 4.2 + r * 1.6
-    sheen = (0.5 + 0.5 * np.sin(phase * np.pi)) ** 3     # a few broad crests on the folds
-    body = norm(0.6 * f + 0.4 * q)
-    img = ramp(body, [(0, "#08090b"), (0.55, "#171a1e"), (1, "#323941")])
-    img += sheen[..., None] * (rgb("#aab4be") - 30) * (0.25 + 0.75 * body)[..., None] * 0.8
-    img = ndimage.gaussian_filter(img, sigma=(5, 12, 0))
-    img = ndimage.gaussian_filter(img, sigma=(8, 8, 0))
-    return grain(rng, img, 6.5)
+def orb(rng) -> np.ndarray:
+    yy, xx = np.mgrid[0:H, 0:W].astype(float)
+
+    def sphere(cx, cy, r, light):
+        dx, dy = (xx - cx) / r, (yy - cy) / r
+        d2 = dx * dx + dy * dy
+        inside = d2 < 1
+        dz = np.sqrt(np.clip(1 - d2, 0, 1))
+        lx, ly, lz = np.array(light) / np.linalg.norm(light)
+        lit = np.clip(dx * lx + dy * ly + dz * lz, 0, 1) ** 1.3
+        rim = np.clip(1 - dz, 0, 1) ** 4 * 0.12
+        return np.where(inside, 0.03 + 0.97 * lit + rim, 0), inside
+
+    light = (-0.85, -0.5, 0.25)                         # low from the upper left: a crescent
+    big, in_big = sphere(W * 0.66, H * 1.02, H * 0.78, light)
+    moon, in_moon = sphere(W * 0.22, H * 0.3, H * 0.13, light)
+    halo = 0.14 * np.exp(-(((xx - W * 0.55) / (W * 0.5)) ** 2 + ((yy - H * 0.3) / (H * 0.6)) ** 2))
+    g = np.where(in_big, big, np.where(in_moon, moon * 0.9, halo))
+    # Sand: every pixel a grain, its brightness scattered around the shading.
+    v = np.clip(g + 0.28 * rng.normal(0, 1, (H, W)) * np.sqrt(np.clip(g, 0.02, 1)), 0, 1)
+    v = ndimage.gaussian_filter(v, 0.45)
+    # Two faint orbits, drawn in broken grains.
+    for radius in (H * 0.95, H * 1.12):
+        rr = np.sqrt((xx - W * 0.66) ** 2 + (yy - H * 1.02) ** 2)
+        line = np.exp(-((rr - radius) / 1.2) ** 2) * 0.35
+        v = np.clip(v + line * (rng.random((H, W)) > 0.3), 0, 1)
+    return tone(v, warm=1.0)
 
 
-def glow(rng) -> np.ndarray:
-    f, q, r, x, y = warped(rng, scale=0.5, fold=1.0, octaves=4)
-    d = ((x - 0.7) / 0.5) ** 2 + ((y - 0.15) / 0.75) ** 2
-    spot = np.exp(-d * 1.4) * (0.94 + 0.12 * (f - 0.5))  # light on a faintly textured wall
-    img = ramp(spot, [(0, "#060606"), (0.3, "#171614"), (0.7, "#5a5751"), (1, "#b3ada2")])
-    img = ndimage.gaussian_filter(img, sigma=(10, 10, 0))
-    return grain(rng, img, 10)
+def moonlight(rng) -> np.ndarray:
+    im = fetch(SOURCES["moonlight"])
+    w, h = im.size
+    im = im.crop((int(w * 0.04), int(h * 0.04), int(w * 0.96), int(h * 0.96)))   # no frame edge
+    im = band(im, top=0.15)
+    g = np.asarray(ImageOps.autocontrast(im, cutoff=1), float) / 255
+    g = np.clip((g - 0.15) / 0.85, 0, 1) ** 1.8         # night stays black; moon and its path stay lit
+    # 1-bit Floyd-Steinberg: the whole picture in bone dots on ink.
+    dots = np.asarray(Image.fromarray((g * 255).astype(np.uint8)).convert("1", dither=Image.FLOYDSTEINBERG), float)
+    return tone(dots * 0.92)
 
 
-PAINTINGS = {"smoke": (smoke, 7), "silk": (silk, 41), "glow": (glow, 3)}
+PAINTINGS = {"sunset": (sunset, 5), "orb": (orb, 7), "moonlight": (moonlight, 3)}
 
 if __name__ == "__main__":
     OUT.mkdir(parents=True, exist_ok=True)
     for old in OUT.glob("*.webp"):
         old.unlink()
-    for name, (paint, seed) in PAINTINGS.items():
-        img = Image.fromarray(np.clip(paint(np.random.default_rng(seed)), 0, 255).astype(np.uint8))
-        img.save(OUT / f"{name}.webp", "WEBP", quality=86, method=6)
+    for name, (make, seed) in PAINTINGS.items():
+        img = Image.fromarray(np.clip(make(np.random.default_rng(seed)), 0, 255).astype(np.uint8))
+        # A two-colour dither compresses far better without loss.
+        lossless = len(np.unique(np.asarray(img).reshape(-1, 3), axis=0)) <= 4
+        img.save(OUT / f"{name}.webp", "WEBP", quality=88, method=6, lossless=lossless)
         print(name, (OUT / f"{name}.webp").stat().st_size // 1024, "KB")

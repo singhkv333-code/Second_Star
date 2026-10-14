@@ -10,8 +10,8 @@
  *      Choices apply at once, through the same runtime as Workspace colors.
  *
  * Each card is a large rounded square: a painting on top (scripts/welcome-art.py)
- * in Pivot's dark palette, with moving film grain and a slow sweep of light,
- * and the choice below it. "Show me around" hands over to the tour; Skip ends
+ * in Pivot's dark palette (an oil painting, sand, a dot print) under moving film
+ * grain, and the choice below it. "Show me around" hands over to the tour; Skip ends
  * here and keeps the defaults.
  */
 
@@ -37,7 +37,7 @@ const GROUPS = {
 } as const;
 type Group = keyof typeof GROUPS;
 
-const ART = [WELCOME_ART.smoke, WELCOME_ART.silk, WELCOME_ART.glow];
+const ART = [WELCOME_ART.sunset, WELCOME_ART.orb, WELCOME_ART.moonlight];
 const LAST = 2;
 
 type Look = "light" | "dark" | "custom";
@@ -201,7 +201,6 @@ export function Welcome({ onDone }: { onDone: (tour: boolean) => void }): React.
           ))}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={PIVOT_ICON} alt="" className="welcome-mark" />
-          <i className="welcome-sheen" />
           <i className="welcome-grain" />
         </div>
         <button type="button" className="welcome-skip" onClick={() => finish(false)}>

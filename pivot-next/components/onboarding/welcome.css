@@ -41,7 +41,7 @@
   border-radius: 34px;
   background: var(--w-paper);
   color: var(--w-ink);
-  box-shadow: 0 40px 90px -30px rgb(10 14 20 / 45%), 0 0 0 1px rgb(255 255 255 / 40%) inset;
+  box-shadow: 0 40px 90px -30px rgb(10 14 20 / 45%);
   animation: welcomeRise .5s cubic-bezier(.22, 1, .36, 1) both;
 }
 
@@ -56,11 +56,12 @@
 .welcome-card:not([data-step="0"]) .welcome-art { height: 150px; }
 .welcome-art img:not(.welcome-mark) {
   position: absolute;
-  inset: -6%;
-  width: 112%;
+  inset: -3%;
+  width: 106%;
   max-width: none;            /* the base styles cap images at 100% */
-  height: 112%;
+  height: 106%;
   object-fit: cover;
+  object-position: 50% 30%;   /* in the short band, keep the moon and the light in view */
   opacity: 0;
   /* Each painting develops in: out of focus and bright, then settles. */
   filter: blur(14px) brightness(1.5) contrast(.8);
@@ -68,22 +69,12 @@
   animation: welcomeDrift 26s ease-in-out infinite alternate;
 }
 .welcome-art img.on { opacity: 1; filter: none; }
-/* A slow band of light passing over the painting. */
-.welcome-sheen {
-  position: absolute;
-  inset: -40% -60%;
-  pointer-events: none;
-  background: linear-gradient(105deg, transparent 38%, rgb(244 241 234 / 9%) 47%, rgb(244 241 234 / 16%) 50%,
-    rgb(244 241 234 / 9%) 53%, transparent 62%);
-  mix-blend-mode: screen;
-  animation: welcomeSweep 9s cubic-bezier(.45, 0, .2, 1) infinite;
-}
 /* Film grain, the referral page's tile, stepping so it flickers like film. */
 .welcome-grain {
   position: absolute;
   inset: -50%;
   pointer-events: none;
-  opacity: .32;
+  opacity: .2;
   mix-blend-mode: overlay;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
   background-size: 220px 220px;
@@ -411,10 +402,6 @@
 @keyframes welcomeFade { from { opacity: 0; } }
 @keyframes welcomeRise { from { opacity: 0; transform: translateY(18px) scale(.97); } }
 @keyframes welcomeIn { from { opacity: 0; transform: translateY(6px); } }
-@keyframes welcomeSweep {
-  0%, 30% { transform: translateX(-45%); }
-  100%    { transform: translateX(45%); }
-}
 @keyframes welcomeGrain {
   0%   { transform: translate(0, 0); }
   20%  { transform: translate(-6%, 4%); }
@@ -425,7 +412,7 @@
 }
 @keyframes welcomeDrift {
   0%   { transform: scale(1) translate3d(0, 0, 0); }
-  100% { transform: scale(1.06) translate3d(-2.5%, 1.5%, 0); }
+  100% { transform: scale(1.03) translate3d(-1.5%, 1%, 0); }
 }
 
 @media (max-width: 560px) {
@@ -443,7 +430,6 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .welcome-scrim, .welcome-card, .welcome-pane, .welcome-palettes, .welcome-art img,
-  .welcome-sheen, .welcome-grain, .welcome-grid { animation: none; }
-  .welcome-sheen { display: none; }
+  .welcome-grain, .welcome-grid { animation: none; }
   .welcome-art, .welcome-art img { transition: opacity .3s ease; }
 }

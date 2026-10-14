@@ -22,11 +22,11 @@ export const LOADER_CUBES = asset(new URL("../public/loaders/isometric-cubes.svg
 export const CHARTO_MARK = asset(new URL("../public/charto-mark.png", import.meta.url));
 export const PIVOT_ICON = asset(new URL("../public/pivot-icon.png", import.meta.url));
 export const PIVOT_LIGHT = asset(new URL("../public/pivot-light.png", import.meta.url));
-/** The welcome cards' paintings (scripts/welcome-art.py). */
+/** The welcome cards' art: two public-domain paintings and a generated one (scripts/welcome-art.py). */
 export const WELCOME_ART = {
-  smoke: asset(new URL("../public/welcome/smoke.webp", import.meta.url)),
-  silk: asset(new URL("../public/welcome/silk.webp", import.meta.url)),
-  glow: asset(new URL("../public/welcome/glow.webp", import.meta.url)),
+  sunset: asset(new URL("../public/welcome/sunset.webp", import.meta.url)),
+  orb: asset(new URL("../public/welcome/orb.webp", import.meta.url)),
+  moonlight: asset(new URL("../public/welcome/moonlight.webp", import.meta.url)),
 };
 
 const BROKER_LOGOS: Record<string, string> = {
