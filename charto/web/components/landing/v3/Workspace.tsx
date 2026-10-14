@@ -1,5 +1,5 @@
 /**
- * Workspace — "Built like a desk, not a page."
+ * Workspace — "Set up your view of the market."
  *
  * Four cards fitted together, in the manner of a product bento: a small
  * kicker, one claim, one line, and a drawn object that moves.
@@ -53,7 +53,7 @@ export function Workspace(): React.ReactElement {
     <section id="workspace" className="v3 ws">
       <div className="v3-shell">
         <header className="v3-head" data-reveal>
-          <h2>Built like a desk, not a page.</h2>
+          <h2>Set up your view of the market.</h2>
           <p>Arrange it, ask it, share it.</p>
         </header>
         <div className="ws-grid">
@@ -197,8 +197,8 @@ function LayoutsCard() {
     <article className="ws-card ws-ink ws-full ws-lay" ref={ref as React.Ref<HTMLElement>}>
       <div className="ws-copy">
         <p className="kick">Layouts</p>
-        <h3>Dock it.<br />Save it.</h3>
-        <p>Eighteen widgets, any arrangement, saved by name.</p>
+        <h3>Dock it. Save it.</h3>
+        <p>Arrange and save eighteen widgets.</p>
         <ul className="ws-laylist" role="tablist" aria-label="Saved layouts">
           {LAYOUTS.map((l, i) => (
             <li key={l.name}>
@@ -245,7 +245,7 @@ function ResearchCard() {
   const { ref, k } = useCycle(READS.length, 1500);
   return (
     <article className="ws-card ws-salmon" ref={ref as React.Ref<HTMLElement>}>
-      <Copy kick="Research mode" title="One question. Every read it needs." line="Answered on the chart, with the evidence attached." />
+      <Copy kick="Research mode" title="Ask all your questions." line="Answers drawn on the chart." />
       <div className="ws-flow" aria-hidden="true">
         <svg className="ws-wires" viewBox="0 0 400 220" preserveAspectRatio="none">
           {READS.map((_, i) => {
@@ -283,7 +283,7 @@ function CoverageCard() {
   const { ref, k, setK } = useCycle(MARKETS.length, 2400);
   return (
     <article className="ws-card ws-fog" ref={ref as React.Ref<HTMLElement>}>
-      <Copy kick="Coverage" title="The markets you trade in India." line="One chart, one chat, every one of these." />
+      <Copy kick="Coverage" title="Markets in one view." line="One chart and chat for each market." />
       <div className="ws-bars">
         {MARKETS.map((m, i) => (
           <button
@@ -308,7 +308,7 @@ function CoverageCard() {
 function SharedCard() {
   return (
     <article className="ws-card ws-bone">
-      <Copy kick="Shared setups" title={<>Share a desk.<br />They make it theirs.</>} line="Drawings, indicators and panes, frozen in a link. The copy keeps the credit." />
+      <Copy kick="Shared setups" title="Share your setup." line="A link to copy, with your credit." />
       <div className="ws-share" aria-hidden="true">
         <div className="ws-win src">
           <div className="ws-win-bar"><span className="ws-lights"><i /><i /><i /></span><span className="ws-wt"><Logo s="RELIANCE" size={18} />RELIANCE · 1D</span><span className="ws-make">Make it mine</span></div>

@@ -9,9 +9,8 @@
  *                rung of the strategy engine's trust ladder, lifting in turn
  *                beside its numbered step. Under it, the verdict scale, with
  *                the real verdict for the backtest the desk shows lit.
- *   Three cards  soft-lit objects on dark glass: the backtest against buy and
- *                hold (real figures), the paper book behind a lock, and alert
- *                switches with the order switch held off.
+ *   Three cards  server-checked alerts, the paper book, and an explicitly
+ *                illustrative backtest comparison.
  */
 "use client";
 
@@ -28,7 +27,28 @@ const STEPS = [
   { n: "05", t: "Verdict", d: "Insufficient data, no edge, unproven or promising. In those words." },
 ];
 const VERDICTS = ["Insufficient data", "No edge", "Unproven", "Promising"];
-const pct = (n: number) => `${n >= 0 ? "+" : "−"}${Math.abs(n).toFixed(1)}%`;
+/** Illustrative card data, separate from the captured LAB backtest. */
+const DEMO = {
+  ret: 12.4,
+  buyHold: 6.8,
+  trades: 24,
+  equity: [100, 101, 99.4, 102.1, 103.5, 101.8, 104.7, 106.3, 103.9, 107.1, 105.8, 108.6, 107.2, 110.4, 108.9, 112.4],
+};
+const DEMO_DRAWDOWN = (() => {
+  let peak = DEMO.equity[0]!, worst = 0;
+  for (const value of DEMO.equity) {
+    peak = Math.max(peak, value);
+    worst = Math.max(worst, (1 - value / peak) * 100);
+  }
+  return worst;
+})();
+const EQUITY = (() => {
+  const values = DEMO.equity;
+  const lo = Math.min(...values), hi = Math.max(...values);
+  const span = hi - lo || 1;
+  return values.map((value, index) => `${(index / (values.length - 1)) * 320},${76 - ((value - lo) / span) * 64}`).join(" ");
+})();
+const COMPARE_MAX = Math.max(Math.abs(DEMO.ret), Math.abs(DEMO.buyHold));
 
 export function Honest(): React.ReactElement {
   const ref = React.useRef<HTMLDivElement | null>(null);
@@ -61,7 +81,7 @@ export function Honest(): React.ReactElement {
         <div className="hn-top">
           <header className="v3-head" data-reveal>
             <h2>Honest by default.</h2>
-            <p>Every result comes with what it is measured against. Nothing is traded for real.</p>
+            <p>Every result comes with what it is measured against.</p>
           </header>
           <HalftonePlanet className="hn-planet" />
         </div>
@@ -102,29 +122,36 @@ export function Honest(): React.ReactElement {
 
         <div className="hn-trio">
           <article className="hn-card">
-            <div className="hn-obj bars">
-              <div className="hn-barrow"><span>Strategy</span><i style={{ "--w": `${Math.abs(LAB.ret) / Math.abs(LAB.buy_hold)}` } as React.CSSProperties} /><b>{pct(LAB.ret)}</b></div>
-              <div className="hn-barrow"><span>Buy & hold</span><i style={{ "--w": 1 } as React.CSSProperties} /><b>{pct(LAB.buy_hold)}</b></div>
+            <div className="hn-obj toggles">
+              <label><span>Close above 1,329.75</span><i className="sw on" /></label>
+              <label><span>Close below 1,116.36</span><i className="sw on" /></label>
+              <label className="off"><span>Place an order</span><i className="sw" /><Lock /></label>
             </div>
-            <h3>Next to doing nothing.</h3>
-            <p>Every backtest sits beside buy and hold. This one: RELIANCE, one year, {LAB.trades} trades.</p>
+            <h3>Alerts checked on every bar.</h3>
+            <p>Checked on every bar close, on the server, whether or not the tab is open.</p>
           </article>
           <article className="hn-card">
             <div className="hn-obj rings">
               <i /><i /><i /><i />
               <span className="hn-lock"><Lock /></span>
             </div>
-            <h3>Simulated, never sent.</h3>
-            <p>Strategies fill into a paper book you can watch. No live orders.</p>
+            <h3>Watch strategies run on paper.</h3>
+            <p>See simulated fills and positions in your paper book.</p>
           </article>
           <article className="hn-card">
-            <div className="hn-obj toggles">
-              <label><span>Close above 1,329.75</span><i className="sw on" /></label>
-              <label><span>Close below 1,116.36</span><i className="sw on" /></label>
-              <label className="off"><span>Place an order</span><i className="sw" /><Lock /></label>
+            <div className="hn-obj comparison">
+              <div className="hn-compare-head"><strong>Versus holding</strong><span>Illustrative · same window</span></div>
+              <div className="hn-compare-row strategy"><span>Strategy</span><b>+{DEMO.ret.toFixed(1)}%</b><i><em style={{ width: `${(DEMO.ret / COMPARE_MAX) * 100}%` }} /></i></div>
+              <div className="hn-compare-row hold"><span>Buy &amp; hold</span><b>+{DEMO.buyHold.toFixed(1)}%</b><i><em style={{ width: `${(DEMO.buyHold / COMPARE_MAX) * 100}%` }} /></i></div>
+              <svg viewBox="0 0 320 84" preserveAspectRatio="none" role="img" aria-label="Strategy equity curve for the tested period">
+                <line x1="0" x2="320" y1="76" y2="76" />
+                <polyline points={EQUITY} />
+              </svg>
+              <div className="hn-compare-dates"><span>{LAB.window.split(" → ")[0]}</span><span>{LAB.window.split(" → ")[1]}</span></div>
+              <div className="hn-compare-foot"><span>{DEMO.trades} trades · {DEMO_DRAWDOWN.toFixed(1)}% max drawdown</span><span>Illustrative example</span></div>
             </div>
-            <h3>Alerts tell you. They never trade.</h3>
-            <p>Checked on every bar close, on the server, whether or not the tab is open.</p>
+            <h3>Backtests, put in context.</h3>
+            <p>Compare the strategy with holding over the same period.</p>
           </article>
         </div>
       </div>

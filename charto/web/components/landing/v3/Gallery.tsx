@@ -1,5 +1,5 @@
 /**
- * Gallery — "Everything on one desk."
+ * Gallery — "Everything in one place."
  *
  * Nine of the widgets a trader docks beside the chart, each in a tile — an
  * icon, a name, one line, and the widget itself in Pivot's light theme — on
@@ -44,15 +44,15 @@ function Tile({ icon, title, line, children, fit = "center" }: TileProps) {
 function Tiles() {
   return (
     <>
-      <Tile icon={<ChartCandlestick />} title="Chart" line="Candles, indicators and drawings on any interval."><ChartCard /></Tile>
-      <Tile icon={<Star />} title="Watchlist" line="Your names, ticking, one click from the chart." fit="top"><WatchCard /></Tile>
-      <Tile icon={<Landmark />} title="Financials" line="Valuation, results and the filed statements."><FinCard /></Tile>
-      <Tile icon={<Filter />} title="Screener" line="Filter 500 stocks on price, volume and trend." fit="top"><ScreenCard /></Tile>
-      <Tile icon={<Sigma />} title="Strategy" line="Test a rule on real bars and read an honest verdict."><StrategyCard /></Tile>
-      <Tile icon={<CalendarDays />} title="Calendar" line="Earnings, corporate actions and the economy." fit="top"><CalendarCard /></Tile>
-      <Tile icon={<Bell />} title="Alerts" line="Rules checked on every bar close, server-side."><AlertsCard /></Tile>
-      <Tile icon={<NotebookPen />} title="Notes" line="Write beside the chart, stamped with its price."><NotesCard /></Tile>
-      <Tile icon={<Sheet />} title="Sheet" line="A spreadsheet with live market functions."><SheetCard /></Tile>
+      <Tile icon={<ChartCandlestick />} title="Chart" line="Candles, indicators and drawings."><ChartCard /></Tile>
+      <Tile icon={<Star />} title="Watchlist" line="Track all your names at one place." fit="top"><WatchCard /></Tile>
+      <Tile icon={<Landmark />} title="Financials" line="Valuation, results and filings."><FinCard /></Tile>
+      <Tile icon={<Filter />} title="Screener" line="Filter 500 stocks by market data." fit="top"><ScreenCard /></Tile>
+      <Tile icon={<Sigma />} title="Strategy" line="Test a rule and read the verdict."><StrategyCard /></Tile>
+      <Tile icon={<CalendarDays />} title="Calendar" line="Earnings and corporate actions." fit="top"><CalendarCard /></Tile>
+      <Tile icon={<Bell />} title="Alerts" line="Rules checked on every bar close."><AlertsCard /></Tile>
+      <Tile icon={<NotebookPen />} title="Notes" line="Write beside the chart."><NotesCard /></Tile>
+      <Tile icon={<Sheet />} title="Sheet" line="A sheet with live market functions."><SheetCard /></Tile>
     </>
   );
 }
@@ -117,8 +117,8 @@ export function Gallery(): React.ReactElement {
     <section id="desk" className="v3 gl">
       <div className="v3-shell gl-top">
         <header className="v3-head" data-reveal>
-          <h2>Everything on one desk.</h2>
-          <p>A few of the widgets you can dock beside the chart. Drag, scroll or step through them.</p>
+          <h2>Everything in one place.</h2>
+          <p>Explore the widgets beside your chart.</p>
         </header>
         <div className="gl-nav">
           <button type="button" aria-label="Previous widget" onClick={() => step(-1)}><ArrowLeft /></button>

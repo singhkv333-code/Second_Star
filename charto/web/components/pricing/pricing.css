@@ -1,0 +1,59 @@
+/* /pricing — the product's plan blocks (billing.css) on a white page under
+   the landing topbar. The light tokens are pinned here so the page is white
+   whatever theme the app last set. Layout after pivot-next's .pricing-page. */
+
+.pivot-landing.pp {
+  --bg-base: #ffffff;
+  --bg-elevated: #ececee;
+  --bg-primary: #fbfbfc;
+  --card: 0 0% 100%;
+  --glass-border: rgba(15, 18, 22, 0.08);
+  --glass-border-hover: rgba(15, 18, 22, 0.16);
+  --glass-border-focus: rgba(15, 18, 22, 0.32);
+  --surface-track: #e4e5e9;
+  --text-primary: #0d0d0e;
+  --text-secondary: #4d555c;
+  --text-tertiary: #6b7280;
+  --success: 142 71% 38%;
+  --color-warn: #d97706;
+  --color-loss: #dc2626;
+  --bl-ground: #f4f4f5;
+  --bl-card: #f4f4f5;
+  --bl-raised: #ffffff;
+  --bl-rule: rgba(15, 18, 22, 0.08);
+  --bl-rule-strong: rgba(15, 18, 22, 0.16);
+  --bl-ink: #0d0d0e;
+  --bl-on-ink: #ffffff;
+  --bl-muted: #4d555c;
+  --bl-faint: #6b7280;
+  --bl-track: #e4e5e9;
+  --bl-hover: #ececee;
+}
+
+.pp-page { max-width: 1280px; margin: 0 auto; padding: 152px clamp(16px, 4vw, 48px) 64px; }
+
+.pp-hero { margin: 0 auto 48px; text-align: center; }
+.pp-eyebrow {
+  display: inline-block; margin-bottom: 14px;
+  font: 600 11px/1 var(--font-ui); letter-spacing: 0.08em; text-transform: uppercase; color: #6b7280;
+}
+.pp-title, .pp-h2 {
+  margin: 0; text-align: center;
+  font: 400 clamp(34px, 4.6vw, 60px)/1.05 var(--font-serif); letter-spacing: -0.02em; color: #0d0d0e;
+}
+.pp-h2 { margin-bottom: 48px; }
+
+.pp-bar { display: flex; justify-content: center; margin-bottom: 32px; }
+.pp-aside { margin: 28px 0 0; text-align: center; font: 400 14px/1.5 var(--font-ui); color: #4d555c; }
+.pp-trust { margin-top: 20px; }
+
+.pp-section { margin-top: 120px; scroll-margin-top: 96px; }
+.pp-faq { max-width: 820px; margin-left: auto; margin-right: auto; }
+.pp-foot { margin: 96px auto 0; max-width: 640px; text-align: center; font: 400 12.5px/1.5 var(--font-ui); color: #6b7280; }
+
+@media (max-width: 720px) {
+  .pp-page { padding-top: 120px; padding-bottom: 64px; }
+  .pp-hero { margin-bottom: 36px; }
+  .pp-section { margin-top: 88px; }
+  .pp-h2 { margin-bottom: 32px; }
+}

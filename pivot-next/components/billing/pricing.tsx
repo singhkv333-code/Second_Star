@@ -6,7 +6,7 @@
  */
 
 import * as React from "react";
-import { Check, Minus, Plus } from "lucide-react";
+import { Check, Minus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fmtValue, inr } from "@/lib/billing/format";
 import { annualSaving, subscriptionView } from "@/lib/billing/entitlements";
@@ -50,7 +50,7 @@ export function priceNote(cat: PublicCatalog, plan: CatalogPlan, cycle: Cycle): 
   if (cycle === "annual") {
     const saved = annualSaving(cat, plan.id);
     return {
-      text: `${inr(p.amount)} billed yearly${saved ? `, save ${inr(saved)}` : ""}`,
+      text: `Billed yearly${saved ? `, save ${inr(saved)}` : ""}`,
       save: saved > 0,
     };
   }
@@ -256,19 +256,26 @@ function Cell({ kind, text, on }: { kind: string; text: string; on: unknown }): 
 // ── FAQ ─────────────────────────────────────────────────────────────────
 
 export function PricingFAQ(): React.ReactElement {
+  const [open, setOpen] = React.useState<number | null>(null);
   return (
     <div className="bl-faq">
-      {FAQS.map((f) => (
-        <details key={f.q}>
-          <summary>
-            {f.q}
-            <Plus size={18} aria-hidden />
-          </summary>
-          <div className="bl-faq-a">
-            <PolicyText parts={f.a} />
+      {FAQS.map((f, i) => {
+        const isOpen = open === i;
+        return (
+          <div className="bl-faq-item" key={f.q}>
+            <button type="button" aria-expanded={isOpen} aria-controls={`bl-faq-answer-${i}`} onClick={() => setOpen(isOpen ? null : i)}>
+              <span>{f.q}</span>
+              <svg className={`bl-faq-glyph${isOpen ? " open" : ""}`} viewBox="0 0 20 20" aria-hidden="true">
+                <line x1="0" y1="10" x2="20" y2="10" />
+                <line x1="10" y1="0" x2="10" y2="20" />
+              </svg>
+            </button>
+            <div id={`bl-faq-answer-${i}`} className="bl-faq-panel" inert={!isOpen} style={{ gridTemplateRows: isOpen ? "1fr" : "0fr", opacity: isOpen ? 1 : 0 }}>
+              <div><div className="bl-faq-a"><PolicyText parts={f.a} /></div></div>
+            </div>
           </div>
-        </details>
-      ))}
+        );
+      })}
     </div>
   );
 }
