@@ -30,8 +30,8 @@ Verified 2026-09-05:
 
 Passing Charto's integer id through to Pivot would therefore not merely
 mis-attribute a portfolio: it would hand a beta user the admin surface —
-ticker control, chat-trace inspection, event simulation. Identity is resolved
-on EMAIL, which is unique and indexed on both sides, and never on the id.
+ticker control, chat-trace inspection, event simulation. Identity is resolved through explicit Charto-to-Pivot bindings. Email equality
+alone is not proof of ownership and must never grant an existing identity.
 
 Reads are strictly read-only. Charto owns `last_seen`; touching it from a
 second process would race the writer that already serialises on `_users_lock`.
@@ -140,56 +140,55 @@ def resolve_token(token: str) -> Optional[tuple[int, str, Optional[str]]]:
     return int(row[0]), str(row[1]), row[2]
 
 
-def pivot_user_id_for(email: str, name: Optional[str] = None) -> Optional[int]:
-    """The Pivot `users.id` for a Charto account, creating the row if needed.
+def pivot_user_id_for(email: str, name: Optional[str] = None, *,
+                      charto_user_id: Optional[int] = None) -> Optional[int]:
+    """Resolve an explicit server-owned binding, never adopt an email match.
 
-    Resolution is on EMAIL — see the module docstring for why an id
-    passthrough is a privilege-escalation bug and not a shortcut.
-
-    The created row carries an unusable password hash. Pivot's own
-    `/auth/login` compares a bcrypt hash; "!charto-session" is not one and can
-    never verify, so this path can create an account that Charto can sign into
-    and Pivot's password form cannot. That asymmetry is the point: Charto owns
-    the credential, this row owns nothing but an id to hang Pivot-side rows on.
+    New Charto identities may create an unverified, password-disabled Pivot
+    row. Existing Pivot accounts require a separately approved binding.
+    The migration creates the binding table; absence fails closed.
     """
-    if not email:
+    if not email or charto_user_id is None or charto_user_id <= 0:
         return None
-    from sqlalchemy import select
-
+    from sqlalchemy import select, text
     from backend.database import SessionLocal
     from backend.models import User
 
     db = SessionLocal()
     try:
+        linked = db.execute(text(
+            "SELECT pivot_user_id FROM charto_account_links WHERE charto_user_id=:cid"
+        ), {"cid": charto_user_id}).scalar_one_or_none()
+        if linked is not None:
+            user = db.get(User, int(linked))
+            return int(user.id) if user is not None and user.is_active else None
         norm = email.strip().lower()
         user = db.execute(select(User).where(User.email == norm)).scalar_one_or_none()
         if user is not None:
-            return int(user.id)
-        user = User(
-            email=norm,
-            hashed_password="!charto-session",  # deliberately unusable
-            full_name=name or None,
-            is_active=True,
-            is_verified=True,   # Charto already verified them to sign in
-        )
+            logger.warning("Charto identity %s requires explicit account linking", charto_user_id)
+            return None
+        user = User(email=norm, hashed_password="!charto-session",
+                    full_name=name or None, is_active=True, is_verified=False)
         db.add(user)
+        db.flush()
+        db.execute(text(
+            "INSERT INTO charto_account_links (charto_user_id, pivot_user_id) "
+            "VALUES (:cid, :pid)"
+        ), {"cid": charto_user_id, "pid": user.id})
         db.commit()
-        db.refresh(user)
-        logger.info("charto_session: linked Charto account %s -> pivot id %s",
-                    norm, user.id)
         return int(user.id)
-    except Exception as exc:  # noqa: BLE001
+    except Exception:
         db.rollback()
-        logger.warning("charto_session: could not link %s: %s", email, exc)
+        logger.warning("Charto identity linking unavailable for id %s", charto_user_id)
         return None
     finally:
         db.close()
 
 
 def user_id_from_bearer(token: str) -> Optional[int]:
-    """Pivot user id for a Charto bearer token, or None. The whole seam."""
+    """Pivot identity bound to this Charto session, or None."""
     resolved = resolve_token(token)
     if resolved is None:
         return None
-    _charto_id, email, name = resolved
-    return pivot_user_id_for(email, name)
+    charto_id, email, name = resolved
+    return pivot_user_id_for(email, name, charto_user_id=charto_id)

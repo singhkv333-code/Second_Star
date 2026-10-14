@@ -17073,7 +17073,7 @@ def _auth_login(body: dict) -> tuple[int, dict]:
 # half-verifying — the alternative is a sign-in that skips the audience check,
 # which is the whole security of this exchange.
 GOOGLE_CLIENT_ID = (environ.get("GOOGLE_CLIENT_ID")
-                    or _env_values("GOOGLE_CLIENT_ID")["GOOGLE_CLIENT_ID"])
+                    or _env_values("GOOGLE_CLIENT_ID")["GOOGLE_CLIENT_ID"]) if (environ.get("CHARTO_GOOGLE_SIGNIN_ENABLED") or "").lower() in ("1", "true", "yes", "on") else ""
 
 _GOOGLE_TOKENINFO = "https://oauth2.googleapis.com/tokeninfo"
 _GOOGLE_USERINFO = "https://www.googleapis.com/oauth2/v3/userinfo"
@@ -19624,24 +19624,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, {"scene": patch, "cards": cards,
                                         "drawn": res.get("drawn", [])})
             if u.path == "/live":
-                # start/stop a venue driver inside this process — see the
-                # _DRIVERS comment for why a CLI process cannot move a chart
                 if q.get("status") in ("1", "true", "yes"):
                     return self._send(200, {"streams": _live_status()})
-                syms = [s.strip() for s in (q.get("symbols") or "").split(",")
-                        if s.strip()]
-                code, payload = _live_stream(
-                    q.get("venue", ""), syms,
-                    q.get("stop") in ("1", "true", "yes"))
-                return self._send(code, payload)
+                return self._send(405, {"error": "Feed controls require an operator POST."},
+                                  headers={"Allow": "POST"})
             if u.path == "/replay":
-                err = _ensure_symbol(symbol)
-                if err:
-                    return self._send(404, err)
-                code, payload = _replay(
-                    symbol, q.get("date"), float(q.get("speed", 300) or 300),
-                    q.get("stop") in ("1", "true", "yes"))
-                return self._send(code, payload)
+                return self._send(403, {"error": "Shared replay is disabled until replay is isolated from live data.",
+                                        "code": "shared_replay_disabled"})
             if u.path == "/stream":
                 err = _ensure_symbol(symbol)
                 if err:
@@ -19924,6 +19913,29 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         u = urlparse(self.path)
         u = _strip_api_auth(u)
+        if u.path == "/replay":
+            return self._send(403, {"error": "Shared replay is disabled until replay is isolated from live data.",
+                                    "code": "shared_replay_disabled"})
+        if u.path == "/live":
+            key = (environ.get("CHARTO_FEED_CONTROL_KEY") or "").strip()
+            supplied = self.headers.get("X-Pivot-Feed-Key", "")
+            if not key or not hmac.compare_digest(key.encode(), supplied.encode()):
+                return self._send(403, {"error": "Operator authorization required."})
+            try:
+                ln = int(self.headers.get("Content-Length", 0))
+                if ln <= 0 or ln > 4096:
+                    return self._send(400, {"error": "Invalid feed-control body size."})
+                body = json.loads(self.rfile.read(ln))
+                if not isinstance(body, dict) or not isinstance(body.get("stop", False), bool):
+                    raise ValueError("invalid control")
+                symbols = body.get("symbols", [])
+                if not isinstance(symbols, list) or len(symbols) > 10000 or any(
+                        not isinstance(s, str) or len(s) > 100 for s in symbols):
+                    raise ValueError("invalid symbols")
+            except (ValueError, TypeError):
+                return self._send(400, {"error": "Invalid feed-control request."})
+            return self._send(*_live_stream(str(body.get("venue", "")), symbols,
+                                          body.get("stop", False)))
         # Voice, before the JSON routes: the body is an audio blob, so it must
         # never reach a json.loads. Posted RAW rather than as multipart —
         # there is one file and no other field, and a hand-rolled multipart

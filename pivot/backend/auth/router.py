@@ -326,6 +326,44 @@ def update_me(
 
 # ─── /login ─────────────────────────────────────────────────────────
 
+@router.post("/link-charto", dependencies=[Depends(rate_limit("link_charto", 10, 3600))])
+def link_charto_account(
+    authorization: str = Header(default=None),
+    charto_token: str = Header(default=None, alias="X-Charto-Token"),
+    db: Session = Depends(get_db),
+):
+    """Require possession of BOTH accounts; email matching is not login proof."""
+    from sqlalchemy import text
+    from sqlalchemy.exc import IntegrityError
+    from backend.auth.charto_session import resolve_token
+
+    raw = (authorization or "").removeprefix("Bearer ")
+    if not verify_token(raw, "access"):
+        raise HTTPException(401, "Sign in to the existing Pivot account to link it")
+    user, _jti = _require_user_with_jti(authorization, db)
+    identity = resolve_token(charto_token or "")
+    if identity is None or identity[1].strip().lower() != user.email.strip().lower():
+        raise HTTPException(403, "Both account credentials are required")
+    if not user.is_active:
+        raise HTTPException(403, "Account is inactive")
+    prior = db.execute(text(
+        "SELECT pivot_user_id FROM charto_account_links WHERE charto_user_id=:cid"
+    ), {"cid": identity[0]}).scalar_one_or_none()
+    if prior is not None:
+        if int(prior) != user.id:
+            raise HTTPException(409, "Account already linked")
+        return {"ok": True}
+    try:
+        db.execute(text(
+            "INSERT INTO charto_account_links (charto_user_id,pivot_user_id) VALUES (:cid,:pid)"
+        ), {"cid": identity[0], "pid": user.id})
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "Account already linked") from None
+    return {"ok": True}
+
+
 @router.post("/login", response_model=TokenResponse)
 def login(
     credentials: UserLogin,
