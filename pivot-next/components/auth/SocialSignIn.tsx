@@ -25,6 +25,9 @@ import { isError } from "@/lib/types";
 import { returnPath } from "@/lib/returnTo";
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "";
+// Apple has no backend yet. A sign-in page at launch shows only what works,
+// so the block draws nothing until Google is configured, and never Apple.
+const SHOW_APPLE = false;
 const GIS_SRC = "https://accounts.google.com/gsi/client";
 
 // Minimal typing for the slice of Google Identity Services we use.
@@ -79,7 +82,7 @@ function GoogleIcon(): React.ReactElement {
   );
 }
 
-export function SocialSignIn(): React.ReactElement {
+export function SocialSignIn(): React.ReactElement | null {
   const router = useRouter();
   const [gisReady, setGisReady] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -164,10 +167,12 @@ export function SocialSignIn(): React.ReactElement {
     tokenClientRef.current.requestAccessToken();
   };
 
+  if (!GOOGLE_CLIENT_ID && !SHOW_APPLE) return null;
+
   return (
     <div className="flex flex-col gap-4">
       <div className="grid gap-3">
-        <Button
+        {SHOW_APPLE && <Button
           type="button"
           variant="outline"
           className="w-full"
@@ -176,8 +181,8 @@ export function SocialSignIn(): React.ReactElement {
         >
           <AppleIcon />
           Login with Apple
-        </Button>
-        <Button
+        </Button>}
+        {GOOGLE_CLIENT_ID && <Button
           type="button"
           variant="outline"
           className="w-full"
@@ -186,7 +191,7 @@ export function SocialSignIn(): React.ReactElement {
         >
           <GoogleIcon />
           {busy ? "Signing in…" : "Login with Google"}
-        </Button>
+        </Button>}
       </div>
 
       {/* "Or continue with" divider — the label sits on the page surface so

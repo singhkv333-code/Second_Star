@@ -10,7 +10,7 @@
 
 import type { ReactElement } from "react";
 
-import { PivotLogo } from "@/components/brand/PivotLogo";
+import { PivotWordLogo } from "@/components/brand/PivotWordLogo";
 
 // ---------------------------------------------------------------------------
 // Deterministic wave-field geometry (computed once at module load)
@@ -100,10 +100,10 @@ export function BrandPanel(): ReactElement {
         style={{ boxShadow: "inset 0 0 220px 60px rgba(0,0,0,0.65)" }}
       />
 
-      {/* Wordmark — same lockup as the in-app sidebar (mark + wordmark),
-          painted white via the panel's ambient `color: #fbfcfc`. */}
+      {/* Wordmark — the brand artwork, as on pivotnow.in, painted white via
+          the panel's ambient `color: #fbfcfc`. */}
       <div className="relative z-10">
-        <PivotLogo fontSize={26} />
+        <PivotWordLogo className="block h-10 w-auto" />
       </div>
 
       {/* Footer */}

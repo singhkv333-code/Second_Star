@@ -309,7 +309,10 @@ async function _performRequest<T>(
 
   if (!res.ok) {
     // Token expired / invalid → attempt refresh once, then redirect to /login.
-    if (res.status === 401 && typeof window !== "undefined") {
+    // Not for a sign-in attempt: there a 401 means "wrong password", and
+    // reloading /login would wipe the form and the message that says so.
+    const isCredentialPath = /\/auth\/(login|signup|google|reset|verify)(\/|$)/.test(path);
+    if (res.status === 401 && typeof window !== "undefined" && !isCredentialPath) {
       // Guard against infinite loop: if this 401 came from the refresh
       // endpoint itself, just clear and redirect without retrying.
       const isRefreshPath =

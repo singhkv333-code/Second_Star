@@ -16,6 +16,7 @@ import { z } from "zod";
 import { Loader2, Eye, EyeOff } from "lucide-react";
 import { loginUser } from "@/lib/api";
 import { BrandPanel } from "@/components/auth/BrandPanel";
+import { PivotWordLogo } from "@/components/brand/PivotWordLogo";
 import { SocialSignIn } from "@/components/auth/SocialSignIn";
 import { armLoginIntro } from "@/components/onboarding/LoginIntroGate";
 import { AnybodyFontPreload } from "@/components/onboarding/AnybodyFontPreload";
@@ -108,12 +109,7 @@ export default function LoginPage(): React.ReactElement {
       <div className="flex flex-1 flex-col px-6 py-8 sm:px-10 lg:px-14">
         {/* Top bar: mobile wordmark (hidden on lg — the brand panel carries it) */}
         <div className="lg:hidden">
-          <span
-            className="text-foreground"
-            style={{ fontFamily: "var(--font-experiment)", fontWeight: 600, fontSize: 24, letterSpacing: "-0.03em" }}
-          >
-            pivot
-          </span>
+          <PivotWordLogo className="block h-8 w-auto text-foreground" />
         </div>
 
         {/* Centered form */}

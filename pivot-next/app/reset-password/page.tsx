@@ -16,6 +16,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { storeToken } from "@/lib/api";
 import { BrandPanel } from "@/components/auth/BrandPanel";
+import { PivotWordLogo } from "@/components/brand/PivotWordLogo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -161,6 +162,9 @@ export default function ResetPasswordPage(): React.ReactElement {
     <div className="flex min-h-screen" style={{ background: "var(--bg-base)" }}>
       <BrandPanel />
       <div className="flex flex-1 flex-col px-6 py-8 sm:px-10 lg:px-14">
+        <div className="lg:hidden">
+          <PivotWordLogo className="block h-8 w-auto text-foreground" />
+        </div>
         <div className="flex flex-1 items-center justify-center">
           <div className="w-full max-w-sm">
             <Suspense fallback={null}>
