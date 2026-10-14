@@ -1929,8 +1929,10 @@ function TopHeader({
 // ---------------------------------------------------------------------------
 
 function AccountMenu({
-  theme,
-  onChooseTheme,
+  // The menu's theme picker moved to the workspace color editor; the props
+  // stay so callers keep one shape.
+  theme: _theme,
+  onChooseTheme: _onChooseTheme,
   initial,
   accountName,
   accountEmail,

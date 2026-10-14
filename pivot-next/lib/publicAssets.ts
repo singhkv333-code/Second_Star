@@ -23,6 +23,13 @@ export const CHARTO_MARK = asset(new URL("../public/charto-mark.png", import.met
 export const PIVOT_ICON = asset(new URL("../public/pivot-icon.png", import.meta.url));
 export const PIVOT_LIGHT = asset(new URL("../public/pivot-light.png", import.meta.url));
 /** The welcome cards' art: two public-domain paintings and a generated one (scripts/welcome-art.py). */
+// The Home hero's asset cards (an import would need sharp, see above).
+export const HOME_ASSETS = {
+  bitcoin: asset(new URL("../public/home-assets/bitcoin.png", import.meta.url)),
+  ethereum: asset(new URL("../public/home-assets/ethereum.png", import.meta.url)),
+  reliance: asset(new URL("../public/home-assets/reliance.svg", import.meta.url)),
+} as const;
+
 export const WELCOME_ART = {
   sunset: asset(new URL("../public/welcome/sunset.webp", import.meta.url)),
   orb: asset(new URL("../public/welcome/orb.webp", import.meta.url)),

@@ -34,6 +34,8 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        {/* Synchronous on purpose: it sets the theme before first paint. */}
+        {/* eslint-disable-next-line @next/next/no-sync-scripts */}
         <script src="/workspace-theme.js?v=5" data-surface="shell" />
         <link rel="stylesheet" href="/workspace-theme.css?v=5" />
         {/* Load Inter / Newsreader via explicit <link> tags.

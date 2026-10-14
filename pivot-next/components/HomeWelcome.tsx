@@ -2,10 +2,8 @@
 
 import { useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import Image, { type StaticImageData } from "next/image";
-import bitcoinLogo from "@/public/home-assets/bitcoin.png";
-import ethereumLogo from "@/public/home-assets/ethereum.png";
-import relianceLogo from "@/public/home-assets/reliance.svg";
+import Image from "next/image";
+import { HOME_ASSETS } from "@/lib/publicAssets";
 import snapshots from "@/components/home-market-snapshots.json";
 import { ArrowRight, ArrowUp, Plus, PieChart, ReceiptText } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -54,9 +52,9 @@ export function HomeWelcome({ onOpenChart, onSendPrompt }: {
         </div>
         <div className="home-chart-scene">
           <div className="home-asset-row" aria-label="Recorded market examples">
-            <AssetCard name="Bitcoin" currency="USD" position="bitcoin" logo={bitcoinLogo} snapshot={snapshots.bitcoin} />
-            <AssetCard name="Ethereum" currency="USD" position="ethereum" logo={ethereumLogo} snapshot={snapshots.ethereum} />
-            <AssetCard name="Reliance" currency="INR" position="candles" candle logo={relianceLogo} snapshot={snapshots.reliance} />
+            <AssetCard name="Bitcoin" currency="USD" position="bitcoin" logo={HOME_ASSETS.bitcoin} snapshot={snapshots.bitcoin} />
+            <AssetCard name="Ethereum" currency="USD" position="ethereum" logo={HOME_ASSETS.ethereum} snapshot={snapshots.ethereum} />
+            <AssetCard name="Reliance" currency="INR" position="candles" candle logo={HOME_ASSETS.reliance} snapshot={snapshots.reliance} />
             <PortfolioCard />
           </div>
           <div className="home-composer" ref={composerRef}>
@@ -89,7 +87,7 @@ type MarketSnapshot = typeof snapshots.bitcoin | typeof snapshots.ethereum | typ
 type Range = "1D" | "1W" | "1M" | "ALL";
 const RANGES: Range[] = ["1D", "1W", "1M", "ALL"];
 const priceFormat = (value: number, currency: "USD" | "INR"): string => new Intl.NumberFormat(currency === "INR" ? "en-IN" : "en-US", { style: "currency", currency, maximumFractionDigits: 2, minimumFractionDigits: 2 }).format(value);
-function AssetCard({ name, currency, position, logo, snapshot, candle = false }: { name: string; currency: "USD" | "INR"; position: string; logo: StaticImageData; snapshot: MarketSnapshot; candle?: boolean }): React.ReactElement {
+function AssetCard({ name, currency, position, logo, snapshot, candle = false }: { name: string; currency: "USD" | "INR"; position: string; logo: string; snapshot: MarketSnapshot; candle?: boolean }): React.ReactElement {
   const [failed, setFailed] = useState(false);
   const [range, setRange] = useState<Range>(snapshot.defaultRange as Range);
   const current = snapshot.ranges[range];
