@@ -1,0 +1,233 @@
+/* Product tour — liquid-glass cards in the ask bar's own colours.
+   Glass recipe from components/copilot/quick-ask-glass.css (adapted from
+   dpawlikowski/liquid-glass, MIT): a translucent fill with a blur, a five-
+   colour wash inside it, and a lit rim. Here the wash is stronger and drifts
+   slowly, and the step's target gets a ring of the same colours. */
+
+.driver-popover.pivot-tour {
+  --tour-fill: rgb(255 255 255 / 66%);
+  --tour-sheen: rgb(255 255 255 / 90%);
+  --tour-edge: rgb(30 40 55 / 10%);
+  --tour-ink: #111312;
+  --tour-text: #2a2f2c;
+  position: fixed;
+  isolation: isolate;
+  overflow: hidden;
+  width: 300px;
+  max-width: calc(100vw - 32px);
+  padding: 18px 18px 14px;
+  border-radius: 18px;
+  border: 1px solid var(--tour-edge);
+  background: rgb(250 251 252 / 96%);
+  color: var(--tour-ink);
+  font-family: var(--font-sans, Inter, system-ui, sans-serif);
+  box-shadow: 0 18px 50px -18px rgb(20 28 40 / 28%),
+    inset 0 1px 0 var(--tour-sheen), inset 0 -1px 0 rgb(255 255 255 / 40%);
+}
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .driver-popover.pivot-tour {
+    background: linear-gradient(135deg, rgb(255 255 255 / 22%), transparent 50%, rgb(255 255 255 / 10%)), var(--tour-fill);
+    -webkit-backdrop-filter: blur(22px) saturate(140%);
+    backdrop-filter: blur(22px) saturate(140%);
+  }
+}
+/* The moving colour: the ask bar's wash, larger, drifting behind the text. */
+.driver-popover.pivot-tour::before {
+  content: "";
+  position: absolute;
+  inset: -45%;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 18% 72%, rgb(91 210 238 / 30%), transparent 30%),
+    radial-gradient(circle at 36% 22%, rgb(119 147 244 / 26%), transparent 30%),
+    radial-gradient(circle at 58% 80%, rgb(181 142 235 / 24%), transparent 30%),
+    radial-gradient(circle at 74% 24%, rgb(242 152 197 / 24%), transparent 28%),
+    radial-gradient(circle at 86% 70%, rgb(245 192 126 / 26%), transparent 28%);
+  animation: pivotTourDrift 14s ease-in-out infinite alternate;
+}
+.driver-popover.pivot-tour::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: inset 1px 0 rgb(126 176 244 / 22%), inset -1px 0 rgb(242 172 195 / 22%),
+    inset 0 1px 0 var(--tour-sheen), inset 0 -1px 0 rgb(177 166 214 / 18%);
+}
+@keyframes pivotTourDrift {
+  0%   { transform: translate3d(-6%, -4%, 0) rotate(0deg); }
+  50%  { transform: translate3d(5%, 3%, 0) rotate(14deg); }
+  100% { transform: translate3d(-3%, 6%, 0) rotate(-10deg); }
+}
+
+.driver-popover.pivot-tour .pivot-tour-icon {
+  width: 38px;
+  height: 38px;
+  margin-bottom: 12px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  color: var(--tour-ink);
+  background: linear-gradient(140deg, rgb(255 255 255 / 85%), rgb(255 255 255 / 45%));
+  border: 1px solid rgb(255 255 255 / 75%);
+  box-shadow: 0 6px 16px -8px rgb(20 28 40 / 30%), inset 0 1px 0 rgb(255 255 255 / 95%);
+}
+.driver-popover.pivot-tour .pivot-tour-icon svg { display: block; }
+
+.driver-popover.pivot-tour .driver-popover-title {
+  margin: 0 0 6px;
+  padding-right: 26px;
+  font: 600 17px/1.3 var(--font-sans, Inter, system-ui, sans-serif);
+  letter-spacing: -0.01em;
+  color: var(--tour-ink);
+}
+.driver-popover.pivot-tour .driver-popover-description {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.55;
+  font-weight: 400;
+  color: var(--tour-text);
+}
+
+.driver-popover.pivot-tour .driver-popover-footer {
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.driver-popover.pivot-tour .pivot-tour-dots {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: auto;
+}
+.driver-popover.pivot-tour .pivot-tour-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgb(17 19 18 / 20%);
+  transition: width .25s ease, background-color .25s ease;
+}
+.driver-popover.pivot-tour .pivot-tour-dots i.on { width: 18px; background: var(--tour-ink); }
+.driver-popover.pivot-tour .driver-popover-progress-text { display: none; }
+.driver-popover.pivot-tour .driver-popover-navigation-btns {
+  display: flex;
+  gap: 6px;
+  flex-grow: 0;
+  justify-content: flex-end;
+}
+
+/* Buttons: one solid ink pill, one quiet text button. */
+.driver-popover.pivot-tour .driver-popover-footer button {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
+  height: 34px;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  font: 600 14px/1 var(--font-sans, Inter, system-ui, sans-serif);
+  white-space: nowrap;
+  transition: background-color .15s ease, transform .15s ease, opacity .15s ease;
+}
+.driver-popover.pivot-tour .driver-popover-footer button.driver-popover-next-btn {
+  background: var(--tour-ink);
+  color: #fffdf8;
+  box-shadow: 0 4px 12px -6px rgb(17 19 18 / 55%), inset 0 1px 0 rgb(255 255 255 / 14%);
+}
+.driver-popover.pivot-tour .driver-popover-footer button.driver-popover-next-btn:hover { transform: translateY(-1px); }
+.driver-popover.pivot-tour .driver-popover-footer button.driver-popover-prev-btn {
+  color: var(--tour-ink);
+  background: transparent;
+}
+.driver-popover.pivot-tour .driver-popover-footer button.driver-popover-prev-btn:hover { background: rgb(17 19 18 / 6%); }
+.driver-popover.pivot-tour .driver-popover-footer button:focus-visible {
+  outline: 2px solid #2b9bb1;
+  outline-offset: 2px;
+}
+.driver-popover.pivot-tour .driver-popover-close-btn {
+  all: unset;
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 3;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--tour-ink);
+  background: rgb(255 255 255 / 55%);
+  border: 1px solid rgb(255 255 255 / 70%);
+}
+.driver-popover.pivot-tour .driver-popover-close-btn:hover { background: rgb(255 255 255 / 85%); }
+.driver-popover.pivot-tour .driver-popover-arrow { display: none; }
+
+/* The ring around the step's target: the same colours, turning slowly. */
+.pivot-tour-ring {
+  position: fixed;
+  z-index: 10000;
+  pointer-events: none;
+  border-radius: 14px;
+  padding: 2px;
+  opacity: 0;
+  transition: left .35s cubic-bezier(.22, 1, .36, 1), top .35s cubic-bezier(.22, 1, .36, 1),
+    width .35s cubic-bezier(.22, 1, .36, 1), height .35s cubic-bezier(.22, 1, .36, 1), opacity .25s ease;
+  background: conic-gradient(from var(--tour-angle, 0deg),
+    rgb(91 210 238 / 85%), rgb(119 147 244 / 85%), rgb(181 142 235 / 85%),
+    rgb(242 152 197 / 85%), rgb(245 192 126 / 85%), rgb(91 210 238 / 85%));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  box-shadow: 0 0 24px 2px rgb(119 147 244 / 22%);
+  animation: pivotTourTurn 6s linear infinite;
+}
+@property --tour-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+@keyframes pivotTourTurn { to { --tour-angle: 360deg; } }
+
+.pivot-tour-anchor {
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+  opacity: 0;
+}
+
+/* driver.js still mounts a stage; with no overlay it only needs to stay out of the way. */
+.driver-active .driver-overlay { pointer-events: none; }
+
+.dark .driver-popover.pivot-tour {
+  --tour-fill: rgb(30 32 38 / 70%);
+  --tour-sheen: rgb(255 255 255 / 16%);
+  --tour-edge: rgb(255 255 255 / 14%);
+  --tour-ink: #f3f0e7;
+  --tour-text: #dcd8ce;
+  background-color: #202228;
+  box-shadow: 0 18px 50px -18px rgb(0 0 0 / 60%), inset 0 1px 0 var(--tour-sheen);
+}
+.dark .driver-popover.pivot-tour .pivot-tour-icon {
+  background: linear-gradient(140deg, rgb(255 255 255 / 14%), rgb(255 255 255 / 4%));
+  border-color: rgb(255 255 255 / 16%);
+}
+.dark .driver-popover.pivot-tour .pivot-tour-dots i { background: rgb(255 255 255 / 22%); }
+.dark .driver-popover.pivot-tour .driver-popover-footer button.driver-popover-next-btn { color: #111312; }
+.dark .driver-popover.pivot-tour .driver-popover-footer button.driver-popover-prev-btn:hover { background: rgb(255 255 255 / 8%); }
+.dark .driver-popover.pivot-tour .driver-popover-close-btn { background: rgb(255 255 255 / 8%); border-color: rgb(255 255 255 / 14%); }
+
+@media (prefers-reduced-motion: reduce) {
+  .driver-popover.pivot-tour::before, .pivot-tour-ring { animation: none; }
+  .pivot-tour-ring { transition: opacity .2s ease; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .driver-popover.pivot-tour { background: var(--bg-primary, #fff); backdrop-filter: none; -webkit-backdrop-filter: none; }
+}

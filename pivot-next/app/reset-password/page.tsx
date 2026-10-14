@@ -70,7 +70,7 @@ function RequestLink(): React.ReactElement {
   }
 
   return (
-    <form onSubmit={submit} noValidate className="flex flex-col gap-5">
+    <form method="post" onSubmit={submit} noValidate className="flex flex-col gap-5">
       <div className="flex flex-col gap-2">
         <h1 className="text-2xl font-semibold tracking-tight">Reset your password</h1>
         <p className="text-[15px] leading-relaxed text-foreground">
@@ -121,7 +121,7 @@ function ChoosePassword({ token }: { token: string }): React.ReactElement {
   };
 
   return (
-    <form onSubmit={submit} noValidate className="flex flex-col gap-5">
+    <form method="post" onSubmit={submit} noValidate className="flex flex-col gap-5">
       <div className="flex flex-col gap-2">
         <h1 className="text-2xl font-semibold tracking-tight">Choose a new password</h1>
         <p className="text-[15px] leading-relaxed text-foreground">

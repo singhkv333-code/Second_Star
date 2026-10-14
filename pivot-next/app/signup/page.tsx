@@ -217,7 +217,7 @@ export default function SignupPage(): React.ReactElement {
               </p>
             </div>
 
-            <form onSubmit={handleSubmit(onSubmit)} onKeyDown={onKeyDown} noValidate className="flex flex-col gap-5">
+            <form method="post" onSubmit={handleSubmit(onSubmit)} onKeyDown={onKeyDown} noValidate className="flex flex-col gap-5">
               {/* Full name */}
               <div className="grid gap-2">
                 <Label htmlFor="full_name">Full name</Label>

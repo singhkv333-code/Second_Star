@@ -127,7 +127,7 @@ export default function LoginPage(): React.ReactElement {
               <SocialSignIn />
             </div>
 
-            <form onSubmit={handleSubmit(onSubmit)} onKeyDown={onKeyDown} noValidate className="flex flex-col gap-5">
+            <form method="post" onSubmit={handleSubmit(onSubmit)} onKeyDown={onKeyDown} noValidate className="flex flex-col gap-5">
               {/* Email */}
               <div className="grid gap-2">
                 <Label htmlFor="email">Email</Label>

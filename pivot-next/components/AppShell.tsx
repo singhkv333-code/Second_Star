@@ -29,6 +29,7 @@ import {
   ChevronLeft,
   ExternalLink,
   HelpCircle,
+  Compass,
   History,
   Keyboard,
   LayoutDashboard,
@@ -83,7 +84,7 @@ import { DashboardTab } from "@/components/DashboardTab";
 import { HomeTab } from "@/components/HomeTab";
 import { CompanyAutosuggest } from "@/components/CompanyAutosuggest";
 import { PivotWordmark } from "@/components/brand/PivotLogo";
-import { ProductTour } from "@/components/onboarding/ProductTour";
+import { ProductTour, START_TOUR_EVENT } from "@/components/onboarding/ProductTour";
 import { LoginIntroGate } from "@/components/onboarding/LoginIntroGate";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -2083,6 +2084,8 @@ function AccountMenu({
               onClick={() => { setOpen(false); onToggleSidebar(); }}
             />
           )}
+          <MenuItem icon={Compass} label="Take the tour" testId="menu-tour"
+            onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent(START_TOUR_EVENT)); }} />
           <MenuItem icon={HelpCircle} label="Help" onClick={() => { setOpen(false); onReportBug(); }} />
           <div aria-hidden={true} style={{ height: 1, background: "var(--glass-border)", margin: "5px -5px" }} />
           <MenuItem icon={Palette} label="Workspace colors" testId="menu-workspace-colors" hasChevron chevronDirection="side"

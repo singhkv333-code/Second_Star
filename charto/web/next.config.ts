@@ -72,6 +72,20 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  /* On the public website (pivotnow.in), signing in belongs to the app.
+   * charto/web still carries its own /login and /signup for the company pages
+   * on the VM, but on Vercel there is no account server behind them: the old
+   * form looked like a sign-in and could never complete one. Only these hosts
+   * are redirected, so the VM's own pages keep working. */
+  async redirects() {
+    const site = [{ type: "host" as const, value: "(www\\.)?pivotnow\\.in" }];
+    return ["login", "signup", "reset-password"].map((page) => ({
+      source: `/${page}`,
+      has: site,
+      destination: `https://app.pivotnow.in/${page}`,
+      permanent: false,
+    }));
+  },
   async rewrites() {
     return [
       {
