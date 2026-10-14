@@ -24,10 +24,10 @@ import { logoSrc } from "./logos";
 import { BTC_DAILY } from "./snapshot-btc";
 
 const FIGS = [
-  { to: 497, suffix: "M", label: "Minute bars behind every chart" },
-  { to: 56, suffix: "", label: "Patterns, each with its base rate" },
-  { to: 50, suffix: "", label: "Indicators, computed on the server" },
-  { to: 577952, suffix: "", label: "Facts read from company filings" },
+  { to: 497, suffix: "M", label: "Minute bars" },
+  { to: 56, suffix: "", label: "Patterns" },
+  { to: 50, suffix: "", label: "Indicators" },
+  { to: 577952, suffix: "", label: "Company filing facts" },
 ];
 
 const fmt = new Intl.NumberFormat("en-IN");
@@ -215,7 +215,7 @@ export function Figures(): React.ReactElement {
   return (
     <section className="v3 fg" aria-label="Pivot in numbers">
       <AsciiTape />
-      <p className="fg-cap">Bitcoin on Bybit, 120 daily closes to {LAST_DAY}, typed out.</p>
+      <p className="fg-cap">Bitcoin on Bybit, 120 daily closes to {LAST_DAY}.</p>
       <div className="v3-shell">
         <ul className="fg-row" data-reveal>
           {FIGS.map((f) => (

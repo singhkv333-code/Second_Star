@@ -1,0 +1,120 @@
+{
+  "version": 1,
+  "currency": "INR",
+  "_doc": "The plan catalog. Code checks FEATURE KEYS, never plan ids. null = unlimited. A feature marked pending has an agreed key but either no product surface yet or an unsettled number; it is enforced as written here and listed in docs/paywall/OPEN_QUESTIONS.md. Prices are in paise and GST-inclusive.",
+  "trial": {
+    "days": null,
+    "_doc": "No trial is offered. A whole number of days here switches on the trial wording in every client; granting the trial itself (Razorpay start_at) is not built."
+  },
+  "plans": {
+    "anonymous": {
+      "name": "Signed out",
+      "public": false,
+      "rank": -1,
+      "prices": {}
+    },
+    "free": {
+      "name": "Free",
+      "public": true,
+      "rank": 0,
+      "prices": {}
+    },
+    "pro": {
+      "name": "Pro",
+      "public": true,
+      "rank": 1,
+      "prices": {
+        "monthly": {"amount": 49900, "per_month": 49900},
+        "annual": {"amount": 538800, "per_month": 44900, "saving_pct": 10}
+      }
+    },
+    "pro_plus": {
+      "name": "Pro+",
+      "public": true,
+      "rank": 2,
+      "prices": {
+        "monthly": {"amount": 99900, "per_month": 99900},
+        "annual": {"amount": 1078800, "per_month": 89900, "saving_pct": 10}
+      }
+    }
+  },
+  "features": {
+    "ai.credits": {
+      "kind": "quota", "window": "month", "label": "AI credits",
+      "unit": "credits",
+      "values": {"anonymous": 3, "free": 15, "pro": 200, "pro_plus": 500},
+      "_doc": "Settled 2026-09-29: every pool is monthly, and 1 credit = 1 prompt the user sends. Follow-up suggestions, titles and refunded (failed) turns are not prompts and cost nothing."
+    },
+    "ai.summaries": {
+      "kind": "quota", "window": "month", "label": "AI summaries",
+      "values": {"anonymous": 0, "free": 10, "pro": null, "pro_plus": null},
+      "pending": "upcoming: summaries of financial documents; no surface consumes it yet"
+    },
+    "alerts.price": {
+      "kind": "limit", "label": "Price alerts",
+      "values": {"anonymous": 0, "free": 20, "pro": 400, "pro_plus": 1000}
+    },
+    "alerts.technical": {
+      "kind": "limit", "label": "Technical alerts",
+      "values": {"anonymous": 0, "free": 20, "pro": 100, "pro_plus": 1000}
+    },
+    "alerts.fundamental": {
+      "kind": "limit", "label": "Fundamental alerts",
+      "values": {"anonymous": 0, "free": 0, "pro": 0, "pro_plus": 0},
+      "pending": "row 'F' has no numbers on the sheet and no alert of this kind exists yet"
+    },
+    "alerts.multi_condition": {
+      "kind": "flag", "label": "Multi-condition alerts",
+      "values": {"anonymous": false, "free": true, "pro": true, "pro_plus": true}
+    },
+    "alerts.expiry_days": {
+      "kind": "value", "label": "Alert expiry", "unit": "days",
+      "values": {"anonymous": 0, "free": 60, "pro": 180, "pro_plus": null}
+    },
+    "alerts.watchlist": {
+      "kind": "flag", "label": "Watchlist alerts",
+      "values": {"anonymous": false, "free": false, "pro": true, "pro_plus": true},
+      "pending": "watchlist alerts are not built yet"
+    },
+    "alerts.screen": {
+      "kind": "limit", "label": "Screener alerts",
+      "values": {"anonymous": 0, "free": 3, "pro": 50, "pro_plus": 75},
+      "pending": "screener alerts are not built yet"
+    },
+    "chart.indicators": {
+      "kind": "limit", "label": "Indicators per chart",
+      "values": {"anonymous": 5, "free": 5, "pro": 10, "pro_plus": null}
+    },
+    "chart.panes": {
+      "kind": "limit", "label": "Charts per tab",
+      "values": {"anonymous": 4, "free": 4, "pro": 8, "pro_plus": 8}
+    },
+    "chart.parallel": {
+      "kind": "limit", "label": "Parallel charts",
+      "values": {"anonymous": 10, "free": 10, "pro": 20, "pro_plus": 50}
+    },
+    "chart.custom_timeframes": {
+      "kind": "flag", "label": "Custom timeframes",
+      "values": {"anonymous": false, "free": false, "pro": true, "pro_plus": true},
+      "pending": "the chart offers a fixed interval set today; custom intervals are not built"
+    },
+    "chart.history_bars": {
+      "kind": "value", "label": "Historical bars", "unit": "bars",
+      "values": {"anonymous": 10000, "free": 10000, "pro": null, "pro_plus": null},
+      "pending": "Pro and Pro+ numbers are blank on the sheet; built as unlimited"
+    },
+    "ads.free": {
+      "kind": "flag", "label": "Ad-free",
+      "values": {"anonymous": false, "free": false, "pro": true, "pro_plus": true},
+      "pending": "Pivot shows no ads today"
+    },
+    "watchlists": {
+      "kind": "limit", "label": "Watchlists",
+      "values": {"anonymous": null, "free": null, "pro": null, "pro_plus": null}
+    },
+    "screens.saved": {
+      "kind": "limit", "label": "Saved screens",
+      "values": {"anonymous": 0, "free": 5, "pro": 50, "pro_plus": 50}
+    }
+  }
+}

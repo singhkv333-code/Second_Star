@@ -1,17 +1,9 @@
-import Link from "next/link";
+import { SiteChrome } from "@/components/site/SiteChrome";
 import {
-  ADDRESS, COMPANY_NAME, COMPANY_PAGES, CONTACT_EMAIL, GRIEVANCE_OFFICER, LEGAL_NAME, UPDATED,
+  ADDRESS, COMPANY_PAGES, CONTACT_EMAIL, GRIEVANCE_OFFICER, LEGAL_NAME, UPDATED,
   type CompanyPageKey,
 } from "./content";
 import styles from "./CompanyPage.module.css";
-
-const LINKS: { key: CompanyPageKey; label: string }[] = [
-  { key: "about", label: "About" },
-  { key: "terms", label: "Terms of service" },
-  { key: "privacy", label: "Privacy policy" },
-  { key: "refunds", label: "Refunds and cancellation" },
-  { key: "contact", label: "Contact" },
-];
 
 /* Mentions of the contact address become links wherever they appear. */
 function withMail(text: string): React.ReactNode {
@@ -41,12 +33,7 @@ export function CompanyPage({ page }: { page: CompanyPageKey }): React.ReactElem
   const content = COMPANY_PAGES[page];
   const legal = page === "terms" || page === "privacy" || page === "refunds";
   return (
-    <div className={styles.page}>
-      <a className={styles.skip} href="#company-content">Skip to content</a>
-      <header className={styles.header}>
-        <Link href="/" className={styles.brand} aria-label="Pivot home">Pivot.</Link>
-        <Link href="/">Back to Pivot</Link>
-      </header>
+    <SiteChrome current={page} skipTo="company-content">
       <main id="company-content" className={styles.main} tabIndex={-1}>
         <h1>{content.title}</h1>
         {legal && <p className={styles.updated}>Last updated <time dateTime={UPDATED.iso}>{UPDATED.label}</time></p>}
@@ -78,14 +65,6 @@ export function CompanyPage({ page }: { page: CompanyPageKey }): React.ReactElem
           </p>
         </section>
       </main>
-      <footer className={styles.footer}>
-        <nav aria-label="Company and legal pages">
-          {LINKS.map(({ key, label }) => (
-            <Link key={key} href={`/${key}`} aria-current={page === key ? "page" : undefined}>{label}</Link>
-          ))}
-        </nav>
-        <p>© 2026 {COMPANY_NAME}. Pivot provides analysis and tools, not investment advice.</p>
-      </footer>
-    </div>
+    </SiteChrome>
   );
 }

@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  ArrowDown, ArrowRight, ArrowUp, Check, Instagram,
+  ArrowDown, ArrowRight, ArrowUp, Instagram,
 } from "lucide-react";
 import { Patterns } from "@/components/landing/v3/Patterns";
 import { Workspace } from "@/components/landing/v3/Workspace";
@@ -10,6 +10,7 @@ import { Figures } from "@/components/landing/v3/Figures";
 import { Honest } from "@/components/landing/v3/Honest";
 import { Gallery } from "@/components/landing/v3/Gallery";
 import { Tour } from "@/components/landing/v3/Tour";
+import { PivotLogo } from "@/components/landing/PivotLogo";
 import { useLandingScroll } from "@/components/landing/landing-scroll";
 import "@/components/landing/v3/paper.css";
 
@@ -25,33 +26,22 @@ const examples = [
 ];
 
 const faqs = [
-  ["What is Pivot?", "Pivot is an analyst standing at your chart. You ask in plain English: mark the levels, why did it move, screen for this setup, watch it while I'm away. The chart becomes the answer, annotated, with the evidence behind every mark."],
-  ["Does Pivot place trades for me?", "No, and that is deliberate. Pivot sizes a position, plans the entry, stop and target, and arms the alert that tells you when your condition is met. You place the order in your own broker. Nothing is ever routed for you."],
-  ["Can I backtest my ideas?", "Yes. Describe a rule in plain English and Pivot runs it on historical bars, then reports win-rate, drawdown and CAGR, plus how much of the result survives once the number of variants you tried is accounted for."],
-  ["What can I ask it to watch?", "Anything the chart can measure: a close through a level, a volume leg that makes a break real, an indicator crossing, or several conditions at once. Alerts are checked server-side on bar close, so they hold while the tab is shut."],
-  ["What does it know besides price?", "Fundamentals and statements for the name on screen, delivery and futures positioning, bulk and block deals, peers to compare it against, and the news around a move, all beside the chart rather than in another tab."],
-  ["Does it remember my work?", "Yes. Trades keep the entry, stop and target as you planned them, the note you wrote against the bar you were watching, and the chart as it looked when you took them. You can ask what you said about a chart weeks later."],
+  ["What is Pivot?", "Pivot is a complete workspace for charting, market research, strategy testing and paper trading. Ask a question in plain English, inspect the evidence on the chart, and turn an idea into rules you can test."],
+  ["Who is Pivot for?", "Both active traders and long-term investors. Traders can investigate setups, set alerts and test rules; investors can examine companies, filings, fundamentals and comparisons in the same workspace."],
+  ["What can I ask Pivot to do on a chart?", "Explain a move, mark levels and patterns, compare setups, add indicators, check multiple timeframes at once, mark earnings and their implications on the chart, or watch for conditions. You can inspect the market data behind its drawings."],
+  ["Does Pivot place real trades?", "No. Strategies can be armed and followed in a simulated paper book. Pivot does not send live orders to a broker or hold your funds."],
+  ["Which markets does Pivot cover?", "Indian equities and indices, NSE options and MCX commodities, with crypto available on charts."],
+  ["Is Pivot giving me investment advice?", "No. Pivot provides market data, analysis and testing frameworks. It does not give personalised buy, sell or hold recommendations. This is analysis, not financial advice."],
+  ["How do I get access, and what does it cost?", <>You can start for free. Premium features are available on paid plans. <a href="/pricing">Check out the pricing.</a></>],
 ] as const;
 
-function PivotGlyph({ className }: { className?: string }): React.ReactElement {
-  const maskId = `pl-mark-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
-  return (
-    <svg className={className} viewBox="144 68 652 652" aria-hidden="true" focusable="false">
-      <mask id={maskId} maskUnits="userSpaceOnUse" x="144" y="68" width="652" height="652">
-        <circle cx="469.5" cy="393.5" r="326" fill="#fff" />
-        <rect x="604.5" y="68" width="37" height="652" fill="#000" />
-        <path d="M711.4 86.1 739.4 110.4 227.6 700.9 199.6 676.6Z" fill="#000" />
-      </mask>
-      <rect x="144" y="68" width="652" height="652" fill="currentColor" mask={`url(#${maskId})`} />
-    </svg>
-  );
+function Brand({ href }: { href: string }) {
+  return <a className="pl-brand" href={href} aria-label="Pivot home"><PivotLogo className="pl-brand-logo" /></a>;
 }
 
-function Brand() {
-  return <a className="pl-brand" href="#top" aria-label="Pivot home"><PivotGlyph className="pl-brand-glyph" /><span>Pivot<i className="pl-brand-dot">.</i></span></a>;
-}
-
-function Nav() {
+/** The landing topbar. Off the landing page (`home="/"`) the wordmark links
+ *  home; with no `[data-nav-theme='dark']` section under it, it stays light. */
+export function Nav({ home = "#top" }: { home?: string } = {}) {
   const [scrolled, setScrolled] = useState(false);
   const [isDark, setIsDark] = useState(true);
   useEffect(() => {
@@ -75,7 +65,7 @@ function Nav() {
       document.body.removeEventListener("scroll", onScroll);
     };
   }, []);
-  return <header className={`pl-nav ${isDark ? "dark" : "light"}${scrolled ? " scrolled" : ""}`}><div className="pl-nav-inner"><Brand /><a className="pl-nav-cta" href="#waitlist">Join waitlist <ArrowRight size={14}/></a></div></header>;
+  return <header className={`pl-nav ${isDark ? "dark" : "light"}${scrolled ? " scrolled" : ""}`}><div className="pl-nav-inner"><Brand href={home} /><a className="pl-nav-cta" href="/login">Log in <ArrowRight size={14}/></a></div></header>;
 }
 
 function Hero() {
@@ -135,13 +125,10 @@ function Hero() {
 function FAQ() {
   const [open, setOpen] = useState<number | null>(0);
   return <section id="faq" className="pl-faq2"><div className="pl-faq2-inner">
-    <h2 data-reveal>FAQs</h2>
-    {/* Every row is its own reveal: they cross the line together, so the
-        scroll layer batches them and the list unrolls rather than blinking on
-        as one block. */}
+    <h2>FAQs</h2>
     <div className="pl-faq2-list">{faqs.map(([q, a], i) => {
       const isOpen = open === i;
-      return <div className="pl-faq2-item" key={q} data-reveal>
+      return <div className="pl-faq2-item" key={q}>
         <button type="button" onClick={() => setOpen(isOpen ? null : i)} aria-expanded={isOpen}>
           <span>{q}</span>
           <span className={`pl-faq2-glyph${isOpen ? " open" : ""}`} aria-hidden="true"><i/><i/></span>
@@ -154,54 +141,7 @@ function FAQ() {
   </div></section>;
 }
 
-/* The experience bands, in the order a person grows through them. `value` is
-   what a backend would store; `label` and `note` are what the card shows. */
-const experienceLevels = [
-  { value: "beginner", label: "Beginner", note: "Less than a year" },
-  { value: "intermediate", label: "Intermediate", note: "1 to 3 years" },
-  { value: "experienced", label: "Experienced", note: "3+ years" },
-  { value: "professional", label: "Professional", note: "I trade for a living" },
-] as const;
-
 function Footer() {
-  const [email,setEmail]=useState("");
-  const [name,setName]=useState("");
-  const [experience,setExperience]=useState("");
-  const [style,setStyle]=useState("");
-  const [joined,setJoined]=useState(false);
-  const [sending,setSending]=useState(false);
-  const [error,setError]=useState("");
-  const canSubmit = email.trim() !== "" && name.trim() !== "" && experience !== "";
-
-  // Same-origin by design: on Vercel this reaches the server-only route that
-  // writes to Azure PostgreSQL. Database credentials never enter this client
-  // component or the browser bundle.
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!canSubmit || sending) return;
-    setSending(true);
-    setError("");
-    try {
-      const res = await fetch("/api/waitlist", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), email: email.trim(), experience,
-                               style: style.trim() }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        // The server's own message, which names the field at fault — better
-        // than a generic failure line, and it is already user-facing prose.
-        setError(typeof data.error === "string" ? data.error : "Something went wrong. Please try again.");
-        return;
-      }
-      setJoined(true);
-    } catch {
-      setError("Could not reach the server. Please try again.");
-    } finally {
-      setSending(false);
-    }
-  }
   return <>
     {/* CTA and footer are one surface: the artwork runs behind BOTH, so they
         share a wrapper and neither paints its own ground. */}
@@ -209,66 +149,11 @@ function Footer() {
     <div className="pl-closing-art" aria-hidden="true"/>
     {/* Closing CTA — the production waitlist's WaitlistFormBlock
         (`pivot-next/components/waitlist/Sections.tsx`): two serif lines, the
-        second italic and dimmed, over a pill form on a hairline border. */}
+        second italic and dimmed. */}
     <section id="waitlist" className="pl-cta">
       <div className="pl-cta-inner" data-reveal>
-        <h2>One message.</h2>
-        <h2 className="pl-cta-italic">That&apos;s all it takes.</h2>
-        {joined
-          ? <p className="pl-cta-joined" role="status"><Check/> You&apos;re on the list. We&apos;ll reach out soon.</p>
-          : <form onSubmit={submit} noValidate>
-              {/* Three fields do not fit the one-row pill the single email
-                  input wore, so the form becomes a stacked card and keeps the
-                  page's language instead: translucent fills, hairline borders,
-                  the same blur the pill carried, and the accent only on the
-                  chosen answer and the submit. */}
-              <div className="pl-field">
-                <label htmlFor="pl-name">Name</label>
-                <input id="pl-name" name="name" type="text" required autoComplete="name"
-                  value={name} onChange={e=>setName(e.target.value)} placeholder="Your name"/>
-              </div>
-              <div className="pl-field">
-                <label htmlFor="pl-email">Email</label>
-                <input id="pl-email" name="email" type="email" required autoComplete="email"
-                  value={email} onChange={e=>setEmail(e.target.value)} placeholder="your@email.com"/>
-              </div>
-              {/* A radiogroup rather than a <select>: four options are worth
-                  showing at once, and the native dropdown is the one control
-                  on this page that cannot be themed to match it. */}
-              <fieldset className="pl-field pl-field-choice">
-                <legend>How would you describe your trading experience?</legend>
-                <div className="pl-choices">
-                  {experienceLevels.map(o => (
-                    <label key={o.value} className={`pl-choice${experience===o.value?" is-on":""}`}>
-                      <input type="radio" name="experience" value={o.value} required
-                        checked={experience===o.value}
-                        onChange={()=>setExperience(o.value)}/>
-                      <span className="pl-choice-label">{o.label}</span>
-                      <span className="pl-choice-note">{o.note}</span>
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
-              {/* The only optional question on the form, and the only one whose
-                  answer cannot be enumerated — which is why it is here at all.
-                  The four bands above say how LONG someone has traded; this
-                  says how they trade, and those are different facts. Marked
-                  optional in the label rather than left to be inferred from
-                  the absence of an asterisk nothing else on this form uses. */}
-              <div className="pl-field">
-                <label htmlFor="pl-style">
-                  Share your trading experience or style
-                  <span className="pl-optional">Optional</span>
-                </label>
-                <textarea id="pl-style" name="style" rows={3} maxLength={2000}
-                  value={style} onChange={e=>setStyle(e.target.value)}
-                  placeholder="What you trade, how you decide, what you wish were easier."/>
-              </div>
-              {error && <p className="pl-form-error" role="alert">{error}</p>}
-              <button type="submit" disabled={!canSubmit || sending}>
-                {sending ? "Joining…" : "Join the Waitlist"}
-              </button>
-            </form>}
+        <h2>One workspace.</h2>
+        <h2 className="pl-cta-italic">That&apos;s all you need.</h2>
       </div>
     </section>
     {/* Footer — the production waitlist's WordmarkFooter: near-black ground,
@@ -278,12 +163,12 @@ function Footer() {
     <footer className="pl-footer2">
       <div className="pl-footer2-lines" aria-hidden="true"><i/><i/><i/></div>
       <div className="pl-footer2-inner">
-        <div className="pl-footer2-wordmark"><span>Pivot<i className="pl-brand-dot">.</i></span></div>
+        <div className="pl-footer2-wordmark"><PivotLogo className="pl-footer2-logo" gradient={["#d5d7d9", "#75797c"]} /></div>
         <nav className="pl-footer2-links" aria-label="Company and legal">
           <a href="/about">About us</a>
           <a href="/terms">Terms & conditions</a>
           <a href="/privacy">Privacy policy</a>
-          <a href="/checkout">Checkout</a>
+          <a href="/pricing">Pricing</a>
         </nav>
         <div className="pl-footer2-social">
           <a href="https://www.instagram.com/investwithpivot/" target="_blank" rel="noopener noreferrer" aria-label="Pivot on Instagram (opens in a new tab)"><Instagram size={15}/></a>

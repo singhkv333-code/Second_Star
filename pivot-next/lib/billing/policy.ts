@@ -22,7 +22,7 @@ export const FAQS: Faq[] = [
   {
     q: "What counts as an AI credit?",
     a: [
-      "One credit is one question you send to Pivot. Follow-up suggestions, conversation titles and answers that fail are not charged. Credits refresh every month: on your billing date on a paid plan, and on the 1st (IST) on Free.",
+      "One credit is one question you send to Pivot.",
     ],
   },
   {
@@ -39,7 +39,7 @@ export const FAQS: Faq[] = [
   },
   {
     q: "Do you offer refunds?",
-    a: [tbd("Refund policy for monthly and yearly plans, including any window after purchase.")],
+    a: ["No. We do not offer refunds."],
   },
   {
     q: "Is there a free trial?",
@@ -50,7 +50,7 @@ export const FAQS: Faq[] = [
   {
     q: "How am I billed, and is GST included?",
     a: [
-      "Prices are in Indian rupees and include GST. Payments are processed by Razorpay; Pivot never sees or stores your card or UPI details. Paid plans renew automatically until you cancel. Your bank or UPI app notifies you before each automatic debit, as RBI rules require.",
+      "Prices are in Indian rupees and include GST. Paid plans renew automatically until you cancel.",
     ],
   },
   {

@@ -1,24 +1,16 @@
-.page { height: 100dvh; overflow-y: auto; overflow-x: hidden; background: #fff; color: #000; font-family: Inter, system-ui, sans-serif; }
-.page * { box-sizing: border-box; }
-.page a { color: #000; text-decoration: underline; text-underline-offset: 3px; }
-.page a:focus-visible { outline: 2px solid #000; outline-offset: 4px; }
-.skip { position: absolute; top: 12px; left: 12px; padding: 10px; background: #fff; transform: translateY(-150%); z-index: 5; }
-.skip:focus { transform: translateY(0); }
-.header, .main, .footer { width: min(760px, calc(100% - 48px)); margin: 0 auto; }
-.header { padding: 28px 0; display: flex; align-items: center; justify-content: space-between; gap: 24px; font-size: 14px; }
-.header .brand { font: 600 30px/1 Newsreader, Georgia, serif; letter-spacing: -.04em; text-decoration: none; }
-.main { padding: 38px 0 48px; outline: none; }
+/* The page body only: the topbar and footer are SiteChrome's. */
+.main { width: min(760px, calc(100% - 48px)); margin: 0 auto; padding: 136px 0 72px; color: #000; font-family: Inter, system-ui, sans-serif; outline: none; }
+.main * { box-sizing: border-box; }
+.main a[href] { color: #000; text-decoration: underline; text-underline-offset: 3px; }
+.main a:focus-visible { outline: 2px solid #000; outline-offset: 4px; }
 .main h1 { margin: 0 0 24px; font: 500 clamp(36px, 4vw, 46px)/1.15 Newsreader, Georgia, serif; letter-spacing: -.02em; }
 .main h2 { margin: 36px 0 14px; font-size: 19px; line-height: 1.5; font-weight: 600; }
 .main p { margin: 0 0 18px; font-size: 16px; line-height: 1.85; overflow-wrap: anywhere; }
-.main .updated { margin-bottom: 26px; font-size: 15px; color: #2a2e2c; }
+.main .updated { margin-bottom: 26px; font-size: 14px; }
 .main .lead { font-size: 18px; line-height: 1.75; }
 .main ul { margin: 0 0 20px; padding-left: 22px; list-style: disc; }
 .main li { margin: 0 0 10px; font-size: 16px; line-height: 1.75; padding-left: 4px; overflow-wrap: anywhere; }
 .main li::marker { color: #2b9bb1; }
 .main li strong { font-weight: 600; }
 .main .who { margin-top: 44px; padding-top: 8px; border-top: 1px solid #e4e1d8; }
-.footer { padding: 0 0 36px; font-size: 14px; }
-.footer nav { display: flex; flex-wrap: wrap; gap: 14px 24px; }
-.footer p { margin: 24px 0 0; font-size: 14px; color: #2a2e2c; }
-@media (max-width: 600px) { .header, .main, .footer { width: calc(100% - 40px); } .header { padding: 24px 0; } .main { padding-top: 24px; } .main h2 { font-size: 18px; } }
+@media (max-width: 600px) { .main { width: calc(100% - 40px); padding-top: 112px; } .main h2 { font-size: 18px; } }

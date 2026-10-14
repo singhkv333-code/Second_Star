@@ -155,8 +155,8 @@ export function Tour(): React.ReactElement {
     <section id="demo" className="v3 tr" data-nav-theme="dark">
       <div className="v3-shell">
         <header className="v3-head" data-reveal>
-          <h2>The whole desk, in one window.</h2>
-          <p>Dock widgets, switch symbols, add indicators, ask the chart. This is Pivot as it runs.</p>
+          <h2>Built around your trading.</h2>
+          <p>Customize your charts, tools and workspace.</p>
         </header>
         <MacWindow title={`${sym} — Pivot`} className="tr-win">
           <div className="tw" ref={appRef}>

@@ -1,5 +1,5 @@
 /**
- * Patterns — "Every shape, with its record."
+ * Patterns — "Auto-detect levels and patterns."
  *
  * RELIANCE's daily chart as the workspace draws it, and beside it the
  * pattern card: what the detector found in the last 120 bars and how each
@@ -127,8 +127,8 @@ export function Patterns(): React.ReactElement {
     <section id="patterns" className="v3 pt" ref={ref}>
       <div className="v3-shell">
         <header className="v3-head" data-reveal>
-          <h2>Every shape, with its record.</h2>
-          <p>Fifty-six patterns, drawn where they formed and set beside how often they have worked on this stock.</p>
+          <h2>Auto-detect levels and patterns.</h2>
+          <p>Detect key support and resistance levels and recognize 56 chart patterns automatically.</p>
         </header>
         <MacWindow title="RELIANCE — Pivot" className="pt-win">
           <div className="px-app">

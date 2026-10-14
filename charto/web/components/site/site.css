@@ -1,0 +1,12 @@
+/* SiteChrome — the white frame the public pages share (see SiteChrome.tsx). */
+.pivot-landing.site { display: flex; flex-direction: column; min-height: 100vh; background: #fff; color: #0d0d0e; }
+.pivot-landing.site > :not(.pl-nav):not(.site-footer):not(.site-skip) { flex: 1 0 auto; }
+
+.site-skip { position: absolute; z-index: 200; top: 12px; left: 12px; padding: 10px; background: #fff; color: #0d0d0e; transform: translateY(-150%); }
+.site-skip:focus { transform: none; }
+
+.site-footer { border-top: 1px solid rgba(15, 18, 22, 0.08); padding: 28px clamp(16px, 4vw, 48px); }
+.site-footer nav { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px 32px; }
+.site-footer a { font: 400 13.5px/1.4 var(--font-ui), Inter, system-ui, sans-serif; color: #4d555c; transition: color 0.15s; }
+.site-footer a:hover, .site-footer a[aria-current="page"] { color: #0d0d0e; }
+.site-footer a:focus-visible { outline: 2px solid #0d0d0e; outline-offset: 4px; border-radius: 2px; }
