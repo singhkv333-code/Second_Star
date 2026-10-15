@@ -153,8 +153,12 @@ let _visibilityHandler: (() => void) | null = null;
 /** Refresh now if the token is expired/near-expiry — used by the poller and
  *  the tab-focus handler. No-op when comfortably fresh. */
 async function refreshIfStale(): Promise<void> {
+  // Only a Pivot JWT has an expiry to read. A Charto session is opaque (ttl
+  // null) and has nothing to refresh: refreshing "because the expiry is
+  // unknown" used to trade it for whatever Pivot refresh token an older
+  // sign-in had left behind, swapping the session under the person's feet.
   const ttl = secondsUntilExpiry(readLS(TOKEN_KEY));
-  if (readLS(REFRESH_KEY) && (ttl === null || ttl <= EXP_SKEW_SECONDS)) {
+  if (readLS(REFRESH_KEY) && ttl !== null && ttl <= EXP_SKEW_SECONDS) {
     await refreshAccessToken();
   }
 }

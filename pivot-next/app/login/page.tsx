@@ -18,8 +18,6 @@ import { loginUser } from "@/lib/api";
 import { BrandPanel } from "@/components/auth/BrandPanel";
 import { PivotWordLogo } from "@/components/brand/PivotWordLogo";
 import { SocialSignIn } from "@/components/auth/SocialSignIn";
-import { armLoginIntro } from "@/components/onboarding/LoginIntroGate";
-import { AnybodyFontPreload } from "@/components/onboarding/AnybodyFontPreload";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -89,19 +87,17 @@ export default function LoginPage(): React.ReactElement {
       return;
     }
     // Mark as a fresh sign-in so AppShell can show the paper-mode notice.
+    // No brand intro: that plays once, after sign-up, not on every sign-in.
     try {
       sessionStorage.setItem("pivot:just-signed-in", "1");
     } catch {
       /* private mode — skip; no functional impact */
     }
-    armLoginIntro();
     router.replace(returnPath());
   };
 
   return (
     <div className="flex min-h-screen" style={{ background: "var(--bg-base)" }}>
-      {/* Warm the intro's display font while the user types. */}
-      <AnybodyFontPreload />
       {/* Left — brand panel */}
       <BrandPanel />
 

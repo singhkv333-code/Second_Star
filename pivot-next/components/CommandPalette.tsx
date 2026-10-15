@@ -12,6 +12,7 @@
 import { useEffect, useState } from "react";
 import {
   BarChart2,
+  Globe,
   MessageSquare,
   PieChart,
   Settings,
@@ -33,6 +34,7 @@ import { cn } from "@/lib/utils";
 import { tabEnabled } from "@/lib/launch";
 
 type TabKey =
+  | "markets"
   | "chat"
   | "portfolio"
   | "agents"
@@ -44,6 +46,7 @@ const ALL_NAV_ITEMS: {
   label: string;
   Icon: React.ComponentType<{ className?: string }>;
 }[] = [
+  { key: "markets", label: "Markets", Icon: Globe },
   { key: "chat", label: "Chat", Icon: MessageSquare },
   { key: "portfolio", label: "Portfolio", Icon: PieChart },
   { key: "agents", label: "Strategy", Icon: Settings },

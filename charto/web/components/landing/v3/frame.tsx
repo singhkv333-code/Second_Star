@@ -14,6 +14,18 @@
 "use client";
 
 import * as React from "react";
+import type { IChartApi } from "lightweight-charts";
+
+/** The page's phone width, the one v3.css lays its single column out at. */
+export const PHONE = "(max-width: 720px)";
+
+/** Frame a chart for the screen it is on. A wide window shows every bar; a
+ *  phone shows only the last `last`, so the candles stay readable bodies
+ *  rather than a hundred and twenty hairlines. */
+export function fitBars(chart: IChartApi, n: number, last = 36): void {
+  if (window.matchMedia(PHONE).matches && n > last) chart.timeScale().setVisibleLogicalRange({ from: n - last - 0.5, to: n + 1 });
+  else chart.timeScale().fitContent();
+}
 
 export function MacWindow({
   title, theme = "dark", className, children,

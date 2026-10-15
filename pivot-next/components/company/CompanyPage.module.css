@@ -18,6 +18,10 @@
 .main li::marker { color: #2b9bb1; }
 .main li strong { font-weight: 600; }
 .main .who { margin-top: 44px; padding-top: 8px; border-top: 1px solid #e4e1d8; }
+.main .related { margin-top: 44px; padding-top: 8px; border-top: 1px solid #e4e1d8; }
+.main .related ul { list-style: none; padding-left: 0; display: flex; flex-wrap: wrap; gap: 8px 28px; }
+.main .related li { margin: 0; padding: 0; }
+.main .related + .who { margin-top: 28px; }
 .footer { padding: 0 0 36px; font-size: 14px; }
 .footer nav { display: flex; flex-wrap: wrap; gap: 14px 24px; }
 .footer p { margin: 24px 0 0; font-size: 14px; color: #2a2e2c; }

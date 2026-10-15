@@ -24,6 +24,10 @@ const Auth = (() => {
     ? "http://127.0.0.1:5174" : "";
   let user = null;
   let token = null;
+  // true when the last "who is this?" never got an answer (offline, a 5xx,
+  // a slow server). The token may be perfectly good; the boot screen must
+  // not ask for a sign-in on the strength of a request that failed.
+  let unsure = false;
   // undefined = not asked yet, "" = asked and the server offers no Google.
   // The three states matter: "" must not re-ask on every screen open.
   let googleId;
@@ -71,15 +75,20 @@ const Auth = (() => {
       if (!token) return null;
       try {
         const d = await call("/auth/me");
+        unsure = false;
         googleId = d.google_client_id || "";  // it rides this call too
         user = d.user || null;
         if (!user) setSession(null, null);   // token expired or was revoked
         else emit();
       } catch {
         user = null;
+        unsure = true;
       }
       return user;
     },
+
+    /** The last resume() got no answer, so a token is held but unconfirmed. */
+    get unsure() { return unsure && !!token; },
 
     /** Is Google sign-in available, and under which client id?
      *
@@ -464,7 +473,16 @@ window.Auth = Auth;
   });
 
   window.addEventListener("DOMContentLoaded", async () => {
-    const me = await Auth.resume();
+    let me = await Auth.resume();
+    // No answer is not "signed out": a held token whose check failed is
+    // asked again (1 s, 3 s, 7 s) before anyone is shown a sign-in screen,
+    // and if the server never answers the session is left alone.
+    for (const wait of [1000, 3000, 7000]) {
+      if (me || !Auth.unsure) break;
+      await new Promise((r) => setTimeout(r, wait));
+      me = await Auth.resume();
+    }
+    if (!me && Auth.unsure) return;
     let skipped = false;
     try { skipped = localStorage.getItem(SKIPPED) === "1"; } catch {}
     // A shared setup opens straight onto the chart for anyone holding the

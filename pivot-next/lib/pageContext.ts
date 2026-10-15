@@ -40,6 +40,7 @@ import type { PortfolioSummary } from "@/lib/api";
  *  ask is routed to Charto, which builds its own, much richer, chart envelope. */
 export type ContextTab =
   | "home"
+  | "markets"
   | "portfolio"
   | "agents"
   | "screener"
@@ -95,6 +96,10 @@ function portfolioLine(s: PortfolioSummary, mode?: string): string {
  */
 const REACH: Record<ContextTab, string[]> = {
   home: ["portfolio summary", "watchlist", "market movers", "saved strategies"],
+  markets: [
+    "market breadth", "sector moves", "top gainers and losers", "52-week highs and lows",
+    "value and trend lists", "indices", "commodities", "crypto", "currencies", "market news",
+  ],
   portfolio: [
     "holdings", "positions", "open orders", "trade history",
     "per-holding P&L", "sector allocation", "portfolio value history",
@@ -110,6 +115,7 @@ const REACH: Record<ContextTab, string[]> = {
 
 const LABEL: Record<ContextTab, string> = {
   home: "Home",
+  markets: "Markets",
   portfolio: "Portfolio",
   agents: "Strategy",
   screener: "Screener",

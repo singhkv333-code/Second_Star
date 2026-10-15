@@ -5900,6 +5900,9 @@ def _orb_rows(by_sym: dict) -> dict:
     return out
 
 
+_screen_build_lock = threading.Lock()
+
+
 def _screen_features() -> dict:
     """{symbol: {feature: value}} for every symbol in bars_1d.
 
@@ -5912,14 +5915,33 @@ def _screen_features() -> dict:
         return {}
     if _screen_cache.get("stamp") == stamp:
         return _screen_cache["feats"]
+    # One build at a time. A build over the whole universe takes a while, and
+    # every caller that arrived during it used to start its own — each holding
+    # the universe's bars at once.
+    with _screen_build_lock:
+        if _screen_cache.get("stamp") == stamp:
+            return _screen_cache["feats"]
+        return _build_screen_features(stamp)
+
+
+def _build_screen_features(stamp: tuple) -> dict:
     t0 = time.time()
+    # deepest lookback is 252 sessions of ret_1y + warmup; the pattern path
+    # reads [-300:]. Each symbol is trimmed as soon as its rows end, so at most
+    # one symbol's full history is held at a time: loading every row first
+    # (15M+ at the VM's 7,700 symbols) is what got the server OOM-killed.
     by_sym: dict[str, list] = {}
+    cur_sym, cur = None, []
     for row in _con.execute(
             "SELECT symbol,ts,o,h,l,c,v FROM bars_1d ORDER BY symbol, ts"):
-        by_sym.setdefault(row[0], []).append(row[1:])
-    # deepest lookback is 252 sessions of ret_1y + warmup; the pattern path
-    # reads [-300:] — retaining full history would hold ~370 MB at 500 symbols
-    by_sym = {s: r[-560:] for s, r in by_sym.items()}
+        if row[0] != cur_sym:
+            if cur_sym is not None:
+                by_sym[cur_sym] = cur[-560:]
+            cur_sym, cur = row[0], []
+        cur.append(row[1:])
+    if cur_sym is not None:
+        by_sym[cur_sym] = cur[-560:]
+    del cur
     feats = {s: _screen_row_features(r, quote_ccy(s))
              for s, r in by_sym.items() if len(r) >= 2}
     # volume-profile features ride in from their own swept table; a symbol
@@ -5930,7 +5952,8 @@ def _screen_features() -> dict:
         if row:
             f.update(row)
     for s, row in _orb_rows(by_sym).items():
-        feats[s].update(row)
+        if s in feats:      # a one-row listing has bars but no features
+            feats[s].update(row)
     last_day = {s: _ist_day(r[-1][0]) for s, r in by_sym.items() if r}
     days = list(last_day.values())
     mode_day = max(set(days), key=days.count) if days else None
@@ -17188,8 +17211,12 @@ def _auth_google(body: dict) -> tuple[int, dict]:
                 name = who["name"]
     if _verifs:
         _verifs.mark(uid)
-    return _session_reply(uid, {"id": uid, "email": who["email"], "name": name,
-                                "email_verified": True})
+    code, out = _session_reply(uid, {"id": uid, "email": who["email"], "name": name,
+                                     "email_verified": True})
+    # A first Google sign-in made this account: the app treats that as a
+    # sign-up (the brand intro and the first-run tour play only then).
+    out["new"] = row is None
+    return code, out
 
 
 # ── sign-up checks, attempt limits, email confirmation (auth_guard.py) ─────

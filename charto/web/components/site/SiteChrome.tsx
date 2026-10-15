@@ -18,7 +18,7 @@ const LINKS: { key: SitePage; label: string }[] = [
   { key: "terms", label: "Terms & conditions" },
   { key: "privacy", label: "Privacy policy" },
   { key: "pricing", label: "Pricing" },
-  { key: "refunds", label: "Refunds and cancellation" },
+  { key: "refunds", label: "Refunds & cancellation" },
   { key: "contact", label: "Contact" },
 ];
 

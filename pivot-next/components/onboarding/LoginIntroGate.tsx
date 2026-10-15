@@ -2,9 +2,10 @@
 
 /**
  * LoginIntroGate — plays the PIVOT brand intro (LoginIntro) exactly once,
- * right after a successful login or signup.
+ * right after an account is created (the sign-up form, or a first Google
+ * sign-in). Signing in to an existing account does not play it.
  *
- * Flow: the auth forms call `armLoginIntro()` on success, which sets a
+ * Flow: sign-up calls `armLoginIntro()` on success, which sets a
  * one-shot sessionStorage flag, then navigate to "/". This gate mounts
  * inside AppShell, consumes the flag on mount, lazy-injects the "Anybody"
  * variable font the animation morphs through, and renders the overlay

@@ -21,10 +21,21 @@ function withMail(text: string): React.ReactNode {
   ]);
 }
 
+/* A page's named phrases ("Refund Policy") become links to their pages. */
+function withLinks(text: string, links: [string, string][] = []): React.ReactNode {
+  const hit = links.find(([phrase]) => text.includes(phrase));
+  if (!hit) return withMail(text);
+  const [phrase, href] = hit;
+  const rest = links.filter(l => l !== hit);
+  return text.split(phrase).flatMap((part, i) => i === 0 ? [withLinks(part, rest)] : [
+    <Link key={`${href}-${i}`} href={href}>{phrase}</Link>, withLinks(part, rest),
+  ]);
+}
+
 /* "Account: your name…" reads faster with its label set in bold. */
-function labelled(item: string): React.ReactNode {
+function labelled(item: string, links?: [string, string][]): React.ReactNode {
   const m = /^([A-Z][^:.]{1,40}):\s(.*)$/s.exec(item);
-  return m ? <><strong>{m[1]}:</strong> {withMail(m[2] ?? "")}</> : withMail(item);
+  return m ? <><strong>{m[1]}:</strong> {withLinks(m[2] ?? "", links)}</> : withLinks(item, links);
 }
 
 const PROVIDER_POLICIES: [string, string][] = [
@@ -39,7 +50,7 @@ const PROVIDER_POLICIES: [string, string][] = [
 
 export function CompanyPage({ page }: { page: CompanyPageKey }): React.ReactElement {
   const content = COMPANY_PAGES[page];
-  const legal = page === "terms" || page === "privacy" || page === "refunds";
+  const legal = page !== "about" && page !== "contact";
   return (
     <div className={styles.page}>
       <a className={styles.skip} href="#company-content">Skip to content</a>
@@ -54,8 +65,8 @@ export function CompanyPage({ page }: { page: CompanyPageKey }): React.ReactElem
         {content.sections.map(section => (
           <section key={section.id} id={section.id} aria-labelledby={`${section.id}-title`}>
             <h2 id={`${section.id}-title`}>{section.title}</h2>
-            {section.paragraphs.map(paragraph => <p key={paragraph}>{withMail(paragraph)}</p>)}
-            {section.list && <ul>{section.list.map(item => <li key={item}>{labelled(item)}</li>)}</ul>}
+            {section.paragraphs.map(paragraph => <p key={paragraph}>{withLinks(paragraph, content.links)}</p>)}
+            {section.list && <ul>{section.list.map(item => <li key={item}>{labelled(item, content.links)}</li>)}</ul>}
             {page === "privacy" && section.id === "share" && (
               <p>
                 Their own privacy policies:{" "}
@@ -66,6 +77,14 @@ export function CompanyPage({ page }: { page: CompanyPageKey }): React.ReactElem
             )}
           </section>
         ))}
+        {content.related && (
+          <section aria-labelledby="related-title" className={styles.related}>
+            <h2 id="related-title">Refunds and cancellation</h2>
+            <ul>
+              {content.related.map(([label, href]) => <li key={href}><Link href={href}>{label}</Link></li>)}
+            </ul>
+          </section>
+        )}
         <section aria-labelledby="who-title" className={styles.who}>
           <h2 id="who-title">{page === "contact" ? "Company details" : "Contact"}</h2>
           <p>

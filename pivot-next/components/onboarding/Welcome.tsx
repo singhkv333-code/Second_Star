@@ -4,8 +4,9 @@
  * Welcome — three cards shown once to a new account, before the product tour.
  *
  *   1. A welcome.
- *   2. Their watchlist: popular names to tap, and a search for the rest.
- *      What they pick replaces watchlist 1 on Home.
+ *   2. Their watchlist: popular names to tap, then the rest of the chart's
+ *      universe loading as they scroll, and a search. What they pick
+ *      replaces watchlist 1 on Home.
  *   3. How Pivot looks: light, dark, or one of the workspace palettes.
  *      Choices apply at once, through the same runtime as Workspace colors.
  *
@@ -20,9 +21,11 @@ import { createPortal } from "react-dom";
 import { ArrowLeft, Check, Plus, Search, X } from "lucide-react";
 import { CompanyLogo } from "@/components/CompanyLogo";
 import { getCompanyLogos, getMe } from "@/lib/api";
-import { fallback, loadUniverse, searchInstruments, type Instrument } from "@/lib/instruments";
+import { fallback, loadUniverse, searchInstruments, type Instrument, type InstrumentKind } from "@/lib/instruments";
+import { getMarketExplore } from "@/lib/markets";
 import { isError } from "@/lib/types";
-import { PIVOT_ICON, WELCOME_ART } from "@/lib/publicAssets";
+import { WELCOME_ART } from "@/lib/publicAssets";
+import { PivotWordLogo } from "@/components/brand/PivotWordLogo";
 import { setWatchlist, useWatchlists } from "@/lib/watchlists";
 import type { WorkspacePalette } from "@/lib/workspace-theme";
 import "./welcome.css";
@@ -36,6 +39,17 @@ const GROUPS = {
   Commodities: ["GOLD", "SILVER", "CRUDEOIL", "NATURALGAS", "COPPER", "ZINC", "ALUMINIUM", "USDINR"],
 } as const;
 type Group = keyof typeof GROUPS;
+
+/** What each kind tab lists after its popular picks. */
+const KINDS: Record<Group, InstrumentKind[] | null> = {
+  All: null,
+  Stocks: ["stock"],
+  Indices: ["index"],
+  Crypto: ["crypto"],
+  Commodities: ["commodity", "currency"],
+};
+/** Tiles added each time the list nears its end. */
+const PAGE = 24;
 
 const ART = [WELCOME_ART.sunset, WELCOME_ART.orb, WELCOME_ART.moonlight];
 const LAST = 2;
@@ -92,7 +106,12 @@ export function Welcome({ onDone }: { onDone: (tour: boolean) => void }): React.
   const chosen = useMemo(() => picked ?? wl.lists[0]?.tickers ?? [], [picked, wl]);
   const [known, setKnown] = useState<Map<string, Instrument>>(new Map());
   const [stockLogos, setStockLogos] = useState<Record<string, string | null>>({});
+  // Stocks by market cap, largest first, when the Markets data answers.
+  const [rank, setRank] = useState<Map<string, number>>(new Map());
   const [group, setGroup] = useState<Group>("All");
+  const [count, setCount] = useState(PAGE);
+  const scroller = useRef<HTMLDivElement>(null);
+  const sentinel = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Instrument[]>([]);
   const [searching, setSearching] = useState(false);
@@ -106,11 +125,56 @@ export function Welcome({ onDone }: { onDone: (tour: boolean) => void }): React.
   useEffect(() => {
     void loadUniverse().then(setKnown);
     void getCompanyLogos([...GROUPS.Stocks]).then(setStockLogos);
+    getMarketExplore().then((r) => {
+      if (!isError(r)) setRank(new Map(r.data.stocks.map((x, i) => [x.symbol, i])));
+    }).catch(() => {});
   }, []);
   const describe = useCallback((symbol: string): Instrument => {
     const i = known.get(symbol) ?? fallback(symbol);
     return i.logo || !stockLogos[symbol] ? i : { ...i, logo: stockLogos[symbol] ?? null };
   }, [known, stockLogos]);
+
+  // The tab's popular picks, then everything else of its kind: indices,
+  // commodities, crypto, then stocks, the largest companies first.
+  const catalog = useMemo((): string[] => {
+    const kinds = KINDS[group];
+    const order: InstrumentKind[] = ["index", "commodity", "currency", "crypto", "stock"];
+    const popular = new Set<string>(GROUPS[group]);
+    const rest = [...known.values()]
+      .filter((i) => !popular.has(i.symbol) && (!kinds || kinds.includes(i.kind)))
+      .sort((a, b) =>
+        order.indexOf(a.kind) - order.indexOf(b.kind)
+        || (rank.get(a.symbol) ?? 1e9) - (rank.get(b.symbol) ?? 1e9)
+        || Number(!a.logo) - Number(!b.logo)
+        || a.symbol.localeCompare(b.symbol))
+      .map((i) => i.symbol);
+    return [...GROUPS[group], ...rest];
+  }, [group, known, rank]);
+  const visible = catalog.slice(0, count);
+
+  useEffect(() => { setCount(PAGE); scroller.current?.scrollTo({ top: 0 }); }, [group]);
+
+  // Load the next page as the end of the list comes into view.
+  useEffect(() => {
+    const root = scroller.current, end = sentinel.current;
+    if (!root || !end || count >= catalog.length) return;
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) setCount((n) => n + PAGE);
+    }, { root, rootMargin: "0px 0px 240px 0px" });
+    io.observe(end);
+    return () => io.disconnect();
+  }, [count, catalog.length, step, query]);
+
+  // Logos for the stocks on screen that the universe has no art for.
+  useEffect(() => {
+    const want = visible.filter((x) => !(x in stockLogos) && !known.get(x)?.logo && (known.get(x)?.kind ?? "stock") === "stock");
+    if (!want.length) return;
+    let alive = true;
+    void getCompanyLogos(want).then((m) => {
+      if (alive) setStockLogos((cur) => ({ ...cur, ...Object.fromEntries(want.map((x) => [x, m[x] ?? null])) }));
+    });
+    return () => { alive = false; };
+  }, [visible, stockLogos, known]);
 
   useEffect(() => {
     const q = query.trim();
@@ -199,8 +263,9 @@ export function Welcome({ onDone }: { onDone: (tour: boolean) => void }): React.
             // eslint-disable-next-line @next/next/no-img-element
             <img key={src} src={src} alt="" className={i === step ? "on" : ""} />
           ))}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={PIVOT_ICON} alt="" className="welcome-mark" />
+          {/* The wordmark alone, as vector in silver: crisp at any density,
+              lifted off the painting by its shadow rather than a plate. */}
+          <span className="welcome-mark"><PivotWordLogo className="welcome-mark-logo" gradient={["#ffffff", "#c3c7cd"]} /></span>
           <i className="welcome-grain" />
         </div>
         <button type="button" className="welcome-skip" onClick={() => finish(false)}>
@@ -243,8 +308,13 @@ export function Welcome({ onDone }: { onDone: (tour: boolean) => void }): React.
                       <button key={g} type="button" role="tab" aria-selected={group === g} onClick={() => setGroup(g)}>{g}</button>
                     ))}
                   </div>
-                  <div className="welcome-grid" key={group}>
-                    {GROUPS[group].map((sym) => tile(describe(sym)))}
+                  <div className="welcome-scroll" ref={scroller}>
+                    <div className="welcome-grid" key={group}>
+                      {visible.map((sym) => tile(describe(sym)))}
+                    </div>
+                    {count < catalog.length && (
+                      <div ref={sentinel} className="welcome-more" aria-hidden="true"><i /><i /><i /></div>
+                    )}
                   </div>
                 </>
               )}

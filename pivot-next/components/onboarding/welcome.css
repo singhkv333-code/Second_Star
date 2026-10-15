@@ -1,13 +1,19 @@
 /* Welcome — a large rounded square: a painting above, the choice below.
    Pivot's palette: ink, bone and greys, Newsreader over Inter, film grain
-   (the referral page's language). Motion lives inside the painting only. */
+   (the referral page's language). Motion lives inside the painting only.
+   The card is the tour's liquid glass (product-tour.css): a clear, bright
+   fill over a heavy blur, a sheen across the top and a lit rim. */
 
 .welcome-scrim {
   --w-ink: #0b0b0b;
-  --w-text: #34322e;
+  --w-text: #2a2926;
   --w-paper: #ffffff;
-  --w-line: rgb(17 19 18 / 9%);
-  --w-soft: rgb(17 19 18 / 4.5%);
+  --w-glass: rgb(255 255 255 / 78%);
+  --w-glass-2: rgb(255 255 255 / 64%);
+  --w-tile: rgb(255 255 255 / 46%);
+  --w-rim: rgb(255 255 255 / 92%);
+  --w-line: rgb(17 19 18 / 8%);
+  --w-soft: rgb(255 255 255 / 55%);
   --w-pick: #0b0b0b;
   position: fixed;
   inset: 0;
@@ -23,10 +29,14 @@
 }
 .dark .welcome-scrim {
   --w-ink: #f4f1ea;
-  --w-text: #cdc8bd;
+  --w-text: #dcd7cc;
   --w-paper: #0e0e0e;
+  --w-glass: rgb(28 29 33 / 66%);
+  --w-glass-2: rgb(20 21 24 / 52%);
+  --w-tile: rgb(255 255 255 / 6%);
+  --w-rim: rgb(255 255 255 / 30%);
   --w-line: rgb(255 255 255 / 10%);
-  --w-soft: rgb(255 255 255 / 5%);
+  --w-soft: rgb(255 255 255 / 9%);
   --w-pick: #f4f1ea;
   background: rgb(0 0 0 / 50%);
 }
@@ -38,11 +48,38 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  isolation: isolate;
   border-radius: 34px;
   background: var(--w-paper);
   color: var(--w-ink);
-  box-shadow: 0 40px 90px -30px rgb(10 14 20 / 45%);
+  box-shadow: 0 40px 90px -30px rgb(10 14 20 / 45%), 0 2px 10px -2px rgb(10 14 20 / 10%);
   animation: welcomeRise .5s cubic-bezier(.22, 1, .36, 1) both;
+}
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .welcome-card {
+    background:
+      radial-gradient(120% 60% at 50% 0%, rgb(255 255 255 / 34%), transparent 60%),
+      linear-gradient(180deg, var(--w-glass), var(--w-glass-2));
+    -webkit-backdrop-filter: blur(34px) saturate(190%) brightness(1.04);
+    backdrop-filter: blur(34px) saturate(190%) brightness(1.04);
+    box-shadow: 0 40px 90px -30px rgb(10 14 20 / 45%), 0 2px 10px -2px rgb(10 14 20 / 10%),
+      inset 0 1px 0 rgb(255 255 255 / 70%), inset 0 -18px 30px -24px rgb(255 255 255 / 60%);
+  }
+}
+/* The lit rim: bright at the top-left and bottom-right, clear between. */
+.welcome-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  padding: 1.5px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(135deg, var(--w-rim) 0%, rgb(255 255 255 / 22%) 26%,
+    rgb(255 255 255 / 0%) 50%, rgb(255 255 255 / 22%) 74%, var(--w-rim) 100%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
 }
 
 /* The painting. Tall on the first card, a band after it. */
@@ -80,19 +117,21 @@
   background-size: 220px 220px;
   animation: welcomeGrain .9s steps(6) infinite;
 }
+/* The wordmark alone in silver; two soft shadows keep it legible on the
+   bright skies of the paintings too. */
 .welcome-mark {
   position: absolute;
   z-index: 1;
-  top: 18px;
-  left: 18px;
-  width: 46px;
-  height: 46px;
-  border-radius: 14px;
-  object-fit: contain;      /* the icon file is a white mark centred at 40% */
-  background: rgb(244 241 234 / 8%);
-  box-shadow: inset 0 0 0 1px rgb(244 241 234 / 18%);
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
+  top: 22px;
+  left: 26px;
+  display: block;
+  color: #f2f3f5;
+  filter: drop-shadow(0 1px 1px rgb(0 0 0 / 45%)) drop-shadow(0 6px 18px rgb(0 0 0 / 38%));
+}
+.welcome-mark-logo {
+  display: block;
+  height: 30px;
+  width: auto;
 }
 
 .welcome-skip {
@@ -170,6 +209,34 @@
 .welcome-groups button[aria-selected="true"] { background: var(--w-ink); color: var(--w-paper); font-weight: 600; }
 .welcome-groups button:focus-visible { outline: 2px solid #2b9bb1; outline-offset: 2px; }
 .welcome-grid { animation: welcomeIn .3s ease both; }
+/* The tiles scroll inside a fixed height so the card holds still, and the
+   next page loads before the end comes into view. */
+.welcome-scroll {
+  height: 420px;
+  overflow-y: auto;
+  margin: 0 -6px;
+  padding: 2px 6px 4px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--w-line) transparent;
+  mask-image: linear-gradient(180deg, #000 calc(100% - 28px), transparent);
+}
+.welcome-more {
+  display: flex;
+  justify-content: center;
+  gap: 5px;
+  padding: 16px 0 22px;
+}
+.welcome-more i {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--w-text);
+  opacity: .35;
+  animation: welcomePulse 1s ease-in-out infinite;
+}
+.welcome-more i:nth-child(2) { animation-delay: .15s; }
+.welcome-more i:nth-child(3) { animation-delay: .3s; }
+@keyframes welcomePulse { 50% { opacity: .9; } }
 .welcome-search {
   margin: 16px 0 14px;
   height: 46px;
@@ -178,8 +245,8 @@
   gap: 10px;
   padding: 0 8px 0 14px;
   border-radius: 14px;
-  background: var(--w-soft);
-  box-shadow: inset 0 0 0 1px var(--w-line);
+  background: var(--w-tile);
+  box-shadow: inset 0 0 0 1px var(--w-line), inset 0 1px 0 rgb(255 255 255 / 60%);
   color: var(--w-text);
   transition: box-shadow .15s ease;
 }
@@ -215,7 +282,8 @@
   position: relative;
   cursor: pointer;
   border-radius: 16px;
-  box-shadow: inset 0 0 0 1px var(--w-line);
+  background: var(--w-tile);
+  box-shadow: inset 0 0 0 1px var(--w-line), inset 0 1px 0 rgb(255 255 255 / 55%);
   transition: box-shadow .15s ease, background-color .15s ease, transform .15s ease;
 }
 .welcome-tile {
@@ -226,7 +294,8 @@
   padding: 14px 8px 12px;
   text-align: center;
 }
-.welcome-tile:hover, .welcome-row:hover { background: var(--w-soft); }
+.welcome-tile:hover, .welcome-row:hover { background: rgb(255 255 255 / 72%); }
+.dark .welcome-tile:hover, .dark .welcome-row:hover { background: rgb(255 255 255 / 11%); }
 .welcome-tile:active { transform: scale(.98); }
 .welcome-tile[aria-pressed="true"], .welcome-row[aria-pressed="true"] {
   box-shadow: inset 0 0 0 1.75px var(--w-pick);
@@ -303,7 +372,8 @@
   gap: 10px;
   padding: 10px 10px 12px;
   border-radius: 18px;
-  box-shadow: inset 0 0 0 1px var(--w-line);
+  background: var(--w-tile);
+  box-shadow: inset 0 0 0 1px var(--w-line), inset 0 1px 0 rgb(255 255 255 / 55%);
   font-size: 15px;
   font-weight: 600;
   text-align: center;
@@ -363,7 +433,7 @@
   width: 7px;
   height: 7px;
   border-radius: 999px;
-  background: var(--w-line);
+  background: rgb(17 19 18 / 16%);
   transition: width .25s ease, background-color .25s ease;
 }
 .welcome-dots i.on { width: 22px; background: var(--w-ink); }
@@ -384,9 +454,9 @@
   transition: background-color .15s ease, transform .15s ease;
 }
 .welcome-next {
-  background: var(--w-ink);
+  background: linear-gradient(180deg, rgb(255 255 255 / 14%), rgb(255 255 255 / 0%) 55%), var(--w-ink);
   color: var(--w-paper);
-  box-shadow: 0 8px 20px -12px rgb(17 19 18 / 70%);
+  box-shadow: 0 8px 20px -12px rgb(17 19 18 / 70%), inset 0 1px 0 rgb(255 255 255 / 22%);
 }
 .welcome-foot > .welcome-next { margin-left: auto; }
 .welcome-count + .welcome-next { margin-left: 0; }
@@ -420,16 +490,36 @@
   .welcome-art { height: 220px; }
   .welcome-card:not([data-step="0"]) .welcome-art { height: 110px; }
   .welcome-body { padding: 22px 20px 20px; }
+  .welcome-scroll, .welcome-results { height: 340px; }
   .welcome-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .welcome-palettes { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .welcome-pane h2 { font-size: 28px; }
 }
 @media (max-height: 760px) {
+  .welcome-scroll, .welcome-results { height: 300px; }
   .welcome-art { height: 220px; }
   .welcome-card:not([data-step="0"]) .welcome-art { height: 110px; }
 }
+@media (prefers-reduced-transparency: reduce) {
+  .welcome-card { background: var(--w-paper); backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
 @media (prefers-reduced-motion: reduce) {
   .welcome-scrim, .welcome-card, .welcome-pane, .welcome-palettes, .welcome-art img,
-  .welcome-grain, .welcome-grid { animation: none; }
+  .welcome-grain, .welcome-grid, .welcome-more i { animation: none; }
   .welcome-art, .welcome-art img { transition: opacity .3s ease; }
+}
+
+/* Dark: a quieter sheen and rims that glint instead of glow. */
+.dark .welcome-tile, .dark .welcome-row, .dark .welcome-look, .dark .welcome-search {
+  box-shadow: inset 0 0 0 1px var(--w-line), inset 0 1px 0 rgb(255 255 255 / 7%);
+}
+.dark .welcome-dots i { background: rgb(255 255 255 / 20%); }
+.dark .welcome-dots i.on { background: var(--w-ink); }
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .dark .welcome-card {
+    background:
+      radial-gradient(120% 60% at 50% 0%, rgb(255 255 255 / 7%), transparent 60%),
+      linear-gradient(180deg, var(--w-glass), var(--w-glass-2));
+    box-shadow: 0 40px 90px -30px rgb(0 0 0 / 70%), inset 0 1px 0 rgb(255 255 255 / 12%);
+  }
 }

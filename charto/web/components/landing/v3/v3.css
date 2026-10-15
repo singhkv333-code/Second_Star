@@ -731,6 +731,8 @@
 .hn-compare-row > i { grid-column: 1 / -1; height: 5px; border-radius: 5px; background: rgba(244, 241, 234, 0.1); overflow: hidden; }
 .hn-compare-row em { display: block; height: 100%; border-radius: inherit; background: #49c7a8; }
 .hn-compare-row.hold em { background: rgba(244, 241, 234, 0.45); }
+.hn-compare-row.dn b { color: #f2777f; }
+.hn-compare-row.strategy.dn em { background: #f2777f; }
 .hn-obj.comparison svg { display: block; width: 100%; height: 70px; margin-top: 4px; }
 .hn-obj.comparison svg line { stroke: rgba(244, 241, 234, 0.25); stroke-dasharray: 3 4; }
 .hn-obj.comparison svg polyline { fill: none; stroke: #49c7a8; stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linecap: round; stroke-linejoin: round; }
@@ -815,3 +817,153 @@
    the light sections. */
 .pivot-landing .pl-brand-logo { display: block; height: 30px; width: auto; aspect-ratio: 847 / 319; }
 @media (max-width: 600px) { .pivot-landing .pl-brand-logo { height: 26px; } }
+
+/* ── phones ───────────────────────────────────────────────────────────────
+   One column at 16px from the edge. Claims and their lines stay at one or
+   two lines each, sections sit closer, and the product is shown the way a
+   phone would show it: no Mac window around it, the chart with the last few
+   dozen bars rather than all of them, and a readout that fits on one line. */
+/* the nav's one button: Log in */
+.pivot-landing .pl-nav-login { font-size: 13px; padding: 10px 18px; border-radius: 8px; }
+@media (max-width: 600px) { .pivot-landing .pl-nav-login { font-size: 12.5px; padding: 9px 16px; } }
+/* the footer's four links stay on one line */
+.pivot-landing .pl-footer2-links { flex-wrap: nowrap; white-space: nowrap; }
+/* Five links do not fit one phone line: two centred lines, each link whole. */
+@media (max-width: 600px) { .pivot-landing .pl-footer2-links { flex-wrap: wrap; gap: 10px 18px; font-size: 11.5px; max-width: 320px; margin-inline: auto; } }
+@media (max-width: 359px) { .pivot-landing .pl-footer2-links { gap: 10px 12px; font-size: 11px; } }
+@media (max-width: 720px) {
+  .v3 { --sec: 72px; --head-gap: 26px; }
+  .v3-head { gap: 10px; }
+  .v3-head h2 { font-size: 34px; line-height: 1.04; letter-spacing: -0.035em; }
+  .v3-head p { font-size: 15.5px; line-height: 1.45; }
+
+  /* the product, without the desktop's window chrome */
+  .mw-bar { display: none; }
+  .mw { border-radius: 14px; }
+  .tw-wide { display: none !important; }
+  .tw-ro-r .ro-x, .px-ro-row .ro-x { display: none; }
+  .tw-ro-r { flex-wrap: nowrap; white-space: nowrap; }
+
+  /* Tour: the chart pane is the whole window */
+  .tw { height: 460px; }
+  .tw-menu { left: 10px; right: 10px; width: auto; }
+  .tw-top { height: 44px; }
+
+  /* Patterns: the chart, and the detector's card under it rather than gone */
+  .px-app { height: auto; }
+  .px-main { flex-direction: column; }
+  .px-chartpane { flex: none; height: 360px; border-right: 0; }
+  .px-chat.pt-col { display: flex; width: auto; padding: 0; border-top: 1px solid var(--border); }
+  .pt-col .px-seg, .pt-col .px-user, .pt-col .px-composer { display: none; }
+  .pt-thread { padding: 0; gap: 0; }
+  .pt-card { border-radius: 0; box-shadow: none; background: transparent; }
+  .pt-card > header span { font-size: 11px; }
+  .pt-chips { top: 50px; left: 12px; right: auto; justify-items: start; }
+  /* the detector's rows as cards on a sideways belt (Patterns.tsx syncs it) */
+  .pt-card ul {
+    position: relative; display: flex; gap: 10px; padding: 12px 16px 14px; overflow-x: auto; overflow-y: hidden;
+    scroll-snap-type: x mandatory; scroll-padding-inline: 16px; overscroll-behavior-x: contain; scrollbar-width: none;
+  }
+  .pt-card ul::-webkit-scrollbar { display: none; }
+  .pt-card li { flex: 0 0 76%; scroll-snap-align: start; }
+  .pt-card button {
+    height: 100%; grid-template-columns: 8px minmax(0, 1fr); align-items: start; row-gap: 12px; padding: 14px;
+    border-radius: 14px; background: #141416; opacity: 0.5; transition: opacity 0.35s, background 0.35s;
+  }
+  .pt-card button:hover { background: #141416; }
+  .pt-card button.on { opacity: 1; background: #1d1d21; box-shadow: none; }
+  .pt-dot { margin-top: 3px; }
+  .pt-rec { grid-column: 2; justify-items: start; }
+  .pt-card > footer { padding: 0 16px 14px; border-top: 0; }
+
+  /* Figures */
+  .fg-ascii { height: 230px; }
+  .fg-cap { width: calc(100% - 32px); margin: 10px auto 40px; font-size: 13px; }
+  .fg-row { row-gap: 28px; }
+  .fg-row li { gap: 8px; padding: 2px 0 2px 18px; }
+  .fg-n { font-size: 34px; }
+  .fg-l { font-size: 14px; }
+
+  /* Gallery: a tile's name and line wrap rather than run under the next */
+  .gl-tile { min-height: 470px; }
+  .gl-tile > header { padding: 20px 20px 0; }
+  .gl-tile > header h3, .gl-tile > header p { white-space: normal; }
+  .gl-tile > header p { font-size: 15px; }
+  .gl-stage { padding: 22px 18px 0; }
+  .gl-candles { height: 170px; }
+  .gl-quote strong { font-size: 23px; }
+  .gl-tabs { gap: 7px; font-size: 12px; }
+  .gl-well > .gl-list.watch li { grid-template-columns: 26px minmax(0, 1fr) auto 54px; gap: 6px; font-size: 13.5px; }
+
+  /* Workspace: the layouts card shows the arrangement, not unreadable panes */
+  .ws-grid { gap: 12px; }
+  .ws-card { padding: 22px; gap: 22px; }
+  .ws-card:not(.ws-full), .ws-card.ws-full { min-height: 0; }
+  .ws-copy { gap: 10px; }
+  .ws-copy h3 { font-size: 26px; }
+  .ws-laylist { margin-top: 14px; }
+  .ws-laylist button { padding: 11px 0; }
+  .ws-app { min-height: 200px; }
+  /* layouts: the saved three as a row of pills; the diagram names the panes */
+  .ws-card.ws-full { padding: 22px; gap: 18px; }
+  .ws-laylist { display: flex; gap: 6px; margin-top: 6px; }
+  .ws-laylist li:first-child button, .ws-laylist button {
+    padding: 8px 13px; border: 0; border-radius: 999px; background: rgba(244, 241, 234, 0.08); opacity: 0.7;
+  }
+  .ws-laylist li button.on { background: #f4f1ea; color: #0d0d0e; opacity: 1; }
+  .ws-laylist b { font-size: 13.5px; }
+  .ws-laylist span { display: none; }
+  .ws-app-bar > .ws-b:nth-child(3), .ws-app-bar > .ws-b:nth-child(5) { display: none; }
+  .ws-pbody { display: none; }
+  .ws-pane { background: #121317; }
+  .ws-pane > header { flex: 1; flex-direction: column; justify-content: center; gap: 5px; height: auto; padding: 0 3px; background: none; border: 0; font-size: 9.5px; letter-spacing: -0.01em; }
+  .ws-pane > header svg:not(.g):not(.x) { width: 15px; height: 15px; opacity: 0.85; }
+  .ws-pane > header .g, .ws-pane > header .x, .ws-pane > header .ws-grow { display: none; }
+  .ws-bars { min-height: 180px; }
+  .ws-bar-in { left: 14px; right: 14px; bottom: 14px; min-width: 150px; }
+  .ws-bar-in b { font-size: 20px; }
+  .hn-scale { gap: 5px; font-size: 11.5px; flex-wrap: nowrap; white-space: nowrap; }
+
+  /* Honest */
+  /* Honest: no rings on the cards, and the ladder set tighter */
+  .hn-ladder, .hn-card { box-shadow: none; }
+  .hn-ladder { padding: 24px 22px 20px; gap: 8px; }
+  .hn-steps h3 { margin-bottom: 18px; font-size: 27px; }
+  .hn-steps li { padding: 11px 0; }
+  .hn-steps button { gap: 14px; }
+  .hn-t { font-size: 20px; }
+  .hn-steps p { padding-left: 30px; font-size: 14px; }
+  .hn-steps li.on p { margin-top: 6px; }
+  .hn-iso { min-height: 0; gap: 18px; padding-top: 6px; }
+  .hn-stack { width: 176px; height: 114px; margin-top: 76px; }
+  .hn-plate { border-radius: 16px; transform: translateZ(calc(var(--z) * 24px)); }
+  .hn-plate.on { transform: translateZ(calc(var(--z) * 24px + 14px)); }
+  .hn-pt { left: 14px; bottom: 10px; font-size: 13px; }
+  .hn-card { padding: 22px; }
+  .hn-obj { height: 190px; margin-bottom: 16px; }
+}
+
+/* ── hero: the headline, and the composer's stacked marks ─────────────── */
+.pivot-landing .pl-hero h1 { font-size: clamp(54px, 7vw, 100px); line-height: 0.98; letter-spacing: -0.045em; text-wrap: balance; max-width: 15ch; margin-inline: auto; }
+.pivot-landing .pl-hero h1 em { font-style: italic; letter-spacing: -0.035em; opacity: 0.82; }
+.pl-prompt-marks { display: flex; align-items: center; padding-left: 2px; }
+.pivot-landing .pl-av {
+  width: 17px; height: 17px; margin-left: -5px; background: #fff;
+  box-shadow: 0 0 0 1.25px #fafafa, 0 1px 2px rgba(0, 0, 0, 0.1);
+  transition: margin 0.3s var(--ease, ease);
+}
+.pivot-landing .pl-av:first-child { margin-left: 0; }
+.pivot-landing .pl-av img { object-fit: cover; }
+.pivot-landing .pl-av > span { font: 600 8px/1 Inter, sans-serif; color: #0d0d0e; background: #eee; }
+.pl-hero-prompt:hover .pl-av { margin-left: -2px; }
+.pl-hero-prompt:hover .pl-av:first-child { margin-left: 0; }
+@media (max-width: 600px) {
+  .pivot-landing .pl-hero h1 { font-size: 44px; max-width: 340px; line-height: 1; }
+  /* pattern cards: the name and the record; the dates are on the chart */
+  .pt-name small { display: none; }
+  .pt-card button { row-gap: 8px; padding: 13px 14px; }
+}
+@media (max-width: 720px) {
+  .gl-well > .gl-list.watch li { grid-template-columns: 28px minmax(0, 1fr) auto 54px; }
+  .gl-well > .gl-list.watch li .gl-logo { width: 28px !important; height: 28px !important; }
+}

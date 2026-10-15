@@ -49,6 +49,14 @@ def _seed() -> None:
     mins = [(last + m * 60, 205, 210 if m < 15 else 208, 200, 205, 100)
             for m in range(30)]
     con.executemany("INSERT INTO bars VALUES ('UPCO',?,?,?,?,?,?)", mins)
+    # A listing with one session and its opening minutes: bars, no features.
+    # On the VM this raised KeyError and failed every screen.
+    con.execute("INSERT INTO bars_1d VALUES ('NEWCO',?,50,51,49,50,1000)", (up[-1][0],))
+    con.executemany("INSERT INTO bars VALUES ('NEWCO',?,?,?,?,?,?)",
+                    [(last + m * 60, 50, 51, 49, 50, 10) for m in range(30)])
+    # A long history: only the last 560 sessions are kept.
+    con.executemany("INSERT INTO bars_1d VALUES ('LONGCO',?,?,?,?,?,?)",
+                    _daily(80, 0.1, 700))
     con.commit()
     con.close()
 
@@ -78,6 +86,10 @@ check("downtrend reads down on Supertrend", down["supertrend_dir"] == -1,
 check("opening range: close above the first 15 minutes' high",
       up["orb15_pos"] is not None and up["orb15_pos"] > 100, up.get("orb15_pos"))
 check("no minute bars, no opening range", down.get("orb15_pos") is None)
+check("a one-session listing is skipped, not an error", "NEWCO" not in feats)
+check("a long history is trimmed to 560 sessions",
+      len(ds._screen_cache["bars"]["LONGCO"]) == 560
+      and ds._screen_cache["bars"]["LONGCO"][-1][0] == _daily(80, 0.1, 700)[-1][0])
 
 res = ds.tool_screen_universe(filters=[{"feature": "orb15_pos", "op": "gt",
                                         "value": 100}])
@@ -85,7 +97,7 @@ check("an opening-range-breakout screen finds the breakout",
       [r["symbol"] for r in res.get("rows", [])] == ["UPCO"], res.get("rows"))
 cov = res.get("minute_bar_coverage") or {}
 check("the screen reports its minute-bar coverage",
-      cov.get("scored") == 1 and cov.get("pool") == 2, cov)
+      cov.get("scored") == 1 and cov.get("pool") == 3, cov)
 
 bad = ds.tool_screen_universe(pattern="opening range breakout")
 names = bad.get("available", {}).get("chart", [])

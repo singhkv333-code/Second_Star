@@ -3,34 +3,41 @@
    dpawlikowski/liquid-glass, MIT): a mostly clear fill with a blur, a five-
    colour wash inside it, and a lit rim. Here the wash is stronger and drifts
    slowly, the edges bend the page behind them in Chromium, and the step's
-   target gets a ring of the same colours. */
+   target gets a ring of the same colours.
+   Liquid glass in Apple's sense: a clear body that stays bright over any
+   page (a gradient fill over a strong, saturated blur), a curved sheen
+   across the top, a specular line on the upper edge, a thicker lit rim and
+   a soft glow pooled at the bottom. The welcome cards use the same recipe. */
 
 .driver-popover.pivot-tour {
-  --tour-fill: rgb(255 255 255 / 22%);
+  --tour-fill: linear-gradient(180deg, rgb(255 255 255 / 44%), rgb(255 255 255 / 24%));
+  --tour-gloss: radial-gradient(130% 70% at 30% -10%, rgb(255 255 255 / 62%), rgb(255 255 255 / 0%) 58%);
   --tour-sheen: rgb(255 255 255 / 95%);
   --tour-ink: #0e100f;
   --tour-text: #1f2422;
-  --tour-blur: blur(3.5px) saturate(160%) brightness(1.1);
+  --tour-blur: blur(12px) saturate(200%) brightness(1.08);
   position: fixed;
   isolation: isolate;
   overflow: hidden;
-  width: 300px;
+  width: 316px;
   max-width: calc(100vw - 32px);
-  padding: 18px 18px 14px;
-  border-radius: 22px;
+  padding: 20px 20px 16px;
+  border-radius: 26px;
   border: 0;
   background: rgb(250 251 252 / 94%);
   color: var(--tour-ink);
   font-family: var(--font-sans, Inter, system-ui, sans-serif);
   text-shadow: 0 0 8px rgb(255 255 255 / 85%), 0 1px 0 rgb(255 255 255 / 60%);
-  box-shadow: 0 24px 60px -24px rgb(20 28 40 / 30%), 0 2px 8px -2px rgb(20 28 40 / 10%),
-    inset 0 0 0 1px rgb(255 255 255 / 35%),
-    inset 3px 4px 10px -5px var(--tour-sheen), inset -3px -4px 10px -6px rgb(255 255 255 / 80%),
-    inset 0 -14px 24px -18px rgb(255 255 255 / 60%);
+  box-shadow: 0 30px 70px -26px rgb(20 28 40 / 34%), 0 10px 24px -14px rgb(20 28 40 / 18%),
+    0 1px 2px rgb(20 28 40 / 8%),
+    inset 0 0 0 1px rgb(255 255 255 / 30%),
+    inset 0 1.5px 0 rgb(255 255 255 / 95%),
+    inset 4px 5px 12px -6px var(--tour-sheen), inset -4px -5px 12px -7px rgb(255 255 255 / 85%),
+    inset 0 -20px 30px -22px rgb(255 255 255 / 75%);
 }
 @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .driver-popover.pivot-tour {
-    background: var(--tour-fill);
+    background: var(--tour-gloss), var(--tour-fill);
     -webkit-backdrop-filter: var(--tour-blur);
     backdrop-filter: var(--tour-blur);
   }
@@ -47,12 +54,12 @@
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(circle at 20% 70%, rgb(91 210 238 / 16%), transparent 26%),
-    radial-gradient(circle at 38% 24%, rgb(119 147 244 / 13%), transparent 26%),
-    radial-gradient(circle at 58% 78%, rgb(181 142 235 / 12%), transparent 26%),
-    radial-gradient(circle at 74% 26%, rgb(242 152 197 / 13%), transparent 24%),
-    radial-gradient(circle at 84% 68%, rgb(245 192 126 / 14%), transparent 24%);
-  filter: blur(8px);
+    radial-gradient(circle at 20% 70%, rgb(91 210 238 / 20%), transparent 26%),
+    radial-gradient(circle at 38% 24%, rgb(119 147 244 / 16%), transparent 26%),
+    radial-gradient(circle at 58% 78%, rgb(181 142 235 / 15%), transparent 26%),
+    radial-gradient(circle at 74% 26%, rgb(242 152 197 / 16%), transparent 24%),
+    radial-gradient(circle at 84% 68%, rgb(245 192 126 / 17%), transparent 24%);
+  filter: blur(10px);
   animation: pivotTourDrift 12s ease-in-out infinite alternate;
 }
 /* The lit rim: bright on the top-left and bottom-right, clear in between. */
@@ -61,11 +68,11 @@
   position: absolute;
   inset: 0;
   z-index: 2;
-  padding: 1.25px;
+  padding: 1.6px;
   border-radius: inherit;
   pointer-events: none;
-  background: linear-gradient(135deg, rgb(255 255 255 / 95%) 0%, rgb(255 255 255 / 25%) 28%,
-    rgb(255 255 255 / 0%) 50%, rgb(255 255 255 / 25%) 72%, rgb(255 255 255 / 85%) 100%);
+  background: linear-gradient(135deg, rgb(255 255 255 / 100%) 0%, rgb(255 255 255 / 35%) 24%,
+    rgb(255 255 255 / 4%) 50%, rgb(255 255 255 / 35%) 76%, rgb(255 255 255 / 95%) 100%);
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
@@ -82,11 +89,11 @@
   margin-bottom: 12px;
   display: grid;
   place-items: center;
-  border-radius: 12px;
+  border-radius: 13px;
   color: var(--tour-ink);
-  background: rgb(255 255 255 / 26%);
-  box-shadow: 0 6px 14px -8px rgb(20 28 40 / 30%), inset 0 0 0 1px rgb(255 255 255 / 55%),
-    inset 1px 2px 4px -2px rgb(255 255 255 / 95%);
+  background: linear-gradient(180deg, rgb(255 255 255 / 70%), rgb(255 255 255 / 30%));
+  box-shadow: 0 8px 18px -10px rgb(20 28 40 / 35%), inset 0 0 0 1px rgb(255 255 255 / 70%),
+    inset 0 1px 0 rgb(255 255 255 / 100%), inset 0 -6px 10px -8px rgb(20 28 40 / 12%);
 }
 .driver-popover.pivot-tour .pivot-tour-icon svg { display: block; }
 
@@ -149,9 +156,10 @@
   transition: background-color .15s ease, transform .15s ease, opacity .15s ease;
 }
 .driver-popover.pivot-tour .driver-popover-footer button.driver-popover-next-btn {
-  background: var(--tour-ink);
+  background: linear-gradient(180deg, rgb(255 255 255 / 16%), rgb(255 255 255 / 0%) 55%), var(--tour-ink);
   color: #fffdf8;
-  box-shadow: 0 4px 12px -6px rgb(17 19 18 / 55%), inset 0 1px 0 rgb(255 255 255 / 14%);
+  box-shadow: 0 6px 14px -6px rgb(17 19 18 / 55%), inset 0 1px 0 rgb(255 255 255 / 24%),
+    inset 0 0 0 1px rgb(255 255 255 / 6%);
 }
 .driver-popover.pivot-tour .driver-popover-footer button.driver-popover-next-btn:hover { transform: translateY(-1px); }
 .driver-popover.pivot-tour .driver-popover-footer button.driver-popover-prev-btn {
@@ -159,9 +167,10 @@
   background: transparent;
 }
 .driver-popover.pivot-tour .driver-popover-footer button.driver-popover-prev-btn:hover { background: rgb(255 255 255 / 45%); }
+/* Focus as a glass halo, not a coloured outline. */
 .driver-popover.pivot-tour .driver-popover-footer button:focus-visible {
-  outline: 2px solid #2b9bb1;
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: 0 0 0 2px rgb(255 255 255 / 95%), 0 0 0 4px rgb(17 19 18 / 22%);
 }
 .driver-popover.pivot-tour .driver-popover-close-btn {
   all: unset;
@@ -177,13 +186,14 @@
   border-radius: 9px;
   cursor: pointer;
   color: var(--tour-ink);
-  background: rgb(255 255 255 / 24%);
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 60%);
+  background: linear-gradient(180deg, rgb(255 255 255 / 62%), rgb(255 255 255 / 26%));
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 70%), inset 0 1px 0 rgb(255 255 255 / 100%),
+    0 4px 10px -6px rgb(20 28 40 / 25%);
   transition: background-color .15s ease;
 }
 .driver-popover.pivot-tour .driver-popover-close-btn svg { display: block; }
-.driver-popover.pivot-tour .driver-popover-close-btn:hover { background: rgb(255 255 255 / 70%); }
-.driver-popover.pivot-tour .driver-popover-close-btn:focus-visible { outline: 2px solid #2b9bb1; outline-offset: 2px; }
+.driver-popover.pivot-tour .driver-popover-close-btn:hover { background: rgb(255 255 255 / 80%); }
+.driver-popover.pivot-tour .driver-popover-close-btn:focus-visible { outline: none; box-shadow: 0 0 0 2px rgb(255 255 255 / 95%), 0 0 0 4px rgb(17 19 18 / 22%); }
 .driver-popover.pivot-tour .driver-popover-arrow { display: none; }
 
 /* The ring around the step's target: the same colours, turning slowly. */
@@ -224,11 +234,12 @@
 .driver-active .driver-overlay { pointer-events: none; }
 
 .dark .driver-popover.pivot-tour {
-  --tour-fill: rgb(28 30 36 / 38%);
+  --tour-fill: linear-gradient(180deg, rgb(40 42 48 / 52%), rgb(24 26 30 / 40%));
+  --tour-gloss: radial-gradient(130% 70% at 30% -10%, rgb(255 255 255 / 12%), rgb(255 255 255 / 0%) 58%);
   --tour-sheen: rgb(255 255 255 / 22%);
   --tour-ink: #f3f0e7;
   --tour-text: #e2ded4;
-  --tour-blur: blur(14px) saturate(170%) brightness(.9);
+  --tour-blur: blur(16px) saturate(180%) brightness(.9);
   background-color: rgb(32 34 40 / 94%);
   text-shadow: 0 1px 2px rgb(0 0 0 / 35%);
   box-shadow: 0 24px 60px -24px rgb(0 0 0 / 70%), inset 0 0 0 1px rgb(255 255 255 / 8%),
@@ -239,8 +250,8 @@
     rgb(255 255 255 / 0%) 50%, rgb(255 255 255 / 8%) 70%, rgb(255 255 255 / 30%) 100%);
 }
 .dark .driver-popover.pivot-tour .pivot-tour-icon {
-  background: rgb(255 255 255 / 10%);
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 14%);
+  background: linear-gradient(180deg, rgb(255 255 255 / 14%), rgb(255 255 255 / 5%));
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 14%), inset 0 1px 0 rgb(255 255 255 / 22%);
 }
 .dark .driver-popover.pivot-tour .pivot-tour-dots i { background: rgb(255 255 255 / 22%); }
 .dark .driver-popover.pivot-tour .driver-popover-footer button.driver-popover-next-btn { color: #111312; }

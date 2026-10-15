@@ -40,6 +40,7 @@ which is correct — it did not touch the chart.
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import sqlite3
@@ -64,6 +65,57 @@ _SESSION_TTL = 30 * 24 * 3600
 _lock = threading.Lock()
 _con: Optional[sqlite3.Connection] = None
 _unavailable_logged = False
+
+# WHY A TOKEN WAS REFUSED
+# -----------------------
+# The routers turn every None from here into a 401, and the app reads a 401
+# as "your session is over" and signs the person out. That is right for an
+# unknown or expired token and wrong for the other two ways this can fail:
+#
+#   "store_unavailable"  a store could not be read (Postgres unreachable, the
+#                        SQLite file locked). The session may be perfectly
+#                        good; the answer is "try again", a 503.
+#   "link_required"      the session is good, but its email already belongs to
+#                        a Pivot account that has not been linked to it. The
+#                        person is signed in; this API refuses them, a 403.
+#
+# Both used to arrive as 401s: 263 sign-outs in two days for three linked-to-
+# nothing accounts in production, and on a machine whose IP the database
+# firewall does not allow, a sign-out on every request. The reason is kept
+# here, keyed by a hash of the token, for the HTTPException handler in
+# backend/main.py to read when it sees the 401. Nothing about who is signed
+# in changes: the request is still refused.
+FAILURE_TTL = 60.0
+_failures: dict[str, tuple[str, float]] = {}
+_failures_lock = threading.Lock()
+
+
+def _key(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _note(token: str, reason: Optional[str]) -> None:
+    now = time.monotonic()
+    with _failures_lock:
+        if reason is None:
+            _failures.pop(_key(token), None)
+        else:
+            _failures[_key(token)] = (reason, now)
+        if len(_failures) > 2048:
+            for k in [k for k, (_, t) in _failures.items() if now - t > FAILURE_TTL]:
+                del _failures[k]
+
+
+def failure_reason(token: str) -> Optional[str]:
+    """Why this token was last refused, if it was within the last minute and
+    for a reason other than being invalid; otherwise None (a plain 401)."""
+    if not token:
+        return None
+    with _failures_lock:
+        hit = _failures.get(_key(token))
+    if hit is None or time.monotonic() - hit[1] > FAILURE_TTL:
+        return None
+    return hit[0]
 
 
 def _connect() -> Optional[sqlite3.Connection]:
@@ -111,14 +163,16 @@ def resolve_token(token: str) -> Optional[tuple[int, str, Optional[str]]]:
     """`(charto_user_id, email, name)` behind a Charto bearer token, or None.
 
     Returns None for an unknown token, an expired one, or an unreachable
-    store. The caller must not distinguish those to the client: "invalid
-    token" is the honest answer to all three, and separating them tells an
-    attacker which tokens exist.
+    store. An unknown and an expired token are not told apart (that would
+    tell an attacker which tokens exist); an unreachable store is noted as
+    "store_unavailable" (see `failure_reason`), which says nothing about the
+    token.
     """
     if not token:
         return None
     con = _connect()
     if con is None:
+        _note(token, "store_unavailable")
         return None
     try:
         with _lock:
@@ -130,6 +184,7 @@ def resolve_token(token: str) -> Optional[tuple[int, str, Optional[str]]]:
             ).fetchone()
     except Exception as exc:  # noqa: BLE001
         logger.warning("charto_session: lookup failed: %s", exc)
+        _note(token, "store_unavailable")
         return None
     if not row:
         return None
@@ -148,25 +203,35 @@ def pivot_user_id_for(email: str, name: Optional[str] = None, *,
     row. Existing Pivot accounts require a separately approved binding.
     The migration creates the binding table; absence fails closed.
     """
+    return _bind(email, name, charto_user_id)[0]
+
+
+def _bind(email: str, name: Optional[str],
+          charto_user_id: Optional[int]) -> tuple[Optional[int], Optional[str]]:
+    """`pivot_user_id_for`, with the reason when there is no id."""
     if not email or charto_user_id is None or charto_user_id <= 0:
-        return None
+        return None, None
     from sqlalchemy import select, text
     from backend.database import SessionLocal
     from backend.models import User
 
-    db = SessionLocal()
+    try:
+        db = SessionLocal()
+    except Exception:
+        logger.warning("Charto identity linking unavailable for id %s", charto_user_id)
+        return None, "store_unavailable"
     try:
         linked = db.execute(text(
             "SELECT pivot_user_id FROM charto_account_links WHERE charto_user_id=:cid"
         ), {"cid": charto_user_id}).scalar_one_or_none()
         if linked is not None:
             user = db.get(User, int(linked))
-            return int(user.id) if user is not None and user.is_active else None
+            return (int(user.id), None) if user is not None and user.is_active else (None, None)
         norm = email.strip().lower()
         user = db.execute(select(User).where(User.email == norm)).scalar_one_or_none()
         if user is not None:
             logger.warning("Charto identity %s requires explicit account linking", charto_user_id)
-            return None
+            return None, "link_required"
         user = User(email=norm, hashed_password="!charto-session",
                     full_name=name or None, is_active=True, is_verified=False)
         db.add(user)
@@ -176,11 +241,11 @@ def pivot_user_id_for(email: str, name: Optional[str] = None, *,
             "VALUES (:cid, :pid)"
         ), {"cid": charto_user_id, "pid": user.id})
         db.commit()
-        return int(user.id)
+        return int(user.id), None
     except Exception:
         db.rollback()
         logger.warning("Charto identity linking unavailable for id %s", charto_user_id)
-        return None
+        return None, "store_unavailable"
     finally:
         db.close()
 
@@ -191,4 +256,6 @@ def user_id_from_bearer(token: str) -> Optional[int]:
     if resolved is None:
         return None
     charto_id, email, name = resolved
-    return pivot_user_id_for(email, name, charto_user_id=charto_id)
+    pid, reason = _bind(email, name, charto_id)
+    _note(token, reason)
+    return pid

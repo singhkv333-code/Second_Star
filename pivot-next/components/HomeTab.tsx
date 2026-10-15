@@ -469,11 +469,14 @@ export function HomeTab({ onGoTab, onSendPrompt, onOpenAgent, onOpenStrategies }
             <StrategiesCard onOpenAgent={onOpenAgent} onOpenStrategies={onOpenStrategies} />
           </div>
         )}
-        <div className={`${LAUNCH.strategies ? "lg:col-span-2 lg:col-start-3" : "lg:col-span-3 lg:col-start-1"} lg:row-start-2 min-h-0`}>
+        <div className={`${LAUNCH.strategies ? "lg:col-span-2 lg:col-start-3" : "lg:col-span-3 lg:col-start-1"} hidden min-h-0 sm:block lg:row-start-2`}>
           <MoversCard direction="gainers" />
         </div>
-        <div className={`${LAUNCH.strategies ? "lg:col-span-2 lg:col-start-5" : "lg:col-span-3 lg:col-start-4"} lg:row-start-2 min-h-0`}>
+        <div className={`${LAUNCH.strategies ? "lg:col-span-2 lg:col-start-5" : "lg:col-span-3 lg:col-start-4"} hidden min-h-0 sm:block lg:row-start-2`}>
           <MoversCard direction="losers" />
+        </div>
+        <div className="min-h-0 sm:hidden">
+          <MoversCard direction="gainers" switchable />
         </div>
       </div>
     </div>
@@ -1730,7 +1733,10 @@ type MoversState =
   | { kind: "ok"; gainers: MarketMover[]; losers: MarketMover[]; source: "kite" | "yfinance" | "unknown" }
   | { kind: "empty" };
 
-function MoversCard({ direction }: { direction: "gainers" | "losers" }): React.ReactElement {
+/** `switchable`: one card with a Gainers / Losers toggle, for phones, where
+ *  two six-row cards stacked one under the other ran to a full screen. */
+function MoversCard({ direction: initial, switchable = false }: { direction: "gainers" | "losers"; switchable?: boolean }): React.ReactElement {
+  const [direction, setDirection] = useState(initial);
   const [state, setState] = useState<MoversState>({ kind: "loading" });
   const [sparks, setSparks] = useState<Record<string, number[]>>({});
 
@@ -1773,7 +1779,7 @@ function MoversCard({ direction }: { direction: "gainers" | "losers" }): React.R
   }, [moverSymbols]);
 
   const color = positive ? "var(--color-profit)" : "var(--color-loss)";
-  const label = positive ? "Top gainers" : "Top losers";
+  const label = switchable ? "Movers" : positive ? "Top gainers" : "Top losers";
   const Icon = positive ? TrendingUp : TrendingDown;
 
   return (
@@ -1781,6 +1787,29 @@ function MoversCard({ direction }: { direction: "gainers" | "losers" }): React.R
       Icon={Icon}
       title={label}
       bodyClassName="min-h-0"
+      actionLabel="Markets"
+      onAction={() => { window.location.hash = "#markets"; }}
+      action={switchable ? (
+        <div className="inline-flex" role="tablist" aria-label="Movers" style={{ gap: 2, padding: 3, background: "var(--bg-base)", border: "1px solid var(--glass-border)", borderRadius: "var(--radius-sm)" }}>
+          {(["gainers", "losers"] as const).map((d) => (
+            <button
+              key={d}
+              type="button"
+              role="tab"
+              aria-selected={direction === d}
+              onClick={() => setDirection(d)}
+              style={{
+                padding: "4px 11px", border: "none", cursor: "pointer", borderRadius: "var(--radius-xs)",
+                fontFamily: "var(--font-ui)", fontSize: 12, fontWeight: 500,
+                background: direction === d ? "var(--text-primary)" : "transparent",
+                color: direction === d ? "var(--bg-primary)" : "var(--text-primary)",
+              }}
+            >
+              {d === "gainers" ? "Gainers" : "Losers"}
+            </button>
+          ))}
+        </div>
+      ) : undefined}
     >
       {state.kind === "loading" ? (
         <div className="flex h-full flex-col" style={{ gap: 6 }}>

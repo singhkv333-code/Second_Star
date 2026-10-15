@@ -152,8 +152,9 @@ function AsciiTape() {
       ctx.clearRect(0, 0, w, h);
       const k = shown < 0 ? 0 : still ? 1 : Math.min(1, (performance.now() - shown) / 1300);
       // the legend's box, top-left on the page column
-      const x0 = Math.max(24, (w - 1240) / 2), wide = w - x0 > 840;
-      const tx = x0 + LC * LW + 18;
+      // a phone sets the legend smaller so the venue and the change still fit
+      const x0 = Math.max(w < 600 ? 16 : 24, (w - 1240) / 2), wide = w - x0 > 840, small = w < 600;
+      const tx = x0 + LC * LW + (small ? 12 : 18);
       ctx.textAlign = "center"; ctx.textBaseline = "middle";
       ctx.font = "700 5.5px Inter, sans-serif"; ctx.fillStyle = BTC_ORANGE;
       mark.forEach((ch, i) => {
@@ -161,10 +162,10 @@ function AsciiTape() {
         const c = i % LC, r = Math.floor(i / LC);
         glyph(ch, x0 + c * LW + LW / 2, 4 + r * LH + LH / 2, (r / LR) * 0.35, k, t);
       });
-      ctx.font = "600 22px Inter, sans-serif";
-      const tw = typeRuns(LEGEND.title, tx, 22, 15, k, t, 0.05, 0.4);
-      ctx.font = "500 14px Inter, sans-serif";
-      const vw = typeRuns(wide ? LEGEND.full : LEGEND.short, tx, 60, 9.5, k, t, 0.3, 0.55);
+      ctx.font = small ? "600 16px Inter, sans-serif" : "600 22px Inter, sans-serif";
+      const tw = typeRuns(LEGEND.title, tx, 22, small ? 10.5 : 15, k, t, 0.05, 0.4);
+      ctx.font = small ? "500 12px Inter, sans-serif" : "500 14px Inter, sans-serif";
+      const vw = typeRuns(wide ? LEGEND.full : LEGEND.short, tx, small ? 52 : 60, small ? 7.4 : 9.5, k, t, 0.3, 0.55);
       const keep = { x1: x0 - 14, x2: tx + Math.max(tw, vw) + 14, y2: 4 + LR * LH + 14 };
 
       // the tape

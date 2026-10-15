@@ -31,6 +31,10 @@ else:
         "-c statement_timeout=60000 "
         "-c idle_in_transaction_session_timeout=300000"
     )
+    # connect_timeout bounds the CONNECT itself. Without it a host whose
+    # packets are dropped (a firewall that does not admit this IP) holds each
+    # request for the OS's TCP timeout — five minutes per request was
+    # measured on 2026-10-15 — before anything can answer "unavailable".
     engine = create_engine(
         settings.database_url,
         poolclass=QueuePool,
@@ -41,7 +45,7 @@ else:
         pool_pre_ping=True,   # cloud DB: reconnect if a pooled conn was reaped/dropped
         pool_recycle=900,
         echo=False,
-        connect_args={"options": _APP_PG_OPTIONS},
+        connect_args={"options": _APP_PG_OPTIONS, "connect_timeout": 10},
     )
 
 SessionLocal = sessionmaker(
@@ -74,7 +78,7 @@ else:
         pool_pre_ping=True,   # cloud DB: reconnect if a pooled conn was reaped/dropped
         pool_recycle=900,
         echo=False,
-        connect_args={"options": _APP_PG_OPTIONS},
+        connect_args={"options": _APP_PG_OPTIONS, "connect_timeout": 10},
     )
 
 FinancialsSessionLocal = sessionmaker(
@@ -102,7 +106,7 @@ else:
         pool_pre_ping=True,   # cloud DB: reconnect if a pooled conn was reaped/dropped
         pool_recycle=900,
         echo=False,
-        connect_args={"options": _APP_PG_OPTIONS},
+        connect_args={"options": _APP_PG_OPTIONS, "connect_timeout": 10},
     )
     EnrichSessionLocal = sessionmaker(
         autocommit=False,

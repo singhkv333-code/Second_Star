@@ -39,7 +39,7 @@ export const FAQS: Faq[] = [
   },
   {
     q: "Do you offer refunds?",
-    a: ["No. We do not offer refunds."],
+    a: ["No. Payments are final, except where a charge went wrong because of a failure on our side."],
   },
   {
     q: "Is there a free trial?",

@@ -28,6 +28,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ExternalLink,
+  Globe,
   HelpCircle,
   Compass,
   History,
@@ -82,6 +83,7 @@ import { ScreenerPage } from "@/components/screener/ScreenerPage";
 import { SettingsDialog } from "@/components/settings/SettingsTab";
 import { DashboardTab } from "@/components/DashboardTab";
 import { HomeTab } from "@/components/HomeTab";
+import { MarketsTab } from "@/components/markets/MarketsTab";
 import { CompanyAutosuggest } from "@/components/CompanyAutosuggest";
 import { PivotWordmark } from "@/components/brand/PivotLogo";
 import { ProductTour, START_TOUR_EVENT } from "@/components/onboarding/ProductTour";
@@ -117,6 +119,7 @@ import { getBrokers } from "@/lib/brokersApi";
 
 type TabKey =
   | "home"
+  | "markets"
   | "chat"
   | "portfolio"
   | "agents"
@@ -130,6 +133,7 @@ const ALL_NAV_ITEMS: {
   Icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
 }[] = [
   { key: "home", label: "Home", Icon: LayoutDashboard },
+  { key: "markets", label: "Markets", Icon: Globe },
   { key: "chart", label: "Chart", Icon: ChartNoAxesCombined },
   { key: "chat", label: "Chat", Icon: MessagesSquare },
   { key: "portfolio", label: "Portfolio", Icon: WalletCards },
@@ -187,7 +191,7 @@ function readStoredCopilotWidth(): number | null {
 }
 
 type CopilotPageContext =
-  | { kind: "page"; page: "home" | "portfolio" | "agents" | "screener" | "brokers"; label: string }
+  | { kind: "page"; page: "home" | "markets" | "portfolio" | "agents" | "screener" | "brokers"; label: string }
   | { kind: "security"; symbol: string; name: string };
 
 function readStoredConversationId(): string | undefined {
@@ -386,6 +390,10 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   // sidebar is a drawer driven by `mobileNavOpen`, so collapse is ignored.
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isDesktop, setIsDesktop] = useState(true);
+  // A portrait phone: the Chart tab is the workspace's own pager there
+  // (charto/preview/js/pager.js), whose bar and chat page take the bottom of
+  // the screen, so the floating Ask bar stands down on that tab.
+  const [isPhone, setIsPhone] = useState(false);
   const metricTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const rememberConversationId = useCallback((id: string): void => {
@@ -449,6 +457,8 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
       next = { kind: "security", symbol, name: symbol };
     } else if (!children && active === "home" && readHashTab() === "home") {
       next = { kind: "page", page: "home", label: "Home" };
+    } else if (!children && active === "markets") {
+      next = { kind: "page", page: "markets", label: "Markets" };
     } else if (!children && active === "portfolio") {
       next = { kind: "page", page: "portfolio", label: "My portfolio" };
     } else if (!children && active === "agents") {
@@ -1170,10 +1180,12 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const mq = window.matchMedia("(min-width: 1024px)");
-    const sync = (): void => setIsDesktop(mq.matches);
+    const phone = window.matchMedia("(max-width: 560px) and (orientation: portrait)");
+    const sync = (): void => { setIsDesktop(mq.matches); setIsPhone(phone.matches); };
     sync();
     mq.addEventListener("change", sync);
-    return () => mq.removeEventListener("change", sync);
+    phone.addEventListener("change", sync);
+    return () => { mq.removeEventListener("change", sync); phone.removeEventListener("change", sync); };
   }, []);
 
   // Global keyboard shortcuts. Cmd+K (command palette) and the chat composer
@@ -1280,6 +1292,8 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
         ? "Ask about my portfolio…"
         : copilotContext.kind === "page" && copilotContext.page === "screener"
           ? "Screen stocks…"
+          : copilotContext.kind === "page" && copilotContext.page === "markets"
+            ? "Ask about the market…"
           : copilotContext.kind === "page" && copilotContext.page === "agents"
             ? "Ask about my agents…"
             : "Ask Pivot…";
@@ -1580,6 +1594,20 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
               <HomeTab onGoTab={goTab} onSendPrompt={sendChatPrompt} onOpenAgent={openAgentFromHome} onOpenStrategies={openAgentsStrategies} />
             </div>
           )}
+          {visitedTabs.has("markets") && (
+            // Markets owns its scrolling: the page and the news rail scroll
+            // separately, and the section bar sticks inside the page.
+            <div
+              className={
+                !children && active === "markets"
+                  ? "flex-1 min-h-0 overflow-hidden"
+                  : "hidden"
+              }
+              style={{ background: "var(--bg-inset)" }}
+            >
+              <MarketsTab />
+            </div>
+          )}
           {visitedTabs.has("chart") && (
             // The charting engine, in a same-origin iframe. Kept MOUNTED once
             // visited (the visitedTabs pattern) rather than unmounted on tab
@@ -1683,7 +1711,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
              for the menu the same way it already hides for an open panel. */
           visible={
             !mobileNavOpen
-            && (active === "chart" ? !chartChatOpen : !copilotPanelOpen)
+            && (active === "chart" ? !chartChatOpen && !isPhone : !copilotPanelOpen)
           }
         />
       )}

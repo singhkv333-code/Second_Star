@@ -3,7 +3,7 @@ import { CompanyPage } from "@/components/company/CompanyPage";
 
 export const metadata: Metadata = {
   title: "Refund and cancellation policy | Pivot",
-  description: "How to cancel a paid Pivot plan, when payments are refunded, and how long refunds take.",
+  description: "How to cancel a paid Pivot plan, and why payments are final except where a failure on our side caused the charge.",
 };
 
 export default function Page(): React.ReactElement {

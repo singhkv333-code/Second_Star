@@ -1408,9 +1408,13 @@ input[type="range"].payoff-slider::-moz-range-thumb {
   position: fixed;
   inset: 0 auto 0 0;
   width: var(--content-overlay-left, 0px);
-  background: rgba(0, 0, 0, 0.56);
+  /* The open dialog's own veil (sent with "chart:overlay"), so the nav rail
+     and the frame dim as one surface; fades in with the dialog's pop. */
+  background: var(--chart-veil, rgba(0, 0, 0, 0.6));
   pointer-events: auto;
+  animation: chart-veil-in 0.2s ease-out;
 }
+@keyframes chart-veil-in { from { opacity: 0; } }
 .sidebar-nav-list {
   gap: 6px;
 }
@@ -2770,18 +2774,25 @@ body:has(.app-shell-root) {
   .home-chart-intro h2 { font-size: 26px; margin-bottom: 15px; }
   .home-chart-scene { width: 100%; height: 280px; }
 }
+/* Phones: a short band, not the desktop collage folded into a column. The
+   title and its button sit on the left; two of the example cards lean in
+   from the right edge, cropped by the band, as a glimpse of the chart.
+   The band's own ask box is dropped: the Ask bar is already on screen. */
 @container (max-width: 550px) {
-  .home-chart-scene { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 14px; height: auto; }
-  .home-asset-card { position: relative; width: 100%; inset: auto; }
-  .home-scene-ethereum { margin-top: 12px; }
-  .home-composer { position: relative; inset: auto; transform: none; width: 100%; grid-column: 1 / -1; grid-row: 2; }
-  .home-scene-candles { grid-column: 1; grid-row: 3; margin-top: 12px; }
-  .home-scene-portfolio { grid-column: 2; grid-row: 3; grid-template-columns: 1fr; }
-  .home-portfolio-total { grid-column: 1; grid-row: 2; text-align: center; }
-  .home-allocation { grid-column: 1; grid-row: 3; margin: auto; }
-  .home-allocation { width: 94px; height: 94px; }
-  .home-glass-prompt { padding: 14px; }
-  .home-prompt-textarea { font-size: 16px; }
+  .home-welcome-banner {
+    grid-template-columns: minmax(0, 1fr) 46%; gap: 0; align-items: center;
+    min-height: 0; height: 172px; padding: 0 0 0 18px; overflow: hidden; border-radius: 18px;
+  }
+  .home-chart-intro { align-self: center; padding: 18px 0; }
+  .home-chart-intro h2 { margin: 0 0 14px; font-size: 20px; line-height: 1.18; }
+  .home-chart-cta { height: 34px; padding: 0 12px; font-size: 12.5px; }
+  .home-chart-scene { position: relative; width: 100%; height: 100%; justify-self: stretch; }
+  .home-chart-scene::before { display: none; }
+  .home-asset-row { display: contents; }
+  .home-asset-card { position: absolute; width: 176px; pointer-events: none; box-shadow: 0 10px 26px #0a141d45; }
+  .home-scene-bitcoin { left: 6px; top: 30px; z-index: 2; transform: rotate(-7deg) scale(.8); transform-origin: top left; }
+  .home-scene-candles { left: 40px; top: 84px; bottom: auto; z-index: 3; transform: rotate(4deg) scale(.8); transform-origin: top left; }
+  .home-scene-ethereum, .home-scene-portfolio, .home-composer { display: none; }
 }
 
 /* Home cards keep their contents in independently scrollable bodies. */
@@ -2886,4 +2897,10 @@ body:has(.app-shell-root) {
   display: none !important;
   width: 0 !important;
   height: 0 !important;
+}
+
+/* Phones: Sonner pins top toasts 20px from the top, over the header and
+   its menu and account buttons. Start them under the header instead. */
+@media (max-width: 600px) {
+  [data-sonner-toaster][data-y-position="top"] { top: calc(env(safe-area-inset-top, 0px) + 68px) !important; }
 }

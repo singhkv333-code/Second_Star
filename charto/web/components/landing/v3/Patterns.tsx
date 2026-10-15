@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import { LightweightChart } from "@/components/chart/LightweightChart";
 import { formatINR } from "@/components/landing/film/film-script";
-import { MacWindow } from "./frame";
+import { MacWindow, PHONE } from "./frame";
 import { Logo } from "./logos";
 import { COMPANY } from "./snapshot";
 import { DAILY } from "./snapshot-bars";
@@ -122,6 +122,41 @@ export function Patterns(): React.ReactElement {
     return () => clearTimeout(id);
   }, [run, held, k]);
 
+  // On a phone the detector's rows are cards on a sideways belt, and the card
+  // that settles in view is the shape drawn on the chart. The auto-advance
+  // slides the belt to its card; a swipe the reader makes picks the pattern.
+  // `steering` marks the belt's own slides so they are not read back as one.
+  const listRef = React.useRef<HTMLUListElement | null>(null);
+  const steering = React.useRef(0);
+  const sideways = (ul: HTMLUListElement) => ul.scrollWidth > ul.clientWidth + 1;
+  const stop = (ul: HTMLUListElement, li: HTMLElement) =>
+    Math.min(li.offsetLeft - parseFloat(getComputedStyle(ul).scrollPaddingLeft || "0"), ul.scrollWidth - ul.clientWidth);
+  React.useEffect(() => {
+    const ul = listRef.current, li = ul?.children[k] as HTMLElement | undefined;
+    if (!ul || !li || !sideways(ul)) return;
+    const left = stop(ul, li);
+    if (Math.abs(ul.scrollLeft - left) < 2) return;
+    steering.current = performance.now() + 800;
+    ul.scrollTo({ left, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  }, [k]);
+  React.useEffect(() => {
+    const ul = listRef.current;
+    if (!ul) return;
+    let t = 0;
+    const settled = () => {
+      if (performance.now() < steering.current || !sideways(ul)) return;
+      let best = 0, gap = Infinity;
+      Array.from(ul.children).forEach((li, i) => {
+        const d = Math.abs(stop(ul, li as HTMLElement) - ul.scrollLeft);
+        if (d < gap) { gap = d; best = i; }
+      });
+      setK(best);
+    };
+    const onScroll = () => { clearTimeout(t); t = window.setTimeout(settled, 120); };
+    ul.addEventListener("scroll", onScroll, { passive: true });
+    return () => { ul.removeEventListener("scroll", onScroll); clearTimeout(t); };
+  }, []);
+
   const row = ROWS[k]!;
   return (
     <section id="patterns" className="v3 pt" ref={ref}>
@@ -149,7 +184,7 @@ export function Patterns(): React.ReactElement {
                   <div className="px-user" data-show="">{ASK}</div>
                   <div className="pt-card">
                     <header><b>Patterns</b><span>RELIANCE · 1D · last 120 bars</span></header>
-                    <ul>
+                    <ul ref={listRef} onTouchStart={() => setHeld(true)} onTouchEnd={() => setHeld(false)}>
                       {ROWS.map((r, i) => (
                         <li key={r.key}>
                           <button type="button" className={i === k ? "on" : undefined} onClick={() => setK(i)}>
@@ -231,8 +266,8 @@ function Readout() {
     <div className="px-readout">
       <div className="px-ro-title"><Logo s="RELIANCE" size={18} />RELIANCE <i>· 1D ·</i> <em>NSE</em></div>
       <div className={`px-ro-row ${dn ? "dn" : "up"}`}>
-        <span><i>O</i>{formatINR(p.open)}</span><span><i>H</i>{formatINR(p.high)}</span>
-        <span><i>L</i>{formatINR(p.low)}</span><span><i>C</i>{formatINR(p.last)}</span>
+        <span className="ro-x"><i>O</i>{formatINR(p.open)}</span><span className="ro-x"><i>H</i>{formatINR(p.high)}</span>
+        <span className="ro-x"><i>L</i>{formatINR(p.low)}</span><span><i>C</i>{formatINR(p.last)}</span>
         <span>{p.change.toFixed(1)} ({p.change_pct.toFixed(2)}%)</span>
       </div>
     </div>
@@ -320,11 +355,43 @@ class ScenePrimitive implements ISeriesPrimitive<Time> {
   }
 }
 
+/** On a phone the chart shows the selected shape, not the whole 120 bars: the
+ *  bars it spans with a margin either side, and never fewer than `min`, so
+ *  the candles are bodies you can read and the drawing is large enough to
+ *  follow. A wide window keeps every bar. */
+function frameShape(chart: IChartApi, key: SceneKey, min = 34) {
+  if (!window.matchMedia(PHONE).matches) { chart.timeScale().fitContent(); return; }
+  const ts: number[] = [];
+  for (const a of scene(key)) {
+    if (a.kind === "poly") ts.push(...a.pts.map((q) => q.t));
+    else if (a.kind === "segment") ts.push(a.p1.t, a.p2.t);
+    else ts.push(a.t1, a.t2 ?? a.t1);
+  }
+  const n = BARS.length;
+  let from = ts.length ? logicalOf(Math.min(...ts)) - 5 : n - min;
+  let to = ts.length ? logicalOf(Math.max(...ts)) + 5 : n;
+  if (to - from < min) { const mid = (from + to) / 2; from = mid - min / 2; to = mid + min / 2; }
+  if (to > n + 1) { from -= to - (n + 1); to = n + 1; }
+  if (from < -0.5) { to += -0.5 - from; from = -0.5; }
+  chart.timeScale().setVisibleLogicalRange({ from, to });
+}
+
 function PatternChart({ row }: { row: Row }) {
-  const api = React.useRef<{ k: ISeriesApi<"Candlestick">; prim: ScenePrimitive } | null>(null);
+  const api = React.useRef<{ chart: IChartApi; k: ISeriesApi<"Candlestick">; prim: ScenePrimitive } | null>(null);
   const rowRef = React.useRef(row);
   rowRef.current = row;
-  React.useEffect(() => { api.current?.prim.set(scene(row.key)); }, [row]);
+  React.useEffect(() => {
+    const a = api.current;
+    if (!a) return;
+    a.prim.set(scene(row.key));
+    frameShape(a.chart, row.key);
+  }, [row]);
+  React.useEffect(() => {
+    const mq = window.matchMedia(PHONE);
+    const on = () => { const a = api.current; if (a) frameShape(a.chart, rowRef.current.key); };
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
   return (
     <LightweightChart
       height="100%"
@@ -345,8 +412,8 @@ function PatternChart({ row }: { row: Row }) {
         const prim = new ScenePrimitive();
         k.attachPrimitive(prim);
         prim.set(scene(rowRef.current.key));
-        chart.timeScale().fitContent();
-        api.current = { k, prim };
+        api.current = { chart, k, prim };
+        frameShape(chart, rowRef.current.key);
         return () => { api.current = null; };
       }}
     />

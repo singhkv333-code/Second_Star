@@ -14,3 +14,7 @@
 .main li strong { font-weight: 600; }
 .main .who { margin-top: 44px; padding-top: 8px; border-top: 1px solid #e4e1d8; }
 @media (max-width: 600px) { .main { width: calc(100% - 40px); padding-top: 112px; } .main h2 { font-size: 18px; } }
+.main .related { margin-top: 44px; padding-top: 8px; border-top: 1px solid #e4e1d8; }
+.main .related ul { list-style: none; padding-left: 0; display: flex; flex-wrap: wrap; gap: 8px 28px; }
+.main .related li { margin: 0; padding: 0; }
+.main .related + .who { margin-top: 28px; }
