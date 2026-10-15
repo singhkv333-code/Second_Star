@@ -8,8 +8,11 @@
  *
  *     ‹   [icon] Watchlist  3 / 5   + Add   ›
  *
- * The arrows (or a swipe along the bar) change the whole screen; Add opens
- * the widget hub, and the widget it adds becomes the page.
+ * The arrows (or a swipe along the bar) change the whole screen, and stop at
+ * the ends rather than wrapping. With only two pages there is one arrow, on
+ * the right, pointing at the other page: forward from the first, back from
+ * the second. Add opens the widget hub, and the widget it adds becomes the
+ * page.
  *
  * THE RULE, as in mobile.js: this file owns no workspace state. A widget page
  * is the dock's own phone sheet with that widget active (Dock.reveal), the
@@ -34,6 +37,12 @@
   const KEY = "charto:pager:page";
   const esc = (s) => String(s).replace(/[&<>"]/g,
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const LEFT = "M15 5l-7 7 7 7", RIGHT = "M9 5l7 7-7 7";
+  // The chart page's mark: a price line over its axes. The candlestick icon
+  // is the drawing rail's chart-type control, and read as that, not "Chart".
+  const CHART_ICON = `<svg viewBox="0 0 24 24" class="icon sm" aria-hidden="true"><path d="M4 4v16h16" fill="none" ` +
+    `stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M7.5 15l3.5-4 3 2.5 5-6" ` +
+    `fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
   const arrow = (d) => `<svg viewBox="0 0 24 24" class="icon" aria-hidden="true"><path d="${d}" fill="none" ` +
     `stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
@@ -44,10 +53,10 @@
   bar.className = "pgbar";
   bar.setAttribute("aria-label", "Workspace pages");
   bar.innerHTML =
-    `<button type="button" class="pg-arrow" data-dir="-1" aria-label="Previous page">${arrow("M15 5l-7 7 7 7")}</button>` +
+    `<button type="button" class="pg-arrow pg-prev" data-dir="-1" aria-label="Previous page">${arrow(LEFT)}</button>` +
     `<div class="pg-name" aria-live="polite"><span class="pg-ico"></span><span class="pg-t"></span><span class="pg-n"></span></div>` +
     `<button type="button" class="pg-add" aria-label="Add a widget">${Icons.svg("plus", "sm")}<span>Add</span></button>` +
-    `<button type="button" class="pg-arrow" data-dir="1" aria-label="Next page">${arrow("M9 5l7 7-7 7")}</button>`;
+    `<button type="button" class="pg-arrow pg-next" data-dir="1" aria-label="Next page">${arrow(RIGHT)}</button>`;
   main.after(bar);
 
   /** The pages, in order: chart, chat, then the open widgets. */
@@ -55,7 +64,7 @@
     const sym = (() => { try { return Dock.symbolOf("main") || ""; } catch { return ""; } })();
     const ws = Dock.opened().filter((w) => w.id !== "main");
     return [
-      { key: "chart", title: sym ? `Chart · ${sym}` : "Chart", icon: "candles" },
+      { key: "chart", title: sym ? `Chart · ${sym}` : "Chart", svg: CHART_ICON },
       { key: "chat", title: "Chat", icon: "chat" },
       ...ws.map((w) => ({ key: w.id, title: w.title || "Widget", icon: w.icon || "widgets" })),
     ];
@@ -106,7 +115,8 @@
     Dock.hub(false);
     const list = pages();
     const i = Math.max(0, list.findIndex((p) => p.key === page));
-    go(list[(i + dir + list.length) % list.length].key, dir);
+    const to = list[i + dir];
+    if (to) go(to.key, dir);
   }
 
   function paint() {
@@ -120,10 +130,26 @@
     const list = pages();
     const i = Math.max(0, list.findIndex((p) => p.key === page));
     const p = list[i];
-    bar.querySelector(".pg-ico").innerHTML = Icons.svg(p.icon, "sm");
+    bar.querySelector(".pg-ico").innerHTML = p.svg || Icons.svg(p.icon, "sm");
     bar.querySelector(".pg-t").textContent = p.title;
     bar.querySelector(".pg-n").textContent = `${i + 1} / ${list.length}`;
     bar.querySelector(".pg-name").setAttribute("aria-label", `${esc(p.title)}, page ${i + 1} of ${list.length}`);
+
+    // Two pages: one arrow on the right that points at the other page.
+    // More: back on the left, forward on the right, each gone at its end.
+    const prev = bar.querySelector(".pg-prev"), next = bar.querySelector(".pg-next");
+    const two = list.length === 2;
+    const showPrev = !two && i > 0;
+    const showNext = two || i < list.length - 1;
+    const back = two && i === 1;
+    next.dataset.dir = back ? "-1" : "1";
+    next.innerHTML = arrow(back ? LEFT : RIGHT);
+    next.setAttribute("aria-label", back ? `Back to ${list[0].title}` : `Next: ${list[i + 1] ? list[i + 1].title : ""}`);
+    for (const [b, on] of [[prev, showPrev], [next, showNext]]) {
+      b.style.visibility = on ? "" : "hidden";
+      b.disabled = !on;
+    }
+    if (showPrev) prev.setAttribute("aria-label", `Back: ${list[i - 1].title}`);
   }
 
   // The workspace changed under us: a widget was added from the hub or by the
