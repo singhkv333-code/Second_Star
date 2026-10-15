@@ -42,6 +42,15 @@ describe("Research section interactions", () => {
     render(<CapitalAllocationPanel symbol="TEST" />);
     expect(await screen.findByText("Reported cash-flow history is unavailable for this company.")).toBeInTheDocument();
   });
+  it.each([["Rs. Cr.", "₹1,92,113.00 Cr"], ["USD million", "1,92,113.00 USD million"]])("retains the full cash figure and its reported unit (%s)", async (unit, expected) => {
+    vi.spyOn(api, "getStatement").mockResolvedValue({ data: { ...data, statement: "cash_flow", unit, rows: [
+      { line_item: "Net CashFlow From Operating Activities", section: null, values: { "Mar 26": 192113 }, value_texts: {} },
+      { line_item: "Cash And Cash Equivalents End Of Year", section: null, values: { "Mar 26": 145977 }, value_texts: {} },
+    ] } });
+    const { container } = render(<CapitalAllocationPanel symbol="TEST" />);
+    await waitFor(() => expect(container.querySelector(".research-figure strong")).toHaveTextContent(expected));
+    expect(container.querySelectorAll(".research-figure strong")[1]).toHaveTextContent(unit === "Rs. Cr." ? "₹1,45,977.00 Cr" : "1,45,977.00 USD million");
+  });
   it("falls back to one provider for both benchmark series", async () => {
     const prices = vi.spyOn(api, "getResearchPrices").mockResolvedValueOnce({ data: bars }).mockResolvedValueOnce({ data: { ...bars, source: "yfinance" } }).mockResolvedValue({ data: { ...bars, source: "yfinance" } });
     render(<BenchmarkPerformancePanel symbol="TEST" exchange="NSE" />);

@@ -99,7 +99,6 @@ export function Explore({
               </button>
             )}
           </div>
-          <span className={cx(s.stamp, s.num)}>{rows.length} {rows.length === 1 ? "stock" : "stocks"}</span>
         </div>
 
         <div className={s.headRow} style={{ gridTemplateColumns: cols }}>

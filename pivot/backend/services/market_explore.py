@@ -19,13 +19,12 @@ One price basis per page. Live changes are used only when they cover at least
 80% of the 500; otherwise every change is the last end-of-day session. A list
 that ranks a live +3% beside a stale +3% is ranking two different days.
 
-Code computes everything. The brief (`brief()`) lets a model write three
-sentences about numbers computed here, and a gate throws the sentences away
-if they carry any number that is not one of those.
+Code computes the market snapshot. market_brief.py combines these facts with
+timestamped cross-asset quotes and headlines for the shared hourly bulletin;
+the grounding helpers below validate its numbers.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import re
@@ -42,8 +41,6 @@ LIVE_MIN_COVERAGE = 0.8
 NEAR_EXTREME_PCT = 1.0          # within 1% of the 52-week high or low
 _CACHE_KEY = "markets:explore:v1"
 _CACHE_TTL = 30 * 60         # how long a stale payload may still be served
-_BRIEF_KEY = "markets:brief:v2:"
-_BRIEF_TTL = 15 * 60
 
 # Bins for the distribution of today's moves, in percent.
 HIST_EDGES = (-5.0, -3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 5.0)
@@ -604,8 +601,11 @@ def _fact_numbers(facts: Any) -> set[float]:
     elif isinstance(facts, (int, float)) and not isinstance(facts, bool):
         out.add(abs(round(float(facts), 2)))
     elif isinstance(facts, str):
-        for m in re.findall(r"\d+(?:\.\d+)?", facts):
-            out.add(abs(round(float(m), 2)))
+        # Headlines use grouped figures ("8,000", "1,23,456.78") too.
+        # Parse evidence and output identically, or real quoted numbers are
+        # incorrectly rejected as inventions.
+        for m in _NUM_IN_TEXT.findall(facts):
+            out.add(abs(round(float(m.replace(",", "")), 2)))
     return out
 
 
@@ -638,57 +638,3 @@ def fallback_brief(f: dict) -> str:
         parts.append(f"{s['sector']} was the strongest sector at {s['change_pct']:+.2f}%, "
                      f"{w['sector']} the weakest at {w['change_pct']:+.2f}%.")
     return " ".join(parts)
-
-
-_BRIEF_SYSTEM = (
-    "You write the brief at the top of an Indian stock market overview page. "
-    "Two sentences, at most 45 words: the market's breadth in one, the "
-    "strongest and weakest sector and the single largest mover in the other. "
-    "Use ONLY the facts given and only their numbers; never add a number, a "
-    "level, a reason or a cause that is not in the facts. No advice, no "
-    "predictions, no emoji. Percentages with a sign and two decimals, as given."
-)
-
-
-async def brief(data: dict) -> dict:
-    """{text, grounded, source}. Cached per set of facts for 15 minutes."""
-    from backend.cache import redis_client
-
-    facts = brief_facts(data)
-    key = _BRIEF_KEY + hashlib.sha1(json.dumps(facts, sort_keys=True).encode()).hexdigest()[:16]
-    try:
-        raw = redis_client.get(key)
-        if raw:
-            return json.loads(raw.decode() if isinstance(raw, (bytes, bytearray)) else raw)
-    except Exception:  # noqa: BLE001
-        pass
-
-    out = {"text": fallback_brief(facts), "source": "computed", "facts": facts}
-    try:
-        from backend.llm.base import LLMMessage
-        from backend.llm.factory import get_llm_client
-
-        client = get_llm_client()
-        resp = await client.complete(
-            messages=[
-                LLMMessage(role="system", content=_BRIEF_SYSTEM),
-                LLMMessage(role="user", content=json.dumps(facts)),
-            ],
-            tools=None,
-            tool_choice="none",
-            max_output_tokens=1200,
-            reasoning_effort="low",
-            temperature=0.2,
-        )
-        text = re.sub(r"\s+", " ", (getattr(resp, "content", None) or "")).strip()
-        if text and len(text) <= 420 and grounded(text, facts):
-            out = {"text": text, "source": "model", "facts": facts}
-        elif text:
-            logger.info("[markets] brief failed the grounding gate: %s", text[:300])
-    except Exception as exc:  # noqa: BLE001 — the computed brief stands in
-        logger.info("[markets] brief model unavailable: %s", exc)
-    try:
-        redis_client.set(key, json.dumps(out), ex=_BRIEF_TTL)
-    except Exception:  # noqa: BLE001
-        pass
-    return out

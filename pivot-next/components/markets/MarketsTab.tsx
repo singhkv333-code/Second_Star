@@ -197,9 +197,9 @@ export function MarketsTab(): React.ReactElement {
           {view === "stocks" ? (
             <>
               <nav className={cx(s.navBar, "mt-4 px-4 py-2 lg:px-8")} aria-label="Sections">
-                <div ref={navRef} onScroll={syncNav} className={cx(s.fadeX, "flex items-center gap-1 overflow-x-auto")} data-fade={navMore} style={{ scrollbarWidth: "none" }}>
+                <div ref={navRef} onScroll={syncNav} className={cx(s.fadeX, "flex items-center gap-6 overflow-x-auto")} data-fade={navMore} style={{ scrollbarWidth: "none" }}>
                   {SECTIONS.map((x) => (
-                    <button key={x.id} type="button" className={s.navLink} data-active={active === x.id} onClick={() => jump(x.id)}>
+                    <button key={x.id} type="button" className={s.navLink} aria-current={active === x.id ? "location" : undefined} data-active={active === x.id} onClick={() => jump(x.id)}>
                       {x.label}
                     </button>
                   ))}
@@ -332,7 +332,7 @@ export function MarketsTab(): React.ReactElement {
             </>
           ) : (
             <div className="px-4 pb-32 pt-6 lg:px-8">
-              <AssetBoard kind={view} columns={Math.max(1, Math.min(4, Math.floor(mainW / 250)))} />
+              <AssetBoard kind={view} columns={Math.max(2, Math.min(4, Math.floor(mainW / 250)))} />
             </div>
           )}
         </div>
@@ -355,7 +355,7 @@ function Footnote({ data }: { data: MarketExplore | null }): React.ReactElement 
   if (!data) return null;
   return (
     <p className={s.stamp} style={{ whiteSpace: "normal", maxWidth: 760, lineHeight: 1.55 }}>
-      The {data.universe.size} largest NSE companies by market cap (price × shares in the latest shareholding filing).
+      NSE companies ranked by market cap (price × shares in the latest shareholding filing).
       Returns, RSI, volume and trend are end-of-day{data.as_of.eod_day ? ` as of ${fmtDay(data.as_of.eod_day)}` : ""}. P/E is price over trailing EPS.
       This is analysis, not financial advice.
     </p>

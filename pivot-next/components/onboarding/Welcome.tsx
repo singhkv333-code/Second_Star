@@ -18,7 +18,7 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeft, Check, Plus, Search, X } from "lucide-react";
+import { Check, Moon, Palette, Plus, Search, Sun, X } from "lucide-react";
 import { CompanyLogo } from "@/components/CompanyLogo";
 import { getCompanyLogos, getMe } from "@/lib/api";
 import { fallback, loadUniverse, searchInstruments, type Instrument, type InstrumentKind } from "@/lib/instruments";
@@ -268,8 +268,8 @@ export function Welcome({ onDone }: { onDone: (tour: boolean) => void }): React.
           <span className="welcome-mark"><PivotWordLogo className="welcome-mark-logo" gradient={["#ffffff", "#c3c7cd"]} /></span>
           <i className="welcome-grain" />
         </div>
-        <button type="button" className="welcome-skip" onClick={() => finish(false)}>
-          Skip <X size={14} strokeWidth={2} aria-hidden="true" />
+        <button type="button" className="welcome-skip" aria-label="Close introduction" onClick={() => finish(false)}>
+          <X size={18} strokeWidth={2} aria-hidden="true" />
         </button>
 
         <div className="welcome-body">
@@ -329,9 +329,12 @@ export function Welcome({ onDone }: { onDone: (tour: boolean) => void }): React.
                 {(["light", "dark", "custom"] as Look[]).map((l) => {
                   const p = l === "light" ? byId("ivory") : l === "dark" ? byId("charcoal") : customPreview;
                   return (
-                    <button key={l} type="button" role="radio" aria-checked={look === l} className="welcome-look" onClick={() => chooseLook(l)}>
-                      {p && <Preview p={p} />}
-                      <span>{l === "light" ? "Light" : l === "dark" ? "Dark" : "Custom"}</span>
+                    <button key={l} type="button" role="radio" aria-checked={look === l} data-look={l} className="welcome-look" onClick={() => chooseLook(l)}>
+                      {p ? <Preview p={p} /> : <span className="welcome-look-sample" aria-hidden="true" />}
+                      <span className="welcome-look-label">
+                        {l === "light" ? <Sun size={16} aria-hidden="true" /> : l === "dark" ? <Moon size={16} aria-hidden="true" /> : <Palette size={16} aria-hidden="true" />}
+                        {l === "light" ? "Light" : l === "dark" ? "Dark" : "Custom"}
+                      </span>
                     </button>
                   );
                 })}
@@ -353,7 +356,7 @@ export function Welcome({ onDone }: { onDone: (tour: boolean) => void }): React.
           <footer className="welcome-foot">
             {step > 0 ? (
               <button type="button" className="welcome-back" onClick={() => setStep(step - 1)}>
-                <ArrowLeft size={16} strokeWidth={2} aria-hidden="true" /> Back
+                Back
               </button>
             ) : (
               <div className="welcome-dots" aria-label={`Step ${step + 1} of 3`}>
@@ -363,7 +366,6 @@ export function Welcome({ onDone }: { onDone: (tour: boolean) => void }): React.
             {step === 1 && <span className="welcome-count">{chosen.length} selected</span>}
             {step === LAST ? (
               <div className="welcome-actions">
-                <button type="button" className="welcome-quiet" onClick={() => finish(false)}>Skip the tour</button>
                 <button ref={primary} type="button" className="welcome-next" onClick={() => finish(true)}>Show me around</button>
               </div>
             ) : (
