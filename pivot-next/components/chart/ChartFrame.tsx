@@ -87,6 +87,8 @@ export function ChartFrame({
   // True while a dialog is open INSIDE the frame. See the "chart:overlay"
   // handler below for why the shell has to care about the frame's modals.
   const [overlay, setOverlay] = useState(false);
+  // That dialog's own veil, so the strip the shell veils matches it exactly.
+  const [veil, setVeil] = useState<string | null>(null);
 
   // Built once per symbol. Deliberately NOT dependent on `theme`: rebuilding
   // the URL on a theme flip would reload the chart and throw away the user's
@@ -117,7 +119,7 @@ export function ChartFrame({
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
       if (e.origin !== window.location.origin || e.source !== ref.current?.contentWindow) return;
-      const d = e.data as { type?: string; open?: boolean; symbol?: unknown } | null;
+      const d = e.data as { type?: string; open?: boolean; symbol?: unknown; veil?: unknown } | null;
       if (d?.type === "chart:ready") { setReady(true); setFailed(false); }
       if (d?.type === "chart:error") { setReady(false); setFailed(true); }
       if (d?.type === "charto:open-screen") {
@@ -154,7 +156,10 @@ export function ChartFrame({
       // resolves against the real viewport, and every overlay is correct at
       // once. The chart does not reflow: the frame keeps its own box and only
       // the wrapper that positions it changes.
-      if (d?.type === "chart:overlay") setOverlay(d.open === true);
+      if (d?.type === "chart:overlay") {
+        setOverlay(d.open === true);
+        setVeil(typeof d.veil === "string" ? d.veil : null);
+      }
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
@@ -203,7 +208,7 @@ export function ChartFrame({
   return (
     <div
       className={`chart-frame-wrap relative flex flex-1 min-h-0 flex-col${overlay ? " chart-frame-wrap--overlay" : ""}`}
-      style={{ background: "var(--bg-base)" }}
+      style={{ background: "var(--bg-base)", ...(veil ? { "--chart-veil": veil } : {}) } as React.CSSProperties}
     >
     {(!ready || failed) && (
       // Drawn as the same framed window the chart paints once it is up

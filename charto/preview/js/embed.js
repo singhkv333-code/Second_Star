@@ -116,14 +116,20 @@
   const syncOverlay = () => {
     // `.open` is the shared convention; .ly-back is shown by inline display
     // instead, so treat "in the DOM and not display:none" as open for it.
-    const on = Array.prototype.some.call(
+    const top = Array.prototype.filter.call(
       document.querySelectorAll(OVERLAYS),
       (n) => n.classList.contains("open") ||
              (n.classList.contains("ly-back") && n.style.display !== "none"),
-    );
-    if (on === overlaid) return;          // only speak when it actually changes
-    overlaid = on;
-    tell({ type: "chart:overlay", open: on });
+    ).pop();
+    // The shell veils the strip of window the frame cannot cover (its nav
+    // rail) itself, so it needs THIS dialog's veil: alerts use a lighter one,
+    // indicator settings none at all. A fixed shade there drew a seam where
+    // the two met.
+    const veil = top ? getComputedStyle(top).backgroundColor : null;
+    const key = top ? veil : null;
+    if (key === overlaid) return;         // only speak when it actually changes
+    overlaid = key;
+    tell({ type: "chart:overlay", open: !!top, veil });
   };
   new MutationObserver(syncOverlay).observe(document.body, {
     subtree: true, childList: true, attributes: true,

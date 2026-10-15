@@ -103,6 +103,7 @@ const Models = (() => {
       if (menu.classList.contains("open")) return closeMenu();
       paintMenu();
       menu.classList.add("open");
+      place(menu);
       e.currentTarget.setAttribute("aria-expanded", "true");
     });
     document.addEventListener("click", (e) => { if (!chip.contains(e.target)) closeMenu(); });
@@ -112,6 +113,24 @@ const Models = (() => {
       new MutationObserver(paintChip).observe(panel, { attributes: true, attributeFilter: ["data-chat-mode"] });
     }
     paintChip();
+  }
+
+  /* The chip sits mid-row in a chat panel that can be narrow, and the panel
+     clips what spills out of it. So the menu opens under the chip's left
+     edge, slides left only as far as the panel's right edge needs, and never
+     runs past either side. */
+  function place(menu) {
+    const panel = chip.closest("#chatPanel, .chat-panel") || document.body;
+    const pr = panel.getBoundingClientRect();
+    const wr = chip.getBoundingClientRect();
+    const pad = 8;
+    const room = Math.max(160, pr.width - 2 * pad);
+    menu.style.minWidth = `${Math.min(280, room)}px`;
+    menu.style.maxWidth = `${room}px`;
+    menu.style.right = "auto";
+    const w = menu.offsetWidth;
+    const left = Math.max(pr.left + pad - wr.left, Math.min(0, pr.right - pad - w - wr.left));
+    menu.style.left = `${Math.round(left)}px`;
   }
 
   function closeMenu() {

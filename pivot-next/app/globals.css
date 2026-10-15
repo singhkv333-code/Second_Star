@@ -1408,9 +1408,13 @@ input[type="range"].payoff-slider::-moz-range-thumb {
   position: fixed;
   inset: 0 auto 0 0;
   width: var(--content-overlay-left, 0px);
-  background: rgba(0, 0, 0, 0.56);
+  /* The open dialog's own veil (sent with "chart:overlay"), so the nav rail
+     and the frame dim as one surface; fades in with the dialog's pop. */
+  background: var(--chart-veil, rgba(0, 0, 0, 0.6));
   pointer-events: auto;
+  animation: chart-veil-in 0.2s ease-out;
 }
+@keyframes chart-veil-in { from { opacity: 0; } }
 .sidebar-nav-list {
   gap: 6px;
 }
