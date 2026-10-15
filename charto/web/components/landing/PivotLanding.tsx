@@ -183,6 +183,7 @@ function Footer() {
           <a href="/terms">Terms & conditions</a>
           <a href="/privacy">Privacy policy</a>
           <a href="/pricing">Pricing</a>
+          <a href="/refunds">Refunds & cancellation</a>
         </nav>
         <div className="pl-footer2-social">
           <a href="https://www.instagram.com/investwithpivot/" target="_blank" rel="noopener noreferrer" aria-label="Pivot on Instagram (opens in a new tab)"><Instagram size={15}/></a>

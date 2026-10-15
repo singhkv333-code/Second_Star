@@ -9,6 +9,7 @@ const LINKS: { key: CompanyPageKey; label: string }[] = [
   { key: "about", label: "About" },
   { key: "terms", label: "Terms of service" },
   { key: "privacy", label: "Privacy policy" },
+  { key: "refunds", label: "Refunds and cancellation" },
   { key: "contact", label: "Contact" },
 ];
 

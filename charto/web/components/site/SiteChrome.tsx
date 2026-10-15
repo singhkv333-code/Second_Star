@@ -11,13 +11,14 @@ import * as React from "react";
 import { Nav } from "@/components/landing/PivotLanding";
 import "./site.css";
 
-export type SitePage = "about" | "terms" | "privacy" | "pricing" | "refunds" | "cancellation" | "contact";
+export type SitePage = "about" | "terms" | "privacy" | "pricing" | "refunds" | "contact";
 
 const LINKS: { key: SitePage; label: string }[] = [
   { key: "about", label: "About us" },
   { key: "terms", label: "Terms & conditions" },
   { key: "privacy", label: "Privacy policy" },
   { key: "pricing", label: "Pricing" },
+  { key: "refunds", label: "Refunds & cancellation" },
   { key: "contact", label: "Contact" },
 ];
 
