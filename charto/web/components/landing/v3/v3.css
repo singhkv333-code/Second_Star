@@ -947,14 +947,14 @@
 .pivot-landing .pl-hero h1 em { font-style: italic; letter-spacing: -0.035em; opacity: 0.82; }
 .pl-prompt-marks { display: flex; align-items: center; padding-left: 2px; }
 .pivot-landing .pl-av {
-  width: 21px; height: 21px; margin-left: -6px; background: #fff;
-  box-shadow: 0 0 0 1.5px #fafafa, 0 1px 2px rgba(0, 0, 0, 0.12);
+  width: 17px; height: 17px; margin-left: -5px; background: #fff;
+  box-shadow: 0 0 0 1.25px #fafafa, 0 1px 2px rgba(0, 0, 0, 0.1);
   transition: margin 0.3s var(--ease, ease);
 }
 .pivot-landing .pl-av:first-child { margin-left: 0; }
 .pivot-landing .pl-av img { object-fit: cover; }
-.pivot-landing .pl-av > span { font: 600 9.5px/1 Inter, sans-serif; color: #0d0d0e; background: #eee; }
-.pl-hero-prompt:hover .pl-av { margin-left: -3px; }
+.pivot-landing .pl-av > span { font: 600 8px/1 Inter, sans-serif; color: #0d0d0e; background: #eee; }
+.pl-hero-prompt:hover .pl-av { margin-left: -2px; }
 .pl-hero-prompt:hover .pl-av:first-child { margin-left: 0; }
 @media (max-width: 600px) {
   .pivot-landing .pl-hero h1 { font-size: 44px; max-width: 340px; line-height: 1; }
