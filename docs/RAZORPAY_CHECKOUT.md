@@ -1,5 +1,12 @@
 # Pivot Standard Checkout
 
+> **15 October 2026:** plan purchases now use the authenticated application's
+> Razorpay subscription flow. Public `/checkout` redirects to app checkout or
+> pricing, and arbitrary-amount `/api/create-order` returns 410. The old
+> `/api/verify-payment` remains read-only for prior receipts. See
+> [the current rollout record](deployments/2026-10-15-razorpay-subscriptions.md).
+> The remainder below documents the retired one-time flow and its earlier tests.
+
 The Vercel project `pivotnow` is linked to `charto/web`, a Next.js 15 App
 Router app. Its `/checkout` page and same-origin Node.js API routes implement
 Razorpay Standard Web Checkout. The landing footer links to Checkout.

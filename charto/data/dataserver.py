@@ -18780,7 +18780,7 @@ class Handler(BaseHTTPRequestHandler):
     def _billing_get(self, path: str) -> tuple[int, dict]:
         if path == "/billing/plans":
             return 200, {**_ent.public_catalog(),
-                         "checkout": _billing.configured()}
+                         "checkout": _billing.configured(), "test_mode": _billing.test_mode()}
         me = _auth_user(self.headers)
         uid = me[0] if me else None
         if path == "/billing/invoices":
@@ -18792,7 +18792,8 @@ class Handler(BaseHTTPRequestHandler):
             counts = {f"alerts.{k}": v
                       for k, v in _alerts.armed_counts(uid).items()}
         out = _ent.summary(uid, counts, client=self._client_ip())
-        out["checkout"] = _billing.configured()
+        out["checkout"] = _billing.checkout_available(me[1] if me else "")
+        out["test_mode"] = _billing.test_mode()
         return 200, out
 
     def _billing_post(self, path: str, raw: bytes) -> tuple[int, dict]:
@@ -18817,6 +18818,8 @@ class Handler(BaseHTTPRequestHandler):
             return _billing.api_checkout(me[0], me[1], body)
         if path == "/billing/verify":
             return _billing.api_verify(me[0], body)
+        if path == "/billing/reconcile":
+            return _billing.api_reconcile(me[0])
         if path == "/billing/cancel":
             return _billing.api_cancel(me[0])
         if path == "/billing/change":

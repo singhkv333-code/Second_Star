@@ -147,6 +147,18 @@ CREATE TABLE IF NOT EXISTS billing_events (
   result    TEXT NOT NULL DEFAULT '',
   PRIMARY KEY (provider, event_id));
 
+-- Persist BEFORE asking the provider to create a mandate. An ambiguous
+-- timeout must not create a second subscription when the browser retries.
+CREATE TABLE IF NOT EXISTS billing_checkouts (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id),
+  checkout_id TEXT NOT NULL UNIQUE,
+  plan TEXT NOT NULL,
+  cycle TEXT NOT NULL,
+  state TEXT NOT NULL,
+  provider_sub_id TEXT UNIQUE,
+  created INTEGER NOT NULL,
+  updated INTEGER NOT NULL);
+
 -- Comps and custom deals: a whole plan, or one feature's value, with an end
 -- date and a reason. Never edited in place; a new grant supersedes.
 CREATE TABLE IF NOT EXISTS entitlement_grants (
@@ -613,16 +625,24 @@ def grant(uid: int, *, reason: str, granted_by: str, plan: str | None = None,
 
 
 def record_event(provider: str, event_id: str, etype: str, payload: str) -> bool:
-    """True the first time an event is seen; False for a redelivery."""
+    """True until successfully applied; storage failures are NOT duplicates.
+
+    Applying a subscription snapshot is idempotent. A process crash after
+    receipt or application can therefore safely replay the unfinished event.
+    The billing adapter serializes delivery, without holding this DB lock
+    across provider calls. Keep the complete signed body for recovery.
+    """
     with _lock:
-        try:
-            _con.execute("INSERT INTO billing_events (provider, event_id, type, "
-                         "payload, received) VALUES (?,?,?,?,?)",
-                         (provider, event_id, etype, payload[:20000], _now()))
-            _con.commit()
-            return True
-        except Exception:                               # noqa: BLE001
-            return False
+        _con.execute("INSERT INTO billing_events (provider, event_id, type, "
+                     "payload, received) VALUES (?,?,?,?,?) "
+                     "ON CONFLICT(provider,event_id) DO NOTHING",
+                     (provider, event_id, etype, payload, _now()))
+        row = _con.execute("SELECT payload,result FROM billing_events "
+                           "WHERE provider=? AND event_id=?", (provider, event_id)).fetchone()
+        _con.commit()
+        if row[0] != payload:
+            raise ValueError("event ID reused for a different payload")
+        return not row[1] or row[1].startswith(("retry:", "error:"))
 
 
 def event_result(provider: str, event_id: str, result: str) -> None:

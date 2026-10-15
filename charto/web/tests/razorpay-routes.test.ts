@@ -32,34 +32,11 @@ beforeEach(() => {
 });
 
 describe("Standard Checkout orders", () => {
-  it.each([99, 0, -1, 100.5, "100", null, 1_000_000_001])("rejects invalid amount %s", async (amount) => {
-    expect((await createOrder(request("create-order", { amount }))).status).toBe(400);
-    expect(provider.create).not.toHaveBeenCalled();
-  });
-  it("creates an INR order and an HttpOnly server receipt without exposing the secret", async () => {
-    const response = await createOrder(request("create-order", { amount: 100, currency: "INR", receipt: "test" }));
-    expect(response.status).toBe(200);
-    expect(provider.create).toHaveBeenCalledWith({ amount: 100, currency: "INR", receipt: "test" });
-    expect(response.headers.get("set-cookie")).toMatch(/HttpOnly/);
-    expect(await response.json()).toEqual({ order_id: "order_test", amount: 100, currency: "INR", key_id: "rzp_test_fixture" });
-  });
-  it("rejects unsupported currency", async () => {
-    expect((await createOrder(request("create-order", { amount: 100, currency: "USD" }))).status).toBe(400);
-  });
-  it.each([401, 500])("handles provider error %s", async (statusCode) => {
-    provider.create.mockRejectedValue({ statusCode, error: { description: "sensitive-provider-detail" } });
+  it("retires arbitrary-amount orders without contacting the provider", async () => {
     const response = await createOrder(request("create-order", { amount: 100 }));
-    expect(response.status).toBe(statusCode);
-    expect(await response.text()).not.toContain("sensitive-provider-detail");
-  });
-  it("fails cleanly without configuration", async () => {
-    vi.stubEnv("RAZORPAY_KEY_SECRET", "");
-    expect((await createOrder(request("create-order", { amount: 100 }))).status).toBe(503);
-  });
-  it("rejects cross-origin checkout", async () => {
-    const req = request("create-order", { amount: 100 });
-    req.headers.set("origin", "https://other.example");
-    expect((await createOrder(req)).status).toBe(403);
+    expect(response.status).toBe(410);
+    expect(provider.create).not.toHaveBeenCalled();
+    expect(await response.json()).toMatchObject({ checkout_url: "https://app.pivotnow.in/pricing" });
   });
 });
 

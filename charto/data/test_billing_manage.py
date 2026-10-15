@@ -29,6 +29,7 @@ def rzp(monkeypatch):
         monkeypatch.setenv(k, v)
     calls: list[tuple] = []
     state = {"plan_id": "plan_pro_m", "fail": False}
+    entities = {}
 
     def wire(method, path, body=None):
         calls.append((method, path, body))
@@ -51,12 +52,13 @@ def rzp(monkeypatch):
                  "currency": "INR", "status": "paid", "short_url": "https://rzp.io/i/new"},
             ]}
         if method == "GET" and path == "/subscriptions/sub_1":
-            return {"id": "sub_1", "payment_method": "card",
+            return {**entities.get("sub_1", {}), "id": "sub_1", "payment_method": "card",
                     "short_url": "https://rzp.io/x"}
         return {}
 
     monkeypatch.setattr(billing, "http", wire)
     wire.calls, wire.state = calls, state
+    wire.entities = entities
     return wire
 
 
