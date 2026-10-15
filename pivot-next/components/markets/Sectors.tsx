@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { MessageCircle } from "lucide-react";
+import { ChatCircle } from "./icons";
 import { askPivot } from "@/lib/launch";
 import {
   fmtCr,
@@ -126,7 +126,7 @@ export function Heatmap({
                     <div className="truncate" style={{ fontSize: huge ? 13 : 11, fontWeight: 600, letterSpacing: "-0.01em" }}>
                       {c.item.symbol}
                     </div>
-                    <div className={s.num} style={{ fontSize: huge ? 12 : 10.5, color: "var(--text-secondary)" }}>{fmtPct(v)}</div>
+                    <div className={s.num} style={{ fontSize: huge ? 12 : 10.5, color: "var(--text-primary)" }}>{fmtPct(v)}</div>
                   </div>
                 )}
               </div>
@@ -292,12 +292,12 @@ export function RotationMap({
             { t: "Lagging", x: pad + 4, y: height - pad - 6, a: "start" },
             { t: "Improving", x: pad + 4, y: pad + 12, a: "start" },
           ].map((q) => (
-            <text key={q.t} x={q.x} y={q.y} textAnchor={q.a as "start" | "end"} fontSize={10.5} fontWeight={600} letterSpacing="0.06em" fill="var(--text-tertiary)">
+            <text key={q.t} x={q.x} y={q.y} textAnchor={q.a as "start" | "end"} fontSize={10.5} fontWeight={600} letterSpacing="0.06em" fill="var(--text-primary)">
               {q.t.toUpperCase()}
             </text>
           ))}
-          <text x={width - pad} y={height - 8} textAnchor="end" fontSize={10.5} fill="var(--text-tertiary)">1M vs market →</text>
-          <text x={X(0) + 6} y={pad - 10} fontSize={10.5} fill="var(--text-tertiary)">↑ 1W vs market</text>
+          <text x={width - pad} y={height - 8} textAnchor="end" fontSize={10.5} fill="var(--text-primary)">1M vs market →</text>
+          <text x={X(0) + 6} y={pad - 10} fontSize={10.5} fill="var(--text-primary)">↑ 1W vs market</text>
           {pts.map((p) => {
             const r = 5 + 13 * Math.sqrt(p.mcap_cr / maxCap);
             const active = selected === p.key;
@@ -328,7 +328,7 @@ export function RotationMap({
                     textAnchor={lab.anchor}
                     fontSize={11}
                     fontWeight={active ? 600 : 500}
-                    fill={active ? "var(--text-primary)" : "var(--text-secondary)"}
+                    fill={active ? "var(--text-primary)" : "var(--text-primary)"}
                   >
                     {p.label}
                   </text>
@@ -421,7 +421,7 @@ export function SectorDetail({
           className={s.ghostBtn}
           onClick={() => askPivot(`How is the ${sector.label} sector doing? It moved ${fmtPct(sector.change)} today and ${fmtPct(sector.ret_1m, 1)} over a month. What is driving it?`)}
         >
-          <MessageCircle size={14} strokeWidth={1.8} /> Ask about {sector.label}
+          <ChatCircle size={14} /> Ask about {sector.label}
         </button>
       </div>
     </div>

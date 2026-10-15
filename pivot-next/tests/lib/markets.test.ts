@@ -117,7 +117,7 @@ describe("squarify", () => {
 
 describe("moveTint", () => {
   it("is neutral without a move and capped beyond it", () => {
-    expect(moveTint(null)).toBe("var(--bg-secondary)");
+    expect(moveTint(null)).toContain("--bg-base");
     expect(moveTint(9)).toBe(moveTint(3));
     expect(moveTint(-1)).toContain("--color-loss");
   });

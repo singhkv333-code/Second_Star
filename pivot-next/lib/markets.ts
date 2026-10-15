@@ -604,7 +604,7 @@ export function squarify<T>(items: T[], weight: (t: T) => number, rect: Rect): P
  * card surface, saturating at ±cap percent. Never a full-strength fill.
  */
 export function moveTint(v: number | null | undefined, cap = 3): string {
-  if (!has(v) || v === 0) return "var(--bg-secondary)";
+  if (!has(v) || v === 0) return "color-mix(in srgb, var(--text-primary) 7%, var(--bg-base))";
   const t = Math.min(1, Math.abs(v) / cap);
   const pct = Math.round(10 + t * 40);
   const tone = v > 0 ? "var(--color-profit)" : "var(--color-loss)";

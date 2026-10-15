@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronLeft, ChevronRight, MessageCircle, Search, X } from "lucide-react";
+import { CaretLeft, CaretRight, ChatCircle, Check, MagnifyingGlass, X } from "./icons";
 import { askPivot } from "@/lib/launch";
 import {
   BATTLES,
@@ -39,10 +39,10 @@ export function Battles({
       <div className="mb-3 flex items-center justify-end gap-2">
         <span className={cx(s.stamp, s.num)}>{page + 1} / {pages}</span>
         <button type="button" className={s.iconBtn} aria-label="Previous battles" onClick={() => setPage((p) => (p - 1 + pages) % pages)}>
-          <ChevronLeft size={16} />
+          <CaretLeft size={16} />
         </button>
         <button type="button" className={s.iconBtn} aria-label="Next battles" onClick={() => setPage((p) => (p + 1) % pages)}>
-          <ChevronRight size={16} />
+          <CaretRight size={16} />
         </button>
       </div>
       <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${perPage}, minmax(0, 1fr))` }}>
@@ -67,9 +67,9 @@ function BattleCard({ battle, a, b }: { battle: Battle; a: MarketStock; b: Marke
       <div className="grid items-center gap-2" style={{ gridTemplateColumns: "minmax(0,1fr) auto minmax(0,1fr)" }}>
         <Side stock={a} align="left" lead={lead === "a"} onOpen={() => openStock(a.symbol)} />
         <div className={cx(s.num, "flex items-baseline gap-1.5 text-[26px] font-semibold tracking-tight")}>
-          <span style={{ color: lead === "b" ? "var(--text-tertiary)" : "var(--text-primary)" }}>{score.a}</span>
+          <span style={{ fontWeight: lead === "b" ? 400 : 650 }}>{score.a}</span>
           <span className={s.muted} style={{ fontSize: 16 }}>–</span>
-          <span style={{ color: lead === "a" ? "var(--text-tertiary)" : "var(--text-primary)" }}>{score.b}</span>
+          <span style={{ fontWeight: lead === "a" ? 400 : 650 }}>{score.b}</span>
         </div>
         <Side stock={b} align="right" lead={lead === "b"} onOpen={() => openStock(b.symbol)} />
       </div>
@@ -92,7 +92,7 @@ function BattleCard({ battle, a, b }: { battle: Battle; a: MarketStock; b: Marke
           className={s.ghostBtn}
           onClick={() => askPivot(`Compare ${a.name} (${a.symbol}) with ${b.name} (${b.symbol}): growth, margins, valuation and recent price action.`)}
         >
-          <MessageCircle size={14} strokeWidth={1.8} /> Ask for the full comparison
+          <ChatCircle size={14} /> Ask for the full comparison
         </button>
       </div>
     </article>
@@ -109,20 +109,20 @@ function Side({ stock, align, lead, onOpen }: { stock: MarketStock; align: "left
     >
       <Mark src={stock.logo} label={stock.name} size={32} />
       <span className="min-w-0">
-        <span className={cx(s.symbol, "block truncate")} style={{ color: lead ? "var(--text-primary)" : "var(--text-secondary)" }}>{stock.symbol}</span>
+        <span className={cx(s.symbol, "block truncate")} style={{ fontWeight: lead ? 700 : 600 }}>{stock.symbol}</span>
         <span className={cx(s.subname, "block")}>{stock.name}</span>
       </span>
     </button>
   );
 }
 
-function RoundValue({ text, win, lose, align }: { text: string; win: boolean; lose: boolean; align: "left" | "right" }): React.ReactElement {
+function RoundValue({ text, win, align }: { text: string; win: boolean; lose?: boolean; align: "left" | "right" }): React.ReactElement {
   return (
     <span
       className={cx(s.num, "truncate text-[12.5px]", align === "right" && "text-right")}
       style={{
         fontWeight: win ? 600 : 400,
-        color: lose ? "var(--text-tertiary)" : "var(--text-primary)",
+        color: "var(--text-primary)",
       }}
     >
       {align === "left" && win && <Pip />}
@@ -134,7 +134,7 @@ function RoundValue({ text, win, lose, align }: { text: string; win: boolean; lo
 
 /** The round's winner: a small check beside the number. */
 function Pip(): React.ReactElement {
-  return <Check size={12} strokeWidth={2.4} aria-label="wins" style={{ display: "inline-block", verticalAlign: "-1px", margin: "0 5px" }} />;
+  return <Check size={12} aria-label="wins" style={{ display: "inline-block", verticalAlign: "-1px", margin: "0 5px" }} />;
 }
 
 // ── one year, side by side ───────────────────────────────────────────────
@@ -302,7 +302,7 @@ function Picker({
       <span className={s.chip} data-active="false" style={{ cursor: "default" }}>
         <Mark src={picked.logo} label={picked.name} size={18} />
         {picked.symbol}
-        <button type="button" aria-label={`Remove ${picked.symbol}`} onClick={() => onPick(null)} className="ml-0.5 inline-flex border-none bg-transparent p-0" style={{ color: "var(--text-tertiary)", cursor: "pointer" }}>
+        <button type="button" aria-label={`Remove ${picked.symbol}`} onClick={() => onPick(null)} className="ml-0.5 inline-flex border-none bg-transparent p-0" style={{ color: "var(--text-primary)", cursor: "pointer" }}>
           <X size={13} />
         </button>
       </span>
@@ -310,8 +310,8 @@ function Picker({
   }
   return (
     <div ref={box} className="relative">
-      <label className="flex items-center gap-2 rounded-lg border px-2.5 py-1.5" style={{ borderColor: "var(--glass-border)", background: "var(--bg-base)" }}>
-        <Search size={14} className={s.muted} />
+      <label className="flex items-center gap-2 rounded-lg px-2.5 py-1.5" style={{ background: "var(--bg-base)" }}>
+        <MagnifyingGlass size={14} className={s.muted} />
         <input
           value={q}
           onChange={(e) => { setQ(e.target.value); setOpen(true); setHi(0); }}

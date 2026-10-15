@@ -7,7 +7,8 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, Coins, FileBarChart, Landmark, Newspaper, RefreshCw, Scissors } from "lucide-react";
+import { ArrowsClockwise, BankDuo, CalendarBlankDuo, ChartBarDuo, CoinsDuo, Newspaper, ScissorsDuo, type IconProps } from "./icons";
+import { getCompanyLogos } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   fetchCalendar,
@@ -18,7 +19,7 @@ import {
   type MarketStock,
   type NewsItem,
 } from "@/lib/markets";
-import { CardHead, Empty, Segmented, css as s, cx, useOpenStock } from "./parts";
+import { CardHead, Empty, Hint, Mark, Segmented, css as s, cx, useOpenStock } from "./parts";
 
 function ago(ts: number): string {
   const m = Math.max(0, Math.round((Date.now() / 1000 - ts) / 60));
@@ -87,7 +88,7 @@ export function NewsRail({
           <span className="flex items-center gap-1">
             <Segmented size="sm" label="News view" options={["Latest", "Movers"] as const} value={view} onChange={setView} />
             <button type="button" className={s.iconBtn} aria-label="Refresh news" onClick={() => { setItems(null); setTick((t) => t + 1); }}>
-              <RefreshCw size={13} strokeWidth={1.8} />
+              <ArrowsClockwise size={13} />
             </button>
           </span>
         }
@@ -112,17 +113,7 @@ export function NewsRail({
             <div key={n.link}>
               {i > 0 && <hr className={s.rowDivider} />}
               <a className={s.newsItem} href={n.link} target="_blank" rel="noopener noreferrer">
-                {i === 0 && n.image && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={n.image}
-                    alt=""
-                    loading="lazy"
-                    className="mb-2.5 w-full rounded-[10px] object-cover"
-                    style={{ aspectRatio: "16 / 8", background: "var(--bg-secondary)" }}
-                    onError={(e) => { e.currentTarget.style.display = "none"; }}
-                  />
-                )}
+                <NewsArt item={n} lead={syms[0] ? stocks.get(syms[0]) : undefined} />
                 <p className={s.newsTitle}>{n.title}</p>
                 <div className={s.newsMeta}>
                   <span>{n.source}</span>
@@ -154,6 +145,45 @@ export function NewsRail({
   );
 }
 
+/**
+ * Every story carries a picture: the publisher's own, or, when the feed has
+ * none (or it fails to load), the company it names on the frame's shade, or
+ * the publisher's name set large. Never a stock photo we chose.
+ */
+function NewsArt({ item, lead }: { item: NewsItem; lead?: MarketStock }): React.ReactElement {
+  const [broken, setBroken] = useState(false);
+  const box: React.CSSProperties = { aspectRatio: "16 / 8", borderRadius: 10, background: "var(--shell-chrome)" };
+  if (item.image && !broken) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={item.image}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        className="mb-2.5 block w-full object-cover"
+        style={box}
+        onError={() => setBroken(true)}
+      />
+    );
+  }
+  return (
+    <div className="mb-2.5 flex w-full items-center justify-center gap-3" style={box} aria-hidden>
+      {lead ? (
+        <>
+          <Mark src={lead.logo} label={lead.name} size={44} />
+          <span className="text-[15px] font-semibold tracking-tight">{lead.name}</span>
+        </>
+      ) : (
+        <>
+          <Newspaper size={26} />
+          <span className="text-[15px] font-semibold tracking-tight">{item.source}</span>
+        </>
+      )}
+    </div>
+  );
+}
+
 function maxMove(syms: string[], stocks: Map<string, MarketStock>): number {
   return Math.max(0, ...syms.map((x) => Math.abs(stocks.get(x)?.change ?? 0)));
 }
@@ -162,13 +192,28 @@ function maxMove(syms: string[], stocks: Map<string, MarketStock>): number {
 
 type CalView = "All" | "Results" | "Dividends" | "Macro";
 
-const KIND_ICON: Record<string, React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>> = {
-  dividend: Coins,
-  results: FileBarChart,
-  board: CalendarDays,
-  macro: Landmark,
-  action: Scissors,
+/** Each kind of event gets its own symbol and a quiet colour. */
+const KINDS: Record<string, { Icon: React.ComponentType<IconProps>; tone: string; name: string }> = {
+  results: { Icon: ChartBarDuo, tone: "var(--pivot-blue)", name: "Results" },
+  dividend: { Icon: CoinsDuo, tone: "var(--color-profit)", name: "Dividend" },
+  action: { Icon: ScissorsDuo, tone: "var(--color-warn)", name: "Corporate action" },
+  board: { Icon: CalendarBlankDuo, tone: "#7c5cbf", name: "Board meeting" },
+  macro: { Icon: BankDuo, tone: "var(--text-primary)", name: "Macro" },
 };
+
+function KindMark({ kind, size = 28 }: { kind: string; size?: number }): React.ReactElement {
+  const k = KINDS[kind] ?? KINDS.board!;
+  return (
+    <Hint text={k.name}>
+      <span
+        className="inline-flex items-center justify-center"
+        style={{ width: size, height: size, borderRadius: 8, flex: "none", color: k.tone, background: `color-mix(in srgb, ${k.tone} 13%, var(--bg-base))` }}
+      >
+        <k.Icon size={Math.round(size * 0.58)} />
+      </span>
+    </Hint>
+  );
+}
 
 function inView(i: CalendarItem, v: CalView): boolean {
   if (v === "All") return true;
@@ -191,6 +236,8 @@ export function EventsCalendar({ stocks }: { stocks: Map<string, MarketStock> })
   const [all, setAll] = useState(false);
   const openStock = useOpenStock();
 
+  const [logos, setLogos] = useState<Record<string, string | null>>({});
+
   useEffect(() => {
     let alive = true;
     fetchCalendar(14).then((xs) => alive && setItems(xs)).catch(() => alive && setFailed(true));
@@ -205,7 +252,18 @@ export function EventsCalendar({ stocks }: { stocks: Map<string, MarketStock> })
       || Number(!(a.symbol && stocks.has(a.symbol))) - Number(!(b.symbol && stocks.has(b.symbol)))
       || (stocks.get(b.symbol ?? "")?.mcap_cr ?? 0) - (stocks.get(a.symbol ?? "")?.mcap_cr ?? 0));
   }, [items, view, stocks]);
-  const shown = all ? rows.slice(0, 80) : rows.slice(0, 12);
+  const shown = all ? rows.slice(0, 80) : rows.slice(0, 18);
+
+  // Logos for the companies outside the 500, fetched for what is on screen.
+  useEffect(() => {
+    const want = shown.map((i) => i.symbol).filter((x): x is string => !!x && !stocks.has(x) && !(x in logos));
+    if (!want.length) return;
+    let alive = true;
+    void getCompanyLogos(want).then((m) => {
+      if (alive) setLogos((cur) => ({ ...cur, ...Object.fromEntries(want.map((x) => [x, m[x] ?? null])) }));
+    });
+    return () => { alive = false; };
+  }, [shown, stocks, logos]);
 
   const days = useMemo(() => {
     const out: { date: string; items: CalendarItem[] }[] = [];
@@ -232,38 +290,42 @@ export function EventsCalendar({ stocks }: { stocks: Map<string, MarketStock> })
       ) : days.length === 0 ? (
         <Empty text="Nothing scheduled." />
       ) : (
-        <div className="grid gap-x-8 gap-y-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))" }}>
+        <div className="flex flex-col gap-5">
           {days.map((d) => (
             <div key={d.date} className="min-w-0">
-              <div className={cx(s.label, "mb-1")}>
+              <div className={cx(s.label, "mb-1.5 text-[12px] font-semibold")}>
                 {new Date(`${d.date}T00:00:00`).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })}
               </div>
+              <div className="grid gap-x-6" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))" }}>
               {d.items.map((i, k) => {
-                const Icon = KIND_ICON[i.kind] ?? CalendarDays;
                 const listed = i.symbol && stocks.has(i.symbol);
+                const company = i.symbol && i.kind !== "macro";
+                const logo = i.symbol ? stocks.get(i.symbol)?.logo ?? logos[i.symbol] ?? null : null;
                 return (
                   <div
                     key={`${i.symbol}-${i.kind}-${k}`}
                     className={s.row}
-                    style={{ gridTemplateColumns: "18px minmax(0,1fr)", cursor: listed ? "pointer" : "default" }}
+                    style={{ gridTemplateColumns: "30px minmax(0,1fr) 28px", cursor: listed ? "pointer" : "default" }}
                     onClick={() => listed && openStock(i.symbol!)}
                   >
-                    <Icon size={14} strokeWidth={1.8} className={s.muted} />
+                    {company ? <Mark src={logo} label={i.title || i.symbol!} size={30} /> : <KindMark kind={i.kind} size={30} />}
                     <span className="min-w-0">
-                      <span className="block truncate text-[12.5px] font-medium">
-                        {i.symbol && i.kind !== "macro" ? i.symbol : i.title}
-                        {i.time ? <span className={cx(s.muted, "ml-1.5 font-normal")}>{i.time}</span> : null}
+                      <span className="block truncate text-[12.5px] font-semibold">
+                        {company ? i.symbol : i.title}
+                        {i.time ? <span className="ml-1.5 font-normal">{i.time}</span> : null}
                       </span>
-                      <span className={cx(s.subname, "block")}>{eventLine(i)}</span>
+                      <span className={cx(s.subname, "block")}>{company ? eventLine(i) : i.detail || i.region || ""}</span>
                     </span>
+                    {company ? <KindMark kind={i.kind} size={24} /> : <span />}
                   </div>
                 );
               })}
+              </div>
             </div>
           ))}
         </div>
       )}
-      {rows.length > 12 && (
+      {rows.length > 18 && (
         <div className="mt-3 flex justify-center">
           <button type="button" className={s.ghostBtn} onClick={() => setAll((a) => !a)}>
             {all ? "Show fewer" : `Show all ${Math.min(rows.length, 80)}`}

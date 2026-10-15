@@ -22,7 +22,8 @@ import { CompanyLogo } from "@/components/CompanyLogo";
 import { getCompanyLogos, getMe } from "@/lib/api";
 import { fallback, loadUniverse, searchInstruments, type Instrument } from "@/lib/instruments";
 import { isError } from "@/lib/types";
-import { PIVOT_ICON, WELCOME_ART } from "@/lib/publicAssets";
+import { WELCOME_ART } from "@/lib/publicAssets";
+import { PivotWordLogo } from "@/components/brand/PivotWordLogo";
 import { setWatchlist, useWatchlists } from "@/lib/watchlists";
 import type { WorkspacePalette } from "@/lib/workspace-theme";
 import "./welcome.css";
@@ -199,8 +200,9 @@ export function Welcome({ onDone }: { onDone: (tour: boolean) => void }): React.
             // eslint-disable-next-line @next/next/no-img-element
             <img key={src} src={src} alt="" className={i === step ? "on" : ""} />
           ))}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={PIVOT_ICON} alt="" className="welcome-mark" />
+          {/* The wordmark as vector on a solid plate: crisp at any density,
+              and it never sinks into the painting behind it. */}
+          <span className="welcome-mark"><PivotWordLogo className="welcome-mark-logo" /></span>
           <i className="welcome-grain" />
         </div>
         <button type="button" className="welcome-skip" onClick={() => finish(false)}>

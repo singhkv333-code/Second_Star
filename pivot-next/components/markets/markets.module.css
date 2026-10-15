@@ -1,14 +1,17 @@
 /*
- * Markets tab. Ink on paper: the only hue is the gain/loss pair, used for
- * figures and as a muted wash on the heatmap. Borders, not shadows. One type
- * family (Inter, tabular figures), Newsreader only for the brief.
+ * Markets tab. Ink on paper: text is black at every size, the only hue is the
+ * gain/loss pair (figures, the heatmap's wash, the calendar's kinds). Surfaces
+ * are the shell frame's shade with no borders. Selected controls are ink
+ * filled. One type family (Inter, tabular figures), Newsreader for the brief.
  */
 
 .root {
   --mk-border: var(--glass-border);
   --mk-border-strong: var(--glass-border-hover);
-  --mk-hover: var(--surface-hover);
-  --mk-active: var(--surface-active);
+  --mk-card: var(--shell-chrome);
+  --mk-hover: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  --mk-active: color-mix(in srgb, var(--text-primary) 9%, transparent);
+  --mk-ink: var(--text-primary);
   --mk-radius: 14px;
   --mk-up: var(--color-profit);
   --mk-down: var(--color-loss);
@@ -23,8 +26,8 @@
 }
 .up { color: var(--mk-up); }
 .down { color: var(--mk-down); }
-.muted { color: var(--text-tertiary); }
-.soft { color: var(--text-secondary); }
+.muted { color: var(--mk-ink); }
+.soft { color: var(--mk-ink); }
 
 /* ── layout ─────────────────────────────────────────────────────────── */
 
@@ -38,13 +41,12 @@
 
 .stamp {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--mk-ink);
   white-space: nowrap;
 }
 
 .card {
-  background: var(--bg-base);
-  border: 1px solid var(--mk-border);
+  background: var(--mk-card);
   border-radius: var(--mk-radius);
   min-width: 0;
 }
@@ -68,7 +70,7 @@
 .sectionCaption {
   margin: 3px 0 0;
   font-size: 12.5px;
-  color: var(--text-tertiary);
+  color: var(--mk-ink);
 }
 .cardTitle {
   margin: 0;
@@ -81,7 +83,7 @@
   font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.02em;
-  color: var(--text-tertiary);
+  color: var(--mk-ink);
 }
 
 /* ── in-page navigation ─────────────────────────────────────────────── */
@@ -90,45 +92,37 @@
   position: sticky;
   top: 0;
   z-index: 5;
-  background: color-mix(in srgb, var(--bg-inset, var(--bg-base)) 88%, transparent);
+  background: color-mix(in srgb, var(--bg-inset, var(--bg-base)) 90%, transparent);
   backdrop-filter: saturate(140%) blur(10px);
   -webkit-backdrop-filter: saturate(140%) blur(10px);
-  border-bottom: 1px solid var(--mk-border);
 }
 .navLink {
-  position: relative;
-  padding: 11px 2px;
+  padding: 6px 13px;
+  font: inherit;
   font-size: 13px;
   font-weight: 500;
-  color: var(--text-tertiary);
+  color: var(--mk-ink);
   background: none;
   border: none;
+  border-radius: var(--radius-xs);
   cursor: pointer;
   white-space: nowrap;
-  transition: color 160ms var(--ease-quartr);
+  transition: color 0.2s var(--ease-quartr), background-color 0.2s var(--ease-quartr);
 }
-.navLink:hover { color: var(--text-primary); }
-.navLink[data-active="true"] { color: var(--text-primary); }
-.navLink[data-active="true"]::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -1px;
-  height: 2px;
-  border-radius: 2px;
-  background: var(--text-primary);
-}
+.navLink:hover { background: var(--mk-card); }
+.navLink[data-active="true"] { color: var(--bg-primary); background: var(--text-primary); }
 
 /* ── controls ───────────────────────────────────────────────────────── */
 
+/* The app's toggle (Portfolio's Overview / Orders / History): a white track
+   with a hairline border, an ink pill for the selected item. */
 .segmented {
   display: inline-flex;
   padding: 3px;
   gap: 2px;
-  border-radius: 10px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--mk-border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-base);
+  border: 1px solid var(--glass-border);
   max-width: 100%;
   overflow-x: auto;
   scrollbar-width: none;
@@ -137,23 +131,22 @@
 .segItem {
   border: none;
   background: transparent;
-  color: var(--text-tertiary);
+  color: var(--mk-ink);
   font: inherit;
   font-size: 12.5px;
   font-weight: 500;
-  padding: 5px 11px;
-  border-radius: 7px;
+  padding: 6px 14px;
+  border-radius: var(--radius-xs);
   cursor: pointer;
   white-space: nowrap;
-  transition: color 150ms var(--ease-quartr), background 150ms var(--ease-quartr), box-shadow 150ms var(--ease-quartr);
+  transition: color 0.2s var(--ease-quartr), background-color 0.2s var(--ease-quartr);
 }
-.segItem:hover { color: var(--text-primary); }
+.segItem:hover { background: var(--mk-card); }
 .segItem[data-active="true"] {
-  color: var(--text-primary);
-  background: var(--bg-base);
-  box-shadow: 0 1px 2px rgba(15, 18, 22, 0.08), 0 0 0 1px var(--mk-border);
+  color: var(--bg-primary);
+  background: var(--text-primary);
 }
-.segSm .segItem { padding: 4px 9px; font-size: 12px; }
+.segSm .segItem { padding: 5px 11px; font-size: 12px; }
 
 .chipRow {
   display: flex;
@@ -166,14 +159,14 @@
 .chipRow::-webkit-scrollbar { display: none; }
 .chip {
   flex: none;
-  border: 1px solid var(--mk-border);
-  background: var(--bg-base);
-  color: var(--text-secondary);
+  border: none;
+  background: var(--mk-card);
+  color: var(--mk-ink);
   font: inherit;
   font-size: 12.5px;
   font-weight: 500;
   padding: 6px 12px;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   white-space: nowrap;
   display: inline-flex;
@@ -181,22 +174,21 @@
   gap: 6px;
   transition: border-color 150ms var(--ease-quartr), color 150ms var(--ease-quartr), background 150ms var(--ease-quartr);
 }
-.chip:hover { border-color: var(--mk-border-strong); color: var(--text-primary); }
+.chip:hover { background: var(--mk-active); }
 .chip[data-active="true"] {
   background: var(--text-primary);
-  border-color: var(--text-primary);
-  color: var(--bg-base);
+  color: var(--bg-primary);
 }
-.chip[data-active="true"] .chipValue { color: inherit; opacity: 0.75; }
+.chip[data-active="true"] .chipValue { color: inherit; opacity: 0.85; }
 .chipValue { font-size: 11.5px; font-variant-numeric: tabular-nums; }
 
 .ghostBtn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border: 1px solid var(--mk-border);
+  border: none;
   background: var(--bg-base);
-  color: var(--text-secondary);
+  color: var(--mk-ink);
   font: inherit;
   font-size: 12.5px;
   font-weight: 500;
@@ -205,7 +197,7 @@
   cursor: pointer;
   transition: border-color 150ms var(--ease-quartr), color 150ms var(--ease-quartr), background 150ms var(--ease-quartr);
 }
-.ghostBtn:hover { border-color: var(--mk-border-strong); color: var(--text-primary); background: var(--mk-hover); }
+.ghostBtn:hover { background: var(--mk-ink); color: var(--bg-base); }
 .ghostBtn:disabled { opacity: 0.4; cursor: default; }
 
 .iconBtn {
@@ -216,12 +208,12 @@
   justify-content: center;
   border: none;
   background: transparent;
-  color: var(--text-tertiary);
+  color: var(--mk-ink);
   border-radius: 7px;
   cursor: pointer;
   transition: color 150ms var(--ease-quartr), background 150ms var(--ease-quartr);
 }
-.iconBtn:hover { color: var(--text-primary); background: var(--mk-active); }
+.iconBtn:hover { background: var(--mk-active); }
 
 /* ── rows ───────────────────────────────────────────────────────────── */
 
@@ -239,7 +231,7 @@
 .row:hover { background: var(--mk-hover); }
 .row .rowActions { opacity: 0; transition: opacity 140ms var(--ease-quartr); }
 .row:hover .rowActions, .row:focus-within .rowActions { opacity: 1; }
-.rowDivider { border-top: 1px solid var(--mk-border); margin: 0; }
+.rowDivider { border: none; border-top: 1px solid var(--mk-border); margin: 0; }
 
 .headRow {
   display: grid;
@@ -247,7 +239,7 @@
   padding: 0 0 8px;
   font-size: 11px;
   font-weight: 500;
-  color: var(--text-tertiary);
+  color: var(--mk-ink);
   border-bottom: 1px solid var(--mk-border);
   margin-bottom: 4px;
 }
@@ -255,7 +247,7 @@
 .symbol { font-size: 13.5px; font-weight: 600; letter-spacing: -0.01em; }
 .subname {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--mk-ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -264,8 +256,8 @@
 /* ── tiles ──────────────────────────────────────────────────────────── */
 
 .tile {
-  background: var(--bg-base);
-  border: 1px solid var(--mk-border);
+  background: var(--mk-card);
+  border: none;
   border-radius: 12px;
   padding: 12px 14px;
   min-width: 0;
@@ -275,7 +267,7 @@
   color: inherit;
   transition: border-color 160ms var(--ease-quartr), transform 160ms var(--ease-quartr), background 160ms var(--ease-quartr);
 }
-.tile:hover { border-color: var(--mk-border-strong); background: var(--glass-bg-hover); }
+.tile:hover { background: color-mix(in srgb, var(--mk-card), var(--text-primary) 5%); }
 
 /* ── heatmap ────────────────────────────────────────────────────────── */
 
@@ -288,7 +280,7 @@
 .heatCell {
   position: absolute;
   box-sizing: border-box;
-  border: 1px solid var(--bg-base);
+  border: 1px solid var(--mk-card);
   border-radius: 6px;
   overflow: hidden;
   padding: 6px 7px;
@@ -304,7 +296,7 @@
   font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.02em;
-  color: var(--text-secondary);
+  color: var(--mk-ink);
   text-transform: uppercase;
   padding: 4px 6px;
   white-space: nowrap;
@@ -323,8 +315,8 @@
   padding: 9px 11px;
   border-radius: 10px;
   background: var(--bg-base);
-  border: 1px solid var(--mk-border-strong);
-  box-shadow: 0 8px 24px rgba(15, 18, 22, 0.12);
+  border: none;
+  box-shadow: 0 10px 30px rgba(15, 18, 22, 0.16), 0 0 0 1px rgba(15, 18, 22, 0.05);
   font-size: 12px;
   line-height: 1.45;
 }
@@ -365,18 +357,18 @@
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.newsMeta { margin-top: 5px; font-size: 11.5px; color: var(--text-tertiary); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.newsMeta { margin-top: 5px; font-size: 11.5px; color: var(--mk-ink); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .tag {
   font-size: 11.5px;
   font-weight: 600;
-  color: var(--text-secondary);
+  color: var(--mk-ink);
   background: none;
   border: none;
   padding: 0;
   cursor: pointer;
   font-variant-numeric: tabular-nums;
 }
-.tag:hover { color: var(--text-primary); text-decoration: underline; text-underline-offset: 2px; }
+.tag:hover { text-decoration: underline; text-underline-offset: 2px; }
 
 .scrollHide { scrollbar-width: none; }
 .scrollHide::-webkit-scrollbar { display: none; }

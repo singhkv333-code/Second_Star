@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Info } from "lucide-react";
+import { Info } from "./icons";
 import {
   LENSES,
   fmtPrice,
@@ -90,7 +90,7 @@ export function Explore({
             <span className="text-[13px] font-semibold">{lens.label}</span>
             <Hint text={lens.hint}>
               <button type="button" className={s.iconBtn} aria-label="How this list is made" style={{ width: 22, height: 22 }}>
-                <Info size={13} strokeWidth={1.8} />
+                <Info size={13} />
               </button>
             </Hint>
             {sectorLabel && (

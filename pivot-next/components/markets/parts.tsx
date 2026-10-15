@@ -6,8 +6,8 @@
  */
 
 import { useRouter } from "next/navigation";
-import { useId, useMemo } from "react";
-import { ChartCandlestick, MessageCircle } from "lucide-react";
+import { useId, useMemo, useState } from "react";
+import { ChartLineUp, ChatCircle, type IconProps } from "./icons";
 import { askPivot } from "@/lib/launch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { fmtPct } from "@/lib/markets";
@@ -46,14 +46,14 @@ export function CardHead({
   title,
   right,
 }: {
-  Icon?: React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
+  Icon?: React.ComponentType<IconProps>;
   title: string;
   right?: React.ReactNode;
 }): React.ReactElement {
   return (
     <div className="mb-3 flex items-center justify-between gap-3">
       <div className="flex min-w-0 items-center gap-2">
-        {Icon && <Icon size={15} strokeWidth={1.8} className={s.muted} />}
+        {Icon && <Icon size={15} className={s.muted} />}
         <h3 className={s.cardTitle}>{title}</h3>
       </div>
       {right}
@@ -218,21 +218,21 @@ export function RangeBar({ pos, width = 64 }: { pos: number | null; width?: numb
 // ── logos ────────────────────────────────────────────────────────────────
 
 export function Mark({ src, label, size = 28 }: { src?: string | null; label: string; size?: number }): React.ReactElement {
+  const [broken, setBroken] = useState(false);
   const box: React.CSSProperties = {
     width: size,
     height: size,
     flex: "none",
     borderRadius: 8,
-    border: "1px solid var(--glass-border)",
     background: "var(--bg-base)",
     overflow: "hidden",
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
   };
-  if (!src) {
+  if (!src || broken) {
     return (
-      <span aria-hidden style={{ ...box, background: "var(--bg-secondary)", fontSize: size * 0.4, fontWeight: 600, color: "var(--text-secondary)" }}>
+      <span aria-hidden style={{ ...box, fontSize: size * 0.42, fontWeight: 650, color: "var(--text-primary)" }}>
         {label.trim()[0]?.toUpperCase() ?? "·"}
       </span>
     );
@@ -247,7 +247,7 @@ export function Mark({ src, label, size = 28 }: { src?: string | null; label: st
         height={size}
         loading="lazy"
         style={{ width: "100%", height: "100%", objectFit: "contain" }}
-        onError={(e) => { e.currentTarget.style.visibility = "hidden"; }}
+        onError={() => setBroken(true)}
       />
     </span>
   );
@@ -279,7 +279,7 @@ export function RowActions({ symbol, name }: { symbol: string; name: string }): 
           className={s.iconBtn}
           onClick={(e) => { stop(e); openChart(symbol); }}
         >
-          <ChartCandlestick size={15} strokeWidth={1.8} />
+          <ChartLineUp size={15} />
         </button>
       </Hint>
       <Hint text="Ask Pivot">
@@ -289,7 +289,7 @@ export function RowActions({ symbol, name }: { symbol: string; name: string }): 
           className={s.iconBtn}
           onClick={(e) => { stop(e); askPivot(`What is moving ${name} (${symbol}) and how does it compare with its sector?`); }}
         >
-          <MessageCircle size={15} strokeWidth={1.8} />
+          <ChatCircle size={15} />
         </button>
       </Hint>
     </span>
@@ -298,7 +298,7 @@ export function RowActions({ symbol, name }: { symbol: string; name: string }): 
 
 export function Empty({ text, height = 120 }: { text: string; height?: number }): React.ReactElement {
   return (
-    <div className="flex items-center justify-center text-center" style={{ minHeight: height, fontSize: 12.5, color: "var(--text-tertiary)" }}>
+    <div className="flex items-center justify-center text-center" style={{ minHeight: height, fontSize: 12.5, color: "var(--text-primary)" }}>
       {text}
     </div>
   );

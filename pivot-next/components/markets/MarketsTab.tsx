@@ -17,7 +17,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { ArrowsClockwise } from "./icons";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Skeleton } from "@/components/ui/skeleton";
 import { publishVisible } from "@/lib/assist";
@@ -173,8 +173,8 @@ export function MarketsTab(): React.ReactElement {
 
           {view === "stocks" ? (
             <>
-              <nav className={cx(s.navBar, "mt-4 px-4 lg:px-8")} aria-label="Sections">
-                <div className="flex items-center gap-6 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+              <nav className={cx(s.navBar, "mt-4 px-4 py-2 lg:px-8")} aria-label="Sections">
+                <div className="flex items-center gap-1 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
                   {SECTIONS.map((x) => (
                     <button key={x.id} type="button" className={s.navLink} data-active={active === x.id} onClick={() => jump(x.id)}>
                       {x.label}
@@ -191,7 +191,7 @@ export function MarketsTab(): React.ReactElement {
                   <Empty text={error} />
                   <div className="flex justify-center">
                     <button type="button" className={s.ghostBtn} onClick={() => setReload((n) => n + 1)}>
-                      <RefreshCw size={14} /> Try again
+                      <ArrowsClockwise size={14} /> Try again
                     </button>
                   </div>
                 </div>
@@ -210,7 +210,6 @@ export function MarketsTab(): React.ReactElement {
                   <section id="mk-sectors" aria-label="Sectors">
                     <SectionHead
                       title="Sectors"
-                      caption="Sized by market cap, shaded by the move"
                       right={<Segmented size="sm" label="Period" options={PERIODS} value={period} onChange={setPeriod} />}
                     />
                     <div className={cx(s.chipRow, "mb-3")}>
@@ -270,7 +269,7 @@ export function MarketsTab(): React.ReactElement {
 
                   {/* Explore */}
                   <section id="mk-explore" aria-label="Explore">
-                    <SectionHead title="Explore" caption="The 500 largest companies, cut a dozen ways" />
+                    <SectionHead title="Explore" />
                     {data ? (
                       <Explore
                         stocks={data.stocks}
@@ -288,13 +287,13 @@ export function MarketsTab(): React.ReactElement {
 
                   {/* Battles */}
                   <section id="mk-battles" aria-label="Battles">
-                    <SectionHead title="Battles" caption="Rivals, six rounds, one year side by side" />
+                    <SectionHead title="Battles" />
                     {data ? <Battles stocks={stocks} perPage={battlesPerPage} /> : <Skeleton style={{ height: 420 }} />}
                   </section>
 
                   {/* Calendar */}
                   <section id="mk-calendar" aria-label="Calendar">
-                    <SectionHead title="Calendar" caption="Results, dividends and macro events ahead" />
+                    <SectionHead title="Calendar" />
                     <EventsCalendar stocks={stocks} />
                   </section>
 

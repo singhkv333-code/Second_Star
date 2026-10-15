@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Activity, MessageCircle, Sparkles } from "lucide-react";
+import { ChatCircle, Pulse, Sparkle } from "./icons";
 import { Skeleton } from "@/components/ui/skeleton";
 import { askPivot } from "@/lib/launch";
 import { isError } from "@/lib/types";
@@ -49,7 +49,7 @@ export function BriefCard({ data }: { data: MarketExplore | null }): React.React
 
   return (
     <section className={cx(s.card, s.cardPad, "flex h-full flex-col")} aria-label="Market brief">
-      <CardHead Icon={Sparkles} title="Brief" />
+      <CardHead Icon={Sparkle} title="Brief" />
       <div className="flex-1">
         {brief ? (
           <p className={s.brief}>{brief.text}</p>
@@ -73,7 +73,7 @@ export function BriefCard({ data }: { data: MarketExplore | null }): React.React
           disabled={!brief}
           onClick={() => askPivot(`The market brief says: "${brief?.text ?? ""}" What is driving this, and which sectors should I look at more closely?`)}
         >
-          <MessageCircle size={14} strokeWidth={1.8} /> Ask a follow-up
+          <ChatCircle size={14} /> Ask a follow-up
         </button>
       </div>
     </section>
@@ -85,7 +85,7 @@ export function BriefCard({ data }: { data: MarketExplore | null }): React.React
 export function BreadthCard({ breadth }: { breadth: MarketBreadth | null }): React.ReactElement {
   return (
     <section className={cx(s.card, s.cardPad, "flex h-full flex-col")} aria-label="Market breadth">
-      <CardHead Icon={Activity} title="Breadth" />
+      <CardHead Icon={Pulse} title="Breadth" />
       {!breadth ? (
         <div className="flex flex-col gap-3">
           <Skeleton style={{ height: 28, width: "70%" }} />
@@ -241,7 +241,7 @@ export function MarketStrip(): React.ReactElement {
           return (
             <button key={x.symbol} type="button" className={s.tile} onClick={() => openChart(x.symbol)}>
               <div className="flex items-start justify-between gap-2">
-                <span className="truncate text-[12px] font-medium" style={{ color: "var(--text-secondary)" }}>{x.label}</span>
+                <span className="truncate text-[12px] font-medium" style={{ color: "var(--text-primary)" }}>{x.label}</span>
                 <Delta v={q?.change_pct ?? null} className="text-[11.5px] font-medium" />
               </div>
               {quotes ? (
