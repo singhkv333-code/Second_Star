@@ -20,20 +20,26 @@ Flow (OAuth brokers, e.g. Kite):
 Credential-only brokers (Dhan PIN+TOTP / pasted token) skip the redirect and
 POST to /brokers/{broker}/credentials.
 """
+import html
+import json
 import logging
+import os
+import urllib.error
+import urllib.request
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from jose import JWTError, jwt
 from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from backend.auth.jwt_handler import get_user_id_from_token
 from backend.brokers.registry import get_connector, is_supported, list_connectors
-from backend.brokers.sessions import get_broker_session
+from backend.brokers.sessions import get_broker_session, upsert_broker_session
 from backend.config import settings
 from backend.database import get_db
 from backend.models import BrokerSession, User
@@ -328,6 +334,96 @@ def broker_disconnect(
 
 
 # ── OAuth callback (public — identity comes from the state JWT) ─────────────
+def _rearm_charto_kite_feed() -> str:
+    """Restart charto's Kite stream so it picks up the session just stored.
+
+    The stream reads the token once, when it starts, so a morning login is
+    invisible to it until it is re-armed. Stop (a 404 means none was running)
+    then start through charto's operator endpoint. Returns a short status for
+    the confirmation page; never raises, because the session is already saved
+    and a failed re-arm must not read as a failed login."""
+    key = (os.environ.get("CHARTO_FEED_CONTROL_KEY") or "").strip()
+    if not key:
+        return "not re-armed: CHARTO_FEED_CONTROL_KEY is not set"
+    url = (os.environ.get("CHARTO_INTERNAL_URL") or "http://127.0.0.1:5174").rstrip("/") + "/live"
+
+    def post(body: dict) -> int:
+        req = urllib.request.Request(
+            url, data=json.dumps(body).encode(), method="POST",
+            headers={"Content-Type": "application/json", "X-Pivot-Feed-Key": key})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return resp.status
+        except urllib.error.HTTPError as exc:
+            return exc.code
+
+    try:
+        post({"venue": "kite", "stop": True})
+        code = post({"venue": "kite", "symbols": []})
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("kite feed re-arm failed: %s", type(exc).__name__)
+        return f"not re-armed: {type(exc).__name__}"
+    return "re-armed" if code == 200 else f"not re-armed: charto answered {code}"
+
+
+def _data_feed_page(ok: bool, message: str) -> HTMLResponse:
+    title = "Market data connected" if ok else "Market data not connected"
+    body = (
+        "<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width'>"
+        f"<title>{title}</title>"
+        "<body style='font:16px/1.5 system-ui,sans-serif;background:#0b0c0c;color:#e8e6e1;"
+        "max-width:560px;margin:15vh auto;padding:0 16px'>"
+        f"<h1 style='font-weight:500'>{title}</h1><p>{html.escape(message)}</p></body>"
+    )
+    return HTMLResponse(body, status_code=200 if ok else 400)
+
+
+def _complete_data_feed_login(db: Session, request_token: str) -> HTMLResponse:
+    """Store the pinned data account's daily Kite session and re-arm the feed.
+
+    Safe without a state JWT: the request_token can only be exchanged with our
+    api_secret, and the exchange itself names the Kite account, so a login by
+    anyone other than ``settings.kite_data_account`` is refused before any row
+    is written. The session goes to the user who already owns that account."""
+    from backend.kite import auth as kite_auth
+
+    pinned = (settings.kite_data_account or "").strip().upper()
+    if not pinned or pinned == "*":
+        logger.warning("data-feed login refused: no pinned kite_data_account")
+        return _data_feed_page(False, "No market-data account is configured on this server.")
+    try:
+        data = kite_auth.exchange_request_token(request_token)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("data-feed login exchange failed: %s", type(exc).__name__)
+        return _data_feed_page(False, "Kite rejected the login token. It may have expired: log in again.")
+    kite_user = (data.get("user_id") or "").strip().upper()
+    access_token = data.get("access_token") or ""
+    if kite_user != pinned or not access_token:
+        logger.warning("data-feed login refused: not the pinned data account")
+        return _data_feed_page(False, "This Kite account is not the platform's market-data account.")
+
+    owner = (
+        db.query(BrokerSession)
+        .filter(BrokerSession.broker == "kite",
+                func.upper(BrokerSession.broker_user_id) == pinned)
+        .order_by(BrokerSession.id.desc())
+        .first()
+    )
+    if owner is None:
+        logger.warning("data-feed login refused: no user owns the pinned account")
+        return _data_feed_page(False, "No user owns the market-data account yet. Connect it once from the app.")
+    now = datetime.now(timezone.utc)
+    upsert_broker_session(
+        db, owner.user_id, "kite",
+        access_token=access_token, request_token=request_token,
+        broker_user_id=kite_user, login_time=now,
+        token_expires_at=now + timedelta(hours=20), is_active=True,
+    )
+    feed = _rearm_charto_kite_feed()
+    logger.info("data-feed login stored for %s; feed %s", kite_user, feed)
+    return _data_feed_page(True, f"Kite account {kite_user} is connected for today. Live feed: {feed}.")
+
+
 def _handle_broker_callback(
     broker: str | None,
     request_token: str | None,
@@ -343,6 +439,12 @@ def _handle_broker_callback(
     cross-checks the broker encoded in the state."""
     if status and status.lower() != "success":
         return _frontend_redirect({"broker": "error", "reason": status})
+
+    # A bare Kite login (no state at all) is the operator's morning login for
+    # the platform's market-data feed. It is accepted only for the pinned data
+    # account; any other account is refused before anything is stored.
+    if not state and request_token and broker in (None, "kite"):
+        return _complete_data_feed_login(db, request_token)
 
     state_user_id, state_broker = (
         _read_state_token(state) if state else (None, None)
