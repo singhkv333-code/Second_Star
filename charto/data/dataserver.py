@@ -17211,8 +17211,12 @@ def _auth_google(body: dict) -> tuple[int, dict]:
                 name = who["name"]
     if _verifs:
         _verifs.mark(uid)
-    return _session_reply(uid, {"id": uid, "email": who["email"], "name": name,
-                                "email_verified": True})
+    code, out = _session_reply(uid, {"id": uid, "email": who["email"], "name": name,
+                                     "email_verified": True})
+    # A first Google sign-in made this account: the app treats that as a
+    # sign-up (the brand intro and the first-run tour play only then).
+    out["new"] = row is None
+    return code, out
 
 
 # ── sign-up checks, attempt limits, email confirmation (auth_guard.py) ─────

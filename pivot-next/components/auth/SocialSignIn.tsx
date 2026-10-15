@@ -106,8 +106,18 @@ export function SocialSignIn(): React.ReactElement | null {
         });
         return;
       }
-      // Same hand-off as an email login: play the brand intro, enter the app.
-      armLoginIntro();
+      // A Google sign-in that created the account is a sign-up: the brand
+      // intro and the first-run tour, as after the sign-up form. Signing in
+      // to an account that already existed goes straight in.
+      try {
+        sessionStorage.setItem("pivot:just-signed-in", "1");
+        // ProductTour's TOUR_PENDING_KEY, spelled out: importing it would put
+        // driver.js in the login page's bundle.
+        if (res.data.is_new) localStorage.setItem("pivot:tour-pending", "1");
+      } catch {
+        /* private mode — skip; no functional impact */
+      }
+      if (res.data.is_new) armLoginIntro();
       router.replace(returnPath());
     },
     [router],

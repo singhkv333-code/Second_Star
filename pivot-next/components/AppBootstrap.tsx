@@ -24,12 +24,12 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { setAuthTokenProvider, setBackendSource } from "@/lib/api";
+import { toast } from "sonner";
+import { logoutUser, setAuthTokenProvider, setBackendSource } from "@/lib/api";
 import { scheduleAutoRefresh, stopAutoRefresh } from "@/lib/authToken";
 import { LoadingCubes } from "@/components/ui/LoadingCubes";
 import { loginForHere } from "@/lib/returnTo";
-
-const TOKEN_KEY = "pivot_jwt";
+import { LINK_REQUIRED_EVENT, TOKEN_KEY, sessionToken } from "@/lib/session";
 
 /** Routes that render without the auth gate: the /design showcase, public
  *  marketing and legal pages, the auth routes themselves, the plans (a
@@ -62,12 +62,9 @@ export function AppBootstrap({
       }
     });
 
-    let stored: string | null = null;
-    try {
-      stored = localStorage.getItem(TOKEN_KEY);
-    } catch {
-      stored = null;
-    }
+    // Either half of the one session will do: a person signed in on the
+    // chart is signed in here (getStoredToken falls back the same way).
+    const stored = sessionToken();
     if (stored) {
       setPhase("ready");
       // Keep the access token warm for the whole session (timer + on focus),
@@ -89,6 +86,27 @@ export function AppBootstrap({
     }
     return () => stopAutoRefresh();
   }, [router, ungated]);
+
+  // Pivot's API refused a live session because its account is not linked
+  // to it yet (lib/session.ts noteLinkRequired). Signing in again links it
+  // (lib/api.ts linkIfNeeded); say so once rather than signing anyone out.
+  useEffect(() => {
+    const onLink = (): void => {
+      toast("Finish connecting your account", {
+        description: "Some of Pivot could not load for this sign-in. Sign in once more to connect it.",
+        duration: 15000,
+        action: {
+          label: "Sign in again",
+          onClick: () => {
+            const to = loginForHere();
+            void logoutUser().finally(() => { window.location.href = to; });
+          },
+        },
+      });
+    };
+    window.addEventListener(LINK_REQUIRED_EVENT, onLink);
+    return () => window.removeEventListener(LINK_REQUIRED_EVENT, onLink);
+  }, []);
 
   if (ungated) return <>{children}</>;
   if (phase === "loading") return <BootstrapSplash />;
@@ -135,7 +153,7 @@ export function getStoredToken(): string | null {
   if (typeof window === "undefined") return null;
   // One session for the whole product: a reader already signed in to the
   // chart is signed in here too — Pivot's API accepts the Charto token.
-  return localStorage.getItem(TOKEN_KEY) || localStorage.getItem("charto:auth:token");
+  return sessionToken();
 }
 
 /**
