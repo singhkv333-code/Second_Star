@@ -186,9 +186,14 @@ def _bind(email: str, name: Optional[str],
     norm = email.strip().lower()
     try:
         db = SessionLocal()
-    except Exception:
-        logger.warning("accounts: database unavailable for account %s", account_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("accounts: database unavailable for account %s: %s", account_id, exc)
         return None, "store_unavailable"
+
+    def by_email():
+        # Oldest row first: tolerant of a duplicate left by an old race.
+        return db.execute(select(User).where(User.email == norm).order_by(User.id)).scalars().first()
+
     try:
         linked = db.execute(text(
             "SELECT pivot_user_id FROM charto_account_links WHERE charto_user_id=:aid"
@@ -197,28 +202,47 @@ def _bind(email: str, name: Optional[str],
             user = db.get(User, int(linked))
             if user is not None and (user.email or "").strip().lower() == norm:
                 return (int(user.id), None) if user.is_active else (None, None)
-        user = db.execute(select(User).where(User.email == norm)).scalar_one_or_none()
+        user = by_email()
         if user is None:
-            user = User(email=norm, hashed_password="!pivot-account",
-                        full_name=name or None, is_active=True, is_verified=False)
-            db.add(user)
-            db.flush()
-        # One link per account and per row: drop whatever either side was
-        # linked to before (a stale link, or another machine's numbering).
-        db.execute(text(
-            "DELETE FROM charto_account_links WHERE charto_user_id=:aid OR pivot_user_id=:pid"
-        ), {"aid": account_id, "pid": user.id})
-        db.execute(text(
-            "INSERT INTO charto_account_links (charto_user_id, pivot_user_id) VALUES (:aid, :pid)"
-        ), {"aid": account_id, "pid": user.id})
-        db.commit()
-        return (int(user.id), None) if user.is_active else (None, None)
-    except Exception:
+            # One page load sends ~20 requests at once, and each resolves the
+            # account: they all race to create the row. A loser re-reads the
+            # winner's row instead of failing the request.
+            try:
+                db.add(User(email=norm, hashed_password="!pivot-account",
+                            full_name=name or None, is_active=True, is_verified=False))
+                db.commit()
+            except Exception:  # noqa: BLE001
+                db.rollback()
+            user = by_email()
+            if user is None:
+                raise RuntimeError("account row could not be created")
+        uid, active = int(user.id), bool(user.is_active)
+    except Exception as exc:  # noqa: BLE001
         db.rollback()
-        logger.warning("accounts: mapping unavailable for account %s", account_id)
+        db.close()
+        logger.warning("accounts: mapping unavailable for account %s: %s", account_id, exc)
         return None, "store_unavailable"
+
+    # The email decides the account; the link only saves the lookup next
+    # time. So writing it is best-effort and never fails the request:
+    # parallel requests and other machines sharing this database
+    # (development account services number accounts independently) may all
+    # be writing it at once. One upsert, no delete-then-insert.
+    try:
+        db.execute(text(
+            "DELETE FROM charto_account_links WHERE pivot_user_id=:pid AND charto_user_id<>:aid"
+        ), {"aid": account_id, "pid": uid})
+        db.execute(text(
+            "INSERT INTO charto_account_links (charto_user_id, pivot_user_id) VALUES (:aid, :pid) "
+            "ON CONFLICT (charto_user_id) DO UPDATE SET pivot_user_id = EXCLUDED.pivot_user_id"
+        ), {"aid": account_id, "pid": uid})
+        db.commit()
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        logger.info("accounts: link for account %s not written: %s", account_id, str(exc).splitlines()[0][:200])
     finally:
         db.close()
+    return (uid, None) if active else (None, None)
 
 
 def user_id_from_bearer(token: str) -> Optional[int]:
