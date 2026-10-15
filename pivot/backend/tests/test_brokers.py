@@ -227,3 +227,50 @@ def test_star_restores_any_account(db, monkeypatch):
     other = _make_user(db, "someone3@pivot.com")
     row = _kite(db, other, "XY1234")
     assert get_active_kite_session(db).id == row.id
+
+
+# ── the operator's bare morning login refreshes only the pinned account ─────
+
+def _bare_login(db, monkeypatch, kite_user, rearmed):
+    from backend.config import settings
+    from backend.kite import auth as kite_auth
+    from backend.routers import brokers as r
+
+    monkeypatch.setattr(settings, "kite_data_account", "NHB457")
+    monkeypatch.setattr(kite_auth, "exchange_request_token",
+                        lambda rt: {"access_token": "fresh_access_token_value_123", "user_id": kite_user})
+    monkeypatch.setattr(r, "_rearm_charto_kite_feed", lambda: rearmed.append(1) or "re-armed")
+    return r._handle_broker_callback(None, "rt123", None, "success", None, db)
+
+
+def test_bare_login_for_pinned_account_stores_and_rearms(db, monkeypatch):
+    from backend.brokers.sessions import get_active_kite_session
+
+    owner = _make_user(db, "feed_owner@pivot.com")
+    _kite(db, owner, "NHB457", token="old_token")
+    rearmed: list = []
+    resp = _bare_login(db, monkeypatch, "nhb457", rearmed)
+    assert resp.status_code == 200 and b"NHB457" in resp.body
+    assert rearmed == [1]
+    s = get_active_kite_session(db)
+    assert s.user_id == owner.id
+    assert read_broker_access_token(s) == "fresh_access_token_value_123"
+
+
+def test_bare_login_for_other_account_is_refused_and_stores_nothing(db, monkeypatch):
+    owner = _make_user(db, "feed_owner2@pivot.com")
+    _kite(db, owner, "NHB457", token="old_token")
+    rearmed: list = []
+    resp = _bare_login(db, monkeypatch, "XY1234", rearmed)
+    assert resp.status_code == 400
+    assert rearmed == []
+    assert db.query(BrokerSession).filter(BrokerSession.broker_user_id == "XY1234").count() == 0
+    row = db.query(BrokerSession).filter(BrokerSession.broker_user_id == "NHB457").one()
+    assert read_broker_access_token(row) == "old_token"
+
+
+def test_login_with_bad_state_still_rejected(db, monkeypatch):
+    from backend.routers import brokers as r
+
+    resp = r._handle_broker_callback(None, "rt123", "not-a-jwt", "success", None, db)
+    assert resp.status_code == 302 and "invalid_state" in resp.headers["location"]
