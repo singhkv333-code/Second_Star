@@ -50,6 +50,24 @@ def test_new_account_gets_a_row_and_keeps_it(db):
     assert accounts.pivot_user_id_for('new@example.test', account_id=17) == pid
 
 
+@pytest.mark.parametrize('active', [True, False])
+def test_recorded_link_returns_its_database_connection(db, monkeypatch, active):
+    with db() as s:
+        s.add(User(id=9, email='linked@example.test', hashed_password='x', is_active=active))
+        s.execute(text('INSERT INTO charto_account_links VALUES (17, 9)'))
+        s.commit()
+    opened = []
+    def factory():
+        session = db()
+        opened.append(session)
+        return session
+    monkeypatch.setitem(sys.modules, 'backend.database', SimpleNamespace(SessionLocal=factory))
+    for _ in range(20):
+        assert accounts.pivot_user_id_for('linked@example.test', account_id=17) == (9 if active else None)
+    assert len(opened) == 20
+    assert all(not session.in_transaction() for session in opened)
+
+
 def test_a_link_to_another_email_is_replaced(db):
     """Postgres is shared with development machines that number accounts
     independently: a recorded link for account 121 may be another machine's."""

@@ -201,7 +201,12 @@ def _bind(email: str, name: Optional[str],
         if linked is not None:
             user = db.get(User, int(linked))
             if user is not None and (user.email or "").strip().lower() == norm:
-                return (int(user.id), None) if user.is_active else (None, None)
+                result = (int(user.id), None) if user.is_active else (None, None)
+                # This fast path bypasses the link-writing try/finally below.
+                # Return its connection before answering: one page issues many
+                # parallel authenticated requests and otherwise exhausts the pool.
+                db.close()
+                return result
         user = by_email()
         if user is None:
             # One page load sends ~20 requests at once, and each resolves the
