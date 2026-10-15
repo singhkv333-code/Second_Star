@@ -36,7 +36,7 @@ import {
 } from "lucide-react";
 import { LightweightChart } from "@/components/chart/LightweightChart";
 import { formatINR } from "@/components/landing/film/film-script";
-import { MacWindow } from "./frame";
+import { MacWindow, PHONE, fitBars } from "./frame";
 import { Logo } from "./logos";
 import { CALENDAR, WATCH } from "./snapshot";
 import { DAILY, EMA } from "./snapshot-bars";
@@ -236,21 +236,21 @@ function ChartPane({ sym, ema, levels, menu, dock }: { sym: Sym; ema: boolean; l
   const e20 = EMA["20"]!;
   return (
     <div className="tw-pane tw-chart">
-      <PaneBar tools={<><span className="tw-ico sm"><Square /></span><span className="tw-ico sm"><Settings /></span></>}>
+      <PaneBar tools={<><span className="tw-ico sm tw-wide"><Square /></span><span className="tw-ico sm"><Settings /></span></>}>
         <span className="tw-tab on">Chart</span>
         <span className="tw-tab">1D</span>
         <span className="tw-ico sm"><ChartCandlestick /></span>
         <span className={`tw-tab${menu ? " on" : ""}`} data-t="ind"><LineChart />Indicators<ChevronDown /></span>
-        <span className="tw-tab"><Plus />Compare</span>
-        <span className="tw-ico sm dim"><Undo2 /></span>
-        <span className="tw-ico sm dim"><Redo2 /></span>
+        <span className="tw-tab tw-wide"><Plus />Compare</span>
+        <span className="tw-ico sm dim tw-wide"><Undo2 /></span>
+        <span className="tw-ico sm dim tw-wide"><Redo2 /></span>
       </PaneBar>
       <div className="tw-cwrap">
         <div className="tw-ro">
           <div className="tw-ro-t"><Logo s={sym} size={18} />{sym}<i>· 1D ·</i><em>NSE</em></div>
           <div className={`tw-ro-r ${dn ? "dn" : "up"}`}>
-            <span><i>O</i>{formatINR(o)}</span><span><i>H</i>{formatINR(h)}</span><span><i>L</i>{formatINR(l)}</span>
-            <span><i>C</i>{formatINR(c)}</span><span><i>V</i>{fmtV.format(v)}</span>
+            <span className="ro-x"><i>O</i>{formatINR(o)}</span><span className="ro-x"><i>H</i>{formatINR(h)}</span><span className="ro-x"><i>L</i>{formatINR(l)}</span>
+            <span><i>C</i>{formatINR(c)}</span><span className="ro-x"><i>V</i>{fmtV.format(v)}</span>
             <span>{ch >= 0 ? "+" : ""}{ch.toFixed(2)} ({pct >= 0 ? "+" : ""}{pct.toFixed(2)}%)</span>
           </div>
           {showEma && <div className="tw-ro-ind"><i />EMA 20 <b>{formatINR(e20[e20.length - 1]![1])}</b></div>}
@@ -284,12 +284,18 @@ function Candles({ sym, ema, levels, dock }: { sym: Sym; ema: boolean; levels: b
     api.e.setData(e ? EMA["20"]!.map(([t, v]) => ({ time: t as unknown as Time, value: v })) : []);
     api.lines.forEach((l) => api.k.removePriceLine(l));
     api.lines = lv ? LEVELS.map((x) => api.k.createPriceLine({ price: x.price, color: x.role === "R" ? C.dn : C.up, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: "" })) : [];
-    api.chart.timeScale().fitContent();
+    fitBars(api.chart, b.length);
   }, []);
   React.useEffect(() => { apply(); }, [sym, ema, levels, apply]);
+  // turning a phone or a narrowing window changes how many bars fit
+  React.useEffect(() => {
+    const mq = window.matchMedia(PHONE);
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, [apply]);
   // The pane changes width when a widget docks or leaves; re-fit once it settles.
   React.useEffect(() => {
-    const id = window.setTimeout(() => ref.current?.chart.timeScale().fitContent(), 760);
+    const id = window.setTimeout(() => { const api = ref.current; if (api) fitBars(api.chart, DAILY[state.current.sym]!.length); }, 760);
     return () => clearTimeout(id);
   }, [dock]);
   return (

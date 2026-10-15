@@ -93,7 +93,7 @@ const PANE_ICON: Record<Pane, React.ComponentType> = {
 
 /** The last bars of RELIANCE's real daily series, drawn small. `levels`
  *  are the two resistances Pivot's chat drew on this chart (see Tour). */
-function MiniCandles({ n = 40, levels = false }: { n?: number; levels?: boolean }) {
+function MiniCandles({ n = 32, levels = false }: { n?: number; levels?: boolean }) {
   const bars = RELIANCE_1D.slice(-n);
   const lv = levels ? [1329.75, 1343.5] : [];
   const lo = Math.min(...bars.map((b) => b[3])), hi = Math.max(...bars.map((b) => b[2]), ...lv);
@@ -117,14 +117,14 @@ function MiniCandles({ n = 40, levels = false }: { n?: number; levels?: boolean 
 
 /** The chart pane, small but whole: readout, candles, a price axis. */
 function MiniChart() {
-  const bars = RELIANCE_1D.slice(-60);
+  const bars = RELIANCE_1D.slice(-36);
   const lo = Math.min(...bars.map((b) => b[3])), hi = Math.max(...bars.map((b) => b[2]));
   const ticks = [0, 1, 2, 3].map((i) => hi - ((hi - lo) * (i + 0.5)) / 4);
   const p = COMPANY.price;
   return (
     <div className="ws-chartbody">
       <div className="ws-ro"><Logo s="RELIANCE" size={16} /><b>RELIANCE</b><span>· 1D · NSE</span><em className="dn">{formatINR(p.last)} {p.change_pct.toFixed(2)}%</em></div>
-      <div className="ws-plot"><MiniCandles n={60} /></div>
+      <div className="ws-plot"><MiniCandles n={36} /></div>
       <div className="ws-axis">{ticks.map((t) => <span key={t}>{Math.round(t).toLocaleString("en-IN")}</span>)}</div>
     </div>
   );
@@ -312,12 +312,12 @@ function SharedCard() {
       <div className="ws-share" aria-hidden="true">
         <div className="ws-win src">
           <div className="ws-win-bar"><span className="ws-lights"><i /><i /><i /></span><span className="ws-wt"><Logo s="RELIANCE" size={18} />RELIANCE · 1D</span><span className="ws-make">Make it mine</span></div>
-          <div className="ws-win-body"><MiniCandles n={60} levels /></div>
+          <div className="ws-win-body"><MiniCandles n={36} levels /></div>
           <MousePointer2 className="ws-cursor" />
         </div>
         <div className="ws-win dst">
           <div className="ws-win-bar"><span className="ws-lights"><i /><i /><i /></span><span className="ws-wt">My layouts</span><span className="ws-saved"><Check />Saved</span></div>
-          <div className="ws-win-body"><MiniCandles n={60} levels /></div>
+          <div className="ws-win-body"><MiniCandles n={36} levels /></div>
           <div className="ws-win-foot">From a shared setup<ArrowUpRight /></div>
         </div>
       </div>

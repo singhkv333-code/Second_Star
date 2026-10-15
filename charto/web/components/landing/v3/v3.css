@@ -815,3 +815,84 @@
    the light sections. */
 .pivot-landing .pl-brand-logo { display: block; height: 30px; width: auto; aspect-ratio: 847 / 319; }
 @media (max-width: 600px) { .pivot-landing .pl-brand-logo { height: 26px; } }
+
+/* ── phones ───────────────────────────────────────────────────────────────
+   One column at 16px from the edge. Claims and their lines stay at one or
+   two lines each, sections sit closer, and the product is shown the way a
+   phone would show it: no Mac window around it, the chart with the last few
+   dozen bars rather than all of them, and a readout that fits on one line. */
+.pivot-landing .pl-nav-phone { display: none; }
+@media (max-width: 600px) {
+  .pivot-landing .pl-nav-wide { display: none; }
+  .pivot-landing .pl-nav-phone { display: inline-flex; font-size: 12.5px; padding: 9px 13px; border-radius: 8px; }
+  .pivot-landing .pl-nav-links { gap: 16px; }
+  .pivot-landing .pl-nav-app { font-size: 13.5px; }
+}
+@media (max-width: 720px) {
+  .v3 { --sec: 72px; --head-gap: 26px; }
+  .v3-head { gap: 10px; }
+  .v3-head h2 { font-size: 34px; line-height: 1.04; letter-spacing: -0.035em; }
+  .v3-head p { font-size: 15.5px; line-height: 1.45; }
+
+  /* the product, without the desktop's window chrome */
+  .mw-bar { display: none; }
+  .mw { border-radius: 14px; }
+  .tw-wide { display: none !important; }
+  .tw-ro-r .ro-x, .px-ro-row .ro-x { display: none; }
+  .tw-ro-r { flex-wrap: nowrap; white-space: nowrap; }
+
+  /* Tour: the chart pane is the whole window */
+  .tw { height: 460px; }
+  .tw-menu { left: 10px; right: 10px; width: auto; }
+  .tw-top { height: 44px; }
+
+  /* Patterns: the chart, and the detector's card under it rather than gone */
+  .px-app { height: auto; }
+  .px-main { flex-direction: column; }
+  .px-chartpane { flex: none; height: 360px; border-right: 0; }
+  .px-chat.pt-col { display: flex; width: auto; padding: 0; border-top: 1px solid var(--border); }
+  .pt-col .px-seg, .pt-col .px-user, .pt-col .px-composer { display: none; }
+  .pt-thread { padding: 0; gap: 0; }
+  .pt-card { border-radius: 0; box-shadow: none; background: transparent; }
+  .pt-card > header span { font-size: 11px; }
+  .pt-chips { top: 50px; left: 12px; right: auto; justify-items: start; }
+
+  /* Figures */
+  .fg-ascii { height: 230px; }
+  .fg-cap { width: calc(100% - 32px); margin: 10px auto 40px; font-size: 13px; }
+  .fg-row { row-gap: 28px; }
+  .fg-row li { gap: 8px; padding: 2px 0 2px 18px; }
+  .fg-n { font-size: 34px; }
+  .fg-l { font-size: 14px; }
+
+  /* Gallery: a tile's name and line wrap rather than run under the next */
+  .gl-tile { min-height: 470px; }
+  .gl-tile > header { padding: 20px 20px 0; }
+  .gl-tile > header h3, .gl-tile > header p { white-space: normal; }
+  .gl-tile > header p { font-size: 15px; }
+  .gl-stage { padding: 22px 18px 0; }
+  .gl-candles { height: 170px; }
+
+  /* Workspace: the layouts card shows the arrangement, not unreadable panes */
+  .ws-grid { gap: 12px; }
+  .ws-card { padding: 22px; gap: 22px; }
+  .ws-card:not(.ws-full), .ws-card.ws-full { min-height: 0; }
+  .ws-copy { gap: 10px; }
+  .ws-copy h3 { font-size: 26px; }
+  .ws-laylist { margin-top: 14px; }
+  .ws-laylist button { padding: 11px 0; }
+  .ws-app { min-height: 230px; }
+  .ws-app-bar > .ws-b:nth-child(3), .ws-app-bar > .ws-b:nth-child(5) { display: none; }
+  .ws-pbody { display: none; }
+  .ws-pane { background: #121317; }
+  .ws-pane > header { flex: 1; flex-direction: column; justify-content: center; gap: 6px; height: auto; padding: 0 4px; background: none; border: 0; font-size: 10.5px; }
+  .ws-pane > header svg:not(.g):not(.x) { width: 15px; height: 15px; opacity: 0.85; }
+  .ws-pane > header .g, .ws-pane > header .x, .ws-pane > header .ws-grow { display: none; }
+  .ws-bars { min-height: 180px; }
+  .ws-bar-in { left: 14px; right: 14px; bottom: 14px; min-width: 150px; }
+  .ws-bar-in b { font-size: 20px; }
+  .hn-scale { gap: 5px; font-size: 11.5px; flex-wrap: nowrap; white-space: nowrap; }
+
+  /* Honest */
+  .hn-iso { min-height: 320px; gap: 28px; }
+}

@@ -128,7 +128,7 @@ export function Honest(): React.ReactElement {
               <label className="off"><span>Place an order</span><i className="sw" /><Lock /></label>
             </div>
             <h3>Alerts checked on every bar.</h3>
-            <p>Checked on every bar close, on the server, whether or not the tab is open.</p>
+            <p>On the server, whether or not the tab is open.</p>
           </article>
           <article className="hn-card">
             <div className="hn-obj rings">

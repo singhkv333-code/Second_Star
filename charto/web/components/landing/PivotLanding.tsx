@@ -65,7 +65,7 @@ export function Nav({ home = "#top" }: { home?: string } = {}) {
       document.body.removeEventListener("scroll", onScroll);
     };
   }, []);
-  return <header className={`pl-nav ${isDark ? "dark" : "light"}${scrolled ? " scrolled" : ""}`}><div className="pl-nav-inner"><Brand href={home} /><div className="pl-nav-links"><a className="pl-nav-app" href="https://app.pivotnow.in/">Open Pivot <ArrowRight size={14}/></a><a className="pl-nav-app" href="/login">Log in <ArrowRight size={14}/></a><a className="pl-nav-cta" href={`${home === "#top" ? "" : home}#waitlist`}>Join waitlist <ArrowRight size={14}/></a></div></div></header>;
+  return <header className={`pl-nav ${isDark ? "dark" : "light"}${scrolled ? " scrolled" : ""}`}><div className="pl-nav-inner"><Brand href={home} /><div className="pl-nav-links"><a className="pl-nav-app pl-nav-wide" href="https://app.pivotnow.in/">Open Pivot <ArrowRight size={14}/></a><a className="pl-nav-app" href="/login">Log in <ArrowRight size={14}/></a><a className="pl-nav-cta pl-nav-wide" href={`${home === "#top" ? "" : home}#waitlist`}>Join waitlist <ArrowRight size={14}/></a>{/* a phone has room for one button: the platform itself */}<a className="pl-nav-cta pl-nav-phone" href="https://app.pivotnow.in/">Open Pivot <ArrowRight size={14}/></a></div></div></header>;
 
 }
 

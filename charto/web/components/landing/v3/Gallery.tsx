@@ -155,7 +155,7 @@ function Delta({ v, d = 2 }: { v: number; d?: number }) {
 /* ── Chart ───────────────────────────────────────────────────────────────── */
 
 function ChartCard() {
-  const bars = RELIANCE_1D.slice(-56);
+  const bars = RELIANCE_1D.slice(-34);
   const lo = Math.min(...bars.map((b) => b[3])), hi = Math.max(...bars.map((b) => b[2]));
   const W = 300, H = 210, step = W / bars.length;
   const y = (p: number) => 4 + ((hi - p) / (hi - lo)) * (H - 8);
