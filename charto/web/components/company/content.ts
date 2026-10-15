@@ -1,4 +1,5 @@
-/* The company and legal pages: About, Terms, Privacy, Refunds, Contact.
+/* The company and legal pages: About, Terms, Privacy, Refunds,
+ * Cancellation, Contact.
  *
  * Every statement here describes how Pivot actually works today. When the
  * product changes (a new data provider, a new region, a new way to pay),
@@ -10,7 +11,7 @@
  * Rules 2011; the Consumer Protection (E-Commerce) Rules 2020; SEBI's
  * position on unregistered investment advice; Razorpay's website checks. */
 
-export type CompanyPageKey = "about" | "terms" | "privacy" | "refunds" | "contact";
+export type CompanyPageKey = "about" | "terms" | "privacy" | "refunds" | "cancellation" | "contact";
 
 export interface CompanySection {
   id: string;
@@ -23,7 +24,18 @@ export interface CompanyContent {
   title: string;
   introduction: string;
   sections: CompanySection[];
+  /** Phrases in the body that link to another page, as [phrase, href]. */
+  links?: [string, string][];
+  /** Pages listed under the body, as [label, href]. */
+  related?: [string, string][];
 }
+
+/* The refund and cancellation policies are linked from the terms only:
+ * in its billing section and in the list under it. */
+const POLICY_LINKS: [string, string][] = [
+  ["Refund Policy", "/refunds"],
+  ["Cancellation Policy", "/cancellation"],
+];
 
 /* Who operates Pivot. LEGAL_NAME and ADDRESS must match the company's
  * registration documents; ADDRESS prints only once it is filled in. */
@@ -32,7 +44,7 @@ export const LEGAL_NAME = "Pivot Tech";
 export const ADDRESS = "";
 export const CONTACT_EMAIL = "contact@pivotnow.in";
 export const GRIEVANCE_OFFICER = { name: "", title: "Grievance Officer", email: "contact@pivotnow.in" };
-export const UPDATED = { iso: "2026-10-14", label: "14 October 2026" };
+export const UPDATED = { iso: "2026-10-15", label: "15 October 2026" };
 
 const ADVICE_LINE = "Pivot is not registered with SEBI as an investment adviser or research analyst, and it is not a stock broker. Nothing on Pivot is a recommendation to buy, sell or hold any security.";
 
@@ -144,9 +156,10 @@ export const COMPANY_PAGES: Record<CompanyPageKey, CompanyContent> = {
         paragraphs: [
           "Pivot has a Free plan and paid plans. Each plan's price, features and usage limits are shown on the pricing page before you pay. Prices are in Indian rupees and include GST.",
           "Paid plans are subscriptions that renew automatically each month or year through a payment mandate processed by Razorpay, until you cancel. You receive a notice before each renewal debit, as RBI rules for recurring payments require.",
-          "You can cancel anytime from your billing settings. Cancelling stops future renewals; you keep your plan until the end of the period you have paid for. An upgrade starts straight away and is charged the difference for the current period; a downgrade takes effect at the end of the period.",
+          "You can cancel anytime from your billing settings. Cancelling stops future renewals; you keep your plan until the end of the period you have paid for. An upgrade starts straight away and is charged the difference for the current period; a downgrade takes effect at the end of the period. How cancelling works is set out in our Cancellation Policy.",
           "If a renewal payment fails, we retry and keep your plan for a short grace period. If it still cannot be collected, your account moves to the Free plan. Your saved work is not deleted.",
-          "We may change plan prices with at least 30 days' notice by email. A change applies from your next renewal after the notice period, and you can cancel before it takes effect. Refunds are covered by our Refund and Cancellation Policy.",
+          "We may change plan prices with at least 30 days' notice by email. A change applies from your next renewal after the notice period, and you can cancel before it takes effect.",
+          "Payments are final and are not refunded, except where a charge went wrong because of a failure on our side, as our Refund Policy describes.",
         ],
       },
       {
@@ -179,6 +192,8 @@ export const COMPANY_PAGES: Record<CompanyPageKey, CompanyContent> = {
         ],
       },
     ],
+    links: POLICY_LINKS,
+    related: POLICY_LINKS,
   },
 
   privacy: {
@@ -313,37 +328,70 @@ export const COMPANY_PAGES: Record<CompanyPageKey, CompanyContent> = {
   },
 
   refunds: {
-    title: "Refund and cancellation policy",
-    introduction: "This policy explains how to cancel a paid Pivot plan and when we refund a payment. It forms part of our Terms of Service.",
+    title: "Refund policy",
+    introduction: "Payments for Pivot plans are final. We do not refund them, except where a charge went wrong because of a failure on our side. This policy forms part of our Terms of Service.",
     sections: [
       {
-        id: "cancel", title: "1. Cancelling your plan",
+        id: "none", title: "1. No refunds",
         paragraphs: [
-          "You can cancel a paid plan at any time from your billing settings, or by writing to contact@pivotnow.in. Cancelling stops all future renewals and the payment mandate.",
-          "You keep your plan's features until the end of the period you have already paid for. After that your account moves to the Free plan, and your saved work stays.",
+          "We do not refund subscription payments, renewals, upgrades or partly used periods. This includes cancelling, downgrading, not using Pivot during a period, and changing your mind.",
+          "When you cancel, you keep your plan until the end of the period you have paid for, so the period you paid for is still yours to use.",
         ],
       },
       {
-        id: "refund", title: "2. When we refund",
-        paragraphs: ["We refund the full amount when:"],
+        id: "our-failures", title: "2. Failures on our side",
+        paragraphs: ["We refund the full amount of a payment only when it went wrong because of a failure on our side:"],
         list: [
-          "you were charged twice for the same period, or charged in error;",
-          "you were charged after you cancelled;",
-          "a paid feature central to your plan was unavailable for a substantial part of the period because of a fault on our side.",
+          "you were charged more than once for the same period because of an error in our billing;",
+          "you were charged after you had cancelled, because our system did not stop the renewal;",
+          "you paid, but your plan was never activated;",
+          "a paid feature central to your plan was unavailable for a substantial part of the period because of a fault in our service.",
         ],
       },
       {
-        id: "no-refund", title: "3. Partly used periods",
+        id: "not-ours", title: "3. What is not a failure on our side",
         paragraphs: [
-          "Apart from the cases above, a period that has started is not refunded in part when you cancel, because you keep access until it ends. If you believe your situation deserves an exception, write to us; we look at every request.",
+          "A declined card, a payment held up by your bank or UPI app, or a mandate your bank rejects is not a failure on our side and is not refunded by us. If your account was debited for a payment that did not complete, the amount is normally reversed by your bank; if it is not, write to us and we will help trace it.",
           "Nothing in this policy limits your rights under the Consumer Protection Act, 2019.",
         ],
       },
       {
-        id: "how", title: "4. How to request a refund",
+        id: "how", title: "4. How to report a failure",
         paragraphs: [
-          "Write to contact@pivotnow.in from the email on your account within 30 days of the payment, with the payment reference from your receipt. Never send card numbers, CVV, UPI PIN or OTPs.",
+          "Write to contact@pivotnow.in from the email on your account within 30 days of the payment, with the payment reference from your receipt and a short description of what went wrong. Never send card numbers, CVV, UPI PIN or OTPs.",
           "We reply within 2 working days. Approved refunds are issued to the original payment method within 7 working days, and banks usually take a further 5 to 7 working days to show them.",
+        ],
+      },
+    ],
+  },
+
+  cancellation: {
+    title: "Cancellation policy",
+    introduction: "You can cancel a paid Pivot plan at any time. Cancelling stops future renewals; it does not refund payments already made, except where a failure on our side caused the charge. This policy forms part of our Terms of Service.",
+    sections: [
+      {
+        id: "how", title: "1. How to cancel",
+        paragraphs: [
+          "Cancel from Plan & billing in your account settings, or write to contact@pivotnow.in from the email on your account. Cancelling stops all future renewals and the payment mandate.",
+        ],
+      },
+      {
+        id: "after", title: "2. What happens when you cancel",
+        paragraphs: [
+          "Your plan stays active until the end of the period you have already paid for. After that your account moves to the Free plan. Your saved work is not deleted, and you can subscribe again at any time.",
+        ],
+      },
+      {
+        id: "no-refund", title: "3. Cancelling does not refund",
+        paragraphs: [
+          "Cancelling does not refund the current period or any earlier payment, monthly or yearly, however much of the period is left. The only exceptions are the failures on our side listed in our Refund Policy.",
+        ],
+      },
+      {
+        id: "by-us", title: "4. When we cancel",
+        paragraphs: [
+          "If we withdraw a paid feature central to your plan, or stop offering your plan, we tell you in advance and refund the unused part of the period you paid for.",
+          "If we close an account because it breached our Terms of Service, no refund is due.",
         ],
       },
     ],
