@@ -20,6 +20,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from tests.conftest import make_user
 
 
 def _new_user(client: TestClient) -> dict[str, str]:
@@ -29,14 +30,7 @@ def _new_user(client: TestClient) -> dict[str, str]:
     so tests that need TWO users can call it twice. Uses `pivot.com`
     rather than `pivot.test` to satisfy the strict EmailStr validator.
     """
-    import uuid
-    email = f"u_{uuid.uuid4().hex[:8]}@pivot.com"
-    r = client.post(
-        "/auth/register",
-        json={"email": email, "password": "password123", "full_name": "T"},
-    )
-    assert r.status_code == 201, r.text
-    return {"Authorization": f"Bearer {r.json()['access_token']}"}
+    return make_user(client, full_name="T")["headers"]
 
 
 def _basic_workflow_body() -> dict[str, Any]:

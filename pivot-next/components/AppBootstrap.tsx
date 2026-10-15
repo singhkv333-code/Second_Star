@@ -5,31 +5,18 @@
  *
  * Responsibilities:
  * 1. Flip `setBackendSource("real")` so every API call hits the live backend.
- * 2. Wire `setAuthTokenProvider` to read the JWT from localStorage.
- * 3. **Auth gate**: if no token exists on mount, render `SignInPrompt`
- *    BEFORE children. Otherwise the app loads, every API call 401s, and
- *    every tab renders an empty error state — bad first-run UX.
- *
- * Auth flow for the demo:
- *   - Click "Try demo account" → POST /auth/register with an auto-
- *     generated email → token stored → app comes alive.
- *   - Or paste a JWT from /auth/register / /auth/login manually.
- *
- * Refresh-token rotation IS now handled: when a token is present we start a
- * background auto-refresh (scheduleAutoRefresh) that silently trades the
- * 7-day refresh token for a fresh 12h access token before it expires and
- * whenever the tab regains focus — so users stay signed in across days
- * instead of hitting a wall of 401s every morning. Sign-out tears it down.
+ * 2. Wire `setAuthTokenProvider` to the one Pivot session (lib/session.ts).
+ * 3. **Auth gate**: with no session, send the visitor to /login with this
+ *    page in `?next=`, so signing in comes back here. The public pages in
+ *    UNGATED_PATHS render without it.
  */
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { toast } from "sonner";
-import { logoutUser, setAuthTokenProvider, setBackendSource } from "@/lib/api";
-import { scheduleAutoRefresh, stopAutoRefresh } from "@/lib/authToken";
+import { setAuthTokenProvider, setBackendSource } from "@/lib/api";
 import { LoadingCubes } from "@/components/ui/LoadingCubes";
 import { loginForHere } from "@/lib/returnTo";
-import { LINK_REQUIRED_EVENT, TOKEN_KEY, sessionToken } from "@/lib/session";
+import { saveSession, sessionToken } from "@/lib/session";
 
 /** Routes that render without the auth gate: the /design showcase, public
  *  marketing and legal pages, the auth routes themselves, the plans (a
@@ -62,15 +49,8 @@ export function AppBootstrap({
       }
     });
 
-    // Either half of the one session will do: a person signed in on the
-    // chart is signed in here (getStoredToken falls back the same way).
-    const stored = sessionToken();
-    if (stored) {
+    if (sessionToken()) {
       setPhase("ready");
-      // Keep the access token warm for the whole session (timer + on focus),
-      // so the direct-fetch data modules (chat, live quotes, portfolio,
-      // screener) never hit an expired token mid-use.
-      scheduleAutoRefresh();
     } else {
       setPhase("needs-auth");
       // Redirect to /login instead of showing a modal gate — but never
@@ -84,29 +64,7 @@ export function AppBootstrap({
         router.replace(loginForHere());
       }
     }
-    return () => stopAutoRefresh();
   }, [router, ungated]);
-
-  // Pivot's API refused a live session because its account is not linked
-  // to it yet (lib/session.ts noteLinkRequired). Signing in again links it
-  // (lib/api.ts linkIfNeeded); say so once rather than signing anyone out.
-  useEffect(() => {
-    const onLink = (): void => {
-      toast("Finish connecting your account", {
-        description: "Some of Pivot could not load for this sign-in. Sign in once more to connect it.",
-        duration: 15000,
-        action: {
-          label: "Sign in again",
-          onClick: () => {
-            const to = loginForHere();
-            void logoutUser().finally(() => { window.location.href = to; });
-          },
-        },
-      });
-    };
-    window.addEventListener(LINK_REQUIRED_EVENT, onLink);
-    return () => window.removeEventListener(LINK_REQUIRED_EVENT, onLink);
-  }, []);
 
   if (ungated) return <>{children}</>;
   if (phase === "loading") return <BootstrapSplash />;
@@ -150,9 +108,6 @@ function BootstrapSplash(): React.ReactElement {
  * Returns null when not signed in.
  */
 export function getStoredToken(): string | null {
-  if (typeof window === "undefined") return null;
-  // One session for the whole product: a reader already signed in to the
-  // chart is signed in here too — Pivot's API accepts the Charto token.
   return sessionToken();
 }
 
@@ -161,5 +116,5 @@ export function getStoredToken(): string | null {
  * legacy chat when it receives a token.
  */
 export function storeToken(token: string): void {
-  localStorage.setItem(TOKEN_KEY, token);
+  saveSession(token);
 }

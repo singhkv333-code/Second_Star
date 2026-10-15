@@ -16967,6 +16967,23 @@ def _pw_hash(password: str, salt: bytes) -> bytes:
     return hashlib.scrypt(password.encode(), salt=salt, **_SCRYPT, dklen=32)
 
 
+# Pivot once had a second sign-up, in its API's Postgres table, with bcrypt
+# hashes. On 2026-10-15 those accounts moved here with their passwords
+# (deploy/merge_accounts.py): pw_hash holds the bcrypt hash and pw_salt this
+# marker. The first sign-in checks the password against it and stores it the
+# usual way; from then on the account is like any other.
+_CARRIED = b"bcrypt"
+
+
+def _carried_ok(password: str, stored: bytes) -> bool:
+    try:
+        import bcrypt
+        return bcrypt.checkpw(password.encode()[:72], stored)
+    except Exception as exc:                  # noqa: BLE001
+        logging.getLogger("charto").warning("carried password check failed: %s", exc)
+        return False
+
+
 def _user_public(row: tuple) -> dict:
     return {"id": row[0], "email": row[1], "name": row[2]}
 
@@ -17086,6 +17103,15 @@ def _auth_login(body: dict) -> tuple[int, dict]:
     # The same reply and the same work either way: branching early on "no such
     # user" tells an attacker which emails are registered, and skipping the
     # hash makes that difference measurable on the clock as well.
+    if row and bytes(row[4]) == _CARRIED:
+        if not _carried_ok(pw, bytes(row[3])):
+            return 401, {"error": "email or password is incorrect"}
+        salt = secrets.token_bytes(16)
+        with _users_lock:
+            _users.execute("UPDATE users SET pw_hash=?, pw_salt=? WHERE id=?",
+                           (_pw_hash(pw, salt), salt, row[0]))
+            _users.commit()
+        return _session_reply(row[0], _user_public(row))
     salt = row[4] if row else secrets.token_bytes(16)
     want = row[3] if row else b"\0" * 32
     if not hmac.compare_digest(_pw_hash(pw, salt), want):

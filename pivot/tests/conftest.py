@@ -17,10 +17,6 @@ os.environ["OPENAI_API_KEY"] = ""
 os.environ["AZURE_KEY"] = ""
 # Tests must not report into the live PostHog project (.env carries its token).
 os.environ["POSTHOG_PROJECT_TOKEN"] = ""
-# Demo seeder runs on /auth/register in dev; disable for tests so a
-# freshly-registered user starts truly empty. Tests that exercise the
-# seeder explicitly opt-in by un-setting this in their own setup.
-os.environ["DEMO_SEED_ON_REGISTER"] = "0"
 # Paper trading is ON by default in dev/prod, but pinned OFF in tests so the
 # existing engine/action tests exercise the stable Kite-mock execution path
 # deterministically. Paper-specific tests opt in (monkeypatch the flag True);
@@ -87,18 +83,33 @@ def client(db):
     app.dependency_overrides.clear()
 
 
+def make_user(client, email=None, full_name="Test"):
+    """A user row and an access token for it, as a signed-in account has.
+
+    Accounts are created by Pivot's account service (backend/auth/accounts.py);
+    this API has no sign-up of its own, so tests make the row directly in the
+    session the client is using. Returns the token, the user id, the email and
+    ready-made headers.
+    """
+    import uuid
+    from backend.auth.jwt_handler import create_access_token
+    from backend.models import User
+
+    db = next(app.dependency_overrides[get_db]())
+    user = User(email=email or f"u_{uuid.uuid4().hex[:8]}@pivot.com",
+                hashed_password="!pivot-account", full_name=full_name)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    token = create_access_token(user.id, user.email)
+    return {"access_token": token, "user_id": user.id, "email": user.email,
+            "headers": {"Authorization": f"Bearer {token}"}}
+
+
 @pytest.fixture
 def auth_headers(client):
-    """Register a fresh user and return Authorization headers with a valid token."""
-    import uuid
-    email = f"u_{uuid.uuid4().hex[:8]}@pivot.com"
-    r = client.post(
-        "/auth/register",
-        json={"email": email, "password": "password123", "full_name": "Test"},
-    )
-    assert r.status_code == 201, r.text
-    token = r.json()["access_token"]
-    return {"Authorization": f"Bearer {token}"}
+    """A fresh user's Authorization headers."""
+    return make_user(client)["headers"]
 
 
 @pytest.fixture(autouse=True)

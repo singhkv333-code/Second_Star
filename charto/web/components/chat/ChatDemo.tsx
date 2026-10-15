@@ -73,6 +73,7 @@ import type { CompanySearchResult } from "@/lib/api";
 import type { Workflow, IpoApplicationPayload, IpoListPayload, IpoListedPayload, OptionChainPayload, OptionStrategyPayload, PortfolioGreeksPayload, ClarifyCard as ClarifyCardData, StrategyBuilderCard as StrategyBuilderCardData, ClarifyAnswerRecord } from "@/lib/types";
 import { useActiveDraft } from "@/components/agent-panel/active-draft-context";
 import { getAccessToken } from "@/lib/authToken";
+import { handleUnauthorized } from "@/lib/session";
 
 // ---------------------------------------------------------------------------
 // Backend chat types
@@ -208,8 +209,8 @@ async function* streamChat(
 
   if (!res.ok) {
     if (res.status === 401 && typeof window !== "undefined") {
-      try { window.localStorage.removeItem("pivot_jwt"); } catch { /* ignore */ }
-      window.location.reload();
+      // Signs out only if the session is really over (lib/session.ts).
+      void handleUnauthorized();
     }
     const text = await res.text();
     throw new Error(`Stream error ${res.status}: ${text.slice(0, 200)}`);

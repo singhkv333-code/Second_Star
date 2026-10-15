@@ -12,7 +12,7 @@
 
 import { chatStreamUrl } from "@/lib/chatStream";
 import type { ScreenResultsPayload } from "@/components/chat/ScreenResultsCard";
-import { authReason, handleUnauthorized, noteLinkRequired } from "@/lib/session";
+import { handleUnauthorized } from "@/lib/session";
 
 export type AssistPage =
   | "home" | "markets" | "portfolio" | "screener" | "agents" | "brokers" | "stock" | "chat";
@@ -111,10 +111,9 @@ export async function* streamAssist(args: {
   if (!res.ok || !res.body) {
     if (res.status === 401 && typeof window !== "undefined") {
       // Signs out only if the session is really over (lib/session.ts);
-      // deleting pivot_jwt and reloading sent a live session to /login.
+      // deleting the token and reloading sent a live session to /login.
       void handleUnauthorized();
     }
-    if (res.status === 403 && authReason(res) === "link_required") noteLinkRequired();
     throw new AssistHttpError(res.status);
   }
   const reader = res.body.getReader();

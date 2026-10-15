@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from backend.models import Workflow, WorkflowStatus, WorkflowStep
+from tests.conftest import make_user
 
 
 def _seed_event_workflow(
@@ -171,11 +172,7 @@ def test_events_calendar_only_returns_own_workflows(
 ) -> None:
     """Workflow owned by another user should not appear."""
     # Register a second user — events should not leak across users.
-    other = client.post(
-        "/auth/register",
-        json={"email": "ev-other@pivot.com", "password": "password123"},
-    )
-    other_uid = other.json()["user_id"]
+    other_uid = make_user(client, email="ev-other@pivot.com")["user_id"]
     _seed_event_workflow(
         db, other_uid, name="not yours", event_type="rbi_rate_decision",
     )

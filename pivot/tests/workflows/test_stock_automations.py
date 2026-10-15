@@ -18,6 +18,7 @@ from backend.models import (
     WorkflowStatus,
     WorkflowStep,
 )
+from tests.conftest import make_user
 
 
 def _user_id(auth_headers: dict[str, str]) -> int:
@@ -238,11 +239,7 @@ def test_scheduled_emits_upcoming_for_cron(
 def test_other_users_workflows_excluded(
     client: TestClient, auth_headers: dict[str, str], db: Session,
 ) -> None:
-    other = client.post(
-        "/auth/register",
-        json={"email": "stock-other@pivot.com", "password": "password123"},
-    )
-    other_uid = other.json()["user_id"]
+    other_uid = make_user(client, email="stock-other@pivot.com")["user_id"]
     wf = _seed_wf(db, other_uid, "not yours")
     _add_step(db, wf, 0, "trigger.price", {
         "symbol": "RELIANCE", "operator": ">", "value": 9999.0,

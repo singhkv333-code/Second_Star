@@ -9,6 +9,7 @@ from __future__ import annotations
 import time
 
 from fastapi.testclient import TestClient
+from tests.conftest import make_user
 
 
 def test_list_unauth(client: TestClient) -> None:
@@ -136,16 +137,7 @@ def test_get_other_users_conversation_returns_404(
     ).json()["id"]
 
     # Register a second user.
-    other = client.post(
-        "/auth/register",
-        json={
-            "email": "other-u@pivot.com",
-            "password": "password123",
-            "full_name": "Other",
-        },
-    )
-    other_token = other.json()["access_token"]
-    other_headers = {"Authorization": f"Bearer {other_token}"}
+    other_headers = make_user(client, email="other-u@pivot.com", full_name="Other")["headers"]
 
     # Other user should NOT see user1's convo.
     r = client.get(f"/api/conversations/{cid}", headers=other_headers)

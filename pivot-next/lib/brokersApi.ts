@@ -1,15 +1,14 @@
 "use client";
 
 /**
- * brokersApi — the charto dataserver's `/brokers` surface.
+ * brokersApi — the `/brokers` surface beside the account service.
  *
- * Same base + token as `charto-auth`: the broker connection belongs to the
- * CHART's account, because the chart is what places the orders. Pointing this
- * at Pivot's `/api` would connect a broker to a different person's account —
- * the two user tables are disjoint.
+ * A broker connection is stored against the Pivot account itself (the
+ * account service's id, which is what places orders), not against the API's
+ * Postgres row, so it goes to the same-origin `/brokers` with the session.
  */
 
-import { readChartoToken } from "@/lib/charto-auth";
+import { sessionToken } from "@/lib/session";
 
 export type BrokerField = {
   name: string;
@@ -76,7 +75,7 @@ function apiBase(): string {
 }
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = readChartoToken();
+  const token = sessionToken();
   const response = await fetch(`${apiBase()}${path}`, {
     ...init,
     headers: {

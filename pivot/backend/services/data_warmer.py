@@ -3,7 +3,7 @@
 WHY: every global data cache (screener fundamentals, screener market
 metrics, views list, per-symbol financials) was cache-ASIDE: the first
 request after each TTL expiry paid the full Azure/yfinance cost (measured
-0.8-2.5s each). Login-time warming (services/cache_warm.py) only helps the
+0.8-2.5s each). Login-time warming (the retired services/cache_warm.py) only helped the
 user who logs in *after* the cache went cold — an active user browsing when
 a TTL lapses still eats the refill.
 

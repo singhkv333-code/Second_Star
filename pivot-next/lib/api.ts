@@ -56,11 +56,7 @@ import type {
 import { isError } from "@/lib/types";
 import type { DslNode, DslSchema, DslDescribeResult } from "@/lib/types";
 import { getTradingMode } from "@/lib/trading-mode";
-import { refreshAccessToken } from "@/lib/authToken";
-import {
-  CHARTO_KEY, REFRESH_KEY as SESSION_REFRESH_KEY, authReason, clearSession,
-  handleUnauthorized, noteLinkRequired,
-} from "@/lib/session";
+import { clearSession, handleUnauthorized, saveSession, sessionToken } from "@/lib/session";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -312,30 +308,9 @@ async function _performRequest<T>(
   }
 
   if (!res.ok) {
-    // Token expired / invalid → attempt refresh once, then ask whether the
-    // session is really over (lib/session.ts) before signing out. Not for a
-    // sign-in attempt: there a 401 means "wrong password", and reloading
-    // /login would wipe the form and the message that says so.
-    const isCredentialPath = /\/auth\/(login|signup|google|reset|verify)(\/|$)/.test(path);
-    if (res.status === 401 && typeof window !== "undefined" && !isCredentialPath) {
-      // Guard against infinite loop: if this 401 came from the refresh
-      // endpoint itself, do not try to refresh again.
-      const isRefreshPath =
-        path === "/auth/refresh" || path.endsWith("/auth/refresh");
-      if (!isRefreshPath) {
-        try {
-          const refreshed = await _tryRefresh();
-          if (refreshed) {
-            // Retry the original request once with the new token. Call the
-            // worker directly (NOT the coalescing wrapper): this retry runs
-            // while the outer in-flight promise is still pending, so routing
-            // back through the wrapper would await its own promise → deadlock.
-            return _performRequest<T>(base, path, options);
-          }
-        } catch {
-          // fall through to the session check
-        }
-      }
+    // Refused: ask whether the session is really over (lib/session.ts)
+    // before signing out.
+    if (res.status === 401 && typeof window !== "undefined") {
       if (await handleUnauthorized()) {
         // The redirect navigates away before the caller can act on this,
         // but TypeScript needs a return value.
@@ -349,7 +324,6 @@ async function _performRequest<T>(
       // The session is live; only this request was refused. Report it as
       // the error it is, below, and leave the person signed in.
     }
-    if (res.status === 403 && authReason(res) === "link_required") noteLinkRequired();
     // Two body shapes from this backend:
     //   - Canonical envelope (Agent System routes under /api/*):
     //       { error: { code, message, details } }
@@ -1758,11 +1732,6 @@ export function patchUserSettings(patch: Record<string, unknown>): Promise<ApiRe
   return requestLegacy<{ settings: Record<string, unknown> }>("/auth/settings", { method: "PATCH", body: patch });
 }
 
-/** `POST /auth/forgot-password` — emails a reset link. Always answers ok. */
-export function requestPasswordReset(email: string): Promise<ApiResult<{ ok: boolean }>> {
-  return requestLegacy<{ ok: boolean }>("/auth/forgot-password", { method: "POST", body: { email } });
-}
-
 // ---------------------------------------------------------------------------
 // Feedback — bug reports (/feedback router, bare-mounted, NO /api prefix)
 // ---------------------------------------------------------------------------
@@ -1800,58 +1769,35 @@ export function submitBugReport(
 }
 
 // ---------------------------------------------------------------------------
-// Auth — token storage + login/register/logout helpers
+// Auth — Pivot's one account system
 // ---------------------------------------------------------------------------
+//
+// Sign-up, sign-in, Google, password reset and sign-out all go to the account
+// service behind `/auth/*` on this origin. It answers with one session token,
+// which every part of the product carries (lib/session.ts). Pivot's API has
+// no sign-in of its own; it accepts this session.
 
-const TOKEN_KEY = "pivot_jwt";
-const REFRESH_KEY = "pivot_refresh";
-
-/** Store both access + refresh tokens. */
-export function storeToken(
-  accessToken: string,
-  refreshToken?: string,
-): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(TOKEN_KEY, accessToken);
-    if (refreshToken) {
-      window.localStorage.setItem(REFRESH_KEY, refreshToken);
-    }
-  } catch {
-    /* localStorage may be denied in some embeds */
-  }
+/** Keep the session a sign-in just gave. */
+export function storeToken(accessToken: string): void {
+  saveSession(accessToken);
 }
 
-/** Clear both access + refresh tokens (called on logout / 401 failure).
- *  One session for the whole product: the chart's copy goes too. */
+/** Forget the session on this device. */
 export function clearToken(): void {
   clearSession();
 }
 
 type AuthResponse = {
   access_token: string;
-  refresh_token: string;
   user_id: string;
   email: string;
-  /** Charto made this account just now (a first Google sign-in). */
+  /** The account was made just now (a sign-up, or a first Google sign-in). */
   is_new?: boolean;
 };
 
-/* ── one sign-in for the whole product ──────────────────────────────────────
- * Accounts live in Charto (`charto_users.db` holds the 11 real accounts and
- * every piece of live state — docs/DATA_MAP.md), so signing in goes there.
- * Its one token serves both halves: the chart reads it as its own session
- * (CHARTO_TOKEN_STORAGE_KEY), and Pivot's API accepts it
- * (backend/auth/charto_session.py maps it to a Pivot user by email). Before
- * this, the shell signed in to Pivot and the chart asked for a second sign-in.
- *
- * An account that exists only in Pivot's own table still signs in: a Charto
- * refusal falls back to Pivot's /auth/login, exactly as before. */
-const CHARTO_TOKEN_KEY = "charto:auth:token";
+type AccountReply = { token?: string; access_token?: string; new?: boolean; user?: { id?: number | string; email?: string }; error?: string };
 
-type ChartoSession = { token?: string; access_token?: string; new?: boolean; user?: { id?: number | string; email?: string }; error?: string };
-
-async function chartoAuth(path: string, body: Record<string, unknown>): Promise<ApiResult<AuthResponse>> {
+async function account(path: string, body: Record<string, unknown>): Promise<ApiResult<AuthResponse>> {
   let status = 0;
   try {
     const res = await fetch(path, {
@@ -1860,23 +1806,16 @@ async function chartoAuth(path: string, body: Record<string, unknown>): Promise<
       body: JSON.stringify(body),
     });
     status = res.status;
-    const d = (await res.json().catch(() => ({}))) as ChartoSession;
+    const d = (await res.json().catch(() => ({}))) as AccountReply;
     const token = d.token || d.access_token;
     if (!res.ok || !token) {
       return { error: { code: String(status || "network"), message: d.error || `Sign-in failed (HTTP ${status})` } };
     }
-    storeToken(token);
-    try {
-      window.localStorage.setItem(CHARTO_TOKEN_KEY, token);
-      // A refresh token left by an older Pivot sign-in would have the
-      // background refresher (lib/authToken.ts) swap this session for that
-      // one. A Charto session has nothing to refresh.
-      window.localStorage.removeItem(SESSION_REFRESH_KEY);
-    } catch { /* denied */ }
+    saveSession(token);
     _ttlCache.clear();
     return {
       data: {
-        access_token: token, refresh_token: "", user_id: String(d.user?.id ?? ""),
+        access_token: token, user_id: String(d.user?.id ?? ""),
         email: d.user?.email ?? "", is_new: d.new === true,
       },
     };
@@ -1885,153 +1824,43 @@ async function chartoAuth(path: string, body: Record<string, unknown>): Promise<
   }
 }
 
-/* ── linking a Charto session to an existing Pivot account ─────────────────
- * Pivot's API binds a Charto session to a Pivot account only through an
- * explicit link, made with proof of BOTH (backend/auth/router.py
- * link-charto): an email match alone never grants an existing account. So a
- * person whose email already had a Pivot account was refused by the API on
- * every request after signing in. Signing in is the one moment we hold that
- * proof: the password (or the Google token) they just gave Charto opens the
- * Pivot account too, if it is theirs, and the link is made then. */
-async function linkIfNeeded(signInToPivot: () => Promise<string | null>): Promise<void> {
-  let charto: string | null = null;
-  try { charto = window.localStorage.getItem(CHARTO_KEY); } catch { return; }
-  if (!charto) return;
+/** `POST /auth/login` — email and password. */
+export function loginUser(credentials: { email: string; password: string }): Promise<ApiResult<AuthResponse>> {
+  return account("/auth/login", credentials);
+}
+
+/** `POST /auth/signup` — a new Pivot account. */
+export function registerUser(body: { email: string; password: string; full_name: string }): Promise<ApiResult<AuthResponse>> {
+  return account("/auth/signup", { email: body.email, password: body.password, name: body.full_name });
+}
+
+/** `POST /auth/google` — sign in (or up) with a Google access token. */
+export function googleLogin(accessToken: string): Promise<ApiResult<AuthResponse>> {
+  return account("/auth/google", { access_token: accessToken });
+}
+
+/** `POST /auth/reset/request` — the account service emails a reset link. */
+export async function requestPasswordReset(email: string): Promise<ApiResult<{ ok: boolean }>> {
   try {
-    const me = await fetch(`${getLegacyBase()}/auth/me`, {
-      headers: { Authorization: `Bearer ${charto}` },
-      cache: "no-store",
-    });
-    if (me.status !== 403 || authReason(me) !== "link_required") return;
-    const pivot = await signInToPivot();
-    if (!pivot) return;
-    await fetch(`${getLegacyBase()}/auth/link-charto`, {
+    const res = await fetch("/auth/reset/request", {
       method: "POST",
-      headers: { Authorization: `Bearer ${pivot}`, "X-Charto-Token": charto },
-      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
     });
+    if (!res.ok) return { error: { code: String(res.status), message: "Could not send the reset email." } };
+    return { data: { ok: true } };
   } catch {
-    /* the API keeps refusing until a link exists; the shell says so */
+    return { error: { code: "network", message: "Could not reach the server." } };
   }
 }
 
-async function pivotToken(path: string, body: Record<string, unknown>): Promise<string | null> {
-  const res = await fetch(`${getLegacyBase()}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    cache: "no-store",
-  });
-  if (!res.ok) return null;
-  const d = (await res.json().catch(() => null)) as { access_token?: string } | null;
-  return d?.access_token ?? null;
-}
-
-/** `POST /auth/login` — Charto first (the accounts' home), Pivot's table second. */
-export async function loginUser(credentials: {
-  email: string;
-  password: string;
-}): Promise<ApiResult<AuthResponse>> {
-  const charto = await chartoAuth("/auth/login", credentials);
-  if (!("error" in charto)) {
-    await linkIfNeeded(() => pivotToken("/auth/login", credentials));
-    return charto;
-  }
-  const result = await requestLegacy<AuthResponse>("/auth/login", {
-    method: "POST",
-    body: credentials,
-  });
-  if (!("error" in result)) {
-    storeToken(result.data.access_token, result.data.refresh_token);
-    return result;
-  }
-  return charto;                     // Charto's sentence: the account most people have
-}
-
-/** `POST /auth/signup` — a new account is a Charto account, so the chart, the
- *  alerts and the paper book are all theirs from the first minute. */
-export async function registerUser(body: {
-  email: string;
-  password: string;
-  full_name: string;
-}): Promise<ApiResult<AuthResponse>> {
-  return chartoAuth("/auth/signup", { email: body.email, password: body.password, name: body.full_name });
-}
-
-/** `POST /auth/google` — Charto's Google sign-in (the same OAuth client), and
- *  Pivot's only when Charto has Google switched off. */
-export async function googleLogin(
-  accessToken: string,
-): Promise<ApiResult<AuthResponse>> {
-  const charto = await chartoAuth("/auth/google", { access_token: accessToken });
-  if (!("error" in charto)) {
-    await linkIfNeeded(() => pivotToken("/auth/google", { access_token: accessToken }));
-    return charto;
-  }
-  if (charto.error.code !== "503") return charto;
-  const result = await requestLegacy<AuthResponse>("/auth/google", {
-    method: "POST",
-    body: { access_token: accessToken },
-  });
-  if (!("error" in result)) {
-    storeToken(result.data.access_token, result.data.refresh_token);
-  }
-  return result;
-}
-
-/** `POST /auth/refresh` — silently exchange refresh token for new access token. */
-export async function refreshAccess(): Promise<ApiResult<AuthResponse>> {
-  let refreshToken: string | null = null;
-  try {
-    refreshToken =
-      typeof window !== "undefined"
-        ? window.localStorage.getItem(REFRESH_KEY)
-        : null;
-  } catch {
-    refreshToken = null;
-  }
-  if (!refreshToken) {
-    return { error: { code: "no_refresh_token", message: "No refresh token." } };
-  }
-  const result = await requestLegacy<AuthResponse>("/auth/refresh", {
-    method: "POST",
-    body: { refresh_token: refreshToken },
-  });
-  if (!("error" in result)) {
-    storeToken(result.data.access_token, result.data.refresh_token);
-  }
-  return result;
-}
-
-/**
- * Internal helper: attempt one silent refresh. Returns true when the new
- * token was stored successfully. Called by the 401 handler in _doRequest.
- * Declared as a regular function so it is hoisted and available to
- * _doRequest which is defined earlier in this module.
- */
-async function _tryRefresh(): Promise<boolean> {
-  // Route through the shared, deduped refresh gate in authToken so the 401
-  // retry here and the proactive refreshes from the data modules can never
-  // fire two concurrent /auth/refresh calls (which would race on refresh-
-  // token rotation and log the user out).
-  const token = await refreshAccessToken();
-  return token !== null;
-}
-
-/** `POST /auth/logout` — best-effort server-side session revocation. */
+/** `POST /auth/logout` — end the session on the server, then here. */
 export async function logoutUser(): Promise<void> {
-  let charto: string | null = null;
-  try { charto = window.localStorage.getItem("charto:auth:token"); } catch { /* denied */ }
-  try {
-    await requestLegacy("/auth/logout", { method: "POST" });
-  } catch {
-    /* best-effort — we clear local tokens regardless */
+  const token = sessionToken();
+  if (token) {
+    await fetch("/auth/logout", { method: "POST", headers: { Authorization: `Bearer ${token}` } }).catch(() => undefined);
   }
-  if (charto) {
-    // and end the Charto session itself, not just this tab's copy of it
-    await fetch("/auth/logout", { method: "POST", headers: { Authorization: `Bearer ${charto}` } }).catch(() => undefined);
-  }
-  clearToken();
+  clearSession();
   // Drop every TTL-cached response (user profile, portfolio, quotes, ...) —
   // without this a second user logging in on the same tab within a cache
   // window could momentarily see the previous user's cached data.
