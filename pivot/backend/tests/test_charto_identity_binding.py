@@ -84,3 +84,58 @@ def test_link_requires_both_account_credentials(monkeypatch, db):
     with db() as s:
         assert router.link_charto_account('Bearer genuine-pivot-jwt','genuine-charto-session',s)=={'ok':True}
     assert charto_session.pivot_user_id_for('existing@example.test',charto_user_id=17)==2
+
+
+# ── why a refused session was refused (the app signs out only on a 401) ──
+
+def _session(monkeypatch, cid=17, email='existing@example.test'):
+    monkeypatch.setattr(charto_session, 'resolve_token', lambda _t: (cid, email, None))
+
+
+def test_unlinked_existing_account_is_link_required_not_invalid(monkeypatch, db):
+    with db() as s:
+        s.add(User(id=2, email='existing@example.test', hashed_password='h', is_active=True)); s.commit()
+    _session(monkeypatch)
+    assert charto_session.user_id_from_bearer('tok-link') is None
+    assert charto_session.failure_reason('tok-link') == 'link_required'
+
+
+def test_unreachable_store_is_unavailable_not_invalid(monkeypatch):
+    def broken():
+        raise RuntimeError('database unreachable')
+    monkeypatch.setitem(sys.modules, 'backend.database', SimpleNamespace(SessionLocal=broken))
+    monkeypatch.setitem(sys.modules, 'backend.models', SimpleNamespace(User=User))
+    _session(monkeypatch, email='someone@example.test')
+    assert charto_session.user_id_from_bearer('tok-down') is None
+    assert charto_session.failure_reason('tok-down') == 'store_unavailable'
+    charto_session._note('tok-down', None)
+    monkeypatch.setitem(sys.modules, 'backend.database', SimpleNamespace(SessionLocal=lambda: SimpleNamespace(
+        execute=broken, rollback=lambda: None, close=lambda: None)))
+    assert charto_session.user_id_from_bearer('tok-down') is None
+    assert charto_session.failure_reason('tok-down') == 'store_unavailable'
+
+
+def test_invalid_token_has_no_reason_and_success_clears_it(monkeypatch, db):
+    monkeypatch.setattr(charto_session, 'resolve_token', lambda _t: None)
+    assert charto_session.user_id_from_bearer('tok-bad') is None
+    assert charto_session.failure_reason('tok-bad') is None
+    charto_session._note('tok-new', 'store_unavailable')
+    _session(monkeypatch, cid=30, email='fresh@example.test')
+    assert charto_session.user_id_from_bearer('tok-new') is not None
+    assert charto_session.failure_reason('tok-new') is None
+
+
+def test_401_handler_says_what_the_refusal_was():
+    from fastapi import HTTPException
+    from starlette.requests import Request
+    from backend.main import _explain_401
+    def req(path, token):
+        return Request({'type': 'http', 'path': path, 'headers': [(b'authorization', f'Bearer {token}'.encode())]})
+    charto_session._note('tok-a', 'link_required')
+    out = _explain_401(req('/paper/summary', 'tok-a'), HTTPException(401, 'Invalid token'))
+    assert out.status_code == 403 and out.headers['X-Auth-Reason'] == 'link_required'
+    charto_session._note('tok-b', 'store_unavailable')
+    out = _explain_401(req('/api/conversations', 'tok-b'), HTTPException(401, 'Invalid token'))
+    assert out.status_code == 503 and out.detail['code'] == 'auth_unavailable'
+    plain = HTTPException(401, 'Invalid token')
+    assert _explain_401(req('/paper/summary', 'tok-unknown'), plain) is plain

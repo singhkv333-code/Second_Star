@@ -230,6 +230,34 @@ def _is_api_v1(request: Request) -> bool:
     return request.url.path.startswith("/api/")
 
 
+# A 401 for a Charto session that was refused for a reason other than being
+# invalid (backend/auth/charto_session.py: failure_reason) is not "signed
+# out", and the app signs people out on a 401. Say what it is instead:
+#   store_unavailable -> 503, try again; the session may be fine
+#   link_required     -> 403, signed in, but this account is not linked yet
+# X-Auth-Reason carries the reason on both the canonical and legacy shapes.
+_AUTH_REASONS = {
+    "store_unavailable": (503, "auth_unavailable",
+                          "Could not check your session just now. Please try again."),
+    "link_required": (403, "account_link_required",
+                      "Sign in again to connect your Pivot account."),
+}
+
+
+def _explain_401(request: Request, exc: HTTPException) -> HTTPException:
+    raw = request.headers.get("authorization") or ""
+    token = raw[7:].strip() if raw.lower().startswith("bearer ") else ""
+    from backend.auth.charto_session import failure_reason
+
+    reason = failure_reason(token)
+    if reason not in _AUTH_REASONS:
+        return exc
+    status, code, message = _AUTH_REASONS[reason]
+    headers = {**(getattr(exc, "headers", None) or {}), "X-Auth-Reason": reason}
+    detail = {"code": code, "message": message} if _is_api_v1(request) else message
+    return HTTPException(status_code=status, detail=detail, headers=headers)
+
+
 @app.exception_handler(HTTPException)
 async def _http_exception_handler(
     request: Request, exc: HTTPException,
@@ -246,6 +274,8 @@ async def _http_exception_handler(
       - HTTPException(status_code, detail={"any": "dict"})  (legacy)
         → message="request failed", details=detail
     """
+    if exc.status_code == 401:
+        exc = _explain_401(request, exc)
     if not _is_api_v1(request):
         return JSONResponse(
             status_code=exc.status_code,
@@ -280,7 +310,8 @@ async def _http_exception_handler(
                 "details": detail if isinstance(detail, dict) else None,
             }
         }
-    return JSONResponse(status_code=exc.status_code, content=body)
+    return JSONResponse(status_code=exc.status_code, content=body,
+                        headers=getattr(exc, "headers", None))
 
 
 @app.exception_handler(RequestValidationError)
