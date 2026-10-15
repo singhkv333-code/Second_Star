@@ -84,15 +84,15 @@ def get_user_id_from_token(token: str) -> Optional[int]:
     `charto_users.db` holds the accounts AND the live product state (alerts,
     the paper book, armed strategies), so auth cannot be lifted out of it.
     We share the session and leave the store alone — see
-    `backend/auth/charto_session.py` and `docs/DATA_MAP.md`.
+    `backend/auth/accounts.py` and `docs/DATA_MAP.md`.
     """
     payload = verify_token(token, "access")
     if payload:
         return int(payload.get("sub"))
-    # Import here, not at module scope: `charto_session` reaches into the ORM
+    # Import here, not at module scope: `accounts` reaches into the ORM
     # to resolve an email, and `jwt_handler` is imported by `backend.models`'
     # own dependents early in startup.
-    from backend.auth.charto_session import user_id_from_bearer
+    from backend.auth.accounts import user_id_from_bearer
 
     return user_id_from_bearer(token)
 

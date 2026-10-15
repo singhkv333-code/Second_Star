@@ -2,7 +2,7 @@
 
 Charto's account database is the one place plans and usage live
 (`charto/data/entitlements.py`). Pivot never opens that file for writing — its
-`auth/charto_session.py` is deliberately read-only — so a debit is a request
+`auth/accounts.py` is deliberately read-only — so a debit is a request
 to charto's `POST /billing/consume`, which is the single writer of the ledger.
 
 Who the debit is for:
@@ -10,7 +10,7 @@ Who the debit is for:
   * a Pivot JWT has no charto session, so the service key
     (CHARTO_INTERNAL_KEY) is sent with the account's EMAIL — identity across
     the two stores is always email, never the colliding integer ids (see
-    charto_session.py's header).
+    accounts.py's header).
 
 When charto cannot be reached the turn is ALLOWED and the miss is logged:
 metering protects cost, and an outage of the meter must not become an outage

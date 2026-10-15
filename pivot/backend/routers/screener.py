@@ -638,7 +638,7 @@ def _market_metrics_cached() -> tuple[dict[str, dict], str]:
 
 
 def warm_screener_metrics() -> None:
-    """Public warm hook (called from cache_warm on login) — populate the metrics
+    """Public warm hook — populate the metrics
     cache in the background if it's cold so the grid is ready when opened."""
     try:
         if redis_client.get(_METRICS_CACHE_KEY):

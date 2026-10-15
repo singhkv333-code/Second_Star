@@ -19,7 +19,6 @@ import * as React from "react";
 import { usePathname } from "next/navigation";
 import { SNAPSHOT } from "@/lib/billing/catalog";
 import { billingApi, hasChartoSession } from "@/lib/billing/api";
-import { ensureDevChartoSession } from "@/lib/charto-auth";
 import {
   isRefusal,
   triggerFromRefusal,
@@ -114,8 +113,7 @@ export function BillingProvider({
     void billingApi.plans().then((r) => {
       if (alive && r.ok && r.data?.plans?.length) setCatalog(r.data);
     });
-    void ensureDevChartoSession()
-      .then(() => billingApi.me())
+    void billingApi.me()
       .then((r) => {
         if (!alive) return;
         setLoading(false);

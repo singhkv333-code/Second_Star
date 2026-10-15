@@ -5,58 +5,25 @@
  *
  * Responsibilities:
  * 1. Flip `setBackendSource("real")` so every API call hits the live backend.
- * 2. Wire `setAuthTokenProvider` to read the JWT from localStorage.
- * 3. **Auth gate**: if no token exists on mount, render `SignInPrompt`
- *    BEFORE children. Otherwise the app loads, every API call 401s, and
- *    every tab renders an empty error state — bad first-run UX.
- *
- * Auth flow for the demo:
- *   - Click "Try demo account" → POST /auth/register with an auto-
- *     generated email → token stored → app comes alive.
- *   - Or paste a JWT from /auth/register / /auth/login manually.
- *
- * Refresh-token rotation IS now handled: when a token is present we start a
- * background auto-refresh (scheduleAutoRefresh) that silently trades the
- * 7-day refresh token for a fresh 12h access token before it expires and
- * whenever the tab regains focus — so users stay signed in across days
- * instead of hitting a wall of 401s every morning. Sign-out tears it down.
+ * 2. Wire `setAuthTokenProvider` to the one Pivot session (lib/session.ts).
+ * 3. **Auth gate**: with no session, send the visitor to /login (the app's
+ *    sign-in page; nginx routes it there) with this page in `?next=`. The
+ *    public pages in UNGATED_PATHS render without it.
  */
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { setAuthTokenProvider, setBackendSource } from "@/lib/api";
-import { scheduleAutoRefresh, stopAutoRefresh } from "@/lib/authToken";
+import { saveSession, sessionToken } from "@/lib/session";
 import { LoadingCubes } from "@/components/ui/LoadingCubes";
-
-// Charto's chart app signs the user in and keeps the bearer under its own
-// key; this Next app is served from the same origin and talks to the same
-// backend, so that is the token to send. `pivot_jwt` stays as the fallback
-// because the shared api layer, the login page and the refresh flow were all
-// written against it — reading Charto's key FIRST is what makes a session
-// started on the chart carry into these pages without a second sign-in.
-const TOKEN_KEYS = ["charto:auth:token", "pivot_jwt"] as const;
-
-function readToken(): string | null {
-  for (const key of TOKEN_KEYS) {
-    try {
-      const v = window.localStorage.getItem(key);
-      if (v) return v;
-    } catch {
-      return null;
-    }
-  }
-  return null;
-}
 
 /** Routes that render without the auth gate: the /design showcase, public
  *  marketing pages, and the auth routes themselves. */
-// charto: the company page is public — it reads charto's own store, not a
-// user's account, so it must open for anybody without a sign-in wall.
-// `/paper` is ungated for the same reason `/stock` is: Charto's sign-in lives
-// on the chart, and bouncing a signed-out visitor to this app's own /login
-// would hand them the wrong form for the wrong account system. The page says
-// where to sign in instead.
-const UNGATED_PATHS = ["/", "/design", "/waitlist", "/checkout", "/pricing", "/about", "/terms", "/privacy", "/refunds", "/cancellation", "/contact", "/login", "/signup",
+// The company page is public: it reads market data, not an account, so it
+// opens for anybody without a sign-in wall.
+// `/paper` is ungated for the same reason `/stock` is: the page says where to
+// sign in instead of sending a visitor away.
+const UNGATED_PATHS = ["/", "/design", "/waitlist", "/checkout", "/pricing", "/about", "/terms", "/privacy", "/refunds", "/cancellation", "/contact",
                        "/stock", "/paper"];
 
 type Phase = "loading" | "needs-auth" | "ready";
@@ -77,15 +44,10 @@ export function AppBootstrap({
     // Flip to real backend + wire token provider FIRST so any code path
     // that fires before the gate decision still sees the right state.
     setBackendSource("real");
-    setAuthTokenProvider(() => readToken());
+    setAuthTokenProvider(() => sessionToken());
 
-    const stored = readToken();
-    if (stored) {
+    if (sessionToken()) {
       setPhase("ready");
-      // Keep the access token warm for the whole session (timer + on focus),
-      // so the direct-fetch data modules (chat, live quotes, portfolio,
-      // screener) never hit an expired token mid-use.
-      scheduleAutoRefresh();
     } else {
       setPhase("needs-auth");
       // Redirect to /login instead of showing a modal gate — but never
@@ -94,10 +56,9 @@ export function AppBootstrap({
       // redirects back to /login, so the account-creation form is
       // unreachable.
       if (!ungated) {
-        router.replace("/login");
+        router.replace(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
       }
     }
-    return () => stopAutoRefresh();
   }, [router, ungated]);
 
   if (ungated) return <>{children}</>;
@@ -142,8 +103,7 @@ function BootstrapSplash(): React.ReactElement {
  * Returns null when not signed in.
  */
 export function getStoredToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return readToken();
+  return sessionToken();
 }
 
 /**
@@ -151,5 +111,5 @@ export function getStoredToken(): string | null {
  * legacy chat when it receives a token.
  */
 export function storeToken(token: string): void {
-  localStorage.setItem(TOKEN_KEYS[1], token);
+  saveSession(token);
 }

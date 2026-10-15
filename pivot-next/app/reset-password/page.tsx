@@ -3,7 +3,8 @@
 /**
  * Reset password — the page the reset email links to, and the page "Forgot
  * password?" opens.
- *   No token : ask for the email; Charto mails a one-time link (POST /auth/reset/request).
+ *   No token : ask for the email; Pivot's account service mails a one-time
+ *              link (POST /auth/reset/request).
  *   ?token=  : choose a new password (POST /auth/reset). Success signs the
  *              person in on this device; every other session is signed out.
  * The request answer never says whether an account exists, so this page
@@ -21,7 +22,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-const CHARTO_TOKEN_KEY = "charto:auth:token";
 
 async function post(path: string, body: Record<string, string>): Promise<{ ok: boolean; data: Record<string, unknown> }> {
   try {
@@ -116,7 +116,6 @@ function ChoosePassword({ token }: { token: string }): React.ReactElement {
     const session = String(data.token || data.access_token || "");
     if (session) {
       storeToken(session);
-      try { window.localStorage.setItem(CHARTO_TOKEN_KEY, session); } catch { /* storage denied */ }
     }
     router.replace(session ? "/" : "/login");
   };

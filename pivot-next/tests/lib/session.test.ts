@@ -1,10 +1,11 @@
 /**
- * A refusal from Pivot's API signs a person out only when Charto says the
- * session is over. Before this, any 401 wiped the tokens and reloaded /login.
+ * A refusal from Pivot's API signs a person out only when the account
+ * service says the session is over. Before this, any 401 wiped the session
+ * and reloaded /login.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const CHARTO = "charto:auth:token";
+const SESSION = "charto:auth:token"; // lib/session.ts SESSION_KEY
 
 // Node's own localStorage global shadows jsdom's here; an in-memory one, as
 // in tests/agent-panel/app-bootstrap.test.tsx.
@@ -31,7 +32,7 @@ describe("handleUnauthorized", () => {
   let href = "";
   beforeEach(() => {
     localStorage.clear();
-    localStorage.setItem(CHARTO, "tok");
+    localStorage.setItem(SESSION, "tok");
     localStorage.setItem("pivot_jwt", "tok");
     href = "";
     vi.stubGlobal("location", {
@@ -44,15 +45,15 @@ describe("handleUnauthorized", () => {
     vi.unstubAllGlobals();
   });
 
-  it("keeps a session Charto still knows", async () => {
+  it("keeps a session the account service still knows", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ user: { id: 5 } }))));
     const s = await fresh();
     expect(await s.handleUnauthorized()).toBe(false);
-    expect(localStorage.getItem(CHARTO)).toBe("tok");
+    expect(localStorage.getItem(SESSION)).toBe("tok");
     expect(href).toBe("");
   });
 
-  it("keeps the session when Charto cannot be reached", async () => {
+  it("keeps the session when the account service cannot be reached", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("offline"); }));
     const s = await fresh();
     expect(await s.handleUnauthorized()).toBe(false);
@@ -62,17 +63,17 @@ describe("handleUnauthorized", () => {
     expect(localStorage.getItem("pivot_jwt")).toBe("tok");
   });
 
-  it("signs out, back to this page, when Charto says the session is gone", async () => {
+  it("signs out, back to this page, when the session is gone", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ user: null }))));
     const s = await fresh();
     expect(await s.handleUnauthorized()).toBe(true);
-    expect(localStorage.getItem(CHARTO)).toBeNull();
+    expect(localStorage.getItem(SESSION)).toBeNull();
     expect(localStorage.getItem("pivot_jwt")).toBeNull();
     expect(href).toBe("/login?next=%2Fstock%2FRELIANCE");
   });
 
-  it("signs out a Pivot-only session with no Charto token", async () => {
-    localStorage.removeItem(CHARTO);
+  it("treats a device with no session as signed out, without asking", async () => {
+    localStorage.removeItem(SESSION);
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
     const s = await fresh();
@@ -80,7 +81,7 @@ describe("handleUnauthorized", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("asks Charto once for a burst of refusals", async () => {
+  it("asks once for a burst of refusals", async () => {
     const fetch = vi.fn(async () => new Response(JSON.stringify({ user: { id: 5 } })));
     vi.stubGlobal("fetch", fetch);
     const s = await fresh();

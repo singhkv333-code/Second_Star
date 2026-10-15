@@ -27,6 +27,7 @@ import type {
 } from "./screenerApi";
 import { isError } from "@/lib/types";
 import type { ApiResult } from "@/lib/types";
+import { sessionToken } from "@/lib/session";
 
 export type ScreenKind = "symbols" | "filters";
 export type ScreenSource = "chat" | "screener";
@@ -71,15 +72,8 @@ export type PendingScreen = {
 };
 
 const BASE = process.env.NEXT_PUBLIC_PIVOT_API_BASE || "/pv/api";
-const TOKEN_KEY = "pivot_jwt";
-
 function authHeaders(): Record<string, string> {
-  let token: string | null = null;
-  try {
-    token = window.localStorage.getItem(TOKEN_KEY);
-  } catch {
-    /* localStorage may be denied in some embeds */
-  }
+  const token = sessionToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 

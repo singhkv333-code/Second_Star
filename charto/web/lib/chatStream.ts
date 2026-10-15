@@ -2,6 +2,7 @@
 
 import type { LogicCard } from "@/components/chat/LogicCardChip";
 import type { WorkflowDraft } from "@/components/chat/WorkflowDraftCard";
+import { handleUnauthorized } from "@/lib/session";
 
 export type ChatHistoryMessage = {
   role: "user" | "assistant";
@@ -148,8 +149,8 @@ export async function* streamChat(
 
   if (!res.ok) {
     if (res.status === 401 && typeof window !== "undefined") {
-      try { window.localStorage.removeItem("pivot_jwt"); } catch { /* ignore */ }
-      window.location.reload();
+      // Signs out only if the session is really over (lib/session.ts).
+      void handleUnauthorized();
     }
     const text = await res.text();
     throw new Error(`Stream error ${res.status}: ${text.slice(0, 200)}`);

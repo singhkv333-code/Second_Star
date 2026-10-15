@@ -61,7 +61,7 @@ import type {
 import { isError } from "@/lib/types";
 import type { DslNode, DslSchema, DslDescribeResult } from "@/lib/types";
 import { getTradingMode } from "@/lib/trading-mode";
-import { refreshAccessToken } from "@/lib/authToken";
+import { clearSession, handleUnauthorized, saveSession, sessionToken } from "@/lib/session";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -325,36 +325,17 @@ async function _performRequest<T>(
   }
 
   if (!res.ok) {
-    // Token expired / invalid → attempt refresh once, then redirect to /login.
+    // Refused: ask whether the session is really over (lib/session.ts)
+    // before signing out. Any 401 used to wipe the session.
     if (res.status === 401 && typeof window !== "undefined") {
-      // Guard against infinite loop: if this 401 came from the refresh
-      // endpoint itself, just clear and redirect without retrying.
-      const isRefreshPath =
-        path === "/auth/refresh" || path.endsWith("/auth/refresh");
-      if (!isRefreshPath) {
-        try {
-          const refreshed = await _tryRefresh();
-          if (refreshed) {
-            // Retry the original request once with the new token. Call the
-            // worker directly (NOT the coalescing wrapper): this retry runs
-            // while the outer in-flight promise is still pending, so routing
-            // back through the wrapper would await its own promise → deadlock.
-            return _performRequest<T>(base, path, options);
-          }
-        } catch {
-          // fall through to clearToken + redirect
-        }
+      if (await handleUnauthorized()) {
+        return {
+          error: {
+            code: "http_401",
+            message: "Session expired. Redirecting to login.",
+          },
+        };
       }
-      clearToken();
-      window.location.href = "/login";
-      // Return a placeholder — the redirect will navigate away before
-      // the caller can act on this, but TypeScript needs a return value.
-      return {
-        error: {
-          code: "http_401",
-          message: "Session expired. Redirecting to login.",
-        },
-      };
     }
     // Two body shapes from this backend:
     //   - Canonical envelope (Agent System routes under /api/*):
@@ -1735,142 +1716,26 @@ export function submitBugReport(
 }
 
 // ---------------------------------------------------------------------------
-// Auth — token storage + login/register/logout helpers
+// Auth — Pivot's one account system (sign-in lives in the app, at /login)
 // ---------------------------------------------------------------------------
 
-const TOKEN_KEY = "pivot_jwt";
-const REFRESH_KEY = "pivot_refresh";
-
-/** Store both access + refresh tokens. */
-export function storeToken(
-  accessToken: string,
-  refreshToken?: string,
-): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(TOKEN_KEY, accessToken);
-    if (refreshToken) {
-      window.localStorage.setItem(REFRESH_KEY, refreshToken);
-    }
-  } catch {
-    /* localStorage may be denied in some embeds */
-  }
+/** Keep the session a sign-in gave. */
+export function storeToken(accessToken: string): void {
+  saveSession(accessToken);
 }
 
-/** Clear both access + refresh tokens (called on logout / 401 failure). */
+/** Forget the session on this device. */
 export function clearToken(): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.removeItem(TOKEN_KEY);
-    window.localStorage.removeItem(REFRESH_KEY);
-  } catch {
-    /* ignore */
-  }
+  clearSession();
 }
 
-type AuthResponse = {
-  access_token: string;
-  refresh_token: string;
-  user_id: string;
-  email: string;
-};
-
-/** `POST /auth/login` — exchange email+password for tokens. */
-export async function loginUser(credentials: {
-  email: string;
-  password: string;
-}): Promise<ApiResult<AuthResponse>> {
-  const result = await requestLegacy<AuthResponse>("/auth/login", {
-    method: "POST",
-    body: credentials,
-  });
-  if (!("error" in result)) {
-    storeToken(result.data.access_token, result.data.refresh_token);
-  }
-  return result;
-}
-
-/** `POST /auth/register` — create account + receive tokens. */
-export async function registerUser(body: {
-  email: string;
-  password: string;
-  full_name: string;
-}): Promise<ApiResult<AuthResponse>> {
-  const result = await requestLegacy<AuthResponse>("/auth/register", {
-    method: "POST",
-    body,
-  });
-  if (!("error" in result)) {
-    storeToken(result.data.access_token, result.data.refresh_token);
-  }
-  return result;
-}
-
-/** `POST /auth/google` — exchange a Google OAuth access token for Pivot
- *  tokens (find-or-create by verified email, server-verified). */
-export async function googleLogin(
-  accessToken: string,
-): Promise<ApiResult<AuthResponse>> {
-  const result = await requestLegacy<AuthResponse>("/auth/google", {
-    method: "POST",
-    body: { access_token: accessToken },
-  });
-  if (!("error" in result)) {
-    storeToken(result.data.access_token, result.data.refresh_token);
-  }
-  return result;
-}
-
-/** `POST /auth/refresh` — silently exchange refresh token for new access token. */
-export async function refreshAccess(): Promise<ApiResult<AuthResponse>> {
-  let refreshToken: string | null = null;
-  try {
-    refreshToken =
-      typeof window !== "undefined"
-        ? window.localStorage.getItem(REFRESH_KEY)
-        : null;
-  } catch {
-    refreshToken = null;
-  }
-  if (!refreshToken) {
-    return { error: { code: "no_refresh_token", message: "No refresh token." } };
-  }
-  const result = await requestLegacy<AuthResponse>("/auth/refresh", {
-    method: "POST",
-    body: { refresh_token: refreshToken },
-  });
-  if (!("error" in result)) {
-    storeToken(result.data.access_token, result.data.refresh_token);
-  }
-  return result;
-}
-
-/**
- * Internal helper: attempt one silent refresh. Returns true when the new
- * token was stored successfully. Called by the 401 handler in _doRequest.
- * Declared as a regular function so it is hoisted and available to
- * _doRequest which is defined earlier in this module.
- */
-async function _tryRefresh(): Promise<boolean> {
-  // Route through the shared, deduped refresh gate in authToken so the 401
-  // retry here and the proactive refreshes from the data modules can never
-  // fire two concurrent /auth/refresh calls (which would race on refresh-
-  // token rotation and log the user out).
-  const token = await refreshAccessToken();
-  return token !== null;
-}
-
-/** `POST /auth/logout` — best-effort server-side session revocation. */
+/** `POST /auth/logout` — end the session on the server, then here. */
 export async function logoutUser(): Promise<void> {
-  try {
-    await requestLegacy("/auth/logout", { method: "POST" });
-  } catch {
-    /* best-effort — we clear local tokens regardless */
+  const token = sessionToken();
+  if (token) {
+    await fetch("/auth/logout", { method: "POST", headers: { Authorization: `Bearer ${token}` } }).catch(() => undefined);
   }
-  clearToken();
-  // Drop every TTL-cached response (user profile, portfolio, quotes, ...) —
-  // without this a second user logging in on the same tab within a cache
-  // window could momentarily see the previous user's cached data.
+  clearSession();
   _ttlCache.clear();
 }
 

@@ -11,7 +11,7 @@
 
 import type { LogicCard } from "@/components/chat/LogicCardChip";
 import type { WorkflowDraft } from "@/components/chat/WorkflowDraftCard";
-import { authReason, handleUnauthorized, noteLinkRequired } from "@/lib/session";
+import { handleUnauthorized } from "@/lib/session";
 
 export type ChatHistoryMessage = {
   role: "user" | "assistant";
@@ -183,10 +183,9 @@ export async function* streamChat(
   if (!res.ok) {
     if (res.status === 401 && typeof window !== "undefined") {
       // Signs out only if the session is really over (lib/session.ts);
-      // deleting pivot_jwt and reloading sent a live session to /login.
+      // deleting the token and reloading sent a live session to /login.
       void handleUnauthorized();
     }
-    if (res.status === 403 && authReason(res) === "link_required") noteLinkRequired();
     const text = await res.text();
     throw new Error(`Stream error ${res.status}: ${text.slice(0, 200)}`);
   }

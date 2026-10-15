@@ -1,36 +1,25 @@
-"""Tests for demo seeding on first registration.
+"""Tests for the demo seeder (backend/services/demo_seeder.py).
 
-Confirms a fresh user lands on a populated Agents tab + Portfolio order
-history, and that re-running the seeder is a no-op (idempotent).
-
-Conftest disables seeding for the rest of the suite via
-DEMO_SEED_ON_REGISTER=0; this file opts back in at module level so the
-seeder actually runs during these tests.
+It populates a user's Agents tab and Portfolio order history, and re-running
+it is a no-op (idempotent). It used to run inside this API's own sign-up,
+which no longer exists (accounts are created by Pivot's account service), so
+these tests call it directly.
 """
-import os
-import uuid
-
-import pytest
-
 from backend.models import PaperAccount, PaperPosition, TradeLog, Workflow, WorkflowStatus
 from backend.services.demo_seeder import _seed_paper_account, seed_demo_data
 
 
-@pytest.fixture(autouse=True)
-def _enable_seeder(monkeypatch):
-    """Re-enable the demo seeder for this test module only."""
-    monkeypatch.setenv("DEMO_SEED_ON_REGISTER", "1")
-    yield
+from tests.conftest import make_user
 
 
-def test_register_seeds_demo_workflows_and_trades(client, db):
-    email = f"u_{uuid.uuid4().hex[:8]}@pivot.com"
-    r = client.post(
-        "/auth/register",
-        json={"email": email, "password": "password123", "full_name": "Demo"},
-    )
-    assert r.status_code == 201, r.text
-    user_id = r.json()["user_id"]
+def _seeded_user(client, db):
+    u = make_user(client, full_name="Demo")
+    seed_demo_data(db, u["user_id"])
+    return u
+
+
+def test_seeds_demo_workflows_and_trades(client, db):
+    user_id = _seeded_user(client, db)["user_id"]
 
     workflows = (
         db.query(Workflow).filter(Workflow.user_id == user_id).all()
@@ -54,12 +43,7 @@ def test_register_seeds_demo_workflows_and_trades(client, db):
 
 
 def test_seed_workflow_steps_have_valid_step_types(client, db):
-    email = f"u_{uuid.uuid4().hex[:8]}@pivot.com"
-    r = client.post(
-        "/auth/register",
-        json={"email": email, "password": "password123", "full_name": "Demo"},
-    )
-    user_id = r.json()["user_id"]
+    user_id = _seeded_user(client, db)["user_id"]
     workflows = (
         db.query(Workflow).filter(Workflow.user_id == user_id).all()
     )
@@ -78,12 +62,7 @@ def test_seed_workflow_steps_have_valid_step_types(client, db):
 
 def test_demo_seeder_is_idempotent(client, db):
     """Calling seed_demo_data twice for the same user is a no-op."""
-    email = f"u_{uuid.uuid4().hex[:8]}@pivot.com"
-    r = client.post(
-        "/auth/register",
-        json={"email": email, "password": "password123", "full_name": "Demo"},
-    )
-    user_id = r.json()["user_id"]
+    user_id = _seeded_user(client, db)["user_id"]
 
     initial_workflows = (
         db.query(Workflow).filter(Workflow.user_id == user_id).count()
@@ -108,9 +87,9 @@ def test_demo_seeder_is_idempotent(client, db):
     )
 
 
-def test_seeded_trades_visible_in_order_history(client, auth_headers):
+def test_seeded_trades_visible_in_order_history(client, db):
     """The seeded TradeLog rows should appear on GET /orders/history."""
-    r = client.get("/orders/history", headers=auth_headers)
+    r = client.get("/orders/history", headers=_seeded_user(client, db)["headers"])
     assert r.status_code == 200
     rows = r.json()
     assert len(rows) >= 6
@@ -119,9 +98,9 @@ def test_seeded_trades_visible_in_order_history(client, auth_headers):
     assert {"RELIANCE", "INFY", "HDFCBANK", "TCS"}.issubset(symbols)
 
 
-def test_seeded_workflows_visible_via_workflows_api(client, auth_headers):
+def test_seeded_workflows_visible_via_workflows_api(client, db):
     """Seeded workflows should appear on GET /api/workflows."""
-    r = client.get("/api/workflows", headers=auth_headers)
+    r = client.get("/api/workflows", headers=_seeded_user(client, db)["headers"])
     assert r.status_code == 200
     body = r.json()
     items = body.get("items", body)
@@ -131,14 +110,8 @@ def test_seeded_workflows_visible_via_workflows_api(client, auth_headers):
     assert "TCS monthly SIP" in names
 
 
-def test_register_seeds_paper_account_and_holdings(client, db):
-    email = f"u_{uuid.uuid4().hex[:8]}@pivot.com"
-    r = client.post(
-        "/auth/register",
-        json={"email": email, "password": "password123", "full_name": "Demo"},
-    )
-    assert r.status_code == 201, r.text
-    user_id = r.json()["user_id"]
+def test_seeds_paper_account_and_holdings(client, db):
+    user_id = _seeded_user(client, db)["user_id"]
 
     account = db.query(PaperAccount).filter(PaperAccount.user_id == user_id).first()
     assert account is not None
@@ -155,12 +128,7 @@ def test_register_seeds_paper_account_and_holdings(client, db):
 
 
 def test_seed_paper_account_is_idempotent(client, db):
-    email = f"u_{uuid.uuid4().hex[:8]}@pivot.com"
-    r = client.post(
-        "/auth/register",
-        json={"email": email, "password": "password123", "full_name": "Demo"},
-    )
-    user_id = r.json()["user_id"]
+    user_id = _seeded_user(client, db)["user_id"]
 
     account = db.query(PaperAccount).filter(PaperAccount.user_id == user_id).first()
     initial_positions = (
@@ -178,32 +146,3 @@ def test_seed_paper_account_is_idempotent(client, db):
         == initial_positions
     )
     assert account.cash_available == initial_cash
-
-
-def test_login_does_not_re_seed(client, db):
-    """Only registration seeds. Login is unchanged."""
-    email = f"u_{uuid.uuid4().hex[:8]}@pivot.com"
-    client.post(
-        "/auth/register",
-        json={"email": email, "password": "password123", "full_name": "Demo"},
-    )
-    # Capture state after registration
-    user = (
-        db.query(__import__("backend.models", fromlist=["User"]).User)
-        .filter_by(email=email).first()
-    )
-    pre_workflows = (
-        db.query(Workflow).filter(Workflow.user_id == user.id).count()
-    )
-
-    # Login again
-    r = client.post(
-        "/auth/login",
-        json={"email": email, "password": "password123"},
-    )
-    assert r.status_code == 200
-
-    post_workflows = (
-        db.query(Workflow).filter(Workflow.user_id == user.id).count()
-    )
-    assert post_workflows == pre_workflows

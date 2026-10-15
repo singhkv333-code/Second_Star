@@ -23,6 +23,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from backend import models
+from tests.conftest import make_user
 
 
 def _basic_workflow_body() -> dict[str, Any]:
@@ -117,13 +118,7 @@ def test_list_runs_cross_user_returns_404(
     )
     wf_id = r.json()["id"]
 
-    other_email = f"u_{uuid.uuid4().hex[:8]}@pivot.com"
-    r2 = client.post(
-        "/auth/register",
-        json={"email": other_email, "password": "password123",
-              "full_name": "Other"},
-    )
-    other_headers = {"Authorization": f"Bearer {r2.json()['access_token']}"}
+    other_headers = make_user(client, full_name="Other")["headers"]
     r = client.get(f"/api/workflows/{wf_id}/runs", headers=other_headers)
     assert r.status_code == 404
 
@@ -333,13 +328,7 @@ def test_pending_approvals_cross_user_404(
     run_id = r.json()["run_id"]
     _wait_for_run_finish(client, auth_headers, run_id)
 
-    other_email = f"u_{uuid.uuid4().hex[:8]}@pivot.com"
-    r2 = client.post(
-        "/auth/register",
-        json={"email": other_email, "password": "password123",
-              "full_name": "Other"},
-    )
-    other_headers = {"Authorization": f"Bearer {r2.json()['access_token']}"}
+    other_headers = make_user(client, full_name="Other")["headers"]
     r = client.get(
         f"/api/runs/{run_id}/approvals/pending",
         headers=other_headers,
