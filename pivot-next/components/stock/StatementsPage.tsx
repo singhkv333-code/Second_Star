@@ -118,7 +118,7 @@ export function StatementsPage({
 
       {/* ── statement tabs ──────────────────────────────────────────────── */}
       <div style={{ borderBottom: "1px solid var(--glass-border)", overflowX: "auto" }}>
-        <div role="tablist" style={{ display: "flex", gap: 0, width: "max-content", minWidth: "100%" }}>
+        <div role="tablist" style={{ display: "flex", gap: 28, width: "max-content", minWidth: "100%" }}>
           {TABS.map((t) => {
             const on = t.value === tab;
             return (
@@ -129,7 +129,7 @@ export function StatementsPage({
                 aria-selected={on}
                 onClick={() => setTab(t.value)}
                 style={{
-                  padding: "8px 16px", border: "none", background: "transparent",
+                  padding: "8px 0", border: "none", background: "transparent",
                   cursor: "pointer", whiteSpace: "nowrap",
                   fontFamily: "var(--font-ui)", fontSize: "var(--sd-f13)",
                   fontWeight: on ? 600 : 400,
@@ -203,10 +203,9 @@ function Choice({
   align?: "left" | "right";
 }): React.ReactElement {
   return (
-    <div role="tablist" style={{ display: "inline-flex", alignItems: "flex-end" }}>
-      {options.map((o, i) => {
+    <div role="tablist" style={{ display: "inline-flex", alignItems: "flex-end", gap: 28, justifyContent: align === "right" ? "flex-end" : "flex-start" }}>
+      {options.map((o) => {
         const on = o.value === value;
-        const flush = align === "left" ? i === 0 : i === options.length - 1;
         return (
           <button
             key={o.value}
@@ -216,9 +215,7 @@ function Choice({
             onClick={() => onChange(o.value)}
             style={{
               border: "none", background: "transparent", cursor: "pointer",
-              padding: "6px 14px",
-              paddingLeft: flush && align === "left" ? 0 : 14,
-              paddingRight: flush && align === "right" ? 0 : 14,
+              padding: "6px 0",
               marginBottom: -1,
               borderBottom: `2px solid ${on ? "var(--text-primary)" : "transparent"}`,
               fontFamily: "var(--font-ui)", fontSize: "var(--sd-f125)",

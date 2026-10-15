@@ -6,7 +6,8 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { ChatCircle, Pulse, Sparkle } from "./icons";
+import { ArrowsClockwise, ChatCircle, Pulse, Sparkle } from "./icons";
+import ReactMarkdown from "react-markdown";
 import { Skeleton } from "@/components/ui/skeleton";
 import { askPivot } from "@/lib/launch";
 import { isError } from "@/lib/types";
@@ -16,6 +17,7 @@ import {
   fmtDay,
   fmtPrice,
   getMarketBrief,
+  refreshMarketBrief,
   type AssetQuote,
   type MarketBreadth,
   type MarketBrief,
@@ -28,20 +30,40 @@ import { CardHead, Delta, Hint, Spark, css as s, cx, openChart } from "./parts";
 export function BriefCard({ data }: { data: MarketExplore | null }): React.ReactElement {
   const [brief, setBrief] = useState<MarketBrief | null>(null);
   const [failed, setFailed] = useState(false);
-  const generated = data?.as_of.generated_at;
+  const [refreshing, setRefreshing] = useState(false);
+  const [notice, setNotice] = useState("");
 
   useEffect(() => {
-    if (!generated) return;
     let alive = true;
-    getMarketBrief()
+    const load = (): void => { void getMarketBrief()
       .then((r) => {
         if (!alive) return;
         if (isError(r)) setFailed(true);
         else { setBrief(r.data); setFailed(false); }
       })
-      .catch(() => alive && setFailed(true));
-    return () => { alive = false; };
-  }, [generated]);
+      .catch(() => alive && setFailed(true)); };
+    load();
+    // Cheap reads only: generation belongs to the server's shared hourly job.
+    const timer = window.setInterval(load, 60_000);
+    return () => { alive = false; window.clearInterval(timer); };
+  }, []);
+
+  const refresh = async (): Promise<void> => {
+    if (refreshing) return;
+    setRefreshing(true); setNotice("");
+    try {
+      const result = await refreshMarketBrief();
+      if (isError(result)) setNotice(result.error.message);
+      else {
+        setBrief(result.data); setFailed(false);
+        setNotice(result.data.refresh_error ?? (result.data.refreshing ? "A shared refresh is already in progress." : ""));
+      }
+    } catch { setNotice("Refresh unavailable. Your previous brief is unchanged."); }
+    finally { setRefreshing(false); }
+  };
+  const bullets = brief?.bullets ?? (brief?.text ? [{ text: brief.text, source_ids: [] }] : []);
+  const used = new Set(bullets.flatMap((row) => row.source_ids));
+  const sources = brief?.sources?.filter((item) => used.has(item.id)) ?? [];
 
   const basis = data
     ? data.as_of.prices === "live" ? "today's session" : `the ${fmtDay(data.as_of.eod_day)} close`
@@ -49,10 +71,20 @@ export function BriefCard({ data }: { data: MarketExplore | null }): React.React
 
   return (
     <section className={cx(s.card, s.cardPad, "flex h-full flex-col")} aria-label="Market brief">
-      <CardHead Icon={Sparkle} title="Brief" />
+      <CardHead Icon={Sparkle} title="Brief" right={
+        <button type="button" className={s.ghostBtn} aria-label="Refresh market brief" disabled={refreshing} onClick={() => void refresh()}>
+          <ArrowsClockwise size={14} className={refreshing ? "animate-spin" : undefined} />
+        </button>
+      } />
       <div className="flex-1">
-        {brief ? (
-          <p className={s.brief}>{brief.text}</p>
+        {bullets.length > 0 ? (
+          <ul className={s.brief}>
+            {bullets.map((row, i) => <li key={i}>
+              <ReactMarkdown allowedElements={["p", "strong", "em"]} unwrapDisallowed components={{ p: ({ children }) => <span>{children}</span> }}>{row.text}</ReactMarkdown>
+            </li>)}
+          </ul>
+        ) : brief?.source === "pending" ? (
+          <p className={s.sectionCaption}>The shared market brief is not available yet. It updates hourly; use Refresh to try now.</p>
         ) : failed ? (
           <p className={s.sectionCaption}>The brief is unavailable right now. The figures below are unaffected.</p>
         ) : (
@@ -63,14 +95,19 @@ export function BriefCard({ data }: { data: MarketExplore | null }): React.React
           </div>
         )}
       </div>
+      {notice && <p className={cx(s.stamp, "mt-2")} role="status">{notice}</p>}
+      {sources.length > 0 && <details className={cx(s.stamp, "mt-3")}>
+        <summary className="cursor-pointer">Sources</summary>
+        <ul className="mt-2 space-y-1">{sources.map((item) => <li key={item.id}><a href={item.url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">{item.source}: {item.title}</a></li>)}</ul>
+      </details>}
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
         <span className={s.stamp}>
-          {data ? `${data.universe.size} largest companies · ${basis}` : " "}
+          {brief?.generated_at ? `${brief.stale ? "Previous brief" : "Updated"} ${new Date(brief.generated_at * 1000).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })} IST · hourly` : data ? basis : " "}
         </span>
         <button
           type="button"
           className={s.ghostBtn}
-          disabled={!brief}
+          disabled={!brief?.text}
           onClick={() => askPivot(`The market brief says: "${brief?.text ?? ""}" What is driving this, and which sectors should I look at more closely?`)}
         >
           <ChatCircle size={14} /> Ask a follow-up

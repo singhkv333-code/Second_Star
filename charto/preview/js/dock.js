@@ -17,9 +17,8 @@
  * land. The seams between tiles drag to resize. Only the conversation stays
  * where it is — it is the product's other half, not a tile.
  *
- * The chart can be LOCKED in place from its menu or the widget hub; locked,
- * it loses its header and cannot be moved, though widgets can still be split
- * against it.
+ * Floating windows use the same docking targets as tiles. Hold Alt while
+ * dragging to bypass snapping and position a window freely inside the canvas.
  *
  * State is one object, persisted unscoped (a workspace follows the user, not
  * the symbol); the DOM is derived from it. Groups and widget hosts are
@@ -473,7 +472,7 @@ const Dock = (() => {
     g.dataset.gid = gid;
     g.innerHTML =
       `<div class="dk-head">` +
-        `<button type="button" class="dk-grip" data-act="grip" title="Drag to move" ` +
+        `<button type="button" class="dk-grip" data-act="grip" title="Drag to dock; hold Alt to float freely" ` +
           `aria-label="Move">${icon("grip")}</button>` +
         `<div class="dk-tabs" role="tablist"></div>` +
         `<div class="dk-tools"></div>` +
@@ -527,6 +526,7 @@ const Dock = (() => {
       (!fl ? btn("max", maxed === gid ? "shrink" : "expand", maxed === gid ? "Restore" : "Maximize") : "") +
       btn("close", "x", act.type === CHART ? "Close chart" : "Close");
     node.classList.toggle("is-float", fl);
+    if (!fl) node.style.zIndex = "";
     node.classList.toggle("has-chart", g.tabs.includes(CHART));
     requestAnimationFrame(() => paintInk(node));
   }
@@ -799,14 +799,14 @@ const Dock = (() => {
   function placeFloats() {
     const W = floatLayer.clientWidth, H = floatLayer.clientHeight;
     if (!W || !H) return;
-    for (const f of S.floats) {
+    for (const [index, f] of S.floats.entries()) {
       const node = groupEls.get(f.gid);
       if (!node || maxed === f.gid) continue;
       f.w = clamp(f.w, 240, Math.max(240, W - 16));
       f.h = clamp(f.h, 160, Math.max(160, H - 16));
       f.x = clamp(f.x, 8, Math.max(8, W - f.w - 8));
       f.y = clamp(f.y, 8, Math.max(8, H - f.h - 8));
-      Object.assign(node.style, { left: f.x + "px", top: f.y + "px",
+      Object.assign(node.style, { zIndex: String(index + 1), left: f.x + "px", top: f.y + "px",
                                   width: f.w + "px", height: f.h + "px" });
     }
   }
@@ -1568,7 +1568,7 @@ const Dock = (() => {
         if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 5) return;
         startDrag(source, ev);
       }
-      drag.x = ev.clientX; drag.y = ev.clientY;
+      drag.x = ev.clientX; drag.y = ev.clientY; drag.free = ev.altKey;
       if (!drag.raf) drag.raf = requestAnimationFrame(frame);
     };
     const up = (ev) => {
@@ -1576,7 +1576,10 @@ const Dock = (() => {
       removeEventListener("pointermove", mv);
       removeEventListener("pointerup", up);
       removeEventListener("pointercancel", up);
-      if (drag) finishDrag(ev.type === "pointerup");
+      if (drag) {
+        drag.x = ev.clientX; drag.y = ev.clientY; drag.free = ev.altKey;
+        finishDrag(ev.type === "pointerup");
+      }
     };
     addEventListener("pointermove", mv);
     addEventListener("pointerup", up);
@@ -1597,7 +1600,12 @@ const Dock = (() => {
       }
     }
     ghost.innerHTML = `${icon(spec.icon)}<span>${esc(title)}</span>`;
-    drag = { source, x: ev.clientX, y: ev.clientY, target: null, raf: 0 };
+    const sourceGid = source.kind === "inst" ? groupOf(source.id) : source.gid;
+    const floating = floatOf(sourceGid);
+    const bounds = sourceGid && groupEls.get(sourceGid)?.getBoundingClientRect();
+    drag = { source, x: ev.clientX, y: ev.clientY, free: ev.altKey, target: null, raf: 0,
+      floating: floating && { ...floating },
+      offset: floating && bounds ? { x: ev.clientX - bounds.left, y: ev.clientY - bounds.top } : null };
     document.body.classList.add("dk-dragging");
     ghost.classList.add("on");
     const srcGid = source.kind === "inst" ? groupOf(source.id) : source.gid;
@@ -1651,7 +1659,7 @@ const Dock = (() => {
         : side === "top" ? { left: ws.left, top: ws.top, width: ws.width, height: h }
         : { left: ws.left, top: ws.bottom - h, width: ws.width, height: h };
     };
-    for (const [side, d] of [["left", x - ws.left], ["right", ws.right - x], ["top", y - ws.top], ["bottom", ws.bottom - y]]) {
+    for (const [side, d] of drag.free ? [] : [["left", x - ws.left], ["right", ws.right - x], ["top", y - ws.top], ["bottom", ws.bottom - y]]) {
       if (d < EDGE) return { kind: "edge", side, rect: sideRect(side) };
     }
 
@@ -1659,11 +1667,13 @@ const Dock = (() => {
     const order = [...[...floatLayer.children].reverse(),
                    ...[...groupEls.values()].filter((n) => n.parentNode !== floatLayer)]
       .filter((n) => n.isConnected && S.groups[n.dataset.gid] && n.dataset.gid !== "stage" && n.dataset.gid !== "sheet");
-    for (const n of order) {
+    for (const n of drag.free ? [] : order) {
       const gid = n.dataset.gid;
       const b = n.getBoundingClientRect();
       if (!inside(x, y, b)) continue;
-      if (lonely && gid === srcGid) return null;
+      // The source cannot be its own docking target, but it must not block
+      // the underlying tiles (or free placement over its old position).
+      if (lonely && gid === srcGid) continue;
       const g = S.groups[gid];
       const fl = !!floatOf(gid);
       // 1 · a tab strip: join, at the slot under the pointer
@@ -1699,15 +1709,18 @@ const Dock = (() => {
       return { kind: "tab", gid, index: null, merge: true,
                rect: { left: b.left, top: b.top, width: b.width, height: b.height } };
     }
-    const fw = Math.min(FLOAT_DEF.w, ws.width - 16), fh = Math.min(FLOAT_DEF.h, ws.height - 16);
-    const fx = clamp(x - fw / 2, ws.left + 8, ws.right - fw - 8);
-    const fy = clamp(y - 18, ws.top + 8, ws.bottom - fh - 8);
+    const fw = Math.min(drag.floating?.w || FLOAT_DEF.w, ws.width - 16), fh = Math.min(drag.floating?.h || FLOAT_DEF.h, ws.height - 16);
+    const fx = clamp(x - (drag.offset?.x ?? fw / 2), ws.left + 8, ws.right - fw - 8);
+    const fy = clamp(y - (drag.offset?.y ?? 18), ws.top + 8, ws.bottom - fh - 8);
     return { kind: "float", x: fx - ws.left, y: fy - ws.top, w: fw, h: fh,
              rect: { left: fx, top: fy, width: fw, height: fh } };
   }
 
   function finishDrag(commit) {
     const d = drag;
+    // A pointerup can precede the next animation frame; commit the current
+    // pointer position, never the last painted preview's stale destination.
+    if (commit) d.target = hit(d.x, d.y);
     drag = null;
     cancelAnimationFrame(d.raf);
     removeEventListener("keydown", escDrag, true);
@@ -1768,6 +1781,7 @@ const Dock = (() => {
     if (float) {
       S.floats = [...S.floats.filter((f) => f !== float), float];
       if (floatLayer.lastElementChild !== node) move(floatLayer, node, null);
+      placeFloats();
     }
     if (compact || !S.groups[gid]) return;
     if (e.target.closest("[data-act='resize']") && float) return resizeFloat(e, float, node);
@@ -1779,52 +1793,11 @@ const Dock = (() => {
     if (e.target.closest("[data-act='grip']")) {
       if (S.lock && hasChart(gid)) return;
       e.preventDefault();
-      if (float) return moveFloat(e, float, node);
       return beginDrag(e, { kind: "group", gid });
     }
     if (float && e.target.closest(".dk-head") && !e.target.closest("button")) {
-      return moveFloat(e, float, node);
+      return beginDrag(e, { kind: "group", gid });
     }
-  }
-
-  function moveFloat(e, f, node) {
-    const x0 = e.clientX, y0 = e.clientY, fx = f.x, fy = f.y;
-    let dragged = false, redock = false;
-    node.classList.add("dk-moving");
-    const mv = (ev) => {
-      const dx = ev.clientX - x0, dy = ev.clientY - y0;
-      if (!dragged && Math.hypot(dx, dy) < 3) return;
-      dragged = true;
-      const W = floatLayer.clientWidth, H = floatLayer.clientHeight;
-      let nx = fx + dx, ny = fy + dy;
-      const snapX = [8, W - f.w - 8], snapY = [8, H - f.h - 8];
-      for (const o of S.floats) {
-        if (o === f) continue;
-        snapX.push(o.x, o.x + o.w + 8, o.x - f.w - 8);
-        snapY.push(o.y, o.y + o.h + 8, o.y - f.h - 8);
-      }
-      for (const s of snapX) if (Math.abs(nx - s) < 10) { nx = s; break; }
-      for (const s of snapY) if (Math.abs(ny - s) < 10) { ny = s; break; }
-      f.x = clamp(nx, 8, W - f.w - 8); f.y = clamp(ny, 8, H - f.h - 8);
-      node.style.left = f.x + "px"; node.style.top = f.y + "px";
-      const c = floatLayer.getBoundingClientRect();
-      redock = ev.clientX < c.left + 6 ? "left" : ev.clientX > c.right - 6 ? "right"
-        : ev.clientY > c.bottom - 6 ? "bottom" : ev.clientY < c.top + 6 ? "top" : false;
-      node.classList.toggle("dk-redock", !!redock);
-    };
-    const up = () => {
-      removeEventListener("pointermove", mv); removeEventListener("pointerup", up);
-      node.classList.remove("dk-moving", "dk-redock");
-      if (redock) {
-        const tabs = [...S.groups[f.gid].tabs], active = S.groups[f.gid].active;
-        tabs.forEach((id) => detach(id));
-        place(tabs[0], { kind: "edge", side: redock });
-        const gid = groupOf(tabs[0]);
-        S.groups[gid].tabs = tabs; S.groups[gid].active = active;
-        layout(true);
-      } else persist();
-    };
-    addEventListener("pointermove", mv); addEventListener("pointerup", up);
   }
 
   function resizeFloat(e, f, node) {

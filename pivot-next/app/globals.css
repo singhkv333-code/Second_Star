@@ -1416,7 +1416,7 @@ input[type="range"].payoff-slider::-moz-range-thumb {
 }
 @keyframes chart-veil-in { from { opacity: 0; } }
 .sidebar-nav-list {
-  gap: 6px;
+  gap: 10px;
 }
 .sidebar-nav-item {
   width: 34px;

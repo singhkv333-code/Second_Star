@@ -123,7 +123,7 @@ export function Segmented({
         display: "inline-flex",
         flexWrap: "wrap",
         alignItems: "center",
-        gap: underline ? 0 : 16,
+        gap: underline ? 28 : 16,
         // The tab strip sits ON the hairline it shares with the panel below,
         // the way the Financial Performance tabs do.
         marginBottom: underline ? -1 : 0,
@@ -139,7 +139,7 @@ export function Segmented({
             aria-selected={on}
             onClick={() => onChange(o.value)}
             style={{
-              padding: underline ? "6px 14px" : 0,
+              padding: underline ? "6px 0" : 0,
               border: "none",
               background: "transparent",
               cursor: "pointer",

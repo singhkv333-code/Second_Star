@@ -36,7 +36,7 @@ export function CapitalAllocationPanel({ symbol }: { symbol: string }) {
   const unit = grid?.unit?.trim() || "reported units";
   const isCrore = /^(Rs\.?\s*Cr\.?|INR\s*Crore|₹\s*Cr\.?)$/i.test(unit);
   const unitLabel = isCrore ? "₹ crore" : unit;
-  const value = (n: number | null | undefined): string => n == null ? "Unavailable" : `${isCrore ? "₹" : ""}${decimal(n)}${isCrore ? " Cr" : ""}`;
+  const value = (n: number | null | undefined): string => n == null ? "Unavailable" : `${isCrore ? "₹" : ""}${decimal(n)} ${isCrore ? "Cr" : unit}`;
   const rows = grid ? [...grid.periods].reverse().map((p) => ({ period: p, ...cashBridge(grid, p).values })) : [];
   const usable = !!grid?.available && rows.some((r) => r.operating !== null || r.investing !== null || r.financing !== null);
   return <ResearchPanel id="stock-capital" title="Capital allocation" controls={<BasisSelect value={basis} onChange={setBasis} />}>

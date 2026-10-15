@@ -95,7 +95,13 @@ export type MarketExplore = {
   stocks: MarketStock[];
 };
 
-export type MarketBrief = { text: string; source: "model" | "computed"; as_of: MarketExplore["as_of"] };
+export type MarketBrief = {
+  text: string; source: "model" | "computed" | "pending";
+  as_of: MarketExplore["as_of"] | null;
+  generated_at?: number | null; stale?: boolean; refreshing?: boolean; refresh_error?: string;
+  bullets?: { text: string; source_ids: string[] }[];
+  sources?: { id: string; title: string; url: string; source: string; published_at: number }[];
+};
 
 export function getMarketExplore(): Promise<ApiResult<MarketExplore>> {
   return request<MarketExplore>("/markets/explore");
@@ -103,6 +109,10 @@ export function getMarketExplore(): Promise<ApiResult<MarketExplore>> {
 
 export function getMarketBrief(): Promise<ApiResult<MarketBrief>> {
   return request<MarketBrief>("/markets/brief");
+}
+
+export function refreshMarketBrief(): Promise<ApiResult<MarketBrief>> {
+  return request<MarketBrief>("/markets/brief/refresh", { method: "POST" });
 }
 
 // ── periods ──────────────────────────────────────────────────────────────

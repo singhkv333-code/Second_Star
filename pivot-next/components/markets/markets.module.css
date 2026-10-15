@@ -97,11 +97,11 @@
   -webkit-backdrop-filter: saturate(140%) blur(10px);
 }
 .navLink {
-  padding: 6px 13px;
+  padding: 8px 0;
   font: inherit;
   font-size: 13px;
   font-weight: 500;
-  color: var(--mk-ink);
+  color: var(--text-secondary);
   background: none;
   border: none;
   border-radius: var(--radius-xs);
@@ -109,8 +109,9 @@
   white-space: nowrap;
   transition: color 0.2s var(--ease-quartr), background-color 0.2s var(--ease-quartr);
 }
-.navLink:hover { background: var(--mk-card); }
-.navLink[data-active="true"] { color: var(--bg-primary); background: var(--text-primary); }
+.navLink:hover { color: var(--mk-ink); }
+.navLink[data-active="true"] { color: var(--mk-ink); font-weight: 700; }
+.navLink:focus-visible { outline: 2px solid var(--mk-ink); outline-offset: 4px; }
 
 /* ── controls ───────────────────────────────────────────────────────── */
 
@@ -268,6 +269,20 @@
   transition: border-color 160ms var(--ease-quartr), transform 160ms var(--ease-quartr), background 160ms var(--ease-quartr);
 }
 .tile:hover { background: color-mix(in srgb, var(--mk-card), var(--text-primary) 5%); }
+.assetTile { min-width: 0; }
+.assetName { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
+@media (max-width: 560px) {
+  .assetTile { padding: 12px; }
+  .assetIdentity { gap: 7px; align-items: flex-start; }
+  .assetName { font-size: 12px; line-height: 1.35; min-height: 2.7em; }
+  .assetTile .subname { font-size: 10px; }
+  .assetPrice { flex-direction: column; align-items: flex-start; gap: 2px; }
+  .assetPrice > span:first-child { font-size: 15px; }
+  .assetRange { flex-wrap: wrap; justify-content: space-between; gap: 4px; }
+  .assetRange > span { min-width: 0; }
+  .assetRange > span:nth-child(2) { flex: 0 0 100%; order: 1; }
+  .assetRange .label { font-size: 9px; }
+}
 
 /* ── heatmap ────────────────────────────────────────────────────────── */
 
@@ -325,12 +340,16 @@
 
 .brief {
   margin: 0;
-  font-family: var(--font-serif);
-  font-size: clamp(17px, 1.45vw, 20px);
-  line-height: 1.5;
-  letter-spacing: -0.01em;
+  padding-left: 20px;
+  list-style: disc;
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.85;
+  letter-spacing: normal;
   color: var(--text-primary);
 }
+.brief li + li { margin-top: 8px; }
+.brief strong { font-weight: 600; }
 
 /* ── news ───────────────────────────────────────────────────────────── */
 

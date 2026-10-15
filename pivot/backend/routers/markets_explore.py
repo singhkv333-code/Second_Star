@@ -11,7 +11,7 @@ from fastapi.concurrency import run_in_threadpool
 
 from backend.routers._deps import require_user
 from backend.routers._errors import http_error
-from backend.services import market_explore
+from backend.services import market_explore, market_brief
 
 logger = logging.getLogger(__name__)
 
@@ -30,13 +30,12 @@ async def get_explore(_user_id: int = Depends(require_user)) -> dict:
     return data
 
 
-@router.get("/brief", summary="Three sentences on the session, from the explore numbers only")
+@router.get("/brief", summary="Shared hourly India/global/cross-asset market brief")
 async def get_brief(_user_id: int = Depends(require_user)) -> dict:
-    try:
-        data = await run_in_threadpool(market_explore.build)
-    except Exception as exc:  # noqa: BLE001
-        raise http_error(503, "not_yet_available", "market data is temporarily unavailable") from exc
-    if not data.get("stocks"):
-        raise http_error(503, "not_yet_available", "market data is temporarily unavailable")
-    out = await market_explore.brief(data)
-    return {"text": out["text"], "source": out["source"], "as_of": data["as_of"]}
+    # A page read never calls the model or regenerates the shared brief.
+    return market_brief.cached()
+
+
+@router.post("/brief/refresh", summary="Refresh the shared brief (global five-minute cooldown)")
+async def refresh_brief(_user_id: int = Depends(require_user)) -> dict:
+    return await market_brief.refresh(force=True)

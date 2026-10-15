@@ -36,6 +36,8 @@ import webcache
 _UA = "Mozilla/5.0 (compatible; PivotCharto/1.0; +https://pivot)"
 
 FEEDS = {
+    "bbc-business": ("BBC Business", "https://feeds.bbci.co.uk/news/business/rss.xml"),
+    "coindesk": ("CoinDesk", "https://www.coindesk.com/arc/outboundfeeds/rss/"),
     "et-markets":   ("Economic Times", "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms"),
     "et-stocks":    ("ET Stocks", "https://economictimes.indiatimes.com/markets/stocks/rssfeeds/2146842.cms"),
     "mint-markets": ("Mint", "https://www.livemint.com/rss/markets"),

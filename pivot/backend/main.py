@@ -560,6 +560,28 @@ def _maybe_autostart_kite_ticker() -> None:
         db.close()
 
 
+@app.on_event("startup")
+async def start_market_brief_worker():
+    # Separate from the broker/SIP scheduler, disabled on the serving API.
+    import asyncio
+    import os
+    if settings.app_env != "test" and os.environ.get("MARKET_BRIEF_ENABLED", "1") == "1":
+        from backend.services.market_brief import hourly_loop
+        app.state.market_brief_task = asyncio.create_task(hourly_loop())
+
+
+@app.on_event("shutdown")
+async def stop_market_brief_worker():
+    import asyncio
+    task = getattr(app.state, "market_brief_task", None)
+    if task:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
 @app.on_event("shutdown")
 async def shutdown():
     try:
