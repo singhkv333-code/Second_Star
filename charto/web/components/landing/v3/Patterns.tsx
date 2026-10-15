@@ -122,6 +122,41 @@ export function Patterns(): React.ReactElement {
     return () => clearTimeout(id);
   }, [run, held, k]);
 
+  // On a phone the detector's rows are cards on a sideways belt, and the card
+  // that settles in view is the shape drawn on the chart. The auto-advance
+  // slides the belt to its card; a swipe the reader makes picks the pattern.
+  // `steering` marks the belt's own slides so they are not read back as one.
+  const listRef = React.useRef<HTMLUListElement | null>(null);
+  const steering = React.useRef(0);
+  const sideways = (ul: HTMLUListElement) => ul.scrollWidth > ul.clientWidth + 1;
+  const stop = (ul: HTMLUListElement, li: HTMLElement) =>
+    Math.min(li.offsetLeft - parseFloat(getComputedStyle(ul).scrollPaddingLeft || "0"), ul.scrollWidth - ul.clientWidth);
+  React.useEffect(() => {
+    const ul = listRef.current, li = ul?.children[k] as HTMLElement | undefined;
+    if (!ul || !li || !sideways(ul)) return;
+    const left = stop(ul, li);
+    if (Math.abs(ul.scrollLeft - left) < 2) return;
+    steering.current = performance.now() + 800;
+    ul.scrollTo({ left, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  }, [k]);
+  React.useEffect(() => {
+    const ul = listRef.current;
+    if (!ul) return;
+    let t = 0;
+    const settled = () => {
+      if (performance.now() < steering.current || !sideways(ul)) return;
+      let best = 0, gap = Infinity;
+      Array.from(ul.children).forEach((li, i) => {
+        const d = Math.abs(stop(ul, li as HTMLElement) - ul.scrollLeft);
+        if (d < gap) { gap = d; best = i; }
+      });
+      setK(best);
+    };
+    const onScroll = () => { clearTimeout(t); t = window.setTimeout(settled, 120); };
+    ul.addEventListener("scroll", onScroll, { passive: true });
+    return () => { ul.removeEventListener("scroll", onScroll); clearTimeout(t); };
+  }, []);
+
   const row = ROWS[k]!;
   return (
     <section id="patterns" className="v3 pt" ref={ref}>
@@ -149,7 +184,7 @@ export function Patterns(): React.ReactElement {
                   <div className="px-user" data-show="">{ASK}</div>
                   <div className="pt-card">
                     <header><b>Patterns</b><span>RELIANCE · 1D · last 120 bars</span></header>
-                    <ul>
+                    <ul ref={listRef} onTouchStart={() => setHeld(true)} onTouchEnd={() => setHeld(false)}>
                       {ROWS.map((r, i) => (
                         <li key={r.key}>
                           <button type="button" className={i === k ? "on" : undefined} onClick={() => setK(i)}>
