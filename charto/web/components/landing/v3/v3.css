@@ -731,6 +731,8 @@
 .hn-compare-row > i { grid-column: 1 / -1; height: 5px; border-radius: 5px; background: rgba(244, 241, 234, 0.1); overflow: hidden; }
 .hn-compare-row em { display: block; height: 100%; border-radius: inherit; background: #49c7a8; }
 .hn-compare-row.hold em { background: rgba(244, 241, 234, 0.45); }
+.hn-compare-row.dn b { color: #f2777f; }
+.hn-compare-row.strategy.dn em { background: #f2777f; }
 .hn-obj.comparison svg { display: block; width: 100%; height: 70px; margin-top: 4px; }
 .hn-obj.comparison svg line { stroke: rgba(244, 241, 234, 0.25); stroke-dasharray: 3 4; }
 .hn-obj.comparison svg polyline { fill: none; stroke: #49c7a8; stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linecap: round; stroke-linejoin: round; }
@@ -938,4 +940,30 @@
   .hn-pt { left: 14px; bottom: 10px; font-size: 13px; }
   .hn-card { padding: 22px; }
   .hn-obj { height: 190px; margin-bottom: 16px; }
+}
+
+/* ── hero: the headline, and the composer's stacked marks ─────────────── */
+.pivot-landing .pl-hero h1 { font-size: clamp(54px, 7vw, 100px); line-height: 0.98; letter-spacing: -0.045em; text-wrap: balance; max-width: 15ch; margin-inline: auto; }
+.pivot-landing .pl-hero h1 em { font-style: italic; letter-spacing: -0.035em; opacity: 0.82; }
+.pl-prompt-marks { display: flex; align-items: center; padding-left: 2px; }
+.pivot-landing .pl-av {
+  width: 21px; height: 21px; margin-left: -6px; background: #fff;
+  box-shadow: 0 0 0 1.5px #fafafa, 0 1px 2px rgba(0, 0, 0, 0.12);
+  transition: margin 0.3s var(--ease, ease);
+}
+.pivot-landing .pl-av:first-child { margin-left: 0; }
+.pivot-landing .pl-av img { object-fit: cover; }
+.pivot-landing .pl-av > span { font: 600 9.5px/1 Inter, sans-serif; color: #0d0d0e; background: #eee; }
+.pl-hero-prompt:hover .pl-av { margin-left: -3px; }
+.pl-hero-prompt:hover .pl-av:first-child { margin-left: 0; }
+@media (max-width: 600px) {
+  .pivot-landing .pl-hero h1 { font-size: 44px; max-width: 340px; line-height: 1; }
+  .pivot-landing .pl-nav-phone { padding: 9px 16px; }
+  /* pattern cards: the name and the record; the dates are on the chart */
+  .pt-name small { display: none; }
+  .pt-card button { row-gap: 8px; padding: 13px 14px; }
+}
+@media (max-width: 720px) {
+  .gl-well > .gl-list.watch li { grid-template-columns: 28px minmax(0, 1fr) auto 54px; }
+  .gl-well > .gl-list.watch li .gl-logo { width: 28px !important; height: 28px !important; }
 }

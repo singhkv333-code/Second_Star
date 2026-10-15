@@ -11,6 +11,8 @@ import { Honest } from "@/components/landing/v3/Honest";
 import { Gallery } from "@/components/landing/v3/Gallery";
 import { Tour } from "@/components/landing/v3/Tour";
 import { PivotLogo } from "@/components/landing/PivotLogo";
+import { logoSrc } from "@/components/landing/v3/logos";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useLandingScroll } from "@/components/landing/landing-scroll";
 import "@/components/landing/v3/paper.css";
 
@@ -24,6 +26,9 @@ const examples = [
   "Compare this breakout with the previous one",
   "What invalidates this setup?",
 ];
+
+/** Marks stacked in the hero composer, one per market Pivot reads. */
+const MARKS = ["NIFTY", "RELIANCE", "HDFCBANK", "GOLD", "BTC", "ETH"] as const;
 
 const faqs = [
   ["What is Pivot?", "Pivot is a complete workspace for charting, market research, strategy testing and paper trading. Ask a question in plain English, inspect the evidence on the chart, and turn an idea into rules you can test."],
@@ -65,7 +70,7 @@ export function Nav({ home = "#top" }: { home?: string } = {}) {
       document.body.removeEventListener("scroll", onScroll);
     };
   }, []);
-  return <header className={`pl-nav ${isDark ? "dark" : "light"}${scrolled ? " scrolled" : ""}`}><div className="pl-nav-inner"><Brand href={home} /><div className="pl-nav-links"><a className="pl-nav-app pl-nav-wide" href="https://app.pivotnow.in/">Open Pivot <ArrowRight size={14}/></a><a className="pl-nav-app" href="/login">Log in <ArrowRight size={14}/></a><a className="pl-nav-cta pl-nav-wide" href={`${home === "#top" ? "" : home}#waitlist`}>Join waitlist <ArrowRight size={14}/></a>{/* a phone has room for one button: the platform itself */}<a className="pl-nav-cta pl-nav-phone" href="https://app.pivotnow.in/">Open Pivot <ArrowRight size={14}/></a></div></div></header>;
+  return <header className={`pl-nav ${isDark ? "dark" : "light"}${scrolled ? " scrolled" : ""}`}><div className="pl-nav-inner"><Brand href={home} /><div className="pl-nav-links"><a className="pl-nav-app pl-nav-wide" href="https://app.pivotnow.in/">Open Pivot <ArrowRight size={14}/></a><a className="pl-nav-app pl-nav-wide" href="/login">Log in <ArrowRight size={14}/></a><a className="pl-nav-cta pl-nav-wide" href={`${home === "#top" ? "" : home}#waitlist`}>Join waitlist <ArrowRight size={14}/></a>{/* a phone has room for one button */}<a className="pl-nav-cta pl-nav-phone" href="/login">Log in</a></div></div></header>;
 
 }
 
@@ -96,7 +101,7 @@ function Hero() {
   return <section id="top" className="pl-hero" data-nav-theme="dark">
     <div className="pl-hero-art"/><div className="pl-hero-shade"/>
     <div className="pl-hero-content">
-      <h1>Talk to the<span className="pl-mobile-break"><br /></span> Charts</h1>
+      <h1>Superintelligent Charts <em>for Trading</em></h1>
       {/* Charto's composer shape, SHOWN rather than offered: the questions
           type themselves and nothing here takes input. A live box that
           answered with two canned strings would promise answers this page
@@ -105,7 +110,15 @@ function Hero() {
       <div className="pl-hero-prompt" aria-hidden="true">
         <p className="pl-prompt-line">{typedExample}|</p>
         <div className="pl-prompt-row">
-          <span className="pl-prompt-context">NIFTY<i>1D</i></span>
+          {/* the markets one chat reads: indices, stocks, commodities, crypto */}
+          <span className="pl-prompt-marks">
+            {MARKS.map((s) => (
+              <Avatar key={s} className="pl-av">
+                <AvatarImage src={logoSrc(s)} alt="" />
+                <AvatarFallback>{s.slice(0, 1)}</AvatarFallback>
+              </Avatar>
+            ))}
+          </span>
           <span className="pl-prompt-send"><ArrowUp size={16}/></span>
         </div>
       </div>
