@@ -117,14 +117,14 @@ function MiniCandles({ n = 32, levels = false }: { n?: number; levels?: boolean 
 
 /** The chart pane, small but whole: readout, candles, a price axis. */
 function MiniChart() {
-  const bars = RELIANCE_1D.slice(-36);
+  const bars = RELIANCE_1D.slice(-24);
   const lo = Math.min(...bars.map((b) => b[3])), hi = Math.max(...bars.map((b) => b[2]));
   const ticks = [0, 1, 2, 3].map((i) => hi - ((hi - lo) * (i + 0.5)) / 4);
   const p = COMPANY.price;
   return (
     <div className="ws-chartbody">
       <div className="ws-ro"><Logo s="RELIANCE" size={16} /><b>RELIANCE</b><span>· 1D · NSE</span><em className="dn">{formatINR(p.last)} {p.change_pct.toFixed(2)}%</em></div>
-      <div className="ws-plot"><MiniCandles n={36} /></div>
+      <div className="ws-plot"><MiniCandles n={24} /></div>
       <div className="ws-axis">{ticks.map((t) => <span key={t}>{Math.round(t).toLocaleString("en-IN")}</span>)}</div>
     </div>
   );

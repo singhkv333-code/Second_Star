@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import {
-  ArrowRight, ArrowUp, Instagram,
+  ArrowUp, Instagram,
 } from "lucide-react";
 import { Patterns } from "@/components/landing/v3/Patterns";
 import { Workspace } from "@/components/landing/v3/Workspace";
@@ -70,7 +70,7 @@ export function Nav({ home = "#top" }: { home?: string } = {}) {
       document.body.removeEventListener("scroll", onScroll);
     };
   }, []);
-  return <header className={`pl-nav ${isDark ? "dark" : "light"}${scrolled ? " scrolled" : ""}`}><div className="pl-nav-inner"><Brand href={home} /><div className="pl-nav-links"><a className="pl-nav-app pl-nav-wide" href="https://app.pivotnow.in/">Open Pivot <ArrowRight size={14}/></a><a className="pl-nav-app pl-nav-wide" href="/login">Log in <ArrowRight size={14}/></a><a className="pl-nav-cta pl-nav-wide" href={`${home === "#top" ? "" : home}#waitlist`}>Join waitlist <ArrowRight size={14}/></a>{/* a phone has room for one button */}<a className="pl-nav-cta pl-nav-phone" href="/login">Log in</a></div></div></header>;
+  return <header className={`pl-nav ${isDark ? "dark" : "light"}${scrolled ? " scrolled" : ""}`}><div className="pl-nav-inner"><Brand href={home} /><div className="pl-nav-links"><a className="pl-nav-cta pl-nav-login" href="/login">Log in</a></div></div></header>;
 
 }
 
@@ -122,7 +122,7 @@ function Hero() {
           <span className="pl-prompt-send"><ArrowUp size={16}/></span>
         </div>
       </div>
-      <div className="pl-actions"><a href="https://app.pivotnow.in/">Open platform</a><a href="#demo">See how it works</a></div>
+      <div className="pl-actions"><a href="https://app.pivotnow.in/">Open Platform</a><a href="#demo">See how it works</a></div>
     </div>
   </section>;
 }
