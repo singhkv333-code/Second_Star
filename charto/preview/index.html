@@ -10123,6 +10123,58 @@ i.mg { height: 3px !important; border-radius: 2px !important; background: var(--
     background: transparent; padding: 0; margin: 0;
   }
 }
+/* ══════════════════════════════════════════════════════════════════════════
+   THE PHONE'S WORKSPACE PAGER  (.pgbar, js/pager.js)
+   ──────────────────────────────────────────────────────────────────────────
+   One page at a time: the chart, the chat, or one widget, with a bar along
+   the bottom that names the page, adds a widget and turns to the next. The
+   body says which page is up; everything else stays where it is and is only
+   hidden, so the desktop layout and the dock's own state are untouched. */
+.pgbar { display: none; }
+@media (max-width: 560px) and (orientation: portrait) {
+  .pgbar {
+    display: flex; align-items: center; gap: 4px; flex: none; order: 9;
+    height: 52px; padding: 0 6px;
+    border-top: var(--seam-w) solid var(--seam);
+    background: var(--background);
+    touch-action: pan-y;
+  }
+  .pg-arrow, .pg-add {
+    flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+    height: 38px; border: 0; cursor: pointer; font: inherit; color: var(--foreground);
+    border-radius: var(--radius-sm); background: transparent;
+    transition: background var(--dur) var(--ease-quartr);
+  }
+  .pg-arrow { width: 40px; }
+  .pg-arrow svg { width: 20px; height: 20px; }
+  .pg-add { padding: 0 12px; font-size: var(--text-sm); font-weight: var(--weight-medium); background: var(--muted); }
+  .pg-arrow:active, .pg-add:active { background: var(--accent); }
+  .pg-name {
+    flex: 1 1 auto; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 7px;
+    font-size: var(--text-md); font-weight: var(--weight-medium); color: var(--foreground);
+  }
+  .pg-ico { display: inline-flex; flex: none; }
+  .pg-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pg-n { flex: none; font-size: var(--text-2xs); color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+
+  /* the split between chart and chat is a two-panel idea; pages have none */
+  body.pg-on .splitter { display: none !important; }
+  body.pg-on:not(.pg-chat) #chatPanel { display: none !important; }
+  body.pg-on .sidepanel { display: none !important; }
+
+  /* the chat page: the conversation takes the whole screen */
+  body.pg-chat .dk-canvas, body.pg-chat .mbar { display: none !important; }
+  body.pg-chat #chatPanel { flex: 1 1 0 !important; height: auto !important; min-height: 0 !important; }
+
+  /* a widget page: the dock's phone sheet alone, its tab strip down to the
+     one widget (the bar names it), the chart's toolbar away */
+  body.pg-widget .mbar { display: none !important; }
+  body.pg-widget .dk-group[data-gid="stage"],
+  body.pg-widget .dk-box > .dk-gut { display: none !important; }
+  body.pg-widget .dk-group[data-gid="sheet"] { flex: 1 1 0 !important; }
+  body.pg-widget .dk-group[data-gid="sheet"] .dk-tab:not(.on) { display: none; }
+}
+
 /* desktop keeps the labels on the chart; the button is a phone affordance.
    Scoped by min-width rather than a bare rule — an unscoped `display:none`
    sits later in the sheet than the media block that shows it, and won. */
@@ -12159,7 +12211,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/drawedit.js?v=7"></script>
   <script src="./js/wkit.js?v=2"></script>
   <script src="./js/hub-art.js?v=7"></script>
-  <script src="./js/dock.js?v=36"></script>
+  <script src="./js/dock.js?v=37"></script>
   <script src="./js/agentws.js?v=1"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
@@ -12207,6 +12259,8 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/goto.js?v=3"></script>
   <!-- last: every control it proxies has to exist and be wired first -->
   <script src="./js/mobile.js?v=15"></script>
+  <!-- after mobile.js: the pager turns the phone's chart/chat/widgets into pages -->
+  <script src="./js/pager.js?v=2"></script>
   <script src="./js/embed.js?v=15"></script>
 </body>
 </html>

@@ -390,6 +390,10 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   // sidebar is a drawer driven by `mobileNavOpen`, so collapse is ignored.
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isDesktop, setIsDesktop] = useState(true);
+  // A portrait phone: the Chart tab is the workspace's own pager there
+  // (charto/preview/js/pager.js), whose bar and chat page take the bottom of
+  // the screen, so the floating Ask bar stands down on that tab.
+  const [isPhone, setIsPhone] = useState(false);
   const metricTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const rememberConversationId = useCallback((id: string): void => {
@@ -1176,10 +1180,12 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const mq = window.matchMedia("(min-width: 1024px)");
-    const sync = (): void => setIsDesktop(mq.matches);
+    const phone = window.matchMedia("(max-width: 560px) and (orientation: portrait)");
+    const sync = (): void => { setIsDesktop(mq.matches); setIsPhone(phone.matches); };
     sync();
     mq.addEventListener("change", sync);
-    return () => mq.removeEventListener("change", sync);
+    phone.addEventListener("change", sync);
+    return () => { mq.removeEventListener("change", sync); phone.removeEventListener("change", sync); };
   }, []);
 
   // Global keyboard shortcuts. Cmd+K (command palette) and the chat composer
@@ -1705,7 +1711,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
              for the menu the same way it already hides for an open panel. */
           visible={
             !mobileNavOpen
-            && (active === "chart" ? !chartChatOpen : !copilotPanelOpen)
+            && (active === "chart" ? !chartChatOpen && !isPhone : !copilotPanelOpen)
           }
         />
       )}

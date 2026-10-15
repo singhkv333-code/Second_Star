@@ -2474,6 +2474,8 @@ const Dock = (() => {
 
   return {
     register, start, open, close, toggle, openSymbol, warm, setFocus, fullscreen, hub,
+    /** The phone: put the widget sheet away and show the chart (js/pager.js). */
+    hideSheet: () => { if (compact) hideSheet(); },
     agent: { catalog: agentCatalog, manifest: agentManifest, apply: agentApply,
              read: (id) => agentAsk(id === "chart" ? CHART : id),
              snapshot: () => JSON.parse(JSON.stringify(exportState())), restore: (s) => applyState(s) },

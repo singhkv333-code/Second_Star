@@ -154,6 +154,25 @@ function PromptInputTextarea({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value, maxHeight, disableAutosize])
 
+  // The height above is measured at the width the box had then. Measured
+  // while hidden, or before a narrow window settled, a one-line placeholder
+  // wraps a word per line and the box stays at maxHeight, empty. So measure
+  // again whenever the width changes (only the width: resizing the height
+  // here would otherwise call this back).
+  useLayoutEffect(() => {
+    const el = textareaRef.current
+    if (!el || disableAutosize || typeof ResizeObserver === "undefined") return
+    let width = el.clientWidth
+    const ro = new ResizeObserver(() => {
+      if (el.clientWidth === width) return
+      width = el.clientWidth
+      adjustHeight(el)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [disableAutosize, maxHeight])
+
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     adjustHeight(e.target)
     setValue(e.target.value)
