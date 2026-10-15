@@ -82,6 +82,20 @@ def test_no_account_or_missing_schema_fails_closed(db):
     assert accounts.pivot_user_id_for('new@example.test', account_id=17) is None
 
 
+
+def test_a_link_that_cannot_be_written_never_fails_the_request(db):
+    """Production 2026-10-15: parallel requests (and other machines sharing
+    the database) colliding on the link write turned every request into a
+    503. The email decides the account; the link is only a cache."""
+    with db() as s:
+        s.add(User(id=9, email='me@example.test', hashed_password='x', is_active=True))
+        s.execute(text("CREATE TRIGGER no_links BEFORE INSERT ON charto_account_links "
+                       "BEGIN SELECT RAISE(ABORT, 'link write refused'); END")); s.commit()
+    assert accounts.pivot_user_id_for('me@example.test', account_id=16) == 9
+    assert accounts.pivot_user_id_for('new@example.test', account_id=70) is not None
+    assert _rows(db) == []
+
+
 # ── a refusal says why (the app signs out only on a 401) ──
 
 def _session(monkeypatch, aid=17, email='someone@example.test'):
