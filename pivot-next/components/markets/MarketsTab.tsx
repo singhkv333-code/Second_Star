@@ -100,6 +100,27 @@ export function MarketsTab(): React.ReactElement {
   const mainW = rail ? width - 360 : width;
   const wide = mainW >= 900;
   const battlesPerPage = mainW >= 1100 ? 3 : mainW >= 720 ? 2 : 1;
+  // Phones get shorter sections rather than the desktop's stacked in full.
+  const phone = width > 0 && width < 640;
+
+  // The section bar scrolls sideways on a phone: keep the current section in
+  // view, and fade the edge only while more lies beyond it.
+  const navRef = useRef<HTMLDivElement>(null);
+  const [navMore, setNavMore] = useState(false);
+  const syncNav = (): void => {
+    const el = navRef.current;
+    if (el) setNavMore(el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
+  };
+  useEffect(() => {
+    const el = navRef.current;
+    const on = el?.querySelector<HTMLElement>('[data-active="true"]');
+    if (el && on) {
+      const left = on.offsetLeft - 16, right = on.offsetLeft + on.offsetWidth + 16;
+      if (left < el.scrollLeft) el.scrollTo({ left, behavior: "smooth" });
+      else if (right > el.scrollLeft + el.clientWidth) el.scrollTo({ left: right - el.clientWidth, behavior: "smooth" });
+    }
+    syncNav();
+  }, [active, width]);
 
   // Scroll-spy over the stock sections.
   useEffect(() => {
@@ -167,14 +188,16 @@ export function MarketsTab(): React.ReactElement {
                 <h1 className={s.pageTitle}>Markets</h1>
                 <p className={cx(s.stamp, "mt-1.5")}>{(view === "stocks" ? stamp : data ? (isMarketOpen() ? "Market open" : "Market closed") : "") || " "}</p>
               </div>
-              <Segmented label="Asset class" options={VIEWS} value={view} onChange={(v) => { setView(v); scrollRef.current?.scrollTo({ top: 0 }); }} />
+              <div className={cx(phone && s.segFill)}>
+                <Segmented label="Asset class" options={VIEWS} value={view} onChange={(v) => { setView(v); scrollRef.current?.scrollTo({ top: 0 }); }} />
+              </div>
             </div>
           </div>
 
           {view === "stocks" ? (
             <>
               <nav className={cx(s.navBar, "mt-4 px-4 py-2 lg:px-8")} aria-label="Sections">
-                <div className="flex items-center gap-1 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+                <div ref={navRef} onScroll={syncNav} className={cx(s.fadeX, "flex items-center gap-1 overflow-x-auto")} data-fade={navMore} style={{ scrollbarWidth: "none" }}>
                   {SECTIONS.map((x) => (
                     <button key={x.id} type="button" className={s.navLink} data-active={active === x.id} onClick={() => jump(x.id)}>
                       {x.label}
@@ -196,7 +219,7 @@ export function MarketsTab(): React.ReactElement {
                   </div>
                 </div>
               ) : (
-                <div className="flex flex-col gap-12 px-4 pb-32 pt-6 lg:px-8">
+                <div className={cx("flex flex-col px-4 pb-32 lg:px-8", phone ? "gap-9 pt-4" : "gap-12 pt-6")}>
                   {/* Overview */}
                   <section id="mk-overview" aria-label="Overview" className="flex flex-col gap-3">
                     <div className="grid gap-3" style={{ gridTemplateColumns: wide ? "minmax(0,1.7fr) minmax(0,1fr)" : "minmax(0,1fr)" }}>
@@ -238,7 +261,7 @@ export function MarketsTab(): React.ReactElement {
                         <CardHead title={`Sector moves · ${period}`} />
                         <div className={cx(s.scrollHide, "-mx-1 min-h-0 flex-1 overflow-y-auto px-1")}>
                           {data ? (
-                            <SectorBars sectors={data.sectors} period={period} selected={sector} onSelect={setSector} />
+                            <SectorBars sectors={data.sectors} period={period} selected={sector} onSelect={setSector} limit={phone ? 8 : undefined} />
                           ) : (
                             <div className="flex flex-col gap-2">{Array.from({ length: 10 }).map((_, i) => <Skeleton key={i} style={{ height: 14 }} />)}</div>
                           )}
@@ -294,12 +317,12 @@ export function MarketsTab(): React.ReactElement {
                   {/* Calendar */}
                   <section id="mk-calendar" aria-label="Calendar">
                     <SectionHead title="Calendar" />
-                    <EventsCalendar stocks={stocks} />
+                    <EventsCalendar stocks={stocks} initial={phone ? 8 : 18} />
                   </section>
 
                   {!rail && (
                     <section id="mk-news" aria-label="News" className={cx(s.card, s.cardPad)}>
-                      <NewsRail stocks={stocks} sector={sector} sectorLabel={sectorRow?.label ?? null} limit={12} />
+                      <NewsRail stocks={stocks} sector={sector} sectorLabel={sectorRow?.label ?? null} limit={phone ? 30 : 12} compact={phone} />
                     </section>
                   )}
 

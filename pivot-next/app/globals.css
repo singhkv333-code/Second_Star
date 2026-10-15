@@ -2774,17 +2774,26 @@ body:has(.app-shell-root) {
   .home-chart-intro h2 { font-size: 26px; margin-bottom: 15px; }
   .home-chart-scene { width: 100%; height: 280px; }
 }
+/* Phones: one compact band instead of a 600px collage. The title sits
+   beside its button, the example cards swipe in a single row, and the ask
+   box closes the band. */
 @container (max-width: 550px) {
-  .home-chart-scene { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 14px; height: auto; }
-  .home-asset-card { position: relative; width: 100%; inset: auto; }
-  .home-scene-ethereum { margin-top: 12px; }
-  .home-composer { position: relative; inset: auto; transform: none; width: 100%; grid-column: 1 / -1; grid-row: 2; }
-  .home-scene-candles { grid-column: 1; grid-row: 3; margin-top: 12px; }
-  .home-scene-portfolio { grid-column: 2; grid-row: 3; grid-template-columns: 1fr; }
-  .home-portfolio-total { grid-column: 1; grid-row: 2; text-align: center; }
-  .home-allocation { grid-column: 1; grid-row: 3; margin: auto; }
-  .home-allocation { width: 94px; height: 94px; }
-  .home-glass-prompt { padding: 14px; }
+  .home-welcome-banner { gap: 14px; padding: 18px 16px 16px; min-height: 0; overflow: hidden; border-radius: 16px; }
+  .home-chart-intro { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .home-chart-intro h2 { margin: 0; font-size: 21px; line-height: 1.15; }
+  .home-chart-cta { flex: none; height: 34px; padding: 0 12px; font-size: 12.5px; }
+  .home-chart-scene { display: flex; flex-direction: column; gap: 12px; width: 100%; height: auto; }
+  .home-chart-scene::before { display: none; }
+  .home-asset-row {
+    display: flex; gap: 10px; overflow-x: auto; scroll-snap-type: x mandatory;
+    margin: 0 -16px; padding: 2px 16px 4px; scroll-padding-inline: 16px; scrollbar-width: none;
+  }
+  .home-asset-row::-webkit-scrollbar { display: none; }
+  .home-asset-card { position: relative; inset: auto; flex: 0 0 64%; width: auto; scroll-snap-align: start; }
+  .home-scene-portfolio { grid-template-columns: minmax(0, 1fr) 64px; }
+  .home-allocation { width: 64px; height: 64px; }
+  .home-composer { position: relative; inset: auto; transform: none; width: 100%; }
+  .home-glass-prompt { padding: 12px 14px; }
   .home-prompt-textarea { font-size: 16px; }
 }
 
@@ -2890,4 +2899,10 @@ body:has(.app-shell-root) {
   display: none !important;
   width: 0 !important;
   height: 0 !important;
+}
+
+/* Phones: Sonner pins top toasts 20px from the top, over the header and
+   its menu and account buttons. Start them under the header instead. */
+@media (max-width: 600px) {
+  [data-sonner-toaster][data-y-position="top"] { top: calc(env(safe-area-inset-top, 0px) + 68px) !important; }
 }

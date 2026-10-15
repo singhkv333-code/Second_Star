@@ -235,7 +235,7 @@ export function MarketStrip(): React.ReactElement {
 
   return (
     <div>
-      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 2xl:grid-cols-8" aria-label="Benchmarks">
+      <div className={s.strip} aria-label="Benchmarks">
         {STRIP.map((x) => {
           const q = quotes?.get(x.symbol);
           return (

@@ -169,18 +169,24 @@ export function SectorBars({
   period,
   selected,
   onSelect,
+  limit,
 }: {
   sectors: MarketSector[];
   period: Period;
   selected: string | null;
   onSelect: (key: string | null) => void;
+  /** Show this many (the leaders and the laggards) until asked for all. */
+  limit?: number;
 }): React.ReactElement {
-  const rows = useMemo(
+  const [all, setAll] = useState(false);
+  const ranked = useMemo(
     () => sectors.filter((x) => sectorReturn(x, period) != null)
       .sort((a, b) => (sectorReturn(b, period) ?? 0) - (sectorReturn(a, period) ?? 0)),
     [sectors, period],
   );
-  const max = Math.max(0.01, ...rows.map((r) => Math.abs(sectorReturn(r, period) ?? 0)));
+  const cut = !all && limit != null && ranked.length > limit;
+  const rows = cut ? [...ranked.slice(0, Math.ceil(limit / 2)), ...ranked.slice(-Math.floor(limit / 2))] : ranked;
+  const max = Math.max(0.01, ...ranked.map((r) => Math.abs(sectorReturn(r, period) ?? 0)));
   if (!rows.length) return <Empty text="No sector moves to show." />;
   return (
     <div className="flex flex-col">
@@ -214,6 +220,13 @@ export function SectorBars({
           </button>
         );
       })}
+      {limit != null && ranked.length > limit && (
+        <div className="flex justify-center pt-2">
+          <button type="button" className={s.ghostBtn} onClick={() => setAll((x) => !x)}>
+            {all ? "Show fewer" : `All ${ranked.length} sectors`}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

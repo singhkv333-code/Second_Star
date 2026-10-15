@@ -370,6 +370,44 @@
 }
 .tag:hover { text-decoration: underline; text-underline-offset: 2px; }
 
+/* ── strips and phones ─────────────────────────────────────────────── */
+
+/* A row that scrolls sideways fades its far edge while more lies beyond. */
+.fadeX[data-fade="true"] {
+  mask-image: linear-gradient(90deg, #000 calc(100% - 36px), transparent);
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 36px), transparent);
+}
+.newsRow { display: flex; gap: 12px; align-items: flex-start; }
+.strip { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+@media (min-width: 640px) { .strip { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (min-width: 1536px) { .strip { grid-template-columns: repeat(8, minmax(0, 1fr)); } }
+
+/* Phones: the page runs edge to edge inside a 16px gutter, cards pad
+   less, the benchmarks swipe in one row instead of stacking four deep,
+   and the asset toggle spans the width so every class shows at once. */
+@media (max-width: 639px) {
+  .cardPad { padding: 14px; }
+  .strip {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: 42%;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: 16px;
+    margin-inline: -16px;
+    padding-inline: 16px;
+    scrollbar-width: none;
+  }
+  .strip::-webkit-scrollbar { display: none; }
+  .strip > * { scroll-snap-align: start; }
+  .segFill { width: 100%; }
+  .segFill .segmented { display: flex; width: 100%; }
+  .segFill .segItem { flex: 1 1 auto; padding: 6px 6px; font-size: 12px; }
+  .battlePick { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+  .battlePick > :first-child { grid-column: 1 / -1; }
+  .newsRow .newsTitle { font-size: 13px; }
+}
+
 .scrollHide { scrollbar-width: none; }
 .scrollHide::-webkit-scrollbar { display: none; }
 

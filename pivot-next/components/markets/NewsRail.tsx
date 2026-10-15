@@ -37,13 +37,19 @@ export function NewsRail({
   sector,
   sectorLabel,
   limit = 30,
+  compact = false,
 }: {
   stocks: Map<string, MarketStock>;
   sector: string | null;
   sectorLabel: string | null;
   limit?: number;
+  /** Phones: one lead picture, then rows with a small picture beside the
+   *  headline, eight at a time. A full-width picture per story made the
+   *  feed several screens long. */
+  compact?: boolean;
 }): React.ReactElement {
   const [items, setItems] = useState<NewsItem[] | null>(null);
+  const [count, setCount] = useState(8);
   const [failed, setFailed] = useState(false);
   const [view, setView] = useState<NewsView>("Latest");
   const [tick, setTick] = useState(0);
@@ -74,8 +80,9 @@ export function NewsRail({
       const inSector = xs.filter((x) => x.syms.some((sym) => stocks.get(sym)?.sector === sector));
       if (inSector.length) xs = inSector;
     }
-    return xs.slice(0, limit);
-  }, [tagged, view, sector, stocks, limit]);
+    return xs.slice(0, compact ? Math.min(limit, count) : limit);
+  }, [tagged, view, sector, stocks, limit, compact, count]);
+  const more = compact && count < limit && tagged.length > count;
 
   const filtered = sector && list.some((x) => x.syms.some((sym) => stocks.get(sym)?.sector === sector));
 
@@ -112,8 +119,9 @@ export function NewsRail({
           {list.map(({ n, syms }, i) => (
             <div key={n.link}>
               {i > 0 && <hr className={s.rowDivider} />}
-              <a className={s.newsItem} href={n.link} target="_blank" rel="noopener noreferrer">
-                <NewsArt item={n} lead={syms[0] ? stocks.get(syms[0]) : undefined} />
+              <a className={cx(s.newsItem, compact && i > 0 && s.newsRow)} href={n.link} target="_blank" rel="noopener noreferrer">
+                <NewsArt item={n} lead={syms[0] ? stocks.get(syms[0]) : undefined} thumb={compact && i > 0} onCard={compact} />
+                <div className="min-w-0">
                 <p className={s.newsTitle}>{n.title}</p>
                 <div className={s.newsMeta}>
                   <span>{n.source}</span>
@@ -136,9 +144,15 @@ export function NewsRail({
                     );
                   })}
                 </div>
+                </div>
               </a>
             </div>
           ))}
+          {more && (
+            <div className="flex justify-center pt-3">
+              <button type="button" className={s.ghostBtn} onClick={() => setCount((n) => n + 8)}>More stories</button>
+            </div>
+          )}
         </div>
       )}
     </section>
@@ -150,9 +164,26 @@ export function NewsRail({
  * none (or it fails to load), the company it names on the frame's shade, or
  * the publisher's name set large. Never a stock photo we chose.
  */
-function NewsArt({ item, lead }: { item: NewsItem; lead?: MarketStock }): React.ReactElement {
+function NewsArt({ item, lead, thumb = false, onCard = false }: {
+  item: NewsItem;
+  lead?: MarketStock;
+  thumb?: boolean;
+  /** Inside a card of the frame's shade (phones): the stand-in is paper, or
+   *  it reads as a hole in the card. */
+  onCard?: boolean;
+}): React.ReactElement {
   const [broken, setBroken] = useState(false);
-  const box: React.CSSProperties = { aspectRatio: "16 / 8", borderRadius: 10, background: "var(--shell-chrome)" };
+  const fill = onCard ? "var(--bg-base)" : "var(--shell-chrome)";
+  const box: React.CSSProperties = thumb
+    ? { width: 92, aspectRatio: "4 / 3", flex: "none", borderRadius: 9, background: fill, order: 2 }
+    : { aspectRatio: onCard ? "16 / 7" : "16 / 8", borderRadius: 10, background: fill };
+  if (thumb && !(item.image && !broken)) {
+    return (
+      <div className="flex items-center justify-center" style={box} aria-hidden>
+        {lead ? <Mark src={lead.logo} label={lead.name} size={30} /> : <Newspaper size={20} />}
+      </div>
+    );
+  }
   if (item.image && !broken) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
@@ -161,7 +192,7 @@ function NewsArt({ item, lead }: { item: NewsItem; lead?: MarketStock }): React.
         alt=""
         loading="lazy"
         decoding="async"
-        className="mb-2.5 block w-full object-cover"
+        className={thumb ? "block object-cover" : "mb-2.5 block w-full object-cover"}
         style={box}
         onError={() => setBroken(true)}
       />
@@ -229,7 +260,7 @@ function eventLine(i: CalendarItem): string {
   return i.detail || i.title;
 }
 
-export function EventsCalendar({ stocks }: { stocks: Map<string, MarketStock> }): React.ReactElement {
+export function EventsCalendar({ stocks, initial = 18 }: { stocks: Map<string, MarketStock>; initial?: number }): React.ReactElement {
   const [items, setItems] = useState<CalendarItem[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [view, setView] = useState<CalView>("All");
@@ -252,7 +283,7 @@ export function EventsCalendar({ stocks }: { stocks: Map<string, MarketStock> })
       || Number(!(a.symbol && stocks.has(a.symbol))) - Number(!(b.symbol && stocks.has(b.symbol)))
       || (stocks.get(b.symbol ?? "")?.mcap_cr ?? 0) - (stocks.get(a.symbol ?? "")?.mcap_cr ?? 0));
   }, [items, view, stocks]);
-  const shown = all ? rows.slice(0, 80) : rows.slice(0, 18);
+  const shown = all ? rows.slice(0, 80) : rows.slice(0, initial);
 
   // Logos for the companies outside the 500, fetched for what is on screen.
   useEffect(() => {
@@ -325,7 +356,7 @@ export function EventsCalendar({ stocks }: { stocks: Map<string, MarketStock> })
           ))}
         </div>
       )}
-      {rows.length > 18 && (
+      {rows.length > initial && (
         <div className="mt-3 flex justify-center">
           <button type="button" className={s.ghostBtn} onClick={() => setAll((a) => !a)}>
             {all ? "Show fewer" : `Show all ${Math.min(rows.length, 80)}`}

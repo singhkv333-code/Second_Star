@@ -241,7 +241,7 @@ function BuildYourOwn({
   const b = value.b ? stocks.get(value.b) : undefined;
   return (
     <div className={cx(s.card, s.cardPad)}>
-      <div className="flex flex-wrap items-center gap-3">
+      <div className={cx(s.battlePick, "flex flex-wrap items-center gap-3")}>
         <span className="text-[13px] font-semibold">Your battle</span>
         <Picker stocks={stocks} value={value.a} exclude={value.b} placeholder="First company" onPick={(sym) => onChange({ ...value, a: sym })} />
         <span className={s.muted}>vs</span>
@@ -309,7 +309,7 @@ function Picker({
     );
   }
   return (
-    <div ref={box} className="relative">
+    <div ref={box} className="relative min-w-0">
       <label className="flex items-center gap-2 rounded-lg px-2.5 py-1.5" style={{ background: "var(--bg-base)" }}>
         <MagnifyingGlass size={14} className={s.muted} />
         <input
@@ -324,7 +324,7 @@ function Picker({
           }}
           placeholder={placeholder}
           aria-label={placeholder}
-          className="w-[150px] border-none bg-transparent text-[12.5px] outline-none"
+          className="w-full min-w-0 border-none bg-transparent text-[12.5px] outline-none sm:w-[150px]"
           style={{ color: "var(--text-primary)" }}
         />
       </label>
