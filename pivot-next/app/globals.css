@@ -616,7 +616,7 @@ input[type="range"].payoff-slider::-moz-range-thumb {
 .copilot-quick-ask {
   position: fixed;
   left: calc(50% + 24px);
-  bottom: max(18px, env(safe-area-inset-bottom));
+  bottom: max(64px, calc(env(safe-area-inset-bottom) + 48px));
   z-index: 50;
   width: min(440px, calc(100vw - 32px));
   transform: translateX(-50%);
@@ -772,7 +772,7 @@ input[type="range"].payoff-slider::-moz-range-thumb {
     border-left: 0;
   }
   .copilot-main-with-panel { padding-right: 0; }
-  .copilot-quick-ask { left: 50%; bottom: max(12px, env(safe-area-inset-bottom)); }
+  .copilot-quick-ask { left: 50%; bottom: max(64px, calc(env(safe-area-inset-bottom) + 48px)); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2926,3 +2926,14 @@ body:has(.app-shell-root) {
   fill: hsl(var(--sh) 55% 58%);
   stroke: hsl(var(--sh) 60% 72%);
 }
+
+/* The alien is the floating composer's move handle. */
+.copilot-quick-drag {
+  border: 0;
+  padding: 0;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.copilot-quick-drag:active { cursor: grabbing; }
+.copilot-quick-drag:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 4px; }
