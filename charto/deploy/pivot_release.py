@@ -438,6 +438,12 @@ def main(argv: list[str]) -> int:
         return 0
     if git("cat-file", "-e", base + "^{commit}", check=False).returncode:
         git("fetch", "--quiet", "--filter=blob:none", "origin", base, check=False)
+    # A reviewed manual deployment may be ahead of the published branch.
+    # Never let the next timer tick silently roll it back or replace it with
+    # divergent history. Intentional rollback remains an operator action.
+    if git("merge-base", "--is-ancestor", base, new, check=False).returncode:
+        say(f"release held: {new[:8]} is not a descendant of deployed {base[:8]}")
+        return 0
     if "--plan" in argv:
         actions, skipped = plan(base, new, release())
         say(f"{base[:8]} -> {new[:8]}")

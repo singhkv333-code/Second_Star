@@ -164,3 +164,24 @@ def test_dependencies_are_current_only_when_pnpm_installed_this_lockfile(tmp_pat
     (app / "node_modules" / ".pnpm" / "lock.yaml").write_text("lockfileVersion: '9.0'\nrazorpay: 2.9.8\n")
     assert pr._deps_current(app)
     assert not pr._deps_current(tmp_path / "missing")
+
+
+def test_timer_does_not_roll_back_a_manual_release_ahead_of_branch(env):
+    new = commit(env['origin'], {'charto/data/app.py': 'VERSION = 2\n'}, 'manual')
+    pr.fetch()
+    sh(env['origin'], 'reset', '--hard', env['base'])
+    pr.save_state({'deployed': new})
+    assert pr.main([]) == 0
+    assert pr.load_state()['deployed'] == new
+    assert env['calls'] == []
+
+
+def test_timer_does_not_replace_manual_release_with_divergent_history(env):
+    manual = commit(env['origin'], {'charto/data/app.py': 'VERSION = 2\n'}, 'manual')
+    pr.fetch()
+    sh(env['origin'], 'reset', '--hard', env['base'])
+    commit(env['origin'], {'charto/data/app.py': 'VERSION = 3\n'}, 'different')
+    pr.save_state({'deployed': manual})
+    assert pr.main([]) == 0
+    assert pr.load_state()['deployed'] == manual
+    assert env['calls'] == []
