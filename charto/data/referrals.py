@@ -271,6 +271,14 @@ def configured() -> bool:
         "PIVOT_REFERRAL_PAYOUT_SCHEDULE", "PIVOT_REFERRAL_PAYOUT_METHOD",
         "PIVOT_REFERRAL_TERMS_CHANGE_POLICY", "PIVOT_REFERRAL_EFFECTIVE_DATE")):
         return False
+    try:
+        return (os.environ["PIVOT_REFERRAL_TOUCH"] == "last"
+                and 0 < int(os.environ["PIVOT_REFERRAL_RATE_BPS"]) <= 10000
+                and int(os.environ["PIVOT_REFERRAL_ATTRIBUTION_DAYS"]) > 0
+                and int(os.environ["PIVOT_REFERRAL_COMMISSION_DAYS"]) > 0
+                and int(os.environ["PIVOT_REFERRAL_PAYOUT_MIN_PAISE"]) >= 0)
+    except ValueError:
+        return False
 
 
 def public_terms() -> dict:
@@ -291,14 +299,6 @@ def public_terms() -> dict:
         "payout_min_paise": int(os.environ["PIVOT_REFERRAL_PAYOUT_MIN_PAISE"]),
         "changes": os.environ["PIVOT_REFERRAL_TERMS_CHANGE_POLICY"],
     }
-    try:
-        return (os.environ["PIVOT_REFERRAL_TOUCH"] == "last"
-                and 0 < int(os.environ["PIVOT_REFERRAL_RATE_BPS"]) <= 10000
-                and int(os.environ["PIVOT_REFERRAL_ATTRIBUTION_DAYS"]) > 0
-                and int(os.environ["PIVOT_REFERRAL_COMMISSION_DAYS"]) > 0
-                and int(os.environ["PIVOT_REFERRAL_PAYOUT_MIN_PAISE"]) >= 0)
-    except ValueError:
-        return False
 
 
 def open_store(users_path: Path) -> Referrals:

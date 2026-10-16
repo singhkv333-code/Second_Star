@@ -105,3 +105,42 @@ class ReferralTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ConfiguredTests(unittest.TestCase):
+    """Production 2026-10-16: the validation block had drifted below
+    public_terms()'s return, so configured() returned None with every setting
+    present and the programme could never open."""
+
+    FULL = {
+        "PIVOT_REFERRALS_ENABLED": "1", "PIVOT_REFERRAL_RATE_BPS": "1500",
+        "PIVOT_REFERRAL_ATTRIBUTION_DAYS": "30", "PIVOT_REFERRAL_TOUCH": "last",
+        "PIVOT_REFERRAL_PAYOUT_MIN_PAISE": "100000", "PIVOT_REFERRAL_COMMISSION_DAYS": "365",
+        "PIVOT_REFERRAL_TERMS_VERSION": "v1", "RAZORPAY_KEY_ID": "k", "RAZORPAY_KEY_SECRET": "s",
+        "RAZORPAY_WEBHOOK_SECRET": "w", "PIVOT_REFERRAL_IDENTITY_KEY": "i",
+        "PIVOT_REFERRAL_ELIGIBILITY": "e", "PIVOT_REFERRAL_REVENUE_BASIS": "r",
+        "PIVOT_REFERRAL_REFUND_POLICY": "p", "PIVOT_REFERRAL_PAYOUT_SCHEDULE": "m",
+        "PIVOT_REFERRAL_PAYOUT_METHOD": "b", "PIVOT_REFERRAL_TERMS_CHANGE_POLICY": "c",
+        "PIVOT_REFERRAL_EFFECTIVE_DATE": "2026-10-16",
+    }
+
+    def _with(self, **over):
+        from unittest import mock
+        import referrals
+        env = {**self.FULL, **over}
+        env = {k: v for k, v in env.items() if v is not None}
+        with mock.patch.dict("os.environ", env, clear=True):
+            return referrals.configured(), (referrals.public_terms() if referrals.configured() else None)
+
+    def test_full_settings_open_the_programme(self):
+        ok, terms = self._with()
+        self.assertIs(ok, True)
+        self.assertEqual(terms["rate_bps"], 1500)
+        self.assertEqual(terms["payout_min_paise"], 100000)
+
+    def test_missing_or_invalid_settings_keep_it_closed(self):
+        self.assertIs(self._with(PIVOT_REFERRALS_ENABLED="0")[0], False)
+        self.assertIs(self._with(PIVOT_REFERRAL_PAYOUT_METHOD=None)[0], False)
+        self.assertIs(self._with(PIVOT_REFERRAL_TOUCH="first")[0], False)
+        self.assertIs(self._with(PIVOT_REFERRAL_RATE_BPS="0")[0], False)
+        self.assertIs(self._with(PIVOT_REFERRAL_ATTRIBUTION_DAYS="thirty")[0], False)
