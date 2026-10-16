@@ -183,6 +183,13 @@ def _carried(path: str, status: str, R: Path) -> str | None:
     return None
 
 
+# A git symlink (mode 120000) is installed as a symlink. Writing its blob as
+# a file put the link's TARGET TEXT on disk: production served
+# /workspace-theme.js as the 21 bytes "js/workspace-theme.js" and the
+# workspace colour picker never loaded (2026-10-16).
+LINK = -1
+
+
 def plan(base: str, new: str, R: Path) -> tuple[list[tuple[str, str, int]], list[tuple[str, str]]]:
     """([(op, path, mode)], [(path, reason skipped)]) for base → new."""
     out = git("diff", "--name-status", "--no-renames", "-z", base, new, "--",
@@ -193,7 +200,9 @@ def plan(base: str, new: str, R: Path) -> tuple[list[tuple[str, str, int]], list
         for line in git("ls-tree", "-r", "-z", new, "--", *[p for s, p in pairs if s != "D"]).stdout.split("\0"):
             if line:
                 meta, path = line.split("\t", 1)
-                modes[path] = 0o755 if meta.split()[0] == "100755" else 0o644
+                kind = meta.split()[0]
+                if kind in ("100644", "100755", "120000"):     # not submodules
+                    modes[path] = LINK if kind == "120000" else 0o755 if kind == "100755" else 0o644
     actions, skipped = [], []
     for status, path in pairs:
         status = "M" if status == "T" else status
@@ -202,7 +211,7 @@ def plan(base: str, new: str, R: Path) -> tuple[list[tuple[str, str, int]], list
             skipped.append((path, why))
         elif status == "D":
             actions.append(("delete", path, 0))
-        elif path in modes:                  # symlinks/submodules have no blob mode here
+        elif path in modes:                  # submodules have no entry here
             actions.append(("install", path, modes[path]))
         else:
             skipped.append((path, "not a regular file"))
@@ -327,11 +336,13 @@ def deploy(base: str, new: str, state: dict) -> dict:
         # 4. files
         for op, path, mode in actions:
             dst = R / path
-            if dst.is_file():
+            if dst.is_file() or dst.is_symlink():
                 saved = bk / path
                 saved.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(dst, saved)
-                undo.append(lambda d=dst, s=saved: (d.parent.mkdir(parents=True, exist_ok=True), shutil.copy2(s, d)))
+                shutil.copy2(dst, saved, follow_symlinks=False)
+                undo.append(lambda d=dst, s=saved: (d.parent.mkdir(parents=True, exist_ok=True),
+                                                    d.unlink(missing_ok=True),
+                                                    shutil.copy2(s, d, follow_symlinks=False)))
             else:
                 undo.append(lambda d=dst: d.unlink(missing_ok=True))
             if op == "delete":
@@ -339,10 +350,16 @@ def deploy(base: str, new: str, state: dict) -> dict:
                 continue
             dst.parent.mkdir(parents=True, exist_ok=True)
             tmp = dst.with_name(dst.name + ".pivot-release-tmp")
-            tmp.write_bytes(blob(new, path))
-            os.chmod(tmp, mode)
-            if os.geteuid() == 0:
-                os.chown(tmp, 0, 0)
+            tmp.unlink(missing_ok=True)
+            if mode == LINK:
+                os.symlink(blob(new, path).decode(), tmp)
+                if os.geteuid() == 0:
+                    os.lchown(tmp, 0, 0)
+            else:
+                tmp.write_bytes(blob(new, path))
+                os.chmod(tmp, mode)
+                if os.geteuid() == 0:
+                    os.chown(tmp, 0, 0)
             os.replace(tmp, dst)
         installed = [p for op, p, _ in actions if op == "install"]
         py = [str(R / p) for p in installed if p.endswith(".py")]

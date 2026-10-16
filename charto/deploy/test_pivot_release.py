@@ -185,3 +185,20 @@ def test_timer_does_not_replace_manual_release_with_divergent_history(env):
     assert pr.main([]) == 0
     assert pr.load_state()['deployed'] == manual
     assert env['calls'] == []
+
+
+def test_a_symlink_is_installed_as_a_symlink(env):
+    """Production 2026-10-16: charto/preview/workspace-theme.js is a git
+    symlink to js/workspace-theme.js and was written as a 21-byte text file
+    holding the target path, so the shell's colour picker never loaded."""
+    import os
+    o, rel = env["origin"], env["rel"]
+    (o / "charto/preview/js/theme.js").write_text("var t = 1;\n")
+    os.symlink("js/theme.js", o / "charto/preview/theme.js")
+    (rel / "charto/preview/theme.js").write_text("js/theme.js")   # the broken copy on disk
+    sh(o, "git", "add", "-A")
+    sh(o, "git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "link")
+    assert pr.main([]) == 0
+    link = rel / "charto/preview/theme.js"
+    assert link.is_symlink() and os.readlink(link) == "js/theme.js"
+    assert link.read_text() == "var t = 1;\n"

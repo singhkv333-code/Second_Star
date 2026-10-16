@@ -1203,12 +1203,12 @@ input[type="range"].payoff-slider::-moz-range-thumb {
   .brand-slot {
     width: auto;
   }
-  /* The wordmark was the heaviest mark on the screen and pulled the eye
-     off the chart; smaller and at the secondary ink, it still says where
-     you are without competing with the data. */
+  /* Smaller than the sidebar's, so it does not pull the eye off the chart,
+     but at the primary ink: at the secondary grey the brand read as a
+     disabled control. */
   .top-header-wordmark {
     font-size: 15px !important;
-    color: var(--text-secondary) !important;  /* PivotWordmark inlines --text-primary */
+    color: var(--text-primary) !important;
   }
 }
 
