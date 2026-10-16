@@ -81,7 +81,8 @@ export default async function Page({ params }: { params: Params }) {
   // the research page still serves a signed-in reader; a signed-out one is
   // sent to sign in, as before.
   if (!s) {
-    if (!/^[A-Z0-9&_.\- ^]{1,32}$/.test(symbol)) notFound();
+    // No candles either: the chart server does not know this symbol at all.
+    if (!bars.length) notFound();
     return <StockSymbolView symbol={symbol} publicPage={null} />;
   }
 

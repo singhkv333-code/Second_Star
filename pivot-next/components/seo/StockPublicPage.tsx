@@ -56,7 +56,9 @@ function keyStats(s: StockSnapshot, p: PriceStats | null): React.ReactElement {
       {lender && <Stat label="Net NPA" value={pct(L.net_npa_pct?.value, 2)} note={fy("net_npa_pct")} />}
       {lender && <Stat label="CASA ratio" value={pct(L.casa_pct?.value)} note={fy("casa_pct")} />}
       <Stat label="Book value / share" value={inr(L.book_value_per_share?.value ?? null)} note={fy("book_value_per_share")} />
-      <Stat label="Dividend payout" value={pct(L.dividend_payout?.value)} note={fy("dividend_payout")} />
+      {/* A payout of exactly 0 is how a missing figure arrives as often as a
+          real one, so it is not shown. */}
+      {L.dividend_payout?.value ? <Stat label="Dividend payout" value={pct(L.dividend_payout.value)} note={fy("dividend_payout")} /> : null}
       <Stat label="52-week high" value={inr(p?.high52 ?? null)} note={p ? day(p.high52Day) : null} />
       <Stat label="52-week low" value={inr(p?.low52 ?? null)} note={p ? day(p.low52Day) : null} />
       <Stat label="1-year return" value={pct(m?.ret_1y, 1, true)} />
@@ -305,7 +307,7 @@ export function StockPublicPage({ s, bars, stats, faqs }: Props): React.ReactEle
         <p className={styles.muted}>
           Prices: NSE daily closes to {asOf}{s.as_of?.eod_day ? ` (returns and ratios at the ${day(s.as_of.eod_day)} close)` : ""}.
           Fundamentals: company filings via Moneycontrol, {s.quarters?.basis ?? "consolidated"} where available.
-          Shareholding: exchange shareholding-pattern filings. P/E is the last close over trailing twelve-month EPS.
+          Shareholding: exchange shareholding-pattern filings. The 52-week range uses intraday highs and lows; the chart marks closing prices. P/E is the last close over trailing twelve-month EPS.
           Market-cap rank is among the {num(s.universe_size, 0)} NSE companies Pivot tracks; SEBI&apos;s bands call the top
           100 large-cap and the next 150 mid-cap. Figures marked &ldquo;—&rdquo; are not available rather than zero.
           This is analysis, not financial advice.

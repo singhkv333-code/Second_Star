@@ -71,13 +71,13 @@ describe("stock copy", () => {
     const text = [...lead(s, p), ...summary(s, p)].join(" ");
     expect(text).toContain("Big Oil (NSE: BIGOIL) closed at");
     expect(text).toContain("ranks 1st by market cap");
-    expect(text).toContain("large-cap");
+    expect(text).toContain("(a large-cap company by SEBI's rank bands)");
     expect(text).toContain("In Q1 FY27, the quarter ended 30 Jun 2026, revenue was ₹3,09,468 Cr (+27.0% year on year)");
     expect(text).toContain("Promoters held 50.48%");
   });
 
   it("leaves out every sentence whose number is missing", () => {
-    const s = snapshot({ market: null, latest: {}, quarters: null, shareholding: null, peers: [], industry: null });
+    const s = snapshot({ market: null, latest: {}, quarters: null, shareholding: null, peers: [], industry: null, sector_label: null });
     expect(lead(s, null)).toEqual([]);
     expect(summary(s, null)).toEqual([]);
     const qs = faqs(s, null).map((f) => f.q);
@@ -97,7 +97,7 @@ describe("stock copy", () => {
   it("writes a description with the searched-for numbers", () => {
     const d = metaDescription(snapshot(), priceStats(bars));
     expect(d).toMatch(/^Big Oil \(BIGOIL\) share price ₹/);
-    expect(d).toContain("market cap ₹16.39 lakh Cr");
+    expect(d).toContain("Market cap ₹16.39 lakh Cr");
     expect(d).toContain("P/E 20.3");
   });
 

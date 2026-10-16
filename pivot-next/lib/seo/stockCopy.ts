@@ -61,6 +61,11 @@ function latestQuarter(s: StockSnapshot): Quarter | null {
   return s.quarters?.quarters?.[0] ?? null;
 }
 
+/** "Infosys" → "Infosys'", "TCS" → "TCS's". */
+export function poss(name: string): string {
+  return /s$/.test(name) ? `${name}'` : `${name}'s`;
+}
+
 function moved(v: number): string {
   return v >= 0 ? "risen" : "fallen";
 }
@@ -79,13 +84,14 @@ export function lead(s: StockSnapshot, p: PriceStats | null): string[] {
   }
   if (m?.mcap_cr && m.rank && s.universe_size) {
     const band = capBand(m.rank);
-    const sector = s.sector_label ? ` in the ${s.sector_label} sector` : "";
     out.push(
       `With a market capitalisation of ${crore(m.mcap_cr)}, it ranks ${ordinal(m.rank)} by market cap among the ` +
-      `${num(s.universe_size, 0)} NSE companies Pivot tracks${band ? `, which makes it a ${band} stock by SEBI's rank bands` : ""}${sector}.`,
+      `${num(s.universe_size, 0)} NSE companies Pivot tracks${band ? ` (a ${band} company by SEBI's rank bands)` : ""}.`,
     );
   }
-  if (s.industry) out.push(`Its industry is ${s.industry}.`);
+  if (s.sector_label && s.industry) out.push(`It belongs to the ${s.sector_label} sector; its industry is ${s.industry}.`);
+  else if (s.sector_label) out.push(`It belongs to the ${s.sector_label} sector.`);
+  else if (s.industry) out.push(`Its industry is ${s.industry}.`);
   return out;
 }
 
@@ -124,7 +130,7 @@ export function summary(s: StockSnapshot, p: PriceStats | null): string[] {
   const sh = s.shareholding;
   if (sh?.promoter_pct != null) {
     const pledge = sh.pledge_pct ? `; ${pct(sh.pledge_pct, 2)} of promoter shares were pledged` : "";
-    out.push(`Promoters held ${pct(sh.promoter_pct, 2)} of the company at the end of ${day(sh.quarter)}${pledge}.`);
+    out.push(`Promoters held ${pct(sh.promoter_pct, 2)} of the company as of ${day(sh.quarter)}${pledge}.`);
   }
   return out;
 }
@@ -152,7 +158,7 @@ export function faqs(s: StockSnapshot, p: PriceStats | null): Faq[] {
   if (m?.mcap_cr) {
     out.push({
       q: `What is the market cap of ${n}?`,
-      a: `${n}'s market capitalisation is ${crore(m.mcap_cr)} (${crore(m.mcap_cr, true)}) at the ${day(s.as_of?.eod_day)} close, ` +
+      a: `${poss(n)} market capitalisation is ${crore(m.mcap_cr)} (${crore(m.mcap_cr, true)}) at the ${day(s.as_of?.eod_day)} close, ` +
         `ranking ${ordinal(m.rank)} among the NSE companies Pivot tracks.`,
     });
   }
@@ -184,14 +190,14 @@ export function faqs(s: StockSnapshot, p: PriceStats | null): Faq[] {
       q: `Is ${n} a debt-free company?`,
       a: de.value <= 0.05
         ? `${n} is close to debt-free: its debt-to-equity ratio was ${num(de.value)} in ${fiscalYear(de.period_end)}.`
-        : `No. ${n}'s debt-to-equity ratio was ${num(de.value)} in ${fiscalYear(de.period_end)}` +
+        : `No. ${poss(n)} debt-to-equity ratio was ${num(de.value)} in ${fiscalYear(de.period_end)}` +
           (s.latest.total_debt ? `, with total debt of ${crore(s.latest.total_debt.value)}` : "") + ".",
     });
   }
   const q = latestQuarter(s);
   if (q && q.revenue != null && q.net_profit != null) {
     out.push({
-      q: `What were ${n}'s latest quarterly results?`,
+      q: `What were ${poss(n)} latest quarterly results?`,
       a: `For ${fiscalQuarter(q.period_end)} (quarter ended ${day(q.period_end)}), ${n} reported revenue of ${crore(q.revenue)}` +
         (q.revenue_yoy_pct != null ? `, ${pct(q.revenue_yoy_pct, 1, true)} year on year,` : "") +
         ` and net profit of ${crore(q.net_profit)}` +
@@ -201,7 +207,7 @@ export function faqs(s: StockSnapshot, p: PriceStats | null): Faq[] {
   if (m?.ret_1y != null) {
     out.push({
       q: `How has ${n} stock performed over the last year?`,
-      a: `${n}'s share price has ${moved(m.ret_1y)} ${pct(Math.abs(m.ret_1y))} over the past year` +
+      a: `${poss(n)} share price has ${moved(m.ret_1y)} ${pct(Math.abs(m.ret_1y))} over the past year` +
         (m.ret_3m != null ? `, ${pct(m.ret_3m, 1, true)} over three months` : "") +
         (m.ret_1m != null ? ` and ${pct(m.ret_1m, 1, true)} over one month` : "") + `, to the ${day(s.as_of?.eod_day)} close.`,
     });
@@ -210,19 +216,19 @@ export function faqs(s: StockSnapshot, p: PriceStats | null): Faq[] {
   if (sh?.groups?.length) {
     out.push({
       q: `What is the shareholding pattern of ${n}?`,
-      a: `At the end of ${day(sh.quarter)}: ` + sh.groups.map((g) => `${g.label.toLowerCase()} ${pct(g.pct, 2)}`).join(", ") +
+      a: `As of ${day(sh.quarter)}: ` + sh.groups.map((g) => `${g.label.toLowerCase()} ${pct(g.pct, 2)}`).join(", ") +
         (sh.pledge_pct ? `. ${pct(sh.pledge_pct, 2)} of promoter shares were pledged.` : "."),
     });
   }
   if (s.peers.length) {
     out.push({
-      q: `Who are ${n}'s competitors?`,
+      q: `Who are ${poss(n)} competitors?`,
       a: `The listed ${s.sector_label ?? "sector"} companies closest to ${n} by market cap are ${peerNames(s.peers, 6)}.`,
     });
   }
   out.push({
     q: `Is ${n} a good stock to buy?`,
-    a: `Pivot does not give buy or sell recommendations. This page sets out ${n}'s price history, valuation, ` +
+    a: `Pivot does not give buy or sell recommendations. This page sets out ${poss(n)} price history, valuation, ` +
       `profitability, quarterly results and ownership so you can judge it yourself, and Pivot's chart lets you test ` +
       `a strategy on ${s.symbol} against its own history before risking money. This is analysis, not financial advice.`,
   });
@@ -242,7 +248,7 @@ export function metaDescription(s: StockSnapshot, p: PriceStats | null): string 
     m?.pe ? `P/E ${num(m.pe, 1)}` : null,
     s.latest.roe ? `ROE ${pct(s.latest.roe.value)}` : null,
   ].filter(Boolean);
-  if (facts.length) parts.push(facts.join(", "));
+  if (facts.length) { const f = facts.join(", "); parts.push(f[0]!.toUpperCase() + f.slice(1)); }
   parts.push("Live chart, financials, quarterly results, shareholding and peers");
   return `${parts.join(". ")}.`;
 }

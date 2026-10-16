@@ -89,6 +89,7 @@ export function StockSearch(): React.ReactElement {
             <li key={sym}>
               <a
                 href={`/stock/${encodeURIComponent(sym)}`}
+                role="option"
                 aria-selected={i === active}
                 onClick={(e) => { e.preventDefault(); go(sym); }}
               >
