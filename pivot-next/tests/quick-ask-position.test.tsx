@@ -23,7 +23,7 @@ it("keeps the time-axis area clear, remembers moves, and resets", () => {
   const handle = screen.getByRole("button", { name: "Move prompt bar" });
   fireEvent.keyDown(handle, { key: "ArrowDown", shiftKey: true });
   let saved = JSON.parse(localStorage.getItem("pivot:quick-ask-position")!);
-  expect(saved.top).toBeLessThanOrEqual(window.innerHeight - 128);
+  expect(saved.top).toBeLessThanOrEqual(window.innerHeight - 104);
   fireEvent.keyDown(handle, { key: "ArrowLeft" });
   saved = JSON.parse(localStorage.getItem("pivot:quick-ask-position")!);
   expect(saved.left).toBe(192);
@@ -39,7 +39,7 @@ it("clamps an offscreen saved location after reopening on a smaller screen", () 
   localStorage.setItem("pivot:quick-ask-position", JSON.stringify({ left: 99999, top: 99999 }));
   mount();
   const bar = screen.getByTestId("copilot-quick-ask");
-  expect(parseFloat(bar.style.top)).toBe(window.innerHeight - 128);
+  expect(parseFloat(bar.style.top)).toBe(window.innerHeight - 104);
 });
 
 it("drags from the alien without letting the bar cover the time axis", () => {
@@ -53,7 +53,7 @@ it("drags from the alien without letting the bar cover the time axis", () => {
   fireEvent.pointerUp(handle, { clientX: 310, clientY: 9999 });
   const saved = JSON.parse(localStorage.getItem("pivot:quick-ask-position")!);
   expect(saved.left).toBe(300);
-  expect(saved.top).toBe(window.innerHeight - 128);
+  expect(saved.top).toBe(window.innerHeight - 104);
   expect(handle.setPointerCapture).toHaveBeenCalled();
   expect(handle.releasePointerCapture).toHaveBeenCalled();
 });

@@ -36,7 +36,7 @@ export function QuickAsk({
     return {
       left: Math.max(12, Math.min(left, window.innerWidth - (rect?.width || 440) - 12)),
       // Leave the chart's time scale and clock unobstructed at the bottom.
-      top: Math.max(12, Math.min(top, window.innerHeight - (rect?.height || 64) - 64)),
+      top: Math.max(12, Math.min(top, window.innerHeight - (rect?.height || 64) - 40)),
     };
   }, []);
 

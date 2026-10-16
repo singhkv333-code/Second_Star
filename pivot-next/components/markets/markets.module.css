@@ -338,6 +338,20 @@
 
 /* ── brief ──────────────────────────────────────────────────────────── */
 
+.briefCard { height: 340px; min-height: 0; overflow: hidden; }
+/* The breadth content sets the shared row height, regardless of brief length. */
+.overviewGrid[data-wide="true"] .briefCard { contain: size; height: 100%; }
+.briefCard > :first-child { flex-shrink: 0; }
+.briefScroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
+}
+.briefScroll:focus-visible { outline: 2px solid var(--text-primary); outline-offset: -2px; }
+
 .brief {
   margin: 0;
   padding-left: 20px;

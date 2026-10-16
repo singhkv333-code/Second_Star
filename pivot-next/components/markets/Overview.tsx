@@ -71,13 +71,13 @@ export function BriefCard({ data }: { data: MarketExplore | null }): React.React
     : "";
 
   return (
-    <section className={cx(s.card, s.cardPad, "flex h-full flex-col")} aria-label="Market brief">
+    <section className={cx(s.card, s.cardPad, s.briefCard, "flex flex-col")} aria-label="Market brief">
       <CardHead Icon={Sparkle} title="Brief" right={
         <button type="button" className={s.ghostBtn} aria-label="Refresh market brief" disabled={refreshing} onClick={() => void refresh()}>
           <ArrowsClockwise size={14} className={refreshing ? "animate-spin" : undefined} />
         </button>
       } />
-      <div className="flex-1">
+      <div className={s.briefScroll} tabIndex={0} role="region" aria-label="Market brief summary">
         {bullets.length > 0 ? (
           <ul className={s.brief}>
             {bullets.map((row, i) => <li key={i}>
@@ -95,13 +95,13 @@ export function BriefCard({ data }: { data: MarketExplore | null }): React.React
             <Skeleton style={{ height: 16, width: "62%" }} />
           </div>
         )}
+        {notice && <p className={cx(s.stamp, "mt-2")} role="status">{notice}</p>}
+        {sources.length > 0 && <details className={cx(s.stamp, "mt-3")}>
+          <summary className="cursor-pointer">Sources</summary>
+          <ul className="mt-2 space-y-1">{sources.map((item) => <li key={item.id}><a href={item.url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">{item.source}: {item.title}</a></li>)}</ul>
+        </details>}
       </div>
-      {notice && <p className={cx(s.stamp, "mt-2")} role="status">{notice}</p>}
-      {sources.length > 0 && <details className={cx(s.stamp, "mt-3")}>
-        <summary className="cursor-pointer">Sources</summary>
-        <ul className="mt-2 space-y-1">{sources.map((item) => <li key={item.id}><a href={item.url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">{item.source}: {item.title}</a></li>)}</ul>
-      </details>}
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+      <div className="mt-4 flex shrink-0 flex-wrap items-center justify-between gap-2">
         <span className={s.stamp}>
           {brief?.generated_at ? `${brief.stale ? "Previous brief" : "Updated"} ${new Date(brief.generated_at * 1000).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })} IST · hourly` : data ? basis : " "}
         </span>

@@ -222,7 +222,7 @@ export function MarketsTab(): React.ReactElement {
                 <div className={cx("flex flex-col px-4 pb-32 lg:px-8", phone ? "gap-9 pt-4" : "gap-12 pt-6")}>
                   {/* Overview */}
                   <section id="mk-overview" aria-label="Overview" className="flex flex-col gap-3">
-                    <div className="grid gap-3" style={{ gridTemplateColumns: wide ? "minmax(0,1.7fr) minmax(0,1fr)" : "minmax(0,1fr)" }}>
+                    <div className={cx("grid gap-3", s.overviewGrid)} data-wide={wide} style={{ gridTemplateColumns: wide ? "minmax(0,1.7fr) minmax(0,1fr)" : "minmax(0,1fr)" }}>
                       <BriefCard data={data} />
                       <BreadthCard breadth={data?.breadth ?? null} />
                     </div>

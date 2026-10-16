@@ -616,7 +616,7 @@ input[type="range"].payoff-slider::-moz-range-thumb {
 .copilot-quick-ask {
   position: fixed;
   left: calc(50% + 24px);
-  bottom: max(64px, calc(env(safe-area-inset-bottom) + 48px));
+  bottom: max(40px, calc(env(safe-area-inset-bottom) + 32px));
   z-index: 50;
   width: min(440px, calc(100vw - 32px));
   transform: translateX(-50%);
@@ -772,7 +772,7 @@ input[type="range"].payoff-slider::-moz-range-thumb {
     border-left: 0;
   }
   .copilot-main-with-panel { padding-right: 0; }
-  .copilot-quick-ask { left: 50%; bottom: max(64px, calc(env(safe-area-inset-bottom) + 48px)); }
+  .copilot-quick-ask { left: 50%; bottom: max(40px, calc(env(safe-area-inset-bottom) + 32px)); }
 }
 
 @media (prefers-reduced-motion: reduce) {
