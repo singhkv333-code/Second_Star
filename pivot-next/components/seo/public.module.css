@@ -1,7 +1,9 @@
 /* The public, indexable pages: stock pages, the directory, sectors and lists.
    Same paper-and-ink language as the company pages (components/company). */
 
-.page { min-height: 100dvh; background: #fff; color: #0d0d0e; font-family: Inter, system-ui, sans-serif; }
+/* The app shell locks html/body scrolling (globals.css), so a public page is
+   its own scroll container, as the company pages are. */
+.page { height: 100dvh; overflow-y: auto; overflow-x: hidden; background: #fff; color: #0d0d0e; font-family: Inter, system-ui, sans-serif; }
 .page * { box-sizing: border-box; }
 .page a { color: inherit; }
 .skip { position: absolute; top: 12px; left: 12px; padding: 10px; background: #fff; transform: translateY(-150%); z-index: 5; }
@@ -60,7 +62,7 @@
 
 .chart { margin-top: 22px; border: 1px solid #ececee; border-radius: 16px; padding: 14px 14px 8px; }
 .chart svg { display: block; width: 100%; height: auto; }
-.chartFoot { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: #6b7280; padding: 6px 2px 2px; }
+.chartFoot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; font-size: 12px; color: #6b7280; padding: 6px 2px 2px; }
 
 .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
 
@@ -125,5 +127,6 @@
   .top { grid-template-columns: 1fr; }
   .price { text-align: left; }
   .callout { grid-template-columns: 1fr; }
+  .chartFoot span:nth-child(2) { order: 3; width: 100%; }
   .h2 { font-size: 22px; }
 }

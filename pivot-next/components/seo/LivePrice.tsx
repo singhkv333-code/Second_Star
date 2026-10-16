@@ -51,11 +51,16 @@ export function LivePrice({
 
   const price = q?.last ?? close;
   const chg = q ? q.change_pct : change;
-  const stamp = q
+  // A daily bar is stamped at the session's midnight IST; that is a close, not
+  // a trade at 12:00 am.
+  const daily = q != null && (q.as_of + 19_800) % 86_400 === 0;
+  const stamp = q && !daily
     ? `${marketOpen() ? "Live" : "Last traded"} · ${new Date(q.as_of * 1000).toLocaleString("en-IN", {
         timeZone: "Asia/Kolkata", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
       })} IST`
-    : `NSE close · ${asOf}`;
+    : q
+      ? `NSE close · ${new Date(q.as_of * 1000).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", year: "numeric" })}`
+      : `NSE close · ${asOf}`;
 
   return (
     <div className={styles.price}>
