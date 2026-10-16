@@ -5,10 +5,27 @@ import "./billing.css";
 import { Toaster } from "@/components/ui/sonner";
 import { AppBootstrap } from "@/components/AppBootstrap";
 import { BillingProvider } from "@/components/billing/BillingProvider";
+import { SITE_URL } from "@/lib/seo/site";
 
+// Defaults for every page. Most of this app is the signed-in product, which
+// has nothing for a search engine, so the default is `noindex`; the public
+// pages (stocks, sectors, lists, pricing, the company pages) opt back in.
 export const metadata: Metadata = {
-  title: "Pivot — Agent System",
-  description: "Build, review, and run autonomous trading agents.",
+  metadataBase: new URL(SITE_URL),
+  title: "Pivot — AI stock research for Indian markets",
+  description:
+    "Charts you can talk to, fundamentals for every NSE company, and strategies you can backtest honestly. " +
+    "Pivot is AI stock research for Indian investors and traders.",
+  applicationName: "Pivot",
+  robots: { index: false, follow: true },
+  openGraph: { siteName: "Pivot", locale: "en_IN", type: "website" },
+  twitter: { card: "summary_large_image" },
+  // Search Console and Bing Webmaster ownership, set from the environment so
+  // a token never has to be committed: GOOGLE_SITE_VERIFICATION, BING_SITE_VERIFICATION.
+  verification: {
+    ...(process.env.GOOGLE_SITE_VERIFICATION ? { google: process.env.GOOGLE_SITE_VERIFICATION } : {}),
+    ...(process.env.BING_SITE_VERIFICATION ? { other: { "msvalidate.01": process.env.BING_SITE_VERIFICATION } } : {}),
+  },
   // Favicon + apple-touch-icon are wired via the Next.js App Router
   // file convention: app/icon.svg and app/apple-icon.png. No explicit
   // `icons` field is needed; Next bakes <link rel="icon"> tags into

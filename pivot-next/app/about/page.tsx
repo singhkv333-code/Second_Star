@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { CompanyPage } from "@/components/company/CompanyPage";
 
 export const metadata: Metadata = {
+  robots: { index: true, follow: true },
   title: "About Pivot",
   description: "Pivot is a market research platform for traders and investors in India: charts that explain themselves, company research and honest testing.",
 };

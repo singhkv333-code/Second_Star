@@ -23,6 +23,12 @@ import { saveSession, sessionToken } from "@/lib/session";
  *  visitor reads them before signing up) and the paywall design gallery. */
 const UNGATED_PATHS = ["/about", "/terms", "/privacy", "/design", "/waitlist", "/login", "/signup", "/reset-password", "/verify-email", "/refunds", "/cancellation", "/contact", "/affiliate", "/pricing", "/paywall-gallery"];
 
+/** The free, indexable research pages: a company page (not its statements
+ *  sub-page, which reads signed-in APIs), the stock directory and the sector
+ *  pages. A company page decides for itself what a signed-out reader sees
+ *  (app/stock/[symbol]/view.tsx). */
+const PUBLIC_PAGES = [/^\/stock\/[^/]+\/?$/, /^\/stocks(\/|$)/, /^\/sectors(\/|$)/];
+
 type Phase = "loading" | "needs-auth" | "ready";
 
 export function AppBootstrap({
@@ -34,7 +40,8 @@ export function AppBootstrap({
   const router = useRouter();
   const ungated =
     pathname != null &&
-    UNGATED_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+    (UNGATED_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))
+      || PUBLIC_PAGES.some((re) => re.test(pathname)));
   const [phase, setPhase] = useState<Phase>("loading");
 
   useEffect(() => {

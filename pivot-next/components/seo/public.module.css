@@ -1,0 +1,129 @@
+/* The public, indexable pages: stock pages, the directory, sectors and lists.
+   Same paper-and-ink language as the company pages (components/company). */
+
+.page { min-height: 100dvh; background: #fff; color: #0d0d0e; font-family: Inter, system-ui, sans-serif; }
+.page * { box-sizing: border-box; }
+.page a { color: inherit; }
+.skip { position: absolute; top: 12px; left: 12px; padding: 10px; background: #fff; transform: translateY(-150%); z-index: 5; }
+.skip:focus { transform: translateY(0); }
+
+.wrap { width: min(1080px, calc(100% - 48px)); margin: 0 auto; }
+
+/* ── header ─────────────────────────────────────────────────────────── */
+.header { position: sticky; top: 0; z-index: 4; background: rgba(255,255,255,.94); backdrop-filter: blur(8px); border-bottom: 1px solid #ececee; }
+.headerRow { display: flex; align-items: center; gap: 20px; height: 60px; }
+.brand { font: 600 26px/1 Newsreader, Georgia, serif; letter-spacing: -.04em; text-decoration: none; }
+.nav { display: flex; gap: 18px; font-size: 14px; color: #4d555c; }
+.nav a { text-decoration: none; }
+.nav a:hover { color: #0d0d0e; }
+.headerEnd { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.signin { font-size: 14px; text-decoration: none; padding: 8px 10px; }
+.cta { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 550; text-decoration: none; padding: 9px 14px; border-radius: 999px; background: #0d0d0e; color: #fff !important; }
+.cta:hover { background: #2a2e33; }
+.ctaGhost { display: inline-flex; align-items: center; font-size: 14px; font-weight: 550; text-decoration: none; padding: 9px 14px; border-radius: 999px; border: 1px solid #d9dadd; }
+.ctaGhost:hover { border-color: #0d0d0e; }
+
+/* search */
+.search { position: relative; width: min(280px, 34vw); }
+.search input { width: 100%; height: 36px; padding: 0 12px; border: 1px solid #e2e2e5; border-radius: 10px; font: inherit; font-size: 14px; background: #fafafa; outline: none; }
+.search input:focus { border-color: #0d0d0e; background: #fff; }
+.results { position: absolute; top: 40px; left: 0; right: 0; background: #fff; border: 1px solid #e2e2e5; border-radius: 12px; box-shadow: 0 12px 32px rgba(15,18,22,.12); padding: 6px; list-style: none; margin: 0; max-height: 360px; overflow-y: auto; }
+.results a { display: flex; justify-content: space-between; gap: 12px; padding: 8px 10px; border-radius: 8px; text-decoration: none; font-size: 14px; }
+.results a:hover, .results a[aria-selected="true"] { background: #f3f3f4; }
+.results span { color: #6b7280; font-size: 12px; }
+
+/* ── page body ──────────────────────────────────────────────────────── */
+.main { padding: 28px 0 64px; outline: none; }
+.crumbs { display: flex; flex-wrap: wrap; gap: 6px; font-size: 13px; color: #6b7280; margin: 0 0 18px; padding: 0; list-style: none; }
+.crumbs li + li::before { content: "/"; margin-right: 6px; color: #b8bcc1; }
+.crumbs a { text-decoration: none; }
+.crumbs a:hover { text-decoration: underline; }
+
+.h1 { margin: 0; font: 500 clamp(30px, 4vw, 44px)/1.12 Newsreader, Georgia, serif; letter-spacing: -.02em; }
+.sub { margin: 8px 0 0; font-size: 14px; color: #4d555c; display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.h2 { margin: 0 0 14px; font: 500 26px/1.2 Newsreader, Georgia, serif; letter-spacing: -.01em; }
+.h3 { margin: 22px 0 10px; font-size: 15px; font-weight: 600; }
+.section { margin-top: 44px; }
+.lead { font-size: 17px; line-height: 1.75; margin: 0 0 12px; max-width: 760px; }
+.prose p { font-size: 15.5px; line-height: 1.8; margin: 0 0 12px; max-width: 760px; }
+.muted { color: #6b7280; font-size: 13px; line-height: 1.6; }
+.note { margin-top: 10px; color: #6b7280; font-size: 12.5px; line-height: 1.6; }
+
+/* price block */
+.top { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; align-items: end; }
+.price { text-align: right; }
+.priceValue { font: 600 34px/1 Inter, system-ui, sans-serif; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.priceChange { margin-top: 6px; font-size: 15px; font-weight: 550; font-variant-numeric: tabular-nums; }
+.up { color: #059669; }
+.down { color: #dc2626; }
+.priceAsOf { margin-top: 4px; font-size: 12px; color: #6b7280; }
+
+.chart { margin-top: 22px; border: 1px solid #ececee; border-radius: 16px; padding: 14px 14px 8px; }
+.chart svg { display: block; width: 100%; height: auto; }
+.chartFoot { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: #6b7280; padding: 6px 2px 2px; }
+
+.actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+
+/* key numbers */
+.stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 1px; background: #ececee; border: 1px solid #ececee; border-radius: 14px; overflow: hidden; margin: 0; }
+.stat { background: #fff; padding: 14px 16px; }
+.stat dt { font-size: 12.5px; color: #6b7280; }
+.stat dd { margin: 6px 0 0; font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.stat dd small { display: block; margin-top: 2px; font-size: 11.5px; font-weight: 400; color: #9aa1a8; }
+
+/* tables */
+.tableWrap { overflow-x: auto; border: 1px solid #ececee; border-radius: 14px; }
+.table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+.table caption { text-align: left; padding: 12px 14px 0; font-size: 12.5px; color: #6b7280; }
+.table th, .table td { padding: 10px 14px; text-align: right; white-space: nowrap; border-bottom: 1px solid #f1f1f3; }
+.table th:first-child, .table td:first-child { text-align: left; position: sticky; left: 0; background: #fff; }
+.table thead th { font-size: 12px; font-weight: 550; color: #6b7280; background: #fafafa; }
+.table thead th:first-child { background: #fafafa; }
+.table tbody tr:last-child td { border-bottom: 0; }
+.table tbody tr:hover td { background: #fafafa; }
+.table a { text-decoration: none; font-weight: 550; }
+.table a:hover { text-decoration: underline; }
+.table .name { display: block; font-weight: 400; font-size: 12px; color: #6b7280; }
+.current td { background: #f7f7f8; }
+
+/* faq */
+.faq { border-top: 1px solid #ececee; }
+.faq details { border-bottom: 1px solid #ececee; padding: 14px 2px; }
+.faq summary { cursor: pointer; font-size: 16px; font-weight: 550; list-style: none; display: flex; justify-content: space-between; gap: 16px; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after { content: "+"; color: #9aa1a8; font-weight: 400; }
+.faq details[open] summary::after { content: "–"; }
+.faq p { margin: 10px 0 0; font-size: 15px; line-height: 1.75; color: #2a2e33; max-width: 800px; }
+
+/* chips + grids for directory pages */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.chips a { display: inline-block; padding: 7px 12px; border: 1px solid #e2e2e5; border-radius: 999px; font-size: 13.5px; text-decoration: none; }
+.chips a:hover, .chips a[aria-current="page"] { border-color: #0d0d0e; }
+.cols { columns: 3 260px; column-gap: 32px; margin: 0; padding: 0; list-style: none; }
+.cols li { break-inside: avoid; padding: 6px 0; font-size: 14.5px; border-bottom: 1px solid #f3f3f4; display: flex; justify-content: space-between; gap: 10px; }
+.cols a { text-decoration: none; }
+.cols a:hover { text-decoration: underline; }
+.cols span { color: #9aa1a8; font-size: 12px; }
+
+.callout { margin-top: 44px; border-radius: 18px; background: #0d0d0e; color: #fff; padding: 28px; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 20px; align-items: center; }
+.callout h2 { margin: 0 0 6px; font: 500 26px/1.2 Newsreader, Georgia, serif; }
+.callout p { margin: 0; color: #c9ccd1; font-size: 15px; line-height: 1.6; }
+.callout .cta { background: #fff; color: #0d0d0e !important; }
+
+/* footer */
+.footer { border-top: 1px solid #ececee; padding: 28px 0 40px; font-size: 13px; color: #4d555c; }
+.footer nav { display: flex; flex-wrap: wrap; gap: 10px 22px; margin-bottom: 14px; }
+.footer a { text-decoration: none; }
+.footer a:hover { text-decoration: underline; }
+.footer p { margin: 8px 0 0; line-height: 1.6; max-width: 820px; }
+
+@media (max-width: 760px) {
+  .wrap { width: calc(100% - 32px); }
+  .nav { display: none; }
+  .search { width: auto; flex: 1; }
+  .signin { display: none; }
+  .top { grid-template-columns: 1fr; }
+  .price { text-align: left; }
+  .callout { grid-template-columns: 1fr; }
+  .h2 { font-size: 22px; }
+}
