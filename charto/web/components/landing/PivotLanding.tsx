@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { LANDING_FAQS, RESEARCH_LINKS } from "./faqs";
 import {
   ArrowUp, Instagram,
 } from "lucide-react";
@@ -30,15 +31,11 @@ const examples = [
 /** Marks stacked in the hero composer, one per market Pivot reads. */
 const MARKS = ["NIFTY", "RELIANCE", "HDFCBANK", "GOLD", "BTC", "ETH"] as const;
 
-const faqs = [
-  ["What is Pivot?", "Pivot is a complete workspace for charting, market research, strategy testing and paper trading. Ask a question in plain English, inspect the evidence on the chart, and turn an idea into rules you can test."],
-  ["Who is Pivot for?", "Both active traders and long-term investors. Traders can investigate setups, set alerts and test rules; investors can examine companies, filings, fundamentals and comparisons in the same workspace."],
-  ["What can I ask Pivot to do on a chart?", "Explain a move, mark levels and patterns, compare setups, add indicators, check multiple timeframes at once, mark earnings and their implications on the chart, or watch for conditions. You can inspect the market data behind its drawings."],
-  ["Does Pivot place real trades?", "No. Strategies can be armed and followed in a simulated paper book. Pivot does not send live orders to a broker or hold your funds."],
-  ["Which markets does Pivot cover?", "Indian equities and indices, NSE options and MCX commodities, with crypto available on charts."],
-  ["Is Pivot giving me investment advice?", "No. Pivot provides market data, analysis and testing frameworks. It does not give personalised buy, sell or hold recommendations. This is analysis, not financial advice."],
-  ["How do I get access, and what does it cost?", <>You can start for free. Premium features are available on paid plans. <a href="/pricing">Check out the pricing.</a></>],
-] as const;
+// The questions live in one data file so the page and its FAQPage markup
+// (app/layout.tsx) say the same thing.
+const faqs = LANDING_FAQS.map(({ q, a, link }) => [q, link
+  ? <>{a} <a href={link.href}>{link.label}</a></>
+  : a] as const);
 
 function Brand({ href }: { href: string }) {
   return <a className="pl-brand" href={href} aria-label="Pivot home"><PivotLogo className="pl-brand-logo" /></a>;
@@ -178,6 +175,9 @@ function Footer() {
       <div className="pl-footer2-lines" aria-hidden="true"><i/><i/><i/></div>
       <div className="pl-footer2-inner">
         <div className="pl-footer2-wordmark"><PivotLogo className="pl-footer2-logo" gradient={["#d5d7d9", "#75797c"]} /></div>
+        <nav className="pl-footer2-links" aria-label="Research Indian stocks">
+          {RESEARCH_LINKS.map(([label, href]) => <a key={href} href={href}>{label}</a>)}
+        </nav>
         <nav className="pl-footer2-links" aria-label="Company and legal">
           <a href="/about">About us</a>
           <a href="/terms">Terms & conditions</a>

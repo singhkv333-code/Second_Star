@@ -79,12 +79,18 @@ const nextConfig: NextConfig = {
    * are redirected, so the VM's own pages keep working. */
   async redirects() {
     const site = [{ type: "host" as const, value: "(www\\.)?pivotnow\\.in" }];
-    return ["login", "signup", "reset-password", "verify-email"].map((page) => ({
-      source: `/${page}`,
-      has: site,
-      destination: `https://app.pivotnow.in/${page}`,
-      permanent: false,
-    }));
+    return [
+      ...["login", "signup", "reset-password", "verify-email"].map((page) => ({
+        source: `/${page}`,
+        has: site,
+        destination: `https://app.pivotnow.in/${page}`,
+        permanent: false,
+      })),
+      // Stock pages live on the platform, where they are public and indexed.
+      // One address per company, so search engines never split it in two.
+      { source: "/stock/:symbol", has: site, destination: "https://app.pivotnow.in/stock/:symbol", permanent: true },
+      { source: "/stocks", has: site, destination: "https://app.pivotnow.in/stocks", permanent: true },
+    ];
   },
   async rewrites() {
     return [
