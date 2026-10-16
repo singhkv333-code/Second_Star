@@ -441,7 +441,7 @@ def main(argv: list[str]) -> int:
     # A reviewed manual deployment may be ahead of the published branch.
     # Never let the next timer tick silently roll it back or replace it with
     # divergent history. Intentional rollback remains an operator action.
-    if git("merge-base", "--is-ancestor", base, new, check=False).returncode:
+    if state.get("manual_deploy") and git("merge-base", "--is-ancestor", base, new, check=False).returncode:
         say(f"release held: {new[:8]} is not a descendant of deployed {base[:8]}")
         return 0
     if "--plan" in argv:
