@@ -254,37 +254,6 @@ const Panes = (() => {
   }
 
   let active = 0;         // 0 = primary, 1..n = subs — the pane the toolbar drives
-  let expanded = null;   // temporary view; never changes the saved pane grid
-  function expandPane(root) {
-    const previous = expanded;
-    expanded = root === expanded ? null : root;
-    if (previous) previous.classList.remove("pane-expanded-target");
-    if (expanded) expanded.classList.add("pane-expanded-target");
-    gridEl.classList.toggle("pane-expanded", !!expanded);
-    for (const button of gridEl.querySelectorAll(".pane-expand")) {
-      const on = button.parentElement === expanded;
-      const label = on ? "Restore split charts (Esc)" : "Expand this chart";
-      button.innerHTML = Icons.svg(on ? "shrink" : "expand", "xs");
-      button.title = label;
-      button.setAttribute("aria-label", label);
-      button.setAttribute("aria-pressed", String(on));
-    }
-    mountSplitters();
-  }
-  function addExpand(root) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "pane-expand";
-    button.innerHTML = Icons.svg("expand", "xs");
-    button.title = "Expand this chart";
-    button.setAttribute("aria-label", button.title);
-    button.setAttribute("aria-pressed", "false");
-    button.addEventListener("click", () => {
-      setActive(root === stage ? 0 : subs.findIndex((s) => s.root === root) + 1);
-      expandPane(root);
-    });
-    root.appendChild(button);
-  }
   const widgetSubs = [];
   let activeWidget = null;
   const peers = () => [...subs, ...widgetSubs];
@@ -367,7 +336,6 @@ const Panes = (() => {
     const titleEl = root.querySelector(".sub-legend .title");
     const ohlcEl = root.querySelector(".sub-legend .ohlc");
     const legendEl = root.querySelector(".sub-legend .ind-legend");
-    addExpand(root);
 
     const chart = LWC.createChart(canvas, chartOpts());
     const stopSizing = ChartSize.watch(chart, canvas);
@@ -1033,7 +1001,7 @@ const Panes = (() => {
    * height; otherwise the user's split is the lesser evil. */
   const MIN_PANE_W = 300, MIN_PANE_H = 150;
   function stackedNow() {
-    if (!gridEl || rects.length < 2 || expanded) return false;
+    if (!gridEl || rects.length < 2) return false;
     const W = gridEl.clientWidth, H = gridEl.clientHeight;
     if (!W || !H) return false;
     return rects.some((r) => r.w * W < MIN_PANE_W) && H / rects.length >= MIN_PANE_H;
@@ -1062,7 +1030,7 @@ const Panes = (() => {
     if (!gridEl) return;
     for (const el of [...gridEl.querySelectorAll(".pane-split")]) el.remove();
     // stacked for want of width: the handles would drag a split nobody can see
-    if (expanded || gridEl.classList.contains("pane-stacked")) return;
+    if (gridEl.classList.contains("pane-stacked")) return;
     const L = LAYOUTS[layout];
     if (!L || (L.cols < 2 && L.rows < 2)) return;
     const near = (a, b) => Math.abs(a - b) < 0.00001;
@@ -1176,7 +1144,6 @@ const Panes = (() => {
 
   function apply(next) {
     if (!gridEl) return;
-    if (expanded) expandPane(expanded);
     /* A custom grid id (gRxC) may not be in LAYOUTS yet — a reload restores it
      * from the persisted id alone, before anyone has opened the picker — so
      * rebuild it from the id before the lookup below. */
@@ -1229,10 +1196,6 @@ const Panes = (() => {
     gridEl.dataset.layout = "s1";
     stageEl.parentNode.insertBefore(gridEl, stageEl);
     gridEl.appendChild(stageEl);
-    addExpand(stageEl);
-    document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && expanded) expandPane(expanded);
-    });
     // delegated: apply() rebuilds the handles on every layout change, and a
     // listener per handle would leak one set per switch
     gridEl.addEventListener("pointerdown", beginDrag);
@@ -1240,7 +1203,7 @@ const Panes = (() => {
     // to be re-laid whenever the grid's own box changes
     // …and a tile narrowed past MIN_PANE_W restacks its panes (paintRects)
     if (window.ResizeObserver) new ResizeObserver(() => {
-      if (gridEl.classList.contains("pane-free") && !expanded) {
+      if (gridEl.classList.contains("pane-free")) {
         const was = gridEl.classList.contains("pane-stacked");
         if (stackedNow() !== was) paintRects();
       }

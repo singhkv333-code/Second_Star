@@ -2,9 +2,9 @@
  *
  * One canvas in the author's chart theme, so the snapshot sits on its own
  * background instead of in a box on a foreign one. The chart is the subject:
- * it takes the right of the card and bleeds off the edge like the app's own
- * chart pane. The left carries what the app's header and Share dialog carry —
- * the Pivot lockup (the slashed-circle mark, the Newsreader wordmark), the
+ * a bare line of the closes on screen, drawn on the right of the card with no
+ * panel, grid or values around it. The left carries what the app's header
+ * and Share dialog carry — the Pivot wordmark (the landing page's logo), the
  * symbol and interval, the title, the note, and who published it when.
  *
  * Every value on the card is the author's own: their chart, their words,
@@ -96,28 +96,46 @@ const SharePreview = (() => {
     img.src = src;
   });
 
-  // The canonical mark is a raster the header masks with currentColor; do the
-  // same here so the card never carries a second drawing of the logo.
-  function mark(ctx, img, x, y, size, color) {
+  // The landing page's wordmark (assets/pivot-logo.svg, the same trace as
+  // web/public/pivot-logo.svg), tinted to the theme's ink so the card never
+  // carries a second drawing of the logo.
+  const LOGO_W = 847, LOGO_H = 319;
+  function lockup(ctx, img, c) {
+    const h = 36, w = Math.round(h * LOGO_W / LOGO_H), x = M, y = 42;
     if (!img) {
-      ctx.beginPath(); ctx.arc(x + size / 2, y + size / 2, size / 2, 0, Math.PI * 2);
-      ctx.fillStyle = color; ctx.fill();
+      ctx.fillStyle = c.fg;
+      font(ctx, `550 36px ${SERIF}`, -1.1);
+      ctx.fillText("Pivot", x, 71);
       return;
     }
     const tint = document.createElement("canvas");
-    tint.width = tint.height = size * 2;
+    tint.width = w * 2; tint.height = h * 2;
     const t = tint.getContext("2d");
-    t.drawImage(img, 0, 0, size * 2, size * 2);
+    t.drawImage(img, 0, 0, w * 2, h * 2);
     t.globalCompositeOperation = "source-in";
-    t.fillStyle = color; t.fillRect(0, 0, size * 2, size * 2);
-    ctx.drawImage(tint, x, y, size, size);
+    t.fillStyle = c.fg; t.fillRect(0, 0, w * 2, h * 2);
+    ctx.drawImage(tint, x, y, w, h);
   }
 
-  function lockup(ctx, img, c) {
-    mark(ctx, img, M, 45, 28, c.fg);
-    ctx.fillStyle = c.fg;
-    font(ctx, `550 36px ${SERIF}`, -1.1);
-    ctx.fillText("Pivot", M + 37, 71);
+  const UP = "#089981", DOWN = "#f23645";      // --up / --down, both themes
+
+  /* The closes on screen as a bare line on the card itself: no panel, grid,
+   * axis or values. The same bars the author was looking at, not a picture
+   * of them, so the card reads at thumbnail size. */
+  function lineChart(ctx, bars) {
+    const pts = bars.filter((b) => Number.isFinite(b.close));
+    const x0 = PANEL_X, x1 = W - M, y0 = PANEL_Y + 24, y1 = H - M;
+    const closes = pts.map((b) => b.close);
+    const lo = Math.min(...closes), hi = Math.max(...closes), span = hi - lo || 1;
+    const X = (i) => x0 + (i / (pts.length - 1)) * (x1 - x0);
+    const Y = (v) => (hi === lo ? (y0 + y1) / 2 : y1 - ((v - lo) / span) * (y1 - y0));
+    ctx.save();
+    ctx.beginPath();
+    pts.forEach((b, i) => (i ? ctx.lineTo(X(i), Y(b.close)) : ctx.moveTo(X(i), Y(b.close))));
+    ctx.strokeStyle = closes[closes.length - 1] >= closes[0] ? UP : DOWN;
+    ctx.lineWidth = 4; ctx.lineJoin = "round"; ctx.lineCap = "round";
+    ctx.stroke();
+    ctx.restore();
   }
 
   function chartPanel(ctx, image, c) {
@@ -214,8 +232,10 @@ const SharePreview = (() => {
 
   /* chart: a full-resolution capture (Layouts.capture); thumb is the small
    * layout picture, used only when the full capture is unavailable. */
-  async function render({ title, note, chart, thumb, symbol, interval,
+  async function render({ title, note, chart, thumb, bars, symbol, interval,
                           chatTurns = 0, by = "", when = null, theme } = {}) {
+    const line = Array.isArray(bars)
+      && bars.filter((b) => b && Number.isFinite(b.close)).length >= 2 ? bars : null;
     if (document.fonts && document.fonts.load) {
       await Promise.all([
         `550 36px ${SERIF}`, `600 44px ${SANS}`, `400 19px ${SANS}`,
@@ -231,7 +251,7 @@ const SharePreview = (() => {
     ctx.fillStyle = c.bg; ctx.fillRect(0, 0, W, H);
 
     const [markImg, image] = await Promise.all([
-      loadImage("assets/pivot-mark.png"), loadImage(chart || thumb),
+      loadImage("assets/pivot-logo.svg"), line ? null : loadImage(chart || thumb),
     ]);
     lockup(ctx, markImg, c);
 
@@ -242,11 +262,13 @@ const SharePreview = (() => {
     ctx.textAlign = "left";
 
     // Without a picture the words take the whole width, at display size.
-    const colW = image ? COL_W : W - 2 * M;
-    if (image) chartPanel(ctx, image, c);
+    const panel = !!(line || image);
+    const colW = panel ? COL_W : W - 2 * M;
+    if (line) lineChart(ctx, line);
+    else if (image) chartPanel(ctx, image, c);
 
     const summary = String(note || "").trim();
-    if (image) {
+    if (panel) {
       symbolRow(ctx, symbol, interval, c);
       ctx.fillStyle = c.fg;
       font(ctx, `600 44px ${SANS}`, -1.7);
