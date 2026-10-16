@@ -40,67 +40,77 @@ export function AffiliateJoinDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="gap-0 p-0 sm:max-w-[480px] sm:overflow-hidden sm:rounded-[14px]"
+        // The photo owns the top half, edge to edge; the close button sits on
+        // it, so it is light on a dark disc instead of the muted default.
+        className={
+          "flex flex-col gap-0 p-0 sm:max-w-[480px] sm:overflow-hidden sm:rounded-[14px] " +
+          "[&>button[aria-label=Close]]:bg-black/40 [&>button[aria-label=Close]]:text-white " +
+          "[&>button[aria-label=Close]]:backdrop-blur-sm [&>button[aria-label=Close]:hover]:bg-black/60 " +
+          "[&>button[aria-label=Close]:hover]:text-white"
+        }
         style={{ background: "var(--bg-base)", color: "var(--text-primary)" }}
       >
-        <div style={{ padding: "24px 24px 20px" }}>
-          <DialogTitle style={{ margin: "0 32px 12px 0", fontSize: 19, fontWeight: 600, letterSpacing: "-0.01em" }}>
+        <div className="relative h-[50dvh] flex-none sm:h-[300px]">
+          <img
+            src="/affiliate/vesuvius.jpg"
+            alt=""
+            aria-hidden="true"
+            style={{ display: "block", width: "100%", height: "100%", objectFit: "cover", objectPosition: "42% 45%", filter: "grayscale(1) contrast(1.08) brightness(.9)" }}
+          />
+          {/* the photo settles into the card rather than ending on a hard edge */}
+          <div
+            aria-hidden="true"
+            style={{ position: "absolute", inset: "auto 0 0 0", height: 72, background: "linear-gradient(to bottom, transparent, var(--bg-base))" }}
+          />
+        </div>
+
+        <div className="flex flex-1 flex-col" style={{ padding: "4px 24px 22px" }}>
+          <DialogTitle style={{ margin: "0 0 10px", fontSize: 21, fontWeight: 600, letterSpacing: "-0.015em" }}>
             Pivot Affiliate Programme
           </DialogTitle>
           <DialogDescription asChild>
-            <div style={{ fontSize: 14.5, lineHeight: 1.6, color: "var(--text-primary)" }}>
+            <div style={{ margin: "0 0 18px", fontSize: 14.5, lineHeight: 1.6, color: "var(--text-secondary)" }}>
               Become an affiliate and earn {REFERRAL_RATE_PERCENT}% of every eligible subscription payment from people you refer.
               Learn more about the programme{" "}
-              <a href="/affiliate" style={{ textDecoration: "underline", textUnderlineOffset: 3, color: "inherit" }}>here</a>.
+              <a href="/affiliate" style={{ textDecoration: "underline", textUnderlineOffset: 3, color: "var(--text-primary)" }}>here</a>.
             </div>
           </DialogDescription>
-        </div>
 
-        <img
-          src="/affiliate/vesuvius.jpg"
-          alt=""
-          aria-hidden="true"
-          style={{ display: "block", width: "100%", height: 180, objectFit: "cover", objectPosition: "38% 40%", filter: "grayscale(1) contrast(1.08) brightness(.9)" }}
-        />
-
-        <div style={{ padding: 20 }}>
-          <div style={{ padding: 20, borderRadius: 12, background: "color-mix(in srgb, var(--text-primary) 5%, transparent)" }}>
-            <p style={{ margin: "0 0 16px", fontSize: 13.5, lineHeight: 1.6, color: "var(--text-secondary)", textAlign: "center" }}>
-              Sign up to get your affiliate link. Your link, referrals, commissions and payouts are in Settings → Affiliate.
-            </p>
-            <label htmlFor={checkboxId} className="flex items-start gap-2.5" style={{ margin: "0 0 16px", fontSize: 13.5, lineHeight: 1.5, cursor: "pointer" }}>
-              <input
-                id={checkboxId}
-                type="checkbox"
-                checked={accepted}
-                onChange={(e) => setAccepted(e.target.checked)}
-                style={{ marginTop: 3, width: 15, height: 15, flex: "none", accentColor: "var(--text-primary)", cursor: "pointer" }}
-              />
-              <span>
-                I accept the{" "}
-                <a href="/affiliate#terms" target="_blank" rel="noopener noreferrer" style={{ color: "var(--text-primary)", textDecoration: "underline", textUnderlineOffset: 3 }}>affiliate programme terms</a>
-                {" "}and Pivot&apos;s{" "}
-                <a href="/terms" target="_blank" rel="noopener noreferrer" style={{ color: "var(--text-primary)", textDecoration: "underline", textUnderlineOffset: 3 }}>terms &amp; conditions</a>.
-              </span>
-            </label>
-            {state.kind === "error" && (
-              <p role="alert" style={{ margin: "0 0 14px", fontSize: 13.5, textAlign: "center", color: "var(--color-loss, #dc2626)" }}>{state.message}</p>
-            )}
-            <button
-              type="button"
-              onClick={() => void join()}
-              disabled={!accepted || busy}
-              className="flex w-full items-center justify-center gap-2"
-              style={{
-                height: 44, border: "none", borderRadius: 9999, background: "var(--text-primary)", color: "var(--bg-base)",
-                fontSize: 14.5, fontWeight: 600, opacity: accepted ? 1 : 0.4, cursor: !accepted || busy ? "default" : "pointer",
-                transition: "opacity .15s ease",
-              }}
-            >
-              {busy && <Loader2 size={15} className="animate-spin" aria-hidden={true} />}
-              {state.kind === "error" ? "Try again" : "Sign up"}
-            </button>
-          </div>
+          <label htmlFor={checkboxId} className="flex items-start gap-2.5" style={{ margin: "0 0 16px", fontSize: 13.5, lineHeight: 1.5, cursor: "pointer" }}>
+            <input
+              id={checkboxId}
+              type="checkbox"
+              checked={accepted}
+              onChange={(e) => setAccepted(e.target.checked)}
+              style={{ marginTop: 3, width: 15, height: 15, flex: "none", accentColor: "var(--text-primary)", cursor: "pointer" }}
+            />
+            <span>
+              I accept the{" "}
+              <a href="/affiliate#terms" target="_blank" rel="noopener noreferrer" style={{ color: "var(--text-primary)", textDecoration: "underline", textUnderlineOffset: 3 }}>affiliate programme terms</a>
+              {" "}and Pivot&apos;s{" "}
+              <a href="/terms" target="_blank" rel="noopener noreferrer" style={{ color: "var(--text-primary)", textDecoration: "underline", textUnderlineOffset: 3 }}>terms &amp; conditions</a>.
+            </span>
+          </label>
+          {state.kind === "error" && (
+            <p role="alert" style={{ margin: "0 0 14px", fontSize: 13.5, textAlign: "center", color: "var(--color-loss, #dc2626)" }}>{state.message}</p>
+          )}
+          <button
+            type="button"
+            onClick={() => void join()}
+            disabled={!accepted || busy}
+            className="mt-auto flex w-full items-center justify-center gap-2"
+            style={{
+              height: 44, border: "none", borderRadius: 9999, background: "var(--text-primary)", color: "var(--bg-base)",
+              fontSize: 14.5, fontWeight: 600, opacity: accepted ? 1 : 0.4, cursor: !accepted || busy ? "default" : "pointer",
+              transition: "opacity .15s ease",
+            }}
+          >
+            {busy && <Loader2 size={15} className="animate-spin" aria-hidden={true} />}
+            {state.kind === "error" ? "Try again" : "Sign up"}
+          </button>
+          <p style={{ margin: "12px 0 0", fontSize: 12.5, lineHeight: 1.5, color: "var(--text-tertiary, var(--text-secondary))", textAlign: "center" }}>
+            Your link, referrals, commissions and payouts are in Settings → Affiliate.
+          </p>
         </div>
       </DialogContent>
     </Dialog>
