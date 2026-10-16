@@ -16466,6 +16466,34 @@ class _ThreadDB:
         self._local = threading.local()
         self._opened = 0
         self._count_lock = threading.Lock()
+        _ThreadDB._all.append(self)
+
+    # Every store built from this class, so a finishing request thread can
+    # close its connection in all of them.
+    _all: list = []
+
+    @classmethod
+    def release_thread(cls) -> None:
+        """Close the calling thread's connections.
+
+        A request thread lives for one client connection, and the connection
+        it opened here was NOT reclaimed when the thread ended: each finished
+        thread left its `charto_bars.db` and `-wal` handles open. Measured
+        2026-10-16 — 120 short-lived clients locally took the process from 16
+        to 240 handles, and on production ~500 clients reached the 1,024
+        open-file limit, after which every chart read failed with "unable to
+        open database file" until a restart. The server calls this when each
+        request thread finishes, so open handles track live threads.
+        """
+        for db in cls._all:
+            c = getattr(db._local, "c", None)
+            if c is None:
+                continue
+            db._local.c = None
+            try:
+                c.close()
+            except Exception:  # noqa: BLE001 — closing is best-effort
+                pass
 
     def _c(self):
         c = getattr(self._local, "c", None)
@@ -21019,5 +21047,11 @@ if __name__ == "__main__":
         """
         request_queue_size = 128
         daemon_threads = True
+
+        def process_request_thread(self, request, client_address):
+            try:
+                super().process_request_thread(request, client_address)
+            finally:
+                _ThreadDB.release_thread()   # see _ThreadDB.release_thread
 
     _Server(("127.0.0.1", PORT), Handler).serve_forever()
