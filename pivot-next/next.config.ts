@@ -55,7 +55,15 @@ const nextConfig: NextConfig = {
   },
   experimental: {
     typedRoutes: false,
+    // The service runs under ProtectSystem=strict, so the release directory
+    // is read-only and the incremental cache cannot be flushed to disk (every
+    // regeneration logged an ENOENT). The public pages' cache lives in memory.
+    isrFlushToDisk: false,
   },
+  // ~2,500 stock pages plus the lists and sectors, each ~100 kB of HTML and
+  // its RSC payload: the 50 MB default would evict them faster than a crawl
+  // revisits them.
+  cacheMaxMemorySize: 512 * 1024 * 1024,
   // Security headers on every response. The headline fix is clickjacking:
   // `X-Frame-Options: DENY` + CSP `frame-ancestors 'none'` stop the app being
   // iframed to overlay a "Confirm & place" click. The CSP is deliberately
@@ -110,7 +118,10 @@ const nextConfig: NextConfig = {
    *                   usage live (charto_users.db) */
   async rewrites() {
     return {
-      beforeFiles: [],
+      // `/stock/RELIANCE.md` is the stock page as Markdown (app/md/stock). A
+      // config rewrite stays inside the server; a middleware rewrite behind
+      // nginx resolved to https://localhost:3000 and proxied out to itself.
+      beforeFiles: [{ source: "/stock/:symbol.md", destination: "/md/stock/:symbol" }],
       afterFiles: [
         { source: "/pv/:path*", destination: `${BACKEND}/:path*` },
         { source: "/pivot-chat/:path*", destination: `${BACKEND}/:path*` },
