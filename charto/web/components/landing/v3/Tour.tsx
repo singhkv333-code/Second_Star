@@ -11,13 +11,11 @@
  *      Watchlist beside the chart, then searches the hub for the Calendar
  *      and docks it under the watchlist;
  *   2. clicks through the watchlist, and the chart follows the symbol;
- *   3. opens Indicators and adds an EMA — the line is the indicator engine's
- *      own output (`/indicator?name=ema`), not drawn here;
- *   4. asks the chat for the levels; the answer, its timing and the three
- *      lines it drew are the ones Pivot returned in a real session.
+ *   3. opens Indicators and adds an EMA calculated from NIFTY daily closes;
+ *   4. asks for the prior 20-session range and draws its measured bounds.
  *
- * Every bar is real (`snapshot-bars`), the watchlist is the real last close
- * against the previous close (`snapshot`), and the marks are the app's own.
+ * NIFTY bars are frozen from Yahoo Finance; secondary stock bars use the
+ * older local dataserver snapshot. The marks are the app's own.
  * It plays only while on screen and rests on the finished desk under reduced
  * motion.
  */
@@ -39,14 +37,15 @@ import { formatINR } from "@/components/landing/film/film-script";
 import { MacWindow, PHONE, fitBars } from "./frame";
 import { Logo } from "./logos";
 import { CALENDAR, WATCH } from "./snapshot";
-import { DAILY, EMA } from "./snapshot-bars";
+import { DAILY } from "./snapshot-bars";
+import { NIFTY_DAILY, NIFTY_EMA20, NIFTY_LEVELS, NIFTY_WATCH } from "./nifty-data";
 
 const C = { chartBg: "#0d0e12", grid: "rgba(255,255,255,.075)", axis: "#b2b5be", border: "#22252d", up: "#089981", dn: "#f23645" } as const;
-const WATCHLIST = ["RELIANCE", "HDFCBANK", "TCS", "INFY", "ICICIBANK", "SBIN", "BHARTIARTL", "ITC"] as const;
-const SWITCH = ["HDFCBANK", "TCS", "RELIANCE"] as const;
-/* A real turn: asked of Pivot's chat on RELIANCE daily; the reply, timing and levels are its own. */
-const ASK = "Mark the key support and resistance levels on the daily chart";
-const LEVELS = [{ role: "R", price: 1329.75 }, { role: "R", price: 1343.5 }, { role: "S", price: 1116.36 }] as const;
+const WATCHLIST = ["RELIANCE", "NIFTY", "HDFCBANK", "TCS", "INFY", "ICICIBANK", "SBIN", "BHARTIARTL", "ITC"] as const;
+const SWITCH = ["HDFCBANK", "TCS", "NIFTY"] as const;
+/* The marked range is computed from NIFTY's prior 20 daily candles. */
+const ASK = "Mark the 20-session high and low on the daily chart";
+const LEVELS = NIFTY_LEVELS;
 /* A few of the indicator engine's fifty (`/indicators`), as the menu lists them. */
 const IND_MENU: [string, string][] = [["EMA", "Exponential moving average"], ["SMA", "Simple moving average"], ["RSI", "Relative strength index"], ["MACD", "Moving average convergence divergence"], ["Bollinger Bands", "Bands two deviations around an average"], ["Supertrend", "ATR-based trend direction"], ["VWAP", "Volume-weighted average price"]];
 
@@ -69,8 +68,8 @@ const TILES: [string, string][] = [
 
 /* Two of the chat's own openers (`chat.js` TEMPLATES), prompts verbatim. */
 const NEXT: [string, string][] = [
-  ["Patterns", "What chart patterns are forming on RELIANCE right now? Mark them."],
-  ["Why it moved", "Explain RELIANCE's last big move — what happened, and how far did it travel?"],
+  ["Patterns", "What chart patterns are forming on NIFTY right now? Mark them."],
+  ["Why it moved", "Explain NIFTY's last big move — what happened, and how far did it travel?"],
 ];
 
 /* The hub's shelves and the cards on the first of them, in the app's order. */
@@ -89,7 +88,7 @@ const sleep = (ms: number, alive: () => boolean) => new Promise<void>((res, rej)
 
 export function Tour(): React.ReactElement {
   const appRef = React.useRef<HTMLDivElement | null>(null);
-  const [sym, setSym] = React.useState<Sym>("RELIANCE");
+  const [sym, setSym] = React.useState<Sym>("NIFTY");
   const [hub, setHub] = React.useState(false);
   const [menu, setMenu] = React.useState(false);
   const [docked, setDocked] = React.useState(false);
@@ -120,7 +119,7 @@ export function Tour(): React.ReactElement {
       const go = async (t: string, ms = 950) => { aim(t); await wait(ms); await click(); };
       try {
         for (;;) {
-          setSym("RELIANCE"); setHub(false); setMenu(false); setDocked(false); setCal(false); setFind(""); setEma(false); setPhase(0); setDraft("");
+          setSym("NIFTY"); setHub(false); setMenu(false); setDocked(false); setCal(false); setFind(""); setEma(false); setPhase(0); setDraft("");
           await wait(1100);
           await go("widgets"); setHub(true); await wait(800);
           await go("hub-Watchlist"); setHub(false); setDocked(true); await wait(1200);
@@ -163,7 +162,7 @@ export function Tour(): React.ReactElement {
             <TopBar hub={hub} />
             <div className="tw-main">
               <Rail />
-              <ChartPane sym={sym} ema={ema} levels={phase >= 3 && sym === "RELIANCE"} menu={menu} dock={`${docked}${cal}`} />
+              <ChartPane sym={sym} ema={ema} levels={phase >= 3 && sym === "NIFTY"} menu={menu} dock={`${docked}${cal}`} />
               <div className={`tw-dock${docked ? " on" : ""}${cal ? " cal" : ""}`}><div className="tw-dock-w"><WatchPane sym={sym} /></div><div className="tw-dock-c"><CalPane /></div></div>
               <ChatCol sym={sym} draft={draft} phase={phase} />
             </div>
@@ -228,12 +227,12 @@ function PaneBar({ children, tools }: { children: React.ReactNode; tools?: React
 const fmtV = new Intl.NumberFormat("en-IN");
 
 function ChartPane({ sym, ema, levels, menu, dock }: { sym: Sym; ema: boolean; levels: boolean; menu: boolean; dock: string }) {
-  const bars = DAILY[sym]!;
+  const bars = sym === "NIFTY" ? NIFTY_DAILY : DAILY[sym]!;
   const [, o, h, l, c, v] = bars[bars.length - 1]!;
   const prev = bars[bars.length - 2]![4];
   const ch = c - prev, pct = (ch / prev) * 100, dn = ch < 0;
-  const showEma = ema && sym === "RELIANCE";
-  const e20 = EMA["20"]!;
+  const showEma = ema && sym === "NIFTY";
+  const e20 = NIFTY_EMA20;
   return (
     <div className="tw-pane tw-chart">
       <PaneBar tools={<><span className="tw-ico sm tw-wide"><Square /></span><span className="tw-ico sm"><Settings /></span></>}>
@@ -247,7 +246,7 @@ function ChartPane({ sym, ema, levels, menu, dock }: { sym: Sym; ema: boolean; l
       </PaneBar>
       <div className="tw-cwrap">
         <div className="tw-ro">
-          <div className="tw-ro-t"><Logo s={sym} size={18} />{sym}<i>· 1D ·</i><em>NSE</em></div>
+          <div className="tw-ro-t"><Logo s={sym} size={18} />{sym}<i>· 1D ·</i><em>{sym === "NIFTY" ? "NSE · Yahoo EOD" : "NSE"}</em></div>
           <div className={`tw-ro-r ${dn ? "dn" : "up"}`}>
             <span className="ro-x"><i>O</i>{formatINR(o)}</span><span className="ro-x"><i>H</i>{formatINR(h)}</span><span className="ro-x"><i>L</i>{formatINR(l)}</span>
             <span><i>C</i>{formatINR(c)}</span><span className="ro-x"><i>V</i>{fmtV.format(v)}</span>
@@ -256,7 +255,7 @@ function ChartPane({ sym, ema, levels, menu, dock }: { sym: Sym; ema: boolean; l
           {showEma && <div className="tw-ro-ind"><i />EMA 20 <b>{formatINR(e20[e20.length - 1]![1])}</b></div>}
           {levels && (
             <ul className="tw-levels">
-              {LEVELS.map((x) => <li key={x.price} className={x.role === "R" ? "dn" : "up"}>{x.role} {formatINR(x.price)} · Strong</li>)}
+              {LEVELS.map((x) => <li key={x.price} className={x.role === "H" ? "dn" : "up"}>20D {x.role} {formatINR(x.price)}</li>)}
             </ul>
           )}
         </div>
@@ -278,13 +277,14 @@ function Candles({ sym, ema, levels, dock }: { sym: Sym; ema: boolean; levels: b
     const api = ref.current;
     if (!api) return;
     const { sym: s, ema: e, levels: lv } = state.current;
-    const b = DAILY[s]!;
+    const b = s === "NIFTY" ? NIFTY_DAILY : DAILY[s]!;
     api.k.setData(b.map(([t, o, h, l, c]) => ({ time: t as unknown as Time, open: o, high: h, low: l, close: c })));
     api.v.setData(b.map(([t, o, , , c, v]) => ({ time: t as unknown as Time, value: v, color: c >= o ? "rgba(8,153,129,.45)" : "rgba(242,54,69,.45)" })));
-    api.e.setData(e ? EMA["20"]!.map(([t, v]) => ({ time: t as unknown as Time, value: v })) : []);
+    api.e.setData(e ? NIFTY_EMA20.map(([t, v]) => ({ time: t as unknown as Time, value: v })) : []);
     api.lines.forEach((l) => api.k.removePriceLine(l));
-    api.lines = lv ? LEVELS.map((x) => api.k.createPriceLine({ price: x.price, color: x.role === "R" ? C.dn : C.up, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: "" })) : [];
+    api.lines = lv ? LEVELS.map((x) => api.k.createPriceLine({ price: x.price, color: x.role === "H" ? C.dn : C.up, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: "" })) : [];
     fitBars(api.chart, b.length);
+
   }, []);
   React.useEffect(() => { apply(); }, [sym, ema, levels, apply]);
   // turning a phone or a narrowing window changes how many bars fit
@@ -334,7 +334,7 @@ function WatchPane({ sym }: { sym: Sym }) {
       <div className="tw-wl-head"><span>Symbol</span><span>Last</span><span>Chg%</span></div>
       <ul className="tw-wl">
         {WATCHLIST.map((s) => {
-          const w = WATCH[s]!, p = ((w.last - w.prev) / w.prev) * 100;
+          const w = s === "NIFTY" ? NIFTY_WATCH.NIFTY : WATCH[s]!, p = ((w.last - w.prev) / w.prev) * 100;
           return (
             <li key={s} data-t={`row-${s}`} className={s === sym ? "on" : undefined}>
               <span className="tw-wl-s"><Logo s={s} size={24} />{s}</span>
@@ -397,16 +397,15 @@ function ChatCol({ sym, draft, phase }: { sym: Sym; draft: string; phase: number
           {phase === 2 && <div className="tw-wait"><span className="px-bars" aria-hidden="true"><i /><i /><i /></span>Measuring levels</div>}
           {phase >= 3 && (
             <div className="tw-reply">
-              <span className="tw-thought">Thought for 13s</span>
+              <span className="tw-thought">Measured from daily candles</span>
               <p>
-                On the <b>daily chart</b>, the drawn levels are strong resistance at <b>1,329.75</b> and <b>1,343.50</b>, and
-                strong support at <b>1,116.36</b>. The other four levels are in the Layers panel and can be switched on there.
+                NIFTY's prior 20 sessions reached a high of <b>{formatINR(LEVELS[0].price)}</b> and a low of <b>{formatINR(LEVELS[1].price)}</b>.
+                Both lines are drawn from the recorded daily candles.
               </p>
-              <div className="tw-meta"><Copy /><span>13.2s</span><span>·</span><span>3 on chart</span><ChevronDown /></div>
+              <div className="tw-meta"><Copy /><span>Daily bars</span><span>·</span><span>2 on chart</span><ChevronDown /></div>
               <ul className="tw-follow">
-                <li>What are the four other levels in the Layers panel?</li>
-                <li>How often has 1,116.36 held as support?</li>
-                <li>Do these levels align with the weekly chart?</li>
+                <li>How often has this low been revisited?</li>
+                <li>Does the weekly chart show the same range?</li>
               </ul>
               <ul className="tw-next">
                 {NEXT.map(([name, q]) => {

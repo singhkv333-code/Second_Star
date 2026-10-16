@@ -1,17 +1,6 @@
 /**
- * Patterns — "Auto-detect levels and patterns."
- *
- * RELIANCE's daily chart as the workspace draws it, and beside it the
- * pattern card: what the detector found in the last 120 bars and how each
- * shape has actually done on this stock, next to its control. Selecting a
- * row draws that shape on the candles; the card moves on by itself while on
- * screen and stops under the pointer.
- *
- * All of it is the engine's own output (`snapshot-patterns`): the shapes and
- * their anchor prices from `tool_get_patterns`, the records from
- * `tool_evaluate_pattern` — rate, control, sample size, and the engine's
- * verdict on whether the gap is real. Where the engine withholds a
- * percentage because the sample is too small, so does this page.
+ * Patterns — NIFTY's daily chart and its prior 20-session high and low,
+ * measured from the candles shown on the canvas.
  */
 "use client";
 
@@ -29,19 +18,15 @@ import { LightweightChart } from "@/components/chart/LightweightChart";
 import { formatINR } from "@/components/landing/film/film-script";
 import { MacWindow, PHONE } from "./frame";
 import { Logo } from "./logos";
-import { COMPANY } from "./snapshot";
-import { DAILY } from "./snapshot-bars";
-import { EVALS, PATTERNS } from "./snapshot-patterns";
-import { SCENES } from "./snapshot-scenes";
+import { NIFTY_AS_OF, NIFTY_CHANGE, NIFTY_CHANGE_PCT, NIFTY_DAILY, NIFTY_LAST, NIFTY_LEVELS } from "./nifty-data";
 
 const C = { chartBg: "#0d0e12", grid: "rgba(255,255,255,.075)", axis: "#b2b5be", border: "#22252d", up: "#089981", dn: "#f23645", ink: "#f5f5f6" } as const;
-const BARS = DAILY.RELIANCE!;
-const ASK = "What chart patterns are forming on RELIANCE right now? Mark them.";
+const BARS = NIFTY_DAILY;
+const ASK = "Show the prior 20-session range on NIFTY.";
 
-/* ── the scene: what /patterns/draw hands the chart, painted as scene.js does ─ */
+/* ── the scene: observed range lines resolved onto the shown bars ─ */
 
-/* The dark theme's annotation roles (preview/js/theme.js annRes / annSup). */
-const ROLE: Record<string, string> = { resistance: "#ef4444", support: "#22c55e" };
+const ROLE: Record<string, string> = { upper: "#ef4444", lower: "#22c55e" };
 const roleCol = (r?: string) => ROLE[r ?? ""] ?? "#c084fc";
 
 type Pt = { t: number; v: number };
@@ -49,56 +34,16 @@ type Prim =
   | { kind: "poly"; role?: string; pts: readonly Pt[]; closed?: boolean; fill?: boolean; stroke?: boolean; solid?: boolean; label?: string }
   | { kind: "segment"; role?: string; p1: Pt; p2: Pt; dashed?: boolean; label?: string }
   | { kind: "candle"; role?: string; t1: number; t2?: number; hi: number; lo?: number; label?: string };
-type SceneKey = keyof typeof SCENES;
-const scene = (k: SceneKey) => SCENES[k] as unknown as readonly Prim[];
-
-type Row = { key: SceneKey; name: string; when: string; state: string; dir: "up" | "dn" | "flat"; record: React.ReactNode; verdict?: string };
-
-type ChartP = { pattern: string; from: string; to: string; span_bars?: number; neckline?: number; broke_at?: string; points: Record<string, number> };
-const chartP = (kind: string, i = 0) => (PATTERNS.chart as readonly ChartP[]).filter((p) => p.pattern === kind)[i]!;
-const candleP = (kind: string) => PATTERNS.candles.find((p) => p.pattern === kind)!;
-const ev = (k: keyof typeof EVALS) => EVALS[k] as {
-  evaluated?: number | null; with_direction_rate_pct?: number | null; with_direction_rate_pct_withheld?: string | null;
-  control?: { base_rate_pct?: number } | null; edge_verdict?: string | null; horizon_bars?: number | null;
+type SceneKey = "range_high" | "range_low";
+const scene = (k: SceneKey): readonly Prim[] => {
+  const price = k === "range_high" ? NIFTY_LEVELS[0].price : NIFTY_LEVELS[1].price;
+  const role = k === "range_high" ? "upper" : "lower";
+  return [{ kind: "segment", role, p1: { t: BARS[BARS.length - 21]![0], v: price }, p2: { t: BARS[BARS.length - 1]![0], v: price }, dashed: true, label: k === "range_high" ? "20D high" : "20D low" }];
 };
-const fmtDay = (s: string) => s.replace(/ 20\d\d$/, "");
-/** "0 of 1" — the engine's own phrasing when it withholds a percentage. */
-const withheld = (w?: string | null) => w?.match(/'([^']+)'/)?.[1] ?? "";
-
-function Record({ k }: { k: keyof typeof EVALS }) {
-  const e = ev(k);
-  const base = e.control?.base_rate_pct;
-  if (e.with_direction_rate_pct != null) {
-    return <span><b>{e.with_direction_rate_pct}%</b> of {e.evaluated} <i>vs</i> <b>{base}%</b> base</span>;
-  }
-  return <span><b>{withheld(e.with_direction_rate_pct_withheld)}</b> <i>vs</i> <b>{base}%</b> base</span>;
-}
-const noise = (k: keyof typeof EVALS) => (ev(k).edge_verdict?.startsWith("within sampling noise") ? "Within noise" : undefined);
-
+type Row = { key: SceneKey; name: string; when: string; state: string; dir: "up" | "dn"; record: React.ReactNode };
 const ROWS: Row[] = [
-  {
-    key: "head_and_shoulders", name: "Head and shoulders", dir: "dn",
-    when: `${fmtDay(chartP("head_and_shoulders").from)} – ${fmtDay(chartP("head_and_shoulders").to)}`,
-    state: `Confirmed ${fmtDay(chartP("head_and_shoulders").broke_at ?? "")}`, record: <Record k="head_and_shoulders" />,
-  },
-  {
-    key: "double_top", name: "Double top", dir: "dn",
-    when: `${fmtDay(chartP("double_top").from)} – ${fmtDay(chartP("double_top").to)}`, state: "Unconfirmed",
-    record: <Record k="double_top" />, verdict: noise("double_top"),
-  },
-  {
-    key: "ascending_triangle", name: "Ascending triangle", dir: "up",
-    when: `${fmtDay(chartP("ascending_triangle").from)} – now`, state: "Forming",
-    record: <span>Still forming</span>,
-  },
-  ...([
-    ["bullish_engulfing", "Bullish engulfing", "up"],
-    ["three_white_soldiers", "Three white soldiers", "up"],
-    ["bearish_harami", "Bearish harami", "dn"],
-  ] as const).map(([k, name, dir]): Row => ({
-    key: k, name, dir, when: fmtDay(candleP(k).t), state: "Candlestick",
-    record: <Record k={k} />, verdict: noise(k),
-  })),
+  { key: "range_high", name: "20-session high", when: NIFTY_AS_OF, state: "Measured from candles", dir: "dn", record: <span>{formatINR(NIFTY_LEVELS[0].price)}</span> },
+  { key: "range_low", name: "20-session low", when: NIFTY_AS_OF, state: "Measured from candles", dir: "up", record: <span>{formatINR(NIFTY_LEVELS[1].price)}</span> },
 ];
 
 /* ── the section ─────────────────────────────────────────────────────────── */
@@ -163,9 +108,9 @@ export function Patterns(): React.ReactElement {
       <div className="v3-shell">
         <header className="v3-head" data-reveal>
           <h2>Auto-detect levels and patterns.</h2>
-          <p>Detect key support and resistance levels and recognize 56 chart patterns automatically.</p>
+          <p>Here, NIFTY's 20-session high and low are measured from the candles that set them.</p>
         </header>
-        <MacWindow title="RELIANCE — Pivot" className="pt-win">
+        <MacWindow title="NIFTY — Pivot" className="pt-win">
           <div className="px-app">
             <AppBar />
             <div className="px-main">
@@ -183,25 +128,26 @@ export function Patterns(): React.ReactElement {
                 <div className="pt-thread">
                   <div className="px-user" data-show="">{ASK}</div>
                   <div className="pt-card">
-                    <header><b>Patterns</b><span>RELIANCE · 1D · last 120 bars</span></header>
-                    <ul ref={listRef} onTouchStart={() => setHeld(true)} onTouchEnd={() => setHeld(false)}>
+                    <header><b>Chart range</b><span>NIFTY · 1D · prior 20 sessions</span></header>
+                    <ul>
+
                       {ROWS.map((r, i) => (
                         <li key={r.key}>
                           <button type="button" className={i === k ? "on" : undefined} onClick={() => setK(i)}>
                             <span className={`pt-dot ${r.dir}`} />
                             <span className="pt-name"><b>{r.name}</b><small>{r.when} · {r.state}</small></span>
-                            <span className="pt-rec">{r.record}{r.verdict && <small>{r.verdict}</small>}</span>
+                            <span className="pt-rec">{r.record}</span>
                           </button>
                         </li>
                       ))}
                     </ul>
-                    <footer>Next {ev("bullish_engulfing").horizon_bars} bars, against every move over the same span. Not a forecast.</footer>
+                    <footer>Historical range from observed daily bars. Not a forecast.</footer>
                   </div>
                 </div>
                 <div className="px-composer">
                   <span className="px-ph">Ask about this chart…</span>
                   <div className="px-comp-row">
-                    <span className="px-chip"><Logo s="RELIANCE" size={16} />RELIANCE</span>
+                    <span className="px-chip"><Logo s="NIFTY" size={16} />NIFTY</span>
                     <span className="px-model"><Sparkles />Pivot<ChevronDown /></span>
                     <span className="px-grow" />
                     <Mic />
@@ -260,15 +206,16 @@ function PaneBar() {
 }
 
 function Readout() {
-  const p = COMPANY.price;
-  const dn = p.change < 0;
+  const p = NIFTY_LAST;
+  const dn = NIFTY_CHANGE < 0;
   return (
     <div className="px-readout">
-      <div className="px-ro-title"><Logo s="RELIANCE" size={18} />RELIANCE <i>· 1D ·</i> <em>NSE</em></div>
+      <div className="px-ro-title"><Logo s="NIFTY" size={18} />NIFTY <i>· 1D ·</i> <em>NSE · Yahoo EOD</em></div>
       <div className={`px-ro-row ${dn ? "dn" : "up"}`}>
-        <span className="ro-x"><i>O</i>{formatINR(p.open)}</span><span className="ro-x"><i>H</i>{formatINR(p.high)}</span>
-        <span className="ro-x"><i>L</i>{formatINR(p.low)}</span><span><i>C</i>{formatINR(p.last)}</span>
-        <span>{p.change.toFixed(1)} ({p.change_pct.toFixed(2)}%)</span>
+        <span><i>O</i>{formatINR(p[1])}</span><span><i>H</i>{formatINR(p[2])}</span>
+        <span><i>L</i>{formatINR(p[3])}</span><span><i>C</i>{formatINR(p[4])}</span>
+        <span>{NIFTY_CHANGE.toFixed(1)} ({NIFTY_CHANGE_PCT.toFixed(2)}%)</span>
+
       </div>
     </div>
   );

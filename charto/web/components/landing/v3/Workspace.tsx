@@ -27,7 +27,9 @@ import {
 } from "lucide-react";
 import { Logo } from "./logos";
 import { formatINR } from "@/components/landing/film/film-script";
-import { COMPANY, RELIANCE_1D, SCREEN, SNAPSHOT_DATE, WATCH } from "./snapshot";
+import { SCREEN } from "./snapshot";
+import { NIFTY_1D, NIFTY_AS_OF, NIFTY_CHANGE_PCT, NIFTY_LAST, NIFTY_LEVELS, NIFTY_RANGE, NIFTY_RSI14, NIFTY_WATCH } from "./nifty-data";
+import { RELIANCE_COMPANY } from "./reliance-financials";
 
 function useCycle(n: number, ms: number) {
   const ref = React.useRef<HTMLElement | null>(null);
@@ -91,11 +93,11 @@ const PANE_ICON: Record<Pane, React.ComponentType> = {
   Chart: ChartCandlestick, Watchlist: Star, Financials: Landmark, Screener: Filter, Notes: NotebookPen, Chat: MessageSquare,
 };
 
-/** The last bars of RELIANCE's real daily series, drawn small. `levels`
- *  are the two resistances Pivot's chat drew on this chart (see Tour). */
-function MiniCandles({ n = 32, levels = false }: { n?: number; levels?: boolean }) {
-  const bars = RELIANCE_1D.slice(-n);
-  const lv = levels ? [1329.75, 1343.5] : [];
+/** The last bars of NIFTY's daily series, drawn small. */
+function MiniCandles({ n = 40, levels = false }: { n?: number; levels?: boolean }) {
+  const bars = NIFTY_1D.slice(-n);
+  const lv = levels ? NIFTY_LEVELS.map((x) => x.price) : [];
+
   const lo = Math.min(...bars.map((b) => b[3])), hi = Math.max(...bars.map((b) => b[2]), ...lv);
   const y = (p: number) => 4 + ((hi - p) / (hi - lo)) * 52;
   const w = 156 / n;
@@ -117,14 +119,15 @@ function MiniCandles({ n = 32, levels = false }: { n?: number; levels?: boolean 
 
 /** The chart pane, small but whole: readout, candles, a price axis. */
 function MiniChart() {
-  const bars = RELIANCE_1D.slice(-24);
+  const bars = NIFTY_1D.slice(-60);
+
   const lo = Math.min(...bars.map((b) => b[3])), hi = Math.max(...bars.map((b) => b[2]));
   const ticks = [0, 1, 2, 3].map((i) => hi - ((hi - lo) * (i + 0.5)) / 4);
-  const p = COMPANY.price;
   return (
     <div className="ws-chartbody">
-      <div className="ws-ro"><Logo s="RELIANCE" size={16} /><b>RELIANCE</b><span>· 1D · NSE</span><em className="dn">{formatINR(p.last)} {p.change_pct.toFixed(2)}%</em></div>
-      <div className="ws-plot"><MiniCandles n={24} /></div>
+      <div className="ws-ro"><Logo s="NIFTY" size={16} /><b>NIFTY</b><span>· 1D · NSE · Yahoo EOD</span><em className={NIFTY_CHANGE_PCT >= 0 ? "up" : "dn"}>{formatINR(NIFTY_LAST[4])} {NIFTY_CHANGE_PCT.toFixed(2)}%</em></div>
+      <div className="ws-plot"><MiniCandles n={60} /></div>
+
       <div className="ws-axis">{ticks.map((t) => <span key={t}>{Math.round(t).toLocaleString("en-IN")}</span>)}</div>
     </div>
   );
@@ -137,8 +140,9 @@ function PaneBody({ p }: { p: Pane }) {
   if (p === "Watchlist") {
     return (
       <ul className="ws-rows">
+        <li className="h"><span>Yahoo EOD · {NIFTY_AS_OF}</span></li>
         {ROWS.map((s) => {
-          const w = WATCH[s]!, c = ((w.last - w.prev) / w.prev) * 100;
+          const w = NIFTY_WATCH[s], c = ((w.last - w.prev) / w.prev) * 100;
           return <li key={s}><Logo s={s} size={16} /><b>{s}</b><span>{formatINR(w.last)}</span><em className={c >= 0 ? "up" : "dn"}>{c >= 0 ? "+" : ""}{c.toFixed(2)}%</em></li>;
         })}
       </ul>
@@ -148,19 +152,19 @@ function PaneBody({ p }: { p: Pane }) {
     return (
       <ul className="ws-rows">
         <li className="h"><span>Most traded · 20-day turnover</span></li>
-        {SCREEN.rows.map((r) => <li key={r.symbol}><Logo s={r.symbol} size={16} /><b>{r.symbol}</b><span>{formatINR(r.close)}</span><em>₹{Math.round(r.turnover ?? 0).toLocaleString("en-IN")} Cr</em></li>)}
+        {SCREEN.rows.slice(0, 5).map((r) => <li key={r.symbol}><Logo s={r.symbol} size={16} /><b>{r.symbol}</b><span>{formatINR(r.close)}</span><em>₹{Math.round(r.turnover ?? 0).toLocaleString("en-IN")} Cr</em></li>)}
       </ul>
     );
   }
   if (p === "Financials") {
-    const c = COMPANY, r = c.range_52w, at = ((c.price.last - r.low) / (r.high - r.low)) * 100;
+    const c = RELIANCE_COMPANY, r = c.range_52w, at = ((c.price.last - r.low) / (r.high - r.low)) * 100;
     const rows: [string, string][] = [
       ["Market cap", `₹${(c.market_cap / 1e12).toFixed(2)} L Cr`], ["P/E", c.pe.toFixed(1)], ["P/B", c.pb.toFixed(2)],
       ["EV / EBITDA", c.ev_ebitda.toFixed(1)], ["EPS", c.eps.toFixed(2)], ["RSI 14", String(c.metrics.rsi14)],
     ];
     return (
       <div className="ws-fin">
-        <div className="ws-fin-n"><Logo s="RELIANCE" size={16} /><b>{c.long_name}</b></div>
+        <div className="ws-fin-n"><Logo s="RELIANCE" size={16} /><b>{c.long_name} · {c.price.as_of}</b></div>
         <div className="ws-fin-r"><span><i style={{ left: `${at}%` }} /></span><small><b>{formatINR(r.low)}</b>52-week<b>{formatINR(r.high)}</b></small></div>
         <dl>{rows.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
       </div>
@@ -169,22 +173,22 @@ function PaneBody({ p }: { p: Pane }) {
   if (p === "Notes") {
     return (
       <div className="ws-note">
-        <span>₹{formatINR(COMPANY.price.last)} · {SNAPSHOT_DATE}</span>
-        <p>Two resistances overhead, 1,329.75 and 1,343.50. Wait for a daily close above both.</p>
-        <span>RSI 14 · {COMPANY.metrics.rsi14}</span>
-        <p>Still {Math.abs(COMPANY.metrics.dist_52w_high).toFixed(1)}% below the 52-week high.</p>
+        <span>{formatINR(NIFTY_LAST[4])} · {NIFTY_AS_OF}</span>
+        <p>Prior 20-session high {formatINR(NIFTY_LEVELS[0].price)}; low {formatINR(NIFTY_LEVELS[1].price)}.</p>
+        <span>RSI 14 · {NIFTY_RSI14}</span>
+        <p>{Math.abs((NIFTY_LAST[4] / NIFTY_RANGE.high - 1) * 100).toFixed(1)}% below the available 2026 high.</p>
       </div>
     );
   }
   return (
     <div className="ws-chat">
       <div className="ws-seg"><b>Research</b><i>Execution</i></div>
-      <p className="u">Mark the key support and resistance levels on the daily chart</p>
-      <p className="t">Thought for 13s</p>
-      <p>On the <b>daily chart</b>, the drawn levels are strong resistance at <b>1,329.75</b> and <b>1,343.50</b>, and strong support at <b>1,116.36</b>.</p>
-      <p className="t">13.2s · 3 on chart</p>
-      <p className="f">How often has 1,116.36 held as support?</p>
-      <p className="f">Do these levels align with the weekly chart?</p>
+      <p className="u">Mark the 20-session high and low on the daily chart</p>
+      <p className="t">Measured from daily candles</p>
+      <p>On the <b>NIFTY daily chart</b>, the prior 20-session high is <b>{formatINR(NIFTY_LEVELS[0].price)}</b> and the low is <b>{formatINR(NIFTY_LEVELS[1].price)}</b>.</p>
+      <p className="t">2 on chart</p>
+      <p className="f">How often has the low been revisited?</p>
+      <p className="f">Does the weekly chart show the same range?</p>
       <span className="ws-compose">Ask about this chart…<i><ArrowUp /></i></span>
     </div>
   );
@@ -272,7 +276,7 @@ function ResearchCard() {
 /* ── Coverage ────────────────────────────────────────────────────────────── */
 
 const MARKETS = [
-  { name: "Equities", where: "NSE · BSE", eg: "RELIANCE, TCS, HDFCBANK", marks: ["RELIANCE", "TCS", "HDFCBANK"], tone: "g" },
+  { name: "Equities", where: "NSE · BSE", eg: "TCS, HDFCBANK, ICICIBANK", marks: ["TCS", "HDFCBANK", "ICICIBANK"], tone: "g" },
   { name: "Indices", where: "NSE · BSE", eg: "NIFTY, BANKNIFTY, SENSEX", marks: ["NIFTY", "BANKNIFTY", "SENSEX"], tone: "b" },
   { name: "Options", where: "NSE F&O", eg: "Index and stock options", marks: ["NIFTY", "BANKNIFTY"], tone: "v" },
   { name: "Commodities", where: "MCX", eg: "Gold, silver, crude oil", marks: ["GOLD", "SILVER", "CRUDEOIL"], tone: "a" },
@@ -311,8 +315,9 @@ function SharedCard() {
       <Copy kick="Shared setups" title="Share your setup." line="A link to copy, with your credit." />
       <div className="ws-share" aria-hidden="true">
         <div className="ws-win src">
-          <div className="ws-win-bar"><span className="ws-lights"><i /><i /><i /></span><span className="ws-wt"><Logo s="RELIANCE" size={18} />RELIANCE · 1D</span><span className="ws-make">Make it mine</span></div>
-          <div className="ws-win-body"><MiniCandles n={36} levels /></div>
+          <div className="ws-win-bar"><span className="ws-lights"><i /><i /><i /></span><span className="ws-wt"><Logo s="NIFTY" size={18} />NIFTY · 1D</span><span className="ws-make">Make it mine</span></div>
+          <div className="ws-win-body"><MiniCandles n={60} levels /></div>
+
           <MousePointer2 className="ws-cursor" />
         </div>
         <div className="ws-win dst">
