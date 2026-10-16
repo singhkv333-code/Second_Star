@@ -23,7 +23,8 @@ import {
   type MarketBrief,
   type MarketExplore,
 } from "@/lib/markets";
-import { CardHead, Delta, Hint, Spark, css as s, cx, openChart } from "./parts";
+import { CardHead, Delta, Hint, Mark, Spark, css as s, cx, openChart } from "./parts";
+import { loadUniverse } from "@/lib/instruments";
 
 // ── brief ────────────────────────────────────────────────────────────────
 
@@ -252,9 +253,13 @@ const STRIP: { symbol: string; label: string }[] = [
 export function MarketStrip(): React.ReactElement {
   const [quotes, setQuotes] = useState<Map<string, AssetQuote> | null>(null);
   const [sparks, setSparks] = useState<Record<string, number[]>>({});
+  const [marks, setMarks] = useState<Record<string, string | null>>({});
 
   useEffect(() => {
     let alive = true;
+    void loadUniverse().then((u) => {
+      if (alive) setMarks(Object.fromEntries(STRIP.map((x) => [x.symbol, u.get(x.symbol)?.logo ?? null])));
+    });
     const load = (): void => {
       void fetchAssetQuotes(STRIP.map((x) => x.symbol)).then((q) => alive && setQuotes(q));
     };
@@ -278,7 +283,10 @@ export function MarketStrip(): React.ReactElement {
           return (
             <button key={x.symbol} type="button" className={s.tile} onClick={() => openChart(x.symbol)}>
               <div className="flex items-start justify-between gap-2">
-                <span className="truncate text-[12px] font-medium" style={{ color: "var(--text-primary)" }}>{x.label}</span>
+                <span className="flex min-w-0 items-center gap-2">
+                  <Mark src={marks[x.symbol]} label={x.label} size={20} />
+                  <span className="truncate text-[12px] font-medium" style={{ color: "var(--text-primary)" }}>{x.label}</span>
+                </span>
                 <Delta v={q?.change_pct ?? null} className="text-[11.5px] font-medium" />
               </div>
               {quotes ? (

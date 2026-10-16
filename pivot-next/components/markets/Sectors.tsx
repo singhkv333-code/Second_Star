@@ -21,6 +21,7 @@ import {
   type Period,
 } from "@/lib/markets";
 import { CardHead, Delta, Empty, Mark, css as s, cx, useOpenStock } from "./parts";
+import { SectorIcon, sectorLook } from "./sectorStyle";
 
 export function useWidth<T extends HTMLElement>(): [React.RefObject<T | null>, number] {
   const ref = useRef<T>(null);
@@ -203,7 +204,7 @@ export function SectorBars({
             style={{ gridTemplateColumns: "minmax(0,1fr) auto", rowGap: 6, padding: "8px 10px", border: "none", background: active ? "var(--surface-active)" : undefined, font: "inherit", color: "inherit" }}
             aria-pressed={active}
           >
-            <span className="truncate text-[12.5px] font-medium">{r.label}</span>
+            <span className="flex min-w-0 items-center gap-2"><SectorIcon sector={r.key} size={20} /><span className="truncate text-[12.5px] font-medium">{r.label}</span></span>
             <Delta v={v} className="text-right text-[12.5px]" />
             <span className="relative col-span-2 h-[4px] rounded-full" style={{ background: "var(--surface-track)" }} aria-hidden>
               <span className="absolute -inset-y-[3px] left-1/2 w-px" style={{ background: "var(--glass-border-hover)" }} />
@@ -324,15 +325,14 @@ export function RotationMap({
                 onMouseLeave={() => setHover(null)}
               >
                 <circle
+                  className="sector-dot"
                   cx={X(p.rs_1m!)}
                   cy={Y(p.rs_1w!)}
                   r={r}
-                  fill="var(--text-primary)"
-                  fillOpacity={active ? 0.9 : hover?.key === p.key ? 0.32 : 0.14}
-                  stroke="var(--text-primary)"
-                  strokeOpacity={active ? 1 : 0.45}
-                  strokeWidth={1}
-                  style={{ transition: "fill-opacity 150ms" }}
+                  fillOpacity={active ? 0.85 : hover?.key === p.key ? 0.55 : 0.32}
+                  strokeOpacity={active ? 1 : 0.7}
+                  strokeWidth={active ? 1.5 : 1}
+                  style={{ transition: "fill-opacity 150ms", ["--sh" as string]: sectorLook(p.key).hue }}
                 />
                 {lab && (
                   <text
@@ -355,7 +355,7 @@ export function RotationMap({
       )}
       {hover && width > 0 && (
         <div className={s.tip} style={{ left: Math.min(X(hover.rs_1m!) + 16, width - 200), top: Math.max(4, Y(hover.rs_1w!) - 70) }}>
-          <div className="font-semibold">{hover.label}</div>
+          <div className="flex items-center gap-2 font-semibold"><SectorIcon sector={hover.key} size={18} />{hover.label}</div>
           <div className="mt-1 grid grid-cols-2 gap-x-3">
             <span className={s.muted}>1M vs market</span><span className="text-right"><Delta v={hover.rs_1m} /></span>
             <span className={s.muted}>1W vs market</span><span className="text-right"><Delta v={hover.rs_1w} /></span>
@@ -471,7 +471,7 @@ function Quadrants({ sectors, onSelect }: { sectors: MarketSector[]; onSelect: (
                     className={cx(s.row, "text-left")}
                     style={{ gridTemplateColumns: "minmax(0,1fr) auto", padding: "5px 8px", margin: "0 -8px", border: "none", background: "none", font: "inherit", color: "inherit" }}
                   >
-                    <span className="truncate text-[12.5px] font-medium">{x.label}</span>
+                    <span className="flex min-w-0 items-center gap-2"><SectorIcon sector={x.key} size={18} /><span className="truncate text-[12.5px] font-medium">{x.label}</span></span>
                     <Delta v={x.ret_1m} digits={1} className="text-[12px]" />
                   </button>
                 ))}

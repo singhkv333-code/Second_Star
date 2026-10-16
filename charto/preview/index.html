@@ -9442,6 +9442,17 @@ i.mg { height: 3px !important; border-radius: 2px !important; background: var(--
   display: inline-flex; align-items: center; justify-content: center;
   font-size: 10.5px; font-weight: var(--weight-semi); color: var(--foreground);
 }
+/* a company we have no mark for wears its initials on a soft tint of its own
+   hue (universe.js monogramHTML), the same hue wherever it is listed */
+.co-blank.mono {
+  background: hsl(var(--mono-h, 220) 55% 93%); color: hsl(var(--mono-h, 220) 38% 34%);
+  letter-spacing: -.02em;
+}
+:root[data-theme="dark"] .co-blank.mono {
+  background: hsl(var(--mono-h, 220) 28% 22%); color: hsl(var(--mono-h, 220) 55% 80%);
+}
+.wl-name .co-blank.mono { font-size: 7.5px; }
+.scr-name .co-blank.mono { font-size: 9px; }
 .scr-name .tx { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
 .scr-name b {
   font-size: var(--text-base); font-weight: var(--weight-semi);
@@ -11907,7 +11918,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./vendor/liquid-glass.js"></script>
   <script src="./js/store.js?v=24"></script>
   <script src="./js/theme.js?v=16"></script>
-  <script src="./js/universe.js?v=21"></script>
+  <script src="./js/universe.js?v=22"></script>
   <script src="./js/icons.js?v=49"></script>
   <!-- after icons.js (every row is drawn with one) and before main.js, which
        builds the chart's three right-click menus out of it -->
@@ -11984,8 +11995,8 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/alerts.js?v=24"></script>
   <!-- after chat.js: the widget panels share the phone's one panel slot with
        the conversation, and close it by clicking its real toggle -->
-  <script src="./js/panels.js?v=26"></script>
-  <script src="./js/screener.js?v=10"></script>
+  <script src="./js/panels.js?v=27"></script>
+  <script src="./js/screener.js?v=11"></script>
   <script src="./js/depth.js?v=8"></script>
   <script src="./js/notes.js?v=9"></script>
   <script src="./js/w-sheet.js?v=8"></script>

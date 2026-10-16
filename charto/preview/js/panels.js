@@ -310,8 +310,7 @@ const Panels = (() => {
     // what TradingView does for the same reason: a row of empty grey squares
     // reads as images that failed to load.
     const cfg = wcfg();
-    const mark = cfg.logos === false ? "" : Universe.logoHTML(sym)
-      || `<span class="co-blank">${esc(sym[0])}</span>`;
+    const mark = cfg.logos === false ? "" : Universe.markHTML(sym);
     const name = Universe.label(sym);
     const cols = shownCols;
     return `<div class="wl-row${sym === current ? " on" : ""}" ` +

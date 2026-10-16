@@ -252,6 +252,40 @@ def _cache_index_quote(cache_key: str, quote: IndexQuote) -> None:
         logger.debug("[markets] cache write failed for %s: %s", cache_key, e)
 
 
+def _read_index_cache(cache_key: str) -> IndexQuote | None:
+    try:
+        raw = redis_client.get(cache_key)
+        if raw:
+            data = json.loads(raw if isinstance(raw, str) else raw.decode())
+            return IndexQuote(
+                name=data["name"],
+                symbol=data["symbol"],
+                value=data["value"],
+                change=data["change"],
+                change_pct=data["change_pct"],
+                last_updated=datetime.fromisoformat(data["last_updated"]),
+            )
+    except Exception as e:  # noqa: BLE001
+        logger.debug("[markets] cache read miss for %s: %s", cache_key, e)
+    return None
+
+
+def _index_quote(public_symbol: str, value: float, prev_close: float | None) -> IndexQuote:
+    """Build and cache one index quote from a last price and previous close."""
+    prev = float(prev_close or value)
+    change = value - prev
+    quote = IndexQuote(
+        name=_INDICES[public_symbol]["display"],
+        symbol=public_symbol,
+        value=round(value, 2),
+        change=round(change, 2),
+        change_pct=round((change / prev * 100) if prev > 0 else 0.0, 2),
+        last_updated=datetime.now(timezone.utc),
+    )
+    _cache_index_quote(f"{_INDEX_LEVEL_PREFIX}{public_symbol}", quote)
+    return quote
+
+
 def _fetch_index(public_symbol: str) -> IndexQuote | None:
     """Kite-primary index quote with a 10s Redis cache, yfinance fallback.
 
@@ -342,11 +376,35 @@ def _fetch_index(public_symbol: str) -> IndexQuote | None:
 def get_indices(
     _user_id: int = Depends(require_user),
 ) -> IndicesResponse:
-    items: list[IndexQuote] = []
+    # Asked together, not one by one: four serial Kite quote calls against a
+    # one-request-per-second limit made a cold strip take four seconds.
+    got: dict[str, IndexQuote] = {}
     for public_symbol in _INDICES:
-        q = _fetch_index(public_symbol)
+        q = _read_index_cache(f"{_INDEX_LEVEL_PREFIX}{public_symbol}")
         if q is not None:
-            items.append(q)
+            got[public_symbol] = q
+    missing = [k for k in _INDICES if k not in got]
+    if missing:
+        try:
+            from backend.kite.live_quote import get_kite_quotes
+            keys = {f"{_INDICES[k]['exchange']}:{k}": k for k in missing}
+            for kite_key, kq in (get_kite_quotes(list(keys)) or {}).items():
+                k = keys.get(kite_key)
+                if k and kq and kq.get("last_price"):
+                    got[k] = _index_quote(k, float(kq["last_price"]), kq.get("prev_close"))
+        except Exception as e:  # noqa: BLE001 — the next tier answers
+            logger.info("[markets] kite index batch failed: %s", str(e)[:160])
+    missing = [k for k in _INDICES if k not in got]
+    if missing:
+        from backend.market.charto_bars import quotes as charto_quotes
+        for k, cq in charto_quotes(missing).items():
+            if k in _INDICES:
+                got[k] = _index_quote(k, float(cq["last"]), cq.get("prev_close"))
+    for k in [k for k in _INDICES if k not in got]:
+        q = _fetch_index(k)
+        if q is not None:
+            got[k] = q
+    items = [got[k] for k in _INDICES if k in got]
     if not items:
         # Both Kite and yfinance unreachable → surface to FE via canonical
         # envelope rather than returning an empty list (which the dashboard
@@ -814,6 +872,22 @@ def get_sparkline(
         sym = next(k for k, v in _INDICES.items() if v is _idx)
         exchange = _idx["exchange"]
     period, interval = _RANGE_MAP[range]
+
+    # Our own store first. The chart server holds every NSE/BSE minute and the
+    # indices, fed by Kite, on this machine: milliseconds, where the tiers
+    # below cost a rate-limited Kite call or a 3 s+ yfinance round trip (which
+    # Yahoo has been refusing with 401 since October 2026).
+    from backend.market.charto_bars import RANGES, series as charto_series
+
+    own = charto_series(sym if exchange == "NSE" or _idx is not None else f"BSE:{sym}", range)
+    if len(own) >= 2:
+        return SparklineResponse(
+            symbol=sym, range=range, interval=RANGES[range][0],
+            points=_downsample_points([
+                SparklinePoint(t=datetime.fromtimestamp(t, tz=timezone.utc), v=round(c, 2))
+                for t, c in own
+            ]),
+        )
 
     # Prefer Kite historical when an authenticated session exists and
     # the ticker has mapped this symbol's instrument_token. Falls

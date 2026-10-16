@@ -338,12 +338,12 @@
           (showMetric ? th(k, F[k] || k) : "") + extra.map((c) => th(c, SHORT[c] || F[c] || c)).join("") + `</div>` +
           list.map((r) => {
             const f = state.feats[r.symbol] || {};
-            const mark = cfg().logos === false || tier === 2 ? "" : Universe.logoHTML(r.symbol) || `<span class="co-blank">${esc(r.symbol[0])}</span>`;
+            const mark = cfg().logos === false || tier === 2 ? "" : Universe.markHTML(r.symbol);
             const m = r[k];
             return `<div class="scr-row${r.symbol === cur ? " on" : ""}" data-sym="${esc(r.symbol)}" role="button" tabindex="0" ` +
               `aria-label="Open ${esc(r.symbol)} on the chart">` +
               `<span class="scr-name">${mark}<span class="tx"><b>${esc(r.symbol)}</b>` +
-              (cfg().names !== false ? `<span>${esc(r.name || "")}</span>` : "") + `</span></span>` +
+              (cfg().names !== false ? `<span>${esc(Universe.nameOf(r.symbol) || (r.name !== r.symbol ? r.name || "" : ""))}</span>` : "") + `</span></span>` +
               `<span class="r num">${fmt(r.close)}</span>` +
               `<span class="r num ${dir(f.ret_1d)}">${fmtPct(f.ret_1d)}</span>` +
               (showMetric ? `<span class="r num">${isPct(k) ? fmt(m) : fmt(m, Math.abs(m) >= 100 ? 0 : 1)}</span>` : "") +

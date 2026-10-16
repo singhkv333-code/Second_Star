@@ -2907,3 +2907,22 @@ body:has(.app-shell-root) {
 @media (max-width: 600px) {
   [data-sonner-toaster][data-y-position="top"] { top: calc(env(safe-area-inset-top, 0px) + 68px) !important; }
 }
+
+/* Sector looks (components/markets/sectorStyle.tsx): a soft tint of each
+   sector's own hue, so sectors are told apart without reading as up/down. */
+.sector-chip {
+  background: hsl(var(--sh) 70% 55% / 0.14);
+  color: hsl(var(--sh) 48% 38%);
+}
+.dark .sector-chip {
+  background: hsl(var(--sh) 60% 60% / 0.18);
+  color: hsl(var(--sh) 65% 76%);
+}
+.sector-dot {
+  fill: hsl(var(--sh) 68% 62%);
+  stroke: hsl(var(--sh) 45% 42%);
+}
+.dark .sector-dot {
+  fill: hsl(var(--sh) 55% 58%);
+  stroke: hsl(var(--sh) 60% 72%);
+}

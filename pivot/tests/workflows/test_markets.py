@@ -274,6 +274,8 @@ def test_sparkline_happy_path(
         ]),
     )
     with patch(
+        "backend.market.charto_bars.series", return_value=[]
+    ), patch(
         "backend.routers.markets.redis_client.get", return_value=None
     ), patch(
         "backend.routers.markets.redis_client.setex", return_value=None
@@ -339,3 +341,20 @@ def test_sparkline_empty_history_returns_404(
             "/api/markets/sparkline/GHOST", headers=auth_headers,
         )
     assert resp.status_code == 404
+
+
+def test_sparkline_prefers_the_chart_store(
+    client: TestClient, auth_headers: dict[str, str],
+) -> None:
+    """Our own bars answer before Kite or yfinance is touched."""
+    own = [(1_790_000_000 + i * 86_400, 100.0 + i) for i in range(10)]
+    with patch("backend.market.charto_bars.series", return_value=own), patch(
+        "backend.routers.markets.yf.Ticker",
+        side_effect=AssertionError("yfinance must not be called"),
+    ):
+        resp = client.get("/api/markets/sparkline/RELIANCE?range=1M", headers=auth_headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert len(body["points"]) == 10
+    assert body["points"][-1]["v"] == 109.0
+    assert body["interval"] == "1d"

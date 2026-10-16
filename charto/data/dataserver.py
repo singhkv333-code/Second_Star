@@ -5902,6 +5902,11 @@ def _orb_rows(by_sym: dict) -> dict:
 
 _screen_build_lock = threading.Lock()
 
+# A screen ranks what is trading: no print within this many calendar days of
+# the universe's own session date leaves the ranking (see tool_screen_universe).
+_SCREEN_ACTIVE_DAYS = 7
+_RIGHTS_ENTITLEMENT = re.compile(r"-RE(?:-[A-Z0-9]+)?$")
+
 
 def _screen_features() -> dict:
     """{symbol: {feature: value}} for every symbol in bars_1d.
@@ -6087,6 +6092,20 @@ def tool_screen_universe(filters: list | None = None, industry: str = "",
         else:
             survivors.append({"symbol": sym, "name": name, "industry": ind,
                               "_f": f})
+
+    # An instrument that has not traded for a week is not a gainer, a loser or
+    # a candidate: PARTY topped "Top gainers" at +50% on a 166-share print from
+    # a fortnight earlier, above everything that moved today. Rights
+    # entitlements (-RE) are short-lived claims, not companies. Both go before
+    # ranking, and the count is said rather than hidden.
+    _mode = _screen_cache.get("mode_day")
+    _last = _screen_cache.get("last_day") or {}
+    inactive = 0
+    if _mode is not None:
+        kept = [r for r in survivors
+                if not _RIGHTS_ENTITLEMENT.search(r["symbol"])
+                and _last.get(r["symbol"], _mode) >= _mode - _SCREEN_ACTIVE_DAYS]
+        inactive, survivors = len(survivors) - len(kept), kept
 
     # The default sort is picked AFTER the survivors are known, because
     # turnover no longer exists for every instrument: an all-crypto screen has
@@ -6293,6 +6312,11 @@ def tool_screen_universe(filters: list | None = None, industry: str = "",
         note.insert(1, f"The pattern scan stopped at {_SCREEN_SCAN_CAP} names, "
                        f"so {unscanned} matching symbols were never checked "
                        f"for a {kind.replace('_', ' ')}: say the scan was capped.")
+    if inactive:
+        res["inactive_excluded"] = inactive
+        note.insert(1, f"{inactive} instrument(s) with no trade in the last "
+                       f"{_SCREEN_ACTIVE_DAYS} days (suspended, delisted, or "
+                       f"rights entitlements) were left out of the ranking.")
     if stale_shown:
         note.insert(1, f"{stale_shown} shown row(s) carry their own as_of "
                        f"because their last stored session differs from the "

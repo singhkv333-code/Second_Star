@@ -524,8 +524,35 @@ def _compute_market_metrics(symbols: list[str]) -> tuple[dict[str, dict], str]:
     except Exception as exc:  # noqa: BLE001 — fall through to yfinance
         logger.debug("[screener] kite metrics failed: %s", exc)
 
-    # 2. FALLBACK — yfinance bulk download (only when there is no live Kite
-    #    session). One batch call gives price + day-change + 1-year return.
+    # 2. OUR OWN STORE — the chart server's batch quote (local, fed by Kite).
+    #    Covers the hours before the morning Kite login, and any day Yahoo
+    #    refuses this server, which it has done with 401s since October 2026.
+    try:
+        from backend.market.charto_bars import quotes as charto_quotes
+
+        for s, q in charto_quotes(syms).items():
+            price = float(q["last"])
+            prev = float(q.get("prev_close") or price)
+            base = _baseline_cached(s)
+            c1 = float(base["close_1y"]) if base and base.get("close_1y") else 0.0
+            out[s] = {
+                "price": round(price, 2),
+                "change_pct": round((price - prev) / prev * 100, 2) if prev > 0 else None,
+                "change_abs": round(price - prev, 2) if prev else None,
+                "day_open": _f(q.get("open")),
+                "day_high": _f(q.get("high")),
+                "day_low": _f(q.get("low")),
+                "prev_close": _f(prev),
+                "volume": _i(q.get("volume")),
+                "one_year_pct": round((price - c1) / c1 * 100, 2) if c1 > 0 else None,
+            }
+        if out:
+            return out, "charto"
+    except Exception as exc:  # noqa: BLE001 — fall through to yfinance
+        logger.debug("[screener] charto metrics failed: %s", exc)
+
+    # 3. FALLBACK — yfinance bulk download (only when neither source above
+    #    answered). One batch call gives price + day-change + 1-year return.
     try:
         import warnings
 
@@ -1453,6 +1480,24 @@ class ScreenerSparklinesResponse(BaseModel):
     source: str
 
 
+# A source that answered nothing is not asked again for ten minutes: every
+# batch otherwise paid Yahoo's refusal before the row could settle.
+_yf_spark_down_until = 0.0
+
+
+def _yf_spark_ok() -> bool:
+    import time
+
+    return time.monotonic() >= _yf_spark_down_until
+
+
+def _yf_spark_down() -> None:
+    import time
+
+    global _yf_spark_down_until
+    _yf_spark_down_until = time.monotonic() + 600
+
+
 def _spark_from_yf(syms: list[str]) -> dict[str, list[float]]:
     """One bulk download for the whole page. yfinance is the source here even
     when Kite is live: Kite's historical endpoint is per-symbol (~13 req/s
@@ -1538,8 +1583,21 @@ def screener_sparklines(
 
     source = "cache" if series and not missing else "none"
     if missing:
-        fresh = _spark_from_yf(missing)
-        source = "yfinance" if fresh else source
+        # Our own minute store first: local, and fed by Kite. Yahoo started
+        # answering this server 401 in October 2026, which left the column
+        # empty after a long wait.
+        from backend.market.charto_bars import session_closes
+
+        fresh = session_closes(missing)
+        source = "charto" if fresh else source
+        rest = [m for m in missing if m not in fresh]
+        if rest and _yf_spark_ok():
+            more = _spark_from_yf(rest)
+            if not more:
+                _yf_spark_down()
+            fresh.update(more)
+            if more:
+                source = "yfinance" if source == "none" else source
         for sym, pts in fresh.items():
             series[sym] = pts
             try:

@@ -65,9 +65,42 @@ const Universe = (() => {
    *  a missing logo costs no box. `onerror` removes a dead file for the same
    *  reason: an alt-text ghost beside a ticker reads as a broken chart. */
   function logoHTML(sym, cls = "co-logo") {
-    const src = logo(sym);
+    const src = logo(sym) || logo(baseSymbol(sym));
     return src ? `<img class="${cls}" src="${src}" alt="" loading="lazy"
       onerror="this.remove()"/>` : "";
+  }
+
+  /** The company behind a listing: BSE:INFY and INFY are one issuer, and a
+   *  rights entitlement (CENTEXT-RE-BE) belongs to CENTEXT. Used only to find
+   *  a mark the listing itself lacks. */
+  function baseSymbol(sym) {
+    return String(sym || "").toUpperCase().replace(/^[A-Z]+:/, "").replace(/-RE(?:-[A-Z0-9]+)?$/, "");
+  }
+
+  /** Two letters from the company's name (or ticker), and a hue that is
+   *  the same for that company everywhere: a column of tinted initials
+   *  reads as marks, a column of grey squares reads as images that failed. */
+  function monogramHTML(sym, cls = "co-blank") {
+    const s = baseSymbol(sym);
+    const words = String(label(sym) || s).replace(/[^A-Za-z0-9 ]+/g, " ").trim().split(/\s+/)
+      .filter((w) => !/^(LTD|LIMITED|THE|AND|OF|INDIA)$/i.test(w));
+    const two = (words.length > 1 ? words[0][0] + words[1][0] : (words[0] || s).slice(0, 2)).toUpperCase();
+    let h = 0;
+    for (const ch of s) h = (h * 31 + ch.charCodeAt(0)) % 360;
+    return `<span class="${cls} mono" style="--mono-h:${h}" aria-hidden="true">${two.replace(/[<>&"]/g, "")}</span>`;
+  }
+
+  /** The mark every instrument list draws: the logo, else the monogram. */
+  const markHTML = (sym, cls = "co-logo") => logoHTML(sym, cls) || monogramHTML(sym);
+
+  /** A display name in normal case: the store holds many in capitals
+   *  ("PARTY CRUISERS"), which shout beside a ticker that is already bold. */
+  function nameOf(sym) {
+    const n = label(sym);
+    if (!n || n.toUpperCase() === String(sym || "").toUpperCase()) return "";
+    if (n !== n.toUpperCase()) return n;
+    return n.toLowerCase().replace(/\b([a-z])/g, (m) => m.toUpperCase())
+      .replace(/\s+(Limi|Limit|Limite|Ltd\.?)$/, "");   // the store cuts names at 30 chars
   }
 
   /* ── the instrument row, and the one place it is built ──────────────────
@@ -406,6 +439,6 @@ const Universe = (() => {
     addEventListener("resize", close);
   }
 
-  return { load, peek, logo, label, logoHTML, open, close,
+  return { load, peek, logo, label, logoHTML, markHTML, monogramHTML, baseSymbol, nameOf, open, close,
            rowHTML, companyLinkHTML, quoteWatch, venue, category, tabsHTML, decimals, shown };
 })();

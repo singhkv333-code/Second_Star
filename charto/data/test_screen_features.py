@@ -54,6 +54,14 @@ def _seed() -> None:
     con.execute("INSERT INTO bars_1d VALUES ('NEWCO',?,50,51,49,50,1000)", (up[-1][0],))
     con.executemany("INSERT INTO bars VALUES ('NEWCO',?,?,?,?,?,?)",
                     [(last + m * 60, 50, 51, 49, 50, 10) for m in range(30)])
+    # A fortnight-stale listing whose last print was +50%, and a rights
+    # entitlement: neither may rank among today's gainers.
+    stale = _daily(10, 0.0, 240)
+    stale[-1] = (stale[-1][0], 10, 15, 10, 15, 166)
+    con.executemany("INSERT INTO bars_1d VALUES ('STALECO',?,?,?,?,?,?)", stale)
+    rights = _daily(2, 0.0, 260)
+    rights[-1] = (rights[-1][0], 2, 4, 2, 4, 5000)
+    con.executemany("INSERT INTO bars_1d VALUES ('UPCO-RE-BE',?,?,?,?,?,?)", rights)
     # A long history: only the last 560 sessions are kept.
     con.executemany("INSERT INTO bars_1d VALUES ('LONGCO',?,?,?,?,?,?)",
                     _daily(80, 0.1, 700))
@@ -97,7 +105,14 @@ check("an opening-range-breakout screen finds the breakout",
       [r["symbol"] for r in res.get("rows", [])] == ["UPCO"], res.get("rows"))
 cov = res.get("minute_bar_coverage") or {}
 check("the screen reports its minute-bar coverage",
-      cov.get("scored") == 1 and cov.get("pool") == 3, cov)
+      cov.get("scored") == 1 and cov.get("pool") == 5, cov)
+
+gainers = ds.tool_screen_universe(sort="ret_1d", limit=10)
+ranked = [r["symbol"] for r in gainers.get("rows", [])]
+check("a stale listing never ranks as a gainer", "STALECO" not in ranked, ranked)
+check("a rights entitlement never ranks as a gainer", "UPCO-RE-BE" not in ranked, ranked)
+check("the screen says how many inactive listings it left out",
+      gainers.get("inactive_excluded") == 2, gainers.get("inactive_excluded"))
 
 bad = ds.tool_screen_universe(pattern="opening range breakout")
 names = bad.get("available", {}).get("chart", [])
