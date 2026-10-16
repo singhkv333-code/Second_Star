@@ -133,6 +133,7 @@ understates it by a wide margin. It is not an auth database.
 | `users`, `sessions`, `workspace_state`, `layouts`, `conversations` | `dataserver.py:13511-13560` |
 | `alerts`, `alert_log` | `charto/data/alerts.py` (`_db()` → `ds._users`) |
 | `alert_email_outbox` (additive email feature) | `charto/data/alert_email.py`, initialized by `alerts.py`; same user DB and lock, included in whole-plane backups |
+| `subscriptions`, `billing_events`, `billing_checkouts`, `usage_ledger`, `entitlement_grants` | `entitlements.py` + `billing.py`; same user DB/lock. Checkout intent precedes provider calls; unfinished webhook receipts remain retryable. Included in whole-plane backups |
 | `paper_accounts`, `paper_orders`, `paper_fills`, `paper_positions`, `paper_ledger`, `paper_nav` | `charto/data/paper.py:212` |
 | `strategies`, `strategy_log` | `charto/data/strategies.py:172` |
 | `journal_trades`, `journal_revisions`, `journal_playbooks` | `charto/data/journal.py:24` |

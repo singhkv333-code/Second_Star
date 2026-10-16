@@ -58,6 +58,9 @@ import hmac
 import json
 import logging
 import time
+import secrets
+import sqlite3
+import threading
 import urllib.error
 import urllib.request
 from os import environ
@@ -68,6 +71,9 @@ log = logging.getLogger("charto.billing")
 
 API = "https://api.razorpay.com/v1"
 PROVIDER = "razorpay"
+# Only billing operations serialize here. Market-data reads/ticks and the
+# shared user-store lock are never held while waiting on Razorpay.
+_operations = threading.RLock()
 CYCLES = ("monthly", "annual")
 # How many renewals a subscription is authorised for. Razorpay requires a
 # number; ten years of monthly or ten annual renewals is effectively "until
@@ -88,7 +94,20 @@ def _env(name: str) -> str:
 
 
 def configured() -> bool:
-    return bool(_env("RAZORPAY_KEY_ID") and _env("RAZORPAY_KEY_SECRET"))
+    return bool(_env("RAZORPAY_KEY_ID") and _env("RAZORPAY_KEY_SECRET")
+                and _env("RAZORPAY_WEBHOOK_SECRET") and plan_ids())
+
+
+def test_mode() -> bool:
+    return _env("RAZORPAY_KEY_ID").startswith("rzp_test_")
+
+
+def checkout_available(email: str = "") -> bool:
+    if not configured():
+        return False
+    # Test payments must never grant free paid access to ordinary customers.
+    allowed = {x.strip().lower() for x in _env("CHARTO_BILLING_TEST_EMAILS").split(",") if x.strip()}
+    return not test_mode() or email.strip().lower() in allowed
 
 
 def plan_ids() -> dict[tuple[str, str], str]:
@@ -122,8 +141,9 @@ def _http(method: str, path: str, body: dict | None = None) -> dict:
         with urllib.request.urlopen(req, timeout=15) as r:
             return json.loads(r.read() or b"{}")
     except urllib.error.HTTPError as exc:
-        detail = exc.read().decode(errors="replace")[:300]
-        raise BillingError(f"Razorpay answered {exc.code}: {detail}") from None
+        raise BillingError(f"Razorpay answered HTTP {exc.code}") from None
+    except (OSError, ValueError) as exc:
+        raise BillingError(f"Razorpay connection unavailable ({type(exc).__name__})") from None
 
 
 http = _http
@@ -144,14 +164,14 @@ def _hmac_hex(secret: str, msg: bytes) -> str:
 
 
 def verify_webhook_signature(raw: bytes, signature: str, secret: str) -> bool:
-    if not secret or not signature:
+    if not secret or not signature or len(signature) != 64 or not signature.isascii():
         return False
     return hmac.compare_digest(_hmac_hex(secret, raw), signature.strip())
 
 
 def verify_payment_signature(payment_id: str, sub_id: str, signature: str,
                              key_secret: str) -> bool:
-    if not (payment_id and sub_id and signature and key_secret):
+    if not (payment_id and sub_id and signature and key_secret) or len(signature) != 64 or not signature.isascii():
         return False
     return hmac.compare_digest(
         _hmac_hex(key_secret, f"{payment_id}|{sub_id}".encode()), signature.strip())
@@ -173,14 +193,22 @@ def _apply(uid: int, entity: dict) -> dict:
     # cycle a later `charged` already paid) must not overwrite it.
     with ent._lock:
         cur = ent._con.execute(
-            "SELECT provider_sub_id, period_end FROM subscriptions WHERE "
+            "SELECT provider_sub_id, period_end, status, grace_until FROM subscriptions WHERE "
             "user_id=?", (uid,)).fetchone()
+    if cur and cur[0] and cur[0] != str(entity.get("id")):
+        return {"ignored": "superseded_subscription"}
+    # Grace is for an existing paid renewal, not a failed first purchase.
+    if status == "past_due" and (not cur or cur[2] not in ("active", "past_due", "cancelled")):
+        status = "created"
+    if status == "active" and (not ps or not pe or int(pe) <= int(ps)):
+        raise BillingError("Provider has not confirmed a paid billing period")
     if cur and cur[0] == str(entity.get("id")) and cur[1] and pe \
             and int(pe) < int(cur[1]):
         return {"ignored": "stale", "period_end": cur[1]}
     grace = None
     if status == "past_due":
-        grace = int(time.time()) + ent.GRACE_DAYS * 86400
+        grace = (cur[3] if cur and cur[2] == "past_due" and cur[1] == pe and cur[3]
+                 else min(int(pe or time.time()), int(time.time())) + ent.GRACE_DAYS * 86400)
     elif status == "active" and pe:
         grace = int(pe) + ent.GRACE_DAYS * 86400      # a late renewal webhook
     ent.set_subscription(
@@ -200,8 +228,16 @@ def _apply(uid: int, entity: dict) -> dict:
 # ── routes ─────────────────────────────────────────────────────────────────
 
 def api_checkout(uid: int, email: str, body: dict) -> tuple[int, dict]:
+    with _operations:
+        return _checkout(uid, email, body)
+
+
+def _checkout(uid: int, email: str, body: dict) -> tuple[int, dict]:
     if not configured():
         return _NOT_CONFIGURED
+    if not checkout_available(email):
+        return 403, {"error": "Test checkout is restricted to approved test accounts.",
+                     "code": "test_checkout_restricted"}
     plan = str(body.get("plan") or "")
     cycle = str(body.get("cycle") or "monthly")
     if cycle not in CYCLES:
@@ -210,27 +246,80 @@ def api_checkout(uid: int, email: str, body: dict) -> tuple[int, dict]:
     if not pid:
         return 400, {"error": f"no {cycle} price is configured for plan '{plan}'"}
     cur = ent.summary(uid)["subscription"]
-    if cur and cur["provider"] == PROVIDER and cur["status"] in ("active", "past_due") \
+    if cur and cur["provider"] == PROVIDER \
             and ent.plan_of(uid) != "free":
         return 409, {"error": "You already have a subscription. Change plan "
                               "instead of starting a second one.",
                      "code": "already_subscribed"}
+    with ent._lock:
+        attempt = ent._con.execute("SELECT checkout_id,plan,cycle,state,provider_sub_id "
+                                   "FROM billing_checkouts WHERE user_id=?", (uid,)).fetchone()
+    if attempt:
+        if attempt[3] != "ready" or not attempt[4]:
+            return 409, {"error": "Your previous checkout is being reconciled. Do not pay again.",
+                         "code": "checkout_pending"}
+        # Resume the same mandate after dismissal, double click or reload.
+        # A plan switch must not quietly leave another payable mandate behind.
+        try:
+            existing = http("GET", f"/subscriptions/{attempt[4]}")
+        except BillingError:
+            return 503, {"error": "Could not check your existing checkout. Please retry shortly.",
+                         "code": "checkout_pending"}
+        if existing.get("status") in ("cancelled", "expired", "completed"):
+            with ent._lock:
+                ent._con.execute("DELETE FROM billing_checkouts WHERE user_id=?", (uid,))
+                ent._con.commit()
+        elif existing.get("status") in ("active", "pending"):
+            _apply(uid, existing)
+            return 409, {"error": "This subscription is already being confirmed. Check your billing status before paying again.",
+                         "code": "checkout_pending"}
+        elif (attempt[1], attempt[2]) != (plan, cycle):
+            return 409, {"error": "Finish or cancel your existing checkout before choosing another plan.",
+                         "code": "checkout_pending"}
+        else:
+            return 200, {"subscription_id": attempt[4], "key_id": _env("RAZORPAY_KEY_ID"),
+                         "plan": plan, "cycle": cycle, "test_mode": test_mode(),
+                         "prefill": {"email": email}, "resumed": True}
+    checkout_id = secrets.token_hex(24)
+    with ent._lock:
+        ent._con.execute("INSERT INTO billing_checkouts "
+                         "(user_id,checkout_id,plan,cycle,state,created,updated) "
+                         "VALUES (?,?,?,?,'creating',?,?)",
+                         (uid, checkout_id, plan, cycle, int(time.time()), int(time.time())))
+        ent._con.commit()
     try:
         sub = http("POST", "/subscriptions", {
             "plan_id": pid, "total_count": TOTAL_COUNT[cycle],
-            "customer_notify": 1, "notes": {"user_id": str(uid)}})
+            "customer_notify": 1,
+            "notes": {"user_id": str(uid), "checkout_id": checkout_id}})
+        if not isinstance(sub.get("id"), str) or not sub["id"].startswith("sub_"):
+            raise BillingError("Missing provider subscription ID")
     except BillingError as exc:
+        with ent._lock:
+            ent._con.execute("UPDATE billing_checkouts SET state='uncertain',updated=? "
+                             "WHERE user_id=?", (int(time.time()), uid))
+            ent._con.commit()
         log.warning("checkout failed for %s: %s", uid, exc)
-        return 502, {"error": "The payment provider did not answer. Nothing "
-                              "was charged; try again.", "code": "provider_error"}
+        return 502, {"error": "Checkout could not be confirmed. Do not start another payment; "
+                              "contact Pivot to reconcile it.", "code": "checkout_pending"}
     ent.set_subscription(uid, plan=plan, status="created", cycle=cycle,
-                         provider=PROVIDER, provider_sub_id=str(sub["id"]))
+                         provider=PROVIDER, provider_sub_id=str(sub["id"]),
+                         cancel_at_period_end=False)
+    with ent._lock:
+        ent._con.execute("UPDATE billing_checkouts SET state='ready',provider_sub_id=?,updated=? "
+                         "WHERE user_id=?", (sub["id"], int(time.time()), uid))
+        ent._con.commit()
     return 200, {"subscription_id": sub["id"], "key_id": _env("RAZORPAY_KEY_ID"),
                  "short_url": sub.get("short_url"), "plan": plan,
-                 "cycle": cycle, "prefill": {"email": email}}
+                 "cycle": cycle, "test_mode": test_mode(), "prefill": {"email": email}}
 
 
 def api_verify(uid: int, body: dict) -> tuple[int, dict]:
+    with _operations:
+        return _verify(uid, body)
+
+
+def _verify(uid: int, body: dict) -> tuple[int, dict]:
     if not configured():
         return _NOT_CONFIGURED
     pay = str(body.get("razorpay_payment_id") or "")
@@ -243,13 +332,49 @@ def api_verify(uid: int, body: dict) -> tuple[int, dict]:
         return 403, {"error": "That subscription belongs to another account."}
     try:
         entity = http("GET", f"/subscriptions/{sid}")
+        payment = http("GET", f"/payments/{pay}")
+        if payment.get("status") != "captured":
+            return 202, {"pending": True, "note": "Payment is not captured yet. Your plan is not active."}
+        invoice_id = payment.get("invoice_id")
+        if not isinstance(invoice_id, str) or not invoice_id.startswith("inv_"):
+            raise BillingError("Provider payment has no subscription invoice")
+        invoice = http("GET", f"/invoices/{invoice_id}")
+        pc = _plan_for_id(str(entity.get("plan_id") or ""))
+        if not pc or invoice.get("subscription_id") != sid or invoice.get("payment_id") != pay:
+            return 400, {"error": "Payment does not match this subscription."}
+        expected = ent.CATALOG["plans"][pc[0]]["prices"][pc[1]]["amount"]
+        if payment.get("currency") != "INR" or payment.get("amount") != expected:
+            return 400, {"error": "Payment amount or currency does not match this plan."}
         out = _apply(uid, entity)
     except BillingError as exc:
         # The signature proved a payment; the webhook will still land it.
         log.warning("verify fetch failed for %s: %s", sid, exc)
         return 202, {"pending": True, "note": "Payment received. Your plan "
                      "will switch as soon as the provider confirms it."}
-    return 200, {"ok": True, **out, "billing": ent.summary(uid)}
+    summary = ent.summary(uid)
+    if out.get("status") != "active" or summary["plan"] == "free":
+        return 202, {"pending": True, "note": "Waiting for the subscription to become active.",
+                     "billing": summary}
+    return 200, {"ok": True, **out, "billing": summary}
+
+
+def api_reconcile(uid: int) -> tuple[int, dict]:
+    """Recover a closed browser or missing callback from the provider's state.
+
+    No client-supplied subscription/price is accepted. Razorpay's current
+    active subscription is authoritative; an authenticated mandate is not.
+    """
+    if not configured():
+        return _NOT_CONFIGURED
+    with _operations:
+        sid = _provider_sub_id(uid)
+        if not sid:
+            return 200, {"billing": ent.summary(uid)}
+        try:
+            out = _apply(uid, http("GET", f"/subscriptions/{sid}"))
+        except BillingError:
+            return 503, {"error": "The payment provider is unavailable. Your payment has not been retried."}
+        return 200, {**out, "billing": ent.summary(uid)}
 
 
 def api_cancel(uid: int) -> tuple[int, dict]:
@@ -263,7 +388,8 @@ def api_cancel(uid: int) -> tuple[int, dict]:
         row = ent._con.execute("SELECT provider_sub_id FROM subscriptions WHERE "
                                "user_id=?", (uid,)).fetchone()
     try:
-        http("POST", f"/subscriptions/{row[0]}/cancel", {"cancel_at_cycle_end": 1})
+        http("POST", f"/subscriptions/{row[0]}/cancel", {
+            "cancel_at_cycle_end": 0 if cur["status"] == "created" else 1})
     except BillingError as exc:
         log.warning("cancel failed for %s: %s", uid, exc)
         return 502, {"error": "The payment provider did not answer. Your "
@@ -386,6 +512,16 @@ def api_invoices(uid: int) -> tuple[int, dict]:
 
 
 def api_webhook(raw: bytes, headers) -> tuple[int, dict]:
+    with _operations:
+        try:
+            return _webhook(raw, headers)
+        except sqlite3.Error:
+            # Never acknowledge a webhook that could not be durably stored.
+            log.error("Billing webhook storage unavailable")
+            return 503, {"error": "Billing storage unavailable; retry this event."}
+
+
+def _webhook(raw: bytes, headers) -> tuple[int, dict]:
     secret = _env("RAZORPAY_WEBHOOK_SECRET")
     if not secret:
         return _NOT_CONFIGURED
@@ -396,11 +532,26 @@ def api_webhook(raw: bytes, headers) -> tuple[int, dict]:
         ev = json.loads(raw or b"{}")
     except ValueError:
         return 400, {"error": "bad JSON body"}
+    if not isinstance(ev, dict) or not isinstance(ev.get("payload", {}), dict):
+        return 400, {"error": "bad webhook body"}
     etype = str(ev.get("event") or "")
     eid = str(headers.get("x-razorpay-event-id") or "") or \
         hashlib.sha256(raw).hexdigest()
-    if not ent.record_event(PROVIDER, eid, etype, raw.decode(errors="replace")):
-        return 200, {"ok": True, "duplicate": True}
+    try:
+        if not ent.record_event(PROVIDER, eid, etype, raw.decode(errors="replace")):
+            return 200, {"ok": True, "duplicate": True}
+    except ValueError:
+        return 400, {"error": "event payload does not match its original receipt"}
+    if etype in ("payment.captured", "refund.processed",
+                 "payment.dispute.created", "payment.dispute.won",
+                 "payment.dispute.lost"):
+        try:
+            result = on_verified_payment_event(etype, eid, ev) if on_verified_payment_event else "referrals disabled"
+        except Exception as exc:  # event is retained for admin reconciliation
+            log.exception("verified payment event %s needs review: %s", eid, exc)
+            result = f"referral exception: {exc}"
+        ent.event_result(PROVIDER, eid, result)
+        return 200, {"ok": True, "result": result}
     if not etype.startswith("subscription."):
         ent.event_result(PROVIDER, eid, "ignored")
         return 200, {"ok": True, "ignored": etype}
@@ -409,17 +560,36 @@ def api_webhook(raw: bytes, headers) -> tuple[int, dict]:
     sid = str(entity.get("id") or "")
     uid = ent.user_for_provider_sub(PROVIDER, sid)
     if uid is None:
-        note = (entity.get("notes") or {}).get("user_id")
-        uid = int(note) if str(note or "").isdigit() else None
+        # Recover a create whose HTTP response was lost. A user_id in notes
+        # alone is NOT authority to replace somebody's subscription.
+        token = (entity.get("notes") or {}).get("checkout_id")
+        with ent._lock:
+            attempt = ent._con.execute("SELECT user_id,plan,cycle FROM billing_checkouts "
+                                       "WHERE checkout_id=? AND state IN ('creating','uncertain')",
+                                       (token,)).fetchone() if token else None
+        if attempt and _plan_for_id(str(entity.get("plan_id"))) == (attempt[1], attempt[2]):
+            uid = attempt[0]
+            ent.set_subscription(uid, plan=attempt[1], cycle=attempt[2], status="created",
+                                 provider=PROVIDER, provider_sub_id=sid,
+                                 cancel_at_period_end=False)
+            with ent._lock:
+                ent._con.execute("UPDATE billing_checkouts SET state='ready',provider_sub_id=?,updated=? "
+                                 "WHERE user_id=?", (sid, int(time.time()), uid))
+                ent._con.commit()
     if uid is None:
         ent.event_result(PROVIDER, eid, f"no user for {sid}")
         return 200, {"ok": True, "unmatched": sid}
     try:
-        out = _apply(uid, entity)
+        # Event ordering is not guaranteed, including within the same cycle.
+        # Reconcile the current provider snapshot, not an old event snapshot.
+        current = http("GET", f"/subscriptions/{sid}")
+        if current.get("id") != sid:
+            raise BillingError("Provider subscription mismatch")
+        out = _apply(uid, current)
     except BillingError as exc:
-        ent.event_result(PROVIDER, eid, f"error: {exc}")
-        return 200, {"ok": True, "error": str(exc)}
-    if entity.get("status") in ("halted", "cancelled", "completed", "expired",
+        ent.event_result(PROVIDER, eid, "retry: provider unavailable")
+        return 503, {"error": "Provider confirmation unavailable; retry this event."}
+    if current.get("status") in ("halted", "cancelled", "completed", "expired",
                                 "paused") and ent.plan_of(uid) == "free":
         _on_downgrade(uid)
     ent.event_result(PROVIDER, eid, json.dumps(out))
@@ -429,6 +599,7 @@ def api_webhook(raw: bytes, headers) -> tuple[int, dict]:
 # Set by dataserver: pauses whatever the new plan no longer covers. A hook, so
 # this file does not import the alert engine.
 on_downgrade = None
+on_verified_payment_event = None
 
 
 def _on_downgrade(uid: int) -> None:

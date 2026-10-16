@@ -70,6 +70,7 @@ export const billingApi = {
     ),
   verify: (p: { razorpay_payment_id: string; razorpay_subscription_id: string; razorpay_signature: string }) =>
     call<{ ok?: true; pending?: true; note?: string; billing?: BillingMe }>("POST", "/billing/verify", p),
+  reconcile: () => call<{ billing: BillingMe }>("POST", "/billing/reconcile", {}),
   change: (plan: PaidPlanId, cycle: Cycle) =>
     call<{ effective: "now" | "cycle_end"; at?: number; billing: BillingMe }>("POST", "/billing/change", { plan, cycle }),
   undoChange: () => call<{ billing: BillingMe }>("POST", "/billing/change", { undo: true }),

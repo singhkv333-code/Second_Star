@@ -343,11 +343,33 @@ html.pivot-landing-active,html.pivot-landing-active body{height:auto;min-height:
 /* Plain text links keep company information separate from social icons. */
 .pl-footer2-links{width:100%;display:flex;flex-wrap:wrap;justify-content:center;gap:12px 24px;padding:20px 0 8px;font-size:12px;color:rgba(255,255,255,.7)}
 .pl-footer2-links a:hover{color:#fff;text-decoration:underline;text-underline-offset:4px}
-.pl-footer2-links a:focus-visible{outline:2px solid #80c5cf;outline-offset:5px;border-radius:2px}
+.pl-footer2-links a:focus-visible{outline:2px solid rgba(255,255,255,.7);outline-offset:5px;border-radius:2px}
 
-/* The live terminal and public landing page share the Pivot domain family. */
-.pl-nav-links{display:flex;align-items:center;gap:20px}
-.pl-nav-app{display:inline-flex;align-items:center;gap:7px;color:inherit;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap}
-.pl-nav-app:hover{text-decoration:underline;text-underline-offset:4px}
-.pl-nav-app:focus-visible{outline:2px solid currentColor;outline-offset:5px;border-radius:3px}
-@media(max-width:480px){.pl-nav-links{gap:12px}.pl-nav-app{font-size:12px}.pl-nav-app svg{display:none}}
+/* Phone composition: let the content determine the hero height on short
+   screens, and keep both actions large enough to tap without clipping. */
+@media(max-width:600px){
+  .pl-nav-inner{width:calc(100% - 32px)}
+  .pl-nav-cta{min-height:44px;font-size:13px;padding:0 14px}
+  .pl-hero{height:auto;min-height:max(620px,100svh)}
+  .pl-hero-content{height:auto;min-height:max(620px,100svh);padding:clamp(150px,22svh,210px) 0 96px}
+  .pl-hero h1{font-size:clamp(42px,12vw,52px);margin:0 0 28px}
+  .pl-hero-prompt{min-height:96px;padding:12px 12px 10px 14px}
+  .pl-prompt-line{min-height:44px;font-size:14px;line-height:1.45;overflow-wrap:anywhere}
+  .pl-actions{margin-top:24px}
+  .pl-actions a{min-height:48px;font-size:13px}
+  .pl-faq2{padding:80px 16px}
+  .pl-faq2-inner{gap:32px}
+  .pl-faq2-item>button{min-height:56px}
+  .pl-footer2-inner{padding-inline:16px}
+  .pl-footer2-social a{width:44px;height:44px}
+}
+@media(max-width:380px){
+  .pl-actions{flex-direction:column;align-items:stretch;gap:10px}
+  .pl-actions a{width:100%}
+  .pl-cta{padding-inline:16px}
+  .pl-cta h2{font-size:clamp(34px,10vw,44px)}
+}
+
+/* Content must be readable before the entrance script initializes (or when
+   a phone delays it). GSAP applies inline opacity only while it runs. */
+.pivot-landing [data-reveal]{opacity:1}

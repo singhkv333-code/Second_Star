@@ -60,10 +60,7 @@ function useCanvas(draw: (ctx: CanvasRenderingContext2D, t: number, w: number, h
       canvas.height = Math.max(1, Math.round(h * dpr));
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
-    // A canvas hidden by CSS (the planet is `display:none` under 720px)
-    // measures 0×0; drawing into it is pointless and, for size-stepped loops,
-    // never terminates.
-    const paint = (t: number) => { ctx.clearRect(0, 0, w, h); if (w > 0 && h > 0) drawRef.current(ctx, t, w, h); };
+    const paint = (t: number) => { ctx.clearRect(0, 0, w, h); drawRef.current(ctx, t, w, h); };
     const t0 = performance.now();
     const frame = (now: number) => { paint((now - t0) / 1000); if (visible && !still) raf = requestAnimationFrame(frame); };
     fit();
@@ -137,7 +134,6 @@ export function HalftonePlanet({ className }: { className?: string }) {
     });
     orbitDots(false); moon(false);
     const s = R / 19;
-    if (!(s > 0)) return;  // a zero step would spin the grid loop forever
     ctx.fillStyle = `rgb(${BONE})`;
     for (let gy = -R; gy <= R; gy += s) {
       for (let gx = -R; gx <= R; gx += s) {

@@ -44,7 +44,11 @@ export function PublicPricing(): React.ReactElement {
           catalog={catalog}
           me={null}
           cycle={cycle}
-          onAction={() => router.push("/signup")}
+          onAction={(plan) => {
+            if (plan === "pro" || plan === "pro_plus") {
+              window.location.assign(`https://app.pivotnow.in/checkout?${new URLSearchParams({ plan, cycle })}`);
+            } else router.push("/signup");
+          }}
           onSeeAll={() => compareRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
         />
 

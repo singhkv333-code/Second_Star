@@ -42,12 +42,11 @@ describe("usage-limit paywall", () => {
     resetsAt: NOW + 5 * 86400, upgradeTo: "pro", message: "You have used all 15 AI credits in your Free plan for this period.",
   };
 
-  it("shows the server's sentence, the meter and every way forward", () => {
+  it("shows the allowance, meter, checkout and dismissal", () => {
     panel("free_out", t);
-    expect(screen.getByText(/You have used all 15 AI credits/)).toBeInTheDocument();
+    expect(screen.getByText("You have used this month's AI credits")).toBeInTheDocument();
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "15");
-    expect(screen.getByText("Wait for the reset")).toBeInTheDocument();
-    expect(screen.getByText("Upgrade")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Continue to checkout" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Not now" })).toBeInTheDocument();
   });
 
@@ -105,7 +104,7 @@ describe("other paywall kinds", () => {
     React.act(() =>
       showPaywall({ error: "Your Free plan allows 4 charts per tab.", code: "plan_limit", feature: "chart.panes", plan: "free", limit: 4, used: 4, upgrade_to: "pro" }),
     );
-    expect(await screen.findByText("You are at 4 charts per tab")).toBeInTheDocument();
+    expect(await screen.findByText("Your Free plan allows 4 charts per tab.")).toBeInTheDocument();
   });
 });
 

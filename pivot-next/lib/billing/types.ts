@@ -49,6 +49,7 @@ export type PublicCatalog = {
   features: Record<string, CatalogFeature>;
   /** Razorpay keys are configured; false = checkout answers 503. */
   checkout?: boolean;
+  test_mode?: boolean;
 };
 
 export type SubStatus =

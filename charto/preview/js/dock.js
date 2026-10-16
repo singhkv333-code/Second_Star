@@ -555,6 +555,13 @@ const Dock = (() => {
     const target = S.inst[chartToolsTarget] ? chartToolsTarget : CHART;
     const gid = Object.keys(groups).find((k) => groups[k].tabs.includes(target));
     const node = gid && groupEls.get(gid);
+    // Keep closed-chart controls connected for reopening, but out of the header.
+    const chartOpen = !!gid;
+    tools.style.display = chartOpen ? "" : "none";
+    const sep = document.getElementById("chartToolsSep");
+    if (sep) sep.style.display = chartOpen ? "" : "none";
+    const rail = document.getElementById("rail");
+    if (rail) rail.style.display = chartOpen ? "" : "none";
     const slot = node && canvas.contains(node) && !compact && !node.classList.contains("dk-bare")
       && groups[gid].active === target ? node.querySelector(".dk-tools") : null;
     if (slot) { if (tools.parentNode !== slot) slot.appendChild(tools); }

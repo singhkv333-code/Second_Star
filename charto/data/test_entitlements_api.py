@@ -150,9 +150,14 @@ def env(tmp_path, monkeypatch):
     lock = threading.Lock()
     monkeypatch.setattr(ds, "_users", db)
     monkeypatch.setattr(ds, "_users_lock", lock)
+    monkeypatch.setattr(ds, "_verifs", None)  # no mail or boot-DB writes
+    monkeypatch.setattr(ds, "_limiter", ds._guard.Limiter({k: (10000, 60) for k in ds._guard.LIMITS}))
     monkeypatch.setattr(ent, "_con", None)
     monkeypatch.setattr(ent, "_lock", None)
     ent.bind(db, lock)
+    # This harness uses a fake provider and disposable accounts. The real
+    # test-key allowlist is covered separately in test_billing_reliability.
+    monkeypatch.setattr(billing, "checkout_available", lambda email="": billing.configured())
     alerts._init_db()
     monkeypatch.setattr(ds, "_alerts", alerts)
     # alerts: no market data behind the engine
@@ -388,17 +393,24 @@ def razorpay(monkeypatch):
     monkeypatch.setenv("RAZORPAY_PLAN_PRO_MONTHLY", "plan_pro_m")
     monkeypatch.setenv("RAZORPAY_PLAN_PRO_PLUS_MONTHLY", "plan_pp_m")
     calls = []
+    entities = {}
 
     def wire(method, path, body=None):
         calls.append((method, path, body))
         if method == "POST" and path == "/subscriptions":
             return {"id": "sub_1", "short_url": "https://rzp.io/x"}
+        if method == "GET" and path.startswith("/subscriptions/"):
+            return entities.get(path.rsplit("/", 1)[-1], {})
         return {}
+    wire.entities = entities
     monkeypatch.setattr(billing, "http", wire)
     return calls
 
 
 def hook(api, event, entity, eid, secret="hook-secret", sig=None):
+    entities = getattr(billing.http, "entities", None)
+    if entities is not None:
+        entities[entity["id"]] = entity
     raw = json.dumps({"event": event, "payload": {
         "subscription": {"entity": entity}}}).encode()
     return api.call("POST", "/billing/webhook", raw=raw, headers={

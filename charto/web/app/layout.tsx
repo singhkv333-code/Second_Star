@@ -35,8 +35,8 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <script src="/workspace-theme.js?v=5" data-surface="shell" />
-        <link rel="stylesheet" href="/workspace-theme.css?v=5" />
+        <script src="/workspace-theme.js?v=6" data-surface="shell" />
+        <link rel="stylesheet" href="/workspace-theme.css?v=6" />
         {/* Load Inter / Newsreader via explicit <link> tags. globals.css also
             @imports the same families, but a CSS @import to a remote URL is
             unreliable under Next + Tailwind/PostCSS (it can be reordered or

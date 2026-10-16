@@ -16722,6 +16722,31 @@ import analytics as _analytics  # noqa: E402
 _ent.bind(_users, _users_lock)
 _ADMIN_EMAILS = {e.strip().lower() for e in
                  (environ.get("CHARTO_ADMIN_EMAILS") or "").split(",") if e.strip()}
+import referrals as _referral_mod  # noqa: E402
+_referrals = _referral_mod.open_store(_USERS_PATH) if _referral_mod.configured() else None
+
+
+def _referral_token(headers) -> str:
+    from http.cookies import SimpleCookie
+    try:
+        cookie = SimpleCookie()
+        cookie.load(headers.get("Cookie") or "")
+        return cookie["pivot_referral"].value if "pivot_referral" in cookie else ""
+    except Exception:  # malformed cookie cannot interrupt sign-up
+        return ""
+
+
+def _bind_referral(uid: int, token: str) -> None:
+    if _referrals and token:
+        try:
+            _referrals.signup(uid, token,
+                days=int(environ["PIVOT_REFERRAL_ATTRIBUTION_DAYS"]),
+                touch=environ["PIVOT_REFERRAL_TOUCH"],
+                rate_bps=int(environ["PIVOT_REFERRAL_RATE_BPS"]),
+                duration_days=int(environ["PIVOT_REFERRAL_COMMISSION_DAYS"]),
+                terms_version=environ["PIVOT_REFERRAL_TERMS_VERSION"])
+        except Exception as exc:  # auth must never fail after account creation
+            logging.exception("referral binding failed for account %s: %s", uid, exc)
 
 
 def _credit_view(c: dict) -> dict:
@@ -16740,6 +16765,99 @@ def _plan_downgraded(uid: int) -> None:
 
 
 _billing.on_downgrade = _plan_downgraded
+
+
+def _referral_payment_event(kind: str, event_id: str, event: dict) -> str:
+    if not _referrals:
+        return "referrals disabled"
+    payload = event.get("payload") or {}
+    if kind == "payment.captured":
+        payment = (payload.get("payment") or {}).get("entity") or {}
+        if payment.get("status") != "captured" or payment.get("currency") != "INR":
+            return "not an INR capture"
+        invoice_id = str(payment.get("invoice_id") or "")
+        if not invoice_id:
+            return "no subscription invoice; no commission"
+        invoice = _billing.http("GET", f"/invoices/{invoice_id}")
+        if (invoice.get("status") != "paid" or invoice.get("currency") != "INR"
+                or str(invoice.get("payment_id") or "") != str(payment.get("id") or "")
+                or int(invoice.get("amount_paid") or 0) < int(payment.get("amount") or 0)):
+            return "invoice and payment do not match"
+        paid_at = int(invoice.get("paid_at") or 0)
+        if paid_at <= 0:
+            return "invoice lacks paid date; review"
+        customer_id = str(invoice.get("customer_id") or "")
+        if not customer_id:
+            return "invoice lacks customer identity; review"
+        customer_key = hmac.new(environ["PIVOT_REFERRAL_IDENTITY_KEY"].encode(),
+                                customer_id.encode(), hashlib.sha256).hexdigest()
+        sub_id = invoice.get("subscription_id")
+        uid = _ent.user_for_provider_sub("razorpay", str(sub_id or ""))
+        if uid is None:
+            return "unmatched subscription payment"
+        return _referrals.payment(event_id, str(payment.get("id") or ""), uid,
+            int(payment.get("amount") or 0),
+            int(environ["PIVOT_REFERRAL_RATE_BPS"]),
+            int(environ["PIVOT_REFERRAL_COMMISSION_DAYS"]), customer_key=customer_key,
+            paid_at=paid_at)
+    if kind == "refund.processed":
+        refund = (payload.get("refund") or {}).get("entity") or {}
+        if refund.get("status") != "processed":
+            return "refund not processed"
+        return _referrals.reverse(event_id, str(refund.get("id") or ""),
+            str(refund.get("payment_id") or ""), int(refund.get("amount") or 0), json.dumps(event))
+    if kind.startswith("payment.dispute."):
+        dispute = (payload.get("dispute") or {}).get("entity") or {}
+        if dispute.get("currency") != "INR":
+            return "non-INR dispute"
+        return _referrals.dispute(event_id, str(dispute.get("id") or ""),
+            str(dispute.get("payment_id") or ""), int(dispute.get("amount") or 0),
+            kind.rsplit(".", 1)[-1], json.dumps(event))
+    return "unhandled payment event"
+
+
+_billing.on_verified_payment_event = _referral_payment_event
+
+
+def _referral_reconcile() -> dict:
+    """Compare recent ledger entries with fresh provider payment records."""
+    checked, mismatches = 0, []
+    for row in _referrals.ledger_rows():
+        try:
+            payment = _billing.http("GET", f"/payments/{row['payment_id']}")
+            checked += 1
+            refunded = int(payment.get("amount_refunded") or 0)
+            expected_reversal = min(row["earned_paise"],
+                (refunded + row["dispute_lost_paise"]) * row["rate_bps"] // 10000)
+            if (payment.get("status") not in ("captured", "refunded") or
+                    payment.get("currency") != "INR" or
+                    int(payment.get("amount") or 0) != row["gross_paise"] or
+                    expected_reversal != row["reversed_paise"]):
+                mismatches.append({"payment_id": row["payment_id"],
+                                   "ledger_status": row["status"],
+                                   "provider_status": payment.get("status"),
+                                   "provider_refunded_paise": refunded,
+                                   "ledger_reversed_paise": row["reversed_paise"]})
+        except Exception as exc:
+            mismatches.append({"payment_id": row["payment_id"], "error": str(exc)})
+    return {"checked": checked, "mismatches": mismatches,
+            "limited_to_latest": 100}
+
+
+def _referral_unmatched_events() -> list[dict]:
+    with _users_lock:
+        rows = _users.execute("SELECT event_id,type,result FROM billing_events WHERE provider='razorpay' AND (result LIKE 'referral exception:%' OR result LIKE 'unmatched%' OR result LIKE 'no subscription invoice%' OR result LIKE 'invoice and payment%') ORDER BY received DESC LIMIT 100").fetchall()
+    return [{"event_id": r[0], "type": r[1], "result": r[2]} for r in rows]
+
+
+def _referral_replay(event_id: str) -> str:
+    with _users_lock:
+        row = _users.execute("SELECT type,payload FROM billing_events WHERE provider='razorpay' AND event_id=?", (event_id,)).fetchone()
+    if not row or row[0] not in ("payment.captured", "refund.processed", "payment.dispute.created", "payment.dispute.won", "payment.dispute.lost"):
+        raise ValueError("No supported verified billing event with that ID")
+    result = _referral_payment_event(row[0], event_id, json.loads(row[1]))
+    _ent.event_result("razorpay", event_id, "replayed: " + result)
+    return result
 
 
 def _plan_sweep_loop() -> None:
@@ -17060,7 +17178,7 @@ def _session_reply(user_id: int, user: dict) -> tuple[int, dict]:
     return 200, {"token": tok, "access_token": tok, "user": user}
 
 
-def _auth_signup(body: dict) -> tuple[int, dict]:
+def _auth_signup(body: dict, referral_token: str = "") -> tuple[int, dict]:
     # A real address (email_check.py: syntax, a domain that receives mail, no
     # throwaway inboxes, no provider typos) and a password worth having
     # (auth_guard.py). Both answers are sentences for the person signing up.
@@ -17084,6 +17202,7 @@ def _auth_signup(body: dict) -> tuple[int, dict]:
             uid = cur.lastrowid
     except sqlite3.IntegrityError:
         return 409, {"error": "an account already exists for that email"}
+    _bind_referral(uid, referral_token)
     # Confirm the address is theirs. Mail goes out on a worker thread; when
     # mail is not configured the account still works and can ask again later.
     sent = _verifs.start(uid, email, name) if _verifs else False
@@ -17185,7 +17304,7 @@ def _verify_google_token(access_token: str) -> dict | None:
             "name": name or email.split("@", 1)[0].replace(".", " ").title()}
 
 
-def _auth_google(body: dict) -> tuple[int, dict]:
+def _auth_google(body: dict, referral_token: str = "") -> tuple[int, dict]:
     if not GOOGLE_CLIENT_ID:
         return 503, {"error": "Google sign-in is not configured on this server"}
     tok = str(body.get("access_token") or "").strip()
@@ -17196,11 +17315,13 @@ def _auth_google(body: dict) -> tuple[int, dict]:
         return 401, {"error": "could not verify that Google sign-in"}
 
     now = int(time.time())
+    created_referral_user = False
     with _users_lock:
         row = _users.execute(
             "SELECT id, email, name FROM users WHERE email=?",
             (who["email"],)).fetchone()
         if row is None:
+            created_referral_user = True
             # A Google account has no password, and the column is NOT NULL. It
             # gets random bytes rather than a nullable column or a sentinel:
             # _auth_login hashes whatever is typed and compares, so a hash no
@@ -17235,6 +17356,8 @@ def _auth_google(body: dict) -> tuple[int, dict]:
                                (who["name"], uid))
                 _users.commit()
                 name = who["name"]
+    if created_referral_user:
+        _bind_referral(uid, referral_token)
     if _verifs:
         _verifs.mark(uid)
     code, out = _session_reply(uid, {"id": uid, "email": who["email"], "name": name,
@@ -18833,7 +18956,7 @@ class Handler(BaseHTTPRequestHandler):
     def _billing_get(self, path: str) -> tuple[int, dict]:
         if path == "/billing/plans":
             return 200, {**_ent.public_catalog(),
-                         "checkout": _billing.configured()}
+                         "checkout": _billing.configured(), "test_mode": _billing.test_mode()}
         me = _auth_user(self.headers)
         uid = me[0] if me else None
         if path == "/billing/invoices":
@@ -18845,7 +18968,8 @@ class Handler(BaseHTTPRequestHandler):
             counts = {f"alerts.{k}": v
                       for k, v in _alerts.armed_counts(uid).items()}
         out = _ent.summary(uid, counts, client=self._client_ip())
-        out["checkout"] = _billing.configured()
+        out["checkout"] = _billing.checkout_available(me[1] if me else "")
+        out["test_mode"] = _billing.test_mode()
         return 200, out
 
     def _billing_post(self, path: str, raw: bytes) -> tuple[int, dict]:
@@ -18870,6 +18994,8 @@ class Handler(BaseHTTPRequestHandler):
             return _billing.api_checkout(me[0], me[1], body)
         if path == "/billing/verify":
             return _billing.api_verify(me[0], body)
+        if path == "/billing/reconcile":
+            return _billing.api_reconcile(me[0])
         if path == "/billing/cancel":
             return _billing.api_cancel(me[0])
         if path == "/billing/change":
@@ -18983,8 +19109,12 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/auth/signup", "/auth/login", "/auth/google"):
             if not _auth_rate_ok(path, self._client_ip(), body):
                 return 429, {"error": _guard.TOO_MANY}
-            code, out = {"/auth/signup": _auth_signup, "/auth/login": _auth_login,
-                         "/auth/google": _auth_google}[path](body)
+            if path == "/auth/signup":
+                code, out = _auth_signup(body, _referral_token(self.headers))
+            elif path == "/auth/google":
+                code, out = _auth_google(body, _referral_token(self.headers))
+            else:
+                code, out = _auth_login(body)
             if code == 200 and path == "/auth/login":
                 _limiter.clear("login_account",
                                f"{self._client_ip()}|{str(body.get('email') or '').strip().lower()}")
@@ -19288,6 +19418,29 @@ class Handler(BaseHTTPRequestHandler):
                                   headers={"Cache-Control": "public, max-age=300"})
             if u.path in ("/billing/plans", "/billing/me", "/billing/invoices"):
                 return self._send(*self._billing_get(u.path),
+                                  headers={"Cache-Control": "no-store"})
+            if u.path in ("/referrals/visit", "/referrals/terms", "/referrals/me", "/admin/referrals", "/admin/referrals/reconcile"):
+                if not _referrals:
+                    return self._send(503, {"error": "Referral programme is not open."},
+                                      headers={"Cache-Control": "no-store"})
+                if u.path == "/referrals/visit":
+                    token = _referrals.visit(q.get("code", ""))
+                    return self._send(200 if token else 404,
+                                      {"token": token, "window_seconds": int(environ["PIVOT_REFERRAL_ATTRIBUTION_DAYS"]) * 86400} if token else {"error": "Link not found"},
+                                      headers={"Cache-Control": "no-store"})
+                if u.path == "/referrals/terms":
+                    return self._send(200, _referral_mod.public_terms(),
+                                      headers={"Cache-Control": "no-store"})
+                me = _auth_user(self.headers)
+                if not me:
+                    return self._send(401, {"error": "Sign in to view referrals"})
+                if u.path.startswith("/admin/referrals"):
+                    if str(me[1]).lower() not in _ADMIN_EMAILS:
+                        return self._send(403, {"error": "Admin access required"})
+                    data = _referral_reconcile() if u.path.endswith("/reconcile") else {"review": _referrals.exceptions(), "unmatched_events": _referral_unmatched_events()}
+                    return self._send(200, data,
+                                      headers={"Cache-Control": "no-store"})
+                return self._send(200, _referrals.summary(me[0]),
                                   headers={"Cache-Control": "no-store"})
             # The Portfolio and Strategies pages, which are Pivot's own
             # components reused unchanged. They read the Agent System's paths,
@@ -20312,6 +20465,34 @@ class Handler(BaseHTTPRequestHandler):
             if tail.startswith("playbooks/") and tail.split("/")[-1].isdigit():
                 return self._send(*_journal.api_playbook(me[0], body, int(tail.split("/")[-1])))
             return self._send(404, {"error": f"no journal route '{tail}'"})
+        if u.path in ("/admin/referrals/approve", "/admin/referrals/payout", "/admin/referrals/replay", "/admin/referrals/resolve"):
+            if not _referrals:
+                return self._send(503, {"error": "Referral programme is not open."})
+            me = _auth_user(self.headers)
+            if not me:
+                return self._send(401, {"error": "Sign in required"})
+            if str(me[1]).lower() not in _ADMIN_EMAILS:
+                return self._send(403, {"error": "Admin access required"})
+            try:
+                ln = int(self.headers.get("Content-Length", 0))
+                if ln < 0 or ln > 8192:
+                    return self._send(413, {"error": "body too large"})
+                body = json.loads(self.rfile.read(ln) or b"{}")
+                if u.path.endswith("replay"):
+                    return self._send(200, {"result": _referral_replay(str(body.get("event_id") or ""))})
+                if u.path.endswith("approve"):
+                    done = _referrals.approve(str(body.get("payment_id") or ""), str(me[1]))
+                    return self._send(200 if done else 409, {"approved": done})
+                if u.path.endswith("resolve"):
+                    done = _referrals.resolve(str(body.get("payment_id") or ""), str(me[1]),
+                        str(body.get("decision") or ""), str(body.get("reason") or ""))
+                    return self._send(200 if done else 409, {"resolved": done})
+                amount = _referrals.payout(int(body["referrer_id"]),
+                    list(body["payment_ids"]), str(body["reference"]), str(me[1]),
+                    int(environ["PIVOT_REFERRAL_PAYOUT_MIN_PAISE"]))
+                return self._send(200, {"recorded_paise": amount})
+            except (ValueError, KeyError, TypeError, sqlite3.IntegrityError) as exc:
+                return self._send(400, {"error": str(exc)})
         if u.path.startswith("/billing/") or u.path in (
                 "/admin/billing/grant", "/charts/lease"):
             try:

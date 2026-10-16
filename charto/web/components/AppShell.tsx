@@ -361,7 +361,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
       const src = (full_name && full_name.trim()) || email || "";
       const letter = src.trim()[0];
       if (letter) setAccountInitial(letter.toUpperCase());
-    });
+    }, () => undefined);
 
     // Detect a broker OAuth return trip — the backend bounces here with
     // ?broker=connected (or ?broker=error&reason=…). We also honor the legacy

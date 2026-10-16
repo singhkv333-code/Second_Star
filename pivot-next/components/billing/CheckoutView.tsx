@@ -58,16 +58,33 @@ export function CheckoutView({
   initialPhase?: CheckoutPhase;
   initialError?: string;
 }): React.ReactElement {
-  const { catalog: cat, me, loading, setMe, refresh, demo } = useBilling();
+  const { catalog: cat, me, loading, setMe, demo } = useBilling();
   const router = useRouter();
   const [cycle, setCycle] = React.useState<Cycle>(initialCycle);
   const [phase, setPhase] = React.useState<CheckoutPhase>(initialPhase);
   const [error, setError] = React.useState<string | null>(initialError ?? null);
   const [changeOpen, setChangeOpen] = React.useState(false);
+  const inFlight = React.useRef(false);
+  const recovered = React.useRef(false);
   const back = safeReturnPath(returnTo, "/");
   const target = planById(cat, plan);
   const price = target?.prices[cycle];
   const block = checkoutBlock(cat, me, plan, cycle);
+  const confirmed = (billing: typeof me) => billing?.plan === plan &&
+    billing.subscription?.status === "active" && billing.subscription?.cycle === cycle;
+
+  // Recover a payment completed in another tab or before this page closed.
+  React.useEffect(() => {
+    if (demo || recovered.current || !me?.subscription || me.subscription.status !== "created") return;
+    recovered.current = true;
+    void billingApi.reconcile().then((r) => {
+      if (r.ok) {
+        setMe(r.data.billing);
+        if (confirmed(r.data.billing)) setPhase("success");
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one recovery per arrival
+  }, [demo, me?.subscription]);
 
   React.useEffect(() => {
     track("plan_selected", { plan, cycle, feature: feature ?? undefined, surface: surface ?? undefined });
@@ -81,18 +98,24 @@ export function CheckoutView({
     let tries = 0;
     const id = setInterval(async () => {
       tries += 1;
-      const m = await refresh();
-      if (m && m.plan === plan) {
+      const r = await billingApi.reconcile();
+      const m = r.ok ? r.data.billing : null;
+      if (m) setMe(m);
+      if (confirmed(m)) {
         clearInterval(id);
         setPhase("success");
       } else if (tries >= 10) {
         clearInterval(id);
       }
-    }, 3000);
+    }, 5000);
     return () => clearInterval(id);
-  }, [phase, demo, plan, refresh]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- confirmed uses the selected plan/cycle
+  }, [phase, demo, plan, cycle, setMe]);
 
   const pay = async (): Promise<void> => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    try {
     setError(null);
     setPhase("opening");
     track("checkout_started", { plan, cycle, surface: surface ?? undefined });
@@ -103,7 +126,7 @@ export function CheckoutView({
     const co = await billingApi.checkout(plan, cycle);
     if (!co.ok) {
       setError(co.error);
-      setPhase("failed");
+      setPhase(co.code === "checkout_pending" ? "pending" : "failed");
       track("checkout_failed", { plan, cycle, code: co.code ?? String(co.status) });
       return;
     }
@@ -136,10 +159,10 @@ export function CheckoutView({
     if (!v.ok) {
       track("checkout_failed", { plan, cycle, code: v.code ?? String(v.status) });
       setError(v.error);
-      setPhase("failed");
+      setPhase("pending");
       return;
     }
-    if (v.data.pending) {
+    if (v.data.pending || !confirmed(v.data.billing ?? null)) {
       track("checkout_pending", { plan, cycle });
       setPhase("pending");
       return;
@@ -147,6 +170,9 @@ export function CheckoutView({
     if (v.data.billing) setMe(v.data.billing);
     track("checkout_succeeded", { plan, cycle });
     setPhase("success");
+    } finally {
+      inFlight.current = false;
+    }
   };
 
   // ── the outcome screens ─────────────────────────────────────────────
@@ -162,7 +188,7 @@ export function CheckoutView({
           <h1 className="bl-h2">Welcome to {target?.name}</h1>
           <p className="bl-p" style={{ maxWidth: 460 }}>
             {copy ? `${copy.title} is unlocked, along with everything else in ${target?.name}. ` : `Everything in ${target?.name} is unlocked. `}
-            A receipt is on its way to your email, and the invoice is in Plan &amp; billing.
+            Your subscription details and available invoices are in Plan &amp; billing.
           </p>
           <div className="bl-row-flex" style={{ justifyContent: "center" }}>
             <button type="button" className="bl-btn bl-btn--primary bl-btn--lg" onClick={() => router.push(back)}>
@@ -184,10 +210,10 @@ export function CheckoutView({
           <div className="bl-state-icon bl-state-icon--warn">
             <Clock size={24} />
           </div>
-          <h1 className="bl-h2">Payment received, confirming</h1>
+          <h1 className="bl-h2">Confirming your subscription</h1>
           <p className="bl-p" style={{ maxWidth: 460 }}>
-            Razorpay has your payment and is confirming it with your bank. Your plan switches to {target?.name} as soon as it does, usually within a
-            minute. You can leave this page; nothing else is needed from you.
+            We have not confirmed an active {target?.name} subscription yet. Do not pay again.
+            This page checks Razorpay for the latest status. You can also return to Plan &amp; billing.
           </p>
           <div className="bl-row-flex" style={{ justifyContent: "center" }}>
             <Loader2 size={16} className="bl-spin" /> <span className="bl-small">Checking</span>
@@ -209,6 +235,7 @@ export function CheckoutView({
       <div className="bl-stack" style={{ gap: 6, marginBottom: 28 }}>
         <span className="bl-eyebrow" style={{ margin: 0 }}>Checkout</span>
         <h1 className="bl-h1">Pivot {target?.name}</h1>
+        {cat.test_mode && <p className="bl-small" role="status">Test checkout — no real money is charged.</p>}
       </div>
 
       {loading && !me ? (
@@ -378,12 +405,12 @@ function BlockOrPay(p: {
     <div className="bl-stack">
       {p.phase === "dismissed" ? (
         <Notice tone="warn" title="Checkout was closed">
-          Nothing was charged. Pick up where you left off whenever you are ready.
+          Payment has not been confirmed. Check Plan &amp; billing before trying again.
         </Notice>
       ) : null}
       {p.phase === "failed" ? (
         <Notice tone="bad" title="The payment did not go through">
-          {p.error || "Your bank or the payment provider declined it."} Nothing was charged. Try again, or use a different card or UPI app.
+          {p.error || "The payment provider could not confirm this attempt."} Check Plan &amp; billing before paying again.
         </Notice>
       ) : null}
       <button type="button" className="bl-btn bl-btn--primary bl-btn--lg bl-btn--block" onClick={p.onPay} disabled={busy}>

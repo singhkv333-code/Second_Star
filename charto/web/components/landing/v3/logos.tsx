@@ -37,5 +37,5 @@ export function Logo({ s, size = 18, className }: { s: string; size?: number; cl
   const style = { width: size, height: size } as React.CSSProperties;
   if (!src) return <span className={`lg lg-mono ${className ?? ""}`} style={{ ...style, fontSize: size * 0.48 }} aria-hidden="true">{s.slice(0, 1)}</span>;
   // eslint-disable-next-line @next/next/no-img-element
-  return <img className={`lg ${className ?? ""}`} src={src} alt="" style={style} />;
+  return <img className={`lg${s === "NIFTY" ? " lg-nifty" : ""} ${className ?? ""}`} src={src} alt="" style={style} />;
 }

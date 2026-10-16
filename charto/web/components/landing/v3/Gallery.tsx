@@ -5,9 +5,9 @@
  * icon, a name, one line, and the widget itself in Pivot's light theme — on
  * one horizontal belt that drifts by itself, holds still under the pointer,
  * and can be dragged, scrolled or stepped with the arrows. Every
- * figure is from `snapshot` — real bars, the real company record, the real
- * screener run, the real calendar, and a real backtest from the strategy
- * engine.
+ * NIFTY prices use the saved Yahoo EOD snapshot; the strategy illustration
+ * is computed from those bars. The Reliance financials, screener and
+ * calendar retain their separately dated saved snapshots.
  */
 "use client";
 
@@ -18,8 +18,10 @@ import {
 import { formatINR } from "@/components/landing/film/film-script";
 import { Logo } from "./logos";
 import {
-  CALENDAR, CALENDAR_FROM, COMPANY, LAB, RELIANCE_1D, SCREEN, SNAPSHOT_DATE, WATCH,
+  CALENDAR, CALENDAR_FROM, SCREEN,
 } from "./snapshot";
+import { NIFTY_1D, NIFTY_AS_OF, NIFTY_CHANGE_PCT, NIFTY_LAST, NIFTY_LAB, NIFTY_LEVELS, NIFTY_RANGE, NIFTY_RSI14, NIFTY_WATCH } from "./nifty-data";
+import { RELIANCE_COMPANY } from "./reliance-financials";
 
 const pct = (n: number, d = 2) => `${n >= 0 ? "+" : "−"}${Math.abs(n).toFixed(d)}%`;
 const chg = (last: number, prev: number) => ((last - prev) / prev) * 100;
@@ -47,8 +49,8 @@ function Tiles() {
       <Tile icon={<ChartCandlestick />} title="Chart" line="Candles, indicators and drawings."><ChartCard /></Tile>
       <Tile icon={<Star />} title="Watchlist" line="Track all your names at one place." fit="top"><WatchCard /></Tile>
       <Tile icon={<Landmark />} title="Financials" line="Valuation, results and filings."><FinCard /></Tile>
-      <Tile icon={<Filter />} title="Screener" line="Filter 500 stocks by market data." fit="top"><ScreenCard /></Tile>
-      <Tile icon={<Sigma />} title="Strategy" line="Test a rule and read the verdict."><StrategyCard /></Tile>
+      <Tile icon={<Filter />} title="Screener" line="Filter 3500+ stocks by market data." fit="top"><ScreenCard /></Tile>
+      <Tile icon={<Sigma />} title="Strategy" line="Inspect a rule against holding."><StrategyCard /></Tile>
       <Tile icon={<CalendarDays />} title="Calendar" line="Earnings and corporate actions." fit="top"><CalendarCard /></Tile>
       <Tile icon={<Bell />} title="Alerts" line="Rules checked on every bar close."><AlertsCard /></Tile>
       <Tile icon={<NotebookPen />} title="Notes" line="Write beside the chart."><NotesCard /></Tile>
@@ -155,20 +157,21 @@ function Delta({ v, d = 2 }: { v: number; d?: number }) {
 /* ── Chart ───────────────────────────────────────────────────────────────── */
 
 function ChartCard() {
-  const bars = RELIANCE_1D.slice(-34);
+  const bars = NIFTY_1D.slice(-56);
+
   const lo = Math.min(...bars.map((b) => b[3])), hi = Math.max(...bars.map((b) => b[2]));
   const W = 300, H = 210, step = W / bars.length;
   const y = (p: number) => 4 + ((hi - p) / (hi - lo)) * (H - 8);
-  const last = COMPANY.price.last, ch = COMPANY.price.change_pct;
+  const last = NIFTY_LAST[4], ch = NIFTY_CHANGE_PCT;
   return (
     <Card>
-      <div className="gl-row-head"><Mark s="RELIANCE" /><b>RELIANCE</b><span className="gl-sub">NSE</span></div>
+      <div className="gl-row-head"><Mark s="NIFTY" /><b>NIFTY 50</b><span className="gl-sub">NSE</span></div>
       <div className="gl-well">
         <div className="gl-quote">
           <strong>{formatINR(last)}</strong><Delta v={ch} />
           <span className="gl-tabs"><b>1D</b><i>1W</i><i>1M</i><i>1Y</i></span>
         </div>
-        <svg className="gl-candles" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-label="RELIANCE daily candles">
+        <svg className="gl-candles" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-label="NIFTY daily candles">
           {bars.map(([, o, h, l, c], i) => {
             const x = step * i + step / 2, up = c >= o, top = y(Math.max(o, c));
             return (
@@ -179,7 +182,7 @@ function ChartCard() {
             );
           })}
         </svg>
-        <span className="gl-stamp">{SNAPSHOT_DATE}, close</span>
+        <span className="gl-stamp">{NIFTY_AS_OF}, close · Yahoo fallback</span>
       </div>
     </Card>
   );
@@ -197,7 +200,7 @@ function WatchCard() {
       <div className="gl-well">
         <ul className="gl-list watch">
           {WATCH_ROWS.map((s, k) => {
-            const w = WATCH[s]!;
+            const w = NIFTY_WATCH[s];
             const c = chg(w.last, w.prev);
             return (
               <li key={s}>
@@ -210,6 +213,7 @@ function WatchCard() {
           })}
         </ul>
       </div>
+      <p className="gl-foot">Yahoo EOD · {NIFTY_AS_OF}</p>
     </Card>
   );
 }
@@ -217,14 +221,14 @@ function WatchCard() {
 /* ── Financials ──────────────────────────────────────────────────────────── */
 
 function FinCard() {
-  const c = COMPANY;
+  const c = RELIANCE_COMPANY;
   const r = c.range_52w;
   const at = ((c.price.last - r.low) / (r.high - r.low)) * 100;
   const cap = `₹${(c.market_cap / 1e12).toFixed(2)} L Cr`;
   const cells: [string, string, string?][] = [
     ["Market cap", cap], ["P/E", c.pe.toFixed(1), `consolidated, ${c.eps_period}`],
     ["P/B", c.pb.toFixed(2)], ["EV / EBITDA", c.ev_ebitda.toFixed(1)],
-    ["EPS", c.eps.toFixed(2), c.eps_period], ["Book value / share", (Math.round(Number(c.book_value_ps.toPrecision(10)) * 100) / 100).toFixed(2)],
+    ["EPS", c.eps.toFixed(2), c.eps_period], ["Book value / share", c.book_value_ps.toFixed(2)],
   ];
   return (
     <Card>
@@ -238,6 +242,7 @@ function FinCard() {
         <dl className="gl-metrics">
           {cells.map(([k, v, n]) => <div key={k}><dt>{k}</dt><dd>{v}</dd>{n && <small>{n}</small>}</div>)}
         </dl>
+        <span className="gl-stamp">Reliance snapshot · {c.price.as_of}</span>
       </div>
     </Card>
   );
@@ -251,7 +256,7 @@ function ScreenCard() {
       <div className="gl-row-head"><b>Most traded</b><span className="gl-sub">20-day turnover</span></div>
       <div className="gl-well">
         <ul className="gl-list">
-          {SCREEN.rows.map((r, k) => (
+          {SCREEN.rows.slice(0, 5).map((r, k) => (
             <li key={r.symbol}>
               <Mark s={r.symbol} tone={TONES[(k + 2) % TONES.length]} />
               <span className="gl-sym">{r.symbol}<small>{r.name}</small></span>
@@ -261,7 +266,7 @@ function ScreenCard() {
           ))}
         </ul>
       </div>
-      <p className="gl-foot">{SCREEN.rows.length} of {SCREEN.universe} · EOD {SCREEN.as_of}</p>
+      <p className="gl-foot">5 of {SCREEN.universe} · EOD {SCREEN.as_of}</p>
     </Card>
   );
 }
@@ -269,14 +274,14 @@ function ScreenCard() {
 /* ── Strategy ────────────────────────────────────────────────────────────── */
 
 function StrategyCard() {
-  const eq = LAB.equity;
+  const eq = NIFTY_LAB.equity;
   const lo = Math.min(...eq), hi = Math.max(...eq), W = 300, H = 120;
   const y = (v: number) => 4 + ((hi - v) / (hi - lo)) * (H - 8);
   const d = eq.map((v, i) => `${i ? "L" : "M"}${((i / (eq.length - 1)) * W).toFixed(1)},${y(v).toFixed(1)}`).join("");
   return (
     <Card>
       <div className="gl-row-head"><b>Moving-average cross</b></div>
-      <p className="gl-rule">EMA(20) crosses above EMA(50) · RELIANCE · 1D · one year</p>
+      <p className="gl-rule">EMA(20) crosses above EMA(50) · NIFTY · 1D · 2026</p>
       <div className="gl-well tight">
         <svg className="gl-eq" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-label="Equity curve">
           <line x1={0} x2={W} y1={y(100)} y2={y(100)} className="base" />
@@ -284,12 +289,12 @@ function StrategyCard() {
         </svg>
       </div>
       <dl className="gl-stats">
-        <div><dt>Strategy</dt><dd className="dn">{pct(LAB.ret, 1)}</dd></div>
-        <div><dt>Buy & hold</dt><dd className="dn">{pct(LAB.buy_hold, 1)}</dd></div>
-        <div><dt>Trades</dt><dd>{LAB.trades}</dd></div>
-        <div><dt>Max DD</dt><dd>{LAB.max_dd.toFixed(1)}%</dd></div>
+        <div><dt>Strategy</dt><dd>{pct(NIFTY_LAB.ret, 1)}</dd></div>
+        <div><dt>Buy & hold</dt><dd>{pct(NIFTY_LAB.buy_hold, 1)}</dd></div>
+        <div><dt>Entries</dt><dd>{NIFTY_LAB.trades}</dd></div>
+        <div><dt>Max DD</dt><dd>{NIFTY_LAB.max_dd.toFixed(1)}%</dd></div>
       </dl>
-      <div className="gl-verdict"><span>Verdict</span><b>{LAB.verdict}</b></div>
+      <div className="gl-verdict"><span>Status</span><b>{NIFTY_LAB.verdict}</b></div>
     </Card>
   );
 }
@@ -327,12 +332,9 @@ function CalendarCard() {
 /* ── Alerts ──────────────────────────────────────────────────────────────── */
 
 function AlertsCard() {
-  // The two resistances and the support Pivot's chat drew on RELIANCE's
-  // daily chart in the session this page quotes, set as alerts.
   const rows = [
-    { sym: "RELIANCE", rule: "Close above", lvl: "1,329.75", state: "Armed" },
-    { sym: "RELIANCE", rule: "Close above", lvl: "1,343.50", state: "Armed" },
-    { sym: "RELIANCE", rule: "Close below", lvl: "1,116.36", state: "Armed" },
+    { sym: "NIFTY", rule: "Close above prior 20D high", lvl: formatINR(NIFTY_LEVELS[0].price), state: "Example" },
+    { sym: "NIFTY", rule: "Close below prior 20D low", lvl: formatINR(NIFTY_LEVELS[1].price), state: "Example" },
   ];
   return (
     <Card>
@@ -358,12 +360,12 @@ function AlertsCard() {
 function NotesCard() {
   return (
     <Card>
-      <div className="gl-row-head"><Mark s="RELIANCE" /><b>RELIANCE</b><span className="gl-sub">Notes</span></div>
+      <div className="gl-row-head"><Mark s="NIFTY" /><b>NIFTY</b><span className="gl-sub">Notes</span></div>
       <div className="gl-note">
-        <span className="gl-note-stamp">₹{formatINR(COMPANY.price.last)} · {SNAPSHOT_DATE}</span>
-        <p>Two resistances overhead, 1,329.75 and 1,343.50. Wait for a daily close above both before adding.</p>
-        <span className="gl-note-stamp soft">RSI 14 · {COMPANY.metrics.rsi14}</span>
-        <p>Still {Math.abs(COMPANY.metrics.dist_52w_high).toFixed(1)}% below the 52-week high. No hurry.</p>
+        <span className="gl-note-stamp">{formatINR(NIFTY_LAST[4])} · {NIFTY_AS_OF}</span>
+        <p>The prior 20-session range runs from {formatINR(NIFTY_LEVELS[1].price)} to {formatINR(NIFTY_LEVELS[0].price)}.</p>
+        <span className="gl-note-stamp soft">RSI 14 · {NIFTY_RSI14}</span>
+        <p>{Math.abs((NIFTY_LAST[4] / NIFTY_RANGE.high - 1) * 100).toFixed(1)}% below the available 2026 high.</p>
       </div>
     </Card>
   );
@@ -375,13 +377,13 @@ function SheetCard() {
   const rows = ["RELIANCE", "TCS", "HDFCBANK", "INFY", "ICICIBANK", "SBIN", "BHARTIARTL", "ITC"] as const;
   return (
     <Card className="flush">
-      <div className="gl-fx"><b>fx</b><code>=PRICE(A2)</code></div>
+      <div className="gl-fx"><b>fx</b><code>=PRICE(A2)</code><small className="gl-sub">Yahoo EOD · {NIFTY_AS_OF}</small></div>
       <table className="gl-sheet">
         <thead><tr><th /><th>A</th><th>B</th><th>C</th></tr></thead>
         <tbody>
           <tr><th>1</th><td className="h">Symbol</td><td className="h">Last</td><td className="h">Chg %</td></tr>
           {rows.map((s, i) => {
-            const w = WATCH[s]!, c = chg(w.last, w.prev);
+            const w = NIFTY_WATCH[s], c = chg(w.last, w.prev);
             return (
               <tr key={s}>
                 <th>{i + 2}</th><td>{s}</td>
