@@ -35,6 +35,20 @@ describe("getStepTypes (mock source)", () => {
 });
 
 describe("getWorkflow (real fetch wrapper)", () => {
+  it("clears a failed in-flight request so a later fetch can retry", async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await expect(getWorkflow("retry")).rejects.toThrow("Failed to fetch");
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ id: "retry" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const result = await getWorkflow("retry");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(isError(result)).toBe(false);
+  });
+
   it("parses a 200 JSON body into { data }", async () => {
     fetchMock.mockResolvedValueOnce(
       new Response(

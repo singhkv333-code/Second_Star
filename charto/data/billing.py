@@ -542,6 +542,16 @@ def _webhook(raw: bytes, headers) -> tuple[int, dict]:
             return 200, {"ok": True, "duplicate": True}
     except ValueError:
         return 400, {"error": "event payload does not match its original receipt"}
+    if etype in ("payment.captured", "refund.processed",
+                 "payment.dispute.created", "payment.dispute.won",
+                 "payment.dispute.lost"):
+        try:
+            result = on_verified_payment_event(etype, eid, ev) if on_verified_payment_event else "referrals disabled"
+        except Exception as exc:  # event is retained for admin reconciliation
+            log.exception("verified payment event %s needs review: %s", eid, exc)
+            result = f"referral exception: {exc}"
+        ent.event_result(PROVIDER, eid, result)
+        return 200, {"ok": True, "result": result}
     if not etype.startswith("subscription."):
         ent.event_result(PROVIDER, eid, "ignored")
         return 200, {"ok": True, "ignored": etype}
@@ -589,6 +599,7 @@ def _webhook(raw: bytes, headers) -> tuple[int, dict]:
 # Set by dataserver: pauses whatever the new plan no longer covers. A hook, so
 # this file does not import the alert engine.
 on_downgrade = None
+on_verified_payment_event = None
 
 
 def _on_downgrade(uid: int) -> None:

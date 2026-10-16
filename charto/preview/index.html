@@ -16,8 +16,8 @@
      The server holds the same switch (CHARTO_EXECUTION) and refuses arming. -->
 <script>window.CHARTO_EXECUTION = false;</script>
 <title>Pivot</title>
-<script src="./js/workspace-theme.js?v=5" data-surface="chart"></script>
-<link rel="stylesheet" href="./css/workspace-theme.css?v=5" />
+<script src="./js/workspace-theme.js?v=6" data-surface="chart"></script>
+<link rel="stylesheet" href="./css/workspace-theme.css?v=6" />
 <!-- The tab icon. There was none, so every tab wore the browser's generic
      globe and the app was unfindable in a row of them — the one place a
      product's mark does the most work for the least ink.
@@ -991,6 +991,7 @@ select.is-dressed { display: none; }
   --muted-foreground: #fff; --faint: #fff; --foreground: #fff; color: #fff;
 }
 .dropdown, .ctx { border-radius: 16px; }
+body > header .dropdown, .chart-tools .dropdown { border-radius: 6px; }
 .dropdown .item, .ctx-row { border-radius: 10px; }
 .dropdown .item:hover { background: var(--ctx-hover); }
 .dropdown .sep { background: var(--ctx-seam); margin: var(--menu-pad) var(--menu-inset); }
@@ -1395,7 +1396,7 @@ select.is-dressed { display: none; }
 .mk-logo[data-p="pivot"] svg.icon { stroke-width: 1.9; }
 .mk-logo.lg[data-p="pivot"] svg, .mk-logo.xl[data-p="pivot"] svg { color: var(--primary); }
 .mk-logo.lg, .mk-logo.xl { border-radius: 9px; background: var(--card);
-  box-shadow: inset 0 0 0 1px var(--border-soft), 0 1px 2px rgba(0, 0, 0, .05); }
+  box-shadow: none; }
 .mk-logo.lg { width: 30px; height: 30px; }
 .mk-logo.lg svg { width: 16px; height: 16px; }
 .mk-logo.xl { width: 46px; height: 46px; border-radius: 13px; }
@@ -1424,7 +1425,7 @@ select.is-dressed { display: none; }
   padding: 7px 8px; border: 0; border-radius: 11px; background: transparent; color: var(--foreground);
   font: inherit; text-align: left; cursor: pointer; transition: background var(--dur) var(--ease-quartr); }
 .mk-prov:hover { background: var(--accent); }
-.mk-prov.on { background: var(--card); box-shadow: 0 0 0 1px var(--border), 0 1px 3px rgba(0, 0, 0, .06); }
+.mk-prov.on { background: var(--card); box-shadow: none; }
 .mk-prov-t { display: grid; gap: 2px; min-width: 0; font-size: var(--text-base); }
 .mk-prov-t small { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--faint);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -2237,6 +2238,7 @@ body > header {
   padding: 0 10px 0 12px; border-bottom: var(--seam-w) solid var(--seam);
   background: var(--background); z-index: 20; flex: none;
 }
+body > header:has(.dropdown.open) { position: relative; z-index: 70; }
 /* Wordmark sits in Pivot's display serif — the same --font-experiment
    slot the Pivot topbar wordmark and chat greeting use. */
 .brand {
@@ -2428,6 +2430,7 @@ header > .btn, header > .badge { flex: none; }
   display: flex; flex-direction: column; align-items: center;
   padding: 7px 0; gap: 1px; z-index: 10; flex: none;
 }
+.rail:has(.dropdown.open) { position: relative; z-index: 70; }
 .tool {
   width: 34px; height: 34px; border-radius: var(--radius); border: 0; cursor: pointer;
   background: transparent; color: var(--foreground);
@@ -2640,20 +2643,18 @@ header > .btn, header > .badge { flex: none; }
   display: none;
 }
 /* The framed window. Pivot's desktop shell paints its top bar and rail as one
-   chrome surface and sets each page inside it as a bordered, rounded window
+   chrome surface and sets each page inside it as a rounded window
    (`.shell-window` in pivot-next's globals.css). This frame is lifted into
    that top bar, so the shell cannot draw the window around the chart without
    clipping the controls above it — the chart draws its own. The colours are
-   the shell's --shell-chrome / --shell-window-border; change them together. */
+   the shell's --shell-chrome; change them together. */
 @media (min-width: 1024px) {
   .in-shell {
     --shell-chrome: #f3f3f4;
-    --shell-window-border: #e2e2e5;
     --shell-window-shadow: 0 1px 2px rgba(15, 18, 22, .04);
   }
   .in-shell[data-theme="dark"] {
     --shell-chrome: #151516;
-    --shell-window-border: #29292c;
     --shell-window-shadow: none;
   }
   .in-shell body { background: var(--shell-chrome); }
@@ -2664,13 +2665,12 @@ header > .btn, header > .badge { flex: none; }
   .in-shell .main,
   .in-shell .journal {
     margin: 0 4px 4px 0;
-    border: 1px solid var(--shell-window-border);
+    border: 0;
     border-radius: 10px;
     background: var(--background);
     box-shadow: var(--shell-window-shadow);
     overflow: hidden;
   }
-
   /* A thin, quiet bar. Every pixel of it is height the chart does not get,
      so it is 40px (the shell's --header-h at this width — the two must
      match, since this header is lifted into the shell's slot) and its
@@ -2885,15 +2885,16 @@ header > .btn, header > .badge { flex: none; }
      js/main.js measures the axis and publishes it as --time-axis-h. */
   position: absolute; left: 10px; bottom: calc(var(--time-axis-h, 28px) + 10px);
   z-index: 3;
-  width: 32px; height: 32px; pointer-events: none;
+  width: 40px; height: 40px; pointer-events: none;
   background: #fff; border: 1px solid rgba(19, 23, 34, .12);
   border-radius: 50%; box-shadow: 0 1px 2px rgba(19, 23, 34, .12);
 }
+/* The alien badge — its own dark disc with the alien inside (512×512, cropped
+   tight to the disc, crisp at any display density) — inset so a thin white
+   ring of the plate shows around it. */
 .chart-mark::after {
-  content: ""; position: absolute; inset: 1px;
-  background: #131722;
-  -webkit-mask: url("assets/pivot-mark.png") center / contain no-repeat;
-          mask: url("assets/pivot-mark.png") center / contain no-repeat;
+  content: ""; position: absolute; inset: 2px;
+  background: url("assets/pivot-alien.png?v=5") center / contain no-repeat;
 }
 /* On a split the mark and the reset button are re-parented onto the grid
    wrapper (see reparentMarks() in js/main.js) so they sign the WHOLE desk
@@ -3412,7 +3413,7 @@ body.two-columns .readout .row { display: none; }
 
 /* ── the loading pendulum ──────────────────────────────────────────────
    The bob is the MARK — the slashed circle of assets/pivot-mark.png, taken
-   as a mask over `--foreground` the same way `.chart-mark` above takes it,
+   as a mask over `--foreground`,
    so it is black on the light theme and white on the dark one from a
    single file. Not a spinner borrowed from somewhere else.
 
@@ -7751,7 +7752,7 @@ svg.icon.op {
     left: 0 !important; right: 0 !important; bottom: auto !important;
     margin-inline: auto; width: min(760px, calc(100vw - 24px)) !important;
     max-height: 76vh; z-index: 260 !important; padding: 0 !important;
-    border-radius: 16px; overflow: hidden;
+    border-radius: 6px; overflow: hidden;
   }
   .symbol-dialog-head { display: flex; justify-content: space-between; align-items: center; padding: 18px 22px 10px; }
   .symbol-dialog-head strong { color: var(--foreground); font-size: 19px; letter-spacing: -.02em; }
@@ -8130,7 +8131,7 @@ body.dk-compact .dk-act { opacity: .75; }
 .dk-floats > .dk-group.dk-redock { outline: 2px solid var(--foreground); outline-offset: 2px; }
 .dk-floats .dk-rz { display: block; position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize; z-index: 3; }
 
-.dk-group.dk-maxed { position: fixed !important; z-index: 60; box-shadow: 0 0 0 1px var(--border), var(--menu-shadow); }
+.dk-group.dk-maxed { position: fixed !important; z-index: 60; box-shadow: none; }
 .dk-group.dk-flash::after {
   content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: inherit;
   box-shadow: inset 0 0 0 1.5px var(--foreground);
@@ -11955,7 +11956,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/drawedit.js?v=7"></script>
   <script src="./js/wkit.js?v=2"></script>
   <script src="./js/hub-art.js?v=7"></script>
-  <script src="./js/dock.js?v=38"></script>
+  <script src="./js/dock.js?v=39"></script>
   <script src="./js/agentws.js?v=1"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->

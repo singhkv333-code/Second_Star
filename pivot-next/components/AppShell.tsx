@@ -80,7 +80,8 @@ import { getAccessToken } from "@/lib/authToken";
 import { putPendingScreen } from "@/lib/screensApi";
 import type { PendingScreen } from "@/lib/screensApi";
 import { ScreenerPage } from "@/components/screener/ScreenerPage";
-import { SettingsDialog } from "@/components/settings/SettingsTab";
+import { SettingsDialog, type SettingsSectionKey } from "@/components/settings/SettingsTab";
+import { AffiliateJoinDialog } from "@/components/affiliate/AffiliateJoinDialog";
 import { DashboardTab } from "@/components/DashboardTab";
 import { HomeTab } from "@/components/HomeTab";
 import { MarketsTab } from "@/components/markets/MarketsTab";
@@ -386,6 +387,9 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   const [reportBugOpen, setReportBugOpen] = useState(false);
   // Settings modal (opened from the account menu's "Settings" item).
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<SettingsSectionKey>("profile");
+  // The affiliate join popup: /affiliate's "Sign up" lands on ?affiliate=join.
+  const [affiliateJoinOpen, setAffiliateJoinOpen] = useState(false);
   // Desktop-only collapse of the inline sidebar (Ctrl/⌘+B). On mobile the
   // sidebar is a drawer driven by `mobileNavOpen`, so collapse is ignored.
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -681,7 +685,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
       if (letter) setAccountInitial(letter.toUpperCase());
       setAccountName((full_name && full_name.trim()) || email || "Account");
       setAccountEmail(email || "");
-    });
+    }, () => undefined);
 
     // Detect a broker OAuth return trip — the backend bounces here with
     // ?broker=connected (or ?broker=error&reason=…). We also honor the legacy
@@ -726,6 +730,32 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     }
 
     return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+
+  // Arriving from /affiliate's "Sign up" (?affiliate=join) opens the join
+  // popup; ?settings=affiliate (the old /affiliate/referrals) opens Settings
+  // on Affiliate. Either parameter then comes off the address bar so a
+  // refresh does not reopen it.
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const join = params.get("affiliate") === "join";
+      const settings = params.get("settings") === "affiliate";
+      if (!join && !settings) return;
+      if (join) setAffiliateJoinOpen(true);
+      else { setSettingsSection("affiliate"); setSettingsOpen(true); }
+      params.delete("affiliate");
+      params.delete("settings");
+      const qs = params.toString();
+      window.history.replaceState(null, "", `${window.location.pathname}${qs ? `?${qs}` : ""}${window.location.hash}`);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const openSettings = useCallback((section: SettingsSectionKey = "profile"): void => {
+    setSettingsSection(section);
+    setSettingsOpen(true);
   }, []);
 
   // Keep native chart contrast and account settings in step with the palette.
@@ -1372,7 +1402,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
           accountName={accountName}
           accountEmail={accountEmail}
           onOpenBroker={() => setBrokerPanelOpen(true)}
-          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenSettings={() => openSettings()}
           onOpenMobileNav={() => setMobileNavOpen(true)}
           sidebarCollapsed={sidebarCollapsed}
           isDesktop={isDesktop}
@@ -1770,9 +1800,16 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
         currentTab={active}
       />
 
+      <AffiliateJoinDialog
+        open={affiliateJoinOpen}
+        onOpenChange={setAffiliateJoinOpen}
+        onJoined={() => { setAffiliateJoinOpen(false); openSettings("affiliate"); }}
+      />
+
       <SettingsDialog
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
+        initialSection={settingsSection}
         tradingMode={tradingMode}
         onChooseTradingMode={chooseTradingMode}
         onOpenBroker={() => {
@@ -1882,19 +1919,9 @@ function TopHeader({
         <PivotWordmark className="top-header-wordmark" fontSize={22} />
       </button>
 
-      {/* Search — Quartr pill, sized and filled, NO rule around it. The
-          border was the only hairline in the header, so the field read as a
-          control sitting on the bar rather than part of it. The fill does
-          that job instead: --muted, the EXACT grey the chart header's
-          ticker badge wears (charto/preview's .symbol), so the field reads
-          as a filled chip in the header rather than an outlined box on it.
-          It was --bg-elevated, a step darker, which made the same chip look
-          like two different greys across the chart and the shell.
-          The header is now the grey chrome around the framed window, where a
-          --muted chip vanishes, so the field takes the window's own surface
-          and hairline: it reads as a piece of the page set into the bar.
-          Hidden below lg; mobile users get the CommandPalette via the
-          account menu / keyboard shortcut. */}
+      {/* Search uses the page surface against the grey header, without an
+          outline. Hidden below lg; mobile users get the CommandPalette via
+          the account menu / keyboard shortcut. */}
       {variant === "default" && <div
         className="hidden flex-1 items-center gap-2 lg:flex"
         data-tour="search"
@@ -1903,7 +1930,7 @@ function TopHeader({
           height: 28,
           padding: "0 12px",
           background: "var(--bg-base)",
-          border: "1px solid var(--shell-window-border)",
+          border: "none",
           borderRadius: 10,
           position: "relative",
         }}
@@ -2147,14 +2174,10 @@ function AccountMenu({
               onClick={() => { setOpen(false); setBrokerDialogOpen(true); }}
             />
           ) : null}
-          {/* Upgrade — navigates to the /pricing page (a real destination, not
-              an overlay). The chevron points to the side, like the other rows
-              that open a dedicated surface. */}
+          {/* Upgrade navigates to the pricing page. */}
           <MenuItem
             icon={Sparkles}
             label="Upgrade"
-            hasChevron
-            chevronDirection="side"
             testId="menu-upgrade"
             onClick={() => { setOpen(false); router.push("/pricing"); }}
           />
@@ -2162,8 +2185,6 @@ function AccountMenu({
           <MenuItem
             icon={Gift}
             label="Refer and earn"
-            hasChevron
-            chevronDirection="side"
             testId="menu-affiliate"
             onClick={() => { setOpen(false); router.push("/affiliate"); }}
           />

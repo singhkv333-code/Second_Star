@@ -260,9 +260,10 @@ async function _doRequest<T>(
   if (existing) return existing as Promise<ApiResult<T>>;
   const p = _performRequest<T>(base, path, options);
   _inflightGets.set(key, p as Promise<ApiResult<unknown>>);
-  void p.finally(() => {
-    _inflightGets.delete(key);
-  });
+  void p.then(
+    () => { _inflightGets.delete(key); },
+    () => { _inflightGets.delete(key); },
+  );
   return p;
 }
 

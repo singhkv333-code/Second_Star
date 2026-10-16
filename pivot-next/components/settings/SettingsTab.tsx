@@ -32,6 +32,7 @@ import {
   CircleUserRound,
   CreditCard,
   Gauge,
+  Gift,
   Info,
   Loader2,
   RefreshCw,
@@ -67,8 +68,10 @@ import type { BillingMe, Cycle, InvoiceList, PaidPlanId, PlanId, PublicCatalog }
 import { brokerLogo } from "@/lib/publicAssets";
 import { LAUNCH } from "@/lib/launch";
 import { emailVerified, resendVerification } from "@/lib/emailVerification";
+import { REFERRALS_DEMO, REFERRAL_RATE_PERCENT, fetchReferralSummary, referralLink, type ReferralSummary } from "@/components/affiliate/referrals";
 
-type SectionKey = "profile" | "account" | "usage" | "billing" | "trading" | "notifications";
+export type SettingsSectionKey = "profile" | "account" | "usage" | "billing" | "affiliate" | "trading" | "notifications";
+type SectionKey = SettingsSectionKey;
 
 type IconType = React.ComponentType<{ size?: number; strokeWidth?: number; "aria-hidden"?: boolean }>;
 
@@ -77,6 +80,7 @@ const SECTIONS: { key: SectionKey; label: string; Icon: IconType; keywords: stri
   { key: "account", label: "Account", Icon: ShieldCheck, keywords: "email password two-factor 2fa delete security" },
   { key: "usage", label: "Usage", Icon: Gauge, keywords: "credits ai limits alerts upgrade" },
   { key: "billing", label: "Billing", Icon: CreditCard, keywords: "plan payment invoices subscription cancel" },
+  { key: "affiliate", label: "Affiliate", Icon: Gift, keywords: "referral refer earn commission link payout" },
   { key: "trading", label: "Trading", Icon: TrendingUp, keywords: "paper orders" },
   { key: "notifications", label: "Notifications", Icon: Bell, keywords: "alerts email push" },
 ];
@@ -145,6 +149,7 @@ export function SettingsDialog({
               {section === "account" && <AccountSection />}
               {section === "usage" && <UsageSection onClose={close} />}
               {section === "billing" && <BillingSection onClose={close} />}
+              {section === "affiliate" && <AffiliateSection />}
               {section === "trading" && (
                 <TradingSection mode={tradingMode} onChooseMode={onChooseTradingMode} onOpenBroker={onOpenBroker} />
               )}
@@ -2069,4 +2074,71 @@ function NotificationsSection(): React.ReactElement {
       ))}
     </Group>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Affiliate
+// ---------------------------------------------------------------------------
+
+/** The referral programme from the account's side: the link to share and
+ *  what it has earned. `/referrals/me` mints the link on first read, so
+ *  opening this section is enough to join. Names and contact details of the
+ *  people referred are never shown. */
+function AffiliateSection(): React.ReactElement {
+  const [data, setData] = useState<Fetch<ReferralSummary>>({ kind: "loading" });
+  const [copied, setCopied] = useState(false);
+  const load = useCallback(() => {
+    setData({ kind: "loading" });
+    fetchReferralSummary()
+      .then((value) => setData({ kind: "ok", value }))
+      .catch((e: Error) => setData({ kind: "error", message: e.message }));
+  }, []);
+  useEffect(load, [load]);
+
+  const intro = `Earn ${REFERRAL_RATE_PERCENT}% of eligible subscription payments from people who join through your link.`;
+  if (data.kind === "loading") return <Group first title="Affiliate" description={intro}><Muted>Loading your referrals…</Muted></Group>;
+  if (data.kind === "error") return <Group first title="Affiliate" description={intro}><LoadError message={data.message} onRetry={load} /></Group>;
+  const s = data.value;
+  const link = referralLink(s.code);
+  const copy = (): void => {
+    void navigator.clipboard.writeText(link).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 1600); });
+  };
+
+  return (
+    <>
+      <Group first title="Affiliate" description={intro}>
+        {REFERRALS_DEMO && (
+          <div style={{ margin: "8px 0 4px", padding: "10px 12px", borderRadius: RADIUS, background: FILL, fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>
+            Local preview · sample data only. This link, the earnings and the payout are not active.
+          </div>
+        )}
+        <Row
+          label={REFERRALS_DEMO ? "Example link" : "Your link"}
+          hint={<span style={{ wordBreak: "break-all" }}>{link}</span>}
+          control={<Btn variant="primary" onClick={copy}>{copied ? <Check size={13} aria-hidden={true} /> : null}{copied ? "Copied" : "Copy link"}</Btn>}
+        />
+        <Row label="Signups" hint="New accounts created through your link" control={<Stat>{num(s.signups)}</Stat>} />
+        <Row label="Paying customers" control={<Stat>{num(s.paid_customers)}</Stat>} last />
+      </Group>
+
+      <Group title="Commissions" description="Each commission is reviewed by the Pivot team before payout. Refunded or disputed payments are reversed.">
+        <Row label="Pending review" control={<Stat>{inr(s.totals_paise.pending)}</Stat>} />
+        <Row label="Approved" hint="Due in the next payout" control={<Stat>{inr(s.totals_paise.approved)}</Stat>} />
+        <Row label="Paid" control={<Stat>{inr(s.totals_paise.paid)}</Stat>} last />
+      </Group>
+
+      <Group title="Payouts" action={<Btn href="/affiliate">Programme details</Btn>}>
+        {s.payouts.length ? s.payouts.map((p, i) => (
+          <Row key={p.reference} label={inr(p.amount_paise)} hint={`Reference ${p.reference}`} control={<Stat>{fmtDate(p.created)}</Stat>} last={i === s.payouts.length - 1} />
+        )) : <Muted>No payouts recorded yet.</Muted>}
+        <p style={{ margin: "18px 0 0", fontSize: 13, lineHeight: 1.55, color: "var(--text-tertiary)" }}>
+          The names and contact details of the people you refer stay private. Payouts are reviewed and recorded by the Pivot team.
+        </p>
+      </Group>
+    </>
+  );
+}
+
+function Stat({ children }: { children: React.ReactNode }): React.ReactElement {
+  return <span style={{ fontSize: 14.5, color: "var(--text-primary)", fontVariantNumeric: "tabular-nums" }}>{children}</span>;
 }

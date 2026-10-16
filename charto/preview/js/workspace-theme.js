@@ -124,7 +124,7 @@
   const escape = str => String(str).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   const svg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m6 6 12 12M18 6 6 18"/></svg>';
   function preview(t) {
-    return `<span class="workspace-pair" aria-hidden="true"><i style="background:${t.surface};border-color:${t.border}"></i><i style="background:${t.chrome};border-color:${t.border}"></i></span>`;
+    return `<span class="workspace-pair" aria-hidden="true"><i style="background:${t.surface}"></i><i style="background:${t.chrome}"></i></span>`;
   }
   function openPicker(anchor) {
     closePanel?.();
@@ -148,7 +148,7 @@
     }
     function render() {
       const active = state.active;
-      panel.querySelector(".workspace-palettes").innerHTML = [...presets,...state.saved].map(t=>`<button type="button" data-palette="${t.id}" aria-label="${escape(t.name)} palette" aria-pressed="${t.id===active.id}">${preview(t)}<span>${escape(t.name)}</span><span class="workspace-selection" aria-hidden="true">${t.id===active.id?"✓":""}</span></button>`).join("");
+      panel.querySelector(".workspace-palettes").innerHTML = [...presets,...state.saved].map(t=>`<button type="button" data-palette="${t.id}" aria-label="${escape(t.name)} palette" aria-pressed="${t.id===active.id}">${preview(t)}<span>${escape(t.name)}</span></button>`).join("");
       fields.forEach(k=>{ panel.querySelector(`[data-color="${k}"]`).value=active[k]; panel.querySelector(`[data-hex="${k}"]`).value=active[k].toUpperCase(); });
       panel.querySelectorAll("[data-finish]").forEach(el=>el.setAttribute("aria-pressed",String(el.dataset.finish===active.finish)));
       panel.querySelector("[data-delete]").hidden=!active.id.startsWith("custom-");

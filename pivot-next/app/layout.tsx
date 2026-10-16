@@ -36,8 +36,8 @@ export default function RootLayout({
       <head>
         {/* Synchronous on purpose: it sets the theme before first paint. */}
         {/* eslint-disable-next-line @next/next/no-sync-scripts */}
-        <script src="/workspace-theme.js?v=5" data-surface="shell" />
-        <link rel="stylesheet" href="/workspace-theme.css?v=5" />
+        <script src="/workspace-theme.js?v=6" data-surface="shell" />
+        <link rel="stylesheet" href="/workspace-theme.css?v=6" />
         {/* Load Inter / Newsreader via explicit <link> tags.
             globals.css also @imports the same families, but a CSS @import to a
             remote URL is unreliable under Next + Tailwind/PostCSS (it can be
