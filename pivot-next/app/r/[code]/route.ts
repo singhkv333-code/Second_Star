@@ -1,11 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 
+/** A redirect by PATH. Behind nginx the standalone server sees itself as
+ *  localhost:3000, so an absolute URL built from `request.url` sent real
+ *  visitors to https://localhost:3000/... (seen 2026-10-16). A relative
+ *  Location resolves against the address the visitor actually used. */
+function redirectTo(path: string): NextResponse {
+  return new NextResponse(null, { status: 307, headers: { Location: path } });
+}
+
 export async function GET(
   request: NextRequest,
   context: { params: Promise<{ code: string }> },
 ): Promise<NextResponse> {
   const { code } = await context.params;
-  const destination = new URL("/signup", request.url);
   const upstream = process.env.CHARTO_UPSTREAM || "http://127.0.0.1:5174";
   try {
     const response = await fetch(`${upstream}/referrals/visit?code=${encodeURIComponent(code)}`, {
@@ -14,7 +21,7 @@ export async function GET(
     if (response.ok) {
       const data = (await response.json()) as { token?: string; window_seconds?: number };
       if (data.token) {
-        const redirect = NextResponse.redirect(destination);
+        const redirect = redirectTo("/signup");
         redirect.cookies.set("pivot_referral", data.token, {
           httpOnly: true,
           sameSite: "lax",
@@ -28,5 +35,5 @@ export async function GET(
   } catch {
     // The programme remains closed when the attribution service is unavailable.
   }
-  return NextResponse.redirect(new URL("/affiliate", request.url));
+  return redirectTo("/affiliate");
 }
