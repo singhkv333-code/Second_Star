@@ -7,7 +7,7 @@
  * becomes a horizontal strip above the content.
  *
  * Tabs:
- *   1. Profile        photo, full name, username, date of birth
+ *   1. Profile        photo, full name, date of birth
  *                     (GET/PATCH /auth/me; each field saves on its own).
  *   2. Account        email, password reset, two-factor, delete request.
  *   3. Usage          AI credits left, plan usage bars, upgrade.
@@ -76,7 +76,7 @@ type SectionKey = SettingsSectionKey;
 type IconType = React.ComponentType<{ size?: number; strokeWidth?: number; "aria-hidden"?: boolean }>;
 
 const SECTIONS: { key: SectionKey; label: string; Icon: IconType; keywords: string }[] = [
-  { key: "profile", label: "Profile", Icon: CircleUserRound, keywords: "photo avatar name username birth dob" },
+  { key: "profile", label: "Profile", Icon: CircleUserRound, keywords: "photo avatar name birth dob" },
   { key: "account", label: "Account", Icon: ShieldCheck, keywords: "email password two-factor 2fa delete security" },
   { key: "usage", label: "Usage", Icon: Gauge, keywords: "credits ai limits alerts upgrade" },
   { key: "billing", label: "Billing", Icon: CreditCard, keywords: "plan payment invoices subscription cancel" },
@@ -860,7 +860,6 @@ function todayIso(): string {
 function ProfileSection(): React.ReactElement {
   const [state, load, setProfile] = useProfile();
   const [name, setName] = useState("");
-  const [username, setUsername] = useState("");
   const [dob, setDob] = useState("");
   const [errors, setErrors] = useState<Partial<Record<keyof ProfilePatch, string>>>({});
   const [note, setNote] = useState<"saving" | "saved" | null>(null);
@@ -872,7 +871,6 @@ function ProfileSection(): React.ReactElement {
   useEffect(() => {
     if (!profile) return;
     setName(profile.full_name ?? "");
-    setUsername(profile.username ?? "");
     setDob(profile.dob ?? "");
     // Only when a different profile arrives, not on every save.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -900,9 +898,9 @@ function ProfileSection(): React.ReactElement {
     [setProfile],
   );
 
-  const commit = (field: "full_name" | "username" | "dob", raw: string): void => {
+  const commit = (field: "full_name" | "dob", raw: string): void => {
     if (!profile) return;
-    const value = field === "username" ? raw.trim().replace(/^@/, "").toLowerCase() : raw.trim();
+    const value = raw.trim();
     const current = (profile[field] ?? "") as string;
     if (value === current) return;
     void save(field, value || null);
@@ -1014,22 +1012,6 @@ function ProfileSection(): React.ReactElement {
                 onCommit={() => commit("full_name", name)}
                 placeholder="Your name"
                 invalid={!!errors.full_name}
-              />
-            }
-          />
-          <Row
-            label="Username"
-            htmlFor="pf-username"
-            hint={errors.username && <span style={{ color: DANGER }}>{errors.username}</span>}
-            control={
-              <TextField
-                id="pf-username"
-                value={username}
-                onChange={(v) => setUsername(v.replace(/\s/g, ""))}
-                onCommit={() => commit("username", username)}
-                placeholder="username"
-                prefix="@"
-                invalid={!!errors.username}
               />
             }
           />

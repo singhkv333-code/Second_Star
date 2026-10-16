@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import {
-  ArrowUp, Instagram,
+  ArrowDown, ArrowRight, ArrowUp, Instagram,
 } from "lucide-react";
 import { Patterns } from "@/components/landing/v3/Patterns";
 import { Workspace } from "@/components/landing/v3/Workspace";
@@ -122,7 +122,7 @@ function Hero() {
           <span className="pl-prompt-send"><ArrowUp size={16}/></span>
         </div>
       </div>
-      <div className="pl-actions"><a href="https://app.pivotnow.in/">Open Platform</a><a href="#demo">See how it works</a></div>
+      <div className="pl-actions"><a href="https://app.pivotnow.in/">Open Platform <ArrowRight size={16} aria-hidden="true" /></a><a href="#demo">See how it works <ArrowDown size={16} aria-hidden="true" /></a></div>
     </div>
   </section>;
 }

@@ -972,7 +972,7 @@ select.is-dressed { display: none; }
 
 /* ── the liquid sheet ────────────────────────────────────────────────────
    One look for every menu and popover (.dropdown and .ctx both): a lighter
-   frosted grey, a soft rim, 16px corners, rounded hover rows and separators
+   frosted grey, a soft rim, 6px corners, rounded hover rows and separators
    inset to the text. In dark every word on the sheet is white — titles,
    section heads and hints included — so the muted/faint inks are re-pointed
    at white INSIDE the sheet, and every component inherits it unedited.
@@ -990,8 +990,7 @@ select.is-dressed { display: none; }
 :root[data-theme="dark"] :is(.dropdown, .ctx) {
   --muted-foreground: #fff; --faint: #fff; --foreground: #fff; color: #fff;
 }
-.dropdown, .ctx { border-radius: 16px; }
-body > header .dropdown, .chart-tools .dropdown { border-radius: 6px; }
+.dropdown, .ctx { border-radius: 6px; }
 .dropdown .item, .ctx-row { border-radius: 10px; }
 .dropdown .item:hover { background: var(--ctx-hover); }
 .dropdown .sep { background: var(--ctx-seam); margin: var(--menu-pad) var(--menu-inset); }
@@ -1338,8 +1337,8 @@ body > header .dropdown, .chart-tools .dropdown { border-radius: 6px; }
 /* The link row and the brand row share one width, centred, so the dialog
    reads as one tidy column (the reference layout). */
 .sx-ok .sx-link, .sx-ok .sx-targets, .sx-ok .sx-share-lab { width: min(360px, 100%); margin-left: auto; margin-right: auto; }
-.sx-link { display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 12px; border-radius: var(--radius-sm);
-  border: 1px solid var(--border); background: var(--muted, color-mix(in srgb, var(--foreground) 4%, var(--background))); text-align: left; }
+.sx-link { display: flex; align-items: center; gap: 8px; padding: 5px 5px 5px 13px;
+  border: 0; border-radius: var(--radius-sm); background: var(--muted, color-mix(in srgb, var(--foreground) 4%, var(--background))); box-shadow: none; text-align: left; }
 .sx-link > svg.icon { width: 13px; height: 13px; opacity: .55; flex: none; }
 .sx-link input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; color: var(--foreground);
   font-family: var(--mono); font-size: 12px; }
@@ -2753,25 +2752,6 @@ header > .btn, header > .badge { flex: none; }
 
 /* Density follows each chart's width, including inside a wide desktop. */
 .stage, .subchart { container: chart-pane / inline-size; }
-.pane-expand {
-  position: absolute; right: 10px; bottom: 38px; z-index: 8;
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 28px; height: 28px; padding: 0; border: 1px solid var(--border);
-  border-radius: 6px; color: var(--muted-foreground); background: var(--card);
-  cursor: pointer;
-}
-.pane-expand:hover { color: var(--foreground); background: var(--hover-fill); }
-.pane-expand:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
-.charts[data-layout="s1"] .pane-expand { display: none; }
-.charts.pane-expanded {
-  grid-template-areas: "expanded" !important;
-  grid-template-columns: minmax(0, 1fr) !important;
-  grid-template-rows: minmax(0, 1fr) !important;
-}
-.charts.pane-expanded > .stage, .charts.pane-expanded > .subchart { display: none; }
-.charts.pane-expanded > .pane-expanded-target { display: block; grid-area: expanded !important; }
-
-
 /* The selected pane — the one the single toolbar drives. Drawn as an inset
    ring so selecting a pane never nudges the layout by a pixel. */
 .stage.pane-active, .subchart.pane-active { box-shadow: inset 0 0 0 1.5px var(--primary); }
@@ -11946,7 +11926,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/scene.js?v=54"></script>
   <script src="./js/chartsize.js?v=7"></script>
   <script src="./js/compare.js?v=17"></script>
-  <script src="./js/panes.js?v=38"></script>
+  <script src="./js/panes.js?v=39"></script>
   <!-- the Footprint chart type: a primitive on the price series, mounted by main.js -->
   <script src="./js/footprint.js?v=9"></script>
   <script src="./js/main.js?v=188"></script>
@@ -11961,9 +11941,9 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
   <script src="./js/layouts.js?v=14"></script>
-  <script src="./js/share-preview.js?v=2"></script>
+  <script src="./js/share-preview.js?v=4"></script>
   <!-- shared setups: publish, view-only links, "Make it mine" -->
-  <script src="./js/setups.js?v=17"></script>
+  <script src="./js/setups.js?v=18"></script>
   <!-- Voice must load before chat.js, which wires it to the composer. -->
   <script src="./js/voice.js?v=2"></script>
   <!-- before chat.js, which asks it to render the panels a tool prints as the
