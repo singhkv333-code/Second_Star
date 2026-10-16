@@ -211,10 +211,24 @@ def _apply(uid: int, entity: dict) -> dict:
                  else min(int(pe or time.time()), int(time.time())) + ent.GRACE_DAYS * 86400)
     elif status == "active" and pe:
         grace = int(pe) + ent.GRACE_DAYS * 86400      # a late renewal webhook
+    with ent._lock:
+        prev = ent._con.execute(
+            "SELECT plan, cycle, status, period_end FROM subscriptions WHERE user_id=?",
+            (uid,)).fetchone()
     ent.set_subscription(
         uid, plan=plan, status=status, cycle=cycle, provider=PROVIDER,
         provider_sub_id=str(entity.get("id")), period_start=ps, period_end=pe,
         cancel_at_period_end=None, grace_until=grace)
+    if on_subscription_change:
+        try:
+            on_subscription_change(
+                uid,
+                dict(zip(("plan", "cycle", "status", "period_end"), prev)) if prev else None,
+                {"plan": plan, "cycle": cycle, "status": status, "period_start": ps,
+                 "period_end": pe, "grace_until": grace},
+                entity)
+        except Exception as exc:                        # noqa: BLE001 — mail never blocks billing
+            log.warning("subscription hook failed for %s: %s", uid, exc)
     # A scheduled change is done once the provider reports the plan it named,
     # or reports that nothing is scheduled any more.
     pend = ent.pending_change(uid)
@@ -551,6 +565,8 @@ def _webhook(raw: bytes, headers) -> tuple[int, dict]:
             log.exception("verified payment event %s needs review: %s", eid, exc)
             result = f"referral exception: {exc}"
         ent.event_result(PROVIDER, eid, result)
+        if etype == "refund.processed":
+            _refund_mail(ev)
         return 200, {"ok": True, "result": result}
     if not etype.startswith("subscription."):
         ent.event_result(PROVIDER, eid, "ignored")
@@ -600,6 +616,31 @@ def _webhook(raw: bytes, headers) -> tuple[int, dict]:
 # this file does not import the alert engine.
 on_downgrade = None
 on_verified_payment_event = None
+# Set by dataserver: the account mail (notify.py). Called after a write, never
+# allowed to fail the request or the webhook.
+on_subscription_change = None
+on_refund = None
+
+
+def _refund_mail(ev: dict) -> None:
+    """Tell the account a refund went out: refund -> payment -> invoice ->
+    subscription -> user. Best effort; a refund is never held up by mail."""
+    if not on_refund:
+        return
+    try:
+        pl = ev.get("payload") or {}
+        rf = (pl.get("refund") or {}).get("entity") or {}
+        pay = (pl.get("payment") or {}).get("entity") or {}
+        pid = str(rf.get("payment_id") or pay.get("id") or "")
+        if pid and not pay.get("invoice_id"):
+            pay = http("GET", f"/payments/{pid}")
+        inv = pay.get("invoice_id")
+        sid = http("GET", f"/invoices/{inv}").get("subscription_id") if inv else None
+        uid = ent.user_for_provider_sub(PROVIDER, str(sid)) if sid else None
+        if uid is not None:
+            on_refund(uid, str(rf.get("id") or ""), rf.get("amount"), pid, pay.get("created_at"))
+    except Exception as exc:                            # noqa: BLE001
+        log.warning("refund mail skipped: %s", exc)
 
 
 def _on_downgrade(uid: int) -> None:

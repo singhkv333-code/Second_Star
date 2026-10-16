@@ -16842,6 +16842,20 @@ def _referral_payment_event(kind: str, event_id: str, event: dict) -> str:
 
 _billing.on_verified_payment_event = _referral_payment_event
 
+# ── account, billing and activity mail (notify.py) ─────────────────────────
+# Welcome, new sign-in, receipts, failed payments, plan changes, cancellation,
+# refunds, renewal reminders and strategy paper fills. Hooks only enqueue; one
+# worker sends, once per event.
+try:
+    import notify as _notify_mod
+    _notify = _notify_mod.Notifier(_users, _users_lock, catalog=_ent.CATALOG)
+    _billing.on_subscription_change = _notify.subscription_changed
+    _billing.on_refund = _notify.refunded
+    _notify.start_reminders()
+except Exception as _notify_exc:              # noqa: BLE001 — mail never takes the server down
+    logging.warning("account mail unavailable: %s", _notify_exc)
+    _notify = None
+
 
 def _referral_reconcile() -> dict:
     """Compare recent ledger entries with fresh provider payment records."""
@@ -17081,6 +17095,8 @@ try:
 except Exception as _paper_exc:  # noqa: BLE001
     logging.warning("charto paper book unavailable: %s", _paper_exc)
     _paper = None
+if _paper is not None and _notify is not None:
+    _paper.on_fill = _notify.paper_filled
 try:
     import strategies as _strategies
 except Exception as _strat_exc:  # noqa: BLE001
@@ -19021,9 +19037,16 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/billing/reconcile":
             return _billing.api_reconcile(me[0])
         if path == "/billing/cancel":
-            return _billing.api_cancel(me[0])
+            out = _billing.api_cancel(me[0])
+            sub = ((out[1].get("billing") or {}).get("subscription") or {}) if out[0] == 200 else {}
+            if out[0] == 200 and _notify and sub.get("plan"):
+                _notify.cancelled(me[0], sub["plan"], out[1].get("active_until"))
+            return out
         if path == "/billing/change":
+            was = (_ent.summary(me[0]).get("subscription") or {}).get("plan")
             out = _billing.api_change(me[0], body)
+            if (out[0] == 200 and _notify and was and out[1].get("effective") == "cycle_end"):
+                _notify.change_scheduled(me[0], was, str(body.get("plan") or ""), out[1].get("at"))
             # A downgrade that lands now (rare: a change the provider applied
             # at once) is brought inside the new plan like any other drop.
             if out[0] == 200 and out[1].get("effective") == "now":
@@ -19115,7 +19138,10 @@ class Handler(BaseHTTPRequestHandler):
                 return 429, {"error": _guard.TOO_MANY}
             if _verifs is None:
                 return 503, {"error": "Email confirmation is not available right now."}
-            return _verifs.confirm(body.get("token"))
+            code, out = _verifs.confirm(body.get("token"))
+            if code == 200 and _notify and out.get("email"):
+                _notify.confirmed_email(out["email"])
+            return code, out
         if path == "/auth/verify/resend":
             me = _auth_user(self.headers)
             if not me:
@@ -19142,6 +19168,12 @@ class Handler(BaseHTTPRequestHandler):
             if code == 200 and path == "/auth/login":
                 _limiter.clear("login_account",
                                f"{self._client_ip()}|{str(body.get('email') or '').strip().lower()}")
+            if code == 200 and isinstance(out.get("user"), dict) and _notify:
+                _notify.signed_in(
+                    int(out["user"]["id"]),
+                    how={"/auth/signup": "signup", "/auth/google": "google"}.get(path, "login"),
+                    new_account=path == "/auth/signup" or bool(out.get("new")),
+                    ua=self.headers.get("User-Agent") or "")
             if code == 200 and isinstance(out.get("user"), dict):
                 _analytics.capture(out["user"].get("id"),
                                    "user_signed_up" if path == "/auth/signup" else "user_logged_in",

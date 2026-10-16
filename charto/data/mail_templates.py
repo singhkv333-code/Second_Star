@@ -344,6 +344,23 @@ def subscription_started(*, plan: str, cycle: str, amount: str, period: str,
     ], Footer(BILLING_REASON))
 
 
+def payment_received(*, plan: str, cycle: str, amount: str, period: str,
+                     renews: str, reference: str, invoice_url: str | None = None,
+                     origin: str = APP) -> Mail:
+    """A renewal went through. The first payment has `subscription_started`."""
+    return _mail("payment_received", "billing", f"Payment received for Pivot {plan}",
+                 f"Your {plan} plan renewed: {amount}. Thank you.", [
+        heading("Your plan renewed"),
+        para(f"We received {amount} for another period of Pivot {plan}. Nothing "
+             "changes in your account."),
+        facts([("Plan", f"{plan}, billed {cycle.lower()}"), ("Amount paid", amount),
+               ("Period", period), ("Next renewal", renews),
+               ("Payment reference", reference)]),
+        button("View invoice" if invoice_url else "Manage billing",
+               invoice_url or f"{origin}/settings/billing"),
+    ], Footer(BILLING_REASON))
+
+
 def payment_failed(*, plan: str, amount: str, retry_on: str | None = None,
                    access_until: str | None = None, origin: str = APP) -> Mail:
     blocks = [
@@ -539,6 +556,10 @@ def samples(origin: str = APP) -> dict[str, Mail]:
             plan="Pro", cycle="Monthly", amount="₹499.00 (GST included)",
             period="14 Oct to 13 Nov 2026", renews="14 Nov 2026",
             reference="pay_SAMPLE12345", origin=origin),
+        "payment_received": payment_received(
+            plan="Pro", cycle="Monthly", amount="₹499.00",
+            period="16 Nov 2026 to 15 Dec 2026", renews="16 Dec 2026",
+            reference="pay_Q8x2...", origin=origin),
         "payment_failed": payment_failed(plan="Pro", amount="₹499.00",
                                          retry_on="16 Nov 2026", access_until="21 Nov 2026",
                                          origin=origin),

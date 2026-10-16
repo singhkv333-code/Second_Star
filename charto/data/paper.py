@@ -213,6 +213,10 @@ def _db():
     return ds._users
 
 
+# Set by dataserver to notify.Notifier.paper_filled: (uid, fill, strategy_id).
+on_fill = None
+
+
 _ready = False
 _init_lock = threading.Lock()
 
@@ -508,7 +512,7 @@ def _fill(acct: tuple, order: dict, price: Decimal, *, seed_prev: Optional[Decim
     _db().execute(
         "UPDATE paper_orders SET status='filled', reserved_cash=0, updated=? "
         "WHERE id=?", (now, order["id"]))
-    return {
+    out = {
         "id": fill_id, "order_id": order["id"], "symbol": symbol, "side": side,
         "quantity": _qty_out(qty), "fill_price": f(price),
         "gross_value": f(gross), "charges": f(charges),
@@ -516,6 +520,13 @@ def _fill(acct: tuple, order: dict, price: Decimal, *, seed_prev: Optional[Decim
         "realized_pnl": None if realized is None else f(realized),
         "filled_at": _iso(now),
     }
+    if on_fill is not None:
+        # Enqueue only: the caller holds the write lock (see notify.py).
+        try:
+            on_fill(uid, out, order.get("strategy_id"))
+        except Exception:                                # noqa: BLE001
+            pass
+    return out
 
 
 # ── placing an order ─────────────────────────────────────────────────
