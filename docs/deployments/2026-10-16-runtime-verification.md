@@ -68,3 +68,40 @@ The two systemd failed units are historical: bootstrap on 8 October and
 legacy NSE retention on 9 October. Retention intentionally stopped to preserve
 serving-disk headroom. Neither job was rerun or its failed state hidden during
 this deployment repair. Current serving processes remain active.
+
+## UI deployment — 16 October, 16:08 IST
+
+Owner requested VM deployment of the prompt-bar and market-card changes.
+Deployed `31560c10d8b7f1ddfc921734b379ad9530bc90d4` through the existing
+release manager using a SHA-256 verified private Git bundle. Only the 13
+reviewed files in its explicit plan were installed; unrelated working-tree
+edits were excluded. No Git remote was pushed.
+
+- Replacement Next build completed before the swap; only `pivot-next`
+  restarted. Charto/Kite and the other backend processes were not restarted.
+- State records `manual_deploy: true`. A tested, narrowly scoped guard was
+  installed in the release manager: while this flag is present, the timer
+  refuses an older or divergent published branch instead of reverting the
+  manual release. Normal branch-controlled rollback behavior is unchanged
+  for releases without that flag. Publish the reviewed commits before future
+  branch-based releases; do not remove the flag to silently discard them.
+- Production favicon URL is now `/icon.svg?161c58b947d2ccf0`. The source SVG
+  revision changes Next's content hash, avoiding the previously failed cached
+  URL. Home, login and stock pages all reference it. HTTP 200, correct SVG
+  content type, and byte-for-byte comparison with local source passed.
+- Verified in the existing signed-in Chrome session: both market cards are
+  315.5px high; the brief has a 195px scroll region containing 486px of content;
+  internal scrolling works. Alien-handle dragging changed the bar's position;
+  reset returned it to the default 40px bottom clearance. No message was sent.
+- The signed-in DOM contains the new favicon reference. Browser tooling adds
+  its own temporary inspection badge, preserving the app URL in
+  `data-codex-original-favicon-href`; it must not be mistaken for product code.
+- `/health` and `/pv/health` pass after deployment. Metadata route repair
+  reports both vhosts already match. Deployment unit reports success.
+- Validation before deployment: 13 deployment/route tests, five focused UI
+  tests, and TypeScript checking passed.
+
+Runtime build/source rollback is retained by the release manager under its
+`backups/31560c10d8b7` and `.next.before-31560c10d8b7` paths. The release-manager
+script before the manual guard is saved as
+`/var/lib/pivot-release/pivot_release.before-ui-20261016.py`.
