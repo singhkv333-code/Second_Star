@@ -16,6 +16,13 @@ type Params = Promise<{ symbol: string }>;
 // window is served the same cached HTML.
 export const revalidate = 900;
 
+// No pages at build time; each is rendered on its first request and then
+// served from cache, regenerated in the background every `revalidate`
+// seconds (incremental static regeneration).
+export function generateStaticParams(): never[] {
+  return [];
+}
+
 function symbolOf(raw: string): string {
   // Next hands dynamic segments over STILL percent-encoded. Without this
   // decode, a symbol containing a reserved character arrived as its literal

@@ -15,6 +15,13 @@ import { LETTERS, absoluteUrl, letterOf, stockPath } from "@/lib/seo/site";
 
 export const revalidate = 900;
 
+// No pages at build time; each is rendered on its first request and then
+// served from cache, regenerated in the background every `revalidate`
+// seconds (incremental static regeneration).
+export function generateStaticParams(): never[] {
+  return [];
+}
+
 type Params = Promise<{ slug: string }>;
 
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {

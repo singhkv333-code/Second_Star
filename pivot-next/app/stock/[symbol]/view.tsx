@@ -1,11 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { AppShell } from "@/components/AppShell";
-import { StockDetailPage } from "@/components/StockDetailPage";
 import { loginForHere } from "@/lib/returnTo";
 import { sessionToken } from "@/lib/session";
+
+// The signed-in research page is most of this route's JavaScript. Loaded only
+// once a session is found, so a signed-out reader (and a crawler's renderer)
+// downloads the public page's few kilobytes instead.
+const SignedInPage = dynamic(() => import("./signedIn").then((m) => m.SignedInStockPage), { ssr: false });
 
 /**
  * Two readers, one URL.
@@ -39,13 +43,6 @@ export function StockSymbolView({
     if (!has && !publicPage) router.replace(loginForHere());
   }, [publicPage, router]);
 
-  if (signedIn) {
-    return (
-      <AppShell>
-        <StockDetailPage symbol={symbol} />
-        <div aria-hidden style={{ height: 96 }} />
-      </AppShell>
-    );
-  }
+  if (signedIn) return <SignedInPage symbol={symbol} />;
   return <>{publicPage}</>;
 }
