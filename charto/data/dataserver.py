@@ -16819,56 +16819,21 @@ def _plan_downgraded(uid: int) -> None:
 _billing.on_downgrade = _plan_downgraded
 
 
-def _referral_payment_event(kind: str, event_id: str, event: dict) -> str:
+def _referral_conversion(uid: int, new: dict) -> str:
+    """Credit a referred account's paid period from Pivot's own subscription
+    record. No payment-provider lookup: the account converted to a paid plan
+    and our billing says which plan, cycle and period, which is all the
+    commission needs (see Referrals.conversion)."""
     if not _referrals:
         return "referrals disabled"
-    payload = event.get("payload") or {}
-    if kind == "payment.captured":
-        payment = (payload.get("payment") or {}).get("entity") or {}
-        if payment.get("status") != "captured" or payment.get("currency") != "INR":
-            return "not an INR capture"
-        invoice_id = str(payment.get("invoice_id") or "")
-        if not invoice_id:
-            return "no subscription invoice; no commission"
-        invoice = _billing.http("GET", f"/invoices/{invoice_id}")
-        if (invoice.get("status") != "paid" or invoice.get("currency") != "INR"
-                or str(invoice.get("payment_id") or "") != str(payment.get("id") or "")
-                or int(invoice.get("amount_paid") or 0) < int(payment.get("amount") or 0)):
-            return "invoice and payment do not match"
-        paid_at = int(invoice.get("paid_at") or 0)
-        if paid_at <= 0:
-            return "invoice lacks paid date; review"
-        customer_id = str(invoice.get("customer_id") or "")
-        if not customer_id:
-            return "invoice lacks customer identity; review"
-        customer_key = hmac.new(environ["PIVOT_REFERRAL_IDENTITY_KEY"].encode(),
-                                customer_id.encode(), hashlib.sha256).hexdigest()
-        sub_id = invoice.get("subscription_id")
-        uid = _ent.user_for_provider_sub("razorpay", str(sub_id or ""))
-        if uid is None:
-            return "unmatched subscription payment"
-        return _referrals.payment(event_id, str(payment.get("id") or ""), uid,
-            int(payment.get("amount") or 0),
-            int(environ["PIVOT_REFERRAL_RATE_BPS"]),
-            int(environ["PIVOT_REFERRAL_COMMISSION_DAYS"]), customer_key=customer_key,
-            paid_at=paid_at)
-    if kind == "refund.processed":
-        refund = (payload.get("refund") or {}).get("entity") or {}
-        if refund.get("status") != "processed":
-            return "refund not processed"
-        return _referrals.reverse(event_id, str(refund.get("id") or ""),
-            str(refund.get("payment_id") or ""), int(refund.get("amount") or 0), json.dumps(event))
-    if kind.startswith("payment.dispute."):
-        dispute = (payload.get("dispute") or {}).get("entity") or {}
-        if dispute.get("currency") != "INR":
-            return "non-INR dispute"
-        return _referrals.dispute(event_id, str(dispute.get("id") or ""),
-            str(dispute.get("payment_id") or ""), int(dispute.get("amount") or 0),
-            kind.rsplit(".", 1)[-1], json.dumps(event))
-    return "unhandled payment event"
-
-
-_billing.on_verified_payment_event = _referral_payment_event
+    plan, cycle, start = new.get("plan"), new.get("cycle"), new.get("period_start")
+    if new.get("status") != "active" or not plan or plan == "free" or not cycle or not start:
+        return "not a paid period"
+    price = int(_ent.CATALOG["plans"][plan]["prices"][cycle]["amount"])
+    return _referrals.conversion(uid, plan, cycle, int(start), price,
+        rate_bps=int(environ["PIVOT_REFERRAL_RATE_BPS"]),
+        duration_days=int(environ["PIVOT_REFERRAL_COMMISSION_DAYS"]),
+        gst_inclusive=bool(_ent.CATALOG.get("gst_inclusive", True)))
 
 # ── account, billing and activity mail (notify.py) ─────────────────────────
 # Welcome, new sign-in, receipts, failed payments, plan changes, cancellation,
@@ -16884,46 +16849,41 @@ except Exception as _notify_exc:              # noqa: BLE001 — mail never take
     logging.warning("account mail unavailable: %s", _notify_exc)
     _notify = None
 
+_mail_on_subscription_change = _billing.on_subscription_change
+_mail_on_refund = _billing.on_refund
 
-def _referral_reconcile() -> dict:
-    """Compare recent ledger entries with fresh provider payment records."""
-    checked, mismatches = 0, []
-    for row in _referrals.ledger_rows():
+
+def _on_subscription_change(uid, prev, new, entity) -> None:
+    """Mail first, then the referral ledger; neither can stop the other."""
+    if _mail_on_subscription_change:
         try:
-            payment = _billing.http("GET", f"/payments/{row['payment_id']}")
-            checked += 1
-            refunded = int(payment.get("amount_refunded") or 0)
-            expected_reversal = min(row["earned_paise"],
-                (refunded + row["dispute_lost_paise"]) * row["rate_bps"] // 10000)
-            if (payment.get("status") not in ("captured", "refunded") or
-                    payment.get("currency") != "INR" or
-                    int(payment.get("amount") or 0) != row["gross_paise"] or
-                    expected_reversal != row["reversed_paise"]):
-                mismatches.append({"payment_id": row["payment_id"],
-                                   "ledger_status": row["status"],
-                                   "provider_status": payment.get("status"),
-                                   "provider_refunded_paise": refunded,
-                                   "ledger_reversed_paise": row["reversed_paise"]})
-        except Exception as exc:
-            mismatches.append({"payment_id": row["payment_id"], "error": str(exc)})
-    return {"checked": checked, "mismatches": mismatches,
-            "limited_to_latest": 100}
+            _mail_on_subscription_change(uid, prev, new, entity)
+        except Exception as exc:              # noqa: BLE001
+            logging.warning("subscription mail failed for %s: %s", uid, exc)
+    try:
+        result = _referral_conversion(uid, new)
+        if result not in ("referrals disabled", "not a paid period", "no eligible signup"):
+            logging.info("referral conversion for account %s: %s", uid, result)
+    except Exception as exc:                  # noqa: BLE001 — billing never waits on referrals
+        logging.exception("referral conversion failed for %s: %s", uid, exc)
 
 
-def _referral_unmatched_events() -> list[dict]:
-    with _users_lock:
-        rows = _users.execute("SELECT event_id,type,result FROM billing_events WHERE provider='razorpay' AND (result LIKE 'referral exception:%' OR result LIKE 'unmatched%' OR result LIKE 'no subscription invoice%' OR result LIKE 'invoice and payment%') ORDER BY received DESC LIMIT 100").fetchall()
-    return [{"event_id": r[0], "type": r[1], "result": r[2]} for r in rows]
+def _on_refund(uid, refund_id, amount, payment_id, created_at) -> None:
+    if _mail_on_refund:
+        try:
+            _mail_on_refund(uid, refund_id, amount, payment_id, created_at)
+        except Exception as exc:              # noqa: BLE001
+            logging.warning("refund mail failed for %s: %s", uid, exc)
+    if _referrals and refund_id and amount:
+        try:
+            _referrals.refund(int(uid), str(refund_id), int(amount),
+                              bool(_ent.CATALOG.get("gst_inclusive", True)))
+        except Exception as exc:              # noqa: BLE001
+            logging.exception("referral reversal failed for %s: %s", uid, exc)
 
 
-def _referral_replay(event_id: str) -> str:
-    with _users_lock:
-        row = _users.execute("SELECT type,payload FROM billing_events WHERE provider='razorpay' AND event_id=?", (event_id,)).fetchone()
-    if not row or row[0] not in ("payment.captured", "refund.processed", "payment.dispute.created", "payment.dispute.won", "payment.dispute.lost"):
-        raise ValueError("No supported verified billing event with that ID")
-    result = _referral_payment_event(row[0], event_id, json.loads(row[1]))
-    _ent.event_result("razorpay", event_id, "replayed: " + result)
-    return result
+_billing.on_subscription_change = _on_subscription_change
+_billing.on_refund = _on_refund
 
 
 def _plan_sweep_loop() -> None:
@@ -19503,7 +19463,7 @@ class Handler(BaseHTTPRequestHandler):
             if u.path in ("/billing/plans", "/billing/me", "/billing/invoices"):
                 return self._send(*self._billing_get(u.path),
                                   headers={"Cache-Control": "no-store"})
-            if u.path in ("/referrals/visit", "/referrals/terms", "/referrals/me", "/admin/referrals", "/admin/referrals/reconcile"):
+            if u.path in ("/referrals/visit", "/referrals/terms", "/referrals/me", "/admin/referrals"):
                 if not _referrals:
                     return self._send(503, {"error": "Referral programme is not open."},
                                       headers={"Cache-Control": "no-store"})
@@ -19521,7 +19481,16 @@ class Handler(BaseHTTPRequestHandler):
                 if u.path.startswith("/admin/referrals"):
                     if str(me[1]).lower() not in _ADMIN_EMAILS:
                         return self._send(403, {"error": "Admin access required"})
-                    data = _referral_reconcile() if u.path.endswith("/reconcile") else {"review": _referrals.exceptions(), "unmatched_events": _referral_unmatched_events()}
+                    signups = _referrals.attributions()
+                    ids = {r["subscriber_id"] for r in signups} | {r["referrer_id"] for r in signups}
+                    with _users_lock:
+                        emails = dict(_users.execute(
+                            f"SELECT id,email FROM users WHERE id IN ({','.join('?' * len(ids)) or 'NULL'})",
+                            tuple(ids)).fetchall()) if ids else {}
+                    for r in signups:
+                        r["subscriber_email"] = emails.get(r["subscriber_id"], "")
+                        r["referrer_email"] = emails.get(r["referrer_id"], "")
+                    data = {"review": _referrals.exceptions(), "signups": signups}
                     return self._send(200, data,
                                       headers={"Cache-Control": "no-store"})
                 return self._send(200, _referrals.summary(me[0]),
@@ -20549,7 +20518,7 @@ class Handler(BaseHTTPRequestHandler):
             if tail.startswith("playbooks/") and tail.split("/")[-1].isdigit():
                 return self._send(*_journal.api_playbook(me[0], body, int(tail.split("/")[-1])))
             return self._send(404, {"error": f"no journal route '{tail}'"})
-        if u.path in ("/admin/referrals/approve", "/admin/referrals/payout", "/admin/referrals/replay", "/admin/referrals/resolve"):
+        if u.path in ("/admin/referrals/approve", "/admin/referrals/payout", "/admin/referrals/resolve"):
             if not _referrals:
                 return self._send(503, {"error": "Referral programme is not open."})
             me = _auth_user(self.headers)
@@ -20562,8 +20531,6 @@ class Handler(BaseHTTPRequestHandler):
                 if ln < 0 or ln > 8192:
                     return self._send(413, {"error": "body too large"})
                 body = json.loads(self.rfile.read(ln) or b"{}")
-                if u.path.endswith("replay"):
-                    return self._send(200, {"result": _referral_replay(str(body.get("event_id") or ""))})
                 if u.path.endswith("approve"):
                     done = _referrals.approve(str(body.get("payment_id") or ""), str(me[1]))
                     return self._send(200 if done else 409, {"approved": done})

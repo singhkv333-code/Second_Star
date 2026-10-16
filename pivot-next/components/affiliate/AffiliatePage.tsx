@@ -231,7 +231,15 @@ export function AffiliateDashboard(): React.ReactElement {
 }
 
 type ReviewRow = { payment_id: string; subscriber_id: number; referrer_id: number; earned_paise: number; reversed_paise: number; status: string };
-type UnmatchedEvent = { event_id: string; type: string; result: string };
+type SignupRow = {
+  subscriber_id: number; subscriber_email: string; referrer_id: number; referrer_email: string;
+  code: string | null; signed_up: number; status: string; paid_periods: number; earned_paise: number;
+};
+const DEMO_SIGNUPS: SignupRow[] = [
+  { subscriber_id: 104, subscriber_email: "trader@example.com", referrer_id: 10, referrer_email: "affiliate@example.com", code: "demo-link", signed_up: 1792022400, status: "pending", paid_periods: 1, earned_paise: 12475 },
+  { subscriber_id: 107, subscriber_email: "investor@example.com", referrer_id: 10, referrer_email: "affiliate@example.com", code: "demo-link", signed_up: 1792108800, status: "pending", paid_periods: 0, earned_paise: 0 },
+];
+const day = (t: number): string => new Date(t * 1000).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 const DEMO_REVIEW: ReviewRow[] = [
   { payment_id: "pay_demo_pending", subscriber_id: 104, referrer_id: 10, earned_paise: 12475, reversed_paise: 0, status: "pending" },
   { payment_id: "pay_demo_approved", subscriber_id: 105, referrer_id: 10, earned_paise: 12475, reversed_paise: 0, status: "approved" },
@@ -240,12 +248,11 @@ const DEMO_REVIEW: ReviewRow[] = [
 
 function ReferralAdmin({ demo }: { demo: boolean }): React.ReactElement | null {
   const [rows, setRows] = useState<ReviewRow[] | null>(demo ? DEMO_REVIEW : null);
-  const [unmatched, setUnmatched] = useState<UnmatchedEvent[]>([]);
+  const [signups, setSignups] = useState<SignupRow[]>(demo ? DEMO_SIGNUPS : []);
   const [notice, setNotice] = useState("");
   const [reference, setReference] = useState("");
   const [reviewReason, setReviewReason] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
-  const [mismatches, setMismatches] = useState<string[]>([]);
   const [accessError, setAccessError] = useState("");
   const token = demo ? "local-demo" : readChartoToken();
   const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
@@ -253,9 +260,9 @@ function ReferralAdmin({ demo }: { demo: boolean }): React.ReactElement | null {
     if (demo) return;
     const response = await fetch("/admin/referrals", { headers, cache: "no-store" });
     if (response.ok) {
-      const data = (await response.json()) as { review: ReviewRow[]; unmatched_events: UnmatchedEvent[] };
+      const data = (await response.json()) as { review: ReviewRow[]; signups: SignupRow[] };
       setRows(data.review);
-      setUnmatched(data.unmatched_events);
+      setSignups(data.signups || []);
       setAccessError("");
     } else {
       setAccessError(response.status === 403 ? "This account does not have referral administrator access." : "Referral reviews are unavailable. Try again shortly.");
@@ -271,14 +278,6 @@ function ReferralAdmin({ demo }: { demo: boolean }): React.ReactElement | null {
     setNotice(response.ok ? "Commission approved." : "Approval failed. Review the commission status.");
     await refresh();
   };
-  const reconcile = async (): Promise<void> => {
-    if (demo) { setNotice("Local preview: no Razorpay records were contacted."); setMismatches([]); return; }
-    const response = await fetch("/admin/referrals/reconcile", { headers, cache: "no-store" });
-    if (!response.ok) { setNotice("Reconciliation failed. Try again."); return; }
-    const data = (await response.json()) as { mismatches: { payment_id: string }[]; checked: number };
-    setMismatches(data.mismatches.map((m) => m.payment_id));
-    setNotice(`Checked ${data.checked} provider payments; ${data.mismatches.length} need review.`);
-  };
   const payout = async (): Promise<void> => {
     const chosen = rows.filter((r) => selected.includes(r.payment_id));
     const first = chosen[0];
@@ -289,13 +288,6 @@ function ReferralAdmin({ demo }: { demo: boolean }): React.ReactElement | null {
     const response = await fetch("/admin/referrals/payout", { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ referrer_id: first.referrer_id, payment_ids: selected, reference: reference.trim() }) });
     setNotice(response.ok ? "Payout recorded. Confirm the transfer in your payment records." : "Payout could not be recorded. Check eligibility and the minimum.");
     if (response.ok) { setSelected([]); setReference(""); }
-    await refresh();
-  };
-  const replay = async (event_id: string): Promise<void> => {
-    if (demo) { setNotice(`Local preview: ${event_id} was not sent to a payment provider.`); return; }
-    const response = await fetch("/admin/referrals/replay", { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ event_id }) });
-    const data = (await response.json()) as { result?: string; error?: string };
-    setNotice(response.ok ? `Replay: ${data.result}` : data.error || "Replay failed.");
     await refresh();
   };
   const resolve = async (payment_id: string, decision: "clear" | "reject"): Promise<void> => {
@@ -309,10 +301,15 @@ function ReferralAdmin({ demo }: { demo: boolean }): React.ReactElement | null {
   return <section className="aff-shell aff-account aff-admin" id="referral-admin" aria-label="Referral administration">
     <h2>Referral review</h2>
     {demo && <p className="aff-demo-note">Local preview · these controls change sample data in this browser only.</p>}
-    <p>Approve verified commissions, compare ledger entries with Razorpay, and record transfers made outside Pivot.</p>
-    <button type="button" className="aff-btn aff-btn-line" onClick={() => void reconcile()}>Reconcile with Razorpay</button>
+    <p>Commission is credited when a referred account is on an active paid plan for a new billing period, from Pivot&apos;s own billing records. Approve it, transfer the money, then record the transfer here.</p>
     {notice && <p role="status">{notice}</p>}
-    {mismatches.length > 0 && <p role="alert">Check these payment IDs: {mismatches.join(", ")}</p>}
+    <h3>Referred signups</h3>
+    <div className="aff-admin-list">{signups.length ? signups.map((r) => <div key={r.subscriber_id}>
+      <span>{r.subscriber_email || `Account ${r.subscriber_id}`}<small>Joined {day(r.signed_up)} through {r.referrer_email || `account ${r.referrer_id}`}{r.code ? ` · link ${r.code}` : ""}</small></span>
+      <span>{r.paid_periods > 0 ? `Paid · ${r.paid_periods} period${r.paid_periods === 1 ? "" : "s"}` : "Not converted"}</span>
+      <strong>{inr(r.earned_paise / 100)}</strong>
+    </div>) : <p>No one has signed up through a referral link yet.</p>}</div>
+    <h3>Commissions</h3>
     <div className="aff-account-link"><input aria-label="Exception review reason" placeholder="Reason for exception decision" value={reviewReason} onChange={(e) => setReviewReason(e.target.value)} /></div>
     <div className="aff-admin-list">{rows.length ? rows.map((r) => <div key={r.payment_id}>
       <input type="checkbox" aria-label={`Select ${r.payment_id}`} disabled={r.status !== "approved"} checked={selected.includes(r.payment_id)} onChange={(e) => setSelected(e.target.checked ? [...selected, r.payment_id] : selected.filter((id) => id !== r.payment_id))} />
@@ -321,7 +318,6 @@ function ReferralAdmin({ demo }: { demo: boolean }): React.ReactElement | null {
       {r.status === "pending" && <button type="button" className="aff-btn aff-btn-line" onClick={() => void approve(r.payment_id)}>Approve</button>}
       {r.status === "exception" && <><button type="button" className="aff-btn aff-btn-line" onClick={() => void resolve(r.payment_id, "clear")}>Clear</button><button type="button" className="aff-btn aff-btn-line" onClick={() => void resolve(r.payment_id, "reject")}>Reject</button></>}
     </div>) : <p>No commissions need review.</p>}</div>
-    {unmatched.length > 0 && <><h3>Unmatched payment events</h3><div className="aff-admin-list">{unmatched.map((event) => <div key={event.event_id}><span>{event.event_id}<small>{event.type} · {event.result}</small></span><button type="button" className="aff-btn aff-btn-line" onClick={() => void replay(event.event_id)}>Replay</button></div>)}</div></>}
     <div className="aff-account-link"><input aria-label="External transfer reference" placeholder="External transfer reference" value={reference} onChange={(e) => setReference(e.target.value)} /><button type="button" className="aff-btn aff-btn-solid" onClick={() => void payout()}>Record payout</button></div>
   </section>;
 }

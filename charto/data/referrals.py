@@ -118,7 +118,8 @@ class Referrals:
 
     def payment(self, event_id: str, payment_id: str, subscriber_id: int,
                 amount_paise: int, rate_bps: int, duration_days: int, payload: str = "",
-                customer_key: str = "", paid_at: int | None = None) -> str:
+                customer_key: str = "", paid_at: int | None = None,
+                actor: str = "razorpay", kind: str = "captured") -> str:
         if not event_id or not payment_id or amount_paise <= 0 or not 0 < rate_bps <= 10000 or duration_days <= 0:
             raise ValueError("invalid verified payment")
         with self.lock, self.db:
@@ -137,8 +138,8 @@ class Referrals:
                                       (payment_id, subscriber_id, signup[0], customer_key or None, amount_paise, effective_rate, earned, status, payment_time))
                 result = ("duplicate provider customer: review" if duplicate_customer else "pending") if cur.rowcount else "payment already recorded"
             self.db.execute("INSERT INTO payment_events VALUES (?,?,?,?,?,?)",
-                            (event_id, "captured", payment_id, "", int(time.time()), result))
-            self._audit("razorpay", "payment", payment_id, result)
+                            (event_id, kind, payment_id, payload, int(time.time()), result))
+            self._audit(actor, kind, payment_id, result)
             if result in ("pending", "duplicate provider customer: review"):
                 missed = self.db.execute("SELECT event_id,payload FROM payment_events WHERE payment_id=? AND kind='reversal' AND result='unmatched reversal'", (payment_id,)).fetchall()
                 for item in missed:
@@ -204,6 +205,54 @@ class Referrals:
             self._audit("razorpay","dispute."+state,payment_id,dispute_id+": "+result)
             return result
 
+    def conversion(self, subscriber_id: int, plan: str, cycle: str, period_start: int,
+                   price_paise: int, *, rate_bps: int, duration_days: int,
+                   gst_inclusive: bool = True) -> str:
+        """A referred account's paid plan period, as Pivot's own billing records it.
+
+        Commission follows conversion, not a payment provider: when an account
+        that signed up through a link holds an active paid plan for a new
+        billing period, that period earns the referrer `rate_bps` of the plan's
+        catalog price. Catalog prices include 18% GST and the terms pay on the
+        price excluding it, so the base is price x 100/118. One commission per
+        account per period: the key is the account and the period start, so a
+        repeated or late subscription update cannot pay twice.
+        """
+        key = f"plan:{int(subscriber_id)}:{int(period_start)}"
+        net = int(price_paise) * 100 // 118 if gst_inclusive else int(price_paise)
+        return self.payment(key, key, subscriber_id, net, rate_bps, duration_days,
+                            payload=json.dumps({"plan": plan, "cycle": cycle,
+                                                "price_paise": int(price_paise),
+                                                "net_paise": net}),
+                            paid_at=int(period_start), actor="billing", kind="conversion")
+
+    def refund(self, subscriber_id: int, refund_id: str, amount_paise: int,
+               gst_inclusive: bool = True) -> str:
+        """A refund Pivot's billing recorded reverses the account's latest
+        commission in proportion (the refund includes GST; the base does not)."""
+        with self.lock:
+            row = self.db.execute("SELECT payment_id FROM commissions WHERE subscriber_id=? "
+                                  "ORDER BY created DESC LIMIT 1", (subscriber_id,)).fetchone()
+        if not row:
+            return "no commission for this account"
+        net = int(amount_paise) * 100 // 118 if gst_inclusive else int(amount_paise)
+        if net <= 0:
+            return "nothing to reverse"
+        return self.reverse(f"refund:{refund_id}", refund_id, row[0], net)
+
+    def attributions(self, limit: int = 200) -> list[dict]:
+        """Every referred signup: whose link, which code, when, and whether it
+        has converted to a paid plan and what it has earned."""
+        with self.lock:
+            return [dict(r) for r in self.db.execute(
+                "SELECT s.user_id AS subscriber_id, s.referrer_id, l.code, s.created AS signed_up, "
+                "s.status, s.terms_version, "
+                "(SELECT COUNT(*) FROM commissions c WHERE c.subscriber_id=s.user_id) AS paid_periods, "
+                "(SELECT COALESCE(SUM(earned_paise-reversed_paise),0) FROM commissions c "
+                " WHERE c.subscriber_id=s.user_id) AS earned_paise "
+                "FROM signups s LEFT JOIN links l ON l.user_id=s.referrer_id "
+                "ORDER BY s.created DESC LIMIT ?", (int(limit),))]
+
     def summary(self, user_id: int) -> dict:
         with self.lock:
             signups = self.db.execute("SELECT COUNT(*) FROM signups WHERE referrer_id=?", (user_id,)).fetchone()[0]
@@ -265,8 +314,7 @@ def configured() -> bool:
         "PIVOT_REFERRAL_RATE_BPS", "PIVOT_REFERRAL_ATTRIBUTION_DAYS",
         "PIVOT_REFERRAL_TOUCH", "PIVOT_REFERRAL_PAYOUT_MIN_PAISE",
         "PIVOT_REFERRAL_COMMISSION_DAYS", "PIVOT_REFERRAL_TERMS_VERSION",
-        "RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET", "RAZORPAY_WEBHOOK_SECRET",
-        "PIVOT_REFERRAL_IDENTITY_KEY", "PIVOT_REFERRAL_ELIGIBILITY",
+        "PIVOT_REFERRAL_ELIGIBILITY",
         "PIVOT_REFERRAL_REVENUE_BASIS", "PIVOT_REFERRAL_REFUND_POLICY",
         "PIVOT_REFERRAL_PAYOUT_SCHEDULE", "PIVOT_REFERRAL_PAYOUT_METHOD",
         "PIVOT_REFERRAL_TERMS_CHANGE_POLICY", "PIVOT_REFERRAL_EFFECTIVE_DATE")):

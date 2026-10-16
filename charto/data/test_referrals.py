@@ -116,8 +116,7 @@ class ConfiguredTests(unittest.TestCase):
         "PIVOT_REFERRALS_ENABLED": "1", "PIVOT_REFERRAL_RATE_BPS": "1500",
         "PIVOT_REFERRAL_ATTRIBUTION_DAYS": "30", "PIVOT_REFERRAL_TOUCH": "last",
         "PIVOT_REFERRAL_PAYOUT_MIN_PAISE": "100000", "PIVOT_REFERRAL_COMMISSION_DAYS": "365",
-        "PIVOT_REFERRAL_TERMS_VERSION": "v1", "RAZORPAY_KEY_ID": "k", "RAZORPAY_KEY_SECRET": "s",
-        "RAZORPAY_WEBHOOK_SECRET": "w", "PIVOT_REFERRAL_IDENTITY_KEY": "i",
+        "PIVOT_REFERRAL_TERMS_VERSION": "v1",
         "PIVOT_REFERRAL_ELIGIBILITY": "e", "PIVOT_REFERRAL_REVENUE_BASIS": "r",
         "PIVOT_REFERRAL_REFUND_POLICY": "p", "PIVOT_REFERRAL_PAYOUT_SCHEDULE": "m",
         "PIVOT_REFERRAL_PAYOUT_METHOD": "b", "PIVOT_REFERRAL_TERMS_CHANGE_POLICY": "c",
@@ -144,3 +143,51 @@ class ConfiguredTests(unittest.TestCase):
         self.assertIs(self._with(PIVOT_REFERRAL_TOUCH="first")[0], False)
         self.assertIs(self._with(PIVOT_REFERRAL_RATE_BPS="0")[0], False)
         self.assertIs(self._with(PIVOT_REFERRAL_ATTRIBUTION_DAYS="thirty")[0], False)
+
+
+
+class ConversionTests(unittest.TestCase):
+    """Commission follows a referred account onto a paid plan, from Pivot's own
+    billing record, once per billing period, within the commission window."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.store = Referrals(Path(self.tmp.name) / "referrals.db")
+        token = self.store.visit(self.store.link(10), now=1_000)
+        self.assertTrue(self.store.signup(11, token, days=30, touch="last", now=1_001,
+                                          rate_bps=1500, duration_days=365, terms_version="t"))
+
+    def tearDown(self):
+        self.store.db.close()
+        self.tmp.cleanup()
+
+    def _convert(self, start, uid=11, price=59_900):
+        return self.store.conversion(uid, "pro", "monthly", start, price, rate_bps=1500, duration_days=365)
+
+    def test_each_paid_period_earns_once_on_the_price_excluding_gst(self):
+        self.assertEqual(self._convert(2_000), "pending")
+        self.assertEqual(self._convert(2_000), "duplicate")
+        self.assertEqual(self._convert(2_000 + 30 * 86400), "pending")
+        net = 59_900 * 100 // 118
+        self.assertEqual(self.store.summary(10)["totals_paise"]["pending"], 2 * (net * 1500 // 10000))
+        self.assertEqual(self.store.summary(10)["paid_customers"], 1)
+
+    def test_no_commission_outside_the_window_or_without_a_referral(self):
+        self.assertEqual(self._convert(1_001 + 366 * 86400), "no eligible signup")
+        self.assertEqual(self._convert(2_000, uid=99), "no eligible signup")
+
+    def test_refund_reverses_the_latest_period_in_proportion(self):
+        self._convert(2_000)
+        self.assertEqual(self.store.refund(11, "rfnd_1", 29_950), "pending")
+        row = self.store.db.execute("SELECT earned_paise, reversed_paise FROM commissions").fetchone()
+        self.assertEqual(row[1], (29_950 * 100 // 118) * 1500 // 10000)
+        self.assertLess(row[1], row[0])
+        self.assertEqual(self.store.refund(11, "rfnd_1", 29_950), "duplicate")
+        self.assertEqual(self.store.refund(12, "rfnd_2", 100), "no commission for this account")
+
+    def test_attribution_shows_which_link_and_whether_it_converted(self):
+        self._convert(2_000)
+        [row] = self.store.attributions()
+        self.assertEqual((row["subscriber_id"], row["referrer_id"], row["code"]), (11, 10, self.store.link(10)))
+        self.assertEqual(row["paid_periods"], 1)
+        self.assertGreater(row["earned_paise"], 0)
