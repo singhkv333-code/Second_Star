@@ -812,6 +812,24 @@ async def _refresh_summary_bg(user_id: int, raw_conv_id) -> None:
         logger.warning("background summary refresh failed: %s", e)
 
 
+def _release_db(db: Session) -> None:
+    """Hand the request's Postgres connection back to the pool.
+
+    `Depends(get_db)` closes the session only after the response is SENT,
+    and for a stream that is after the whole model answer — 20-60s with a
+    connection checked out for none of it. The pool is ten per process
+    (database.py), so ten concurrent answers emptied it on 2026-10-15 and
+    every other request, sign-in's account mapping included, timed out.
+    Ending the transaction returns the connection; the session stays usable
+    and a later tool query checks one out again for just as long as it runs.
+    """
+    try:
+        if db.in_transaction():
+            db.commit()
+    except Exception:  # noqa: BLE001 — a failed commit must not break the turn
+        db.rollback()
+
+
 @router.post("", dependencies=[Depends(rate_limit("chat", 40, 60))])
 async def chat(
     request: ChatRequest,
@@ -879,6 +897,7 @@ async def chat(
                                     db=db, user_id=user_id)
     if not debit.ok:
         return JSONResponse(status_code=debit.status, content=debit.body)
+    _release_db(db)
     try:
         turn = await _chat_service.handle(
             llm_msg, conv_id, ctx,
@@ -1151,6 +1170,7 @@ async def chat_stream(
                     editor_draft=request.editor_draft,
                 )
             async for event in _with_keepalive(events):
+                _release_db(db)   # a tool's query holds a connection only while it runs
                 if event is None:
                     # An SSE comment: ignored by every client, but it keeps
                     # bytes moving so idle-timeout proxies (Next's rewrite
@@ -1200,6 +1220,7 @@ async def chat_stream(
             await asyncio.to_thread(_meter.refund, authorization, credit_key,
                                     db=db, user_id=user_id)
 
+    _release_db(db)
     return StreamingResponse(
         metered(),
         media_type="text/event-stream",
@@ -1249,9 +1270,10 @@ async def assist_warm(
 
     user_id = _auth(authorization)
     t0 = asyncio.get_running_loop().time()
+    ctx = _assist_ctx(db, user_id)
+    _release_db(db)
     try:
-        await assist_chat.page_snapshot(request.page, request.symbol,
-                                        _assist_ctx(db, user_id))
+        await assist_chat.page_snapshot(request.page, request.symbol, ctx)
     except Exception:  # noqa: BLE001 — warming is best-effort
         logger.exception("assist warm failed")
         return {"ok": False}
@@ -1297,6 +1319,7 @@ async def assist_stream(
                 client=_chat_service._client(), page=request.page,
                 symbol=request.symbol, visible=request.visible)
             async for event in _with_keepalive(events):
+                _release_db(db)
                 if event is None:
                     yield ": keepalive\n\n"
                     continue
@@ -1313,6 +1336,7 @@ async def assist_stream(
             await asyncio.to_thread(_meter.refund, authorization, credit_key,
                                     db=db, user_id=user_id)
 
+    _release_db(db)
     return StreamingResponse(gen(), media_type="text/event-stream", headers={
         "Cache-Control": "no-cache, no-transform",
         "X-Accel-Buffering": "no",

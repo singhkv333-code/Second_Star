@@ -18,6 +18,13 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
 
+@pytest.fixture(autouse=True)
+def _fresh_memo():
+    accounts._bound.clear()
+    yield
+    accounts._bound.clear()
+
+
 @pytest.fixture()
 def db(monkeypatch):
     engine=create_engine('sqlite://')
@@ -64,8 +71,38 @@ def test_recorded_link_returns_its_database_connection(db, monkeypatch, active):
     monkeypatch.setitem(sys.modules, 'backend.database', SimpleNamespace(SessionLocal=factory))
     for _ in range(20):
         assert accounts.pivot_user_id_for('linked@example.test', account_id=17) == (9 if active else None)
-    assert len(opened) == 20
+    # An active account is remembered after the first answer; an inactive one
+    # is asked every time, so a reactivation is never missed.
+    assert len(opened) == (1 if active else 20)
     assert all(not session.in_transaction() for session in opened)
+
+
+def test_page_load_burst_asks_the_database_once(db, monkeypatch):
+    """Production 2026-10-15: ~20 parallel requests per page each mapped the
+    account in Postgres and two page loads emptied the pool."""
+    with db() as s:
+        s.add(User(id=9, email='me@example.test', hashed_password='x', is_active=True)); s.commit()
+    opened = []
+    def factory():
+        opened.append(1)
+        return db()
+    monkeypatch.setitem(sys.modules, 'backend.database', SimpleNamespace(SessionLocal=factory))
+    assert {accounts.pivot_user_id_for('Me@example.test', account_id=17) for _ in range(20)} == {9}
+    assert len(opened) == 1
+    # a different account, or the memo outliving its TTL, asks again
+    assert accounts.pivot_user_id_for('me@example.test', account_id=18) == 9
+    monkeypatch.setattr(accounts, 'BIND_TTL', 0.0)
+    assert accounts.pivot_user_id_for('me@example.test', account_id=17) == 9
+    assert len(opened) == 3
+
+
+def test_a_store_failure_is_not_remembered(monkeypatch, db):
+    def broken():
+        raise RuntimeError('database unreachable')
+    monkeypatch.setitem(sys.modules, 'backend.database', SimpleNamespace(SessionLocal=broken))
+    assert accounts.pivot_user_id_for('me@example.test', account_id=17) is None
+    monkeypatch.setitem(sys.modules, 'backend.database', SimpleNamespace(SessionLocal=db))
+    assert accounts.pivot_user_id_for('me@example.test', account_id=17) is not None
 
 
 def test_a_link_to_another_email_is_replaced(db):

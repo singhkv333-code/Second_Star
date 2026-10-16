@@ -174,11 +174,42 @@ def pivot_user_id_for(email: str, name: Optional[str] = None, *,
     return _bind(email, name, account_id)[0]
 
 
+# A page load sends ~20 authenticated requests at once and every one asks
+# this question; the answer changes only when an account is created or
+# deactivated. Without a memo each request spent two Postgres round trips and
+# a pooled connection on it, and on 2026-10-15 two users' page loads queued
+# behind held connections until the pool timed out. Only a found, active
+# account is remembered, so a deactivation takes effect within the TTL and a
+# store failure is never cached.
+BIND_TTL = 300.0
+_bound: dict[tuple[int, str], tuple[int, float]] = {}
+_bound_lock = threading.Lock()
+
+
 def _bind(email: str, name: Optional[str],
           account_id: Optional[int]) -> tuple[Optional[int], Optional[str]]:
     """`pivot_user_id_for`, with the reason when there is no id."""
     if not email or account_id is None or account_id <= 0:
         return None, None
+    memo = (int(account_id), email.strip().lower())
+    now = time.monotonic()
+    with _bound_lock:
+        hit = _bound.get(memo)
+    if hit is not None and now - hit[1] < BIND_TTL:
+        return hit[0], None
+    uid, reason = _bind_store(email, name, account_id)
+    if uid is not None:
+        with _bound_lock:
+            if len(_bound) > 4096:
+                for k in [k for k, (_, t) in _bound.items() if now - t >= BIND_TTL]:
+                    del _bound[k]
+            _bound[memo] = (uid, now)
+    return uid, reason
+
+
+def _bind_store(email: str, name: Optional[str],
+                account_id: int) -> tuple[Optional[int], Optional[str]]:
+    """The mapping as Postgres answers it (see THE MAPPING)."""
     from sqlalchemy import select, text
     from backend.database import SessionLocal
     from backend.models import User

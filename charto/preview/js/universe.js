@@ -202,7 +202,13 @@ const Universe = (() => {
    * and `fetchpriority` keep that work off the layout path.
    *
    * Keyed by URL, not by symbol: two symbols on the same asset (BTC-USD and
-   * BTCUSDT) share one file and must share one cache entry. */
+   * BTCUSDT) share one file and must share one cache entry.
+   *
+   * Warmed from the row image's onload, never while the row is built: the
+   * picker renders the whole universe, and warming each row eagerly fetched
+   * every logo at once — 1,700 requests a second from one browser on
+   * 2026-10-16, which tripped the per-IP limit and 429'd that user's quotes
+   * and paper book with it. `loading="lazy"` on the row is what decides. */
   const _logoCache = new Map();
   function warmLogo(src) {
     if (!src || _logoCache.has(src)) return;
@@ -234,9 +240,10 @@ const Universe = (() => {
     const on = sym === String(current || "").toUpperCase();
     return `<div class="item inst-row${on ? " on" : ""}" data-sym="${sym}">` +
       `<span class="ir-lead">` +
-        (src ? (warmLogo(src), `<img class="ir-logo" src="${src}" alt=""
+        (src ? `<img class="ir-logo" src="${src}" alt=""
                  loading="lazy" decoding="async"
-                 onerror="this.classList.add('ir-dead')"/>`)
+                 onload="Universe.warmLogo(this.src)"
+                 onerror="this.classList.add('ir-dead')"/>`
              : `<span class="ir-logo ir-blank" style="--mh:${monoHue(sym)}">${sym.replace(/^[A-Z]+:/, "").slice(0, 1)}</span>`) +
         `<span class="ir-copy">` +
           `<span class="ir-tick">${shown(sym)}<span class="ir-ex">${venue(sym)}</span></span>` +
@@ -440,5 +447,5 @@ const Universe = (() => {
   }
 
   return { load, peek, logo, label, logoHTML, markHTML, monogramHTML, baseSymbol, nameOf, open, close,
-           rowHTML, companyLinkHTML, quoteWatch, venue, category, tabsHTML, decimals, shown };
+           rowHTML, warmLogo, companyLinkHTML, quoteWatch, venue, category, tabsHTML, decimals, shown };
 })();
