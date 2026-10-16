@@ -1,5 +1,4 @@
-/** The landing page's questions, and the research links in its footer.
- *  Plain data, so the server-rendered layout can turn the questions into
+/** The landing page's questions. Plain data, so the server-rendered layout can turn the questions into
  *  FAQPage markup while the client page renders them. */
 
 export const LANDING_FAQS: { q: string; a: string; link?: { href: string; label: string } }[] = [
@@ -10,19 +9,4 @@ export const LANDING_FAQS: { q: string; a: string; link?: { href: string; label:
   { q: "Which markets does Pivot cover?", a: "Indian equities and indices, NSE options and MCX commodities, with crypto available on charts." },
   { q: "Is Pivot giving me investment advice?", a: "No. Pivot provides market data, analysis and testing frameworks. It does not give personalised buy, sell or hold recommendations. This is analysis, not financial advice." },
   { q: "How do I get access, and what does it cost?", a: "You can start for free. Premium features are available on paid plans.", link: { href: "/pricing", label: "Check out the pricing." } },
-];
-
-const APP = "https://app.pivotnow.in";
-
-/** Every company has a free page on the platform; these are the doors in. */
-export const RESEARCH_LINKS: [string, string][] = [
-  ["All NSE stocks", `${APP}/stocks`],
-  ["Sectors", `${APP}/sectors`],
-  ["Top gainers today", `${APP}/stocks/top-gainers`],
-  ["52-week highs", `${APP}/stocks/52-week-high`],
-  ["Reliance share price", `${APP}/stock/RELIANCE`],
-  ["HDFC Bank share price", `${APP}/stock/HDFCBANK`],
-  ["TCS share price", `${APP}/stock/TCS`],
-  ["Infosys share price", `${APP}/stock/INFY`],
-  ["SBI share price", `${APP}/stock/SBIN`],
 ];

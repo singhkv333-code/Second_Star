@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { LANDING_FAQS, RESEARCH_LINKS } from "./faqs";
+import { LANDING_FAQS } from "./faqs";
 import {
   ArrowUp, Instagram,
 } from "lucide-react";
@@ -175,9 +175,6 @@ function Footer() {
       <div className="pl-footer2-lines" aria-hidden="true"><i/><i/><i/></div>
       <div className="pl-footer2-inner">
         <div className="pl-footer2-wordmark"><PivotLogo className="pl-footer2-logo" gradient={["#d5d7d9", "#75797c"]} /></div>
-        <nav className="pl-footer2-links" aria-label="Research Indian stocks">
-          {RESEARCH_LINKS.map(([label, href]) => <a key={href} href={href}>{label}</a>)}
-        </nav>
         <nav className="pl-footer2-links" aria-label="Company and legal">
           <a href="/about">About us</a>
           <a href="/terms">Terms & conditions</a>
