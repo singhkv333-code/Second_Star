@@ -23,6 +23,12 @@ const BACKEND =
 // through to it — the same fall-through nginx has on the VM, so one origin
 // (this port) is the whole product locally exactly as it is in production.
 const CHARTO = process.env.CHARTO_UPSTREAM || "http://127.0.0.1:5174";
+// Local testing only: a laptop's chart store is a small, old snapshot, so
+// prices, charts and screens there are weeks stale. Set this (for example to
+// https://app.pivotnow.in) and the READ-ONLY market-data routes come from that
+// server instead, while sign-in, workspaces and everything else stay local.
+const CHARTO_MARKET = process.env.CHARTO_MARKET_UPSTREAM || "";
+const MARKET_ROUTES = ["bars", "quotes", "symbols", "screen", "stream", "feeds", "calendar"];
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
@@ -112,6 +118,12 @@ const nextConfig: NextConfig = {
         { source: "/research/:path*", destination: `${BACKEND}/research/:path*` },
       ],
       fallback: [
+        ...(CHARTO_MARKET
+          ? MARKET_ROUTES.flatMap((r) => [
+              { source: `/${r}`, destination: `${CHARTO_MARKET}/${r}` },
+              { source: `/${r}/:path*`, destination: `${CHARTO_MARKET}/${r}/:path*` },
+            ])
+          : []),
         { source: "/:path*", destination: `${CHARTO}/:path*` },
       ],
     };
