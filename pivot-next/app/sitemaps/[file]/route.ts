@@ -40,7 +40,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ file: s
       ...LISTS.map((l) => ({ loc: `${SITE_URL}/stocks/${l.slug}`, lastmod: day, changefreq: "daily", priority: "0.8" })),
       ...sectors.map((k) => ({ loc: `${SITE_URL}${sectorPath(k)}`, lastmod: day, changefreq: "daily", priority: "0.7" })),
       ...LETTERS.map((l) => ({ loc: `${SITE_URL}/stocks/${l}`, lastmod: day, changefreq: "weekly", priority: "0.5" })),
-      ...["/pricing", "/about", "/contact", "/terms", "/privacy", "/refunds"].map((p) => ({ loc: `${SITE_URL}${p}`, lastmod: day, priority: "0.3" })),
+      // The company and legal pages live on the marketing host (nginx sends
+      // them there), so only pricing is listed for this one.
+      { loc: `${SITE_URL}/pricing`, lastmod: day, priority: "0.4" },
     ]);
   } else if (file === "stocks.xml") {
     xml = urlset(listed(all).map((r) => ({

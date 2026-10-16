@@ -49,6 +49,8 @@ describe("formats", () => {
     expect(crore(1639061)).toBe("₹16,39,061 Cr");
     expect(crore(1639061, true)).toBe("₹16.39 lakh Cr");
     expect(pct(-25.03, 1, true)).toBe("−25.0%");
+    expect(crore(-11900)).toBe("−₹11,900 Cr");
+    expect(inr(-4.1)).toBe("−₹4.10");
     expect(fiscalQuarter("2026-06-30")).toBe("Q1 FY27");
     expect(fiscalQuarter("2026-03-31")).toBe("Q4 FY26");
     expect(fiscalYear("2026-03-31")).toBe("FY26");

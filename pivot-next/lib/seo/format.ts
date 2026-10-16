@@ -4,17 +4,20 @@ const IN = "en-IN";
 
 export function inr(v: number | null | undefined, digits = 2): string {
   if (v == null || !Number.isFinite(v)) return "—";
-  return `₹${v.toLocaleString(IN, { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
+  const sign = v < 0 ? "−" : "";
+  return `${sign}₹${Math.abs(v).toLocaleString(IN, { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
 }
 
 /** Crores as a reader says them: ₹16,39,061 Cr, or ₹16.39 lakh Cr above
  *  one lakh crore when `compact`. */
 export function crore(v: number | null | undefined, compact = false): string {
   if (v == null || !Number.isFinite(v)) return "—";
-  if (compact && Math.abs(v) >= 100_000) {
-    return `₹${(v / 100_000).toLocaleString(IN, { maximumFractionDigits: 2 })} lakh Cr`;
+  const sign = v < 0 ? "−" : "";
+  const a = Math.abs(v);
+  if (compact && a >= 100_000) {
+    return `${sign}₹${(a / 100_000).toLocaleString(IN, { maximumFractionDigits: 2 })} lakh Cr`;
   }
-  return `₹${Math.round(v).toLocaleString(IN)} Cr`;
+  return `${sign}₹${Math.round(a).toLocaleString(IN)} Cr`;
 }
 
 export function num(v: number | null | undefined, digits = 2): string {

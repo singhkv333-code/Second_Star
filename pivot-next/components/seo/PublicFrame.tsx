@@ -61,10 +61,10 @@ export function PublicFrame({
             <Link href="/stocks/52-week-high">52-week highs</Link>
             <Link href="/stocks/52-week-low">52-week lows</Link>
             <Link href="/pricing">Pricing</Link>
-            <Link href="/about">About</Link>
-            <Link href="/terms">Terms</Link>
-            <Link href="/privacy">Privacy</Link>
-            <Link href="/contact">Contact</Link>
+            <a href={`${HOME_URL}/about`}>About</a>
+            <a href={`${HOME_URL}/terms`}>Terms</a>
+            <a href={`${HOME_URL}/privacy`}>Privacy</a>
+            <a href={`${HOME_URL}/contact`}>Contact</a>
           </nav>
           <p>
             {BRAND} is a research and charting platform, not a broker or a SEBI-registered investment adviser. Prices are
