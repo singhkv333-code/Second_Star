@@ -70,7 +70,7 @@ export function Nav({ home = "#top" }: { home?: string } = {}) {
       document.body.removeEventListener("scroll", onScroll);
     };
   }, []);
-  return <header className={`pl-nav ${isDark ? "dark" : "light"}${scrolled ? " scrolled" : ""}`}><div className="pl-nav-inner"><Brand href={home} /><div className="pl-nav-links"><a className="pl-nav-cta pl-nav-login" href="/login">Log in</a></div></div></header>;
+  return <header className={`pl-nav ${isDark ? "dark" : "light"}${scrolled ? " scrolled" : ""}`}><div className="pl-nav-inner"><Brand href={home} /><div className="pl-nav-links"><SignIn /></div></div></header>;
 
 }
 
@@ -122,7 +122,7 @@ function Hero() {
           <span className="pl-prompt-send"><ArrowUp size={16}/></span>
         </div>
       </div>
-      <div className="pl-actions"><a href="https://app.pivotnow.in/">Open Platform</a><a href="#demo">See how it works</a></div>
+      <div className="pl-actions"><a href="https://app.pivotnow.in/">Open Platform<ArrowUpRight /></a><a href="#demo">See how it works<ArrowDown /></a></div>
     </div>
   </section>;
 }
@@ -203,3 +203,38 @@ function XGlyph(): React.ReactElement {
 }
 
 export function PivotLanding(): React.ReactElement { useLandingScroll(); return <main className="pivot-landing" data-bg={PAPER ? "paper" : undefined}><Nav/><Hero/><Tour/><Figures/><Patterns/><Gallery/><Workspace/><Honest/><FAQ/><Footer/></main>; }
+
+/* The hero's arrows say where each button goes: out to the platform (up and
+   right), down the page to the demo. They move a step that way on hover. */
+function ArrowUpRight() {
+  return <svg className="pl-arrow pl-arrow-out" width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4.5 11.5 11.5 4.5M6 4.5h5.5V10" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+
+function ArrowDown() {
+  return <svg className="pl-arrow pl-arrow-down" width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 3v10M3.8 8.8 8 13l4.2-4.2" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+
+/* Sign in, as a small saucer over a night sky: it idles on a slow bob with its
+   running lights cycling, and on hover it lifts, tilts and lowers a beam that
+   draws a star up into it. All
+   monochrome, all CSS, and still under prefers-reduced-motion. */
+function SignIn() {
+  return (
+    <a className="pl-nav-cta pl-nav-login pl-ufo" href="https://app.pivotnow.in/login">
+      <span className="pl-ufo-craft" aria-hidden="true">
+        <span className="pl-ufo-beam" />
+        <i className="pl-ufo-star" />
+        <svg viewBox="0 0 28 18" width="24" height="16" fill="none">
+          <path className="pl-ufo-dome" d="M8.6 8.2C8.9 4.9 11.2 2.6 14 2.6s5.1 2.3 5.4 5.6" fill="currentColor" fillOpacity=".18" stroke="currentColor" strokeWidth="1.4" />
+          <ellipse cx="14" cy="10" rx="12" ry="3.9" fill="currentColor" />
+          <ellipse cx="14" cy="8.9" rx="8.4" ry="1.4" fill="var(--ufo-ground)" fillOpacity=".55" />
+          <circle className="pl-ufo-light" cx="7.4" cy="10.6" r="1" />
+          <circle className="pl-ufo-light" cx="14" cy="11.4" r="1" />
+          <circle className="pl-ufo-light" cx="20.6" cy="10.6" r="1" />
+        </svg>
+      </span>
+      <span className="pl-ufo-label">Sign in</span>
+    </a>
+  );
+}
+

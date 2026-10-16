@@ -983,3 +983,62 @@
   .hn-stack { display: none; }
   .hn-scale { justify-content: flex-start; gap: 7px; padding-top: 20px; border-top: 1px solid rgba(244, 241, 234, 0.14); font-size: 12px; }
 }
+
+/* ── hero arrows: each points where its button goes ──────────────────── */
+.pivot-landing .pl-actions .pl-arrow { flex: none; transition: transform .28s cubic-bezier(.22, 1, .36, 1); }
+.pivot-landing .pl-actions a:hover .pl-arrow-out { transform: translate(2px, -2px); }
+.pivot-landing .pl-actions a:hover .pl-arrow-down { transform: translateY(2px); }
+
+/* ── Sign in: the saucer (PivotLanding.tsx SignIn) ─────────────────────
+   Monochrome, in the button's own ink. Idle: a slow bob and running lights in
+   sequence. Hover: the craft lifts and tilts, a beam drops, and a star rises
+   up it. */
+.pivot-landing .pl-ufo {
+  --ufo-ground: #fff;
+  position: relative; isolation: isolate; overflow: hidden;
+  gap: 9px; padding: 9px 18px 9px 13px; border-radius: 999px;
+}
+.pivot-landing .pl-nav.dark .pl-ufo:hover { --ufo-ground: #e9e9e9; }
+.pivot-landing .pl-nav.light .pl-ufo { --ufo-ground: #111312; }
+.pivot-landing .pl-nav.light .pl-ufo:hover { --ufo-ground: #303332; }
+
+.pivot-landing .pl-ufo-craft {
+  position: relative; display: inline-grid; place-items: center; width: 24px; height: 16px;
+  transition: transform .45s cubic-bezier(.22, 1, .36, 1);
+}
+.pivot-landing .pl-ufo-craft svg { position: relative; z-index: 1; animation: pl-ufo-bob 2.8s ease-in-out infinite; }
+.pivot-landing .pl-ufo:hover .pl-ufo-craft { transform: translateY(-3px) rotate(-9deg); }
+@keyframes pl-ufo-bob { 0%, 100% { transform: translateY(0.6px); } 50% { transform: translateY(-1.2px); } }
+
+.pivot-landing .pl-ufo-light { fill: var(--ufo-ground); animation: pl-ufo-blink 1.5s steps(1, end) infinite; }
+.pivot-landing .pl-ufo-light:nth-of-type(2) { animation-delay: .5s; }
+.pivot-landing .pl-ufo-light:nth-of-type(3) { animation-delay: 1s; }
+@keyframes pl-ufo-blink { 0% { opacity: 1; } 33% { opacity: .25; } }
+
+.pivot-landing .pl-ufo-beam {
+  position: absolute; left: 50%; top: 11px; width: 22px; height: 20px;
+  transform: translateX(-50%) scaleY(0); transform-origin: top center;
+  clip-path: polygon(36% 0, 64% 0, 100% 100%, 0 100%);
+  background: linear-gradient(color-mix(in srgb, currentColor 30%, transparent), transparent);
+  transition: transform .35s cubic-bezier(.22, 1, .36, 1);
+}
+.pivot-landing .pl-ufo:hover .pl-ufo-beam { transform: translateX(-50%) scaleY(1); }
+.pivot-landing .pl-ufo-star {
+  position: absolute; left: calc(50% - 1.5px); top: 26px; width: 3px; height: 3px;
+  border-radius: 50%; background: currentColor; opacity: 0;
+}
+.pivot-landing .pl-ufo:hover .pl-ufo-star { animation: pl-ufo-abduct 1.3s ease-in .15s infinite; }
+@keyframes pl-ufo-abduct {
+  0% { transform: translateY(0) scale(1); opacity: 0; }
+  25% { opacity: .9; }
+  85% { transform: translateY(-15px) scale(.4); opacity: .7; }
+  100% { transform: translateY(-16px) scale(.2); opacity: 0; }
+}
+.pivot-landing .pl-ufo-label { position: relative; z-index: 1; letter-spacing: -.005em; }
+
+@media (max-width: 600px) { .pivot-landing .pl-ufo { padding: 8px 15px 8px 11px; gap: 7px; } }
+@media (prefers-reduced-motion: reduce) {
+  .pivot-landing .pl-ufo-craft svg,
+  .pivot-landing .pl-ufo-light, .pivot-landing .pl-ufo:hover .pl-ufo-star { animation: none; }
+  .pivot-landing .pl-ufo:hover .pl-ufo-craft { transform: none; }
+}

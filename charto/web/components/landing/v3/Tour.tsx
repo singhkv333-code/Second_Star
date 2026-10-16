@@ -295,7 +295,7 @@ function Candles({ sym, ema, levels, dock }: { sym: Sym; ema: boolean; levels: b
   }, [apply]);
   // The pane changes width when a widget docks or leaves; re-fit once it settles.
   React.useEffect(() => {
-    const id = window.setTimeout(() => { const api = ref.current; if (api) fitBars(api.chart, DAILY[state.current.sym]!.length); }, 760);
+    const id = window.setTimeout(() => { const api = ref.current; if (api) { const s = state.current.sym; fitBars(api.chart, (s === "NIFTY" ? NIFTY_DAILY : DAILY[s]!).length); } }, 760);
     return () => clearTimeout(id);
   }, [dock]);
   return (
