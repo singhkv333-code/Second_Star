@@ -27,6 +27,18 @@ vi.mock("next/navigation", () => ({
 }));
 
 beforeEach(() => {
+  // A signed-in shell: without a session AppShell opens the guest workspace
+  // (tests/agent-panel/guest-workspace.test.tsx). Node's own localStorage
+  // shadows jsdom's, so an in-memory one carries the session.
+  const store = new Map<string, string>([["charto:auth:token", "tok"]]);
+  const ls = {
+    getItem: (k: string) => store.get(k) ?? null,
+    setItem: (k: string, v: string) => void store.set(k, String(v)),
+    removeItem: (k: string) => void store.delete(k),
+    clear: () => store.clear(),
+  };
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: ls });
+  Object.defineProperty(window, "localStorage", { configurable: true, value: ls });
   vi.restoreAllMocks();
   // Start fresh on the default tab — clear the URL hash.
   if (typeof window !== "undefined") {

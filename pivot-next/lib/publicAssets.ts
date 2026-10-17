@@ -35,6 +35,8 @@ export const WELCOME_ART = {
   sunset: asset(new URL("../public/welcome/sunset.webp", import.meta.url)),
   orb: asset(new URL("../public/welcome/orb.webp", import.meta.url)),
   moonlight: asset(new URL("../public/welcome/moonlight.webp", import.meta.url)),
+  /** The sign-in prompt's art: Friedrich, "Two Men Contemplating the Moon". */
+  moon: asset(new URL("../public/welcome/moon.webp", import.meta.url)),
 };
 
 const BROKER_LOGOS: Record<string, string> = {

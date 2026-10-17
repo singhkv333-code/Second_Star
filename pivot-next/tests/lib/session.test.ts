@@ -72,13 +72,16 @@ describe("handleUnauthorized", () => {
     expect(href).toBe("/login?next=%2Fstock%2FRELIANCE");
   });
 
-  it("treats a device with no session as signed out, without asking", async () => {
+  it("leaves a guest where they are: no session, nothing to sign out of", async () => {
+    // The open workspace (2026-10-17): a signed-out visitor's refused request
+    // is just that request, never a trip to /login.
     localStorage.removeItem(SESSION);
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
     const s = await fresh();
-    expect(await s.handleUnauthorized()).toBe(true);
+    expect(await s.handleUnauthorized()).toBe(false);
     expect(fetch).not.toHaveBeenCalled();
+    expect(href).toBe("");
   });
 
   it("asks once for a burst of refusals", async () => {

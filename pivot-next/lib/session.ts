@@ -105,6 +105,9 @@ let leaving = false;
  */
 export async function handleUnauthorized(): Promise<boolean> {
   if (leaving) return true;
+  // A guest on the open workspace has no session to lose: a refused request
+  // is just that request, never a trip to /login.
+  if (!sessionToken()) return false;
   if (await sessionAlive()) return false;
   leaving = true;
   clearSession();

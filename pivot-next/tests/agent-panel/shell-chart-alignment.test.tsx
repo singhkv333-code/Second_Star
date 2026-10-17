@@ -19,6 +19,17 @@ vi.mock("next/navigation", () => ({
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  // A signed-in shell: without a session AppShell opens the guest workspace.
+  // Node's own localStorage shadows jsdom's, so an in-memory one carries it.
+  const store = new Map<string, string>([["charto:auth:token", "tok"]]);
+  const ls = {
+    getItem: (k: string) => store.get(k) ?? null,
+    setItem: (k: string, v: string) => void store.set(k, String(v)),
+    removeItem: (k: string) => void store.delete(k),
+    clear: () => store.clear(),
+  };
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: ls });
+  Object.defineProperty(window, "localStorage", { configurable: true, value: ls });
   vi.stubGlobal("fetch", vi.fn().mockImplementation(() => Promise.resolve(
     new Response(JSON.stringify({ detail: "not mocked" }), {
       status: 404,

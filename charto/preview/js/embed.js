@@ -44,6 +44,9 @@
   // chrome. Also set inline in <head> so it lands before first paint.
   const root = document.documentElement;
   root.classList.add("in-shell");
+  // Signed out, the shell's header carries a "Create free account" button
+  // where the avatar would be, so this header leaves it the room.
+  try { if (!localStorage.getItem("charto:auth:token")) root.classList.add("shell-guest"); } catch { /* storage denied */ }
 
   // Same-origin only. In production nginx serves the shell and this app from
   // one origin, so a message from anywhere else is not the shell — it is

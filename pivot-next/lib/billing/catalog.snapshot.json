@@ -42,7 +42,7 @@
     "ai.credits": {
       "kind": "quota", "window": "month", "label": "AI credits",
       "unit": "credits",
-      "values": {"anonymous": 3, "free": 15, "pro": 200, "pro_plus": 500},
+      "values": {"anonymous": 0, "free": 15, "pro": 200, "pro_plus": 500},
       "_doc": "Settled 2026-09-29: every pool is monthly, and 1 credit = 1 prompt the user sends. Follow-up suggestions, titles and refunded (failed) turns are not prompts and cost nothing."
     },
     "ai.summaries": {
@@ -83,7 +83,7 @@
     },
     "chart.indicators": {
       "kind": "limit", "label": "Indicators per chart",
-      "values": {"anonymous": 5, "free": 5, "pro": 10, "pro_plus": null}
+      "values": {"anonymous": 2, "free": 5, "pro": 10, "pro_plus": null}
     },
     "chart.panes": {
       "kind": "limit", "label": "Charts per tab",

@@ -284,8 +284,7 @@ const Setups = (() => {
   async function publish() {
     if (Store.viewOnly) return toast("Make it mine first, then share your own version");
     if (!Layouts.signedIn()) {
-      toast("Sign in to share setups");
-      if (window.CHARTO_AUTH_OPEN) window.CHARTO_AUTH_OPEN();
+      if (window.CHARTO_SIGNIN) window.CHARTO_SIGNIN("share");
       return;
     }
     const spec = Layouts.snapshot();
@@ -487,8 +486,7 @@ const Setups = (() => {
 
   async function manage() {
     if (!Layouts.signedIn()) {
-      toast("Sign in to see your shared setups");
-      if (window.CHARTO_AUTH_OPEN) window.CHARTO_AUTH_OPEN();
+      if (window.CHARTO_SIGNIN) window.CHARTO_SIGNIN("share");
       return;
     }
     const { dlg, close } = dialog(`
@@ -747,8 +745,7 @@ const Setups = (() => {
       // Signing in reloads the page; the intent survives it and finishes on
       // the other side (see enterView).
       try { sessionStorage.setItem("charto:pending-copy", d.token); } catch {}
-      toast("Sign in to copy this setup into your layouts");
-      if (window.CHARTO_AUTH_OPEN) window.CHARTO_AUTH_OPEN("signup");
+      if (window.CHARTO_SIGNIN) window.CHARTO_SIGNIN("save");
       const desc = el("authDesc");
       if (desc) {
         desc.textContent = `Create a free account to copy “${d.title}” into your `

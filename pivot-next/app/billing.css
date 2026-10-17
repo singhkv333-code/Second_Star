@@ -555,3 +555,17 @@
 .bl-welcome-art + .bl-modal-close, .bl-panel:has(.bl-welcome-art) > .bl-modal-close { color: #f4f2ec; }
 .bl-benefits--welcome li { font-size: 15px; }
 .bl-benefits--welcome li svg { color: var(--bl-good); }
+
+/* the sign-in prompt: an oil painting on ink above the reason and the free account */
+.bl-signin-art {
+  position: relative; height: 168px; overflow: hidden; background: #070707;
+  border-radius: var(--bl-r-lg) var(--bl-r-lg) 0 0;
+}
+.bl-signin-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 38%; }
+.bl-signin-art::after {
+  content: ""; position: absolute; inset: auto 0 0 0; height: 56px;
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--bl-raised) 55%, transparent));
+}
+.bl-signin > .bl-modal-close { color: #f4f2ec; background: rgba(7, 7, 7, 0.35); }
+.bl-modal .bl-signin-art { height: 176px; }
+@media (max-width: 640px) { .bl-modal .bl-signin-art { height: 132px; } }
