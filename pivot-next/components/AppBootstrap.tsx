@@ -8,7 +8,9 @@
  * 2. Wire `setAuthTokenProvider` to the one Pivot session (lib/session.ts).
  * 3. **Auth gate**: with no session, send the visitor to /login with this
  *    page in `?next=`, so signing in comes back here. The public pages in
- *    UNGATED_PATHS render without it.
+ *    UNGATED_PATHS render without it, and the app's root opens as the GUEST
+ *    workspace: the chart, open to everyone, with the account asked for only
+ *    at the step that needs one (components/billing/SignInPanel.tsx).
  */
 
 import { useEffect, useState } from "react";
@@ -29,7 +31,10 @@ const UNGATED_PATHS = ["/about", "/terms", "/privacy", "/design", "/waitlist", "
  *  (app/stock/[symbol]/view.tsx). */
 const PUBLIC_PAGES = [/^\/stock\/[^/]+\/?$/, /^\/stocks(\/|$)/, /^\/sectors(\/|$)/];
 
-type Phase = "loading" | "needs-auth" | "ready";
+type Phase = "loading" | "needs-auth" | "guest" | "ready";
+
+/** The app's root, where a signed-out visitor gets the open workspace. */
+const GUEST_PATHS = ["/"];
 
 export function AppBootstrap({
   children,
@@ -58,6 +63,8 @@ export function AppBootstrap({
 
     if (sessionToken()) {
       setPhase("ready");
+    } else if (pathname != null && GUEST_PATHS.includes(pathname)) {
+      setPhase("guest");
     } else {
       setPhase("needs-auth");
       // Redirect to /login instead of showing a modal gate — but never
@@ -71,12 +78,14 @@ export function AppBootstrap({
         router.replace(loginForHere());
       }
     }
-  }, [router, ungated]);
+  }, [router, ungated, pathname]);
 
   if (ungated) return <>{children}</>;
   if (phase === "loading") return <BootstrapSplash />;
   // "needs-auth" — show splash while the router.replace navigates.
   if (phase === "needs-auth") return <BootstrapSplash />;
+  // "guest" and "ready" both render the app; AppShell reads the session
+  // itself and opens the guest workspace when there is none.
   return <>{children}</>;
 }
 

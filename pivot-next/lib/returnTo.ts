@@ -37,7 +37,13 @@ export function authHref(page: "/login" | "/signup", next: string = returnPath()
 
 /** /login for the page the user is on now, so signing in comes back here. */
 export function loginForHere(): string {
-  if (typeof window === "undefined") return "/login";
+  return authForHere("/login");
+}
+
+/** /login or /signup for the page the user is on now, hash included, so a
+ *  guest who signs up from the workspace lands back on the workspace. */
+export function authForHere(page: "/login" | "/signup"): string {
+  if (typeof window === "undefined") return page;
   const here = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-  return authHref("/login", safe(here));
+  return authHref(page, safe(here));
 }

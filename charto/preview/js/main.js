@@ -4780,7 +4780,7 @@
      * shown a page asking them to sign in. serve.py proxies /paper to the
      * Next app in dev exactly as nginx does on the VM. */
     const openPaper = () => {
-      if (!Auth.user) return window.CHARTO_AUTH_OPEN("login");
+      if (!Auth.user) return window.CHARTO_SIGNIN("tab:portfolio");
       window.open(COMPANY_PAGE + "/paper", "_blank", "noopener");
     };
     paperBtn.addEventListener("click", openPaper);
@@ -4817,7 +4817,7 @@
       // COMPANY_PAGE for the same origin reason openPaper documents: an
       // absolute :5175 URL is a different origin and the chart's token does
       // not exist there, so the visitor lands signed out.
-      if (!Auth.user) return window.CHARTO_AUTH_OPEN("login");
+      if (!Auth.user) return window.CHARTO_SIGNIN("tab:brokers");
       window.open(COMPANY_PAGE + "/brokers", "_blank", "noopener");
       return;
     }

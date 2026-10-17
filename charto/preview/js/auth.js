@@ -132,23 +132,45 @@ window.Auth = Auth;
 
 /* ── signing in ───────────────────────────────────────────────────────────
    Pivot has one sign-in: the app's /login (and /signup). The workspace has
-   no form of its own. Whatever here needs an account (a save, the account
-   menu, a paywall) sends the whole window there, with where the person was
-   in ?next=, and signing in brings them back with the session this file
-   reads. The workspace runs inside the app's frame, so "the whole window" is
-   the top one.
+   no form of its own, and it is open to everyone signed out.
+
+   Two ways in:
+     CHARTO_SIGNIN(reason)    a STEP needs an account (asking the chat, saving
+                              or sharing the desk, a widget that reads the
+                              account). Inside the app's frame this raises the
+                              app's sign-in prompt, worded by `reason`
+                              (pivot-next components/billing/SignInPanel.tsx);
+                              its buttons go to /signup or /login.
+     CHARTO_AUTH_OPEN(which)  the person ASKED to sign in or sign up (the
+                              account menu): straight to that page. Called
+                              with no argument it is a step, as above.
+   Either way the page carries where the person was in ?next=, and signing in
+   brings them back with the session this file reads. The workspace runs
+   inside the app's frame, so "the whole window" is the top one.
    ────────────────────────────────────────────────────────────────────────── */
 (() => {
   function here() {
     try { const t = window.top.location; return t.pathname + t.search + t.hash; }
     catch { return location.pathname + location.search + location.hash; }
   }
-  function open(which) {
+  function go(which) {
     const page = which === "signup" ? "/signup" : "/login";
     const url = `${page}?next=${encodeURIComponent(here())}`;
     try { window.top.location.href = url; } catch { location.href = url; }
   }
-  window.CHARTO_AUTH_OPEN = open;
+  function prompt(reason) {
+    try {
+      const top = window.parent;
+      if (top !== window && top.location.origin === location.origin) {
+        top.dispatchEvent(new top.CustomEvent("pivot:paywall", {
+          detail: { kind: "signin", plan: "anonymous", feature: reason || "save", surface: "chart" } }));
+        return;
+      }
+    } catch { /* not framed by the app: go to the page itself */ }
+    go("signup");
+  }
+  window.CHARTO_SIGNIN = prompt;
+  window.CHARTO_AUTH_OPEN = (which) => (which ? go(which) : prompt());
 
   // Who is this? A held token whose check got no answer is asked again
   // (1 s, 3 s, 7 s) rather than treated as signed out.
