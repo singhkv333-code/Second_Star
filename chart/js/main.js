@@ -1,4 +1,4 @@
-/* Charto preview — main wiring.
+/* Pivot preview — main wiring.
  * Data: local 1-min store via dataserver on :5174 (RELIANCE only for now).
  * All chart times are IST-shifted (+19800) so the axis reads IST regardless
  * of browser timezone; shift is removed when talking to the server.
@@ -12,19 +12,17 @@
   // served from anywhere else — the browser dials the VIEWER's machine, so
   // every request fails with a connection error that looks like a dead server.
   const LOCAL_DEV = ["localhost", "127.0.0.1"].includes(location.hostname);
-  // Same origin wherever the chart is served — the Pivot shell on one port, or
-  // nginx on the VM. Only the standalone dev server (serve.py, :5173) is a
+  // Same origin wherever the chart is served — the app's /chart-app route in
+  // dev, or nginx on the VM. Only a standalone static server on :5173 is a
   // second origin, and only it needs the data server addressed directly.
   const API = location.port === "5173" ? "http://127.0.0.1:5174" : "";
-  // Pivot's stock page, copied into site and served by `next dev`
-  // there (see site/README). Company links open it directly.
   /* The company page is same-origin, and the empty string is the point.
    *
    * It was an absolute http://localhost:5175 — a second port in the address
    * bar, a different origin (so no shared cookie and no shared theme), and a
    * link that is dead on every machine that is not the one it was written on.
    * The page still runs as its own app; it is REACHED through this origin,
-   * proxied by serve.py in dev and by nginx on the VM, so one relative href
+   * proxied by the app in dev and by nginx on the VM, so one relative href
    * works in both with no build-time switch. */
   const COMPANY_PAGE = "";
 
@@ -242,11 +240,11 @@
       // or they stay on the removed series and render nothing until a refresh.
       if (draw && draw.syncPanes) draw.syncPanes();
       if (scene && scene.rebindSeries) scene.rebindSeries(next);
-      if (window.__charto) window.__charto.candle = next;
+      if (window.__pivot) window.__pivot.candle = next;
       // Anything that bound price lines to the OLD series — alerts is the one
       // today — must drop and redraw them on the new one; its lines went with
       // the series that was just removed.
-      document.dispatchEvent(new CustomEvent("charto:series-swapped",
+      document.dispatchEvent(new CustomEvent("pivot:series-swapped",
         { detail: { type: ChartSettings.getType() } }));
     },
     repaint() {
@@ -333,7 +331,7 @@
     } catch { return null; }
   }
   let warmBusy = false;
-  window.__chartoWarm = async (sym) => {
+  window.__pivotWarm = async (sym) => {
     if (warmBusy || state.switching || document.visibilityState !== "visible") return;
     const iv = state.interval || Store.get("interval", "5m");
     try {
@@ -349,7 +347,7 @@
     finally { warmBusy = false; }
   };
   /** What the notes widget stamps: the instrument, interval and last price. */
-  window.__chartoLast = () => ({ symbol: SYMBOL, interval: state.interval,
+  window.__pivotLast = () => ({ symbol: SYMBOL, interval: state.interval,
                                  close: lastBar ? lastBar.close : null });
   let snapShown = null;      // the interval a boot snapshot was painted for
   let intervalGeneration = 0;
@@ -372,7 +370,7 @@
       // A restored thread repaints before this resolves, so a panel deciding
       // at render time whether it can draw its trades was answering "no bars
       // loaded" about a chart that was seconds from having them.
-      document.dispatchEvent(new CustomEvent("charto:bars-loaded",
+      document.dispatchEvent(new CustomEvent("pivot:bars-loaded",
         { detail: { interval, symbol: Sym.name, bars: bars.length } }));
       chart.applyOptions({ timeScale: { timeVisible: !["1d", "1w", "1mo"].includes(interval) } });
       paintTitle();
@@ -519,7 +517,7 @@
       // opinion — so a listener that wants a move computes it against its own
       // baseline. Today's listener is the watchlist row for this symbol,
       // which would otherwise sit up to a poll behind the candle beside it.
-      document.dispatchEvent(new CustomEvent("charto:tick", {
+      document.dispatchEvent(new CustomEvent("pivot:tick", {
         detail: { symbol: SYMBOL, last: b.c },
       }));
       // the server owns indicator math — refresh at most once a second, and a
@@ -766,7 +764,7 @@
     status,
     onChange: () => {
       renderIndMenu();
-      document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
+      document.dispatchEvent(new CustomEvent("pivot:indicators-changed"));
     },
   });
 
@@ -780,7 +778,7 @@
     if (selected?.widgetId) selected.onState?.();
     // `alsoKeep` is for studies the CURRENT instrument refused but the user
     // still wants. A volume study on an index cannot draw — the backend says
-    // so rather than plotting a row of zeros — and charto reloads the page on
+    // so rather than plotting a row of zeros — and pivot reloads the page on
     // a symbol switch, so without this, opening NIFTY once would quietly
     // delete Volume from the saved list and it would not come back on the
     // next stock. A refusal is about the instrument, not about the choice.
@@ -789,7 +787,7 @@
     Store.set("indicators", ids);
     // The one choke point every path to the active set passes through — the
     // menu, the legend's ×, the chat, the restore — so it is where the undo
-    // stack listens. NOT the charto:indicators-changed event: the menu's own
+    // stack listens. NOT the pivot:indicators-changed event: the menu's own
     // handler saves without dispatching it, and an indicator you added by
     // clicking it would have been the one thing Ctrl+Z could not take back.
     Undo.touch();
@@ -808,7 +806,7 @@
       subtitle: `${m.symbol} · ${m.interval}`,
       onChange: () => {
         renderIndMenu();
-        document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
+        document.dispatchEvent(new CustomEvent("pivot:indicators-changed"));
       },
     });
   }
@@ -824,7 +822,7 @@
       renderIndMenu();
       if (ind.isActive(cid)) {
         ind.reload(cid).then(() => document.dispatchEvent(
-          new CustomEvent("charto:indicators-changed"))).catch((err) => status(err.message));
+          new CustomEvent("pivot:indicators-changed"))).catch((err) => status(err.message));
       }
       return;
     }
@@ -855,14 +853,14 @@
     if (action === "add" && def && !ind.isActive(cid)) {
       ind.toggle(cid, state.bars).then(() => {
         renderIndMenu();
-        document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
+        document.dispatchEvent(new CustomEvent("pivot:indicators-changed"));
       }).catch((err) => status(err.message));
       return;
     }
     if (action === "remove" && ind.isActive(cid)) {
       ind.remove(cid);
       renderIndMenu();
-      document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
+      document.dispatchEvent(new CustomEvent("pivot:indicators-changed"));
       return;
     }
     if (action === "deleted") {
@@ -870,14 +868,14 @@
       const i = ind.CATALOG.findIndex((c) => c.id === cid);
       if (i >= 0) ind.CATALOG.splice(i, 1);
       renderIndMenu();
-      document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
+      document.dispatchEvent(new CustomEvent("pivot:indicators-changed"));
     }
   }
-  document.addEventListener("charto:custom-indicator",
+  document.addEventListener("pivot:custom-indicator",
     (e) => customIndicatorAction(e.detail.action, e.detail.id, e.detail));
   // the chat's file cards ask this to paint their on-chart toggle
-  window.__chartoCustomActive = (cid) => ind.isActive(cid);
-  window.__chartoChart = () => ({ symbol: ind.symbol, interval: ind.interval });
+  window.__pivotCustomActive = (cid) => ind.isActive(cid);
+  window.__pivotChart = () => ({ symbol: ind.symbol, interval: ind.interval });
 
   el("indBtn").addEventListener("click", (e) => {
     e.stopPropagation();
@@ -1002,7 +1000,7 @@
       .find((n) => n.classList && n.classList.contains("dropdown") && n.classList.contains("dk-menu"));
     closeMenus(own || null);
   });
-  window.__chartoCloseMenus = closeMenus;
+  window.__pivotCloseMenus = closeMenus;
 
   // Input-modality flag the stylesheet gates .btn's focus ring on: Tab arms
   // it, any pointer press disarms it. Keyboard users still get the ring;
@@ -1015,7 +1013,7 @@
   }, true);
 
   // keep the menu and the saved set honest when the chat adds an indicator
-  document.addEventListener("charto:indicators-changed", () => {
+  document.addEventListener("pivot:indicators-changed", () => {
     saveIndicators();   // which is also where the undo stack hears about it
     if (menu.classList.contains("open")) renderIndMenu();
     // a new oscillator pane re-lays the chart's rows; the pane legends are
@@ -1073,7 +1071,7 @@
     loadInterval(b.dataset.iv);
     // the chat's subject chip carries the interval too, and this is the one
     // path that changes the primary's without a pane selection
-    document.dispatchEvent(new CustomEvent("charto:pane-active", {
+    document.dispatchEvent(new CustomEvent("pivot:pane-active", {
       detail: { pane: 0, symbol: SYMBOL, interval: b.dataset.iv },
     }));
   });
@@ -1259,8 +1257,8 @@
    * something is selected, and this removes it. Which module owns it is an
    * implementation detail the rail should not make the user think about.
    *
-   * Two events, one piece of state. `charto:draw-select` has always fired;
-   * `charto:scene-select` is new for exactly this. Each carries null on
+   * Two events, one piece of state. `pivot:draw-select` has always fired;
+   * `pivot:scene-select` is new for exactly this. Each carries null on
    * deselect, so the button leaves the same way it arrived. */
   const selNow = { draw: null, scene: null };
   function paintDelBtn() {
@@ -1272,10 +1270,10 @@
       ? `Delete ${selNow.draw.ref || "drawing"} (Del)`
       : selNow.scene ? "Delete selected annotation (Del)" : "Delete selected (Del)";
   }
-  document.addEventListener("charto:draw-select", (e) => {
+  document.addEventListener("pivot:draw-select", (e) => {
     selNow.draw = e.detail || null; paintDelBtn();
   });
-  document.addEventListener("charto:scene-select", (e) => {
+  document.addEventListener("pivot:scene-select", (e) => {
     selNow.scene = e.detail || null; paintDelBtn();
   });
   el("tool-del").addEventListener("click", (e) => {
@@ -1445,7 +1443,7 @@
     sceneDeselect: () => { try { scene.deselect(); } catch { /* pre-init */ } },
   });
   // panes appear and vanish with their indicators — re-attach on every change
-  document.addEventListener("charto:indicators-changed", () => draw.syncPanes());
+  document.addEventListener("pivot:indicators-changed", () => draw.syncPanes());
 
   // The tool the rail is showing as armed, so switching the active pane can
   // carry it to the newly-selected chart (see Panes.onActive below).
@@ -1496,7 +1494,7 @@
    * carried the chat's annotations and the studies. A button that says "clear
    * all" and clears a third of what you can see is worse than one that asks.
    *
-   * Charto's chart holds three sets of objects rather than TradingView's two:
+   * Pivot's chart holds three sets of objects rather than TradingView's two:
    * what you drew, what the chat drew, and the indicators. The fold control
    * deliberately merges the first two — someone who wants to see the candles
    * does not care whose line is covering them — but delete cannot: which of
@@ -1522,7 +1520,7 @@
         // iterating. The event is what saves the set, repaints the menu and
         // hands the whole removal to the undo stack as one step.
         for (const id of [...ind.active.keys()]) ind.remove(id);
-        document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
+        document.dispatchEvent(new CustomEvent("pivot:indicators-changed"));
       } },
   ];
   /** "1 drawing" / "4 drawings" — the count leads, as it does in TradingView's
@@ -1559,7 +1557,7 @@
   // Drawings and the scene both land in syncDrawToggle; the studies announce
   // themselves. Between them every path that adds or removes an object is
   // covered, including the chat's and the undo stack's.
-  document.addEventListener("charto:indicators-changed", syncTrashBtn);
+  document.addEventListener("pivot:indicators-changed", syncTrashBtn);
 
   /* Appended to <body>, like the legend's ⋯ menu: the rail is a 46px column
    * with its own overflow, and a menu that has to be wider than its anchor
@@ -2229,7 +2227,7 @@
   const pins = (() => {
     let items = [];
     const changed = () =>
-      document.dispatchEvent(new CustomEvent("charto:pins", { detail: items.slice() }));
+      document.dispatchEvent(new CustomEvent("pivot:pins", { detail: items.slice() }));
     return {
       list: () => items,
       toggle(bar) {
@@ -2312,7 +2310,7 @@
       // Fresh chat drawings need the same history coverage as restored ones.
       // Defer until the scene apply has finished batching its annotations.
       queueMicrotask(() => coverScene());
-      document.dispatchEvent(new CustomEvent("charto:scene-changed"));
+      document.dispatchEvent(new CustomEvent("pivot:scene-changed"));
       ind.rescalePanes();     // marks feed pane autoscale — recompute now
       indexChatRefs();        // new annotations → new mentions to link
       Undo.touch();           // what chat drew is undoable like anything else
@@ -2343,7 +2341,7 @@
       const name = raw.split("@")[0];
       const period = a.period || Number(raw.split("@")[1]) || 0;
       const changed = () =>
-        document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
+        document.dispatchEvent(new CustomEvent("pivot:indicators-changed"));
       // A custom study carries its own definition: a chart that has never
       // seen this id learns it here, and one that has gets the new version
       // in place — then an instance already on screen is rebuilt, since a
@@ -2407,7 +2405,7 @@
       });
       victims.forEach((id) => ind.remove(id));
       if (victims.length) {
-        document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
+        document.dispatchEvent(new CustomEvent("pivot:indicators-changed"));
       }
     },
     isCursorMode: () => draw.state.tool === "cursor",
@@ -2454,7 +2452,7 @@
    * sheet prints — including the guard that keeps the chord out of a field
    * the user is typing in, where the browser's own undo is the right one and
    * the only one that knows about their half-written sentence. */
-  document.addEventListener("charto:indicators-changed", () => {
+  document.addEventListener("pivot:indicators-changed", () => {
     // marks on a pane whose indicator is gone are orphans: invisible, yet
     // still counted by the badge and revived if the pane ever returns —
     // they die with their pane, whichever path removed it (chat, chip x,
@@ -2652,7 +2650,7 @@
 
   function toggleDrawFold() {
     if (layersOpen()) { closeLayers(); scene.requestUpdate(); return; }
-    if (window.__chartoCloseMenus) window.__chartoCloseMenus(null);
+    if (window.__pivotCloseMenus) window.__pivotCloseMenus(null);
     const anchor = document.querySelector(".scene-layers");
     if (!anchor || typeof LayersPanel === "undefined") return;
 
@@ -3347,7 +3345,7 @@
    * about, over the label it was describing. Selecting still works — drag it,
    * Delete removes it. */
   const NO_CARD = new Set(["text"]);
-  document.addEventListener("charto:draw-select", (e) => {
+  document.addEventListener("pivot:draw-select", (e) => {
     if (!e.detail) return hideProvenance();
     // finishing a drawing selects it, but popping its card mid-flow
     // interrupts someone laying out several shapes in a row
@@ -3375,7 +3373,7 @@
         // from `a.label || a.kind`, which named a wedge "segment" whenever
         // the leg you happened to hover was one of the unlabelled ones, and
         // offered its id as a drawing_id for kinds no evaluator can convert.
-        document.dispatchEvent(new CustomEvent("charto:draw-tag",
+        document.dispatchEvent(new CustomEvent("pivot:draw-tag",
                                                { detail: annTag(a) }));
       }
       return hideProvenance();
@@ -3387,7 +3385,7 @@
     if (act === "ask-draw" && provDraw) {
       // THIS is the moment the drawing joins the conversation — an explicit
       // ask, not a side effect of having clicked the shape
-      document.dispatchEvent(new CustomEvent("charto:draw-tag", { detail: provDraw }));
+      document.dispatchEvent(new CustomEvent("pivot:draw-tag", { detail: provDraw }));
       provDraw = null;
       return hideProvenance();
     }
@@ -3593,7 +3591,7 @@
 
   chartEl.addEventListener("mousemove", (e) => syncPlus(e.clientX, e.clientY));
   chartEl.addEventListener("mouseleave", hidePlus);
-  document.addEventListener("charto:draw-select", hidePlus);
+  document.addEventListener("pivot:draw-select", hidePlus);
 
   /* Capture phase, so it runs before the library's own canvas handlers and can
    * stop the click from also pinning the candle underneath. */
@@ -3647,8 +3645,8 @@
    *           precisely what the model cannot infer from the word "this".
    *
    * None of the three tags is new plumbing. A bar is a pin; a drawing is
-   * `charto:draw-tag`, the same event its card fires; a bare coordinate is
-   * `charto:compose` carrying the one address format the backend parses.
+   * `pivot:draw-tag`, the same event its card fires; a bare coordinate is
+   * `pivot:compose` carrying the one address format the backend parses.
    */
 
   /** How many decimals this instrument's prices are worth — the same rule
@@ -3855,7 +3853,7 @@
       { icon: "tag", label: "Tag point",
         title: "Puts the coordinate in the composer — you write the question",
         on: () => {
-          document.dispatchEvent(new CustomEvent("charto:compose",
+          document.dispatchEvent(new CustomEvent("pivot:compose",
             { detail: bar ? addressAt(bar.time, px) : String(level) }));
           notify("point tagged — ask what you like about it");
         } },
@@ -4046,7 +4044,7 @@
     const name = spec ? spec.label : d.type;
     const priced = !PRICELESS.has(d.type);
     const tag = () => document.dispatchEvent(
-      new CustomEvent("charto:draw-tag", { detail: draw.tagOf(d.id) }));
+      new CustomEvent("pivot:draw-tag", { detail: draw.tagOf(d.id) }));
     // The chat rows tag the shape FIRST and then ask, so the question travels
     // with the ref and the tools resolve real geometry — the model is never
     // asked to work out which line "this" was.
@@ -4119,7 +4117,7 @@
     const px = y === null ? null : candle.coordinateToPrice(y);
     if (px == null || !isFinite(px)) return;
     e.preventDefault();
-    if (window.__chartoCloseMenus) window.__chartoCloseMenus(null);
+    if (window.__pivotCloseMenus) window.__pivotCloseMenus(null);
 
     // hoverId is maintained by the same hit test the grab cursor uses, so
     // "which shape is the pointer on?" is already answered — no second walk
@@ -4165,10 +4163,10 @@
     // (it is a bar, not a view), so "09:35" has to keep saying which 09:35.
     pins.toggle({ ...b, interval: state.interval });
   });
-  document.addEventListener("charto:unpin", (e) => pins.remove(e.detail));
+  document.addEventListener("pivot:unpin", (e) => pins.remove(e.detail));
   // Clicking a pin chip goes back to the bar it names — a chip you can't
   // locate is a label, not context. Same zoom, recentred on the bar.
-  document.addEventListener("charto:reveal-pin", (e) => {
+  document.addEventListener("pivot:reveal-pin", (e) => {
     const i = state.bars.findIndex((x) => x.time === Number(e.detail));
     // Pinned on another interval → that bar isn't in this series. Say so
     // rather than scrolling to the nearest wrong thing.
@@ -4193,7 +4191,7 @@
   //         const s=this.pm.canvasElement; t.drawImage(s,i,n) } }
   //
   // `fm` is the bars; `pm` is the OVERLAY, and `s` is this argument carried
-  // down from takeScreenshot. Every shape charto draws — the user's
+  // down from takeScreenshot. Every shape pivot draws — the user's
   // drawings, get_levels' zones, get_patterns' necklines — is a SERIES
   // primitive at zOrder "top", which is precisely what lands on `pm` (see
   // the note in drawings.js syncPanes: a series primitive gets the overlay,
@@ -4306,7 +4304,7 @@
     // to the chat: open it first if it is hidden, so the attachment is seen
     const panel = el("chatPanel");
     if (panel && panel.classList.contains("hidden")) el("chatToggle").click();
-    document.dispatchEvent(new CustomEvent("charto:screenshot", {
+    document.dispatchEvent(new CustomEvent("pivot:screenshot", {
       detail: { uri: c.toDataURL("image/png") },
     }));
     say("Snapshot attached to the chat.");
@@ -4452,7 +4450,7 @@
   // Another tab took this one's parallel-chart slot. Said, never silent:
   // js/paywall.js draws the banner with "Use this tab"; the status line keeps
   // the sentence for anyone who dismisses it.
-  document.addEventListener("charto:evicted", (e) => {
+  document.addEventListener("pivot:evicted", (e) => {
     status((e.detail && e.detail.error) || "This chart was paused by your plan's tab limit.");
   });
 
@@ -4473,8 +4471,8 @@
         || (typeof Plan !== "undefined" && !Plan.allows("chart.panes", n)));
     }
   }
-  document.addEventListener("charto:plan", () => { paintLayoutLocks(); renderIndMenu(); });
-  document.addEventListener("charto:plan-catalog", () => { paintLayoutLocks(); renderIndMenu(); });
+  document.addEventListener("pivot:plan", () => { paintLayoutLocks(); renderIndMenu(); });
+  document.addEventListener("pivot:plan-catalog", () => { paintLayoutLocks(); renderIndMenu(); });
 
   function paintLayoutBtn() {
     // The trigger wears the layout you are in, so the header says which one
@@ -4507,7 +4505,7 @@
   // that pane's interval and the indicator menu shows what that pane is
   // carrying, so neither ever claims a value it isn't driving. The legend is
   // NOT re-aimed — every pane wears its own now, which is the point. The chat
-  // is told too — `charto:pane-active` is what moves its subject to the chart
+  // is told too — `pivot:pane-active` is what moves its subject to the chart
   // you just clicked (unless you have pinned one yourself).
   Panes.onActive((i, iv, sym) => {
     ChartSettings.selectPane(i);
@@ -4530,11 +4528,11 @@
     if (i === 0 || !sym) delete ivBtn.dataset.pane;
     else ivBtn.dataset.pane = sym;
     if (menu.classList.contains("open")) renderIndMenu();
-    document.dispatchEvent(new CustomEvent("charto:pane-active", {
+    document.dispatchEvent(new CustomEvent("pivot:pane-active", {
       detail: { pane: i, symbol: sym || SYMBOL, interval: iv || state.interval },
     }));
     // a pane's symbol or interval may have moved with the selection
-    document.dispatchEvent(new CustomEvent("charto:panes-changed"));
+    document.dispatchEvent(new CustomEvent("pivot:panes-changed"));
   });
   // A layout change creates and destroys charts, so anything holding a pane
   // index — the chat's chosen set above all — has to be told the screen is
@@ -4573,7 +4571,7 @@
     paintLayoutBtn();
     reparentMarks();
     Store.set("layout", Panes.layout);
-    document.dispatchEvent(new CustomEvent("charto:panes-changed"));
+    document.dispatchEvent(new CustomEvent("pivot:panes-changed"));
   });
   Panes.apply(Store.get("layout") || "s1");
   paintLayoutBtn();
@@ -4780,7 +4778,7 @@
      * shown a page asking them to sign in. serve.py proxies /paper to the
      * Next app in dev exactly as nginx does on the VM. */
     const openPaper = () => {
-      if (!Auth.user) return window.CHARTO_AUTH_OPEN("login");
+      if (!Auth.user) return window.PIVOT_AUTH_OPEN("login");
       window.open(COMPANY_PAGE + "/paper", "_blank", "noopener");
     };
     paperBtn.addEventListener("click", openPaper);
@@ -4817,7 +4815,7 @@
       // COMPANY_PAGE for the same origin reason openPaper documents: an
       // absolute :5175 URL is a different origin and the chart's token does
       // not exist there, so the visitor lands signed out.
-      if (!Auth.user) return window.CHARTO_AUTH_OPEN("login");
+      if (!Auth.user) return window.PIVOT_AUTH_OPEN("login");
       window.open(COMPANY_PAGE + "/brokers", "_blank", "noopener");
       return;
     }
@@ -4827,7 +4825,7 @@
       // work are already running — the same reason a sign-in reloads.
       return location.reload();
     }
-    window.CHARTO_AUTH_OPEN(it.dataset.acct === "signup" ? "signup" : "login");
+    window.PIVOT_AUTH_OPEN(it.dataset.acct === "signup" ? "signup" : "login");
   });
   Auth.onChange(paintAccount);
   paintAccount(Auth.user);   // onChange only fires on a CHANGE; paint the rest
@@ -4849,7 +4847,7 @@
           paintReadout(snap[snap.length - 1]);
           setOverlay(false);
           snapShown = iv0;
-        } catch (e) { console.warn("[charto] snapshot paint", e); }
+        } catch (e) { console.warn("[pivot] snapshot paint", e); }
       }
     }
     await Indicators.loadCatalogue(API, SYMBOL);
@@ -4916,13 +4914,13 @@
           // the console on every NIFTY load would be noise, and dropping the
           // id would lose the setting (see saveIndicators).
           if (def.group === "volume") { refused.push(rid); return; }
-          console.error("[charto] indicator restore failed", rid, err);
+          console.error("[pivot] indicator restore failed", rid, err);
         });
     }
     saveIndicators(refused);
     // panes created during restore need every layer's primitives attached —
     // the same signal a live indicator change sends
-    document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
+    document.dispatchEvent(new CustomEvent("pivot:indicators-changed"));
 
     /* Labels were baked into the annotation at draw time, so a shape drawn
      * before the format changed keeps the old words for as long as it stays
@@ -4974,7 +4972,7 @@
 
       // the indicators-changed dispatch above ran BEFORE this restore,
       // so the orphan purge saw an empty scene — signal once more now
-      document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
+      document.dispatchEvent(new CustomEvent("pivot:indicators-changed"));
     }
 
     // A profile is RE-FETCHED rather than restored from the saved scene: a
@@ -4985,7 +4983,7 @@
     const vp = Store.get("vp", null);
     if (vp) {
       await setVolumeProfile(Number(vp))
-        .catch((err) => console.error("[charto] volume profile restore", err));
+        .catch((err) => console.error("[pivot] volume profile restore", err));
     }
 
     /* The restored session is the STARTING POSITION, not a move — so the undo
@@ -5023,7 +5021,7 @@
           const rid = ind.ensureFromId(id);
           if (!rid || ind.isActive(rid)) continue;
           await Promise.resolve(ind.toggle(rid, state.bars))
-            .catch((err) => console.warn("[charto] undo: indicator", rid, err));
+            .catch((err) => console.warn("[pivot] undo: indicator", rid, err));
         }
         saveIndicators();
         // after scene.setItems, so the tick describes the histogram that is
@@ -5031,11 +5029,11 @@
         state.vp = s.vp || null;
         Store.set("vp", state.vp);
         renderIndMenu();
-        document.dispatchEvent(new CustomEvent("charto:indicators-changed"));
+        document.dispatchEvent(new CustomEvent("pivot:indicators-changed"));
     });
     Undo.bind({ read: wsRead, write: wsWrite });
     workspace = { read: wsRead, write: wsWrite };
-    document.dispatchEvent(new CustomEvent("charto:workspace-ready"));
+    document.dispatchEvent(new CustomEvent("pivot:workspace-ready"));
 
     /* The fold is restored LAST — after the scene, the profile and the undo
      * bind, so `sceneCount` starts from what is actually on the chart and the
@@ -5061,7 +5059,7 @@
     setText("srcLine", `local store · ${Sym.feed}`);
     paintTitle();
     // PIVOT, which is what the header lockup, the static <title> and the
-    // company page have all said for a while. "Charto" is the repository's
+    // company page have all said for a while. "Pivot" is the repository's
     // name for this surface, not the product's, and the tab was the last
     // place it was still leaking out to a reader.
     document.title = `${Universe.shown(SYMBOL)} — Pivot`;
@@ -5124,7 +5122,7 @@
     pill.addEventListener("click", async (e) => {
       e.stopPropagation();
       const opening = !menu.classList.contains("open");
-      window.__chartoCloseMenus && window.__chartoCloseMenus();
+      window.__pivotCloseMenus && window.__pivotCloseMenus();
       menu.classList.toggle("open", opening);
       if (!opening) return;
       // Focus FIRST, and never clear after the fetch. This used to sit after
@@ -5303,12 +5301,12 @@
     // the history behind the drawings already on the chart, before the chat
     // draws more on it and before it reads the view back
     await coverScene();
-    document.dispatchEvent(new CustomEvent("charto:pane-active", {
+    document.dispatchEvent(new CustomEvent("pivot:pane-active", {
       detail: { pane: 0, symbol: SYMBOL, interval: iv },
     }));
     return true;
   }
-  window.__charto = { chart, candle, state, draw, ind, scene, pins, applyScenePatch, switchInterval,
+  window.__pivot = { chart, candle, state, draw, ind, scene, pins, applyScenePatch, switchInterval,
                       getChartContext, charts: chartList, panes: Panes,
                       /* The trash's model, so the phone's sheet offers the same
                        * choices the rail's menu does rather than a "clear all"
@@ -5326,7 +5324,7 @@
                         },
                       },
                       // set once the boot restore has finished — layouts.js
-                      // waits on charto:workspace-ready rather than polling
+                      // waits on pivot:workspace-ready rather than polling
                       get workspace() { return workspace; },
                       get symbol() { return SYMBOL; },
                       get interval() { return state.interval; },

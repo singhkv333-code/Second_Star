@@ -1,4 +1,4 @@
-/* Charto preview — saved layouts.
+/* Pivot preview — saved layouts.
  *
  * TradingView's "Manage layouts", on our terms. A LAYOUT is the whole desk:
  * the pane grid, what each pane is showing, everything drawn on it, the
@@ -11,7 +11,7 @@
  * same word and so do we; the grid is one field of what this saves.
  *
  * ── what a snapshot is ───────────────────────────────────────────────────
- * `workspace` on __charto is the pair Undo already runs on — drawings,
+ * `workspace` on __pivot is the pair Undo already runs on — drawings,
  * scene, indicators, vp — because a saved layout is that same snapshot kept
  * under a name instead of on a stack. Anything undo learns to cover, a
  * layout stores for free. Around it this adds the grid, the per-pane
@@ -49,7 +49,7 @@ const Layouts = (() => {
   /* ── what gets saved ──────────────────────────────────────────────────── */
 
   function snapshot() {
-    const c = window.__charto;
+    const c = window.__pivot;
     if (!c || !c.workspace) return null;
     const subs = c.panes.subsInfo ? c.panes.subsInfo() : [];
     return {
@@ -83,7 +83,7 @@ const Layouts = (() => {
   // upscaled to that read as a blurred photo of a chart. The card gets its
   // own capture at full resolution, made once at publish time.
   function capture(width, quality) {
-    const c = window.__charto;
+    const c = window.__pivot;
     if (!c) return "";
     try {
       const shots = [];
@@ -126,7 +126,7 @@ const Layouts = (() => {
     } catch (e) {
       // A layout still saves without its picture — the capture is the
       // decoration, never the record.
-      console.warn("[charto] thumbnail failed", e);
+      console.warn("[pivot] thumbnail failed", e);
       return "";
     }
   }
@@ -137,7 +137,7 @@ const Layouts = (() => {
 
   /** Put a snapshot back on the chart. Same-symbol only — see the header. */
   async function restore(spec) {
-    const c = window.__charto;
+    const c = window.__pivot;
     if (!c || !c.workspace || !spec) return;
     if (spec.grid && spec.grid !== c.panes.layout) c.panes.apply(spec.grid);
     const charts = spec.charts || [];
@@ -158,7 +158,7 @@ const Layouts = (() => {
     // here has no `dock` and leaves the widgets as they are
     if (spec.dock && window.Setups && Setups.applyDesk) {
       try { await Setups.applyDesk(spec.dock, !!Store.viewOnly); }
-      catch (e) { console.error("[charto] workspace restore", e); }
+      catch (e) { console.error("[pivot] workspace restore", e); }
     }
     dirty = false;
     paint();
@@ -234,7 +234,7 @@ const Layouts = (() => {
     // A different instrument is a different session — the app has always
     // said so, and re-pointing every pane in place would be a second, worse
     // implementation of the reload that already does it correctly.
-    if (want && want.symbol && want.symbol !== window.__charto.symbol) {
+    if (want && want.symbol && want.symbol !== window.__pivot.symbol) {
       const u = new URL(location.href);
       u.searchParams.set("symbol", want.symbol);
       u.searchParams.set("layout", String(id));
@@ -269,7 +269,7 @@ const Layouts = (() => {
   async function createNew() {
     const name = await prompt_("Create new layout", "Name", UNTITLED);
     if (name === null) return;
-    const c = window.__charto;
+    const c = window.__pivot;
     // A NEW layout starts from a clean desk, not from whatever is on screen —
     // otherwise "create new" would be "make a copy" wearing another name.
     if (c && c.workspace) {
@@ -327,7 +327,7 @@ const Layouts = (() => {
    *  what you download is what you were looking at, including the interval
    *  and any forming bar. */
   function downloadData() {
-    const c = window.__charto;
+    const c = window.__pivot;
     const bars = (c && c.state && c.state.bars) || [];
     if (!bars.length) return toast("No bars loaded");
     const iv = c.interval;
@@ -594,7 +594,7 @@ const Layouts = (() => {
       // field with the magnifier that goes from grey to ink when the field
       // is live. It was a bare .dlg-input — a bordered numeric cell with a
       // placeholder in it, and the only "type to filter this list" box in
-      // charto that did not look like the others or say it was focused.
+      // pivot that did not look like the others or say it was focused.
       + Icons.field(`<input id="lyq" type="search" autocomplete="off"`
                     + ` placeholder="Search layouts or symbols">`)
       + `<div class="ly-list" id="lylist"></div>`
@@ -638,7 +638,7 @@ const Layouts = (() => {
     if (!b || !m) return;
     b.addEventListener("click", async (e) => {
       e.stopPropagation();
-      if (window.__chartoCloseMenus) window.__chartoCloseMenus(m);
+      if (window.__pivotCloseMenus) window.__pivotCloseMenus(m);
       const opening = !m.classList.contains("open");
       if (opening) { await refresh(); renderMenu(); }
       m.classList.toggle("open", opening);
@@ -681,7 +681,7 @@ const Layouts = (() => {
       else if (act === "csv") downloadData();
       else if (act === "new") createNew();
       else if (act === "openall") openPicker();
-      else if (act === "signin" && window.CHARTO_AUTH_OPEN) window.CHARTO_AUTH_OPEN();
+      else if (act === "signin" && window.PIVOT_AUTH_OPEN) window.PIVOT_AUTH_OPEN();
     });
 
     // ⌘S / Ctrl+S — TradingView's shortcut, and the browser's Save Page is
@@ -695,8 +695,8 @@ const Layouts = (() => {
 
     // Everything that edits the workspace already announces itself; autosave
     // and the unsaved dot both ride on those rather than on a poll.
-    for (const ev of ["charto:indicators-changed", "charto:drawings-changed",
-                      "charto:scene-changed"]) {
+    for (const ev of ["pivot:indicators-changed", "pivot:drawings-changed",
+                      "pivot:scene-changed"]) {
       document.addEventListener(ev, touch);
     }
   }
@@ -729,7 +729,7 @@ const Layouts = (() => {
        * live session from localStorage, and re-applying a snapshot over that
        * would discard whatever has been done since.
        */
-      const here = window.__charto && window.__charto.symbol;
+      const here = window.__pivot && window.__pivot.symbol;
       const top = [...list]
         .filter((L) => (L.symbols || [])[0] === here)
         .sort((a, b) => (b.opened || 0) - (a.opened || 0))[0];
@@ -742,7 +742,7 @@ const Layouts = (() => {
     paint();
   }
 
-  document.addEventListener("charto:workspace-ready", () => { boot(); }, { once: true });
+  document.addEventListener("pivot:workspace-ready", () => { boot(); }, { once: true });
 
   return { save, open, openPicker, createNew, downloadData, touch,
            // for js/setups.js: one definition of what a desk IS, what its

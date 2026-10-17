@@ -33,7 +33,7 @@ import urllib.request
 
 import webcache
 
-_UA = "Mozilla/5.0 (compatible; PivotCharto/1.0; +https://pivot)"
+_UA = "Mozilla/5.0 (compatible; Pivot/1.0; +https://pivot)"
 
 FEEDS = {
     "bbc-business": ("BBC Business", "https://feeds.bbci.co.uk/news/business/rss.xml"),
@@ -384,7 +384,7 @@ def live_video(channel: str) -> dict:
 # every other page comes back as plain strings the widget escapes.
 
 _WIKI_LANGS = {"en", "hi"}
-_WIKI_UA = "PivotCharto/1.0 (research browser; https://pivot)"
+_WIKI_UA = "Pivot/1.0 (research browser; https://pivot)"
 
 
 def _get_json(url: str, timeout: float = 8) -> dict:

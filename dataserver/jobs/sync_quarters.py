@@ -1,9 +1,9 @@
-"""Sync `quarterly_metrics` for charto's universe.
+"""Sync `quarterly_metrics` for the dataserver's universe.
 
 The Quarterly Results tab on the company page was never a tab this page could
 draw: `/stock/…/quarters` is answered by `_api_unavailable`, so it came back
 empty for every symbol and the tab hid itself on every symbol. It was not a
-per-company coverage problem — it was that charto had no quarterly store at
+per-company coverage problem — it was that dataserver had no quarterly store at
 all, and the panel's "coverage decides the tab" rule then read the absence as
 "this company files nothing".
 
@@ -80,7 +80,7 @@ def main() -> None:
     syms = [s.upper() for s in sys.argv[1:]] or json.loads(
         (HERE / "symbols.json").read_text())
 
-    db = sqlite3.connect(HERE / "charto_bars.db")
+    db = sqlite3.connect(HERE / "bars.db")
     db.execute("PRAGMA journal_mode=WAL")
     db.executescript(DDL)
 

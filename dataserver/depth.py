@@ -54,7 +54,7 @@ def _ssl_ctx():
 
 
 def _get_json(url: str, timeout: float = 4.0) -> dict | list:
-    req = urllib.request.Request(url, headers={"User-Agent": "charto-depth/1"})
+    req = urllib.request.Request(url, headers={"User-Agent": "pivot-depth/1"})
     with urllib.request.urlopen(req, timeout=timeout, context=_ssl_ctx()) as r:
         return json.loads(r.read())
 

@@ -1,4 +1,4 @@
-/* Charto preview — the Portfolio widget.
+/* Pivot preview — the Portfolio widget.
  *
  * The user's PAPER book (data/paper.py): what they hold, what it cost, what it
  * is worth now, and how it is split. A ring, not a filled pie — the hole holds
@@ -37,10 +37,10 @@
 
     const signedIn = () => typeof Auth !== "undefined" && !!Auth.user;
     // The user's portfolio is the paper book in Pivot's API — the account the
-    // Home, Portfolio and Paper pages show — not charto's own book, which
+    // Home, Portfolio and Paper pages show — not pivot's own book, which
     // this widget used to read and which is empty for anyone who trades from
     // those pages. Same-origin under /pv (nginx and the shell both route it);
-    // Pivot accepts the charto session as its bearer.
+    // Pivot accepts the pivot session as its bearer.
     const PIVOT = location.port === "5173" ? "http://127.0.0.1:8000" : "/pv";
     async function get(path) {
       const r = await fetch(PIVOT + path, { headers: typeof Auth !== "undefined" ? Auth.headers() : {} });
@@ -224,7 +224,7 @@
         e.stopPropagation();
         const a = b.dataset.pf;
         if (a === "refresh") return load(true);
-        if (a === "signin") return window.CHARTO_AUTH_OPEN && window.CHARTO_AUTH_OPEN();
+        if (a === "signin") return window.PIVOT_AUTH_OPEN && window.PIVOT_AUTH_OPEN();
         if (a === "chart") return ctx.openSymbol ? ctx.openSymbol(b.dataset.s) : null;
         if (a === "ask") {
           const r = rows.find((x) => x.symbol === b.dataset.s);

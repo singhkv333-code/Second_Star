@@ -334,18 +334,18 @@ def broker_disconnect(
 
 
 # ── OAuth callback (public — identity comes from the state JWT) ─────────────
-def _rearm_charto_kite_feed() -> str:
-    """Restart charto's Kite stream so it picks up the session just stored.
+def _rearm_dataserver_kite_feed() -> str:
+    """Restart the dataserver's Kite stream so it picks up the session just stored.
 
     The stream reads the token once, when it starts, so a morning login is
     invisible to it until it is re-armed. Stop (a 404 means none was running)
-    then start through charto's operator endpoint. Returns a short status for
+    then start through the dataserver's operator endpoint. Returns a short status for
     the confirmation page; never raises, because the session is already saved
     and a failed re-arm must not read as a failed login."""
-    key = (os.environ.get("CHARTO_FEED_CONTROL_KEY") or "").strip()
+    key = (os.environ.get("PIVOT_FEED_CONTROL_KEY") or "").strip()
     if not key:
-        return "not re-armed: CHARTO_FEED_CONTROL_KEY is not set"
-    url = (os.environ.get("CHARTO_INTERNAL_URL") or "http://127.0.0.1:5174").rstrip("/") + "/live"
+        return "not re-armed: PIVOT_FEED_CONTROL_KEY is not set"
+    url = (os.environ.get("PIVOT_INTERNAL_URL") or "http://127.0.0.1:5174").rstrip("/") + "/live"
 
     def post(body: dict) -> int:
         req = urllib.request.Request(
@@ -363,7 +363,7 @@ def _rearm_charto_kite_feed() -> str:
     except Exception as exc:  # noqa: BLE001
         logger.warning("kite feed re-arm failed: %s", type(exc).__name__)
         return f"not re-armed: {type(exc).__name__}"
-    return "re-armed" if code == 200 else f"not re-armed: charto answered {code}"
+    return "re-armed" if code == 200 else f"not re-armed: the dataserver answered {code}"
 
 
 def _data_feed_page(ok: bool, message: str) -> HTMLResponse:
@@ -419,7 +419,7 @@ def _complete_data_feed_login(db: Session, request_token: str) -> HTMLResponse:
         broker_user_id=kite_user, login_time=now,
         token_expires_at=now + timedelta(hours=20), is_active=True,
     )
-    feed = _rearm_charto_kite_feed()
+    feed = _rearm_dataserver_kite_feed()
     logger.info("data-feed login stored for %s; feed %s", kite_user, feed)
     return _data_feed_page(True, f"Kite account {kite_user} is connected for today. Live feed: {feed}.")
 

@@ -36,7 +36,7 @@ gets NULL outcomes rather than a truncated-window number.
 
 Usage
 -----
-  python3 sweep_patterns.py --db charto_bars.db --out sweep.db
+  python3 sweep_patterns.py --db bars.db --out sweep.db
   python3 sweep_patterns.py --db /mnt/charto/charto_bars_universe.db \\
       --out /mnt/charto/sweep.db --intervals 15m,1h,1d --procs 8
 

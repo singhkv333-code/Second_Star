@@ -89,7 +89,7 @@ def _searxng(q: str, page: int, kind: str, fresh: str) -> list[dict]:
     if fresh in _FRESH:
         p["time_range"] = fresh
     base = os.environ["SEARXNG_URL"].rstrip("/")
-    d = _get(f"{base}/search?" + urllib.parse.urlencode(p), {"User-Agent": "PivotCharto/1.0"}, timeout=10)
+    d = _get(f"{base}/search?" + urllib.parse.urlencode(p), {"User-Agent": "Pivot/1.0"}, timeout=10)
     out = []
     for r in d.get("results") or []:
         out.append({"title": _clean(r.get("title")), "url": r.get("url") or "",

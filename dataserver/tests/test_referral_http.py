@@ -1,4 +1,4 @@
-"""Access-control checks through the real Charto HTTP handler and a temp DB."""
+"""Access-control checks through the real dataserver HTTP handler and a temp DB."""
 import secrets
 import time
 

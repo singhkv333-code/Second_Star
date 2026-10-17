@@ -1,4 +1,4 @@
-/* Charto preview — the pictures on the widget hub's cards.
+/* Pivot preview — the pictures on the widget hub's cards.
  *
  * Each widget is shown by a small drawing of itself, the way a product shot
  * shows a product: a candle chart for the chart, a ladder for the order book,

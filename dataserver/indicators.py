@@ -1,4 +1,4 @@
-"""Indicator engine for Charto.
+"""Indicator engine for the dataserver.
 
 A registry, not a switch statement. Each entry declares what it needs and
 what it returns, so `get_indicator` stays one tool over many indicators

@@ -111,7 +111,7 @@ class SavedScreen(Base):
 
       kind="symbols"  a result set someone wants to keep. ``symbols`` is the
                       whole screen; ``filters`` is null. This is what a chat
-                      screen becomes — charto composes filters over ITS 500-
+                      screen becomes — the dataserver composes filters over ITS 500-
                       instrument daily matrix in a feature vocabulary this
                       service does not share (vol_z20, sma20/50/200 distance),
                       so the filters cannot be replayed here and it would be a
@@ -126,7 +126,7 @@ class SavedScreen(Base):
                       membership is whatever qualifies today.
 
     Rows are per-user (FK to users.id, CASCADE) and this is the PIVOT user, not
-    Charto's — the two user tables are disjoint, so a screen is owned by
+    The dataserver's — the two user tables are disjoint, so a screen is owned by
     whoever was signed into the shell when they pressed Save. The chart never
     writes here; it hands a screen to the shell and the shell persists it.
     """
@@ -156,7 +156,7 @@ class SavedScreen(Base):
     # re-derived from the filters, because for a chat screen we do not hold the
     # filters that produced it.
     criteria = Column(Text, nullable=True)
-    # The session the SOURCE screen was computed against — charto's daily
+    # The session the SOURCE screen was computed against — the dataserver's daily
     # matrix trails live prices, so a symbols screen that did not carry its own
     # as-of would silently read as "today".
     as_of = Column(String(32), nullable=True)

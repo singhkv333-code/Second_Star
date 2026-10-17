@@ -34,7 +34,7 @@ import {
   type Time,
 } from "lightweight-charts";
 import { LightweightChart } from "@/components/chart/LightweightChart";
-import { CHARTO_MARK } from "@/lib/publicAssets";
+import { PIVOT_MARK } from "@/lib/publicAssets";
 
 export type PricePoint = { t: string; v: number };
 export type VolumePoint = { t: string; v: number; up: boolean };
@@ -292,8 +292,8 @@ export function StockPriceChart({
             pointerEvents: "none",
             background: "var(--text-primary)",
             opacity: dark ? 0.07 : 0.045,
-            WebkitMask: `url("${CHARTO_MARK}") center / contain no-repeat`,
-            mask: `url("${CHARTO_MARK}") center / contain no-repeat`,
+            WebkitMask: `url("${PIVOT_MARK}") center / contain no-repeat`,
+            mask: `url("${PIVOT_MARK}") center / contain no-repeat`,
           }}
         />
       ) : null}

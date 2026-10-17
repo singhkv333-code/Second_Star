@@ -1,4 +1,4 @@
-/* Charto preview — the panels a tool prints beside its reply.
+/* Pivot preview — the panels a tool prints beside its reply.
  *
  * A reply is prose. Some answers are not: a full pattern sweep comes back as
  * a market-structure read, several formations each with a status and one
@@ -429,7 +429,7 @@ const Cards = (() => {
    *
    * Not a transliteration. Pivot's are React with hooks and Tailwind; this
    * folder has no build step and `Cards.render` returns a string. So the
-   * structure and the behaviour come across, and the mechanics are Charto's.
+   * structure and the behaviour come across, and the mechanics are Pivot's.
    *
    * Neither card computes anything. Every figure printed is the payload's
    * own — a card that recomputed a metric could disagree with the engine that
@@ -575,7 +575,7 @@ const Cards = (() => {
           ? `<p class="wf-note">${esc(blockers[0])}</p>` : "")
       + `<div class="wf-cta">`
       // Research launch: nothing is armed, so the card's action is the test.
-      + (window.CHARTO_EXECUTION === true
+      + (window.PIVOT_CHART_EXECUTION === true
           ? `<button type="button" class="wf-primary" data-wf-activate>Save &amp; activate</button>`
           : "")
       + `<div class="wf-ghosts">`
@@ -612,7 +612,7 @@ const Cards = (() => {
 
   /** The loaded chart's bars, or an empty list when there is no chart. */
   const chartBars = () =>
-    (window.__charto && window.__charto.state && window.__charto.state.bars) || [];
+    (window.__pivot && window.__pivot.state && window.__pivot.state.bars) || [];
 
   /* An ISO date onto the bar it belongs to.
    *
@@ -654,7 +654,7 @@ const Cards = (() => {
   /* Trades → scene annotations. One per trade, plus the rail.
    *
    * The two price series do NOT agree, and pretending otherwise is the whole
-   * hazard here. Pivot back-adjusts for dividends; Charto's own store does
+   * hazard here. Pivot back-adjusts for dividends; Pivot's own store does
    * not, so the same RELIANCE entry is ₹1087.82 to the engine and ₹1141 to
    * this chart — a ladder that steps at every ex-date and closes to nothing
    * on the most recent trade. Drawn at the engine's price, the object would
@@ -760,12 +760,12 @@ const Cards = (() => {
    * button says which one to switch to rather than going quiet.
    */
   function strategyBlocker(c) {
-    if (!window.__charto || !window.__charto.scene) return "No chart loaded.";
+    if (!window.__pivot || !window.__pivot.scene) return "No chart loaded.";
     if (!(c.trades || []).length && !(c.open_lots || []).length) {
       return "Nothing was bought or sold in this window.";
     }
     const want = String(c.symbol || "").toUpperCase();
-    const have = String(window.__charto.symbol || "").toUpperCase();
+    const have = String(window.__pivot.symbol || "").toUpperCase();
     if (want && have && want !== have) return `Open ${want} to see these trades.`;
     if (!chartBars().length) return "No bars loaded.";
     return "";
@@ -1484,10 +1484,10 @@ const Cards = (() => {
    * draft card — the strategy and its evidence in one object, so nothing has
    * to be scrolled back to. Same here, against `/execution/backtest`.
    *
-   * Save & activate was inert, and the reason on it — that Charto accounts do
+   * Save & activate was inert, and the reason on it — that Pivot accounts do
    * not map to Pivot's — stopped being true when the paper book shipped.
-   * `POST /strategies` arms the draft under the CHARTO user, into Charto's own
-   * book, evaluated by Charto's own runtime; Pivot's accounts were never
+   * `POST /strategies` arms the draft under the CHARTO user, into Pivot's own
+   * book, evaluated by Pivot's own runtime; Pivot's accounts were never
    * involved. So the button posts, and the only honest blocker left is not
    * being signed in — which the button says, once pressed, rather than
    * pre-emptively greying out a capability the reader would never discover.
@@ -1521,10 +1521,10 @@ const Cards = (() => {
         const note = btn.parentElement
           && btn.parentElement.querySelector(".wf-cta-note");
         if (note) note.remove();
-        document.removeEventListener("charto:bars-loaded", recheck);
+        document.removeEventListener("pivot:bars-loaded", recheck);
       };
       if (!/nothing was bought|open .* to see/i.test(btn.title || "")) {
-        document.addEventListener("charto:bars-loaded", recheck);
+        document.addEventListener("pivot:bars-loaded", recheck);
         recheck();
       }
       // No early return. The listener is attached either way — a disabled
@@ -1533,7 +1533,7 @@ const Cards = (() => {
       // had nothing behind it.
     }
     btn.addEventListener("click", () => {
-      const scene = window.__charto && window.__charto.scene;
+      const scene = window.__pivot && window.__pivot.scene;
       if (!scene) return;
       const on = btn.getAttribute("aria-pressed") === "true";
       if (on) {
@@ -1618,7 +1618,7 @@ const Cards = (() => {
           const st = box.querySelector(".wf-state");
           if (st) st.lastChild.textContent = "Armed";
         } catch (e) {
-          console.warn("[charto] arm failed", e);
+          console.warn("[pivot] arm failed", e);
           activate.textContent = was;
           activate.disabled = false;
         }
@@ -1658,7 +1658,7 @@ const Cards = (() => {
         // next reload throws away.
         if (card) {
           card.backtest = data;
-          document.dispatchEvent(new CustomEvent("charto:card-updated",
+          document.dispatchEvent(new CustomEvent("pivot:card-updated",
                                                  { detail: { card } }));
         }
       } catch (e) {
@@ -2644,7 +2644,7 @@ const Cards = (() => {
       + (c.last_error ? `<p class="wf-stale" role="status">`
           + `${esc(c.last_error)}</p>` : "")
       + `<div class="wf-cta">`
-      + (window.CHARTO_EXECUTION === true || live || done
+      + (window.PIVOT_CHART_EXECUTION === true || live || done
           ? `<button type="button" class="wf-primary" data-plan-go`
             + (done || live ? " disabled" : "")
             + `>${esc(live || done ? "Activated" : cta)}</button>`
@@ -2717,7 +2717,7 @@ const Cards = (() => {
          * the panel chrome — and its `data-card` — the moment it succeeded. */
         box.innerHTML = plan(Object.assign({}, card, data));
       } catch (e) {
-        console.warn("[charto] plan activate failed", e);
+        console.warn("[pivot] plan activate failed", e);
         btn.disabled = false;
         btn.textContent = label;
       }
@@ -2897,8 +2897,8 @@ const Cards = (() => {
 
   /** Hand this screen to the shell's Screener tab.
    *
-   *  Charto does NOT persist the screen. It cannot: saving is per-user and the
-   *  Pivot user table and Charto's are disjoint numbering schemes over
+   *  Pivot does NOT persist the screen. It cannot: saving is per-user and the
+   *  Pivot user table and Pivot's are disjoint numbering schemes over
    *  different databases, so a screen written from here would be filed under
    *  whichever stranger happens to hold that id on the other side. The shell
    *  holds the Pivot session, so the shell saves. This is a handover, and the
@@ -2918,7 +2918,7 @@ const Cards = (() => {
       if (!syms.length) return;
       try {
         window.parent.postMessage({
-          type: "charto:open-screen",
+          type: "pivot:open-screen",
           screen: {
             symbols: syms,
             criteria: card.criteria || "",
@@ -2941,7 +2941,7 @@ const Cards = (() => {
           btn.textContent = was;
         }, 2400);
       } catch (e) {
-        console.warn("[charto] screen handover failed", e);
+        console.warn("[pivot] screen handover failed", e);
       }
     });
   }
@@ -3032,12 +3032,12 @@ const Cards = (() => {
   }
 
   /* The chart toggle reflects the chart, not the moment the card was printed:
-   * main.js answers `__chartoCustomActive(id)`, and every change to the active
+   * main.js answers `__pivotCustomActive(id)`, and every change to the active
    * set (menu, legend ×, chat) repaints every card. */
   function syncToggle(box, id) {
     const b = box.querySelector(".cx-chart");
     if (!b) return;
-    const on = typeof window.__chartoCustomActive === "function" && window.__chartoCustomActive(id);
+    const on = typeof window.__pivotCustomActive === "function" && window.__pivotCustomActive(id);
     b.setAttribute("aria-pressed", on ? "true" : "false");
     b.title = on ? "Remove from chart" : "Add to chart";
     b.setAttribute("aria-label", b.title);
@@ -3050,13 +3050,13 @@ const Cards = (() => {
       if (action === "toggle") {
         action = b.getAttribute("aria-pressed") === "true" ? "remove" : "add";
       }
-      document.dispatchEvent(new CustomEvent("charto:custom-indicator",
+      document.dispatchEvent(new CustomEvent("pivot:custom-indicator",
         { detail: { action, id: card.id } }));
     }));
     const icon = box.querySelector("[data-cx-icon]");
     if (icon) mountIcon(icon, !card.ok);
     syncToggle(box, card.id);
-    document.addEventListener("charto:indicators-changed", () => {
+    document.addEventListener("pivot:indicators-changed", () => {
       if (box.isConnected) syncToggle(box, card.id);
     });
   }
@@ -3090,7 +3090,7 @@ const Cards = (() => {
       try {
         html = RENDER[card.kind](card);
       } catch (e) {
-        console.warn("[charto] card render failed", card, e);
+        console.warn("[pivot] card render failed", card, e);
         return null;      // a broken panel must never cost the reply
       }
       if (!html) return null;

@@ -276,8 +276,8 @@ def test_password_file_private_and_redacted(tmp_path, monkeypatch):
     path = tmp_path / "smtp-secret"
     path.write_text("test app password")
     path.chmod(0o600)
-    monkeypatch.setenv("CHARTO_ALERT_EMAIL_ENABLED", "true")
-    monkeypatch.setenv("CHARTO_SMTP_PASSWORD_FILE", str(path))
+    monkeypatch.setenv("PIVOT_ALERT_EMAIL_ENABLED", "true")
+    monkeypatch.setenv("PIVOT_SMTP_PASSWORD_FILE", str(path))
     config = mail.Config.from_env()
     assert config.configured
     assert config.password not in repr(config)

@@ -5,24 +5,24 @@ import type { NextConfig } from "next";
 // dataserver, so a rewrite is only ever the local answer to "the Next app and
 // the backend are on different ports".
 //
-// The default was Pivot's :8000. This is Charto's app talking to Charto's
+// The default was Pivot's :8000. This is Pivot's app talking to Pivot's
 // dataserver, so :5174 is the only value that can be right — with :8000 a
 // locally-run paper page asked a different product for the book and got a 404
 // it could not explain. `NEXT_PUBLIC_PIVOT_API_BASE` is relative in .env.local
 // (deliberately — it is inlined into the browser bundle), which strips to an
 // empty string, so the fallback is what is actually in force.
 const BACKEND =
-  process.env.CHARTO_BACKEND ||
+  process.env.PIVOT_DATASERVER_ORIGIN ||
   process.env.NEXT_PUBLIC_PIVOT_API_BASE?.replace(/\/api\/?$/, "") ||
   "http://127.0.0.1:5174";
 
 // The unified chat brain is Pivot even though the rest of this legacy shell's
-// relative APIs still belong to Charto.
+// relative APIs still belong to Pivot.
 const PIVOT_BACKEND = process.env.PIVOT_BACKEND || "http://127.0.0.1:8000";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  // The Charto VM also holds the 29 GB mmap-backed market store and the live
+  // The Pivot VM also holds the 29 GB mmap-backed market store and the live
   // data service. Parallel Next compiler workers can push the box into an OOM
   // kill during deployment even though the same source builds successfully on
   // a workstation. One worker is slower but keeps peak build memory bounded.

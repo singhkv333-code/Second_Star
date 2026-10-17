@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 652 652">
-  <!-- Charto's circular mark, as vector.
+  <!-- Pivot's circular mark, as vector.
 
        The same geometry the header lockup and the company page's ask bar
        draw: a solid disc with two cuts taken out of it — a narrow vertical
@@ -11,7 +11,7 @@
        a favicon is asked for at 16px, again at 32px, and again at whatever
        size the OS wants for a bookmark — and the raster has one.
 
-       A DELIBERATE TWIN of charto/web/app/icon.svg, kept byte-identical in
+       A DELIBERATE TWIN of site/app/icon.svg, kept byte-identical in
        its geometry and its two fills. They are separate apps served from
        separate roots, so neither can import the other's file, but they open
        in the same browser and often in adjacent tabs: two marks that differed

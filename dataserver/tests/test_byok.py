@@ -21,7 +21,7 @@ class _Resp(io.BytesIO):
 
 @pytest.fixture(autouse=True)
 def _db(monkeypatch, tmp_path):
-    monkeypatch.setenv("CHARTO_BYOK_SECRET", "unit-test-secret-" + "0" * 32)
+    monkeypatch.setenv("PIVOT_BYOK_SECRET", "unit-test-secret-" + "0" * 32)
     monkeypatch.setattr(byok, "_aead_cache", None)
     con = sqlite3.connect(":memory:", check_same_thread=False)
     con.execute("CREATE TABLE users(id INTEGER PRIMARY KEY)")

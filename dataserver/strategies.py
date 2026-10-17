@@ -4,12 +4,12 @@ THE ONE IDEA IN THIS FILE
 -------------------------
 Pivot's builder produces a condition TREE. Pivot's evaluator walks that tree
 through a five-method Protocol (`workflows/dsl/data_accessor.py`) — price,
-indicator, volume, position field, session day — and nothing else. So Charto
+indicator, volume, position field, session day — and nothing else. So the dataserver
 does not need to translate the tree into its own alert grammar, keep a second
 grammar, and then maintain the drift between them. It needs ONE accessor over
 its own bars.
 
-That is `ChartoDataAccessor` below. The consequence is worth stating plainly:
+That is `DataserverDataAccessor` below. The consequence is worth stating plainly:
 **the rule that runs is the exact tree the card showed you.** Not a
 re-interpretation of it, not a lossy projection onto a different vocabulary —
 the same object, walked by the same evaluator that backtested it. A strategy
@@ -40,7 +40,7 @@ At most one entry and one exit PER BAR, enforced on the bar's own timestamp
 (`last_fire_bar`), persisted. A daily strategy therefore acts at most once a
 day even though it is evaluated on every tick, and a restart cannot double-fire
 a bar that already fired. Evaluation uses the FORMING bar — the same view
-Charto's alerts use — so a daily rule can act intraday on today's move rather
+The dataserver's alerts use — so a daily rule can act intraday on today's move rather
 than waiting for tomorrow. That is a choice, and the honest description of it
 is on the card: the rule is checked live and acts once per bar.
 
@@ -65,12 +65,12 @@ import dataserver as ds
 import indicators
 import paper
 
-log = logging.getLogger("charto.strategies")
+log = logging.getLogger("dataserver.strategies")
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
-# Charto's bar vocabulary. Pivot's canonical set is wider (3m, 10m); a rule on
-# an interval Charto cannot fold is refused at save time rather than quietly
+# The dataserver's bar vocabulary. Pivot's canonical set is wider (3m, 10m); a rule on
+# an interval the dataserver cannot fold is refused at save time rather than quietly
 # rounded to a neighbouring one — a 10-minute rule silently run on 15-minute
 # bars is a different strategy wearing the same name.
 _INTERVALS = {
@@ -80,7 +80,7 @@ _INTERVALS = {
     "1mo": "1mo", "monthly": "1mo",
 }
 
-# Pivot's indicator key (+ component) → Charto's indicator and line.
+# Pivot's indicator key (+ component) → the dataserver's indicator and line.
 #
 # Both registries are real and neither is a subset of the other: Pivot's DSL
 # validates against 26 keys, indicators.py carries 48 lines under different
@@ -95,7 +95,7 @@ _IND: dict[str, tuple[str, Optional[str]]] = {
     "vwap": ("vwap", "vwap"), "williams_r": ("williams_r", "williams_r"),
     "supertrend": ("supertrend", None),      # composed below from up/down
 }
-# (pivot key, component) → charto line. The component defaults mirror Pivot's
+# (pivot key, component) → the dataserver line. The component defaults mirror Pivot's
 # own documented ones: MACD histogram, Bollinger %B, Stochastic %K.
 _IND_COMPONENT: dict[tuple[str, Optional[str]], tuple[str, str]] = {
     ("macd", None): ("macd", "histogram"),
@@ -274,7 +274,7 @@ def parse_draft(draft: dict) -> dict:
     interval = _INTERVALS.get(raw_iv)
     if not interval:
         raise Unbuildable(
-            f"Charto does not fold {raw_iv} bars — it has "
+            f"Pivot does not fold {raw_iv} bars — it has "
             f"{', '.join(sorted(set(_INTERVALS.values())))}.")
 
     return {"symbol": symbol, "interval": interval, "side": side,
@@ -307,8 +307,8 @@ def _tree_timeframe(node) -> Optional[str]:
 
 # ── the accessor ─────────────────────────────────────────────────────
 
-class ChartoDataAccessor:
-    """Pivot's `DataAccessor` Protocol, answered from Charto's bars.
+class DataserverDataAccessor:
+    """Pivot's `DataAccessor` Protocol, answered from the dataserver's bars.
 
     Five methods, every one returning `Optional[float]`, every `None` meaning
     "I do not know" rather than "no". The evaluator turns that into UNKNOWN and
@@ -398,7 +398,7 @@ class ChartoDataAccessor:
         key = str(indicator or "").lower()
         comp = str(component).lower() if component else None
 
-        # Volume-derived keys are not indicators here — Charto keeps volume on
+        # Volume-derived keys are not indicators here — the dataserver keeps volume on
         # the bar. Computing them from the series directly is both correct and
         # cheaper than routing through a registry that has no entry for them.
         if key in ("volume", "volume_ma", "volume_roc"):
@@ -419,7 +419,7 @@ class ChartoDataAccessor:
             if hit is None:
                 # Unmapped → UNKNOWN → hold. Logged once per key so a strategy
                 # that can never fire is visible rather than merely quiet.
-                log.warning("strategies: no Charto indicator for %r", key)
+                log.warning("strategies: no dataserver indicator for %r", key)
                 return None
             mapped = (hit[0], hit[1]) if hit[1] else (hit[0], None)
 
@@ -448,7 +448,7 @@ class ChartoDataAccessor:
         return float(series[i])
 
     def _supertrend(self, lines: dict, offset: int) -> Optional[float]:
-        """Charto splits Supertrend into an up band, a down band and a
+        """The dataserver splits Supertrend into an up band, a down band and a
         direction; Pivot's node is single-valued. The live band is whichever
         one has a value on that bar — the other is None by construction."""
         up = lines.get("supertrend_up") or []
@@ -715,11 +715,11 @@ def _refuse_unevaluable(parsed: dict, uid: int = 0) -> None:
     `parse_draft` checks the draft's SHAPE — steps, symbol, side, size — and
     never looked at the condition itself. Pivot ships the check that does
     (`semantic_validate`: unknown indicator, bad component, misplaced position
-    leaf, vacuous comparison, contradictory AND) and charto had zero references
+    leaf, vacuous comparison, contradictory AND) and the dataserver had zero references
     to it, so `RSI > 70 AND RSI < 30` armed cleanly and held forever. Borrowing
     it beats writing a second opinion about what a valid tree is.
 
-    Charto-specific on top: a leaf this accessor cannot serve returns None →
+    Dataserver-specific on top: a leaf this accessor cannot serve returns None →
     UNKNOWN → HOLD, which is the same invisible non-firing. Pivot validates 26
     indicator keys; `_IND`/`_IND_COMPONENT` map fewer, so the gap is checked
     here rather than discovered by a rule that never fires.
@@ -808,7 +808,7 @@ def _bad_drawing_refs(node, uid: int) -> list:
     return out
 
 def _unservable(node) -> list:
-    """Indicator keys in a tree that `ChartoDataAccessor` has no mapping for."""
+    """Indicator keys in a tree that `DataserverDataAccessor` has no mapping for."""
     out, stack = [], [node]
     while stack:
         n = stack.pop()
@@ -1147,7 +1147,7 @@ def _set_error(sid: int, msg: str) -> None:
 
 def _run_one(s: dict) -> None:
     sid, uid, sym = int(s["id"]), int(s["user_id"]), s["symbol"]
-    acc = ChartoDataAccessor(default_tf=s["interval"], closed_only=True,
+    acc = DataserverDataAccessor(default_tf=s["interval"], closed_only=True,
                              user_id=uid)
     rows = acc.rows(sym, s["interval"])
     if not rows:
@@ -1313,7 +1313,7 @@ def _live_armed() -> bool:
     """Global kill switch. Off by default: arming live money is a deployment
     decision, never a default, and it must be revocable without a code change."""
     import os
-    return (os.environ.get("CHARTO_LIVE_ORDERS") or "").strip().lower() in (
+    return (os.environ.get("PIVOT_LIVE_ORDERS") or "").strip().lower() in (
         "1", "true", "yes", "on")
 
 
@@ -1466,7 +1466,7 @@ def sweep() -> dict:
     """Evaluate every armed strategy once, off the tick.
 
     Two jobs. A strategy on a symbol with no live feed would otherwise never be
-    evaluated at all — most of Charto's universe has no streaming tick, and a
+    evaluated at all — most of the dataserver's universe has no streaming tick, and a
     daily rule on one of those names is exactly the ordinary case. And it is
     the catch-up path: a process that was down through the bar its rule fired
     on sees that bar on the next sweep, because `last_fire_bar` is what stops a
@@ -1485,7 +1485,7 @@ def sweep() -> dict:
 
 def _sweeper() -> None:
     """A slow heartbeat. 60s matches Pivot's own watcher cadence and is well
-    inside the shortest bar Charto folds."""
+    inside the shortest bar the dataserver folds."""
     while not _STOP.wait(60.0):
         try:
             sweep()
@@ -1654,7 +1654,7 @@ def tool_paper_portfolio(user_id: int = 0) -> dict:
 #
 # Pivot's AgentsTab is reused unchanged, and it reads the Agent System's
 # workflow contract. Rather than fork a 1,558-line component, the mapping lives
-# here: a Charto strategy IS a workflow — a name, a state, a step list, a run
+# here: a dataserver strategy IS a workflow — a name, a state, a step list, a run
 # history — and the two vocabularies differ only in their words for it.
 #
 # Everything below is computed from what actually happened: the fills carry
@@ -1707,7 +1707,7 @@ def _workflow(d: dict, *, steps: bool = False) -> dict:
         # evaluated on every tick, so reporting that made each card read "just
         # now" forever and said nothing about the strategy.
         "last_run_at": _last_fire(int(d["id"])),
-        # Charto evaluates on the tick rather than on a clock, so there is no
+        # The dataserver evaluates on the tick rather than on a clock, so there is no
         # next run to name. Null is the honest answer and `deriveCadence` reads
         # it as "real-time" off the description, which is what this is.
         "next_run_at": None,

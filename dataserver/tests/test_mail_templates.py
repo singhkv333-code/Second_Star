@@ -58,8 +58,8 @@ def test_product_mail_carries_unsubscribe_and_security_does_not():
 
 
 def test_config_defaults_to_hostinger_and_contact(monkeypatch):
-    for k in ("CHARTO_MAIL_HOST", "CHARTO_SMTP_HOST", "CHARTO_MAIL_FROM", "CHARTO_MAIL_USER",
-              "CHARTO_SMTP_USER"):
+    for k in ("PIVOT_MAIL_HOST", "PIVOT_SMTP_HOST", "PIVOT_MAIL_FROM", "PIVOT_MAIL_USER",
+              "PIVOT_SMTP_USER"):
         monkeypatch.delenv(k, raising=False)
     cfg = mailer.Config.from_env()
     assert (cfg.host, cfg.sender, cfg.username, cfg.port) == (

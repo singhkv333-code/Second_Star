@@ -1,4 +1,4 @@
-/* Charto preview — icon set.
+/* Pivot preview — icon set.
  *
  * Lucide (https://lucide.dev, ISC) paths, inlined so the preview stays a
  * zero-dependency static folder. Lucide is the icon set shadcn/ui ships with,
@@ -501,7 +501,7 @@ const Icons = (() => {
    *     `class="af"` (fill). One is the whole trick — the accent is what the
    *     tile is about, and a second one turns a drawing into a diagram.
    *     Colour comes from CSS so the accent follows the theme.
-   *   · Every tile is drawn ON a chart, because that is charto's one subject.
+   *   · Every tile is drawn ON a chart, because that is pivot's one subject.
    *     A generic magnifier for "screen" or a generic bell for "alert" would
    *     be an icon from any app; a magnifier over candles is from this one.
    *

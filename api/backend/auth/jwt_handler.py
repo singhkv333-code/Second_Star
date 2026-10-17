@@ -73,15 +73,15 @@ def verify_token(token: str, token_type: str = "access") -> Optional[dict]:
 
 
 def get_user_id_from_token(token: str) -> Optional[int]:
-    """Extract user_id from a valid access token, or from a Charto session.
+    """Extract user_id from a valid access token, or from a dataserver session.
 
     Nine routers keep their own near-identical `get_user_id` dependency and
     every one of them funnels through here, so this is the single place a
-    Charto sign-in has to be understood — no refactor of the nine, and no
+    The dataserver sign-in has to be understood — no refactor of the nine, and no
     second seam to keep in step with this one.
 
-    Charto and Pivot are one platform with one sign-in but two stores:
-    `charto_users.db` holds the accounts AND the live product state (alerts,
+    The dataserver and Pivot are one platform with one sign-in but two stores:
+    `users.db` holds the accounts AND the live product state (alerts,
     the paper book, armed strategies), so auth cannot be lifted out of it.
     We share the session and leave the store alone — see
     `backend/auth/accounts.py` and `docs/DATA_MAP.md`.

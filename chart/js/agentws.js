@@ -1,4 +1,4 @@
-/* Charto preview — the conversation's hands on the workspace.
+/* Pivot preview — the conversation's hands on the workspace.
  *
  * The chat's `workspace` tool (data/dataserver.py) verifies a list of ops
  * against the catalog this file sends, runs anything that is business data

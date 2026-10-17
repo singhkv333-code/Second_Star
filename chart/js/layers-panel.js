@@ -1,4 +1,4 @@
-/* Charto — the layers panel: one inventory of everything drawn on the chart.
+/* Pivot — the layers panel: one inventory of everything drawn on the chart.
  *
  * WHAT THIS REPLACES. `PatternDrawer` held a ledger of detector formations and
  * nothing else, while the two layers that actually cover the chart — the
@@ -38,7 +38,7 @@ window.LayersPanel = (() => {
   const API = location.port === "5173"
     ? "http://127.0.0.1:5174" : "";
 
-  const symbol = ((window.__charto && window.__charto.symbol)
+  const symbol = ((window.__pivot && window.__pivot.symbol)
     || new URLSearchParams(location.search).get("symbol") || "RELIANCE").toUpperCase();
 
   let query = "";
@@ -94,10 +94,10 @@ window.LayersPanel = (() => {
     try { return Icons.svg(name, "xs"); }
     catch { return Icons.svg("brush", "xs"); }
   };
-  const scene = () => window.__charto && window.__charto.scene;
-  const draw = () => window.__charto && window.__charto.draw;
+  const scene = () => window.__pivot && window.__pivot.scene;
+  const draw = () => window.__pivot && window.__pivot.draw;
 
-  const refresh = () => document.dispatchEvent(new Event("charto:layers-refresh"));
+  const refresh = () => document.dispatchEvent(new Event("pivot:layers-refresh"));
 
   /** Repaint the chip on the chart as well as the list.
    *
@@ -342,7 +342,7 @@ window.LayersPanel = (() => {
 
   const notify = (message) => {
     if (typeof Layouts !== "undefined" && Layouts.toast) Layouts.toast(message);
-    else console.warn(`[charto] ${message}`);
+    else console.warn(`[pivot] ${message}`);
   };
 
   /** Turn one row on or off. Three species, one gesture — and only the
@@ -350,7 +350,7 @@ window.LayersPanel = (() => {
   async function toggle(row, button) {
     if (row.species === "drawing") {
       draw().setHiddenFor([row.key], row.live);
-      document.dispatchEvent(new Event("charto:drawings-changed"));
+      document.dispatchEvent(new Event("pivot:drawings-changed"));
       return refresh();
     }
     if (row.species === "scene" || (row.species === "pattern" && (row.live || row.parked))) {
@@ -378,7 +378,7 @@ window.LayersPanel = (() => {
     try {
       const params = new URLSearchParams({
         symbol,
-        interval: p.interval || window.__charto.interval || "1d",
+        interval: p.interval || window.__pivot.interval || "1d",
         lookback_bars: String(p.lookback || 300),
       });
       if (p.kind === "Candle signal") {
@@ -439,7 +439,7 @@ window.LayersPanel = (() => {
   function remove(row) {
     if (row.species === "drawing") {
       draw().remove(row.key);
-      document.dispatchEvent(new Event("charto:drawings-changed"));
+      document.dispatchEvent(new Event("pivot:drawings-changed"));
     } else if (row.species === "pattern") {
       ledger.deleted[row.key] = Date.now();
       ledger.items = ledger.items.filter((p) => p.id !== row.key);
@@ -484,7 +484,7 @@ window.LayersPanel = (() => {
     if (gone.size) ledger.items = ledger.items.filter((p) => !gone.has(p.id));
     if (sceneKeys.length && scene()) scene().removeFor(sceneKeys);
     if (list.some((r) => r.species === "drawing")) {
-      document.dispatchEvent(new Event("charto:drawings-changed"));
+      document.dispatchEvent(new Event("pivot:drawings-changed"));
     }
     persist();
     armedSweep = false;
@@ -503,7 +503,7 @@ window.LayersPanel = (() => {
     if (sceneKeys.length && scene()) scene().setHiddenFor(sceneKeys, !on);
     if (drawIds.length && draw()) {
       draw().setHiddenFor(drawIds, !on);
-      document.dispatchEvent(new Event("charto:drawings-changed"));
+      document.dispatchEvent(new Event("pivot:drawings-changed"));
     }
     refresh();
   }
@@ -692,9 +692,9 @@ window.LayersPanel = (() => {
 
   if (typeof Auth !== "undefined") Auth.onChange((user) => { if (user) loadRemote(); });
   if (typeof Universe !== "undefined") Universe.load().then(refresh);
-  document.addEventListener("charto:scene-changed", () => { invalidate(); refresh(); });
-  document.addEventListener("charto:drawings-changed", () => { invalidate(); refresh(); });
-  document.addEventListener("charto:layers-refresh", () => { invalidate(); render(); });
+  document.addEventListener("pivot:scene-changed", () => { invalidate(); refresh(); });
+  document.addEventListener("pivot:drawings-changed", () => { invalidate(); refresh(); });
+  document.addEventListener("pivot:layers-refresh", () => { invalidate(); render(); });
 
   return {
     /** Kept under the old name so js/cards.js does not have to change: a

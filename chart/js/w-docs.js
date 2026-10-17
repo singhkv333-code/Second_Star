@@ -1,4 +1,4 @@
-/* Charto preview — the Documents widget: read beside the chart.
+/* Pivot preview — the Documents widget: read beside the chart.
  *
  * Drop in an annual report, a broker note, a screenshot, a CSV: PDFs are
  * drawn here with PDF.js (vendor/docs — the browser's own viewer is blocked

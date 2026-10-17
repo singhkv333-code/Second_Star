@@ -1,4 +1,4 @@
-/* Charto Journal — calm, full-workspace trade review. */
+/* Pivot Journal — calm, full-workspace trade review. */
 "use strict";
 
 const Journal = (() => {
@@ -159,7 +159,7 @@ const Journal = (() => {
     const book=(id)=>data.playbooks.find(b=>b.id===id)?.name||"—";
     const th=(label,k,cls="")=>`<th class="${cls}" data-qsort="${k}" aria-sort="${quickSort.key===k?(quickSort.dir>0?"ascending":"descending"):"none"}">${label}${quickSort.key===k?(quickSort.dir>0?" ↑":" ↓"):""}</th>`;
     return `<div class="jq-table-wrap"><table class="jq-table"><colgroup>${["symbol","side","date","date","qty","money","money","fees","risk","pnl","r","playbook","tags","review"].map(c=>`<col class="jq-col-${c}">`).join("")}</colgroup><thead><tr>${th("Instrument","symbol")}${th("Side","side")}${th("Opened","opened_at")}${th("Closed","closed_at")}${th("Qty","quantity")}${th("Entry","entry_price")}${th("Exit","exit_price")}${th("Fees","fees")}${th("Initial risk","initial_risk")}${th("Net P&L","net_pnl")}${th("R multiple","r_multiple")}${th("Playbook","playbook_id","jq-review")}${th("Tags","tags","jq-review")}${th("Review","reviewed","jq-review")}</tr></thead><tbody>${rows.map(t=>`<tr data-quick-trade="${t.id}"><td class="jq-symbol">${esc(t.symbol)}</td><td><span class="j-side-pill">${t.side}</span></td><td>${quickDate(t.opened_at)}</td><td>${quickDate(t.closed_at)}</td><td>${t.quantity}</td><td>${money(t.entry_price,t.currency)}</td><td>${money(t.exit_price,t.currency)}</td><td>${money(t.fees,t.currency)}</td><td>${money(t.initial_risk,t.currency)}</td><td class="j-pnl ${t.net_pnl>0?"up":t.net_pnl<0?"down":""}">${money(t.net_pnl,t.currency)}</td><td>${t.r_multiple==null?"—":`${t.r_multiple}R`}</td><td class="jq-review">${esc(book(t.playbook_id))}</td><td class="jq-review">${t.tags.map(x=>esc(x)).join(" · ")||"—"}</td><td class="jq-review"><span class="j-review-dot ${t.reviewed?"done":""}"></span>${t.reviewed?"Reviewed":"Pending"}</td></tr>`).join("")}</tbody></table></div>`}
-  function quickForm(){const sym=window.__charto?.symbol||"";return `<form class="jq-form" id="journalQuickForm">
+  function quickForm(){const sym=window.__pivot?.symbol||"";return `<form class="jq-form" id="journalQuickForm">
     <div class="jq-field"><label for="jq-symbol">Instrument *</label><input id="jq-symbol" name="symbol" value="${esc(sym)}" autocomplete="off" required></div>
     <div class="jq-field"><label for="jq-side">Side *</label><select id="jq-side" class="dlg-select" name="side"><option value="long">Long</option><option value="short">Short</option></select></div>
     <div class="jq-field"><label for="jq-qty">Quantity *</label><input id="jq-qty" name="quantity" type="number" min="0" step="any" inputmode="decimal" required></div>
@@ -184,7 +184,7 @@ const Journal = (() => {
     const dt=(ts)=>ts?new Date(ts*1000).toISOString().slice(0,16):new Date().toISOString().slice(0,16);
     el("journalDrawer").innerHTML=`<div class="j-drawer-head"><div class="j-drawer-title"><b>${isNew?"New trade":esc(t.symbol)}</b><span>${isNew?"Record facts first. Meaning can come later.":`${esc(t.side)} · ${date(t.opened_at,true)}`}</span></div><button class="btn icon" data-close aria-label="Close">${ico("x")}</button></div><form class="j-drawer-body" id="journalForm">
       <section class="j-section"><h3>Execution facts</h3><div class="j-form-grid">
-      ${field("Instrument","symbol",t?.symbol||window.__charto?.symbol||"")}
+      ${field("Instrument","symbol",t?.symbol||window.__pivot?.symbol||"")}
       <div class="j-field"><label for="jf-side">Side</label><select id="jf-side" name="side"><option value="long" ${t?.side!=="short"?"selected":""}>Long</option><option value="short" ${t?.side==="short"?"selected":""}>Short</option></select></div>
       ${field("Opened","opened_at",dt(t?.opened_at),"datetime-local")}${field("Closed","closed_at",dt(t?.closed_at),"datetime-local")}
       ${field("Quantity","quantity",t?.quantity||"","number")}${field("Entry price","entry_price",t?.entry_price||"","number")}
@@ -203,7 +203,7 @@ const Journal = (() => {
   function closeDrawer(){const d=el("journalDrawer");d.classList.remove("open");d.setAttribute("aria-hidden","true");active=null;}
   async function save(){try{const out=await call(active?`/journal/trades/${active.id}`:"/journal/trades",payload());const i=data.trades.findIndex(t=>t.id===out.trade.id);if(i<0)data.trades.unshift(out.trade);else data.trades[i]=out.trade;data.overview=(await call("/journal/bootstrap")).overview;closeDrawer();render();toast(active?"Trade updated":"Trade added");}catch(e){toast(e.message)}}
   async function remove(){if(!active||!confirm(`Delete ${active.symbol} from your journal?`))return;try{await call(`/journal/trades/${active.id}`,{delete:true});data.trades=data.trades.filter(t=>t.id!==active.id);closeDrawer();await load();toast("Trade deleted");}catch(e){toast(e.message)}}
-  function ask(){if(!active)return;document.dispatchEvent(new CustomEvent("charto:journal-chat",{detail:{trade:active}}));close();toast("Trade attached to chat");}
+  function ask(){if(!active)return;document.dispatchEvent(new CustomEvent("pivot:journal-chat",{detail:{trade:active}}));close();toast("Trade attached to chat");}
   function openBook(b){
     active={kind:"playbook",value:b||null}; const spec=b?.spec||{};
     el("journalDrawer").innerHTML=`<div class="j-drawer-head"><div class="j-drawer-title"><b>${b?"Edit playbook":"New playbook"}</b><span>A living definition of your setup</span></div><button class="btn icon" data-close aria-label="Close">${ico("x")}</button></div>

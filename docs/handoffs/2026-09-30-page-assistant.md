@@ -3,7 +3,7 @@
 Branch `claude-cloud-29sep`. The prompt bar on Home, Portfolio, Strategy,
 Screener, Brokers and the company page now opens a **Pivot Assistant** side
 panel, served by a separate lightweight engine. The Chat tab (full chat) and
-the Chart tab (Charto's chat) are unchanged.
+the Chart tab (the dataserver's chat) are unchanged.
 
 ## Why a second engine
 

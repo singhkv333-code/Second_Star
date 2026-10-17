@@ -1,6 +1,6 @@
-/* Charto preview — voice input for the composer.
+/* Pivot preview — voice input for the composer.
  *
- * Pivot's VoiceInputButton, in Charto's idiom and against Charto's server.
+ * Pivot's VoiceInputButton, in Pivot's idiom and against Pivot's server.
  * The chain is the same one that ships there and the same one the backend
  * mirrors: MediaRecorder captures an opus/aac blob, POST /audio/transcribe
  * hands it to Azure Speech fast-transcription on the Foundry key, and a

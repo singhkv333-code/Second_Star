@@ -2,7 +2,7 @@
 
 VENDORED from Pivot (`backend/services/trading_costs.py`, the module its own
 five backtest engines were consolidated onto). Copied rather than imported for
-one reason: Charto's paper book is Charto's ledger, and a ledger that cannot
+one reason: the dataserver's paper book is the dataserver's ledger, and a ledger that cannot
 be reconciled without a second deployment on the import path is not durable.
 Execution mode may borrow Pivot's builder; the money may not depend on it.
 

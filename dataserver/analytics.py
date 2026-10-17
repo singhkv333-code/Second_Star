@@ -13,7 +13,7 @@ the same project (api/backend/posthog_client.py), so the two services report
 into one place.
 
 Rules, the same as Pivot's client:
-- distinct_id is `charto:<user id>` — the prefix keeps charto's account ids
+- distinct_id is `charto:<user id>` — the prefix keeps the dataserver's account ids
   apart from Pivot's, which number a different table. The browser identifies
   with the same id (preview/js/analytics.js), so a person's page views and
   their server events are one timeline.
@@ -49,17 +49,17 @@ def init() -> bool:
     try:
         from posthog import Posthog
     except ImportError:
-        logging.warning("charto analytics: posthog package not installed — off")
+        logging.warning("dataserver analytics: posthog package not installed — off")
         return False
     try:
         _client = Posthog(project_api_key=_key, host=_host,
                           enable_exception_autocapture=True)
     except Exception as exc:  # noqa: BLE001
-        logging.warning("charto analytics: init failed: %s", exc)
+        logging.warning("dataserver analytics: init failed: %s", exc)
         return False
     atexit.register(_shutdown)
     _flush_on_sigterm()
-    logging.info("charto analytics: PostHog on (host=%s)", _host)
+    logging.info("dataserver analytics: PostHog on (host=%s)", _host)
     return True
 
 
@@ -114,7 +114,7 @@ def capture(uid, event: str, props: dict | None = None) -> None:
         _client.capture(event, distinct_id=distinct(uid if uid is not None else "server"),
                         properties=p)
     except Exception as exc:  # noqa: BLE001
-        logging.debug("charto analytics: capture %s failed: %s", event, exc)
+        logging.debug("dataserver analytics: capture %s failed: %s", event, exc)
 
 
 def exception(exc: BaseException, uid=None, props: dict | None = None) -> None:
@@ -126,4 +126,4 @@ def exception(exc: BaseException, uid=None, props: dict | None = None) -> None:
             exc, distinct_id=distinct(uid if uid is not None else "server"),
             properties={"surface": "charto", "env": _env(), **(props or {})})
     except Exception as e:  # noqa: BLE001
-        logging.debug("charto analytics: exception capture failed: %s", e)
+        logging.debug("dataserver analytics: exception capture failed: %s", e)

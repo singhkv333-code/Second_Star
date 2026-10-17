@@ -358,7 +358,7 @@ only; forex/CFD (gold, indices such as "CA60") comes from two CFD brokers.
 - **Order flow: footprint, TPO, order-book heatmap, market depth (DOM).**
   These need trade-side and book data, which crypto venues publish.
   *Indian retail feeds do not provide aggressor side* (see
-  `project_charto_volume_profile_2026_07_31`), so this column is not
+  `project_dataserver_volume_profile_2026_07_31`), so this column is not
   reproducible for NSE equities. For F&O it would need a depth feed.
 - **Fundamentals** ("10 years of financial data" on the paid plan) and a
   **stock screener** with categories and community-published screens (US
@@ -596,7 +596,7 @@ only; forex/CFD (gold, indices such as "CA60") comes from two CFD brokers.
 
 ## 13. How they compare with Pivot
 
-| Dimension | TakeProfit | Pivot (charto) |
+| Dimension | TakeProfit | Pivot (the dataserver) |
 |---|---|---|
 | Market | Crypto (about 55 venues) + US equities + 2 CFD brokers. **No India** | **India-first**: NSE/BSE equities, indices, NFO, MCX, CDS, plus crypto |
 | Core promise | Terminal + fee cashback + creator economy | A chart that explains itself + a strategy builder that refuses to flatter |

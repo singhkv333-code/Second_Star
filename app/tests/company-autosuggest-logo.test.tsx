@@ -89,7 +89,7 @@ describe("CompanyAutosuggest logos", () => {
     expect(screen.getByText("I")).toBeInTheDocument(); // first-letter monogram
   });
 
-  it("shows Charto-style venue, price, daily move, and relay status", async () => {
+  it("shows Pivot-style venue, price, daily move, and relay status", async () => {
     vi.spyOn(api, "searchCompanies").mockResolvedValue({
       data: {
         results: [
@@ -104,7 +104,7 @@ describe("CompanyAutosuggest logos", () => {
             price: 1309,
             change_pct: -0.37,
             currency: "INR",
-            quote_source: "charto_relay",
+            quote_source: "dataserver_relay",
           },
         ],
       },

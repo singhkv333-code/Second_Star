@@ -921,7 +921,7 @@ tool("screen_fundamentals",
      [],
      defaults={"limit": 15})
 
-# Market-wide TECHNICAL scan. The engine is charto's screen_universe, reached
+# Market-wide TECHNICAL scan. The engine is the dataserver's screen_universe, reached
 # over its /screen/run route, so the chart chat and this chat compute one scan
 # one way; nothing here re-derives an indicator.
 _SCAN_FEATURES = {

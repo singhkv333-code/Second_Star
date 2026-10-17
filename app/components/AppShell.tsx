@@ -452,7 +452,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
 
   // Register the current non-chart product surface as a managed attachment.
   // Chat and chart do not overwrite it: full workspace preserves where the
-  // conversation came from, while Charto owns its entirely separate context.
+  // conversation came from, while Pivot owns its entirely separate context.
   useEffect(() => {
     let next: CopilotPageContext | null = null;
     const stockMatch = pathname.match(/^\/stock\/([^/]+)/i);
@@ -1364,7 +1364,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   // security — so knowing where the user is standing costs no extra request.
   //
   // The chart tab is deliberately absent. A chart question is routed to
-  // Charto, which builds its own far richer chart envelope, and a second,
+  // Pivot, which builds its own far richer chart envelope, and a second,
   // thinner one arriving beside it could only contradict it.
   const chatPageContext = useMemo(() => {
     if (!children && active === "chart") return undefined;
@@ -1544,7 +1544,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
               </div>
             </div>
           {/* The page assistant: the prompt bar's answers, beside any page
-              but Chat (the full workspace) and Chart (Charto's own chat). */}
+              but Chat (the full workspace) and Chart (Pivot's own chat). */}
           {(Boolean(children) || (active !== "chat" && active !== "chart")) && (
             <aside
               className={`copilot-side-panel ${copilotPanelOpen ? "copilot-side-panel--open" : "copilot-side-panel--closed"}`}

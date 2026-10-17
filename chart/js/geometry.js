@@ -1,4 +1,4 @@
-/* Charto preview — the shape algebra.
+/* Pivot preview — the shape algebra.
  *
  * Every drawing on this chart, whether a person placed it or a detector
  * produced it, is a composition of a few primitives. This module owns the

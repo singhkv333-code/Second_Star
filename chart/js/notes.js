@@ -1,4 +1,4 @@
-/* Charto preview — the Notes widget.
+/* Pivot preview — the Notes widget.
  *
  * A plain place to think beside the chart. Each note belongs either to the
  * instrument the chart is on (and follows it: open TCS and you see what you
@@ -214,7 +214,7 @@
     });
 
     function stamp() {
-      const c = window.__chartoLast ? window.__chartoLast() : { symbol: ctx.symbol() };
+      const c = window.__pivotLast ? window.__pivotLast() : { symbol: ctx.symbol() };
       const t = ctx.cfg.stampTime === false ? new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short" })
         : new Date().toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
       const px = c.close != null ? Sym.of(c.symbol).num(c.close) : "no price loaded";
@@ -308,7 +308,7 @@
           text = text.slice(lead[0].length).trim();
         }
         let body = mdToHtml(text);
-        const live = window.__chartoLast ? window.__chartoLast() : null;
+        const live = window.__pivotLast ? window.__pivotLast() : null;
         if (c.stamp !== false && live && (general || sym === String(live.symbol || "").toUpperCase())) {
           body = `<p>${stampHtml(live)}</p>` + body;
         }

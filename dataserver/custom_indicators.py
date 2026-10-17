@@ -39,7 +39,7 @@ from pathlib import Path
 import indicators as native
 import indicator_sandbox as sandbox
 
-DB_PATH = Path(environ.get("CHARTO_USERS_DB") or Path(__file__).parent / "charto_users.db")
+DB_PATH = Path(environ.get("PIVOT_USERS_DB") or Path(__file__).parent / "users.db")
 _db = sqlite3.connect(DB_PATH, check_same_thread=False)
 _db.row_factory = sqlite3.Row
 _db.execute("PRAGMA journal_mode=WAL")
@@ -424,7 +424,7 @@ def _reference_lines(ref: dict, rows: list[tuple], params: dict) -> tuple[dict, 
                 raise ValueError(f"native {ref['name']} has no line '{theirs}'; "
                                  f"it has {sorted(res['lines'])}")
             got[ours] = res["lines"][theirs]
-        return got, f"Charto native {ref['name']}"
+        return got, f"Pivot native {ref['name']}"
     import inspect
     import pandas as pd
     import pandas_ta_classic as pta

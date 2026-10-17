@@ -1,6 +1,6 @@
 # Restore points — the platform-merge work, 2026-09-05
 
-Every phase of the Pivot/Charto merge is a separate commit with a named tag, so
+Every phase of the Pivot/the dataserver merge is a separate commit with a named tag, so
 any one of them can be undone without unwinding the rest. **Nothing has been
 pushed to any remote, and nothing has been applied to the VM.**
 
@@ -11,7 +11,7 @@ pushed to any remote, and nothing has been applied to the VM.**
 | `restore/before-merge` | `ff06fdfb` | Untouched. The last commit before any of this work. |
 | `restore/phase0-truth` | `40c8eeba` | CLAUDE.md/AGENTS.md rewritten, `docs/DATA_MAP.md` added, four false statements corrected, two dead files removed. |
 | `restore/phase1-excision` | `35db45ec` | Opinion markets gone from code, schema models, UI and prose. |
-| `restore/phase2-api` | `02fc6de0` | `pivot-api.service`, the `/api/pivot/` nginx block, and the Charto-session seam. Built, **not installed**. |
+| `restore/phase2-api` | `02fc6de0` | `pivot-api.service`, the `/api/pivot/` nginx block, and the dataserver-session seam. Built, **not installed**. |
 | `restore/phase3-shell` | `12a4132a` | The Chart tab in the shell + `js/embed.js`. Production untouched. |
 | `restore/phase4-tools` | `4286f6cb` | The tool-name collision guard + `docs/TOOL_SURFACE.md`. |
 | `restore/wip-landed` | `57c896a8` | The 52 pre-existing uncommitted files, landed as seven commits (see below). The working tree is clean for the first time in this work. |
@@ -91,7 +91,7 @@ These are the deliberate, separate acts still outstanding. None has run:
 
     # nginx — apply_nginx.sh keeps a timestamped backup and self-rolls-back on
     # a failed probe, but by hand:
-    sudo cp /etc/nginx/sites-available/charto.conf.bak.<ts> /etc/nginx/sites-available/charto.conf
+    sudo cp /etc/nginx/sites-available/the dataserver.conf.bak.<ts> /etc/nginx/sites-available/the dataserver.conf
     sudo nginx -t && sudo systemctl reload nginx
 
     # the API unit
@@ -99,6 +99,6 @@ These are the deliberate, separate acts still outstanding. None has run:
     sudo rm -f /etc/systemd/system/pivot-api.service /etc/sudoers.d/pivot-api
     sudo systemctl daemon-reload
 
-Neither touches Charto: `charto.service`, `charto-web.service` and
-`charto-research.service` are independent units and the `/api/pivot/` route is
+Neither touches the dataserver: `the dataserver.service`, `pivot-web.service` and
+`the dataserver-research.service` are independent units and the `/api/pivot/` route is
 additive.

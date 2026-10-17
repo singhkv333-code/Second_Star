@@ -14,7 +14,7 @@
 #            /shared — every price in the watchlist was an em-dash, the
 #            backtest button did nothing, and voice input failed silently.
 #
-# WHAT CHANGED. There is no route allowlist any more (see nginx-charto.conf):
+# WHAT CHANGED. There is no route allowlist any more (see deploy/nginx/pivotnow-app.conf):
 # anything that is not a file under preview/ is proxied to the backend. So this
 # script no longer parses a list out of the config — a list is exactly what it
 # used to be checking, and its absence is the fix. It checks two things:
@@ -37,7 +37,7 @@ cd "$(dirname "$0")"
 
 HOST="${1:-pivot-india.centralindia.cloudapp.azure.com}"
 SCHEME="${2:-https}"
-CONF=nginx-charto.conf
+CONF=nginx/pivotnow-app.conf
 fail=0
 
 # GET, returning "<status> <content-type>". The SSE endpoints stream forever by
@@ -141,9 +141,8 @@ echo
 if [ "$fail" -ne 0 ]; then
   cat <<'MSG'
 The box is not serving this repo's config. Apply it:
-  sudo bash /data/app/deploy/apply_nginx.sh
-(deploy.sh does this every 30s once the config lands on the deploy branch;
- apply_nginx.sh tests, backs up, reloads, probes and rolls back on failure.)
+  # install deploy/nginx/ by hand: backup, nginx -t, reload (deploy/README.md)
+(The release deployer never touches nginx; this step is always manual.)
 MSG
   exit 1
 fi

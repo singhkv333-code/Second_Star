@@ -1,4 +1,4 @@
-/* Charto preview — the embed seam.
+/* Pivot preview — the embed seam.
  *
  * The chart is becoming a route inside Pivot's Next.js shell (/chart) rather
  * than a separate site, and it gets there in an iframe. That is a deliberate
@@ -69,7 +69,7 @@
     const symbol = String(link.dataset.companySymbol || "").trim().toUpperCase();
     if (!symbol || symbol.length > 64) return;
     e.preventDefault();
-    tell({ type: "charto:open-company", symbol });
+    tell({ type: "pivot:open-company", symbol });
   }, true);
 
   // Inside the unified shell the chart's conversation keeps whatever state
@@ -154,7 +154,7 @@
     }
 
     // Global shell Quick Ask on the Chart route is only an entry point into
-    // Charto's existing sidebar. Keep its separate model, messages and thread.
+    // Pivot's existing sidebar. Keep its separate model, messages and thread.
     if (d.type === "pivot:chart-ask") {
       const text = String(d.text || "").trim();
       if (text && window.Chat && typeof window.Chat.ask === "function") {

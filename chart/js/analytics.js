@@ -1,4 +1,4 @@
-/* Charto preview — product analytics and error monitoring (PostHog).
+/* Pivot preview — product analytics and error monitoring (PostHog).
  *
  * One file for both surfaces: the chart loads it from index.html, and the
  * shell (pivot-next) loads the same file from /chart-app/js/analytics.js, so
@@ -72,7 +72,7 @@
   }
 
   /* Widgets the user opens or closes. The dock announces every layout change
-   * (charto:dock); comparing the widget set before and after names what came
+   * (pivot:dock); comparing the widget set before and after names what came
    * and went. An open within a moment of the chat applying ops is the chat's
    * (data/analytics.py also logs it server-side as workspace_op). */
   let lastChatOps = 0;
@@ -90,7 +90,7 @@
       return m;
     };
     widgets = snap();
-    document.addEventListener("charto:dock", () => {
+    document.addEventListener("pivot:dock", () => {
       const now = snap();
       const source = Date.now() - lastChatOps < 3000 ? "chat" : "user";
       for (const [id, type] of now) if (!widgets.has(id)) window.posthog.capture("widget_opened", { widget: type, source });

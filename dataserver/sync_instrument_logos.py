@@ -35,7 +35,7 @@ import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).parent
-DB_PATH = HERE / "charto_bars.db"
+DB_PATH = HERE / "bars.db"
 ASSETS = HERE.parent / "chart" / "assets" / "instruments"
 # Served by preview/serve.py from chart, so the chart resolves these
 # against its own origin exactly as it resolves ./js/*.
@@ -129,7 +129,7 @@ CREATE TABLE IF NOT EXISTS instrument_logo (
 
 
 def _get(url: str, timeout: int = 20) -> tuple[int, bytes]:
-    req = urllib.request.Request(url, headers={"User-Agent": "charto/1.0"})
+    req = urllib.request.Request(url, headers={"User-Agent": "Pivot/1.0"})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.status, r.read()

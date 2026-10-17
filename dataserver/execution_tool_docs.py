@@ -1,4 +1,4 @@
-"""Charto's own descriptions for the Pivot tools execution mode borrows.
+"""The dataserver's own descriptions for the Pivot tools execution mode borrows.
 
 Pivot's tool definitions are written for Pivot's chat: they route to macros,
 option builders and a clarify tool that are not on this wire, and they say
@@ -13,7 +13,7 @@ Only DESCRIPTION text lives here. Parameter names, types, enums and
 overridden parameter exists there), so the two cannot drift apart silently.
 
 Nothing below names a tool that is absent from ``execution_bridge.PIVOT_TOOLS``
-or the Charto tools in ``_EXECUTION_CHARTO_TOOLS``, invents a default, or
+or the tools in ``_EXECUTION_DATASERVER_TOOLS``, invents a default, or
 claims a broker. The runtime is a simulated paper book; a draft or plan is
 register-not-execute.
 
@@ -291,7 +291,7 @@ def _drop_off_surface(block: str) -> str:
 
 
 def apply(defn: dict) -> dict:
-    """A copy of a Pivot function definition with Charto's descriptions in it.
+    """A copy of a Pivot function definition with the dataserver's descriptions in it.
 
     A definition with no override is returned unchanged. Never mutates the
     input: Pivot's chat reads the same registry object in-process.

@@ -148,7 +148,7 @@ window.Auth = Auth;
     const url = `${page}?next=${encodeURIComponent(here())}`;
     try { window.top.location.href = url; } catch { location.href = url; }
   }
-  window.CHARTO_AUTH_OPEN = open;
+  window.PIVOT_AUTH_OPEN = open;
 
   // Who is this? A held token whose check got no answer is asked again
   // (1 s, 3 s, 7 s) rather than treated as signed out.

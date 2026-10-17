@@ -37,7 +37,7 @@ import type { ChatPageContext } from "@/lib/chatStream";
 import type { PortfolioSummary } from "@/lib/api";
 
 /** Tabs that own a copilot surface. `chart` is absent on purpose: the chart
- *  ask is routed to Charto, which builds its own, much richer, chart envelope. */
+ *  ask is routed to Pivot, which builds its own, much richer, chart envelope. */
 export type ContextTab =
   | "home"
   | "markets"

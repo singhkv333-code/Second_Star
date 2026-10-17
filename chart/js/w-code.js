@@ -1,4 +1,4 @@
-/* Charto preview — the Code widget: your custom indicators, as code.
+/* Pivot preview — the Code widget: your custom indicators, as code.
  *
  * The same studies the chat builds (custom_indicator) and the sidebar's code
  * view opens, edited in a proper editor surface (CodeJar + highlight.js,
@@ -112,7 +112,7 @@
 
     const confirmDiscard = () => { ctx.toast("Save or undo your edits first — they would be lost."); return false; };
     function paintState() {
-      const on = cur && typeof window.__chartoCustomActive === "function" && window.__chartoCustomActive(cur.id);
+      const on = cur && typeof window.__pivotCustomActive === "function" && window.__pivotCustomActive(cur.id);
       const cb = $('[data-cd="chart"]');
       cb.classList.toggle("on", !!on);
       cb.title = on ? "Remove from the chart" : "Add to the chart";
@@ -132,7 +132,7 @@
       try {
         const r = await fetch(`${API}/custom_indicators/${encodeURIComponent(cur.id)}/code`, {
           method: "POST", headers: hdrs(true),
-          body: JSON.stringify({ code, ...(typeof window.__chartoChart === "function" ? window.__chartoChart() : {}) }),
+          body: JSON.stringify({ code, ...(typeof window.__pivotChart === "function" ? window.__pivotChart() : {}) }),
         });
         res = await r.json();
         if (!r.ok) throw new Error(res.error || `HTTP ${r.status}`);
@@ -148,7 +148,7 @@
         cur = { ...cur, code, version: res.version, status: "validated" };
         dirty = false;
         $(".cd-pick").innerHTML = `${esc(cur.spec && cur.spec.title || cur.id)}<em>v${cur.version}</em>${ic("chevronDown", "")}`;
-        document.dispatchEvent(new CustomEvent("charto:custom-indicator", { detail: { action: "updated", id: cur.id, def: res.def } }));
+        document.dispatchEvent(new CustomEvent("pivot:custom-indicator", { detail: { action: "updated", id: cur.id, def: res.def } }));
       }
       paintState();
     }
@@ -162,8 +162,8 @@
       if (a === "new") return ctx.compose("Build me a custom indicator that ");
       if (a === "save") return save();
       if (a === "chart" && cur) {
-        const on = window.__chartoCustomActive && window.__chartoCustomActive(cur.id);
-        document.dispatchEvent(new CustomEvent("charto:custom-indicator",
+        const on = window.__pivotCustomActive && window.__pivotCustomActive(cur.id);
+        document.dispatchEvent(new CustomEvent("pivot:custom-indicator",
           { detail: { action: on ? "remove" : "add", id: cur.id, def: cur.def } }));
         return setTimeout(paintState, 300);
       }

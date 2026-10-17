@@ -1,4 +1,4 @@
-"""Pivot is the one paywall: with PAYWALL_ENABLED unset, charto's own caps are
+"""Pivot is the one paywall: with PAYWALL_ENABLED unset, the dataserver's own caps are
 lifted while the AI-credit ledger Pivot's chat meters through stays on."""
 import threading
 import sqlite3
@@ -12,7 +12,7 @@ def _bound(gates: bool, monkeypatch):
     ent.bind(con, threading.Lock())
 
 
-def test_charto_caps_are_lifted_but_credits_stay_metered(monkeypatch):
+def test_dataserver_caps_are_lifted_but_credits_stay_metered(monkeypatch):
     _bound(False, monkeypatch)
     assert ent.value(None, "chart.panes") is None
     assert ent.value(None, "chart.history_bars") is None
@@ -24,7 +24,7 @@ def test_charto_caps_are_lifted_but_credits_stay_metered(monkeypatch):
         "features"]["ai.credits"]["values"]["anonymous"]
 
 
-def test_switching_charto_gates_on_restores_the_caps(monkeypatch):
+def test_switching_dataserver_gates_on_restores_the_caps(monkeypatch):
     _bound(True, monkeypatch)
     assert ent.value(None, "chart.panes") == ent.CATALOG[
         "features"]["chart.panes"]["values"]["anonymous"]

@@ -12,7 +12,7 @@ Not deployed. The production brief remains unchanged.
   list; missing evidence must be stated rather than invented.
 - Fixed news feeds: Economic Times, CNBC-TV18, BBC Business, CoinDesk. At most
   six timestamped headlines per publisher, at most 24 hours old. Cross-asset
-  quotes use existing Charto quotes, retaining their individual timestamps.
+  quotes use existing dataserver quotes, retaining their individual timestamps.
 - Redis shared snapshot `markets:brief:shared:v3`, retained for 48 hours;
   stale snapshots are marked, never passed off as a fresh generation.
 - GET `/api/markets/brief` reads only. It never builds facts or calls a model.
@@ -61,7 +61,7 @@ its logged $0 cost is NOT proof that these requests are free.
 ## Deployment boundary
 
 Backend router, worker, prompt and shared-cache module must deploy together
-with the frontend; Charto must restart to load the two added feed IDs. Normal
+with the frontend; the dataserver must restart to load the two added feed IDs. Normal
 source deployment/push approval is still required. Do not enable only the new
 frontend against the legacy per-facts generation endpoint, and do not claim
 the revised brief is live until one accepted shared snapshot is verified.

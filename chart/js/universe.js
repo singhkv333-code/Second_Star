@@ -1,4 +1,4 @@
-/* Charto preview — the instrument universe, and the one picker over it.
+/* Pivot preview — the instrument universe, and the one picker over it.
  *
  * Three surfaces used to answer "which instrument?" and each was fetching
  * /symbols for itself: the header pill, the chat's logo marker, and now the
@@ -44,7 +44,7 @@ const Universe = (() => {
       };
       return data;
     }).catch((e) => {
-      console.warn("[charto] universe fetch failed", e);
+      console.warn("[pivot] universe fetch failed", e);
       data = { symbols: [], hydrated: new Set(), names: {}, short: {},
                alias: {}, long: {}, logos: {}, meta: {} };
       return data;
@@ -357,7 +357,7 @@ const Universe = (() => {
     const again = popEl && popEl.dataset.for === (anchor.dataset.pickerId || "");
     close();
     if (again) return;
-    if (window.__chartoCloseMenus) window.__chartoCloseMenus(null);
+    if (window.__pivotCloseMenus) window.__pivotCloseMenus(null);
 
     if (!anchor.dataset.pickerId) {
       anchor.dataset.pickerId = "p" + Math.random().toString(36).slice(2, 8);

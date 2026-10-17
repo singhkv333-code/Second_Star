@@ -111,7 +111,7 @@ IST = timezone(timedelta(hours=5, minutes=30))
 
 # ── The brief ─────────────────────────────────────────────────────────────────
 
-# Written as targets rather than prohibitions. The charto chat rewrite
+# Written as targets rather than prohibitions. The dataserver chat rewrite
 # (2026-09-23) measured what a wall of "never" does to a model's prose: 11 em
 # dashes, 36 bullets and 60 bold spans across six answers, down to 0/0/12 once
 # the prompt described good writing instead of forbidding bad writing. The few

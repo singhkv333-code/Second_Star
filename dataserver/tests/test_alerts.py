@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Logic-level regression tests for Charto's alert watcher.
+"""Logic-level regression tests for the dataserver's alert watcher.
 
 No market database is mutated. The tests construct bars and Rule objects in
 memory, then isolate lifecycle behavior with monkeypatches.

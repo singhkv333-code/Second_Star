@@ -1,4 +1,4 @@
-/* Charto preview — the widget bar and its panels: Watchlist, Alerts.
+/* Pivot preview — the widget bar and its panels: Watchlist, Alerts.
  *
  * THE WATCHLIST IS REAL. Its lists are the user's own, persisted through
  * js/store.js, and every price on it comes from the dataserver's /quotes —
@@ -85,7 +85,7 @@ const Panels = (() => {
       && popEl.dataset.for === key;
     closePopup();
     if (again) return;                       // clicking the lit button closes
-    if (window.__chartoCloseMenus) window.__chartoCloseMenus(null);
+    if (window.__pivotCloseMenus) window.__pivotCloseMenus(null);
     const pop = document.createElement("div");
     pop.className = "dropdown floating open wl-menu";
     pop.dataset.for = key;
@@ -133,11 +133,11 @@ const Panels = (() => {
    *    behind.
    *
    * The prices are polled while the panel is open, and the page's own symbol
-   * additionally rides the live stream (js/main.js dispatches `charto:tick`),
+   * additionally rides the live stream (js/main.js dispatches `pivot:tick`),
    * so the row you are charting moves with the candle rather than up to five
    * seconds after it.
    */
-  const WL_KEY = "watchlists";           // Store key → localStorage charto:…
+  const WL_KEY = "watchlists";           // Store key → localStorage pivot:…
   const WL_SCOPES = "wlscopes";          // symbol → asset class, told by /quotes
   const WL_MAX = 12;
   const QUOTE_MS = 5000;
@@ -470,7 +470,7 @@ const Panels = (() => {
       // A dead dataserver must not blank the list: the rows stay, the numbers
       // stay as of the last good answer. Saying nothing is better than saying
       // zero, and this is the one place that could invent a price.
-      console.warn("[charto] quotes fetch failed", e);
+      console.warn("[pivot] quotes fetch failed", e);
     } finally {
       quoting = false;
     }
@@ -497,7 +497,7 @@ const Panels = (() => {
    * the next poll. The stream carries a PRICE and nothing else — the previous
    * close it is measured against comes from /quotes, so a row with no quote
    * yet is left alone rather than shown a change computed from nothing. */
-  document.addEventListener("charto:tick", (e) => {
+  document.addEventListener("pivot:tick", (e) => {
     const { symbol, last } = e.detail || {};
     const q = quotes.get(symbol);
     if (!q || last == null || q.last == null) return;
@@ -1209,7 +1209,7 @@ const Panels = (() => {
 
   /* The pattern drawer's refresh hook lived here while it was one of this
    * shell's columns. It is a popover now and renders itself against its own
-   * host (js/layers-panel.js listens for `charto:layers-refresh`), so this
+   * host (js/layers-panel.js listens for `pivot:layers-refresh`), so this
    * shell no longer has an open-panel state to keep for it. */
 
   /* Two small menus, hung off the head the way the watchlist's are and

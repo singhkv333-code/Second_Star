@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Fetch the minutes a REMOTE store is missing, and ship only those.
 
-The VM cannot do this itself. `charto.service` runs with
-CHARTO_LIVE_VENUES=bybit,coinbase, and /data/app/pivot/.env carries two keys
+The VM cannot do this itself. `the dataserver.service` runs with
+PIVOT_LIVE_VENUES=bybit,coinbase, and /data/app/pivot/.env carries two keys
 (AZURE_KEY, AZURE_OPENAI_ENDPOINT) — no DATABASE_URL, no Kite credentials. So
 the machine that HOLDS the 29 GB store is structurally unable to fetch NSE
 data, and the machine with the credentials is not the one that needs the rows.
@@ -179,9 +179,9 @@ def main(argv: list[str]) -> int:
 
     seed_path = a.out.with_suffix(".seed.db")
     seed(wm, seed_path)
-    # topup reads its store from CHARTO_DB at import time, so this must be set
+    # topup reads its store from PIVOT_DB at import time, so this must be set
     # BEFORE the import, not before the call.
-    os.environ["CHARTO_DB"] = str(seed_path)
+    os.environ["PIVOT_DB"] = str(seed_path)
     sys.path.insert(0, str(_HERE))
     import topup_1min as T                                   # noqa: E402
 
@@ -242,7 +242,7 @@ def main(argv: list[str]) -> int:
         T.run(todo, workers=a.workers, reconcile=False)
     if macro:
         print(f"\n— macro ({len(macro)}) —")
-        M.main(macro)     # reads CHARTO_DB, restarts from MAX(ts) - 2 days
+        M.main(macro)     # reads PIVOT_DB, restarts from MAX(ts) - 2 days
     con2 = sqlite3.connect(seed_path)
     dropped = strip_anchors(con2, wm)
     rows = con2.execute("SELECT COUNT(*) FROM bars").fetchone()[0]

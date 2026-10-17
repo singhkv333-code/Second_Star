@@ -1,4 +1,4 @@
-/* Charto preview — the keyboard, and the sheet that lists it.
+/* Pivot preview — the keyboard, and the sheet that lists it.
  *
  * ONE catalogue, two consumers: the dispatcher that actually fires the
  * shortcut, and the "Keyboard shortcuts" dialog that tells the reader it
@@ -9,7 +9,7 @@
  *
  * The bindings are TradingView's, because the reader's hands already know
  * them: Alt for a drawing tool, Ctrl+Z/Ctrl+Y for the stack, Alt+R for the
- * view, type letters for a symbol and digits for an interval. Where charto
+ * view, type letters for a symbol and digits for an interval. Where pivot
  * has something TradingView does not (the chat), it takes an unclaimed
  * chord and says so by living under its own heading.
  *

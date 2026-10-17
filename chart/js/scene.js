@@ -1,4 +1,4 @@
-/* Charto preview — the SCENE layer: what the chat drew.
+/* Pivot preview — the SCENE layer: what the chat drew.
  *
  * Deliberately separate from drawings.js. User drawings are solid, editable
  * and owned by the user; scene annotations are dashed, read-only and carry
@@ -1214,7 +1214,7 @@ const Scene = (() => {
 
     /* THE SELECTION IS ANNOUNCED, from wherever it changes.
      *
-     * drawings.js has fired `charto:draw-select` for its own shapes since the
+     * drawings.js has fired `pivot:draw-select` for its own shapes since the
      * provenance card needed it; the chat's annotations had no equivalent, so
      * nothing outside this module could know one was selected — which is why
      * a toolbar button that offers to delete "the selected thing" needs this
@@ -1229,7 +1229,7 @@ const Scene = (() => {
       // one object); `id` is a real member, which is what remove() matches on
       // — it expands to the whole link itself. Sending the key as an id
       // silently removed nothing for every multi-part annotation.
-      document.dispatchEvent(new CustomEvent("charto:scene-select", {
+      document.dispatchEvent(new CustomEvent("pivot:scene-select", {
         detail: a ? { id: a.id, key: next, kind: a.kind, label: a.label } : null,
       }));
     }

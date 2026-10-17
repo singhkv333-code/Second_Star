@@ -1,4 +1,4 @@
-/* Charto preview — the Screener widget.
+/* Pivot preview — the Screener widget.
  *
  * A front for the screen engine the chat already uses (/screen/run): the
  * same features, the same filters, the same ranking, so a list built here and

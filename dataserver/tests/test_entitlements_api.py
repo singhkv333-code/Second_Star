@@ -10,8 +10,8 @@ What each test proves, for the route it names:
   * a retry with the same idempotency key is not a second charge;
   * a downgrade never deletes anything.
 
-Nothing here touches charto_users.db, the market store's bars, the model or
-Razorpay: CHARTO_USERS_DB points at a temp file BEFORE dataserver is
+Nothing here touches users.db, the market store's bars, the model or
+Razorpay: PIVOT_USERS_DB points at a temp file BEFORE dataserver is
 imported, every test gets its own fresh database, and the model, the bar
 reader and the payment wire are replaced with fakes.
 
@@ -35,7 +35,7 @@ from http.server import ThreadingHTTPServer
 
 # Must precede `import dataserver`: its import opens the account DB.
 if "dataserver" not in sys.modules:
-    os.environ["CHARTO_USERS_DB"] = tempfile.mkstemp(
+    os.environ["PIVOT_USERS_DB"] = tempfile.mkstemp(
         prefix="ent_boot_", suffix=".db")[1]
 
 import pytest  # noqa: E402
@@ -130,8 +130,8 @@ def fake_bars(n_total: int = 30_000):
 
 
 @pytest.fixture(autouse=True)
-def _charto_gates_on(monkeypatch):
-    """These tests are charto's enforcement. Pivot is the one paywall now, so
+def _dataserver_gates_on(monkeypatch):
+    """These tests are the dataserver's enforcement. Pivot is the one paywall now, so
     the gates are off by default (entitlements.paywall_enabled); test them on."""
     monkeypatch.setattr(ent, "paywall_enabled", lambda: True)
 
@@ -781,7 +781,7 @@ SVC = {"X-Internal-Key": "svc-key"}
 def test_refund_needs_the_service_key(env, monkeypatch):
     """Fix #2: an end user's bearer can spend but never refund; the service
     key can refund its own failed turn."""
-    monkeypatch.setenv("CHARTO_INTERNAL_KEY", "svc-key")
+    monkeypatch.setenv("PIVOT_INTERNAL_KEY", "svc-key")
     uid, tf = env.signup("f@x.io")
     assert chat(env, tf, text="q", turn="t1")[0] == 200
     key = env.db.execute("SELECT idem_key FROM usage_ledger WHERE subject=?",
@@ -807,7 +807,7 @@ def test_refund_needs_the_service_key(env, monkeypatch):
 
 def test_service_debit_by_email_meters_that_account(env, monkeypatch):
     """pivot's JWT path: service key + the account's email."""
-    monkeypatch.setenv("CHARTO_INTERNAL_KEY", "svc-key")
+    monkeypatch.setenv("PIVOT_INTERNAL_KEY", "svc-key")
     uid, _ = env.signup("both@x.io")
     for i in range(15):
         code, _ = env.post("/billing/consume", {"feature": "ai.credits",
@@ -826,12 +826,12 @@ def test_service_debit_by_email_meters_that_account(env, monkeypatch):
 
 def test_unknown_identities_do_not_share_one_anonymous_bucket(env, monkeypatch):
     """FINDING probe (pivot/pivotted callers). A service debit whose email is
-    not a charto account — every pivot-only user, since the two user tables
-    are disjoint — or whose forwarded charto bearer has expired arrives with
-    NO `client`. charto then meters it as anonymous subject a:hash(""), ONE
+    not a dataserver account — every pivot-only user, since the two user tables
+    are disjoint — or whose forwarded the dataserver bearer has expired arrives with
+    NO `client`. the dataserver then meters it as anonymous subject a:hash(""), ONE
     bucket shared by all such users: three turns a day for everyone
     together, and the fourth person is refused for other people's use."""
-    monkeypatch.setenv("CHARTO_INTERNAL_KEY", "svc-key")
+    monkeypatch.setenv("PIVOT_INTERNAL_KEY", "svc-key")
     for i, who in enumerate(("a@pivot.only", "b@pivot.only", "c@pivot.only")):
         env.post("/billing/consume", {"feature": "ai.credits",
                  "idem_key": f"k{i}", "email": who}, headers=SVC)

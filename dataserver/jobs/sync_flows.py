@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Sync the flows layer — delivery %, futures OI, bulk/block deals — into
-the local Charto store.
+the local dataserver store.
 
 Two modes, matching how the data actually arrives in real life:
 
@@ -150,7 +150,7 @@ def top_up(db: sqlite3.Connection, days: int) -> dict:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--db", default=str((Path(__file__).resolve().parents[1] / "charto_bars.db")))
+    ap.add_argument("--db", default=str((Path(__file__).resolve().parents[1] / "bars.db")))
     ap.add_argument("--from-sweep", help="path to a market-wide sweep DB to import")
     ap.add_argument("--days", type=int, default=30,
                     help="top-up window in days (default 30)")

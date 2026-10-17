@@ -10,7 +10,7 @@
  *               and Home's strategy launcher.
  *   execution   switching to live trading. The account stays on the paper
  *               book; the chart chat's Execution mode is off separately, by
- *               the chart's own CHARTO_EXECUTION.
+ *               the chart's own PIVOT_CHART_EXECUTION.
  *
  * Each turns back on with its NEXT_PUBLIC_PIVOT_* variable set to "1" at
  * build time.

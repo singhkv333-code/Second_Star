@@ -1,4 +1,4 @@
-/* Charto preview — the Market Depth widget.
+/* Pivot preview — the Market Depth widget.
  *
  * The order book for the instrument the chart is on (or one pinned to the
  * widget), read from the dataserver's /depth, which reads it off the venue:

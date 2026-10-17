@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ChartFrame } from "@/components/chart/ChartFrame";
 
 describe("ChartFrame company navigation", () => {
-  it("relays a trusted company-page request from Charto to the shell", () => {
+  it("relays a trusted company-page request from Pivot to the shell", () => {
     const onOpenCompany = vi.fn();
     render(<ChartFrame onOpenCompany={onOpenCompany} />);
 
@@ -12,7 +12,7 @@ describe("ChartFrame company navigation", () => {
     fireEvent(
       window,
       new MessageEvent("message", {
-        data: { type: "charto:open-company", symbol: " hdfcbank " },
+        data: { type: "pivot:open-company", symbol: " hdfcbank " },
         origin: window.location.origin,
         source: frame.contentWindow,
       }),
@@ -29,7 +29,7 @@ describe("ChartFrame company navigation", () => {
     fireEvent(
       window,
       new MessageEvent("message", {
-        data: { type: "charto:open-company", symbol: "HDFCBANK" },
+        data: { type: "pivot:open-company", symbol: "HDFCBANK" },
         origin: "https://example.com",
       }),
     );

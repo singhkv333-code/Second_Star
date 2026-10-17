@@ -8,8 +8,8 @@
 
 import { SESSION_KEY, sessionToken } from "@/lib/session";
 
-export const CHARTO_TOKEN_STORAGE_KEY = SESSION_KEY;
+export const PIVOT_TOKEN_STORAGE_KEY = SESSION_KEY;
 
-export function readChartoToken(): string | null {
+export function readDataserverToken(): string | null {
   return sessionToken();
 }

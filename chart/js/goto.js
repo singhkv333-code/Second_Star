@@ -1,4 +1,4 @@
-/* Charto preview — Go to: one box for every widget and workspace action.
+/* Pivot preview — Go to: one box for every widget and workspace action.
  *
  * Ctrl K (⌘K on a Mac), or the header's Go to button. Type a few letters and
  * press Enter:

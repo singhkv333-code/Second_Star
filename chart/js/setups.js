@@ -1,4 +1,4 @@
-/* Charto preview — shared setups.
+/* Pivot preview — shared setups.
  *
  * A trader publishes the desk they are looking at — panes, drawings, what the
  * chat drew, indicators, and (if they choose) the conversation — as a frozen,
@@ -70,7 +70,7 @@ const Setups = (() => {
   }
 
   function indicatorName(id) {
-    const c = window.__charto;
+    const c = window.__pivot;
     const def = c && c.ind && (c.ind.CATALOG || []).find((d) => d.id === id);
     if (def && (def.short || def.label || def.name)) {
       return String(def.short || def.label || def.name);
@@ -285,12 +285,12 @@ const Setups = (() => {
     if (Store.viewOnly) return toast("Make it mine first, then share your own version");
     if (!Layouts.signedIn()) {
       toast("Sign in to share setups");
-      if (window.CHARTO_AUTH_OPEN) window.CHARTO_AUTH_OPEN();
+      if (window.PIVOT_AUTH_OPEN) window.PIVOT_AUTH_OPEN();
       return;
     }
     const spec = Layouts.snapshot();
     if (!spec) return toast("The chart is still loading");
-    const c = window.__charto;
+    const c = window.__pivot;
     const cur = Layouts.current;
     const chat = (window.Chat && Chat.transcript) ? Chat.transcript() : [];
     const thumb = Layouts.thumbnail();
@@ -488,7 +488,7 @@ const Setups = (() => {
   async function manage() {
     if (!Layouts.signedIn()) {
       toast("Sign in to see your shared setups");
-      if (window.CHARTO_AUTH_OPEN) window.CHARTO_AUTH_OPEN();
+      if (window.PIVOT_AUTH_OPEN) window.PIVOT_AUTH_OPEN();
       return;
     }
     const { dlg, close } = dialog(`
@@ -643,7 +643,7 @@ const Setups = (() => {
   async function mountCard(d) {
     const thread = el("thread");
     if (!thread) return;
-    const c = window.__charto;
+    const c = window.__pivot;
     const s = spark(onScreen(c));
     const card = document.createElement("section");
     card.className = "su-card";
@@ -748,7 +748,7 @@ const Setups = (() => {
       // the other side (see enterView).
       try { sessionStorage.setItem("charto:pending-copy", d.token); } catch {}
       toast("Sign in to copy this setup into your layouts");
-      if (window.CHARTO_AUTH_OPEN) window.CHARTO_AUTH_OPEN("signup");
+      if (window.PIVOT_AUTH_OPEN) window.PIVOT_AUTH_OPEN("signup");
       const desc = el("authDesc");
       if (desc) {
         desc.textContent = `Create a free account to copy “${d.title}” into your `
@@ -778,7 +778,7 @@ const Setups = (() => {
   }
 
   async function enterView() {
-    const c = window.__charto;
+    const c = window.__pivot;
     const d = await fetchSetup(VIEW);
     if (d.error) {
       mountGone(d.status === 404 ? "The author has unpublished it, or the link is mistyped."
@@ -802,7 +802,7 @@ const Setups = (() => {
     const ws = spec.workspace || (spec.workspace = {});
     ws.drawings = (ws.drawings || []).map((x) => ({ ...x, locked: true }));
     try { await Layouts.restore(spec); }
-    catch (e) { console.error("[charto] setup restore", e); }
+    catch (e) { console.error("[pivot] setup restore", e); }
     mountBar(d);
     if (window.Chat && Chat.showShared) Chat.showShared(d.chat || []);
     await mountCard(d);
@@ -843,7 +843,7 @@ const Setups = (() => {
     location.replace(u.toString());
   } else if (VIEW) {
     document.body.classList.add("view-only");
-    document.addEventListener("charto:workspace-ready", () => { enterView(); }, { once: true });
+    document.addEventListener("pivot:workspace-ready", () => { enterView(); }, { once: true });
   } else {
     // Arrived from "Make it mine" with drawings of your own on this symbol:
     // say where they went, after the copy's own "Opened …" has been read.
@@ -851,7 +851,7 @@ const Setups = (() => {
     try { kept = sessionStorage.getItem("charto:kept-desk"); } catch {}
     if (kept) {
       try { sessionStorage.removeItem("charto:kept-desk"); } catch {}
-      document.addEventListener("charto:workspace-ready", () => {
+      document.addEventListener("pivot:workspace-ready", () => {
         setTimeout(() => toast(`Your earlier drawings here were saved as “${kept}”`), 3200);
       }, { once: true });
     }

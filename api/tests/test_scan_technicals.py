@@ -1,6 +1,6 @@
-"""scan_technicals: charto's market-wide scan, shaped as the screen card.
+"""scan_technicals: the dataserver's market-wide scan, shaped as the screen card.
 
-The values are charto's; this layer only chooses columns and units, and
+The values are the dataserver's; this layer only chooses columns and units, and
 passes vocabulary misses back to the model instead of rendering an empty card.
 """
 import asyncio
@@ -21,7 +21,7 @@ SCAN = {
 
 
 def _run(monkeypatch, out, args=None):
-    monkeypatch.setattr(te, "_run_charto_scan", lambda spec: out)
+    monkeypatch.setattr(te, "_run_dataserver_scan", lambda spec: out)
     monkeypatch.setattr(
         "backend.services.fundamentals_screen.with_verified_names", lambda d: d)
     return asyncio.run(te._scan_technicals(args or {}, None, None, None))
@@ -51,9 +51,9 @@ def test_a_vocabulary_miss_goes_back_to_the_model_without_a_card(monkeypatch):
     assert r["data"]["closest"] == ["banksprivatesector"]
 
 
-def test_charto_down_is_an_honest_error(monkeypatch):
+def test_dataserver_down_is_an_honest_error(monkeypatch):
     def boom(spec):
         raise ConnectionRefusedError("refused")
-    monkeypatch.setattr(te, "_run_charto_scan", boom)
+    monkeypatch.setattr(te, "_run_dataserver_scan", boom)
     r = asyncio.run(te._scan_technicals({}, None, None, None))
     assert not r["success"] and "technical scan unavailable" in r["error"]

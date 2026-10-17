@@ -38,7 +38,7 @@ from typing import Callable, Optional
 import mail_templates as T
 import mailer
 
-log = logging.getLogger("charto.notify")
+log = logging.getLogger("dataserver.notify")
 IST = timezone(timedelta(hours=5, minutes=30))
 
 PAPER_FILLS_PER_DAY = 10          # automated mail stays a summary, not a feed

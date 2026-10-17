@@ -1,4 +1,4 @@
-/* Charto preview — the phone's workspace, one screen at a time.
+/* Pivot preview — the phone's workspace, one screen at a time.
  *
  * On a portrait phone the desktop workspace (a chart, the conversation and a
  * set of tiled widgets) cannot be shown side by side, and stacking it gave a
@@ -80,7 +80,7 @@
   function nudge() {
     requestAnimationFrame(() => {
       window.dispatchEvent(new Event("resize"));
-      document.dispatchEvent(new CustomEvent("charto:viewport"));
+      document.dispatchEvent(new CustomEvent("pivot:viewport"));
     });
   }
 
@@ -154,7 +154,7 @@
 
   // The workspace changed under us: a widget was added from the hub or by the
   // chat, or the one on screen was closed.
-  document.addEventListener("charto:dock-layout", () => {
+  document.addEventListener("pivot:dock-layout", () => {
     if (applying || !mq.matches) return;
     const vis = Dock.opened().filter((w) => w.id !== "main" && w.visible);
     const k = kind(page);

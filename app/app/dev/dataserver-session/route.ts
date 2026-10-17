@@ -1,15 +1,15 @@
 /**
- * Development only: hand the signed-in Pivot user a chart (charto) session
+ * Development only: hand the signed-in Pivot user a chart (the dataserver) session
  * without a second sign-in.
  *
- * Billing and the chart live on charto's accounts, which are separate from
+ * Billing and the chart live on the dataserver's accounts, which are separate from
  * Pivot's until the shared session lands (roadmap step 2). For the one dev
- * account named in .env.local, this signs into charto server side, creating
- * the charto account on first use, and returns the token. The password stays
+ * account named in .env.local, this signs into the dataserver server side, creating
+ * the dataserver account on first use, and returns the token. The password stays
  * on the server; the browser only proves it holds that user's Pivot session.
  *
- *   DEV_CHARTO_EMAIL=dev@catalog.com
- *   DEV_CHARTO_PASSWORD=...
+ *   DEV_PIVOT_EMAIL=dev@catalog.com
+ *   DEV_PIVOT_PASSWORD=...
  *
  * Outside `next dev`, or without both variables, it answers 404.
  */
@@ -17,24 +17,24 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 const BACKEND = process.env.PIVOT_BACKEND_ORIGIN || "http://127.0.0.1:8000";
-const CHARTO_DATA = process.env.CHARTO_DATA_ORIGIN || "http://127.0.0.1:5174";
+const PIVOT_DATA = process.env.PIVOT_DATA_ORIGIN || "http://127.0.0.1:5174";
 
-type ChartoAuth = { token?: string; error?: string };
+type DataserverAuth = { token?: string; error?: string };
 
-async function chartoAuth(path: "/auth/login" | "/auth/signup", body: Record<string, string>): Promise<ChartoAuth & { status: number }> {
-  const r = await fetch(`${CHARTO_DATA}${path}`, {
+async function dataserverAuth(path: "/auth/login" | "/auth/signup", body: Record<string, string>): Promise<DataserverAuth & { status: number }> {
+  const r = await fetch(`${PIVOT_DATA}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
     cache: "no-store",
   });
-  const data = (await r.json().catch(() => ({}))) as ChartoAuth;
+  const data = (await r.json().catch(() => ({}))) as DataserverAuth;
   return { ...data, status: r.status };
 }
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
-  const email = process.env.DEV_CHARTO_EMAIL?.trim().toLowerCase();
-  const password = process.env.DEV_CHARTO_PASSWORD;
+  const email = process.env.DEV_PIVOT_EMAIL?.trim().toLowerCase();
+  const password = process.env.DEV_PIVOT_PASSWORD;
   if (process.env.NODE_ENV !== "development" || !email || !password) {
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
@@ -48,15 +48,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
 
-  let res = await chartoAuth("/auth/login", { email, password });
+  let res = await dataserverAuth("/auth/login", { email, password });
   if (!res.token) {
     // First use: the account does not exist on the chart server yet.
-    const made = await chartoAuth("/auth/signup", { email, password, name: email.split("@")[0] ?? email });
+    const made = await dataserverAuth("/auth/signup", { email, password, name: email.split("@")[0] ?? email });
     if (made.token) res = made;
   }
   if (!res.token) {
     return NextResponse.json(
-      { error: `The chart server refused ${email}: ${res.error ?? res.status}. Check DEV_CHARTO_PASSWORD.` },
+      { error: `The chart server refused ${email}: ${res.error ?? res.status}. Check DEV_PIVOT_PASSWORD.` },
       { status: 502 },
     );
   }

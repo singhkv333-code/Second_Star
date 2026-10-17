@@ -1,16 +1,16 @@
 "use client";
 
 /**
- * The billing routes on charto's dataserver.
+ * The billing routes on the dataserver.
  *
- * Plans and subscriptions belong to the CHART's account (charto_users.db),
- * so every call carries charto's session token, the same one the chart and
+ * Plans and subscriptions belong to the CHART's account (users.db),
+ * so every call carries the dataserver's session token, the same one the chart and
  * the broker page use. Same-origin paths: next.config.ts proxies `/billing/*`
  * to the dataserver in development and nginx falls through to it in
  * production.
  */
 
-import { readChartoToken } from "@/lib/charto-auth";
+import { readDataserverToken } from "@/lib/dataserver-auth";
 import type { BillingMe, Cycle, InvoiceList, PaidPlanId, PublicCatalog, Refusal } from "./types";
 
 export type BillingResult<T> =
@@ -22,7 +22,7 @@ const BASE = (typeof process !== "undefined" && process.env.NEXT_PUBLIC_BILLING_
 function headers(json = false): HeadersInit {
   const h: Record<string, string> = {};
   if (json) h["Content-Type"] = "application/json";
-  const t = readChartoToken();
+  const t = readDataserverToken();
   if (t) h.Authorization = `Bearer ${t}`;
   return h;
 }
@@ -56,7 +56,7 @@ async function call<T>(method: "GET" | "POST", path: string, body?: unknown): Pr
   };
 }
 
-export const hasChartoSession = (): boolean => !!readChartoToken();
+export const hasDataserverSession = (): boolean => !!readDataserverToken();
 
 export const billingApi = {
   plans: () => call<PublicCatalog>("GET", "/billing/plans"),

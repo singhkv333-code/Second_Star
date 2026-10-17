@@ -1,9 +1,9 @@
 "use client";
 
-import { readChartoToken } from "@/lib/charto-auth";
+import { readDataserverToken } from "@/lib/dataserver-auth";
 
 /**
- * The referral programme as the shell sees it. Charto owns the ledger
+ * The referral programme as the shell sees it. Pivot owns the ledger
  * (dataserver/referrals.py); `GET /referrals/me` returns the account's
  * summary and mints its link on first call, so "signing up" for the
  * programme is simply the first read.
@@ -38,7 +38,7 @@ const DEMO_SUMMARY: ReferralSummary = {
 
 export async function fetchReferralSummary(): Promise<ReferralSummary> {
   if (REFERRALS_DEMO) return DEMO_SUMMARY;
-  const token = readChartoToken();
+  const token = readDataserverToken();
   if (!token) throw new Error("Sign in to get your affiliate link.");
   let r: Response;
   try {

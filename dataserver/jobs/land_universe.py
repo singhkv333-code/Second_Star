@@ -2,20 +2,20 @@
 """Land the corrected Kite universe into one serving store.
 
 Input: the per-exchange stores universe_fix.py corrected (nse_1m, bse_1m,
-idx_*, fut_*) plus its sessions.json. Output: charto's own store shape —
+idx_*, fut_*) plus its sessions.json. Output: the dataserver's own store shape —
 `bars`, `bars_1d`, `bars_15m`, `oi_1m`, `oi_1d` keyed by ONE id per
 instrument — and the `instrument_master` the dataserver resolves ids,
 sessions and price decimals from.
 
 The id scheme (see dataserver._master):
-  NSE equity            RELIANCE              (bare, as charto always had)
+  NSE equity            RELIANCE              (bare, as the dataserver always had)
   any index             NIFTY 50, SENSEX, GIFT NIFTY, US500
                         (bare: no index name repeats across exchanges —
                          checked here, prefixed if one ever does)
   BSE equity            BSE:<tradingsymbol>
   futures contract      NFO:NIFTY26OCTFUT, MCX:GOLD26OCTFUT, NCO:GOLD26OCTFUT
   continuous futures    NFO:NIFTY1! / NFO:NIFTY2!  — except the 17 MCX/CDS
-                        roots charto already served bare (GOLD, USDINR, ...),
+                        roots the dataserver already served bare (GOLD, USDINR, ...),
                         which keep that id for their front month so no saved
                         layout, alert or strategy has to change; the qualified
                         spelling is their alias.
@@ -43,7 +43,7 @@ LEGACY_ROOTS = {"MCX": {"GOLD", "GOLDM", "SILVER", "SILVERM", "CRUDEOIL", "NATUR
                         "COPPER", "ZINC", "ALUMINIUM", "LEAD", "NICKEL", "COTTON",
                         "MENTHAOIL"},
                 "CDS": {"USDINR", "EURINR", "GBPINR", "JPYINR"}}
-# Symbols charto served that Kite now lists under a new name: the old id stays
+# Symbols the dataserver served that Kite now lists under a new name: the old id stays
 # reachable as an alias of the new one.
 RENAMED = {"HEGAM": ["HEG"]}
 GROUP_OF = {"nse_1m": "NSE_EQ", "nse500_1m": "NSE_EQ", "bse_1m": "BSE_EQ", "idx_nse": "NSE_IDX", "idx_bse": "BSE_IDX",

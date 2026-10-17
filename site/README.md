@@ -1,57 +1,35 @@
-# site — the company page
+# site/
 
-This is **Pivot's stock page, copied file-for-file**, not a re-implementation:
-`components/StockDetailPage.tsx`, its component tree, `lib/`, `hooks/` and the
-design tokens all come straight from `app/`. It runs against **charto's**
-data server instead of Pivot's backend, so a company page and the chart quote
-the same bars.
+Two things share this Next.js app:
+
+- **www.pivotnow.in**, the marketing site, on Vercel: the landing page, about,
+  pricing, checkout, the waitlist, legal pages (terms, privacy, refunds,
+  cancellation, contact), `robots`, `sitemap` and `llms.txt`. It carries no
+  stock links; `/stock` and `/stocks` redirect to the platform. It is released by
+  hand from a prebuilt copy (`docs/deployments/2026-10-13-pivotnow-domain.md`).
+- **`/paper`, `/strategies`, `/brokers` and `/api/waitlist` on the VM**, served
+  by the `pivot-site` unit on :5175 behind nginx. These overlap with pages in
+  `app/`. They stay until nginx sends those routes to the app instead.
 
 ## Running it
 
 ```sh
-cd site && npx next dev -p 5175        # node_modules symlinks to pivot-next
+cd site && npm install && npx next dev -p 5175
 ```
 
-Then `http://localhost:5175/stock/RELIANCE`. The chart links here from the ↗ on
-a search-dropdown row, and `Open chart →` links back. Chat replies are not
-linked — a reply's tables carry the company's logo next to its name, nothing
-more.
+`.env.local` (not in git, and never shipped by the deployer) sets:
 
-`.env.local` points the copied `lib/api.ts` at charto:
+| Variable | What |
+|---|---|
+| `NEXT_PUBLIC_PIVOT_API_BASE` | Relative `/api`. nginx proxies it to the dataserver on the VM, and `next.config.ts` rewrites it in dev. |
+| `NEXT_PUBLIC_PIVOT_WS_BASE` | Empty. The dataserver has no quote socket at this path. |
+| `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | The same Google OAuth client the app uses. |
+| `WAITLIST_DATABASE_URL` / `DATABASE_URL` | Postgres for `charto_landing.waitlist_registrations`. The schema name predates the rename and was kept. |
+| `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` | Checkout (`/api/create-order`, `/api/verify-payment`). |
+| `GOOGLE_SITE_VERIFICATION` / `BING_SITE_VERIFICATION` | Search-console tags. |
 
+## Tests
+
+```sh
+npx tsc --noEmit && npx vitest run
 ```
-NEXT_PUBLIC_PIVOT_API_BASE=http://127.0.0.1:5174/api
-```
-
-`dataserver/dataserver.py` answers those Pivot routes (`api_route`) out of its
-own SQLite store: `/api/markets/quote|sparkline|ohlc`, `/api/financials/{sym}`,
-`/api/companies/search|logos`. Prices come from the same bars the chart draws;
-profile/CEO/logo/P-B/EV come from the synced `company_profile` table
-(`dataserver/jobs/sync_company_profile.py`, Moneycontrol + enrichment, joined on
-`sc_id` and never on the corrupted `ticker`).
-
-## What differs from Pivot's copy, and why
-
-Four edits, all marked. Three hang off a single `CHARTO` flag in
-`StockDetailPage.tsx` — charto is a chart, not a broker or an account system:
-
-| Suppressed | Reason |
-| --- | --- |
-| Buy / Sell CTAs | charto has no order path; a button that cannot register an order is a fake control |
-| Watchlist bookmark | charto has no accounts |
-
-Key Metrics and the Financial Performance panel are live: `sync_financials.py`
-runs **Pivot's own** `backend.market.financials_db` against the same
-Moneycontrol database and stores the assembled payloads, so the numbers are
-Pivot's, not a second derivation. Where Moneycontrol has no ratio row (D/E,
-current ratio, P/B, EV multiples for much of the universe) Pivot calls
-yfinance live; charto fills the same gaps from the enrichment snapshot instead,
-tagged `yfinance` — so those few can sit a scrape behind Pivot's live call.
-
-The fourth: `app/stock/[symbol]/view.tsx` swaps Pivot's `AppShell` (its sidebar
-of tabs charto doesn't have) for a charto bar with a link back to the chart,
-and `/stock` is ungated in `AppBootstrap` so the page opens without a sign-in.
-
-A field neither source publishes for a company renders as the page's own
-em-dash, never as a filler number. `Year Founded` comes from the same curated
-map Pivot ships.

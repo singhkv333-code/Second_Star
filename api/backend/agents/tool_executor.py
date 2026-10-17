@@ -1540,8 +1540,8 @@ async def _screen_fundamentals(a, kt, db, uid):
     return {"success": True, "data": out, "logiccard": None}
 
 
-# Units for the scan card, by charto feature. Formatting only: the values are
-# charto's, untouched.
+# Units for the scan card, by the dataserver feature. Formatting only: the values are
+# the dataserver's, untouched.
 _SCAN_UNITS = {
     "close": "inr", "rsi14": "num", "vol_z20": "num",
     "sma50_cross_ago": "int", "sma200_cross_ago": "int",
@@ -1572,27 +1572,27 @@ _SCAN_LABELS = {
 }
 
 
-def _run_charto_scan(spec: dict) -> dict:
+def _run_dataserver_scan(spec: dict) -> dict:
     import json as _json
     import os
     import urllib.parse
     import urllib.request
 
-    base = os.getenv("CHARTO_INTERNAL_URL", "http://127.0.0.1:5174").rstrip("/")
+    base = os.getenv("PIVOT_INTERNAL_URL", "http://127.0.0.1:5174").rstrip("/")
     url = f"{base}/screen/run?" + urllib.parse.urlencode({"spec": _json.dumps(spec)})
     with urllib.request.urlopen(url, timeout=45) as r:  # noqa: S310 — internal service
         return _json.loads(r.read().decode("utf-8"))
 
 
 async def _scan_technicals(a, kt, db, uid):
-    """Market-wide technical scan on charto's engine, shaped as a screen card."""
+    """Market-wide technical scan on the dataserver's engine, shaped as a screen card."""
     import asyncio
     from backend.services.fundamentals_screen import with_verified_names
 
     spec = {k: a[k] for k in ("filters", "industry", "pattern", "pattern_within",
                               "sort", "limit") if a.get(k) not in (None, "", [])}
     try:
-        out = await asyncio.to_thread(_run_charto_scan, spec)
+        out = await asyncio.to_thread(_run_dataserver_scan, spec)
     except Exception as exc:  # noqa: BLE001 — the model reads it and says so
         return {"success": False, "data": {}, "logiccard": None,
                 "error": f"technical scan unavailable: {type(exc).__name__}: {exc}"[:300]}
@@ -1647,8 +1647,8 @@ async def _scan_technicals(a, kt, db, uid):
     return {"success": True, "data": data, "logiccard": None}
 
 
-def _charto_has_bars(symbol: str) -> dict:
-    """{} unless charto says `symbol` is unknown, then its own 404 body (which
+def _dataserver_has_bars(symbol: str) -> dict:
+    """{} unless the dataserver says `symbol` is unknown, then its own 404 body (which
     carries `did_you_mean`). Busy or slow is not unknown: the card loads its
     own bars and says so itself if they don't come."""
     import json as _json
@@ -1657,7 +1657,7 @@ def _charto_has_bars(symbol: str) -> dict:
     import urllib.parse
     import urllib.request
 
-    base = os.getenv("CHARTO_INTERNAL_URL", "http://127.0.0.1:5174").rstrip("/")
+    base = os.getenv("PIVOT_INTERNAL_URL", "http://127.0.0.1:5174").rstrip("/")
     url = f"{base}/bars?" + urllib.parse.urlencode(
         {"symbol": symbol, "interval": "1d", "limit": 1})
     try:
@@ -1676,7 +1676,7 @@ def _charto_has_bars(symbol: str) -> dict:
 
 async def _show_price_chart(a, kt, db, uid):
     """A chart card for one or two companies. It checks the symbols exist in
-    charto's bar store and nothing more: the card fetches its own bars, so no
+    the dataserver's bar store and nothing more: the card fetches its own bars, so no
     price ever enters the model's context."""
     import asyncio
     from backend.services.fundamentals_screen import with_verified_names
@@ -1686,7 +1686,7 @@ async def _show_price_chart(a, kt, db, uid):
     if not syms:
         return {"success": False, "data": {}, "logiccard": None,
                 "error": "symbols is required"}
-    checks = await asyncio.gather(*[asyncio.to_thread(_charto_has_bars, s) for s in syms])
+    checks = await asyncio.gather(*[asyncio.to_thread(_dataserver_has_bars, s) for s in syms])
     missing = {s: c for s, c in zip(syms, checks) if c}
     if missing:
         return {"success": False, "data": {"not_charted": missing}, "logiccard": None,

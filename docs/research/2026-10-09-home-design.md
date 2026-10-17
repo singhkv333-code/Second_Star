@@ -51,7 +51,7 @@ layout and placeholder contrast. No market data or agent behavior changed.
 
 [Catalyst](https://catalyst.app/) was inspected for its compact asset identity
 cards and clean borders. Bitcoin and Ethereum logos were resolved read-only
-from `charto_bars.db.instrument_logo` (`BTCUSDT`, `ETHUSDT`); Reliance came from
+from `bars.db.instrument_logo` (`BTCUSDT`, `ETHUSDT`); Reliance came from
 `company_profile` (`RELIANCE`). The image files served at those recorded URLs
 are bundled under `app/public/home-assets` so this purely decorative
 component does not need authenticated database calls to display its logos.

@@ -1,4 +1,4 @@
-"""Charto — the watcher: composed conditions in, fired evidence out.
+"""The dataserver — the watcher: composed conditions in, fired evidence out.
 
 WHAT THIS IS, AND WHY IT IS NOT A LIST OF ALERT TYPES
 -----------------------------------------------------
@@ -13,7 +13,7 @@ new idea costs a migration.
 So an alert here is a **composed expression**: a list of conditions, each one
 `left <op> right`, where both sides are ADDRESSES resolved against the real
 bars. The model writes the address; code resolves it, refuses what it cannot
-speak, and owns every millisecond of the firing. That split is CHARTO.md §3
+speak, and owns every millisecond of the firing. That split is docs/chart/DESIGN.md §3
 exactly — the LLM decides what a belief means, and is banned from watcher
 evaluation and alert firing.
 
@@ -56,7 +56,7 @@ becoming its own kind, and without anyone writing an arithmetic parser.
 
 MULTI-CONDITION, IN ONE RULE
 ----------------------------
-`all: true` is AND, and it is the whole reason CHARTO.md #45 ("fire only on
+`all: true` is AND, and it is the whole reason docs/chart/DESIGN.md #45 ("fire only on
 confirmed completion, never approach") is buildable here: a breakout condition
 ANDed with a volume-confirmation condition fires once, on confirmation.
 
@@ -106,7 +106,7 @@ import entitlements as ent
 import indicators
 import alert_email
 
-log = logging.getLogger("charto.alerts")
+log = logging.getLogger("dataserver.alerts")
 
 # ── caps, all of them about a shared box rather than about taste ────────────
 # The PLAN decides how many alerts a user may keep armed (entitlements.py,
@@ -239,7 +239,7 @@ def vocab(msg: str) -> dict:
 
 
 # ══ storage ════════════════════════════════════════════════════════════════
-# In charto_users.db, for the reason its own header gives: bars are a derived
+# In users.db, for the reason its own header gives: bars are a derived
 # store that gets dropped and rebuilt, and a user's alerts cannot be
 # regenerated from anything upstream.
 
@@ -880,7 +880,7 @@ def _results_today(symbol: str) -> bool:
 def _detector(family: str, kind: str, ctx: Ctx) -> float:
     """1 when the named formation completed on the LAST CLOSED BAR.
 
-    Completion only, never approach — CHARTO.md #45. `bars_ago == 0` on closed
+    Completion only, never approach — docs/chart/DESIGN.md #45. `bars_ago == 0` on closed
     bars is exactly that, and it is why these operands refuse to be evaluated
     against a forming bar.
     """
@@ -2015,7 +2015,7 @@ def feed_health(symbol: str = "") -> dict:
     """Whether the thing that fires alerts is actually receiving prices.
 
     A watcher whose feed died at 06:00 and says nothing is worse than no
-    watcher, and charto's Kite session expires daily. This is the fact the UI
+    watcher, and the dataserver's Kite session expires daily. This is the fact the UI
     needs to be able to say "not being watched right now" with.
     """
     streams = ds._live_status()
@@ -2141,7 +2141,7 @@ def stop() -> None:
 
 
 # ══ the chat surface ═══════════════════════════════════════════════════════
-# The model composes; this engine owns the firing. CHARTO.md §3's line exactly.
+# The model composes; this engine owns the firing. docs/chart/DESIGN.md §3's line exactly.
 #
 # Every capability the widget has is reachable from here, and by the same
 # route the widget takes: these functions call api_create / api_patch /

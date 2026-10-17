@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Download the newest Charto users backup into a temporary directory and prove
+# Download the newest users-database backup into a temporary directory and prove
 # it opens, passes SQLite quick_check, and contains the beta's durable tables.
 # The live database is never opened for writing and the restored copy is
 # deleted on exit.
 set -euo pipefail
 umask 077
 
-ACCOUNT="${CHARTO_BACKUP_ACCOUNT:-pivotmarketdata}"
-CONTAINER="${CHARTO_BACKUP_CONTAINER:-kite-1min}"
-PREFIX="${CHARTO_BACKUP_PREFIX:-backup/users}"
-MAX_AGE_HOURS="${CHARTO_BACKUP_VERIFY_MAX_AGE_HOURS:-3}"
-PYTHON_BIN="${CHARTO_PYTHON:-python3}"
+ACCOUNT="${PIVOT_BACKUP_ACCOUNT:-${CHARTO_BACKUP_ACCOUNT:-pivotmarketdata}}"
+CONTAINER="${PIVOT_BACKUP_CONTAINER:-${CHARTO_BACKUP_CONTAINER:-kite-1min}}"
+PREFIX="${PIVOT_BACKUP_PREFIX:-${CHARTO_BACKUP_PREFIX:-backup/users}}"
+MAX_AGE_HOURS="${PIVOT_BACKUP_VERIFY_MAX_AGE_HOURS:-${CHARTO_BACKUP_VERIFY_MAX_AGE_HOURS:-3}}"
+PYTHON_BIN="${PIVOT_PYTHON:-${CHARTO_PYTHON:-python3}}"
 
-work="$(mktemp -d /tmp/charto-restore-verify.XXXXXX)"
+work="$(mktemp -d /tmp/pivot-restore-verify.XXXXXX)"
 trap 'rm -rf "$work"' EXIT
 
 token="${AZURE_STORAGE_TOKEN:-}"

@@ -1,4 +1,4 @@
-/* Charto preview — the Option chain widget.
+/* Pivot preview — the Option chain widget.
  *
  * The chain of an NSE F&O stock or index for one expiry, read from the data
  * server's /options/chain (data/options.py): NSE's end-of-day F&O file, with

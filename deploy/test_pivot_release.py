@@ -42,7 +42,7 @@ def env(tmp_path, monkeypatch):
         "dataserver/app.py": "VERSION = 1\n",
         "dataserver/gone.py": "x = 1\n",
         "chart/js/main.js": "var a = 1;\n",
-        "charto/README.md": "docs\n",
+        "api/README.md": "docs\n",
         "site/.env.local": "SECRET=1\n",
         "api/backend/api.py": "A = 1\n",
         "api/tests/test_api.py": "def test(): pass\n",
@@ -73,8 +73,8 @@ def test_plan_applies_only_what_the_trimmed_release_carries(env):
     new = commit(o, {
         "dataserver/app.py": "VERSION = 2\n",          # modified, carried
         "dataserver/new_mod.py": "N = 1\n",            # added, carried
-        "charto/README.md": "more docs\n",              # modified, release cut without it
-        "charto/NOTES.md": "new top-level doc\n",       # added top-level doc
+        "api/README.md": "more docs\n",                  # modified, release cut without it
+        "api/NOTES.md": "new top-level doc\n",           # added top-level doc
         "site/.env.local": "SECRET=2\n",          # never shipped
         "api/tests/test_new.py": "x = 1\n",           # trimmed tree
         "docs/x.md": "outside\n",                       # outside the release
@@ -84,8 +84,8 @@ def test_plan_applies_only_what_the_trimmed_release_carries(env):
     assert sorted((op, p) for op, p, _ in actions) == [
         ("delete", "dataserver/gone.py"), ("install", "dataserver/app.py"), ("install", "dataserver/new_mod.py")]
     reasons = dict(skipped)
-    assert reasons["charto/README.md"] == "not in release"
-    assert reasons["charto/NOTES.md"] == "top-level doc/config"
+    assert reasons["api/README.md"] == "not in release"
+    assert reasons["api/NOTES.md"] == "top-level doc/config"
     assert reasons["site/.env.local"] == "never shipped"
     assert reasons["api/tests/test_new.py"] == "trimmed tree"
     assert "docs/x.md" not in reasons            # not even diffed
@@ -99,11 +99,11 @@ def test_a_move_deploys_restarts_what_moved_and_records_it(env):
     assert not (rel / "dataserver/gone.py").exists()
     assert pr.load_state()["deployed"] == new
     assert (pr.STATE / "backups" / new[:12] / "dataserver/app.py").read_text() == "VERSION = 1\n"
-    assert env["calls"] == [("restart", "charto")]                # not pivot-api: pivot/ did not move
-    assert pr.main([]) == 0 and env["calls"] == [("restart", "charto")]   # idle poll does nothing
+    assert env["calls"] == [("restart", "pivot-dataserver")]                # not pivot-api: api/ did not move
+    assert pr.main([]) == 0 and env["calls"] == [("restart", "pivot-dataserver")]   # idle poll does nothing
 
 
-def test_preview_only_change_restarts_nothing(env):
+def test_chart_only_change_restarts_nothing(env):
     commit(env["origin"], {"chart/js/main.js": "var a = 2;\n"}, "fe")
     assert pr.main([]) == 0
     assert env["calls"] == []
@@ -121,8 +121,8 @@ def test_an_unhealthy_service_rolls_every_file_back_and_is_not_retried(env):
     assert not (rel / "dataserver/added.py").exists()
     st = pr.load_state()
     assert st["deployed"] == env["base"] and st["failed"]["commit"] == new
-    # restarted (charto, failed health) and then restarted again on the restored files
-    assert env["calls"] == [("restart", "charto"), ("restart", "charto")]
+    # restarted (pivot-dataserver, failed health) and then restarted again on the restored files
+    assert env["calls"] == [("restart", "pivot-dataserver"), ("restart", "pivot-dataserver")]
     env["calls"].clear()
     assert pr.main([]) == 0 and env["calls"] == []              # same commit: left alone
     env["health"]["ok"] = True

@@ -63,14 +63,14 @@ await ctxA.addInitScript(([tok, chat, theme]) => {
 const pa = await ctxA.newPage();
 pa.on("pageerror", (e) => log("author pageerror:", e.message));
 await pa.goto(`${APP}/?symbol=TCS`);
-await pa.waitForFunction(() => window.__charto && window.__charto.workspace, null, { timeout: 30000 });
+await pa.waitForFunction(() => window.__pivot && window.__pivot.workspace, null, { timeout: 30000 });
 await pa.waitForTimeout(1500);                 // let boot's own 5m load finish
 await pa.click("#intervalBtn");
 await pa.click('#intervalMenu [data-iv="1d"]');
-await pa.waitForFunction(() => window.__charto.interval === "1d" && !window.__charto.state.switching);
+await pa.waitForFunction(() => window.__pivot.interval === "1d" && !window.__pivot.state.switching);
 await pa.waitForTimeout(1200);
 await pa.evaluate(async () => {
-  const c = window.__charto;
+  const c = window.__pivot;
   const bars = c.state.bars;
   const n = bars.length;
   const lows = bars.slice(-60).map((b) => b.low), highs = bars.slice(-60).map((b) => b.high);
@@ -139,10 +139,10 @@ await pb.waitForFunction(() => /[╔╗╚╝║═]/.test(document.querySelecto
 await pb.waitForTimeout(1500);
 check("no sign-in wall for a reader", !(await pb.isVisible("#authScreen.show, #authScreen.open")), "");
 const view = await pb.evaluate(() => ({
-  drawings: window.__charto.draw.state.drawings.length,
-  locked: window.__charto.draw.state.drawings.every((d) => d.locked),
-  inds: [...window.__charto.ind.active.keys()],
-  interval: window.__charto.interval,
+  drawings: window.__pivot.draw.state.drawings.length,
+  locked: window.__pivot.draw.state.drawings.every((d) => d.locked),
+  inds: [...window.__pivot.ind.active.keys()],
+  interval: window.__pivot.interval,
   bubbles: document.querySelectorAll("#chatMsgs .turn, #chatMsgs .msg, #chatMsgs > div").length,
   composerHidden: getComputedStyle(document.querySelector(".composer-inner")).display === "none",
   title: document.querySelector(".su-bar-title").textContent,
@@ -171,20 +171,20 @@ check("reader's chat archive untouched by the view", untouched.chats.join() === 
 await pb.click("#suBar [data-act='mine']");
 await pb.waitForTimeout(600);
 await pb.screenshot({ path: `${OUT}/09-make-it-mine-signin.png` });
-await pb.evaluate(() => window.CHARTO_AUTH_OPEN && window.CHARTO_AUTH_OPEN("signup"));
+await pb.evaluate(() => window.PIVOT_AUTH_OPEN && window.PIVOT_AUTH_OPEN("signup"));
 await pb.fill("#authName", reader.name).catch(() => {});
 await pb.fill("#authEmail", reader.email);
 await pb.fill("#authPassword", reader.password);
 await pb.fill("#authConfirm", reader.password).catch(() => {});
 await Promise.all([pb.waitForURL(/layout=\d+/, { timeout: 30000 }), pb.click("#authSubmit")]);
-await pb.waitForFunction(() => window.__charto && window.__charto.workspace && Layouts.current && Layouts.current.id, null, { timeout: 30000 });
+await pb.waitForFunction(() => window.__pivot && window.__pivot.workspace && Layouts.current && Layouts.current.id, null, { timeout: 30000 });
 await pb.waitForTimeout(2500);
 const copied = await pb.evaluate(() => ({
   url: location.search,
   viewOnly: document.body.classList.contains("view-only"),
   layout: Layouts.current && Layouts.current.name,
-  drawings: window.__charto.draw.state.drawings.length,
-  anyLocked: window.__charto.draw.state.drawings.some((d) => d.locked),
+  drawings: window.__pivot.draw.state.drawings.length,
+  anyLocked: window.__pivot.draw.state.drawings.some((d) => d.locked),
   chatActive: window.Chat.activeId(),
   chatText: document.getElementById("chatMsgs").innerText.slice(0, 80),
   ownDrawingsKey: JSON.parse(localStorage.getItem("charto_drawings_v2_TCS") || "[]").length,

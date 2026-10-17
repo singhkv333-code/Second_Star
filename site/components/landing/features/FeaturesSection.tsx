@@ -182,7 +182,7 @@ export function FeaturesSection(): React.ReactElement {
 
           <article data-reveal>
             <FeatureCopy title={<>Alerts by conversation</>}>
-              Describe what you want to watch. Charto handles the setup.
+              Describe what you want to watch. Pivot handles the setup.
             </FeatureCopy>
             <div className="cf-visual">
               <ProductFrame

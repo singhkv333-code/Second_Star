@@ -1,5 +1,5 @@
 [Unit]
-Description=Charto: hourly user-database backup
+Description=Pivot: hourly user-database backup
 
 [Timer]
 # Hourly, and again shortly after boot: the window this protects is "what did

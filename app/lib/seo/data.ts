@@ -6,20 +6,20 @@
  *
  *   Pivot API  /api/public/*   companies and one company's snapshot, built
  *                              from caches; never reaches a price feed
- *   Charto     /bars           a year of daily candles for the price chart
+ *   Pivot     /bars           a year of daily candles for the price chart
  *
  * Every read is cached by Next for REVALIDATE seconds, so a page a crawler
  * and a reader both open in the same quarter-hour costs one upstream call.
  * A failed read returns null and the page renders without that section.
  *
  * Locally, point both at production with
- *   PIVOT_BACKEND_ORIGIN=https://app.pivotnow.in/pv CHARTO_UPSTREAM=https://app.pivotnow.in
+ *   PIVOT_BACKEND_ORIGIN=https://app.pivotnow.in/pv PIVOT_DATASERVER_UPSTREAM=https://app.pivotnow.in
  */
 
 export const REVALIDATE = 900;
 
 const API = (process.env.PIVOT_BACKEND_ORIGIN || "http://127.0.0.1:8000").replace(/\/$/, "");
-const CHARTO = (process.env.CHARTO_UPSTREAM || "http://127.0.0.1:5174").replace(/\/$/, "");
+const DATASERVER = (process.env.PIVOT_DATASERVER_UPSTREAM || "http://127.0.0.1:5174").replace(/\/$/, "");
 
 export type MarketRow = {
   symbol: string;
@@ -156,7 +156,7 @@ export function getStock(symbol: string): Promise<StockSnapshot | null> {
 export async function getDailyBars(symbol: string): Promise<Bar[]> {
   // The chart is an extra: without it the page still has its numbers.
   const got = await getJson<{ bars?: Bar[] }>(
-    `${CHARTO}/bars?symbol=${encodeURIComponent(symbol)}&interval=1d&limit=260`,
+    `${DATASERVER}/bars?symbol=${encodeURIComponent(symbol)}&interval=1d&limit=260`,
   ).catch(() => null);
   return (got?.bars ?? []).filter((b) => Number.isFinite(b.c) && b.c > 0);
 }

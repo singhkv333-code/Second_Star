@@ -1,4 +1,4 @@
-"""Execution mode wires Charto's side chat onto Pivot's automation engine.
+"""Execution mode wires the dataserver's side chat onto Pivot's automation engine.
 
 These tests are about the SEAM, not about Pivot's builder — the builder has
 its own suite in api/tests. What can break here is the joinery: the wrong
@@ -198,7 +198,7 @@ def test_a_tool_the_pack_names_but_the_wire_lacks_is_corrected() -> None:
             assert "NOT ON THIS SURFACE" in block
 
 
-def test_alerts_route_to_charto_not_to_a_pivot_workflow() -> None:
+def test_alerts_route_to_dataserver_not_to_a_pivot_workflow() -> None:
     """The one rule that keeps a 'tell me when' from becoming a buy order.
 
     Pivot's proposal tools refuse notify-only drafts outright, so without
@@ -310,7 +310,7 @@ def test_unavailable_engine_degrades_instead_of_raising(monkeypatch) -> None:
     ready, reason = execution_bridge.available()
     assert not ready and "simulated" in reason
     assert execution_bridge.tools() == []
-    # The adapter survives an unavailable engine — it is Charto's own text,
+    # The adapter survives an unavailable engine — it is the dataserver's own text,
     # not Pivot's, so a mode that cannot build can still explain itself.
     assert "Do not open with a question" in execution_bridge.system_prompt()
     result = execution_bridge.dispatch("propose_dsl_workflow", {})
@@ -380,7 +380,7 @@ def test_the_research_trade_contract_never_reaches_the_builder() -> None:
 def test_an_undeployed_engine_says_so_instead_of_improvising(monkeypatch) -> None:
     """A mode that cannot work must not be offered as though it could.
 
-    The VM runs a sparse checkout of `charto/` only, so `backend` is not
+    The VM runs a sparse checkout of `the dataserver/` only, so `backend` is not
     importable there and the bridge correctly reports zero tools. Nothing
     asked it, so the turn went to the model anyway and the model invented a
     boundary — "I can't place or automate that order here" — for a capability

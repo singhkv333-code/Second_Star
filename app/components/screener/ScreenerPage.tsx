@@ -2091,7 +2091,7 @@ function StockFilterRail({
 
       <FilterGroup label="Full screening library">
         <p style={{ margin: "0 0 10px", fontSize: 11.5, lineHeight: 1.5, color: "var(--text-tertiary)" }}>
-          Market, valuation, quality, performance and Charto technical conditions.
+          Market, valuation, quality, performance and Pivot technical conditions.
         </p>
         <AdvancedFilterDialog value={advancedFilters} onChange={setAdvancedFilters} />
       </FilterGroup>

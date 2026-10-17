@@ -27,8 +27,8 @@ const CATEGORIES: Array<{ id: CategoryId; label: string; subhead: string; icon: 
   { id: "valuation", label: "Valuation", subhead: "How the market prices current earnings", icon: CircleGauge },
   { id: "quality", label: "Quality & balance sheet", subhead: "Returns on capital and financial leverage", icon: TrendingUp },
   { id: "performance", label: "Performance", subhead: "Measured price returns and 52-week position", icon: LineChart },
-  { id: "technical", label: "Technical", subhead: "Charto momentum, trend, volatility and participation", icon: Activity },
-  { id: "volume_profile", label: "Volume profile", subhead: "Charto’s 20-session accepted-value structure", icon: BarChart3 },
+  { id: "technical", label: "Technical", subhead: "Pivot momentum, trend, volatility and participation", icon: Activity },
+  { id: "volume_profile", label: "Volume profile", subhead: "Pivot’s 20-session accepted-value structure", icon: BarChart3 },
 ];
 
 const M: Metric[] = [
@@ -36,25 +36,25 @@ const M: Metric[] = [
   { field: "price", label: "Price", category: "market", unit: "₹", description: "Latest available NSE price; Kite is primary and delayed data is labelled.", source: "Kite / delayed relay" },
   { field: "change_pct", label: "Price change (intraday)", category: "market", unit: "%", description: "Move from the previous close to the latest price.", source: "Kite / delayed relay", suggested: [{ label: "Gainers", op: "gt", value: 0 }, { label: "Above 3%", op: "gte", value: 3 }, { label: "Losers", op: "lt", value: 0 }] },
   { field: "volume", label: "Volume", category: "market", unit: "shares", description: "Shares traded in the current session.", source: "Kite / delayed relay" },
-  { field: "turnover_20d_cr", label: "Average daily turnover (20D)", category: "market", unit: "₹ crore", description: "Average close × volume across 20 sessions.", source: "Charto daily bars" },
+  { field: "turnover_20d_cr", label: "Average daily turnover (20D)", category: "market", unit: "₹ crore", description: "Average close × volume across 20 sessions.", source: "Pivot daily bars" },
   { field: "pe", label: "Price / earnings", category: "valuation", unit: "x", description: "Trailing price-to-earnings ratio from the latest usable statement.", source: "Moneycontrol financials", suggested: [{ label: "Below 15x", op: "lt", value: 15 }, { label: "15–25x", op: "between", value: 15, value2: 25 }] },
   { field: "roe", label: "Return on equity", category: "quality", unit: "%", description: "Profit generated as a percentage of shareholder equity.", source: "Moneycontrol financials", suggested: [{ label: "Above 15%", op: "gte", value: 15 }, { label: "Above 20%", op: "gte", value: 20 }] },
   { field: "roce", label: "Return on capital employed", category: "quality", unit: "%", description: "Operating return generated on long-term capital employed.", source: "Moneycontrol financials" },
   { field: "de", label: "Debt / equity", category: "quality", unit: "x", description: "Total debt relative to shareholder equity.", source: "Moneycontrol financials", suggested: [{ label: "Below 0.5x", op: "lt", value: 0.5 }, { label: "Below 1x", op: "lt", value: 1 }] },
   { field: "one_year_pct", label: "One-year return", category: "performance", unit: "%", description: "Price return over approximately 252 trading sessions.", source: "Kite historical / delayed relay" },
-  { field: "dist_52w_high", label: "Distance from 52-week high", category: "performance", unit: "%", description: "Signed distance from the high: 0 is at the high; negative is below it.", source: "Charto daily bars", suggested: [{ label: "Within 5%", op: "gte", value: -5 }, { label: "Within 10%", op: "gte", value: -10 }] },
-  { field: "dist_52w_low", label: "Distance above 52-week low", category: "performance", unit: "%", description: "Percentage the latest close sits above its 52-week low.", source: "Charto daily bars" },
-  { field: "rsi14", label: "RSI (14)", category: "technical", unit: "0–100", description: "Daily relative-strength index over 14 sessions.", source: "Charto indicator engine", suggested: [{ label: "Oversold", op: "lt", value: 30 }, { label: "30–70", op: "between", value: 30, value2: 70 }, { label: "Overbought", op: "gt", value: 70 }] },
-  { field: "sma20_rel", label: "Price vs 20-day SMA", category: "technical", unit: "%", description: "Positive means the close is above its 20-day moving average.", source: "Charto indicator engine" },
-  { field: "sma50_rel", label: "Price vs 50-day SMA", category: "technical", unit: "%", description: "Positive means the close is above its 50-day moving average.", source: "Charto indicator engine" },
-  { field: "sma200_rel", label: "Price vs 200-day SMA", category: "technical", unit: "%", description: "Positive means the close is above its 200-day moving average.", source: "Charto indicator engine", suggested: [{ label: "Above 200D", op: "gt", value: 0 }, { label: "Below 200D", op: "lt", value: 0 }] },
-  { field: "atr_pct", label: "ATR (14) / price", category: "technical", unit: "%", description: "Average true range as a percentage of price; comparable across stocks.", source: "Charto indicator engine" },
-  { field: "range_20d_pct", label: "20-day range width", category: "technical", unit: "%", description: "High-to-low width over 20 sessions; lower values identify tighter coils.", source: "Charto daily bars" },
-  { field: "vol_z20", label: "Relative volume z-score", category: "technical", unit: "σ", description: "Latest volume measured in standard deviations from the prior 20 sessions.", source: "Charto daily bars", suggested: [{ label: "Unusual (>2σ)", op: "gt", value: 2 }, { label: "Above average", op: "gt", value: 0 }] },
-  { field: "vp20_pos", label: "Position inside value area", category: "volume_profile", unit: "%", description: "0 is value-area low, 100 is high; above 100 trades above accepted value.", source: "Charto 1-minute volume profile", suggested: [{ label: "Above value", op: "gt", value: 100 }, { label: "Inside value", op: "between", value: 0, value2: 100 }, { label: "Below value", op: "lt", value: 0 }] },
-  { field: "vp20_va_width_pct", label: "Value-area width", category: "volume_profile", unit: "% of POC", description: "Width of the 20-session value area relative to its point of control.", source: "Charto 1-minute volume profile" },
-  { field: "vp20_poc_dist_pct", label: "Distance from point of control", category: "volume_profile", unit: "%", description: "Signed distance between close and the most-traded price.", source: "Charto 1-minute volume profile" },
-  { field: "vp20_poc_shift_pct", label: "Point-of-control migration", category: "volume_profile", unit: "%", description: "Change in accepted price versus the prior 20-session profile.", source: "Charto 1-minute volume profile" },
+  { field: "dist_52w_high", label: "Distance from 52-week high", category: "performance", unit: "%", description: "Signed distance from the high: 0 is at the high; negative is below it.", source: "Pivot daily bars", suggested: [{ label: "Within 5%", op: "gte", value: -5 }, { label: "Within 10%", op: "gte", value: -10 }] },
+  { field: "dist_52w_low", label: "Distance above 52-week low", category: "performance", unit: "%", description: "Percentage the latest close sits above its 52-week low.", source: "Pivot daily bars" },
+  { field: "rsi14", label: "RSI (14)", category: "technical", unit: "0–100", description: "Daily relative-strength index over 14 sessions.", source: "Pivot indicator engine", suggested: [{ label: "Oversold", op: "lt", value: 30 }, { label: "30–70", op: "between", value: 30, value2: 70 }, { label: "Overbought", op: "gt", value: 70 }] },
+  { field: "sma20_rel", label: "Price vs 20-day SMA", category: "technical", unit: "%", description: "Positive means the close is above its 20-day moving average.", source: "Pivot indicator engine" },
+  { field: "sma50_rel", label: "Price vs 50-day SMA", category: "technical", unit: "%", description: "Positive means the close is above its 50-day moving average.", source: "Pivot indicator engine" },
+  { field: "sma200_rel", label: "Price vs 200-day SMA", category: "technical", unit: "%", description: "Positive means the close is above its 200-day moving average.", source: "Pivot indicator engine", suggested: [{ label: "Above 200D", op: "gt", value: 0 }, { label: "Below 200D", op: "lt", value: 0 }] },
+  { field: "atr_pct", label: "ATR (14) / price", category: "technical", unit: "%", description: "Average true range as a percentage of price; comparable across stocks.", source: "Pivot indicator engine" },
+  { field: "range_20d_pct", label: "20-day range width", category: "technical", unit: "%", description: "High-to-low width over 20 sessions; lower values identify tighter coils.", source: "Pivot daily bars" },
+  { field: "vol_z20", label: "Relative volume z-score", category: "technical", unit: "σ", description: "Latest volume measured in standard deviations from the prior 20 sessions.", source: "Pivot daily bars", suggested: [{ label: "Unusual (>2σ)", op: "gt", value: 2 }, { label: "Above average", op: "gt", value: 0 }] },
+  { field: "vp20_pos", label: "Position inside value area", category: "volume_profile", unit: "%", description: "0 is value-area low, 100 is high; above 100 trades above accepted value.", source: "Pivot 1-minute volume profile", suggested: [{ label: "Above value", op: "gt", value: 100 }, { label: "Inside value", op: "between", value: 0, value2: 100 }, { label: "Below value", op: "lt", value: 0 }] },
+  { field: "vp20_va_width_pct", label: "Value-area width", category: "volume_profile", unit: "% of POC", description: "Width of the 20-session value area relative to its point of control.", source: "Pivot 1-minute volume profile" },
+  { field: "vp20_poc_dist_pct", label: "Distance from point of control", category: "volume_profile", unit: "%", description: "Signed distance between close and the most-traded price.", source: "Pivot 1-minute volume profile" },
+  { field: "vp20_poc_shift_pct", label: "Point-of-control migration", category: "volume_profile", unit: "%", description: "Change in accepted price versus the prior 20-session profile.", source: "Pivot 1-minute volume profile" },
 ];
 
 const POPULAR = ["market_cap_cr", "change_pct", "pe", "roe", "de", "one_year_pct", "dist_52w_high", "rsi14", "sma200_rel", "vol_z20"];
@@ -105,7 +105,7 @@ export function AdvancedFilterDialog({ value, onChange }: { value: ScreenerFilte
       >
         <div className="border-b border-border px-5 pb-4 pt-4">
           <DialogTitle className="font-[var(--font-display)] text-[19px] font-medium leading-6 tracking-[-0.02em]">Equity filters</DialogTitle>
-          <DialogDescription className="mt-0.5 text-[11px] leading-4 text-muted-foreground">Combine market, fundamental and Charto criteria. All conditions must pass.</DialogDescription>
+          <DialogDescription className="mt-0.5 text-[11px] leading-4 text-muted-foreground">Combine market, fundamental and Pivot criteria. All conditions must pass.</DialogDescription>
           <div className="mt-3 flex h-10 items-center gap-2.5 rounded-lg border border-border bg-muted/30 px-3 transition-colors focus-within:border-foreground/25 focus-within:bg-background">
             <Search className="h-3.5 w-3.5 text-muted-foreground" />
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search for filters" className="h-full flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground" />

@@ -7,7 +7,7 @@ isolated interpreter and reads one JSON reply back. The layers that child
 applies are listed in its docstring; this side adds the ones only a parent
 can: the wall-clock timeout, the empty environment, a scratch cwd, dropping
 to uid 65534 when the server runs as root, and an optional kernel jail
-prefix (CHARTO_SANDBOX_PREFIX, e.g. an nsjail or bwrap command line).
+prefix (PIVOT_SANDBOX_PREFIX, e.g. an nsjail or bwrap command line).
 
 Measured: interpreter start-up with -I -S is ~20 ms, so a chart fetch of a
 custom study costs one start-up plus the study's own arithmetic. Results are
@@ -48,10 +48,10 @@ _load_policy()
 check_source = _policy_ns["check_source"]
 MAX_CODE_CHARS = _policy_ns["MAX_CODE_CHARS"]
 
-PREFIX = shlex.split(os.environ.get("CHARTO_SANDBOX_PREFIX", ""))
-MAX_PARALLEL = max(1, int(os.environ.get("CHARTO_SANDBOX_PARALLEL", "4") or 4))
+PREFIX = shlex.split(os.environ.get("PIVOT_SANDBOX_PREFIX", ""))
+MAX_PARALLEL = max(1, int(os.environ.get("PIVOT_SANDBOX_PARALLEL", "4") or 4))
 _slots = threading.BoundedSemaphore(MAX_PARALLEL)
-_scratch = Path(tempfile.gettempdir()) / "charto-sandbox"
+_scratch = Path(tempfile.gettempdir()) / "pivot-sandbox"
 
 
 class SandboxError(RuntimeError):
@@ -123,7 +123,7 @@ _CACHE_MAX = 256
 
 def columns(rows: list[tuple], *, interval: str = "", tz_offset: int = 0,
             symbol: str = "", basket: dict | None = None) -> dict:
-    """Charto rows (t, o, h, l, c, v) → the column dict compute() receives.
+    """The dataserver rows (t, o, h, l, c, v) → the column dict compute() receives.
     `basket` (already aligned to these rows) rides along for a study that
     reads other instruments — see custom_indicators.align_basket."""
     out = {"time": [r[0] for r in rows], "open": [r[1] for r in rows],

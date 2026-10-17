@@ -15,7 +15,7 @@ import sys
 import tempfile
 
 _DB = os.path.join(tempfile.mkdtemp(), "screen.db")
-os.environ["CHARTO_DB"] = _DB
+os.environ["PIVOT_DB"] = _DB
 
 DAY = 86400
 T0 = 1_700_000_000 // DAY * DAY - 5 * 3600 - 1800      # a midnight, IST
@@ -70,7 +70,7 @@ def _seed() -> None:
 
 
 _seed()
-import dataserver as ds  # noqa: E402  (reads CHARTO_DB at import)
+import dataserver as ds  # noqa: E402  (reads PIVOT_DB at import)
 
 FAILS: list[str] = []
 

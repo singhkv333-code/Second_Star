@@ -1,4 +1,4 @@
-"""Charto — taking money for a plan, through Razorpay Subscriptions.
+"""The dataserver — taking money for a plan, through Razorpay Subscriptions.
 
 WHAT THIS FILE OWNS, AND WHAT IT DOES NOT
 -----------------------------------------
@@ -67,7 +67,7 @@ from os import environ
 
 import entitlements as ent
 
-log = logging.getLogger("charto.billing")
+log = logging.getLogger("dataserver.billing")
 
 API = "https://api.razorpay.com/v1"
 PROVIDER = "razorpay"
@@ -106,7 +106,7 @@ def checkout_available(email: str = "") -> bool:
     if not configured():
         return False
     # Test payments must never grant free paid access to ordinary customers.
-    allowed = {x.strip().lower() for x in _env("CHARTO_BILLING_TEST_EMAILS").split(",") if x.strip()}
+    allowed = {x.strip().lower() for x in _env("PIVOT_BILLING_TEST_EMAILS").split(",") if x.strip()}
     return not test_mode() or email.strip().lower() in allowed
 
 

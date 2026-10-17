@@ -1,4 +1,4 @@
-/* Charto preview — the dialog kit.
+/* Pivot preview — the dialog kit.
  *
  * The parts every settings dialog in this app is built from, in one place so
  * there is exactly ONE colour picker, ONE dressed <select>, and ONE answer to

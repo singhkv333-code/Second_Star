@@ -13,8 +13,8 @@ moving it back rolls back (the diff runs between whatever is deployed and
 whatever the branch names, in either direction). Nothing else changes the
 release: a hand-copied file is overwritten the next time a commit touches it.
 
-The release (/etc/pivot/stage-release) is a TRIMMED tree — no docs, tests,
-browser, charto/media, api/scripts — so this never copies the whole
+The release (/etc/pivot/stage-release) is a TRIMMED tree — no docs, browser/,
+api/scripts, tests — so this never copies the whole
 branch in. It applies exactly the paths that changed between the deployed
 commit and the new one, and of those only the ones the release carries.
 
@@ -61,27 +61,26 @@ BUILD_USER = os.environ.get("PIVOT_RELEASE_BUILD_USER", "pivot-build")   # "" = 
 PYTHON = os.environ.get("PIVOT_RELEASE_PYTHON", "/opt/pivot/venv/bin/python")
 HEALTH_WAIT = float(os.environ.get("PIVOT_RELEASE_HEALTH_WAIT", "180"))
 
-TOPS = ("charto/", "pivot/", "app/", "research/")
+TOPS = ("app/", "api/", "chart/", "dataserver/", "deploy/", "research/", "site/")
 # Trees the release was cut without. A new file under one of these stays out.
-TRIMMED = ("browser/", "charto/media/", "api/archive/", "api/infra/",
-           "api/migrations/", "api/scripts/", "api/tests/")
+TRIMMED = ("api/migrations/", "api/scripts/", "api/tests/", "dataserver/tests/", "chart/tests/")
 # Tracked but deliberately not shipped: it would switch Google sign-in on.
 NEVER = ("site/.env.local",)
 
-# A service restarts when code it imports moved. charto imports pivot/ through
-# execution_bridge, so pivot/ restarts both.
+# A service restarts when code it imports moved. The dataserver imports api/
+# through execution_bridge, so api/ restarts both.
 SERVICES = [
-    ("charto", ("dataserver/", "pivot/"), "http://127.0.0.1:5174/health"),
-    ("pivot-api", ("pivot/",), "http://127.0.0.1:8000/health"),
+    ("pivot-dataserver", ("dataserver/", "api/"), "http://127.0.0.1:5174/health"),
+    ("pivot-api", ("api/",), "http://127.0.0.1:8000/health"),
 ]
 NEXT_APPS = [  # (source dir, unit, port)
-    ("pivot-next", "pivot-next", 3000),
-    ("site", "charto-web", 5175),
+    ("app", "pivot-app", 3000),
+    ("site", "pivot-site", 5175),
 ]
 NEXT_ENV = {
     "NEXT_TELEMETRY_DISABLED": "1",
     "PIVOT_BACKEND_ORIGIN": "http://127.0.0.1:8000",
-    "CHARTO_BACKEND": "http://127.0.0.1:5174",
+    "PIVOT_DATASERVER_ORIGIN": "http://127.0.0.1:5174",
     "NEXT_PUBLIC_PIVOT_API_BASE": "/pv/api",
     "NEXT_PUBLIC_PIVOT_WS_BASE": "wss://pivot-india.centralindia.cloudapp.azure.com/pv/api",
     "NODE_OPTIONS": "--max-old-space-size=3072",
@@ -178,8 +177,8 @@ def _carried(path: str, status: str, R: Path) -> str | None:
         return None if exists else "not in release"
     if status == "M" and not exists:
         return "not in release"          # the release was cut without it
-    if status == "A" and path.count("/") == 1 and path.split("/")[0] in ("charto", "pivot"):
-        return "top-level doc/config"    # charto/README.md, api/Makefile …
+    if status == "A" and path.count("/") == 1 and path.split("/")[0] == "api":
+        return "top-level doc/config"    # api/README.md, api/Makefile …
     return None
 
 
@@ -370,7 +369,7 @@ def deploy(base: str, new: str, state: dict) -> dict:
             run(["node", "--check", f])
         stale = [p for p in installed if p.startswith("chart/js/")]
         if stale and "chart/index.html" not in installed:
-            say("  WARNING preview JS changed but index.html did not: browsers may keep the old file (?v= stamp)")
+            say("  WARNING chart JS changed but index.html did not: browsers may keep the old file (?v= stamp)")
 
         for unit, prefixes, url in SERVICES:
             if any(p.startswith(prefixes) for p in paths):

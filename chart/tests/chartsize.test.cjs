@@ -49,7 +49,7 @@ test('checks restored layouts after frames and releases secondary observers on t
   const stop = f.sizing.watch(f.chart, f.host);
   f.flush(); f.flush();
   assert.equal(f.calls.length, 2);
-  f.listeners.get('charto:dock-layout')();
+  f.listeners.get('pivot:dock-layout')();
   stop(); f.flush(); f.resize(); f.flush();
   assert.equal(f.calls.length, 2);
   assert.equal(f.listeners.size, 0);

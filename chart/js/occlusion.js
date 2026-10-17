@@ -1,8 +1,8 @@
-/* Charto — "is anything DRAWN under this box?"
+/* Pivot — "is anything DRAWN under this box?"
  *
  * The legends float over the plot. TradingView's answer to that is a plate:
  * a wash of the page's paper behind the text, present WHENEVER the series
- * runs behind it and absent when the corner is empty sky. Charto had the
+ * runs behind it and absent when the corner is empty sky. Pivot had the
  * plate but hung it on :hover, which is the wrong trigger twice over — it
  * appears when nothing needs it (the pointer over a legend on blank chart)
  * and, far worse, it is missing exactly when it is needed (candles behind
@@ -103,7 +103,7 @@ const Occlusion = (() => {
 
       /* The pane element spans the price axes as well as the plot, but
        * timeToCoordinate measures from the PLOT's left edge — so the axis
-       * widths are what reconcile the two frames. (Charto only ever mounts a
+       * widths are what reconcile the two frames. (Pivot only ever mounts a
        * right scale; the left is asked for anyway rather than assumed zero.) */
       let axisR = 0, axisL = 0;
       try { axisR = chart.priceScale("right").width() || 0; } catch { /* pre-layout */ }

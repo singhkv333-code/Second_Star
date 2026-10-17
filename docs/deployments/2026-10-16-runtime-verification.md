@@ -8,11 +8,11 @@ The directory name is not the currently deployed Git revision.
 ## Verified
 
 - SHA-256 comparison of 1,188 tracked Python, JavaScript, TypeScript, CSS,
-  HTML and JSON files across Charto, both Next apps, Pivot backend and
+  HTML and JSON files across the dataserver, both Next apps, Pivot backend and
   Pivotted: all match local committed HEAD. Tests/archive paths were excluded.
   This is source parity, not a claim that databases, environment variables,
   installed dependencies or uncommitted local edits are identical.
-- `charto`, `pivot-api`, `pivot-next`, `charto-web`, and
+- `the dataserver`, `pivot-api`, `pivot-next`, `pivot-web`, and
   `pivot-release.timer` active.
 - `mail_sent` and `known_devices` exist in the live user-state database.
   Checked using Python SQLite in read-only mode; no migration needed.
@@ -25,7 +25,7 @@ The directory name is not the currently deployed Git revision.
 
 ## Metadata routing repair
 
-`/icon.svg` and `/apple-icon.png` incorrectly fell through to Charto's API.
+`/icon.svg` and `/apple-icon.png` incorrectly fell through to the dataserver's API.
 Added a narrowly scoped shell proxy to the repository nginx config and both
 active vhosts, preserving domain certificates, security rules and all other
 routing. No application service restart was needed.
@@ -61,7 +61,7 @@ Thread-stack inspection confirmed the Kite startup thread inside
 `fill_gaps` waiting on historical-request workers, with workers in the
 process-wide 0.35-second request-spacing gate. This is active, rate-limited
 catch-up, not a missing credential. Starting another driver or restarting
-Charto would interrupt it again. Instruments beyond the 1,440-minute repair
+The dataserver would interrupt it again. Instruments beyond the 1,440-minute repair
 limit are explicitly refused and require their regular backfill workflow.
 
 The two systemd failed units are historical: bootstrap on 8 October and
@@ -78,7 +78,7 @@ reviewed files in its explicit plan were installed; unrelated working-tree
 edits were excluded. No Git remote was pushed.
 
 - Replacement Next build completed before the swap; only `pivot-next`
-  restarted. Charto/Kite and the other backend processes were not restarted.
+  restarted. The dataserver/Kite and the other backend processes were not restarted.
 - State records `manual_deploy: true`. A tested, narrowly scoped guard was
   installed in the release manager: while this flag is present, the timer
   refuses an older or divergent published branch instead of reverting the

@@ -1,4 +1,4 @@
-"""Charto — the ratio drawing catalogue, backend half.
+"""The dataserver — the ratio drawing catalogue, backend half.
 
 The frontend owns the GEOMETRY. `preview/js/tools.js` builds every one of
 these shapes from its anchors, and both layers that draw — the user's rail and

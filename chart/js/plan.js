@@ -1,4 +1,4 @@
-/* Charto preview — the user's plan, mirrored for display.
+/* Pivot preview — the user's plan, mirrored for display.
  *
  * The SERVER decides. Every gated write is checked there and refused with a
  * 402 that carries its own sentence (data/entitlements.py), so nothing in
@@ -34,7 +34,7 @@ const Plan = (() => {
       const r = await fetch(`${API}/billing/me`, { headers: headers() });
       if (r.ok) me = await r.json();
     } catch { /* offline: keep the last answer; the server still decides */ }
-    document.dispatchEvent(new CustomEvent("charto:plan", { detail: me }));
+    document.dispatchEvent(new CustomEvent("pivot:plan", { detail: me }));
     return me;
   }
 
@@ -83,7 +83,7 @@ const Plan = (() => {
         const d = await r.json().catch(() => ({}));
         if (d.code === "evicted") {
           evicted = true;
-          document.dispatchEvent(new CustomEvent("charto:evicted", { detail: d }));
+          document.dispatchEvent(new CustomEvent("pivot:evicted", { detail: d }));
         }
       } else if (r.ok) {
         evicted = false;

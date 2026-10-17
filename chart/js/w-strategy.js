@@ -1,4 +1,4 @@
-/* Charto preview — the Strategy widget.
+/* Pivot preview — the Strategy widget.
  *
  * Pick a rule, test it, read the evidence, and arm it into the paper book.
  * A rule is one of the lab's templates (data/strategy_lab.py) with its
@@ -432,7 +432,7 @@
       const m = res.metrics || {};
       const onChart = typeof Cards !== "undefined" && Cards.strategyLayer;
       const want = String(res.symbol || "").toUpperCase();
-      const here = String((window.__charto && window.__charto.symbol) || "").toUpperCase();
+      const here = String((window.__pivot && window.__pivot.symbol) || "").toUpperCase();
       const chartLabel = !onChart ? "" : want && here && want !== here ? `Open ${want}` : chartShown ? "Hide on chart" : "Show on chart";
       const isMine = res.source && res.source.kind === "saved";
       foot.innerHTML =
@@ -440,7 +440,7 @@
         `<span class="st-acts">` +
           (chartLabel ? `<button type="button" class="sh-btn" data-st="chart">${ic("candles")}<span>${chartLabel}</span></button>` : "") +
           `<button type="button" class="sh-btn" data-st="ask">${ic("chat")}<span>Ask</span></button>` +
-          (isMine || window.CHARTO_EXECUTION !== true ? "" : `<button type="button" class="sh-btn st-arm-btn" data-st="arm">${ic("zap")}<span>Arm</span></button>`) +
+          (isMine || window.PIVOT_CHART_EXECUTION !== true ? "" : `<button type="button" class="sh-btn st-arm-btn" data-st="arm">${ic("zap")}<span>Arm</span></button>`) +
         `</span>`;
       if (m.n_trades === 0 && !err) { /* the verdict already says why: nothing more to add */ }
     }
@@ -610,10 +610,10 @@
     let chartShown = false;
     function toggleChart() {
       const layer = typeof Cards !== "undefined" && Cards.strategyLayer;
-      const scene = window.__charto && window.__charto.scene;
+      const scene = window.__pivot && window.__pivot.scene;
       if (!layer || !scene || !res) return;
       const want = String(res.symbol || "").toUpperCase();
-      const here = String((window.__charto && window.__charto.symbol) || "").toUpperCase();
+      const here = String((window.__pivot && window.__pivot.symbol) || "").toUpperCase();
       if (want && here && want !== here) { ctx.openSymbol(want); return; }
       if (chartShown) { scene.apply([layer.clear()]); chartShown = false; return paint(); }
       const why = layer.blocker(res);
@@ -660,7 +660,7 @@
       else if (!saved.length) items.push({ id: "none", label: "No saved strategies yet", off: true });
       else items.push(...saved.map((s) => ({ id: `saved:${s.id}`, label: s.name, hint: `${s.symbol} · ${s.state}`, on: src() === `saved:${s.id}` })));
       ctx.menu(anchor, items, (id) => {
-        if (id === "signin") return window.CHARTO_AUTH_OPEN && window.CHARTO_AUTH_OPEN();
+        if (id === "signin") return window.PIVOT_AUTH_OPEN && window.PIVOT_AUTH_OPEN();
         if (id === src()) return;
         popOpen = false; chartShown = false;
         ctx.setCfg({ src: id });
@@ -697,7 +697,7 @@
       if (a === "arm") { armOpen = !armOpen; armMsg = ""; return paint(); }
       if (a === "arm-cancel") { armOpen = false; return paint(); }
       if (a === "arm-go") return arm();
-      if (a === "signin") return window.CHARTO_AUTH_OPEN && window.CHARTO_AUTH_OPEN();
+      if (a === "signin") return window.PIVOT_AUTH_OPEN && window.PIVOT_AUTH_OPEN();
       if (a === "ask") { const got = askGot(); if (got) ctx.ask(got); }
     });
     pop.addEventListener("keydown", (e) => {
@@ -771,7 +771,7 @@
       { section: "Defaults" },
       { key: "capital", label: "Starting capital", def: 100000,
         options: [{ v: 50000, label: "₹50k" }, { v: 100000, label: "₹1L" }, { v: 500000, label: "₹5L" }, { v: 1000000, label: "₹10L" }] },
-      { kind: "note", label: window.CHARTO_EXECUTION === true
+      { kind: "note", label: window.PIVOT_CHART_EXECUTION === true
           ? "Backtests run after costs on Pivot's bars. Arming fills into the paper book only; no broker is touched."
           : "Backtests run after costs on Pivot's bars. Strategies are tested here, never run." },
     ],

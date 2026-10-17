@@ -1,16 +1,16 @@
-# Charto — the reasoning system for "why did it move?"
+# The dataserver — the reasoning system for "why did it move?"
 
 > Research and design, 2026-07-27. Every number below was measured against the
 > live `gpt-5.6-luna` deployment and the local 11.5-year 1-minute store, not
 > estimated. Nothing here is built yet; §9 is the build order.
-> Companion to `CHARTO.md` (constitution §2, LLM/code split §3, anti-determinism
+> Companion to `docs/chart/DESIGN.md` (constitution §2, LLM/code split §3, anti-determinism
 > doctrine §4, evidence hierarchy §5, feature F 40-42).
 
 ---
 
 ## 1. The problem, stated honestly
 
-A trader points at a candle and asks *why*. Today Charto answers only the
+A trader points at a candle and asks *why*. Today the dataserver answers only the
 technical half — levels, patterns, gaps, indicators — because that is all the
 tools expose. The other half of the real answer lives outside the chart: a
 filing, a sector move, a crude spike, a block deal, an index rebalance, or
@@ -108,11 +108,11 @@ Same message ("hi"), one call each, exact `input_tokens`:
 |---|---:|
 | none | 7 |
 | `web_search_preview` only | **4,302** |
-| all 15 charto tools | 4,399 |
-| 15 charto tools + hosted search | 8,694 |
+| all 15 the dataserver tools | 4,399 |
+| 15 the dataserver tools + hosted search | 8,694 |
 
 **Attaching the hosted search costs ~4,295 input tokens — as much as all
-fifteen charto tools combined.** It ships a large provider-side instruction
+fifteen the dataserver tools combined.** It ships a large provider-side instruction
 payload whether or not it is used.
 
 And that cost is re-paid on **every hop**, because reported input is the sum
@@ -122,7 +122,7 @@ roughly doubles every turn in the product.
 
 ### 3.4 But the model does not over-search
 
-With the hosted tool attached and charto's tools present:
+With the hosted tool attached and the dataserver's tools present:
 
 | Question | rounds | searches |
 |---|---:|---:|
@@ -133,8 +133,8 @@ With the hosted tool attached and charto's tools present:
 
 Zero over-firing. The model searches when the question is causal and not
 otherwise. **No intent classifier is needed** — which matters, because
-`CHARTO.md` §4.1 forbids one. (Pivot's `_hosted_tools_for()` regex lanes are
-precisely the pre-LLM interception Charto exists to avoid.)
+`docs/chart/DESIGN.md` §4.1 forbids one. (Pivot's `_hosted_tools_for()` regex lanes are
+precisely the pre-LLM interception the dataserver exists to avoid.)
 
 So the problem is not *when* to offer search. It is **how to offer it without
 paying 4,295 tokens a hop to have it on the menu.**
@@ -240,7 +240,7 @@ that produces a confident cause every day is manufacturing narrative, and every
 Indian retail user has been trained by finfluencer content to expect exactly
 that.
 
-This is the differentiator, not a limitation. `CHARTO.md` §2.4 already commits
+This is the differentiator, not a limitation. `docs/chart/DESIGN.md` §2.4 already commits
 to it — "attribution says 'no clear catalyst' most days and means it." The
 measured design makes that commitment cheap to honour, because the abnormality
 gate (§4.2) answers "was there even anything to explain" before a search is
@@ -266,7 +266,7 @@ inference as an inference:
 The rail: **every behavioural sentence must name the observable under it.** "27%
 of the day's volume traded in the last half hour" is a fact from our bars;
 "that looks like an institutional unwind" is an inference the model states as
-one. This is the same discipline as the evidence hierarchy in `CHARTO.md` §5,
+one. This is the same discipline as the evidence hierarchy in `docs/chart/DESIGN.md` §5,
 applied to intent rather than to drawings.
 
 The base-rate column (§4.2, rung 7) is what makes this more than vibes: with
@@ -328,7 +328,7 @@ decides meaning before the model sees the message.
    manufacturing narrative and the gate is too loose.
 
 Deferred deliberately: OI 4-quadrant and delivery % (real signals per the
-earlier research, but they need an F&O/bhavcopy feed charto does not have);
+earlier research, but they need an F&O/bhavcopy feed the dataserver does not have);
 sector peers; block/bulk deals.
 
 ---

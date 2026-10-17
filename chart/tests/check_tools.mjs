@@ -1,4 +1,4 @@
-/* Charto — the drawing catalogue's smoke test.  `node check_tools.mjs`
+/* Pivot — the drawing catalogue's smoke test.  `node check_tools.mjs`
  *
  * There is no test runner in front of this app's JavaScript, and the ratio
  * family is the one part of it that genuinely needs one: a Gann fan whose 1×1

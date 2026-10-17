@@ -2,8 +2,8 @@
 #
 # Back up the ONE database that cannot be rebuilt.
 #
-# charto_bars.db is 29 GB and every byte of it is derivable again — from the
-# blob universe, from the per-symbol parquets, from Kite. charto_users.db is
+# bars.db is 29 GB and every byte of it is derivable again — from the
+# blob universe, from the per-symbol parquets, from Kite. users.db is
 # small and none of it is: accounts, saved layouts, journal trades, past
 # conversations, alerts. Losing the bars costs a re-sync; losing this costs
 # the beta.
@@ -23,18 +23,18 @@
 # credential sitting on the box is the same credential an attacker who reaches
 # the box already has; an IMDS token cannot be read off disk and it expires.
 #
-# Install:  sudo cp charto-backup.{service,timer} /etc/systemd/system/
-#           sudo systemctl enable --now charto-backup.timer
+# Install:  sudo cp pivot-backup.{service,timer} /etc/systemd/system/
+#           sudo systemctl enable --now pivot-backup.timer
 set -euo pipefail
 umask 077
 
-DB="${CHARTO_USERS_DB:-/data/app/dataserver/charto_users.db}"
-ACCOUNT="${CHARTO_BACKUP_ACCOUNT:-pivotmarketdata}"
-CONTAINER="${CHARTO_BACKUP_CONTAINER:-kite-1min}"
-PREFIX="${CHARTO_BACKUP_PREFIX:-backup/users}"
-KEEP_LOCAL="${CHARTO_BACKUP_KEEP:-48}"
-LOCAL_DIR="${CHARTO_BACKUP_DIR:-/data/backup}"
-MARKER="${CHARTO_BACKUP_MARKER:-$LOCAL_DIR/charto_users.last_success.json}"
+DB="${PIVOT_USERS_DB:-${CHARTO_USERS_DB:-/srv/pivot-data/charto_users.db}}"
+ACCOUNT="${PIVOT_BACKUP_ACCOUNT:-${CHARTO_BACKUP_ACCOUNT:-pivotmarketdata}}"
+CONTAINER="${PIVOT_BACKUP_CONTAINER:-${CHARTO_BACKUP_CONTAINER:-kite-1min}}"
+PREFIX="${PIVOT_BACKUP_PREFIX:-${CHARTO_BACKUP_PREFIX:-backup/users}}"
+KEEP_LOCAL="${PIVOT_BACKUP_KEEP:-${CHARTO_BACKUP_KEEP:-48}}"
+LOCAL_DIR="${PIVOT_BACKUP_DIR:-${CHARTO_BACKUP_DIR:-/srv/pivot-data/backup}}"
+MARKER="${PIVOT_BACKUP_MARKER:-${CHARTO_BACKUP_MARKER:-$LOCAL_DIR/charto_users.last_success.json}}"
 
 [ -f "$DB" ] || { echo "backup: no database at $DB" >&2; exit 1; }
 mkdir -p "$LOCAL_DIR"

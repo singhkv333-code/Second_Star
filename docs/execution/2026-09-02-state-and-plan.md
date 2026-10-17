@@ -9,9 +9,9 @@ A toggle in the chat panel that swaps the tool surface and the contract:
 
 | | Research mode | Execution mode |
 |---|---|---|
-| Charto tools | 42 | **21** (`_EXECUTION_CHARTO_TOOLS`) |
+| the dataserver tools | 42 | **21** (`_EXECUTION_DATASERVER_TOOLS`) |
 | Borrowed Pivot tools | 0 | **9** (`execution_bridge.PIVOT_TOOLS`) |
-| System contract | Charto's | Charto's **adapter** (6.6 KB) + 2 sliced `system_core.md` sections + 5 Pivot prompt modules + filtered calibration = **45.6 KB ≈ 11.4 k tok** |
+| System contract | the dataserver's | the dataserver's **adapter** (6.6 KB) + 2 sliced `system_core.md` sections + 5 Pivot prompt modules + filtered calibration = **45.6 KB ≈ 11.4 k tok** |
 | Context block | full `_render_chart` | `_execution_context` — instrument, interval, last price, and four lines saying the screen is not a constraint |
 
 `execution_bridge.py` lends Pivot's engine without forking it: one daemon event
@@ -63,7 +63,7 @@ saved, armed, watched, filled or reviewed.** It dies with the conversation.
 Concretely missing:
 
 1. **A store.** No strategy survives the turn.
-2. **A runtime.** Nothing evaluates a built rule against live bars. (Charto's *alert* engine does exactly this — for alerts only.)
+2. **A runtime.** Nothing evaluates a built rule against live bars. (the dataserver's *alert* engine does exactly this — for alerts only.)
 3. **A position book.** So every `position` leaf — stop, trailing stop, time stop — is backtest-only. The exits the builder writes have nowhere to run.
 4. **The journal seam.** `journal_trades` exists and is well-built; not one journal tool is on the execution surface.
 5. **Delivery.** Alerts are in-app only: "with every tab shut nothing is pushed anywhere."
@@ -130,11 +130,11 @@ mandatory for all stockbrokers **1 April 2026**:
 
 Two consequences:
 
-**Charto is white-box by construction.** The card prints every step and an
+**The dataserver is white-box by construction.** The card prints every step and an
 English readback of the tree. That is the lenient category, and it is a property
 of the design, not a claim.
 
-**The moment Charto places the order it becomes an algo provider** needing broker
+**The moment the dataserver places the order it becomes an algo provider** needing broker
 empanelment and Algo-IDs. Constitution §8 already forecloses this: *"The bracket
 on the chart stages; the human commits in their own broker app. Never wire
 chat/chart to auto-place."* The regulation and the constitution agree, so the
@@ -145,9 +145,9 @@ conversation, not an engineering one.)
 
 ## 6. The architectural discovery that makes this cheap
 
-I expected Phase 2 to be "write a translator from Pivot's DSL tree into Charto's
+I expected Phase 2 to be "write a translator from Pivot's DSL tree into the dataserver's
 alert grammar, accept ~70% coverage, then maintain two grammars forever" —
-Charto's addresses cannot express nested logic, cross-symbol spreads, math nodes
+The dataserver's addresses cannot express nested logic, cross-symbol spreads, math nodes
 or position leaves.
 
 **That translator should not be written.** `dsl/evaluator.py` is a pure tree
@@ -161,9 +161,9 @@ get_position_field(*, field, basis)                           -> float | None
 get_session_day()                                             -> str | None
 ```
 
-Charto already has bars and 26 indicators. **Implement one `ChartoDataAccessor`
+The dataserver already has bars and 26 indicators. **Implement one `DataserverDataAccessor`
 and `evaluate(tree, accessor=...)` runs the exact tree the builder produced, on
-Charto's own tick, with no second grammar and no forked semantics.** `None`
+The dataserver's own tick, with no second grammar and no forked semantics.** `None`
 propagates as Kleene UNKNOWN, so a gap holds rather than fires — the fail-safe
 posture the alert engine already takes.
 
@@ -188,13 +188,13 @@ The only phase that is pure correction, and it should land before anything is bu
 *Test:* re-run `exec_coverage_24.json`. Success = zero fabricated capabilities, zero 500s.
 
 ### Phase 1 — The store *(~2–3 days)*
-- `strategies` table in `charto_users.db` (user-scoped, beside `alerts`): the draft JSON, its name, its state (`draft | armed | paused | retired`), its provenance (which chat, which backtest).
+- `strategies` table in `users.db` (user-scoped, beside `alerts`): the draft JSON, its name, its state (`draft | armed | paused | retired`), its provenance (which chat, which backtest).
 - `/strategies` CRUD + a `strategies` panel that reuses the alerts list shell.
-- Four tools on the execution surface: `save_strategy`, `list_strategies`, `pause_strategy`, `delete_strategy` — Charto's own, user-scoped, never Pivot's (a Charto id is not a Pivot id; `execution_bridge.dispatch` documents why).
+- Four tools on the execution surface: `save_strategy`, `list_strategies`, `pause_strategy`, `delete_strategy` — the dataserver's own, user-scoped, never Pivot's (a dataserver id is not a Pivot id; `execution_bridge.dispatch` documents why).
 - **"Save & activate" becomes real**, and #12's sentence becomes true.
 
 ### Phase 2 — The runtime *(~3–4 days)*
-- `ChartoDataAccessor` — the five methods above, over Charto's bars and `indicators.py`.
+- `DataserverDataAccessor` — the five methods above, over the dataserver's bars and `indicators.py`.
 - Arm a saved strategy on the **existing** tick seam. `alerts.py` already solves every hard part and solves it well: persisted crossing state, boot catch-up with `late=1`, freq buckets, expiry, and a hook that cannot raise into `_live_on_tick`. The strategy watcher is the same worker with a different verdict function — **extend it, do not write a second one.**
 - Firing writes an evidence row (what it saw, the level as resolved, the bar's clock) exactly as an alert does.
 - Entry trees go live here. Exit trees still cannot — they need Phase 3.
@@ -203,7 +203,7 @@ The only phase that is pure correction, and it should land before anything is bu
 - `journal_trades` **already is** a position book: `status IN ('open','closed')`, entry/exit, fees, `initial_risk`, `source`. A fired strategy writes a row with `source='agent'` and the draft attached as its `plan`.
 - `get_position_field` reads that row → **`unrealised_pct`, `bars_held`, `peak_unrealised_pct`, `drawdown_from_peak_pct` all resolve live.** Every stop, trailing stop and time stop the builder can already write starts working.
 - That is also the paper book (#22), and it is forward-testing for free: the same strategy has a backtested claim and a live record, side by side.
-- **build → test → arm → fire → log → review**, in one surface. CHARTO.md calls the journal layer "the biggest retention bet"; this is what connects it to everything else.
+- **build → test → arm → fire → log → review**, in one surface. docs/chart/DESIGN.md calls the journal layer "the biggest retention bet"; this is what connects it to everything else.
 
 ### Phase 4 — Delivery and the handoff *(~2–3 days)*
 - Push past the open tab (the alert engine's own stated gap). A strategy that fires while you are asleep is worth nothing if the log is the only place it lands.

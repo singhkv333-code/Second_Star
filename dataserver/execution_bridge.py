@@ -1,6 +1,6 @@
-"""Charto's client onto Pivot's automation engine.
+"""The dataserver's client onto Pivot's automation engine.
 
-Charto does not own a second strategy builder. Pivot already has one that
+The dataserver does not own a second strategy builder. Pivot already has one that
 has been evaluated, hardened and argued with for months: a step registry of
 ~50 typed steps, a DSL tree translator, five proposal tools with a routing
 order encoded in their own descriptions, two backtesters, and a validator
@@ -20,10 +20,10 @@ cannot be imported the bridge says so once, in a form the caller can show a
 user, and every later question gets the same cached answer rather than a
 stack trace per turn. A mode that cannot work must not be offered.
 
-**Alerts stay Charto's.** Pivot's ``propose_dsl_workflow`` REFUSES a
+**Alerts stay the dataserver's.** Pivot's ``propose_dsl_workflow`` REFUSES a
 notify-only draft — alerts were deliberately removed from that chat surface
-(0ae2ded). Charto's own alert engine persists rules, catches up on boot and
-fires on the live tick. So the alert verbs route to Charto's ``set_alert``
+(0ae2ded). The dataserver's own alert engine persists rules, catches up on boot and
+fires on the live tick. So the alert verbs route to the dataserver's ``set_alert``
 and never to a Pivot workflow, which is both the honest answer and the
 better one. The execution prompt says this in as many words.
 """
@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 
 PIVOT_ROOT = Path(__file__).resolve().parents[1] / "api"
 
-# The Pivot tools Charto's execution mode offers.
+# The Pivot tools the dataserver's execution mode offers.
 #
 # Pivot's chat also carries four "macro" proposal tools — scheduled_order,
 # threshold_order, basket_allocation, holding_action — and they are left OFF
@@ -80,7 +80,7 @@ PIVOT_TOOLS: tuple[str, ...] = (
     # collapsed to "option strategy": asked for something protected from the
     # downside, the builder's first move was to offer a conservative options
     # income structure or a put hedge — for a user who had said nothing about
-    # derivatives and was looking at an equity chart. Charto's subject is the
+    # derivatives and was looking at an equity chart. The dataserver's subject is the
     # chart, and the chart is a stock. Downside control here is a regime
     # filter, an exit, or how the basket is composed.
     #
@@ -163,7 +163,7 @@ PROMPT_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 _ADAPTER = """
-# Execution mode — Charto
+# Execution mode — the dataserver
 
 You research, decide, and register. The user brings an objective; you find the
 instruments, read them, form a view, and leave behind something the runtime can
@@ -274,7 +274,7 @@ much as the decision needs and no more.
 The book is SIMULATED and long-only; no order reaches a broker from here. The
 card says so — do not append "this is only a draft" or "review before arming".
 
-Alerts are Charto's: "tell me when", "alert me" → `set_alert`.
+Alerts are the dataserver's: "tell me when", "alert me" → `set_alert`.
 
 Options are not on this surface. Downside control is a regime filter, an exit
 (`unrealised_pct`, `peak_unrealised_pct`, `drawdown_from_peak_pct`, `bars_held`
@@ -421,7 +421,7 @@ _USE_INTERVAL = ("When the user pinned no timeframe, use the interval the "
 # `build_strategy`'s description carries a self-sufficiency clause: "do NOT
 # pre-call screen_fundamentals / fetch_fundamentals / compare_performance /
 # compute". Every one of those four is a PIVOT tool, and not one of them is on
-# Charto's surface — so the sentence forbids four things the model cannot do
+# The dataserver's surface — so the sentence forbids four things the model cannot do
 # and is silent about the one screener it CAN reach, `screen_universe`.
 #
 # Measured: 4/4 named tools absent from `_tools_for_request()`, `screen_universe`
@@ -560,10 +560,10 @@ def _unblock_sizing(fn: dict) -> dict:
 # Three registrations make it addressable, all into dicts Pivot's own registry
 # exposes for exactly this — `backtest_indicators` documents the first as the
 # way "newly-registered indicators are accepted without code edits in the
-# validator". Nothing in Pivot's source is forked; `charto` adds a key.
+# validator". Nothing in Pivot's source is forked; the dataserver adds a key.
 #
 # `compute` refuses rather than returning a series. A backtest reaches the
-# registry (live evaluation is intercepted in `ChartoDataAccessor` before it
+# registry (live evaluation is intercepted in `DataserverDataAccessor` before it
 # ever gets here), and there is no user, no symbol and no workspace behind a
 # backtest call — so the honest answer is a named boundary, not a quietly
 # empty series that would backtest as "never fired".
@@ -609,7 +609,7 @@ def _register_drawing_leaf() -> None:
 # list of their actual refs, so the translator picks from real geometry instead
 # of inventing a ref.
 _TURN_DRAWINGS: contextvars.ContextVar[str] = contextvars.ContextVar(
-    "charto_turn_drawings", default="")
+    "dataserver_turn_drawings", default="")
 
 _DRAW_GRAMMAR = """
 
@@ -667,7 +667,7 @@ def _patch_translator() -> None:
     except Exception as exc:                                # noqa: BLE001
         logger.warning("translator hint unavailable: %s", exc)
         return
-    if getattr(lt, "_charto_wrapped", False):
+    if getattr(lt, "_dataserver_wrapped", False):
         return
     inner = lt.translate_condition_to_tree
 
@@ -703,7 +703,7 @@ def _patch_translator() -> None:
         return out
 
     lt.translate_condition_to_tree = wrapped
-    lt._charto_wrapped = True
+    lt._dataserver_wrapped = True
 
 
 # ── One fetch per window, however many candidates read it ─────────────
@@ -730,7 +730,7 @@ def _patch_fetcher() -> None:
     except Exception as exc:                                # noqa: BLE001
         logger.warning("bar memo unavailable: %s", exc)
         return
-    if getattr(be, "_charto_memo", False):
+    if getattr(be, "_dataserver_memo", False):
         return
     inner = be._fetch_ohlcv
 
@@ -753,7 +753,7 @@ def _patch_fetcher() -> None:
             return df.copy()
 
     be._fetch_ohlcv = fetch
-    be._charto_memo = True
+    be._dataserver_memo = True
 
 
 def cached_bars(symbol: str, interval: str):
@@ -1012,7 +1012,7 @@ _OWN_HANDLERS = {"evaluate_strategies": _evaluate_strategies,
 
 
 def tools() -> list[dict]:
-    """Pivot's tool definitions in the Responses-API shape Charto sends.
+    """Pivot's tool definitions in the Responses-API shape the dataserver sends.
 
     Pivot stores them in the chat-completions shape (name/description/
     parameters nested under "function"); the Responses API wants those keys
@@ -1056,7 +1056,7 @@ def _override(name: str, fn: dict) -> dict:
 
 
 def _calibration_block() -> str:
-    """Pivot's calibration examples, filtered to the tools Charto offers.
+    """Pivot's calibration examples, filtered to the tools the dataserver offers.
 
     The full set is calibrated against Pivot's ~90-tool chat. Handing an
     execution-mode model an ideal call to `get_index_level` teaches it to
@@ -1175,7 +1175,7 @@ def _absent_tools_note(text: str, all_tools) -> str:
         the entry condition is calculated". The note was declaring a verb
         unavailable.
       · `place_order` — 10 occurrences, 9 of them `action.place_order`, which
-        is not a tool at all but the DSL STEP every armable Charto strategy
+        is not a tool at all but the DSL STEP every armable the dataserver strategy
         must contain (`strategies.py` matches that exact string). The note
         announced "NOT ON THIS SURFACE: place_order" in the same payload that
         instructs the model to append `action.place_order` to a draft.
@@ -1217,7 +1217,7 @@ def _borrowed_sections() -> str:
 
 
 def system_prompt() -> str:
-    """Charto's adapter + Pivot's automation modules + calibration.
+    """The dataserver's adapter + Pivot's automation modules + calibration.
 
     Raises nothing: an unavailable engine yields the adapter alone, so a
     misconfigured server degrades to a mode that explains itself rather than
@@ -1260,7 +1260,7 @@ def system_prompt() -> str:
 # `strategies._update_peak` recomputes the high-water mark from the bar's own
 # high and persists it BEFORE the exit tree is walked, on every bar — that is
 # a live ratchet, and the ordering is deliberate enough to be commented in
-# that file. So the borrowed warning tells a Charto user their trailing stop
+# that file. So the borrowed warning tells a dataserver user their trailing stop
 # is less than it is, on a card that offers to arm it, and the model repeats
 # the sentence in prose because the warning is on the payload it reads.
 #
@@ -1270,14 +1270,14 @@ def system_prompt() -> str:
 # that knows which runtime the draft is headed for.
 _RATCHET_WARNING = "live re-ratcheting"
 _RATCHET_TRUTH = (
-    "Trailing/peak exit: Charto re-computes the high-water mark from each "
+    "Trailing/peak exit: Pivot re-computes the high-water mark from each "
     "bar's high before the exit is checked, so the stop ratchets live as well "
     "as in the backtest."
 )
 
 
 def _fix_borrowed_warnings(draft: dict) -> None:
-    """Replace warnings that describe Pivot's runtime rather than Charto's."""
+    """Replace warnings that describe Pivot's runtime rather than the dataserver's."""
     warnings = draft.get("warnings")
     if not isinstance(warnings, list):
         return
@@ -1420,7 +1420,7 @@ class _session:
     `kite_token` stays empty everywhere, so no broker action is reachable even
     with a session in hand. Anything that reads a USER's positions is
     pointedly not on the tool list for the same reason activation is disabled:
-    a Charto account is not a Pivot account.
+    a dataserver account is not a Pivot account.
     """
 
     def __init__(self, tool: str) -> None:
@@ -1453,12 +1453,12 @@ def dispatch(name: str, args: dict, *, timeout: float = 150.0) -> dict:
     a row. If a tool added later needs either, it does not belong on a
     surface whose whole promise is that it cannot touch an account.
 
-    **There is no user_id parameter, and that is the point.** Charto's
+    **There is no user_id parameter, and that is the point.** The dataserver's
     accounts live in its own SQLite and Pivot's live in Postgres; the two
     numbering schemes have nothing to do with each other. This function used
-    to take the caller's Charto id and hand it to Pivot's registry, so Charto
+    to take the caller's dataserver id and hand it to Pivot's registry, so the dataserver
     user 3 arrived as Pivot user 3 — and three of these tools open a real
-    Pivot session, which is a Charto account reading a stranger's rows.
+    Pivot session, which is a dataserver account reading a stranger's rows.
     Nothing user-scoped was reachable through the current twelve, so it never
     fired; it was a trap set for whichever tool got added next.
 
@@ -1475,7 +1475,7 @@ def dispatch(name: str, args: dict, *, timeout: float = 150.0) -> dict:
     # WHICH CONVERSATION THIS TRIAL BELONGS TO. The Deflated Sharpe charges a
     # result for every variant tried in the same research session, and it
     # finds the session through Pivot's turn context — which nothing on this
-    # surface ever set, so every Charto backtest was scored as the only one
+    # surface ever set, so every dataserver backtest was scored as the only one
     # ever run. Captured here on the request thread (`ds._req` is
     # thread-local) and set inside the coroutine, which is where the engine's
     # context is copied from.

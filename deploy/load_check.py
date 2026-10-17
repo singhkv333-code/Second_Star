@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only Charto concurrency smoke test for deployment verification.
+"""Read-only dataserver concurrency smoke test for deployment verification.
 
 The default ladder mirrors the beta-readiness audit. It never calls chat or
 mutates a workspace: every request computes RSI from an existing market-data
@@ -35,7 +35,7 @@ def _request(base_url: str, symbol: str, timeout: float) -> dict:
     })
     request = urllib.request.Request(
         f"{base_url.rstrip('/')}/indicator?{query}",
-        headers={"Accept": "application/json", "User-Agent": "charto-load-check/1"},
+        headers={"Accept": "application/json", "User-Agent": "pivot-load-check/1"},
     )
     started = time.perf_counter()
     try:

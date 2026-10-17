@@ -1,4 +1,4 @@
-/* Charto preview — the small kit every workspace widget shares: where the
+/* Pivot preview — the small kit every workspace widget shares: where the
  * data server is, escaping, number formats, loading a library on first use,
  * and the empty / failed states, so twelve widgets say "unavailable" one way. */
 "use strict";
@@ -70,7 +70,7 @@ const WKit = (() => {
     if (dbp) return dbp;
     dbp = new Promise((res, rej) => {
       try {
-        const r = indexedDB.open("charto-widgets", 1);
+        const r = indexedDB.open("pivot-widgets", 1);
         r.onupgradeneeded = () => r.result.createObjectStore("kv");
         r.onsuccess = () => res(r.result);
         r.onerror = () => rej(r.error);

@@ -11,7 +11,7 @@ Every number below was measured today unless marked otherwise.
 ## 1. What we have
 
 On the backfill VM (`pivot-backfill/kite-backfill`, 2 vCPU / 3 GB, `/data`
-86 of 123 GB used), all in charto's own `bars` shape
+86 of 123 GB used), all in the dataserver's own `bars` shape
 (`symbol, ts, o,h,l,c,v`, `PRIMARY KEY (symbol, ts) WITHOUT ROWID`):
 
 | Store | Instruments | 1-min bars | Size |
@@ -29,7 +29,7 @@ Facts from the data that shape the design:
 
 - **Sessions cross midnight.** GIFT NIFTY and US500 have minutes at every
   minute-of-day IST (0–1439); JAPAN225 runs 05:30–11:29 IST; MCX crude
-  09:00–23:29. Charto buckets by IST *calendar day* with three clocks (NSE,
+  09:00–23:29. The dataserver buckets by IST *calendar day* with three clocks (NSE,
   MCX, UTC). A daily or 4h bar for GIFT NIFTY would be cut at midnight.
 - **Futures minutes are only as deep as the contract.** NIFTY26OCTFUT starts
   2026-07-29 (its listing). Kite's `continuous=1` is daily-only, and expired
@@ -47,7 +47,7 @@ Facts from the data that shape the design:
   Our backfill is adjusted to 30 Sep 2026; every minute we record live from
   now on is raw. The first split after today puts a cliff in the chart.
 - **Symbols collide.** `GOLD26OCTFUT` exists on two exchanges in the target
-  list; NSE and BSE share company names. Charto keys everything on a bare
+  list; NSE and BSE share company names. The dataserver keys everything on a bare
   string (`"RELIANCE"`, `"NIFTY 50"`).
 - **1.86M rows sit in the `anomalies` tables** across the stores. They need a
   serve/skip policy before anything is served.
@@ -60,7 +60,7 @@ Facts from the data that shape the design:
   the *whole current bar* on every change, never a delta
   ([Datafeed API](https://www.tradingview.com/charting-library-docs/latest/connecting_data/Datafeed-API/),
   [subscriptions](https://www.tradingview.com/charting-library-docs/latest/connecting_data/datafeed-api/datafeed-subscriptions/)).
-  Charto already works this way (`/bars` + `/stream` pushing the forming bar).
+  The dataserver already works this way (`/bars` + `/stream` pushing the forming bar).
 - **Plans gate intraday depth by bar count**: Basic 5K, Essential/Plus 10K,
   Premium 20K, Expert 25K, Ultimate 40K, **and daily charts show all
   history on every plan**
@@ -263,9 +263,9 @@ Rebuild:
 |---|---|---|
 | Size | **D8as_v5 (8 vCPU / 32 GB)**; D4as_v5 (4/16) is the floor | The hot set (last ~60 days × 6,600 symbols ≈ 150M rows ≈ 8–9 GB) stays in page cache. Separate cores for the feed, web workers, the gateway and the nightly reconcile |
 | Disk | Premium SSD v2, **512 GB** data disk, separate from the OS disk | 89 GB now + rollups (~10 GB) + ~40 GB/year + WAL and backup headroom; v2 lets IOPS be raised without resizing |
-| Processes | `charto-feed` (Kite WS, bar builder, rollups), `charto-data` (REST, N workers), `charto-stream` (async gateway), `charto-reconcile` (timer), Redis | Each fails alone: a dead socket never takes the charts down |
+| Processes | `the dataserver-feed` (Kite WS, bar builder, rollups), `the dataserver-data` (REST, N workers), `the dataserver-stream` (async gateway), `the dataserver-reconcile` (timer), Redis | Each fails alone: a dead socket never takes the charts down |
 | Security | Unprivileged service user, no `NOPASSWD ALL`, Kite TOTP and keys in Key Vault via managed identity, patched Next on both trees, NSG with ssh closed | The lessons of 2026-09-26 |
-| Backups | Stores to blob nightly (append-only; minutes never change after reconcile); `charto_users.db` on its existing schedule | The bars archive is irreplaceable for expired futures |
+| Backups | Stores to blob nightly (append-only; minutes never change after reconcile); `users.db` on its existing schedule | The bars archive is irreplaceable for expired futures |
 
 **Moving the data.** Copy `/data/backfill*` to blob first (`azcopy`, the cool
 tier as the archive of record). Then pull it onto the new data disk, or

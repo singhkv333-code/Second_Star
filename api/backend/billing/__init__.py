@@ -1,1 +1,1 @@
-"""Plans and usage, as seen from pivot. Charto owns both; see meter.py."""
+"""Plans and usage, as seen from pivot. The dataserver owns both; see meter.py."""

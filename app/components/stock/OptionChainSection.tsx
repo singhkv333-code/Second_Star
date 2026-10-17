@@ -3,7 +3,7 @@
 /**
  * Options on the stock page: the option chain of an NSE F&O stock or index.
  *
- * The data is Charto's (`/options/chain`, dataserver/options.py) — the same
+ * The data is Pivot's (`/options/chain`, dataserver/options.py) — the same
  * payload the chart's Option chain widget and the chat's card draw — so the
  * page, the workspace and the conversation quote one set of numbers. NSE's
  * end-of-day F&O file, re-quoted live per strike when the Kite session is up;

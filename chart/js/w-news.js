@@ -1,4 +1,4 @@
-/* Charto preview — the News widget.
+/* Pivot preview — the News widget.
  *
  * Market headlines from Indian business desks' public RSS feeds, read by the
  * data server (data/webfeeds.py, a fixed list — the page never names a URL).

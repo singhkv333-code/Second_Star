@@ -3,7 +3,7 @@
 A generator, so the chat stream can show each stage as it happens without a
 second thread (the server's request state is thread-local):
 
-    understanding   ONE call: what is being asked, whether Charto already has
+    understanding   ONE call: what is being asked, whether the dataserver already has
     + researching   it natively, which independent implementation exists, and
                     — when the model is not certain of the definition — a
                     hosted web search in the same call, whose citations are
@@ -114,7 +114,7 @@ Spec rules:
 - needs_volume true if the math reads volume.
 - classification: as scoped, unless the code you write departs from the published definition.
 - reference: an INDEPENDENT implementation the validator compares you with — kind "native" (a
-  Charto indicator named in the scope) or "pandas_ta" (the library function described in the
+  The dataserver indicator named in the scope) or "pandas_ta" (the library function described in the
   context: name = function, params = its keywords set to YOUR defaults, plus input=<column> when a
   single-series function should read a column other than close, e.g. volume; line_map theirs =
   the exact output column name), else "none". Map only continuous lines that are the same quantity. If the
@@ -421,7 +421,7 @@ def build(request: str, *, llm, model: str, bars_provider, chart: dict,
                     "author, or a widely used published script such as LazyBear's) built to its "
                     "published definition; 'variant' = one changed by the user; 'custom' = the "
                     "user's own unpublished method. "
-                    f"Charto's native indicators: {natives}. native_equivalent = the matching one "
+                    f"Pivot's native indicators: {natives}. native_equivalent = the matching one "
                     "or ''; native_exact = the request asks for nothing beyond it and its settings. "
                     "library_equivalent = the pandas-ta-classic function implementing the same "
                     "indicator, or '' if none. definition = the step-by-step computation with "
@@ -485,7 +485,7 @@ def build(request: str, *, llm, model: str, bars_provider, chart: dict,
         brief["library_verified"] = probe["fn"] if probe else ""
 
         # ── coding → testing → repairing ──────────────────────────────
-        system = ("You implement technical indicators for Charto, an Indian charting platform, "
+        system = ("You implement technical indicators for Pivot, an Indian charting platform, "
                   "as sandboxed Python. Correctness is the product: implement the scoped "
                   "definition exactly, state every assumption, and never present a custom "
                   "method as a standard one.\n\n" + CONTRACT + "\n\n" + TA_DOC + "\n\n"

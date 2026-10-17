@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Sync result-filing dates from Azure Postgres into the local Charto store.
+"""Sync result-filing dates from Azure Postgres into the local dataserver store.
 
-Charto's request path is stdlib-only and offline by design — bars live in
+The dataserver's request path is stdlib-only and offline by design — bars live in
 SQLite and every tool reads from there. Result dates are the same kind of
 fact, so they are synced once rather than fetched per question.
 
@@ -17,7 +17,7 @@ rolls forward for after-market filings (verified: 107/107 post-close
 filings roll, 27/27 intraday stay same-day, Friday night → Monday), so
 nothing here needs to re-derive it and risk introducing look-ahead.
 
-Usage:  python3 sync_results.py [--db charto_bars.db]
+Usage:  python3 sync_results.py [--db bars.db]
 """
 from __future__ import annotations
 
@@ -68,7 +68,7 @@ def db_url() -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--db", default=str((Path(__file__).resolve().parents[1] / "charto_bars.db")))
+    ap.add_argument("--db", default=str((Path(__file__).resolve().parents[1] / "bars.db")))
     args = ap.parse_args()
 
     import psycopg2                      # sync-time only, never on a request

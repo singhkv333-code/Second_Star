@@ -931,42 +931,42 @@ def get_shareholding(symbol: str, authorization: Optional[str] = Header(None)) -
     return _cached(f"shp:{who['symbol']}", build)
 
 
-# ── the flows layer (charto's local store) ──────────────────────────────────
+# ── the flows layer (the dataserver's local store) ──────────────────────────────────
 #
 # Delivery percentage, futures open interest and bulk/block deals live in
-# charto's SQLite rather than Postgres, because charto's request path is
+# the dataserver's SQLite rather than Postgres, because the dataserver's request path is
 # stdlib-only and offline by design. This module opens that file READ-ONLY and
 # never writes to it, so the two services cannot fight over a lock.
 #
-# The file is optional. A deployment without charto attached simply reports
+# The file is optional. A deployment without the dataserver attached simply reports
 # `available: false` and the page draws nothing — the same coverage rule the
 # rest of this module follows.
 
-_CHARTO_DB = os.environ.get(
-    "CHARTO_DB",
+_DATASERVER_DB = os.environ.get(
+    "PIVOT_DB",
     os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.dirname(os.path.abspath(__file__))))), "dataserver", "bars.db"),
 )
 
 
-def _charto(sql: str, args: tuple = ()) -> list[dict]:
-    """One read-only query against the charto store, or [] if it is absent.
+def _dataserver_db(sql: str, args: tuple = ()) -> list[dict]:
+    """One read-only query against the dataserver store, or [] if it is absent.
 
     Opened per call with `mode=ro` and a short timeout: these are indexed
     lookups over a file another process is actively writing, so holding a
     connection open across requests would be the only way to get a lock error.
     """
-    if not os.path.exists(_CHARTO_DB):
+    if not os.path.exists(_DATASERVER_DB):
         return []
     try:
-        conn = sqlite3.connect(f"file:{_CHARTO_DB}?mode=ro", uri=True, timeout=3.0)
+        conn = sqlite3.connect(f"file:{_DATASERVER_DB}?mode=ro", uri=True, timeout=3.0)
         conn.row_factory = sqlite3.Row
         try:
             return [dict(r) for r in conn.execute(sql, args)]
         finally:
             conn.close()
     except sqlite3.Error:
-        logger.debug("charto read failed", exc_info=True)
+        logger.debug("dataserver read failed", exc_info=True)
         return []
 
 
@@ -989,10 +989,10 @@ def get_flows(symbol: str, days: int = Query(180, ge=20, le=750),
     sym = who["symbol"]
 
     def build() -> dict:
-        delivery = _charto(
+        delivery = _dataserver_db(
             "SELECT d, close, qty, deliv_qty, deliv_per, trades FROM delivery "
             "WHERE symbol = ? ORDER BY d DESC LIMIT ?", (sym, days))
-        oi = _charto(
+        oi = _dataserver_db(
             "SELECT d, SUM(oi) oi, SUM(oi_chg) oi_chg FROM fut_oi "
             "WHERE symbol = ? GROUP BY d ORDER BY d DESC LIMIT ?", (sym, days))
         if not delivery and not oi:
@@ -1043,7 +1043,7 @@ def get_deals(symbol: str, limit: int = Query(60, ge=5, le=200),
     sym = who["symbol"]
 
     def build() -> dict:
-        rows = _charto(
+        rows = _dataserver_db(
             "SELECT d, kind, client, side, qty, price FROM deals "
             "WHERE symbol = ? ORDER BY d DESC, qty DESC LIMIT ?", (sym, limit))
         for r in rows:
@@ -1075,7 +1075,7 @@ def get_patterns(symbol: str, interval: str = Query("1d"),
     _resolve(symbol)
 
     def build() -> dict:
-        rows = _charto(
+        rows = _dataserver_db(
             "SELECT kind, family, interval, horizon, n, n_symbols, "
             "       with_direction_rate_pct rate, control_base_rate_pct control, "
             "       edge_pp edge, edge_se_pp se, avg_move_pct move "
@@ -1083,7 +1083,7 @@ def get_patterns(symbol: str, interval: str = Query("1d"),
             " WHERE scope = 'equity_in' AND interval = ? AND horizon = ? "
             "   AND n >= 200 "
             " ORDER BY edge_pp DESC", (interval, horizon))
-        opts = _charto(
+        opts = _dataserver_db(
             "SELECT DISTINCT interval, horizon FROM pattern_stats "
             " WHERE scope = 'equity_in' ORDER BY interval, horizon")
         return {"available": bool(rows), "interval": interval, "horizon": horizon,

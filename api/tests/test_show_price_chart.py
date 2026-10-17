@@ -9,7 +9,7 @@ from backend.agents import tool_executor as te
 
 
 def _run(monkeypatch, args, have=("TCS", "INFY")):
-    monkeypatch.setattr(te, "_charto_has_bars",
+    monkeypatch.setattr(te, "_dataserver_has_bars",
                         lambda s: {} if s in have else {"error": f"unknown symbol {s}"})
     monkeypatch.setattr(
         "backend.services.fundamentals_screen.with_verified_names",
@@ -45,11 +45,11 @@ def test_a_chart_never_displaces_another_card():
     assert order[0][0] == "propose_workflow"
 
 
-def test_a_busy_charto_is_not_an_unknown_symbol(monkeypatch):
-    """Mid-turn, other tools load charto too; a slow answer must not turn a
+def test_a_busy_dataserver_is_not_an_unknown_symbol(monkeypatch):
+    """Mid-turn, other tools load the dataserver too; a slow answer must not turn a
     real company into 'no price history'."""
     import urllib.request
     def slow(*a, **k):
         raise TimeoutError("timed out")
     monkeypatch.setattr(urllib.request, "urlopen", slow)
-    assert te._charto_has_bars("BAJAJ-AUTO") == {}
+    assert te._dataserver_has_bars("BAJAJ-AUTO") == {}

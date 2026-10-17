@@ -50,7 +50,7 @@
 }
 /* the orb on its beam, where it sat on the old site: beside the widgets */
 .pivot-landing[data-bg="paper"] .gl::before {
-  background-image: url("/charto-feature-orb.png");
+  background-image: url("/feature-orb.png");
   width: min(440px, 34vw); aspect-ratio: 916 / 612;
   top: 28px; right: max(96px, calc((100% - 1240px) / 2 + 150px));
   opacity: 0.26;

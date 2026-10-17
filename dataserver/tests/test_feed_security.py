@@ -12,7 +12,7 @@ def test_get_controls_cannot_call_shared_drivers(env, monkeypatch):
     assert env.get('/live?status=1')[0] == 200
 
 def test_user_and_anonymous_post_cannot_control_feeds(env, monkeypatch):
-    monkeypatch.setenv('CHARTO_FEED_CONTROL_KEY', 'operator-only-test-key')
+    monkeypatch.setenv('PIVOT_FEED_CONTROL_KEY', 'operator-only-test-key')
     _, tok = env.signup('feed-user@example.test')
     assert env.post('/live', {'venue':'kite'}, headers={'X-Pivot-Feed-Key':'é'})[0] == 403
     for token in [None, tok]:
@@ -20,12 +20,12 @@ def test_user_and_anonymous_post_cannot_control_feeds(env, monkeypatch):
         assert env.post('/replay', {}, token=token)[0] == 403
 
 def test_operator_key_and_body_validation(env, monkeypatch):
-    monkeypatch.setenv('CHARTO_FEED_CONTROL_KEY', 'operator-only-test-key')
+    monkeypatch.setenv('PIVOT_FEED_CONTROL_KEY', 'operator-only-test-key')
     called=[]
     monkeypatch.setattr(ds, '_live_stream', lambda *args: (called.append(args) or (200, {'ok':True})))
     headers={'X-Pivot-Feed-Key':'operator-only-test-key'}
     assert env.post('/live', {'venue':'kite','stop':'false'}, headers=headers)[0] == 400
     assert env.post('/live', {'venue':'kite','symbols':['RELIANCE'],'stop':False}, headers=headers)[0] == 200
     assert called == [('kite',['RELIANCE'],False)]
-    monkeypatch.delenv('CHARTO_FEED_CONTROL_KEY')
+    monkeypatch.delenv('PIVOT_FEED_CONTROL_KEY')
     assert env.post('/live', {'venue':'kite'}, headers=headers)[0] == 403

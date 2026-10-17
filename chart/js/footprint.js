@@ -1,4 +1,4 @@
-/* Charto preview — the Footprint chart type.
+/* Pivot preview — the Footprint chart type.
  *
  * Chosen from the chart-type menu like Candles or Bars. The price series stays
  * a real candlestick series (painted transparent, see chartsettings.js), so the
@@ -586,8 +586,8 @@ const Footprint = (() => {
     if (typeof ResizeObserver !== "undefined") new ResizeObserver(() => active && place()).observe(env.host);
     window.addEventListener("resize", () => active && place());
     env.chart.timeScale().subscribeVisibleLogicalRangeChange(() => active && requestUpdate());
-    document.addEventListener("charto:series-swapped", sync);
-    document.addEventListener("charto:bars-loaded", () => { if (active) { reset(); paintBar(); frame(); refresh(true); } });
+    document.addEventListener("pivot:series-swapped", sync);
+    document.addEventListener("pivot:bars-loaded", () => { if (active) { reset(); paintBar(); frame(); refresh(true); } });
     document.addEventListener("visibilitychange", () => { if (active && document.visibilityState === "visible") refresh(true); });
     sync();
   }

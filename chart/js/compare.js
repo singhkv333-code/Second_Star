@@ -145,7 +145,7 @@ const ChartCompare = (() => {
     }
     const visibilityChanged = () => syncFeeds();
     document.addEventListener("visibilitychange", visibilityChanged);
-    document.addEventListener("charto:dock-layout", visibilityChanged);
+    document.addEventListener("pivot:dock-layout", visibilityChanged);
     const save = () => env.save?.({ symbols: symbols.slice(), mode, anchor, symbol: baseSymbol(), interval: interval() });
     const baseSymbol = () => env.getSymbol();
     const interval = () => WIRE[env.getInterval()] || env.getInterval();
@@ -375,7 +375,7 @@ const ChartCompare = (() => {
       destroy() { destroyed = true; revision++; clearInterval(poll); stopSettings?.();
         for (const stop of subscriptions.values()) stop(); subscriptions.clear();
         document.removeEventListener("visibilitychange", visibilityChanged);
-        document.removeEventListener("charto:dock-layout", visibilityChanged);
+        document.removeEventListener("pivot:dock-layout", visibilityChanged);
         destroyPlot(); panel?.remove(); } };
   }
   return { create, normalize, plotPoints, axisTag, advanceHistory, subscribeBars: listen, alignedTime, historyTo, sharedHistories };

@@ -99,7 +99,7 @@ function Hero() {
     <div className="pl-hero-art"/><div className="pl-hero-shade"/>
     <div className="pl-hero-content">
       <h1>Superintelligent Charts <em>for Trading</em></h1>
-      {/* Charto's composer shape, SHOWN rather than offered: the questions
+      {/* Pivot's composer shape, SHOWN rather than offered: the questions
           type themselves and nothing here takes input. A live box that
           answered with two canned strings would promise answers this page
           cannot give; the real composer is one click away on the platform.
@@ -131,7 +131,7 @@ function Hero() {
  * between rows, and the Aave-style two-bar glyph whose upright rotates 90°
  * so + becomes −. The answer opens on the grid-rows 0fr→1fr trick, which
  * animates to the content's natural height without measuring it in JS.
- * Copy stays charto's.
+ * Copy stays the dataserver's.
  */
 function FAQ() {
   const [open, setOpen] = useState<number | null>(0);

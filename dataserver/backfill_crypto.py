@@ -1,4 +1,4 @@
-"""Backfill full 1-minute crypto spot history into dataserver/charto_bars.db.
+"""Backfill full 1-minute crypto spot history into dataserver/bars.db.
 
 Same storage contract as backfill_1min.py — one row per (symbol, minute) in
 `bars`, epoch-seconds UTC — so every other interval stays a read-time fold in
@@ -39,7 +39,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "charto_bars.db"
+DB_PATH = Path(__file__).parent / "bars.db"
 
 # (symbol, inception) — inception measured 2026-07-29, not guessed.
 COINBASE = [
@@ -69,7 +69,7 @@ def _get(url: str, tries: int = 5):
     """GET with backoff. 429 is the only expected failure at this rate."""
     for attempt in range(tries):
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "charto-backfill/1.0"})
+            req = urllib.request.Request(url, headers={"User-Agent": "pivot-backfill/1.0"})
             with urllib.request.urlopen(req, timeout=30) as r:
                 return json.loads(r.read())
         except urllib.error.HTTPError as e:

@@ -1,4 +1,4 @@
-/* Charto preview — session store.
+/* Pivot preview — session store.
  *
  * A reload is a refresh of the PRICE, not of the session. Everything the user
  * built up — the interval they chose, the indicators they added, the levels the
@@ -225,7 +225,7 @@ const Store = (() => {
         .sort((a, b) => (b.updated || 0) - (a.updated || 0))
         .slice(0, 60);
       localStorage.setItem(PREFIX + "chats", JSON.stringify(merged));
-      console.info(`[charto] merged ${olds.length} per-symbol chat archive(s)`
+      console.info(`[pivot] merged ${olds.length} per-symbol chat archive(s)`
                    + ` → ${merged.length} conversations`);
     } catch { /* a failed merge must never stop the app booting */ }
   })();

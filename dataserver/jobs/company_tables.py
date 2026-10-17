@@ -1,15 +1,15 @@
 """Move the company-page tables without moving the 29 GB of bars.
 
-`charto_bars.db` holds two unrelated things. The bars are ~99% of the bytes
+`bars.db` holds two unrelated things. The bars are ~99% of the bytes
 and change by append every day; the company-page tables — classification,
 profiles, statements, the Tijori mix, the pattern ledger — are 74 MB and
 change only when a sync runs. Shipping a sync currently means shipping the
 whole file, which is why the VM has been running without `statement` and
 `revenue_mix` at all.
 
-  export  charto_bars.db      -> company_tables.db   (74 MB)
-  import  company_tables.db   -> charto_bars.db      (replaces those tables)
-  slim    charto_bars.db      -> charto_slim.db      (~300 MB, dev store)
+  export  bars.db      -> company_tables.db   (74 MB)
+  import  company_tables.db   -> bars.db      (replaces those tables)
+  slim    bars.db      -> slim.db      (~300 MB, dev store)
 
 `export`/`import` never read, write or copy a bar. `slim` copies a few, on
 purpose: it builds a local development store out of the company tables, the
@@ -30,7 +30,7 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parents[1]
-DB = HERE / "charto_bars.db"
+DB = HERE / "bars.db"
 
 # Everything the company page and the screener read, and nothing that holds a
 # bar. `bars_1d` is deliberately absent: it is 1.2M rows of price and belongs
@@ -160,7 +160,7 @@ def main() -> None:
         # the value of --symbols is positional-looking; drop it
         if "--symbols" in args:
             pos = [a for a in pos if a != args[args.index("--symbols") + 1]]
-        out = Path(pos[0]) if pos else HERE / "charto_slim.db"
+        out = Path(pos[0]) if pos else HERE / "slim.db"
         slim(DB, out, syms)
     elif args[0] == "export":
         out = Path(args[1]) if len(args) > 1 else HERE / "company_tables.db"

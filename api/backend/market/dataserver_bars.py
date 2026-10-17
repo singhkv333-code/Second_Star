@@ -1,4 +1,4 @@
-"""Price history from the chart server's own store (charto `/bars`).
+"""Price history from the chart server's own store (the dataserver `/bars`).
 
 The chart server keeps every NSE/BSE minute, the indices, MCX and crypto, fed
 by the Kite stream, and resamples on request. It runs on the same machine, so
@@ -19,10 +19,10 @@ from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 
-_BASE = (os.environ.get("CHARTO_INTERNAL_URL") or "http://127.0.0.1:5174").rstrip("/")
+_BASE = (os.environ.get("PIVOT_INTERNAL_URL") or "http://127.0.0.1:5174").rstrip("/")
 IST = 19800
 
-# range -> (charto interval, bars to ask for, seconds back from the newest bar;
+# range -> (the dataserver interval, bars to ask for, seconds back from the newest bar;
 # 0 = the newest IST session only)
 RANGES: dict[str, tuple[str, int, int]] = {
     "1D": ("5m", 120, 0),
@@ -44,7 +44,7 @@ def bars(symbol: str, interval: str, limit: int, timeout: float = 4.0) -> list[d
         ) as r:
             return json.loads(r.read()).get("bars") or []
     except Exception as exc:  # noqa: BLE001 — absence is an answer here
-        logger.debug("charto bars %s %s: %s", symbol, interval, exc)
+        logger.debug("dataserver bars %s %s: %s", symbol, interval, exc)
         return []
 
 
@@ -91,6 +91,6 @@ def quotes(symbols: list[str], timeout: float = 4.0) -> dict[str, dict]:
         ) as r:
             rows = json.loads(r.read()).get("quotes") or []
     except Exception as exc:  # noqa: BLE001
-        logger.debug("charto quotes %s: %s", symbols, exc)
+        logger.debug("dataserver quotes %s: %s", symbols, exc)
         return {}
     return {q["symbol"]: q for q in rows if q.get("symbol") and q.get("last") is not None}

@@ -426,7 +426,7 @@ input[type="range"].payoff-slider::-moz-range-thumb {
   to   { opacity: 1; }
 }
 
-/* Instrument search — Charto's dense picker with a quieter, app-native
+/* Instrument search — Pivot's dense picker with a quieter, app-native
    entrance. The panel stays geometrically tied to the outer header pill;
    keyboard highlighting moves only two pixels so columns never wobble. */
 @keyframes companyAutosuggestIn {
@@ -661,7 +661,7 @@ input[type="range"].payoff-slider::-moz-range-thumb {
   /* The alien badge — the same mark that signs the chart (chart
      assets/pivot-alien.png). Addressed relative to this file so Next bundles
      it under /_next/static/media/: in production a root path from public/
-     falls through to charto's data server (see lib/publicAssets.ts). */
+     falls through to the dataserver (see lib/publicAssets.ts). */
   width: 24px;
   height: 24px;
   flex: none;
@@ -700,7 +700,7 @@ input[type="range"].payoff-slider::-moz-range-thumb {
 }
 .copilot-main-with-panel { padding-right: var(--copilot-side-w, 25vw); }
 
-/* Side-panel composer mirrors Charto's two-row box: prompt on top, compact
+/* Side-panel composer mirrors Pivot's two-row box: prompt on top, compact
    context at lower left, voice/send at lower right. Full Workspace keeps the
    richer Pivot composer unchanged. */
 .copilot-side-panel .composer-dock {
@@ -1342,7 +1342,7 @@ input[type="range"].payoff-slider::-moz-range-thumb {
   }
 }
 @media (max-width: 560px) and (orientation: portrait) {
-  /* Charto replaces its desktop header with an in-canvas mobile toolbar at
+  /* Pivot replaces its desktop header with an in-canvas mobile toolbar at
      this breakpoint, so there is no framed header row to lift into the slot. */
   .chart-shell-pane .chart-frame-wrap {
     inset: 0;
@@ -1382,7 +1382,7 @@ input[type="range"].payoff-slider::-moz-range-thumb {
 
 /* ── a dialog is open INSIDE the frame ──────────────────────────────────────
    `position: fixed` inside an iframe is fixed to the IFRAME's viewport, not
-   the page's, so Charto's dialogs (settings, indicator settings, alerts,
+   the page's, so Pivot's dialogs (settings, indicator settings, alerts,
    shortcuts, layouts, the mobile sheet, the auth screen) centred inside the
    chart pane and dimmed only the chart — the sidebar, header and right rail
    stayed lit and clickable behind a modal that claimed to be modal. The pane
@@ -1391,7 +1391,7 @@ input[type="range"].payoff-slider::-moz-range-thumb {
    While a dialog is up, the frame announces it ("chart:overlay", embed.js)
    and we promote the frame to the shell content viewport. Fixed positioning
    inside now resolves against that stable viewport, so the scrim and card are
-   correct at once without replacing any of Charto's dialogs in React. The
+   correct at once without replacing any of Pivot's dialogs in React. The
    48px product rail remains visible: covering it made the app navigation
    appear to disappear whenever Share, Settings, or another chart dialog
    opened. A narrow pseudo-scrim over the rail keeps it visibly present,

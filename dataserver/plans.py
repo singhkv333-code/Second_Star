@@ -18,7 +18,7 @@ tree, one order. That shape cannot hold what people actually ask for —
 — because each of those is SEVERAL legs, most of them with no condition at
 all, and `parse_draft` refuses a draft with no `trigger.compound` in it. The
 builder can already EMIT those (Pivot's step registry carries `trigger.manual`
-and `action.allocate_basket`); Charto simply had nowhere to put them.
+and `action.allocate_basket`); the dataserver simply had nowhere to put them.
 
 A plan is that place. It holds legs; a leg is either
 
@@ -59,7 +59,7 @@ import dataserver as ds
 import paper
 import strategies
 
-log = logging.getLogger("charto.plans")
+log = logging.getLogger("dataserver.plans")
 
 STATES = ("draft", "active", "retired")
 LEG_STATES = ("pending", "filled", "armed", "rejected")
@@ -195,7 +195,7 @@ def _leg_in(raw: Any, seq: int) -> dict:
     interval = strategies._INTERVALS.get(iv)
     if not interval:
         raise Unbuildable(
-            f"{sym} asks for {iv} bars, and Charto folds "
+            f"{sym} asks for {iv} bars, and Pivot folds "
             f"{', '.join(sorted(set(strategies._INTERVALS.values())))}.")
 
     return {

@@ -1,4 +1,4 @@
-/* Charto preview — which model answers the chat: Pivot's, or one the user
+/* Pivot preview — which model answers the chat: Pivot's, or one the user
  * brings.
  *
  * The server (data/byok.py) holds every key, encrypted, and never sends one
@@ -382,7 +382,7 @@ const Models = (() => {
       if (!a || a.disabled) return;
       const act = a.dataset.act;
       if (act === "close") return close();
-      if (act === "signin") { close(); if (window.CHARTO_AUTH_OPEN) window.CHARTO_AUTH_OPEN(); return; }
+      if (act === "signin") { close(); if (window.PIVOT_AUTH_OPEN) window.PIVOT_AUTH_OPEN(); return; }
       if (act === "peek") {
         const k = dlg.querySelector("#mkKey");
         k.type = k.type === "password" ? "text" : "password";

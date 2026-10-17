@@ -6,7 +6,7 @@
 // TWO KINDS, deliberately, because they are not the same promise:
 //
 //   kind "symbols"  a FROZEN membership. This is what a screen handed over
-//                   from the chart becomes. Charto screens its own 500-
+//                   from the chart becomes. Pivot screens its own 500-
 //                   instrument daily matrix on features this service does not
 //                   have (vol_z20, distance from the 20/50/200-day SMA), so
 //                   the query cannot be replayed here — only what it matched,
@@ -60,7 +60,7 @@ export type SavedScreen = {
 };
 
 /** A screen handed over by the chart, before it has been named and saved.
- *  Shaped by charto's postMessage payload (cards.js `wireScreen`). */
+ *  Shaped by the dataserver's postMessage payload (cards.js `wireScreen`). */
 export type PendingScreen = {
   symbols: string[];
   criteria: string;
@@ -152,7 +152,7 @@ export function deleteScreen(id: number): Promise<ApiResult<{ deleted: number }>
  *
  *  For a symbols screen this restricts the universe to the membership and
  *  prices it today; the endpoint reports any names it cannot serve in `note`
- *  (a screen off charto's matrix can name an index or a crypto pair, which is
+ *  (a screen off the dataserver's matrix can name an index or a crypto pair, which is
  *  not in this service's equity universe) rather than returning short. For a
  *  filters screen it simply re-runs the query. */
 export function loadScreenRows(

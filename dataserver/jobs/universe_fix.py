@@ -51,7 +51,7 @@ FIX = Path("/data/fix")
 STATE = FIX / "state"
 P1 = Path("/data/backfill")
 P2 = Path("/data/backfill2")
-P3 = Path("/data3/backfill3")      # phase 3: charto's original 500, renamed nse500_1m.db
+P3 = Path("/data3/backfill3")      # phase 3: the dataserver's original 500, renamed nse500_1m.db
 STORES = {p.stem: p for p in sorted(P1.glob("*.db")) + sorted(P2.glob("*.db"))
           + sorted(P3.glob("nse500_1m.db"))}
 EQUITY = {"nse_1m", "bse_1m", "nse500_1m"}

@@ -22,19 +22,19 @@ const BACKEND =
 // that is not a page of this app, a /pv/ Pivot API call or a chart file falls
 // through to it — the same fall-through nginx has on the VM, so one origin
 // (this port) is the whole product locally exactly as it is in production.
-const CHARTO = process.env.CHARTO_UPSTREAM || "http://127.0.0.1:5174";
+const DATASERVER = process.env.PIVOT_DATASERVER_UPSTREAM || "http://127.0.0.1:5174";
 // Local testing only: a laptop's chart store is a small, old snapshot, so
 // prices, charts and screens there are weeks stale. Set this (for example to
 // https://app.pivotnow.in) and the READ-ONLY market-data routes come from that
 // server instead, while sign-in, workspaces and everything else stay local.
-const CHARTO_MARKET = process.env.CHARTO_MARKET_UPSTREAM || "";
+const PIVOT_MARKET = process.env.PIVOT_MARKET_UPSTREAM || "";
 const MARKET_ROUTES = ["bars", "quotes", "symbols", "screen", "stream", "feeds", "calendar"];
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   // Keep `next build` from overwriting a running development server's chunks.
   distDir: process.env.NODE_ENV === "development" ? (process.env.PIVOT_NEXT_DEV_DIST_DIR || ".next-dev") : ".next",
-  // Mounted under a prefix in production so it can sit beside Charto's chart,
+  // Mounted under a prefix in production so it can sit beside Pivot's chart,
   // which owns `/` on the same host. Set from the environment rather than
   // hardcoded: `next dev` and every test run leave it unset and keep serving
   // from the root, so nothing local changes. Both the router and the asset
@@ -104,8 +104,8 @@ const nextConfig: NextConfig = {
     ];
   },
   /* ONE routing table, the same one nginx serves in production
-   * (deploy/nginx-charto.conf). Earlier this file sent /auth, /chat,
-   * /paper and /api to Pivot's API while nginx sent the same paths to Charto,
+   * (deploy/nginx-the dataserver.conf). Earlier this file sent /auth, /chat,
+   * /paper and /api to Pivot's API while nginx sent the same paths to Pivot,
    * so signing in, the chat and the paper book reached a different backend
    * on a laptop than on the site. Now:
    *   /pv/*           Pivot's API, prefix stripped (NEXT_PUBLIC_PIVOT_API_BASE=/pv/api)
@@ -113,9 +113,9 @@ const nextConfig: NextConfig = {
    *   /api/pivot/*    Pivot's company data and logos (unprefixed on the API)
    *   /research/*     the research chat, mounted on Pivot's API
    *   /chart-app/*    the chart, served by app/chart-app (this app)
-   *   anything else   Charto's data server, AFTER this app's own pages —
+   *   anything else   the dataserver, AFTER this app's own pages —
    *                   including /billing/*, where plans, subscriptions and
-   *                   usage live (charto_users.db) */
+   *                   usage live (users.db) */
   async rewrites() {
     return {
       // `/stock/RELIANCE.md` is the stock page as Markdown (app/md/stock). A
@@ -129,13 +129,13 @@ const nextConfig: NextConfig = {
         { source: "/research/:path*", destination: `${BACKEND}/research/:path*` },
       ],
       fallback: [
-        ...(CHARTO_MARKET
+        ...(PIVOT_MARKET
           ? MARKET_ROUTES.flatMap((r) => [
-              { source: `/${r}`, destination: `${CHARTO_MARKET}/${r}` },
-              { source: `/${r}/:path*`, destination: `${CHARTO_MARKET}/${r}/:path*` },
+              { source: `/${r}`, destination: `${PIVOT_MARKET}/${r}` },
+              { source: `/${r}/:path*`, destination: `${PIVOT_MARKET}/${r}/:path*` },
             ])
           : []),
-        { source: "/:path*", destination: `${CHARTO}/:path*` },
+        { source: "/:path*", destination: `${DATASERVER}/:path*` },
       ],
     };
   },

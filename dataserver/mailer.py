@@ -13,13 +13,13 @@ passes SPF and DKIM for pivotnow.in with no DNS change at all.
 
 CONFIGURATION (server-only; never in a NEXT_PUBLIC_ variable)
 -------------------------------------------------------------
-    CHARTO_MAIL_ENABLED=true            (CHARTO_ALERT_EMAIL_ENABLED also works)
-    CHARTO_MAIL_FROM=contact@pivotnow.in
-    CHARTO_MAIL_HOST=smtp.hostinger.com
-    CHARTO_MAIL_PORT=465                (465 = TLS; 587 = STARTTLS)
-    CHARTO_MAIL_USER=contact@pivotnow.in  (defaults to the From address)
-    CHARTO_MAIL_PASSWORD_FILE=/etc/pivot/mail-password   (mode 0600 or 0640)
-Each CHARTO_MAIL_* name falls back to the older CHARTO_SMTP_* name.
+    PIVOT_MAIL_ENABLED=true            (PIVOT_ALERT_EMAIL_ENABLED also works)
+    PIVOT_MAIL_FROM=contact@pivotnow.in
+    PIVOT_MAIL_HOST=smtp.hostinger.com
+    PIVOT_MAIL_PORT=465                (465 = TLS; 587 = STARTTLS)
+    PIVOT_MAIL_USER=contact@pivotnow.in  (defaults to the From address)
+    PIVOT_MAIL_PASSWORD_FILE=/etc/pivot/mail-password   (mode 0600 or 0640)
+Each PIVOT_MAIL_* name falls back to the older PIVOT_SMTP_* name.
 Hostinger allows 1,000 messages a day on Business Starter (rolling 24 hours),
 shared by every sender below; alert_email.py stays under it.
 """
@@ -38,7 +38,7 @@ import threading
 
 from mail_templates import APP, CONTACT, Mail
 
-log = logging.getLogger("charto.mailer")
+log = logging.getLogger("dataserver.mailer")
 
 
 def valid_address(value: str) -> bool:
@@ -49,7 +49,7 @@ def valid_address(value: str) -> bool:
 
 
 def _env(name: str, default: str = "") -> str:
-    return os.getenv(f"CHARTO_MAIL_{name}") or os.getenv(f"CHARTO_SMTP_{name}") or default
+    return os.getenv(f"PIVOT_MAIL_{name}") or os.getenv(f"PIVOT_SMTP_{name}") or default
 
 
 @dataclass(frozen=True)
@@ -66,8 +66,8 @@ class Config:
 
     @classmethod
     def from_env(cls) -> "Config":
-        enabled = (os.getenv("CHARTO_MAIL_ENABLED")
-                   or os.getenv("CHARTO_ALERT_EMAIL_ENABLED") or "").lower() == "true"
+        enabled = (os.getenv("PIVOT_MAIL_ENABLED")
+                   or os.getenv("PIVOT_ALERT_EMAIL_ENABLED") or "").lower() == "true"
         sender = _env("FROM", CONTACT)
         password = _env("PASSWORD")
         filename = _env("PASSWORD_FILE")
@@ -84,7 +84,7 @@ class Config:
             port = int(_env("PORT", "465"))
         except ValueError:
             port = 0
-        origin = (os.getenv("CHARTO_PUBLIC_ORIGIN") or APP).rstrip("/")
+        origin = (os.getenv("PIVOT_PUBLIC_ORIGIN") or APP).rstrip("/")
         return cls(enabled, _env("USER", sender), password.replace(" ", ""), port,
                    _env("HOST", "smtp.hostinger.com"), sender, origin)
 

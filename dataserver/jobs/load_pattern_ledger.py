@@ -3,7 +3,7 @@
 Two subcommands, deliberately separable because they have different owners:
 
   stats <artifact.db>   aggregate the events into `pattern_stats` inside the
-                        local charto_bars.db — the tiny table the stdlib
+                        local bars.db — the tiny table the stdlib
                         dataserver reads. No network. This is what makes
                         "how reliable is X across the market" answerable.
   pg <artifact.db>      load the full events/controls ledger into the Azure
@@ -49,7 +49,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import dataserver as ds   # noqa: E402  — scope_for only; it serves under __main__
 
 HERE = Path(__file__).resolve().parents[1]
-LOCAL_DB = HERE / "charto_bars.db"
+LOCAL_DB = HERE / "bars.db"
 HORIZONS = (5, 10, 20)
 MIN_N = 5
 PG_WORKERS = 3

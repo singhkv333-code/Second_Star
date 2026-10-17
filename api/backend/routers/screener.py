@@ -91,12 +91,12 @@ _METRICS_TTL_SECONDS = 10 * 60  # price freshness vs recompute cost (delayed gri
 _metrics_lock = threading.Lock()
 _metrics_refreshing = False
 
-# Charto owns every bar-derived feature. The API joins its swept daily matrix
+# The dataserver owns every bar-derived feature. The API joins its swept daily matrix
 # over localhost rather than importing dataserver.py (which would open the
 # 24GB SQLite store and start chart runtime globals in a second process).
-_TECH_CACHE_KEY = "screener:charto_features:v1"
+_TECH_CACHE_KEY = "screener:dataserver_features:v1"
 _TECH_CACHE_TTL_SECONDS = 10 * 60
-_CHARTO_INTERNAL_URL = os.getenv("CHARTO_INTERNAL_URL", "http://127.0.0.1:5174")
+_DATASERVER_INTERNAL_URL = os.getenv("PIVOT_INTERNAL_URL", "http://127.0.0.1:5174")
 
 _TECH_FIELDS = frozenset({
     "rsi14", "atr_pct", "sma20_rel", "sma50_rel", "sma200_rel",
@@ -179,7 +179,7 @@ class ScreenerStock(BaseModel):
     # div_yield has no source on this path; kept null in the shape for contract
     # stability (the FE no longer renders it).
     div_yield: Optional[float] = None
-    # Charto's standardized end-of-day technical matrix. All percentages are
+    # The dataserver's standardized end-of-day technical matrix. All percentages are
     # percentage points; relative-to-SMA and 52w-high values are signed.
     rsi14: Optional[float] = None
     atr_pct: Optional[float] = None
@@ -528,9 +528,9 @@ def _compute_market_metrics(symbols: list[str]) -> tuple[dict[str, dict], str]:
     #    Covers the hours before the morning Kite login, and any day Yahoo
     #    refuses this server, which it has done with 401s since October 2026.
     try:
-        from backend.market.charto_bars import quotes as charto_quotes
+        from backend.market.dataserver_bars import quotes as dataserver_quotes
 
-        for s, q in charto_quotes(syms).items():
+        for s, q in dataserver_quotes(syms).items():
             price = float(q["last"])
             prev = float(q.get("prev_close") or price)
             base = _baseline_cached(s)
@@ -547,9 +547,9 @@ def _compute_market_metrics(symbols: list[str]) -> tuple[dict[str, dict], str]:
                 "one_year_pct": round((price - c1) / c1 * 100, 2) if c1 > 0 else None,
             }
         if out:
-            return out, "charto"
+            return out, "dataserver"
     except Exception as exc:  # noqa: BLE001 — fall through to yfinance
-        logger.debug("[screener] charto metrics failed: %s", exc)
+        logger.debug("[screener] dataserver metrics failed: %s", exc)
 
     # 3. FALLBACK — yfinance bulk download (only when neither source above
     #    answered). One batch call gives price + day-change + 1-year return.
@@ -933,9 +933,9 @@ def _kick_page_metrics_warm(symbols: list[str]) -> None:
 
 
 def _technical_features_cached() -> tuple[dict[str, dict], str, str]:
-    """Return (features, as_of, source) from Charto's canonical daily matrix.
+    """Return (features, as_of, source) from the dataserver's canonical daily matrix.
 
-    Redis absorbs tab refreshes; a Charto outage degrades to an empty map so a
+    Redis absorbs tab refreshes; a dataserver outage degrades to an empty map so a
     technical predicate excludes unknown rows instead of pretending they pass.
     """
     try:
@@ -946,18 +946,18 @@ def _technical_features_cached() -> tuple[dict[str, dict], str, str]:
             return (
                 parsed.get("features") or {},
                 str(parsed.get("as_of") or ""),
-                str(parsed.get("source") or "charto_daily_matrix"),
+                str(parsed.get("source") or "dataserver_daily_matrix"),
             )
     except Exception as exc:  # noqa: BLE001
         logger.debug("[screener] technical cache read failed: %s", exc)
 
     try:
-        url = f"{_CHARTO_INTERNAL_URL.rstrip('/')}/screen/features"
+        url = f"{_DATASERVER_INTERNAL_URL.rstrip('/')}/screen/features"
         with urllib.request.urlopen(url, timeout=8) as response:  # noqa: S310
             parsed = json.loads(response.read().decode("utf-8"))
         features = parsed.get("features") or {}
         if not isinstance(features, dict):
-            raise ValueError("invalid Charto feature response")
+            raise ValueError("invalid dataserver feature response")
         try:
             redis_client.set(
                 _TECH_CACHE_KEY, json.dumps(parsed), ex=_TECH_CACHE_TTL_SECONDS
@@ -967,10 +967,10 @@ def _technical_features_cached() -> tuple[dict[str, dict], str, str]:
         return (
             features,
             str(parsed.get("as_of") or ""),
-            str(parsed.get("source") or "charto_daily_matrix"),
+            str(parsed.get("source") or "dataserver_daily_matrix"),
         )
     except Exception as exc:  # noqa: BLE001
-        logger.warning("[screener] Charto technical matrix unavailable: %s", exc)
+        logger.warning("[screener] dataserver technical matrix unavailable: %s", exc)
         return {}, "", "unavailable"
 
 
@@ -1080,7 +1080,7 @@ def get_screener_stocks(
     # A symbols screen is a MEMBERSHIP, so it narrows the universe before any
     # other clause — every later filter then reads as "within this screen".
     # Names we cannot serve are reported rather than silently dropped: a screen
-    # saved off charto's 500-instrument matrix can name an instrument that is
+    # saved off the dataserver's 500-instrument matrix can name an instrument that is
     # not in this service's equity universe (an index, a commodity, a crypto
     # pair), and a grid that just came back short would look like data loss.
     if symbols is not None:
@@ -1131,7 +1131,7 @@ def get_screener_stocks(
     fmap = _fundamentals_map_cached()
     mmap, msource = _market_metrics_cached()  # price/change/1y map + its source
     # The stock table renders a compact technical readout even before a user
-    # adds a technical predicate, so join the canonical Charto matrix on every
+    # adds a technical predicate, so join the canonical dataserver matrix on every
     # request. Redis keeps the normal path local and sub-millisecond.
     needs_technical = True
     tech_map: dict[str, dict] = {}
@@ -1141,7 +1141,7 @@ def get_screener_stocks(
         tech_map, tech_as_of, tech_source = _technical_features_cached()
         if not tech_map:
             notes.append(
-                "technical filters could not be evaluated — Charto's daily "
+                "technical filters could not be evaluated — Pivot's daily "
                 "feature matrix is unavailable"
             )
 
@@ -1586,10 +1586,10 @@ def screener_sparklines(
         # Our own minute store first: local, and fed by Kite. Yahoo started
         # answering this server 401 in October 2026, which left the column
         # empty after a long wait.
-        from backend.market.charto_bars import session_closes
+        from backend.market.dataserver_bars import session_closes
 
         fresh = session_closes(missing)
-        source = "charto" if fresh else source
+        source = "dataserver" if fresh else source
         rest = [m for m in missing if m not in fresh]
         if rest and _yf_spark_ok():
             more = _spark_from_yf(rest)
@@ -1616,21 +1616,21 @@ def screener_sparklines(
 # own query, re-run on open.
 #
 # AUTH IS DELIBERATELY NARROWER HERE than everywhere else in this router.
-# `require_user` accepts EITHER a Pivot JWT OR a Charto session token and
+# `require_user` accepts EITHER a Pivot JWT OR a dataserver session token and
 # returns an int from whichever it resolved. Those two id spaces are disjoint —
-# Charto user 2 and Pivot user 2 are different people — so writing
-# `saved_screens.user_id` (FK → users.id) from a Charto-resolved id would file
+# The dataserver user 2 and Pivot user 2 are different people — so writing
+# `saved_screens.user_id` (FK → users.id) from a dataserver-resolved id would file
 # one person's screen under another's account. Every other endpoint in this
 # router only READS a shared universe, where the ambiguity is harmless; these
 # own per-user rows, so they demand a genuine Pivot access token and reject the
-# Charto fallback. This costs nothing: the chart never writes a screen — it
+# The dataserver fallback. This costs nothing: the chart never writes a screen — it
 # hands one to the shell, and the shell holds the Pivot JWT.
 
 
 def require_pivot_user(authorization: str = Header(default=None)) -> int:
-    """Resolve a PIVOT access JWT to a user_id. Rejects Charto session tokens.
+    """Resolve a PIVOT access JWT to a user_id. Rejects the dataserver session tokens.
 
-    See the section header: `require_user`'s Charto fallback is unsafe for
+    See the section header: `require_user`'s the dataserver fallback is unsafe for
     per-user rows keyed to `users.id`.
     """
     if not authorization:
@@ -1639,7 +1639,7 @@ def require_pivot_user(authorization: str = Header(default=None)) -> int:
     payload = verify_token(token, "access")
     if not payload:
         raise unauthenticated(
-            "this endpoint needs a Pivot sign-in — a Charto chart session "
+            "this endpoint needs a Pivot sign-in — a dataserver chart session "
             "cannot own a saved screen"
         )
     jti = get_jti_from_token(token)

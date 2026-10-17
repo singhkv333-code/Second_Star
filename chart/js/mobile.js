@@ -1,4 +1,4 @@
-/* Charto preview — the phone's chart toolbar.
+/* Pivot preview — the phone's chart toolbar.
  *
  * On a portrait phone the 48px header is hidden (see the stylesheet's
  * max-width:560px block) and this one line under the chart takes its place:
@@ -219,8 +219,8 @@
    * has no room for a menu hanging off a tile, and it does not need one: the
    * sheet IS the menu, so each of those rows becomes its own tile and the
    * choice is made in the same tap. The model behind them is main.js's
-   * (window.__charto.objects), so a layer cannot exist here and not there. */
-  const objects = () => (window.__charto && window.__charto.objects) || null;
+   * (window.__pivot.objects), so a layer cannot exist here and not there. */
+  const objects = () => (window.__pivot && window.__pivot.objects) || null;
 
   function paintDrawActs() {
     const acts = sBody.querySelector("#drawActs");
@@ -434,8 +434,8 @@
     const real = el("tool-del"), mine = bar.querySelector('[data-act="del"]');
     if (real && mine) mine.hidden = real.hidden;
   }
-  document.addEventListener("charto:draw-select", () => setTimeout(syncDel, 0));
-  document.addEventListener("charto:scene-select", () => setTimeout(syncDel, 0));
+  document.addEventListener("pivot:draw-select", () => setTimeout(syncDel, 0));
+  document.addEventListener("pivot:scene-select", () => setTimeout(syncDel, 0));
 
   /** The bar says what the chart is showing — read off the controls it
    *  proxies, never off a copy of their state. Written only when a value
@@ -488,8 +488,8 @@
                { subtree: true, attributes: true, attributeFilter: ["class"] });
     mo.observe(el("tool-cursor"), { attributes: true, attributeFilter: ["class"] });
   }
-  document.addEventListener("charto:pane-active", syncBar);
-  document.addEventListener("charto:dock", syncBar);
+  document.addEventListener("pivot:pane-active", syncBar);
+  document.addEventListener("pivot:dock", syncBar);
   // the instrument's mark lands after its own fetch; repaint once it is known
   if (typeof Universe !== "undefined") Universe.load().then(syncBar);
   syncBar();

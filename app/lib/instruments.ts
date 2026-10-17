@@ -5,7 +5,7 @@
  * The company search (`/api/companies/search`) and the company quote
  * (`/api/markets/quote`) only know listed securities — they have no crypto,
  * and "GOLD" there resolves to a gold ETF, not MCX gold. The chart server
- * (charto, same origin) holds the whole universe: `/symbols` names and logos
+ * (the dataserver, same origin) holds the whole universe: `/symbols` names and logos
  * every instrument, `/quotes` prices any of them, `/bars` gives their history.
  */
 

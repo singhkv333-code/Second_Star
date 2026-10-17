@@ -4,9 +4,9 @@
  * /strategies — the saved rules, as Pivot's Agents page.
  *
  * `AgentsTab` unedited (the shell's own, since site's copy was folded
- * into this app): Charto calls these strategies.
+ * into this app): Pivot calls these strategies.
  * It reads the Agent System's workflow contract, and `dataserver/strategies.py`
- * answers in that shape — a Charto strategy IS a workflow, and mapping it on
+ * answers in that shape — a Pivot strategy IS a workflow, and mapping it on
  * the backend is what keeps a 1,558-line component from being forked.
  *
  * The callbacks all lead back to the chart. There is no workflow editor here

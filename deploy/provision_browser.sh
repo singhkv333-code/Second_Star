@@ -15,7 +15,7 @@
 #
 # Idempotent. Run from a machine with `az` signed in:
 #   bash deploy/provision_browser.sh
-# It prints the group's private IP; nginx-charto.conf and api/.env on the VM
+# It prints the group's private IP; nginx-the dataserver.conf and api/.env on the VM
 # carry it (SEARXNG_URL, the /rb/ upstream).
 set -euo pipefail
 RG="${RG:-PIVOT}"
@@ -26,7 +26,7 @@ SUBNET="${SUBNET:-charto-browser}"
 PREFIX="${PREFIX:-10.0.1.0/27}"
 NSG="${NSG:-charto-browser-nsg}"
 GROUP="${GROUP:-charto-browser}"
-# fixed, so nginx-charto.conf (/rb/) and api/.env (SEARXNG_URL) stay right
+# fixed, so nginx-the dataserver.conf (/rb/) and api/.env (SEARXNG_URL) stay right
 # across redeploys; Azure keeps .0-.3 of the subnet for itself
 IP="${IP:-10.0.1.4}"
 VM_IP="${VM_IP:-10.0.0.4}"
@@ -95,7 +95,7 @@ properties:
         resources: { requests: { cpu: 2.0, memoryInGB: 4.0 } }
         environmentVariables:
           - { name: RB_MAX_SESSIONS, value: '3' }
-          - { name: CHARTO_BROWSER_SECRET, secureValue: '$SECRET' }
+          - { name: PIVOT_BROWSER_SECRET, secureValue: '$SECRET' }
     - name: searxng
       properties:
         image: $ACR.azurecr.io/searxng:$TAG

@@ -1,4 +1,4 @@
-"""Sync the statements behind Charto's company page into the local store.
+"""Sync the statements behind the dataserver's company page into the local store.
 
 The company page is Pivot's stock page, so its Key Metrics strip and its
 Financial Performance panel expect Pivot's `/api/financials/{symbol}` and
@@ -101,7 +101,7 @@ def main() -> None:
     syms = [s.upper() for s in sys.argv[1:]] or json.loads(
         (HERE / "symbols.json").read_text())
 
-    db = sqlite3.connect(HERE / "charto_bars.db")
+    db = sqlite3.connect(HERE / "bars.db")
     db.execute("PRAGMA journal_mode=WAL")
     db.executescript(DDL)
 

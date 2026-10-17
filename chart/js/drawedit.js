@@ -1,4 +1,4 @@
-/* Charto preview — the drawing edit toolbar.
+/* Pivot preview — the drawing edit toolbar.
  *
  * TradingView's floating strip: select a line, a box, a fib or a text note and
  * a small toolbar appears with the handful of edits you reach for constantly —
@@ -18,7 +18,7 @@
  * there is never a second definition of what "duplicate" or "lock" does.
  *
  * ── how it knows what is selected ──────────────────────────────────────────
- * It listens for `charto:draw-select`, the one event drawings.js fires on
+ * It listens for `pivot:draw-select`, the one event drawings.js fires on
  * every selection change (and clears on deselect). No polling, no second hit
  * test — the chart has already decided what "this" is.
  *
@@ -62,11 +62,11 @@ const DrawEdit = (() => {
   let openPop = null;     // an open sub-popover (colour / width / style), or null
   let pinned = false;     // true once the user has dragged it — stops auto-follow
 
-  // The runtime that owns the selected drawing. The primary is on __charto;
+  // The runtime that owns the selected drawing. The primary is on __pivot;
   // a secondary pane's is resolved from the paneId the select event carried,
   // through Panes' registry — so a toolbar edit lands on the right chart.
   function draw() {
-    const c = window.__charto;
+    const c = window.__pivot;
     if (!c) return null;
     if (curPaneId && c.panes && c.panes.drawByPaneId) {
       return c.panes.drawByPaneId(curPaneId) || c.draw;
@@ -387,14 +387,14 @@ const DrawEdit = (() => {
   // exported, and the select listener still tears down anything stale) so a
   // future re-enable is a one-line change, but a selection no longer raises it.
   const SHOW_STRIP = false;
-  document.addEventListener("charto:draw-select", (e) => {
+  document.addEventListener("pivot:draw-select", (e) => {
     const id = SHOW_STRIP && e.detail && e.detail.id;
     if (id) show(id, e.detail.paneId || null);
     else hide();
   });
   // A layout change tears down and rebuilds the stage's charts; a stale strip
   // pointing at a shape that may be gone should stand down.
-  document.addEventListener("charto:panes-changed", hide);
+  document.addEventListener("pivot:panes-changed", hide);
 
   return { show, hide, refresh };
 })();

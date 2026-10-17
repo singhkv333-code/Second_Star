@@ -1,4 +1,4 @@
-/* Charto preview — undo / redo.
+/* Pivot preview — undo / redo.
  *
  * TradingView's pair, on TradingView's terms: Ctrl+Z reverses the last thing
  * you did TO the chart, and Ctrl+Shift+Z puts it back. What that covers is
@@ -109,7 +109,7 @@ const Undo = (() => {
     if (queued) { unschedule(queued); queued = null; }
     chain = chain
       .then(() => write(clone(snap)))
-      .catch((e) => console.warn("[charto] undo write failed", e))
+      .catch((e) => console.warn("[pivot] undo write failed", e))
       .then(() => new Promise((r) => schedule(() => {
         // One frame past the last event this write fired — a touch queued
         // inside it would otherwise land after the flag cleared. Only the

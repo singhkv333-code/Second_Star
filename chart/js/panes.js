@@ -1,4 +1,4 @@
-/* Charto preview — chart LAYOUTS (TradingView's 1 / 2-column / 2-row grid).
+/* Pivot preview — chart LAYOUTS (TradingView's 1 / 2-column / 2-row grid).
  *
  * What this is and, more importantly, what it is NOT.
  *
@@ -384,7 +384,7 @@ const Panes = (() => {
       chart, chartEl: canvas, mgr: sub.ind, stage: root, host: legendEl,
       openSettings: (id) => { if (onSettings) onSettings(id, sub.ind); },
       onChange: () => document.dispatchEvent(
-        new CustomEvent("charto:indicators-changed")),
+        new CustomEvent("pivot:indicators-changed")),
     });
 
     /* What the chat draws for THIS chart. A pattern found on the hourly
@@ -430,7 +430,7 @@ const Panes = (() => {
           Promise.resolve(sub.ind.toggle(id, sub.bars)).catch(() => {});
         }
       },
-      onChange: () => document.dispatchEvent(new CustomEvent("charto:pane-scene-changed")),
+      onChange: () => document.dispatchEvent(new CustomEvent("pivot:pane-scene-changed")),
       signal: sub.sceneAbort.signal,
     });
 
@@ -475,7 +475,7 @@ const Panes = (() => {
      *
      * This is the same mark and the same CSS, self-contained on the pane. It
      * does not draw the alert's price LINE — that stays a primary-chart fact
-     * (see alerts.js syncChartLines, bound to __charto.candle) — but it does
+     * (see alerts.js syncChartLines, bound to __pivot.candle) — but it does
      * the thing the hover is for: it lets you ADD an alert on this pane's own
      * instrument, at the price you are pointing at, on this pane's interval.
      * The line then shows up whenever this pane's symbol is the page's symbol,
@@ -601,7 +601,7 @@ const Panes = (() => {
         }
         // the volume strip (and any study) is a new pane the drawing layer
         // must attach its overlay to, the same re-attach the primary runs on
-        // charto:indicators-changed
+        // pivot:indicators-changed
         if (sub._syncDrawPanes) requestAnimationFrame(sub._syncDrawPanes);
       } catch (e) {
         if (!sub.destroyed && ticket === loadTicket) titleEl.textContent = String(e.message || e);
@@ -687,7 +687,7 @@ const Panes = (() => {
       e.preventDefault();
       e.stopPropagation();
       setActive(subs.indexOf(sub) + 1);
-      if (window.__chartoCloseMenus) window.__chartoCloseMenus(null);
+      if (window.__pivotCloseMenus) window.__pivotCloseMenus(null);
       const drawing = sub.draw.state.hoverId &&
         sub.draw.state.drawings.find((d) => d.id === sub.draw.state.hoverId);
       if (drawing) {
@@ -695,7 +695,7 @@ const Panes = (() => {
           { head: drawing.ref || "Drawing", note: sub.symbol },
           { icon: "chat", label: "Chat about drawing",
             on: () => {
-              document.dispatchEvent(new CustomEvent("charto:draw-tag",
+              document.dispatchEvent(new CustomEvent("pivot:draw-tag",
                 { detail: sub.draw.tagOf(drawing.id) }));
               Chat.ask(`Analyse drawing ${drawing.ref || drawing.id} on ${sub.symbol} ${sub.interval}.`);
             } },
@@ -747,7 +747,7 @@ const Panes = (() => {
           const panel = document.getElementById("chatPanel");
           if (panel && panel.classList.contains("hidden"))
             document.getElementById("chatToggle").click();
-          document.dispatchEvent(new CustomEvent("charto:screenshot",
+          document.dispatchEvent(new CustomEvent("pivot:screenshot",
             { detail: { uri: shot.toDataURL("image/png") } }));
           toast("Snapshot attached to the chat");
           return;
@@ -827,7 +827,7 @@ const Panes = (() => {
             on: () => Chat.ask(`Analyse ${sub.symbol} on the ${sub.interval} chart.`) },
         ].filter(Boolean) },
         { icon: "tag", label: "Tag point",
-          on: () => document.dispatchEvent(new CustomEvent("charto:compose",
+          on: () => document.dispatchEvent(new CustomEvent("pivot:compose",
             { detail: address || String(level) })) },
         { sep: true },
         { icon: "camera", label: "Screenshot", sub: [
@@ -936,7 +936,7 @@ const Panes = (() => {
    *  hear about that or it keeps naming the company you just navigated away
    *  from. */
   function emitActive() {
-    document.dispatchEvent(new CustomEvent("charto:chart-widget-active", { detail: { id: activeWidget?.widgetId || "main" } }));
+    document.dispatchEvent(new CustomEvent("pivot:chart-widget-active", { detail: { id: activeWidget?.widgetId || "main" } }));
     for (const fn of onActiveSubs) {
       try { fn(activeWidget ? peers().indexOf(activeWidget) + 1 : active, intervalOf(active), symbolOf(active)); } catch (e) { console.error(e); }
     }
@@ -1257,7 +1257,7 @@ const Panes = (() => {
     sub.onComparison = (comparison) => ctx.setCfg({ comparison });
     sub.root.addEventListener("pointerdown", () => selectSub(sub));
     const stateChanged = () => save();
-    document.addEventListener("charto:indicators-changed", stateChanged);
+    document.addEventListener("pivot:indicators-changed", stateChanged);
     // The chart is in its host before the initial request starts.
     Promise.resolve(sub.load(cfg.interval || "5m")).then(async () => {
       if (sub.destroyed) return;
@@ -1278,7 +1278,7 @@ const Panes = (() => {
       show() { sub.widgetVisible = true; ctx.setTitle(sub.symbol); selectSub(sub); sub.connectLive(); },
       hide() { sub.widgetVisible = false; sub.stream?.close(); sub.stream = null; if (activeWidget === sub) setActive(0); },
       destroy() {
-        document.removeEventListener("charto:indicators-changed", stateChanged);
+        document.removeEventListener("pivot:indicators-changed", stateChanged);
         if (activeWidget === sub) setActive(0);
         widgetSubs.splice(widgetSubs.indexOf(sub), 1);
         sub.destroy();
@@ -1352,7 +1352,7 @@ const Panes = (() => {
     /** Run fn against every secondary pane's drawing runtime — used to put
      *  them all back to the cursor when the tool arms elsewhere. */
     eachSubDraw(fn) { for (const s of peers()) if (s.draw) { try { fn(s.draw); } catch {} } },
-    /** Resolve a paneId (from a charto:draw-select detail) to its runtime, so
+    /** Resolve a paneId (from a pivot:draw-select detail) to its runtime, so
      *  the edit toolbar can act on the pane the selection is actually on. */
     drawByPaneId(id) { return Drawings.byPaneId(id); },
     /** main.js hands down what "a tool finished" means, so a secondary pane
@@ -1389,7 +1389,7 @@ const Panes = (() => {
       if (replace) {
         const s = this.activeSub();
         // The primary chart's symbol is the PAGE's symbol (?symbol=…), and
-        // charto treats opening a company as a fresh session. Faking it in
+        // pivot treats opening a company as a fresh session. Faking it in
         // place would leave the URL, the store scope and the chart disagreeing.
         if (!s) { location.search = `?symbol=${encodeURIComponent(sym)}`; return sym; }
         retarget(s, sym, iv);

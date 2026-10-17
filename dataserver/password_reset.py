@@ -10,7 +10,7 @@
         and signs the person in.
 
 What is stored is the SHA-256 of the token, never the token: a copy of
-charto_users.db cannot be turned into working reset links. Rates are capped
+users.db cannot be turned into working reset links. Rates are capped
 per address and per network address so the endpoint cannot be used to flood a
 mailbox. nginx also rate-limits ^/auth/reset at the credential-endpoint rate.
 

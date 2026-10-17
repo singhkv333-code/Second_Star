@@ -305,7 +305,7 @@ _MAX_HOP_ERROR_RETRIES = 2
 # from the schema but still routable). Order/draft/register tools stay
 # serial — side-effect ordering matters there.
 _PARALLEL_READ_TOOLS: frozenset = frozenset({
-    # market-wide technical scan (charto's engine, over HTTP)
+    # market-wide technical scan (the dataserver's engine, over HTTP)
     "scan_technicals",
     "show_price_chart",
     "read_annual_report",

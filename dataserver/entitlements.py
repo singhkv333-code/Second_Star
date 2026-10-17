@@ -1,4 +1,4 @@
-"""Charto — what a user's plan lets them do, and how much of it they have used.
+"""The dataserver — what a user's plan lets them do, and how much of it they have used.
 
 WHY A MODULE AND NOT `if plan == "pro"`
 --------------------------------------
@@ -69,7 +69,7 @@ _TRUE = {"1", "true", "yes", "on"}
 
 # Pivot is the one paywall (2026-10-09). Pivot's chat meters AI credits through
 # POST /billing/consume, so `ai.credits` stays on the ledger even with the
-# switch off; everything else above — charto's own chart-chat debit and its
+# switch off; everything else above — the dataserver's own chart-chat debit and its
 # chart, alert, screen and summary caps — was a second paywall in the same
 # shell and is waved through until PAYWALL_ENABLED turns it back on.
 PIVOT_METERED = frozenset({"ai.credits"})

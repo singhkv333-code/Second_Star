@@ -1,8 +1,8 @@
-"""Hydrate one symbol into the local Charto store from the blob universe.
+"""Hydrate one symbol into the local dataserver store from the blob universe.
 
 Downloads nse/1min/{SYMBOL}_1min.parquet from pivotmarketdata (~7 MB,
 2-3 s), converts paise-int prices to rupee REALs and inserts into
-charto_bars.db, then copies the symbol's flows (delivery / futures OI /
+bars.db, then copies the symbol's flows (delivery / futures OI /
 deals) from the local market-wide flows_market.db. After this the
 dataserver serves the symbol fully offline — hydration happens once.
 
@@ -27,7 +27,7 @@ import certifi
 CTX = ssl.create_default_context(cafile=certifi.where())
 
 HERE = Path(__file__).parent
-DB = HERE / "charto_bars.db"
+DB = HERE / "bars.db"
 FLOWS = HERE / "flows_market.db"
 ACCOUNT = "https://pivotmarketdata.blob.core.windows.net/kite-1min"
 

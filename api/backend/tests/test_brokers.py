@@ -239,7 +239,7 @@ def _bare_login(db, monkeypatch, kite_user, rearmed):
     monkeypatch.setattr(settings, "kite_data_account", "NHB457")
     monkeypatch.setattr(kite_auth, "exchange_request_token",
                         lambda rt: {"access_token": "fresh_access_token_value_123", "user_id": kite_user})
-    monkeypatch.setattr(r, "_rearm_charto_kite_feed", lambda: rearmed.append(1) or "re-armed")
+    monkeypatch.setattr(r, "_rearm_dataserver_kite_feed", lambda: rearmed.append(1) or "re-armed")
     return r._handle_broker_callback(None, "rt123", None, "success", None, db)
 
 

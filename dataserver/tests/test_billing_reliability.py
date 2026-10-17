@@ -23,7 +23,7 @@ def account(monkeypatch):
         "RAZORPAY_KEY_ID": "rzp_test_fixture", "RAZORPAY_KEY_SECRET": "test-secret",
         "RAZORPAY_WEBHOOK_SECRET": "hook-secret", "RAZORPAY_PLAN_PRO_MONTHLY": "plan_pro",
         "RAZORPAY_PLAN_PRO_PLUS_MONTHLY": "plan_plus",
-        "CHARTO_BILLING_TEST_EMAILS": "billing-test@pivotnow.in",
+        "PIVOT_BILLING_TEST_EMAILS": "billing-test@pivotnow.in",
     }.items():
         monkeypatch.setenv(key, value)
     now = int(time.time())

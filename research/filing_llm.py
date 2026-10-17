@@ -70,7 +70,7 @@ try:
     import dataserver as ds  # noqa: E402  — one Azure key for the whole repo
 except Exception:  # noqa: BLE001
     # dataserver is a 300KB module imported here for exactly three constants,
-    # and it drags Charto's whole dependency set with it. On a throwaway VM
+    # and it drags the dataserver's whole dependency set with it. On a throwaway VM
     # that is a lot of freight for two strings, so fall back to reading the
     # same .env it reads. Same source of truth either way.
     class ds:  # type: ignore[no-redef]
@@ -83,14 +83,14 @@ except Exception:  # noqa: BLE001
                     _env[_k.strip()] = _v.strip().strip('"').strip("'")
         AZURE_ENDPOINT = _env.get("AZURE_OPENAI_ENDPOINT", "").rstrip("/")
         AZURE_KEY = _env.get("AZURE_KEY", "")
-        LLM_DEPLOYMENT = _env.get("CHARTO_LLM_MODEL") or "gpt-5.6-luna"
+        LLM_DEPLOYMENT = _env.get("PIVOT_LLM_MODEL") or _env.get("CHARTO_LLM_MODEL") or "gpt-5.6-luna"
         LLM_SERVICE_TIER = "priority"
 
 LLM_EFFORT = os.environ.get("FILING_LLM_EFFORT", "low")
 LLM_WORKERS = int(os.environ.get("FILING_LLM_WORKERS", "12"))
 # Deliberately NOT the deployment the live product uses. Each Azure deployment
 # carries its own quota bucket — measured: gpt-5.4-mini 5,000 RPM / 5,000,000
-# TPM, gpt-5.6-luna 7,000 RPM / 7,000,000 TPM. Pivot's chat backend and Charto
+# TPM, gpt-5.6-luna 7,000 RPM / 7,000,000 TPM. Pivot's chat backend and the dataserver
 # both run on luna, so putting a 21,000-call corpus scan on a SEPARATE
 # deployment means the scan cannot throttle the product no matter how many
 # workers it uses. That isolation is worth more than any per-token saving.

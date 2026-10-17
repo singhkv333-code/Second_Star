@@ -21,7 +21,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
  *            is same-origin so the two CAN see one localStorage, but they
  *            keep different keys issued by different servers: the shell holds
  *            `pivot_jwt` from Pivot's API, the chart holds
- *            `charto:auth:token` from Charto's dataserver. So the chart asks
+ *            `charto:auth:token` from the dataserver. So the chart asks
  *            for its own sign-in the first time and remembers it after that.
  *            Same origin is the precondition for ever fixing that — a chart
  *            on a second port could not share a token even in principle — but
@@ -61,7 +61,7 @@ type Props = {
    *  RELAYS it — it is the shell that owns the tab and the Pivot session that
    *  can save a screen. */
   onOpenScreen?: (screen: PendingScreen) => void;
-  /** A company-page affordance inside Charto must navigate the parent shell,
+  /** A company-page affordance inside Pivot must navigate the parent shell,
    *  not load the X-Frame-Options-protected stock route inside the iframe. */
   onOpenCompany?: (symbol: string) => void;
   /** The frame reports its own conversation opening and closing, so the
@@ -122,7 +122,7 @@ export function ChartFrame({
       const d = e.data as { type?: string; open?: boolean; symbol?: unknown; veil?: unknown } | null;
       if (d?.type === "chart:ready") { setReady(true); setFailed(false); }
       if (d?.type === "chart:error") { setReady(false); setFailed(true); }
-      if (d?.type === "charto:open-screen") {
+      if (d?.type === "pivot:open-screen") {
         // Validated like everything else off this channel: origin and source
         // are checked above, and the payload is still treated as untrusted —
         // a screen with no symbols is dropped rather than switching the user
@@ -141,7 +141,7 @@ export function ChartFrame({
           universe: typeof raw?.universe === "number" ? raw.universe : 0,
         });
       }
-      if (d?.type === "charto:open-company" && typeof d.symbol === "string") {
+      if (d?.type === "pivot:open-company" && typeof d.symbol === "string") {
         const companySymbol = d.symbol.trim().toUpperCase();
         if (companySymbol && companySymbol.length <= 64) onCompanyRef.current?.(companySymbol);
       }
@@ -194,7 +194,7 @@ export function ChartFrame({
   }, [ready, theme, post]);
 
   // The shell's global Quick Ask is only a presentation bridge on Chart. The
-  // message is handed to Charto's own chat model and thread; Pivot Copilot is
+  // message is handed to Pivot's own chat model and thread; Pivot Copilot is
   // deliberately not involved on this route.
   useEffect(() => {
     const onChartAsk = (event: Event): void => {

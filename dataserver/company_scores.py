@@ -38,7 +38,7 @@ def bind(reader) -> None:
     """Install the statement reader.
 
     The scorer is Pivot's, unchanged apart from this seam: it asks for a
-    statement grid by (symbol, statement, basis) and does arithmetic. Charto
+    statement grid by (symbol, statement, basis) and does arithmetic. The dataserver
     hands it grids out of its own store rather than opening Pivot's database,
     so the company page keeps running when Pivot is not.
     """

@@ -37,13 +37,13 @@ def require_user(authorization: str = Header(default=None)) -> int:
     token = authorization.replace("Bearer ", "", 1)
     payload = verify_token(token, "access")
     if not payload:
-        # Not a Pivot JWT — it may be a Charto session. `get_user_id_from_token`
+        # Not a Pivot JWT — it may be a dataserver session. `get_user_id_from_token`
         # already knows how to resolve one (and is the single place that does,
         # shared with the nine routers that roll their own dependency), so ask
         # it rather than growing a second copy of the same fallback here.
-        charto_uid = get_user_id_from_token(token)
-        if charto_uid is not None:
-            return charto_uid
+        dataserver_uid = get_user_id_from_token(token)
+        if dataserver_uid is not None:
+            return dataserver_uid
         raise unauthenticated("invalid token")
     jti = get_jti_from_token(token)
     if jti and is_revoked(jti):

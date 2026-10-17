@@ -22,8 +22,8 @@ model call.
 THE KEY
 -------
 - Stored only server-side, AES-256-GCM, under a key derived (HKDF) from a
-  server secret that is NOT in the database: `CHARTO_BYOK_SECRET`, or a 0600
-  file outside the repo. A stolen copy of charto_users.db or its backups holds
+  server secret that is NOT in the database: `PIVOT_BYOK_SECRET`, or a 0600
+  file outside the repo. A stolen copy of users.db or its backups holds
   ciphertext only. The associated data is `user_id:provider`, so a ciphertext
   copied onto another user's row fails to open.
 - Never sent back to the browser. The page sees the provider, the last four
@@ -167,10 +167,10 @@ _aead_cache = None
 
 
 def _master() -> bytes:
-    raw = os.environ.get("CHARTO_BYOK_SECRET", "").strip()
+    raw = os.environ.get("PIVOT_BYOK_SECRET", "").strip()
     if raw:
         return raw.encode()
-    path = Path(os.environ.get("CHARTO_BYOK_SECRET_FILE")
+    path = Path(os.environ.get("PIVOT_BYOK_SECRET_FILE")
                 or Path.home() / ".charto-byok-secret")
     try:
         return path.read_bytes().strip()

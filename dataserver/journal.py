@@ -1,4 +1,4 @@
-"""Durable, user-owned trade journal for Charto.
+"""Durable, user-owned trade journal for the dataserver.
 
 Facts stay typed so P&L can be reproduced. Meaning stays flexible: plans,
 reviews, playbooks, tags and custom fields are JSON authored by the trader (or
@@ -21,7 +21,7 @@ from os import environ
 import dataserver as ds
 
 
-DB_PATH = Path(environ.get("CHARTO_USERS_DB") or Path(__file__).parent / "charto_users.db")
+DB_PATH = Path(environ.get("PIVOT_USERS_DB") or Path(__file__).parent / "users.db")
 _db = sqlite3.connect(DB_PATH, check_same_thread=False)
 _db.row_factory = sqlite3.Row
 _db.execute("PRAGMA foreign_keys=ON")
@@ -267,7 +267,7 @@ def api_playbook(uid, body, book_id=None):
 # factor are all dead columns. Asking a person to dictate nine numbers is
 # asking them to abandon the journal, which is what happens to most journals.
 #
-# But a Charto user is looking at the trade while they describe it. The screen
+# But a dataserver user is looking at the trade while they describe it. The screen
 # already holds the instrument, the bars the fill happened on, and often the
 # PLAN itself as a position drawn by plan_position — side, entry, stop,
 # targets, quantity and risk, already agreed. So the rule here is: the user

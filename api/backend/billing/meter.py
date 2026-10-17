@@ -1,18 +1,18 @@
-"""AI credits for pivot's chat, metered by charto.
+"""AI credits for pivot's chat, metered by the dataserver.
 
-Charto's account database is the one place plans and usage live
+The dataserver's account database is the one place plans and usage live
 (`dataserver/entitlements.py`). Pivot never opens that file for writing — its
 `auth/accounts.py` is deliberately read-only — so a debit is a request
-to charto's `POST /billing/consume`, which is the single writer of the ledger.
+to the dataserver's `POST /billing/consume`, which is the single writer of the ledger.
 
 Who the debit is for:
-  * a Charto session token is forwarded as is, and charto resolves it;
-  * a Pivot JWT has no charto session, so the service key
-    (CHARTO_INTERNAL_KEY) is sent with the account's EMAIL — identity across
+  * a dataserver session token is forwarded as is, and the dataserver resolves it;
+  * a Pivot JWT has no dataserver session, so the service key
+    (PIVOT_INTERNAL_KEY) is sent with the account's EMAIL — identity across
     the two stores is always email, never the colliding integer ids (see
     accounts.py's header).
 
-When charto cannot be reached the turn is ALLOWED and the miss is logged:
+When the dataserver cannot be reached the turn is ALLOWED and the miss is logged:
 metering protects cost, and an outage of the meter must not become an outage
 of the chat. Set PIVOT_METER_FAIL_CLOSED=1 to refuse instead.
 """
@@ -41,13 +41,13 @@ class Debit:
 
 
 def _base() -> str:
-    return os.getenv("CHARTO_INTERNAL_URL", "http://127.0.0.1:5174").rstrip("/")
+    return os.getenv("PIVOT_INTERNAL_URL", "http://127.0.0.1:5174").rstrip("/")
 
 
 def turn_key(conversation_id: str, messages: list, header_key: str = "") -> str:
     """One key per user turn: the conversation, the turn's position and its
     text (scoped by the client's Idempotency-Key when sent) — so a retry of
-    the same message is recognised by charto and not charged twice, and a
+    the same message is recognised by the dataserver and not charged twice, and a
     different message never is."""
     last = json.dumps((messages or [])[-1:], default=str)[:4000]
     # The header only SCOPES the key. Used verbatim, one header value could
@@ -58,18 +58,18 @@ def turn_key(conversation_id: str, messages: list, header_key: str = "") -> str:
 
 
 def _who(authorization: str, db=None, user_id: Optional[int] = None) -> dict:
-    """Headers and body fields that tell charto whose credit this is."""
+    """Headers and body fields that tell the dataserver whose credit this is."""
     token = (authorization or "").replace("Bearer ", "", 1).strip()
     from backend.auth.jwt_handler import verify_token
 
-    service = {"X-Internal-Key": os.getenv("CHARTO_INTERNAL_KEY", "")}
+    service = {"X-Internal-Key": os.getenv("PIVOT_INTERNAL_KEY", "")}
     headers = dict(service)
     if token and not verify_token(token, "access"):
-        # A charto session: forwarded. The service key rides along so charto
+        # A dataserver session: forwarded. The service key rides along so the dataserver
         # accepts a REFUND from us; a user's bearer alone never can.
         headers["Authorization"] = f"Bearer {token}"
     # The email goes EVERY time, so a session that expired between our auth
-    # and charto's still lands on the right account instead of on nobody.
+    # and the dataserver's still lands on the right account instead of on nobody.
     email = ""
     if db is not None and user_id is not None:
         try:
@@ -101,8 +101,8 @@ def debit(authorization: str, key: str, *, db=None, user_id=None) -> Debit:
     try:
         status, out = _post({"feature": FEATURE, "idem_key": key, "amount": 1,
                              "meta": "pivot", **who["body"]}, who["headers"])
-    except Exception as exc:  # noqa: BLE001 — charto down, timeout, DNS
-        logger.warning("meter: charto unreachable, turn allowed: %s", exc)
+    except Exception as exc:  # noqa: BLE001 — the dataserver down, timeout, DNS
+        logger.warning("meter: the dataserver unreachable, turn allowed: %s", exc)
         if os.getenv("PIVOT_METER_FAIL_CLOSED") == "1":
             return Debit(False, 503, {"error": "Usage metering is unavailable. "
                                                "Try again shortly.",
@@ -112,9 +112,9 @@ def debit(authorization: str, key: str, *, db=None, user_id=None) -> Debit:
         return Debit(False, 402, out)
     if status != 200:
         # A misconfigured key or an unknown account is OUR fault, not the
-        # user's: allow, and say so loudly — an unset CHARTO_INTERNAL_KEY
+        # user's: allow, and say so loudly — an unset PIVOT_INTERNAL_KEY
         # means pivot accounts are NOT being metered.
-        logger.error("meter: charto answered %s (%s); turn allowed", status,
+        logger.error("meter: the dataserver answered %s (%s); turn allowed", status,
                        out.get("error"))
         return Debit(True)
     lim = out.get("limit")

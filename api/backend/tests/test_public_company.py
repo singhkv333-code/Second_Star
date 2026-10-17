@@ -34,7 +34,7 @@ def _offline(monkeypatch):
     monkeypatch.setattr(pc, "redis_client", _NoRedis())
     pc._list_memo.update(at=0.0, body=None)
     monkeypatch.setattr(sc, "_market_metrics_cached", lambda: ({}, "warming"))
-    monkeypatch.setattr(sc, "_technical_features_cached", lambda: (TECH, 20740, "charto"))
+    monkeypatch.setattr(sc, "_technical_features_cached", lambda: (TECH, 20740, "dataserver"))
     monkeypatch.setattr(sc, "_fundamentals_map_cached", lambda: {"BIGOIL": {"pe": 18.0, "roe": 11.0}})
     monkeypatch.setattr(sc, "_full_universe", lambda: [])
     monkeypatch.setattr(mx, "reference", lambda: {})

@@ -70,7 +70,7 @@ function normalise(symbol: string): string {
 /** Whether a live-quote socket is configured at all.
  *
  * The base used to be DERIVED from the page's own origin whenever the env
- * was unset, which assumes every deployment has a quote socket. charto does
+ * was unset, which assumes every deployment has a quote socket. the dataserver does
  * not: it serves no /api/ws/quotes, so the derived wss://<host>/api/ws/quotes
  * 404'd on the handshake and reconnected, forever, in the console of a page
  * whose prices are already current from the REST quote.

@@ -5,14 +5,14 @@ umask 022
 release="$(tr -d '\n' < /etc/pivot/stage-release)"
 data=/mnt/pivot-old-data
 source_root=/mnt/pivot-source
-test -f "$data/charto_bars.db"
+test -f "$data/bars.db"
 test -f "$source_root/data/fix/sessions.json"
-test ! -e "$data/serving/charto_bars.db"
+test ! -e "$data/serving/bars.db"
 mkdir -p "$data/serving" "$data/import-sources"
 
 # Recover/checkpoint the point-in-time CLONE, never the live original disk.
 # Retains all committed rows, and frees its copied 47GB WAL for the new store.
-python3 - "$data/charto_bars.db" <<'PY'
+python3 - "$data/bars.db" <<'PY'
 import sqlite3, sys
 c = sqlite3.connect(sys.argv[1], timeout=60)
 assert c.execute("SELECT 1 FROM bars LIMIT 1").fetchone()
@@ -42,11 +42,11 @@ python3 "$release/dataserver/jobs/audit_minute_universe.py" --src "$data/import-
   --sessions "$data/import-sources/sessions.json" --report "$data/serving/source-audit.json"
 
 python3 -u "$release/dataserver/jobs/land_universe.py" --src "$data/import-sources" \
-  --dst "$data/serving/charto_bars.db"
+  --dst "$data/serving/bars.db"
 
 # Retain data through the audited allowlist, without transporting old SQL or
 # scanning the multi-billion-row minute table for symbol discovery.
 python3 "$release/deploy/finalize_clean_universe.py" \
-  --old "$data/charto_bars.db" --new "$data/serving/charto_bars.db" \
+  --old "$data/bars.db" --new "$data/serving/bars.db" \
   --audit "$data/serving/source-audit.json" --report "$data/serving/serving-universe.json"
 echo OFFLINE_UNIVERSE_READY

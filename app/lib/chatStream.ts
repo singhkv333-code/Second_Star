@@ -82,7 +82,7 @@ export type ChatMode = "automation" | "agent" | "backtest" | null;
  *
  * This used to fork on NEXT_PUBLIC_PIVOTTED_BASE, sending the tab to Pivotted
  * — the research chat in `research/` — instead of Pivot's own /chat/stream.
- * That de-wiring was always temporary and charto-deploy has since removed it;
+ * That de-wiring was always temporary and pivot-deploy has since removed it;
  * the branch is dropped here rather than in ChatDemo only because the function
  * moved out of that component in the meantime.
  *

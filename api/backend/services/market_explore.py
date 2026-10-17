@@ -9,7 +9,7 @@ number in the screener grid can never disagree:
     fundamentals  P/E, ROE, ROCE, D/E                (financials DB)
     prices        live day change                     (Kite, else Yahoo)
     technicals    end-of-day returns, RSI, 52-week distance, volume,
-                  trend and volume-profile position   (charto's daily matrix)
+                  trend and volume-profile position   (the dataserver's daily matrix)
 
 The page covers the 500 largest companies by market cap. Below that the tape
 is thin enough that a "top gainer" is usually an illiquid name on a circuit,
@@ -68,7 +68,7 @@ def _r(v: Any, nd: int = 2) -> Optional[float]:
 
 
 def eod_day(as_of: Any) -> Optional[str]:
-    """charto's matrix stamps its session as an IST day number (days since
+    """the dataserver's matrix stamps its session as an IST day number (days since
     1970-01-01). An ISO date is the only form the page shows."""
     n = _num(as_of)
     if n is None:
@@ -154,7 +154,7 @@ def compose(
     return {
         "as_of": {
             "prices": "live" if live else "eod",
-            "price_source": metrics_source if live else "charto_daily_matrix",
+            "price_source": metrics_source if live else "dataserver_daily_matrix",
             "live_coverage": round(live_n / len(syms), 3) if syms else 0,
             "eod_day": eod_day(tech_as_of),
             "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),

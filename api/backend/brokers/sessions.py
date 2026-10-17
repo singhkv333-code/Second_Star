@@ -86,7 +86,7 @@ def get_active_kite_session(db: Session) -> Optional[BrokerSession]:
     of the Zerodha account named in ``settings.kite_data_account``.
 
     Every market-data reader (historical, live quotes, the ticker, screener,
-    charto's stream and backfills) comes through here. Pinning it to one
+    the dataserver's stream and backfills) comes through here. Pinning it to one
     Zerodha account means a user connecting their own Kite can never take over
     everyone's feed, and nobody else's token is ever used for shared data.
     When the pinned account has no live session this answers None and callers

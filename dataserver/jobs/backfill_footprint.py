@@ -32,11 +32,12 @@ from pathlib import Path
 
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # the dataserver's modules
+import envcompat  # noqa: F401,E402  — CHARTO_* env names still work
 import footprint as fp
 from backfill_crypto import BYBIT, COINBASE
 
-DB = Path(os.environ.get("CHARTO_DB") or Path(__file__).resolve().parents[1] / "charto_bars.db")
-UA = {"User-Agent": "charto-footprint/1"}
+DB = Path(os.environ.get("PIVOT_DB") or Path(__file__).resolve().parents[1] / "bars.db")
+UA = {"User-Agent": "pivot-footprint/1"}
 
 
 def _get(url: str, timeout: float = 60) -> tuple[bytes, dict]:

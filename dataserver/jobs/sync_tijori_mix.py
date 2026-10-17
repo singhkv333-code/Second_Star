@@ -1,4 +1,4 @@
-"""Sync Tijori's revenue-mix breakdowns into Charto's local store.
+"""Sync Tijori's revenue-mix breakdowns into the dataserver's local store.
 
 The company page's Segment mix panel is Pivot's, so it expects Pivot's
 `/api/stock/{symbol}/mix` payload. Rather than re-derive the shares — which
@@ -30,7 +30,7 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parents[1]
-DB = HERE / "charto_bars.db"
+DB = HERE / "bars.db"
 
 DDL = """
 CREATE TABLE IF NOT EXISTS revenue_mix (
@@ -97,7 +97,7 @@ def main() -> None:
     db.executescript(DDL)
 
     want = [s.upper() for s in sys.argv[1:]]
-    # sc_id is the join key, and it lives in the financials payload charto
+    # sc_id is the join key, and it lives in the financials payload the dataserver
     # already stores — the same id Pivot resolved, so a mix cannot land on a
     # different company than the statements did.
     sc: dict[str, str] = {}

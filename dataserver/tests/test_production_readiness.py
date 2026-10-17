@@ -1,4 +1,4 @@
-"""Regression tests for Charto's production admission and recovery seams."""
+"""Regression tests for the dataserver's production admission and recovery seams."""
 from __future__ import annotations
 
 import io
@@ -33,7 +33,7 @@ def test_we_ask_for_the_fast_lane_on_every_deployment() -> None:
     and mini honours it.
     """
     assert server.LLM_SERVICE_TIER in {"default", "priority", "flex", "auto"}
-    if "CHARTO_LLM_SERVICE_TIER" not in server.environ:
+    if "PIVOT_LLM_SERVICE_TIER" not in server.environ:
         assert server.LLM_SERVICE_TIER == "priority"
     # Every path that talks to the model must carry it, or the streaming turn
     # the FE actually uses silently runs on a different tier from the probes

@@ -1,4 +1,4 @@
-/* Charto preview — indicators.
+/* Pivot preview — indicators.
  *
  * The math is NOT here. Every series is computed once, in `data/indicators.py`,
  * and fetched. The previous version reimplemented sma/ema/bollinger/vwap/rsi/
@@ -404,7 +404,7 @@ const Indicators = (() => {
   ];
   const WIDTHS = [1, 2, 3, 4];
 
-  // Charto's intervals collapse into TradingView's Visibility rows. Ticks and
+  // Pivot's intervals collapse into TradingView's Visibility rows. Ticks and
   // Seconds are absent because this chart has no such interval — an always-off
   // checkbox is worse than no checkbox.
   const BUCKETS = [

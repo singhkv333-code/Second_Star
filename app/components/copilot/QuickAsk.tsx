@@ -16,7 +16,7 @@ type QuickAskProps = {
 /**
  * The collapsed presentation of Copilot. It intentionally owns no message or
  * conversation state: submitting hands the text to the one mounted Copilot
- * workspace in AppShell (or to Charto's own chat bridge on the chart page).
+ * workspace in AppShell (or to Pivot's own chat bridge on the chart page).
  */
 export function QuickAsk({
   placeholder,

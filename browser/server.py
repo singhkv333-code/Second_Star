@@ -26,7 +26,7 @@ Isolation, from the inside out:
 
 Who may connect: the dataserver issues a one-minute, single-use HMAC ticket
 (/browser/ticket, signed-in users) and this service checks it with the shared
-CHARTO_BROWSER_SECRET.
+PIVOT_BROWSER_SECRET.
 """
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ import egress
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
 log = logging.getLogger("rb")
 
-SECRET = os.environ.get("CHARTO_BROWSER_SECRET", "")
+SECRET = os.environ.get("PIVOT_BROWSER_SECRET", "")
 PORT = int(os.environ.get("RB_PORT", "5177"))
 PROXY_PORT = int(os.environ.get("RB_PROXY_PORT", "8899"))
 MAX_SESSIONS = int(os.environ.get("RB_MAX_SESSIONS", "4"))
@@ -537,7 +537,7 @@ def process_request(conn, req):
 
 async def main() -> None:
     if not SECRET:
-        raise SystemExit("CHARTO_BROWSER_SECRET is not set")
+        raise SystemExit("PIVOT_BROWSER_SECRET is not set")
     await egress.serve(PROXY_PORT)
     await launch()
     asyncio.ensure_future(reaper())

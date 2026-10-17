@@ -214,7 +214,7 @@ def resolve(db: sqlite3.Connection) -> dict:
 
 def main() -> None:
     resolve_only = "--resolve-only" in sys.argv
-    db = sqlite3.connect(HERE / "charto_bars.db")
+    db = sqlite3.connect(HERE / "bars.db")
     db.executescript(DDL)
 
     if not resolve_only:

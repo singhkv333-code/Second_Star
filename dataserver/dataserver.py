@@ -1,6 +1,6 @@
-"""Charto preview data server — serves the local 1-min store on :5174.
+"""The dataserver preview data server — serves the local 1-min store on :5174.
 
-Resamples the raw 1-minute bars (charto_bars.db) into any interval the chart
+Resamples the raw 1-minute bars (bars.db) into any interval the chart
 asks for, with paging for infinite-scroll history. Stdlib only; CORS open to
 the preview origin.
 
@@ -20,6 +20,8 @@ GET /replay?symbol=RELIANCE&speed=300[&date=YYYY-MM-DD][&stop=1]
 Run:  python3 dataserver/dataserver.py   (from repo root; port 5174)
 """
 from __future__ import annotations
+
+import envcompat  # first: maps CHARTO_* env names to PIVOT_*
 
 import hashlib
 import html
@@ -77,9 +79,9 @@ import patterns   # sibling module: candlestick / chart-pattern / structure dete
 # The store is selectable so a laptop need not carry the full 29 GB of minute
 # history: `company_tables.py slim` builds a ~0.9 GB store with every company
 # table, the whole daily series and minute bars for a handful of symbols, and
-# CHARTO_DB points here at it. Unset, the full store is used exactly as before.
-DB_PATH = Path(environ.get("CHARTO_DB")
-               or Path(__file__).parent / "charto_bars.db")
+# PIVOT_DB points here at it. Unset, the full store is used exactly as before.
+DB_PATH = Path(environ.get("PIVOT_DB")
+               or Path(__file__).parent / "bars.db")
 # Say so NOW, while the answer is still "absent" rather than "empty".
 #
 # sqlite3.connect() creates whatever it cannot find, and the first connect
@@ -96,16 +98,16 @@ if not DB_PATH.exists():
     logging.warning(
         "market store %s does not exist — sqlite will create an empty one and "
         "every symbol will read as having no data. Rebuild it with "
-        "company_tables.py slim (dev) or hydrate_symbol.py, or point CHARTO_DB "
+        "company_tables.py slim (dev) or hydrate_symbol.py, or point PIVOT_DB "
         "at a real store.", DB_PATH)
-PORT = int(environ.get("CHARTO_PORT") or 5174)
+PORT = int(environ.get("PIVOT_PORT") or 5174)
 
 # ── Azure LLM proxy config (same Foundry endpoint Pivot chat uses) ──
 # Read from api/.env so the key never lands in browser-served files.
 _ENV_PATH = Path(__file__).resolve().parents[1] / "api" / ".env"
-# Deployment name is overridable via CHARTO_LLM_MODEL in api/.env. It is
+# Deployment name is overridable via PIVOT_LLM_MODEL in api/.env. It is
 # deliberately NOT pivot's LLM_MODEL: the backend runs its own deployment
-# (gpt-5.4-mini) and Charto should not drag it onto a different model.
+# (gpt-5.4-mini) and the dataserver should not drag it onto a different model.
 LLM_DEPLOYMENT_DEFAULT = "gpt-6-luna"
 # The deployment to fall back to when the primary is not serving. A SECOND
 # deployment on the same resource, not a second resource: measured 2026-08-31,
@@ -124,7 +126,7 @@ LLM_DEPLOYMENT_DEFAULT = "gpt-6-luna"
 #   gpt-6-luna    median 4.43s   ~390 output tokens
 #   gpt-5.6-luna  median 9.39s   ~581 output tokens
 # So a demotion costs roughly 2x latency and buys a working answer.
-# Set CHARTO_LLM_FALLBACK="" to disable and fail loudly instead.
+# Set PIVOT_LLM_FALLBACK="" to disable and fail loudly instead.
 LLM_FALLBACK_DEFAULT = "gpt-5.6-luna"
 # How long to stay on the fallback before probing the primary again. Long
 # enough that a sustained outage is not re-probed on every turn, short enough
@@ -156,7 +158,7 @@ LLM_EFFORT_DEFAULT = "medium"
 # is the case we cannot reproduce on an idle endpoint and the case that will
 # hurt users; and the day Azure enables the tier for luna we get it without
 # an edit. If the premium billing ever shows up as a line worth cutting, set
-# CHARTO_LLM_SERVICE_TIER=default in api/.env — no code change needed.
+# PIVOT_LLM_SERVICE_TIER=default in api/.env — no code change needed.
 #
 # WHAT IS TRUE ABOUT THE TIERS, and cost nothing to establish:
 #   gpt-5.6-luna  ignores it. Asked for `priority`, Azure echoes `default`,
@@ -178,16 +180,22 @@ LLM_SERVICE_TIER_DEFAULT = "priority"
 
 
 def _env_values(*keys: str) -> dict[str, str]:
-    """Read bare KEY=value lines out of api/.env (no python-dotenv here)."""
+    """Read bare KEY=value lines out of api/.env (no python-dotenv here).
+
+    A key also answers to its retired CHARTO_* spelling; the new one wins."""
     found = {k: "" for k in keys}
+    legacy = {envcompat.legacy_name(k): k for k in keys if envcompat.legacy_name(k)}
     try:
         for line in _ENV_PATH.read_text(encoding="utf-8").splitlines():
             line = line.strip()
-            if line.startswith("#"):
+            if line.startswith("#") or "=" not in line:
                 continue
-            for k in keys:
-                if line.startswith(f"{k}="):
-                    found[k] = line.split("=", 1)[1].strip().strip('"').strip("'")
+            name, value = line.split("=", 1)
+            value = value.strip().strip('"').strip("'")
+            if name in found:
+                found[name] = value
+            elif name in legacy and not found[legacy[name]]:
+                found[legacy[name]] = value
     except OSError:
         pass
     return found
@@ -204,27 +212,27 @@ AZURE_ENDPOINT, AZURE_KEY = _load_azure_creds()
 # The Browser widget's search engine and remote browser read theirs the same
 # way (websearch.py, _browser_ticket). Env wins over .env.
 for _k, _v in _env_values("YOUTUBE_API_KEY", "BRAVE_SEARCH_API_KEY", "SEARXNG_URL",
-                          "CHARTO_BROWSER_SECRET", "CHARTO_BROWSER_WS",
+                          "PIVOT_BROWSER_SECRET", "PIVOT_BROWSER_WS",
                           # bring-your-own-model (byok.py)
-                          "CHARTO_BYOK_SECRET", "OPENAI_SIWC_CLIENT_ID",
+                          "PIVOT_BYOK_SECRET", "OPENAI_SIWC_CLIENT_ID",
                           "OPENAI_SIWC_CLIENT_SECRET", "OPENAI_SIWC_REDIRECT_URI",
                           "OPENAI_SIWC_PLAN").items():
     if _v and not environ.get(_k):
         environ[_k] = _v
-LLM_DEPLOYMENT = _env_values("CHARTO_LLM_MODEL")["CHARTO_LLM_MODEL"] or LLM_DEPLOYMENT_DEFAULT
+LLM_DEPLOYMENT = _env_values("PIVOT_LLM_MODEL")["PIVOT_LLM_MODEL"] or LLM_DEPLOYMENT_DEFAULT
 # Overridable the same way, so an A/B between efforts is a restart rather than
 # an edit — a benchmark needing a code change between its arms is one nobody
 # re-runs. Env wins over .env so a single run can be pinned from the shell.
-LLM_EFFORT = (environ.get("CHARTO_LLM_EFFORT")
-              or _env_values("CHARTO_LLM_EFFORT")["CHARTO_LLM_EFFORT"]
+LLM_EFFORT = (environ.get("PIVOT_LLM_EFFORT")
+              or _env_values("PIVOT_LLM_EFFORT")["PIVOT_LLM_EFFORT"]
               or LLM_EFFORT_DEFAULT)
-LLM_SERVICE_TIER = (environ.get("CHARTO_LLM_SERVICE_TIER")
-                    or _env_values("CHARTO_LLM_SERVICE_TIER")["CHARTO_LLM_SERVICE_TIER"]
+LLM_SERVICE_TIER = (environ.get("PIVOT_LLM_SERVICE_TIER")
+                    or _env_values("PIVOT_LLM_SERVICE_TIER")["PIVOT_LLM_SERVICE_TIER"]
                     or LLM_SERVICE_TIER_DEFAULT)
 # Explicit empty means "no fallback, fail loudly"; unset means the default.
-_fb_env = environ.get("CHARTO_LLM_FALLBACK")
+_fb_env = environ.get("PIVOT_LLM_FALLBACK")
 if _fb_env is None:
-    _fb_env = _env_values("CHARTO_LLM_FALLBACK")["CHARTO_LLM_FALLBACK"] or None
+    _fb_env = _env_values("PIVOT_LLM_FALLBACK")["PIVOT_LLM_FALLBACK"] or None
 LLM_FALLBACK = (LLM_FALLBACK_DEFAULT if _fb_env is None else _fb_env).strip()
 if LLM_FALLBACK == LLM_DEPLOYMENT:
     LLM_FALLBACK = ""          # a fallback to itself is not one
@@ -256,27 +264,27 @@ def _env_float(name: str, default: float, *, minimum: float = 0.0) -> float:
 # completed cleanly in ~2.2s. Bound the work at the measured knee and queue for
 # a short, finite window; overload is then an explicit retryable response
 # instead of an unbounded tail or an incidental SQLite error.
-_DATA_MAX_CONCURRENCY = _env_int("CHARTO_DATA_CONCURRENCY", 10)
-_DATA_QUEUE_TIMEOUT_S = _env_float("CHARTO_DATA_QUEUE_TIMEOUT_S", 8.0)
-_DATA_RETRY_AFTER_S = _env_int("CHARTO_DATA_RETRY_AFTER_S", 2)
+_DATA_MAX_CONCURRENCY = _env_int("PIVOT_DATA_CONCURRENCY", 10)
+_DATA_QUEUE_TIMEOUT_S = _env_float("PIVOT_DATA_QUEUE_TIMEOUT_S", 8.0)
+_DATA_RETRY_AFTER_S = _env_int("PIVOT_DATA_RETRY_AFTER_S", 2)
 _DATA_SLOTS = threading.BoundedSemaphore(_DATA_MAX_CONCURRENCY)
 _DATA_STATE_LOCK = threading.Lock()
 _DATA_STATE = {"active": 0, "peak": 0, "rejected": 0, "completed": 0}
-_CHAT_MAX_CONCURRENCY = _env_int("CHARTO_CHAT_CONCURRENCY", 20)
+_CHAT_MAX_CONCURRENCY = _env_int("PIVOT_CHAT_CONCURRENCY", 20)
 # Forty beta users can arrive together (often behind one shared NAT). Twenty
 # active LLM turns stay inside the VM's measured comfort zone; the second wave
 # waits for one turn-length instead of being failed immediately.
-_CHAT_QUEUE_TIMEOUT_S = _env_float("CHARTO_CHAT_QUEUE_TIMEOUT_S", 15.0)
+_CHAT_QUEUE_TIMEOUT_S = _env_float("PIVOT_CHAT_QUEUE_TIMEOUT_S", 15.0)
 _CHAT_SLOTS = threading.BoundedSemaphore(_CHAT_MAX_CONCURRENCY)
 _CHAT_STATE_LOCK = threading.Lock()
 _CHAT_STATE = {"active": 0, "peak": 0, "rejected": 0, "completed": 0}
-_LLM_MAX_ATTEMPTS = _env_int("CHARTO_LLM_MAX_ATTEMPTS", 3)
+_LLM_MAX_ATTEMPTS = _env_int("PIVOT_LLM_MAX_ATTEMPTS", 3)
 # Per response, and SHARED with reasoning. 2,000 was sized for a one-paragraph
 # reading; a round that writes a trader's note and a sheet in its arguments,
 # or a sectioned multi-timeframe answer, ran into it mid-sentence.
-_LLM_MAX_OUTPUT = _env_int("CHARTO_LLM_MAX_OUTPUT", 8000)
-_LLM_RETRY_BASE_S = _env_float("CHARTO_LLM_RETRY_BASE_S", 0.4)
-_LLM_RETRY_MAX_S = _env_float("CHARTO_LLM_RETRY_MAX_S", 5.0)
+_LLM_MAX_OUTPUT = _env_int("PIVOT_LLM_MAX_OUTPUT", 8000)
+_LLM_RETRY_BASE_S = _env_float("PIVOT_LLM_RETRY_BASE_S", 0.4)
+_LLM_RETRY_MAX_S = _env_float("PIVOT_LLM_RETRY_MAX_S", 5.0)
 _LLM_RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
 
 
@@ -1021,7 +1029,7 @@ def _atr(rows: list[tuple], n: int = 14) -> list[float | None]:
 # (`support_resistance_levels`): a bar is a pivot when its high/low is
 # the extremum of the ±`window` bars around it. That function returns
 # bare prices only — no clustering, no touch counts, no timestamps —
-# so the evidence layer Charto needs is added here. Graduation path:
+# so the evidence layer the dataserver needs is added here. Graduation path:
 # upstream this richer version into patterns.py.
 
 _EVIDENCE_HORIZON = 20  # bars allowed to judge a touch — scale-free by design:
@@ -3768,10 +3776,10 @@ def company_page(sym: str, rng: str = "5Y") -> dict:
 
 # ── Pivot-shaped API ────────────────────────────────────────────────────────
 # site is Pivot's stock page, copied file-for-file. Rather than edit that
-# page to speak charto's protocol, this answers the endpoints it already calls
+# page to speak the dataserver's protocol, this answers the endpoints it already calls
 # (`/api/markets/quote`, `/sparkline`, `/ohlc`, `/financials/…`) in Pivot's own
-# response shapes — out of charto's store, so the page and the chart quote the
-# same bars. Anything charto genuinely has no source for is returned as the
+# response shapes — out of the dataserver's store, so the page and the chart quote the
+# same bars. Anything the dataserver genuinely has no source for is returned as the
 # honest empty state the page already knows how to render (`available: false`,
 # null fields), never as a filler number.
 
@@ -3896,7 +3904,7 @@ def _api_statement(sym: str, kind: str, basis: str) -> tuple[int, dict]:
         return 200, {"available": False, "company": None, "statement": kind,
                      "type": kind, "basis": basis,
                      "unit": None, "periods": [], "rows": [],
-                     "source": "not stored in charto"}
+                     "source": "not stored in Pivot"}
     out = json.loads(row[0])
     # The balance-sheet payload predates the second name and carries neither
     # key; the page reads `statement` to decide whether to print a unit note.
@@ -3936,7 +3944,7 @@ def _api_quarters(sym: str, basis: str, limit: int) -> tuple[int, dict]:
 # ── the deep sections ───────────────────────────────────────────────────────
 #
 # The company page's lower half — flows, deals, shareholding, revenue mix,
-# quarters — asks Pivot's routes for each. Charto has the store behind three
+# quarters — asks Pivot's routes for each. The dataserver has the store behind three
 # of them and genuinely nothing behind the others, and the difference is
 # reported rather than papered over: every one of these responses carries
 # `available`, and the page already knows how to draw a section that says it
@@ -3944,7 +3952,7 @@ def _api_quarters(sym: str, basis: str, limit: int) -> tuple[int, dict]:
 
 
 def _api_flows(sym: str, days: int) -> tuple[int, dict]:
-    """Delivery quality and futures open interest, from charto's own tables.
+    """Delivery quality and futures open interest, from the dataserver's own tables.
 
     Both are the same daily series the screener reads, so a delivery figure
     here and a delivery figure there cannot disagree.
@@ -4042,7 +4050,7 @@ def _api_sections(sym: str) -> tuple[int, dict]:
         "bse_scripcode": None,
         "coverage": {
             # Counted, not declared. This said 0 for every symbol back when
-            # charto held only an earnings CALENDAR (`results`); it holds the
+            # the dataserver held only an earnings CALENDAR (`results`); it holds the
             # quarterly grids now (`sync_quarters.py`), and a hardcoded zero
             # over a full table is the same dead section by the other route.
             "quarters": {
@@ -4241,7 +4249,7 @@ def _api_patterns(sym: str, interval: str, horizon: int,
     }
 
 
-# What the peer table asks for -> the column charto actually stores. Anything
+# What the peer table asks for -> the column the dataserver actually stores. Anything
 # absent stays absent: the response type is nullable everywhere precisely so a
 # missing metric can print an em-dash instead of a fabricated zero.
 # id -> (profile column or None, label, unit). The unit is not decoration: the
@@ -4368,8 +4376,8 @@ def _peer_metric(fid: str) -> dict:
 
 
 def _api_peers(sym: str, fields: list[str]) -> tuple[int, dict]:
-    """The symbol beside the peers charto already keeps for it."""
-    # Only fields charto can actually fill — which is now every id the panel
+    """The symbol beside the peers the dataserver already keeps for it."""
+    # Only fields the dataserver can actually fill — which is now every id the panel
     # asks for, the seven filed ratios included.
     want = [f for f in fields if f in _PEER_FIELDS] or list(_PEER_FIELDS)
     base = company_page(sym, "1D")
@@ -4454,7 +4462,7 @@ def _api_mix(sym: str) -> tuple[int, dict]:
 
 
 def _score_grid(sym: str, statement: str, basis: str) -> dict | None:
-    """One statement grid for the scorer, out of charto's own store.
+    """One statement grid for the scorer, out of the dataserver's own store.
 
     The balance sheet lives in its own table because the Financial Performance
     panel drew it first; the other three were synced later into `statement`.
@@ -4492,7 +4500,7 @@ def _score_grid(sym: str, statement: str, basis: str) -> dict | None:
 def _api_scores(sym: str, basis: str) -> tuple[int, dict]:
     """Altman Z, Ohlson O, Graham and DuPont for one company.
 
-    The computation is Pivot's `company_scores`, bound to charto's store —
+    The computation is Pivot's `company_scores`, bound to the dataserver's store —
     the same arithmetic over the same Moneycontrol grids, so a score here and
     a score there cannot disagree. Every input is pinned to ONE period column
     of ONE basis, and a score whose inputs are missing comes back unavailable
@@ -4502,13 +4510,13 @@ def _api_scores(sym: str, basis: str) -> tuple[int, dict]:
     try:
         return 200, company_scores.compute_scores(sym, basis=basis)
     except Exception:                       # never take the page down
-        logging.exception("charto scores failed for %s", sym)
+        logging.exception("dataserver scores failed for %s", sym)
         return 200, {"available": False, "symbol": sym,
                      "reason": "scores could not be computed"}
 
 
 def _api_unavailable(sym: str, kind: str) -> tuple[int, dict]:
-    """The honest empty state for a section charto has no source for.
+    """The honest empty state for a section the dataserver has no source for.
 
     Shaped exactly like the real response so the page takes its normal
     `available: false` path — a 404 here would render as a failure, which is
@@ -4516,7 +4524,7 @@ def _api_unavailable(sym: str, kind: str) -> tuple[int, dict]:
     collected.
     """
     base = {"symbol": sym, "available": False,
-            "source": "not stored in charto"}
+            "source": "not stored in Pivot"}
     if kind == "shareholding":
         return 200, {**base, "quarters": [], "holders": [], "groups": [],
                      "pledge_pct": None, "promoter_pct": None}
@@ -4656,7 +4664,7 @@ def api_route(path: str, q: dict) -> tuple[int, dict]:
                                       q.get("basis", "consolidated"))
             if what == "scores":
                 return _api_scores(s_, q.get("basis") or "consolidated")
-            return 404, {"detail": f"/financials/…/{what} is not served by charto"}
+            return 404, {"detail": f"/financials/…/{what} is not served by the dataserver"}
         return _api_financials(s_)
     if tail[:2] == ["markets", "metric-series"]:
         return 200, {"symbol": sym_of(2), "metric": q.get("metric", "pe"),
@@ -4699,7 +4707,7 @@ def api_route(path: str, q: dict) -> tuple[int, dict]:
         want = [x.strip().upper() for x in (q.get("symbols") or "").split(",") if x.strip()]
         have = _logo_map() if want else {}
         return 200, {"logos": {s: have.get(s) for s in want}}
-    return 404, {"detail": f"{path} is not served by charto"}
+    return 404, {"detail": f"{path} is not served by the dataserver"}
 
 
 # ── volume at price ─────────────────────────────────────────────────────────
@@ -5965,7 +5973,7 @@ def _build_screen_features(stamp: tuple) -> dict:
     _screen_cache.update(stamp=stamp, feats=feats, bars=by_sym,
                          last_day=last_day, mode_day=mode_day,
                          built_s=round(time.time() - t0, 2))
-    logging.info("charto screen matrix: %d symbols in %.2fs",
+    logging.info("dataserver screen matrix: %d symbols in %.2fs",
                  len(feats), _screen_cache["built_s"])
     return feats
 
@@ -10245,7 +10253,7 @@ def tool_get_deals(client: str = "", symbol: str = "", frm: str = "",
 
 # ── voice: a spoken question becomes a typed one ────────────────────────────
 #
-# Pivot's chain, unchanged, on Charto's server (api/backend/routers/audio.py):
+# Pivot's chain, unchanged, on the dataserver's server (api/backend/routers/audio.py):
 # the browser records an opus/aac blob, Azure Speech fast-transcription turns
 # it into text, and a transcript that comes back in Devanagari is rendered to
 # English by the same deployment that answers the chat. Hinglish written in
@@ -10277,7 +10285,7 @@ def _speech_host() -> str:
 def _multipart(fields: list) -> tuple[bytes, str]:
     """A multipart/form-data body. Written out rather than pulled in: this is
     the only upload the server makes, and `requests` is not a dependency."""
-    boundary = "----charto" + secrets.token_hex(12)
+    boundary = "----pivot" + secrets.token_hex(12)
     out = bytearray()
     for name, filename, ctype, payload in fields:
         out += f"--{boundary}\r\n".encode()
@@ -10318,7 +10326,7 @@ def transcribe(data: bytes, content_type: str = "") -> dict:
             out = json.loads(r.read().decode())
     except Exception as exc:                                # noqa: BLE001
         # Never relay the upstream body — it can echo resource ids.
-        logging.warning("charto transcribe failed: %s", exc)
+        logging.warning("dataserver transcribe failed: %s", exc)
         return {"error": "the speech service rejected the audio — try again"}
     text = " ".join(p.get("text", "")
                     for p in (out.get("combinedPhrases") or [])).strip()
@@ -10360,7 +10368,7 @@ def _translate_to_english(text: str) -> str:
                 if part.get("type") == "output_text" and part.get("text"):
                     return str(part["text"]).strip()
     except Exception as exc:                                # noqa: BLE001
-        logging.warning("charto transcribe translate failed: %s", exc)
+        logging.warning("dataserver transcribe translate failed: %s", exc)
     return text
 
 
@@ -10625,10 +10633,10 @@ def _browser_ticket(me, ip: str) -> tuple[int, dict]:
     query string lands in nginx's access log, so the page trades its session
     here for a short HMAC ticket that the browser service checks with the same
     secret. Signed in only: each live page is a real Chromium on our side."""
-    secret = environ.get("CHARTO_BROWSER_SECRET", "")
+    secret = environ.get("PIVOT_BROWSER_SECRET", "")
     if not secret:
         return 200, {"ok": False, "reason": "unavailable"}
-    local = ip in ("127.0.0.1", "::1") and environ.get("CHARTO_BROWSER_ANON") == "1"
+    local = ip in ("127.0.0.1", "::1") and environ.get("PIVOT_BROWSER_ANON") == "1"
     if not me and not local:
         return 200, {"ok": False, "reason": "signin"}
     import base64
@@ -10638,7 +10646,7 @@ def _browser_ticket(me, ip: str) -> tuple[int, dict]:
     sig = base64.urlsafe_b64encode(hmac.new(secret.encode(), raw.encode(), hashlib.sha256)
                                    .digest()).decode().rstrip("=")
     return 200, {"ok": True, "ticket": f"{raw}.{sig}",
-                 "ws": environ.get("CHARTO_BROWSER_WS") or "/rb/ws"}
+                 "ws": environ.get("PIVOT_BROWSER_WS") or "/rb/ws"}
 
 
 def _web_search_model(q: str) -> dict:
@@ -10700,7 +10708,7 @@ def _web_search_model(q: str) -> dict:
                     for a in c.get("annotations") or []:
                         if a.get("type") == "url_citation" and a.get("url"):
                             cited[norm(a["url"])] = a.get("title") or ""
-    if environ.get("CHARTO_WEB_DEBUG"):
+    if environ.get("PIVOT_WEB_DEBUG"):
         print("[web-search]", json.dumps({"text": text[:300], "cited": list(cited)[:12],
               "calls": [i for i in data.get("output", []) if i.get("type") == "web_search_call"][:2]})[:3000], flush=True)
     rows = []
@@ -12821,7 +12829,7 @@ TOOLS = [
          "another symbol, or simply 'what is GOLD trading at'. Returns the "
          "OHLCV bars themselves, the window's open/last/high/low and change, "
          "optional indicator values and optional support/resistance. "
-         "Any instrument charto holds bars for is readable, whether or not "
+         "Any instrument Pivot holds bars for is readable, whether or not "
          "the user has it open — a symbol does NOT need to be on screen for "
          "you to read it, and telling the user to open a chart first is never "
          "the answer. Anything not yet stored downloads on first use (~6 s). "
@@ -13176,7 +13184,7 @@ TOOLS = [
     # ── the paper book ───────────────────────────────────────────────
     #
     # These four are what turn a draft into something that exists tomorrow.
-    # They are Charto's own — a Charto account is not a Pivot account, and
+    # They are the dataserver's own — a dataserver account is not a Pivot account, and
     # nothing here crosses into Pivot's database (execution_bridge.dispatch
     # documents why that boundary is drawn where it is).
     {"type": "function", "name": "save_strategy",
@@ -13184,7 +13192,7 @@ TOOLS = [
          "Save the strategy draft THIS turn produced and arm it against the "
          "live tick. Call it whenever the user says to keep, save, activate, "
          "arm, deploy, run or turn on the strategy you just built. Once armed, "
-         "Charto evaluates the draft's own condition tree on every bar and "
+         "Pivot evaluates the draft's own condition tree on every bar and "
          "places a SIMULATED order in the user's paper book when it is met — "
          "the shares, the cash and the P&L are all real records of a "
          "simulation, and no real order is ever placed anywhere.\n"
@@ -13494,7 +13502,7 @@ for _n in ("set_alert", "check_alert", "list_alerts", "update_alert",
 def _paper_tool(name: str):
     """The paper book's tools, on the same identity contract as the alerts.
 
-    `_req.user` is the signed-in Charto account or None; signed out resolves to
+    `_req.user` is the signed-in dataserver account or None; signed out resolves to
     0 and every one of these answers honestly that a book belongs to an account
     rather than to a browser tab. That is the whole auth story here — there is
     no anonymous paper book, because a portfolio that vanishes when localStorage
@@ -13514,10 +13522,10 @@ for _n in ("save_strategy", "list_strategies", "pause_strategy",
 
 
 # The user's portfolio is the paper book in Pivot's API — the account the
-# shell's Home, Portfolio and Paper pages show. Charto keeps a second book of
-# its own (paper.py, in charto_users.db) and this tool used to read that one,
+# shell's Home, Portfolio and Paper pages show. The dataserver keeps a second book of
+# its own (paper.py, in users.db) and this tool used to read that one,
 # so a user holding RELIANCE was told they held nothing. Read the account
-# they know, with their own bearer (Pivot accepts a charto session), and fall
+# they know, with their own bearer (Pivot accepts a dataserver session), and fall
 # back to the chart's book only when Pivot cannot be reached — saying so.
 PIVOT_API_ORIGIN = environ.get("PIVOT_API_ORIGIN", "http://127.0.0.1:8000").rstrip("/")
 
@@ -13537,7 +13545,7 @@ def _tool_paper_portfolio(**_):
         summary = _pivot_get("/paper/summary", auth)
         holdings = _pivot_get("/paper/holdings", auth) if summary.get("exists") else []
     except Exception as exc:                       # noqa: BLE001 — fall back, honestly
-        logging.getLogger("charto").warning("paper_portfolio: Pivot API unreachable (%s); using the chart book", exc)
+        logging.getLogger("dataserver").warning("paper_portfolio: Pivot API unreachable (%s); using the chart book", exc)
         out = _paper_tool("tool_paper_portfolio")()
         if isinstance(out, dict):
             out["_source"] = ("the chart's own paper book — the Pivot account "
@@ -13571,7 +13579,7 @@ def _plan_tool(name: str):
         out = getattr(_plans, name)(user_id=(who[0] if who else 0), **args)
         # A registered plan is a commit surface: the manifest has to be on
         # screen with its Activate button, not paraphrased in prose. The card
-        # is added here for the same reason Pivot's are — a card is Charto's
+        # is added here for the same reason Pivot's are — a card is the dataserver's
         # concept and `_card_add` is per-request state the module below the
         # seam has no business reaching into.
         if isinstance(out, dict) and out.get("_render_hint") == "plan_card":
@@ -13590,10 +13598,10 @@ for _n in ("register_plan", "list_plans", "plan_status", "retire_plan"):
 # worked examples that teach it.
 #
 # The card is added HERE rather than inside the bridge because a card is a
-# Charto concept: `_card_take()` is per-request thread-local state the bridge
+# The dataserver concept: `_card_take()` is per-request thread-local state the bridge
 # has no business reaching into. The bridge returns data; the seam decides
 # what the chart shows.
-# Pivot's render hint → Charto's card kind. A hint with no entry here renders
+# Pivot's render hint → the dataserver's card kind. A hint with no entry here renders
 # nothing and the model answers in prose, which is the right failure: a card
 # the FE cannot draw is worse than no card, and an unmapped hint is a missing
 # renderer rather than a broken one. The four quant results share one kind
@@ -13611,7 +13619,7 @@ for _n in ("register_plan", "list_plans", "plan_status", "retire_plan"):
 # just stops drawing it. The plan card is the single rendering of a selection,
 # and it is the one with the button. (On Pivot's own chat the builder card IS
 # the terminal answer, which is why the hint exists at all — the difference is
-# that Charto has somewhere to put a selection and Pivot's chat does not.)
+# that dataserver has somewhere to put a selection and Pivot's chat does not.)
 _PIVOT_CARD_KINDS = {
     "workflow_draft_card": "workflow_draft",
     "indicator_backtest_chart": "strategy_backtest",
@@ -13629,7 +13637,7 @@ _PIVOT_CARD_KINDS = {
 # skill after costs"), and both the card and the model quoted it verbatim, so
 # a backtest read like a statistics paper. Same ladder, same confidence
 # number, said plainly; translated here, at the seam, so Pivot's copy stays
-# right for Pivot and every Charto surface — card and reply — says one thing.
+# right for Pivot and every dataserver surface — card and reply — says one thing.
 _PLAIN_VERDICT = {
     "insufficient_data": ("Too few trades to judge",
                           "There are not enough trades in this window to tell a real pattern "
@@ -13668,7 +13676,7 @@ def _plain_verdicts(obj, depth: int = 0):
 def _pivot_tool(name: str):
     def call(**args):
         # No identity crosses into Pivot's engine — see execution_bridge
-        # .dispatch. Charto's user ids and Pivot's are unrelated numbering
+        # .dispatch. The dataserver's user ids and Pivot's are unrelated numbering
         # schemes over different databases.
         result = execution_bridge.dispatch(name, args)
         _plain_verdicts(result)
@@ -13713,9 +13721,9 @@ def _pivot_tool(name: str):
 
 
 # Borrowed Pivot tools join the dispatch table. This loop ASSIGNS, so a name
-# Charto already owns would be silently replaced — and four of them collide
+# The dataserver already owns would be silently replaced — and four of them collide
 # today: get_indicator, list_strategies, pause_strategy and delete_strategy
-# exist on both sides and all four are in _EXECUTION_CHARTO_TOOLS below.
+# exist on both sides and all four are in _EXECUTION_DATASERVER_TOOLS below.
 #
 # None is in PIVOT_TOOLS right now, so nothing is broken. But the failure is
 # invisible if it ever happens: adding `get_indicator` to that tuple would
@@ -13730,8 +13738,8 @@ _BRIDGE_TOOLS = (*execution_bridge.PIVOT_TOOLS, *execution_bridge.OWN_TOOLS)
 _collisions = sorted(set(_BRIDGE_TOOLS) & set(_DISPATCH))
 if _collisions:
     raise RuntimeError(
-        "execution_bridge.PIVOT_TOOLS would overwrite Charto's own "
-        f"implementation of: {', '.join(_collisions)}. Charto owns anything "
+        "execution_bridge.PIVOT_TOOLS would overwrite the dataserver's own "
+        f"implementation of: {', '.join(_collisions)}. The dataserver owns anything "
         "read off the bar store; Pivot owns the workflow/backtest surface. "
         "Rename one side or drop the name from PIVOT_TOOLS — do not rely on "
         "assignment order."
@@ -13953,7 +13961,7 @@ def _tool_event(call: dict, result, secs: float) -> None:
 # order the model asked — so the merged turn reads exactly as a serial one.
 #
 # Tools that stream their own stages run on this thread, as before.
-_PARALLEL_TOOLS = (environ.get("CHARTO_PARALLEL_TOOLS") or "1") != "0"
+_PARALLEL_TOOLS = (environ.get("PIVOT_PARALLEL_TOOLS") or "1") != "0"
 _TOOL_POOL = None
 _TOOL_POOL_LOCK = threading.Lock()
 _UNSET = object()
@@ -13966,8 +13974,8 @@ def _tool_pool():
         if _TOOL_POOL is None:
             from concurrent.futures import ThreadPoolExecutor
             _TOOL_POOL = ThreadPoolExecutor(
-                max_workers=_env_int("CHARTO_TOOL_WORKERS", 8),
-                thread_name_prefix="charto-tool")
+                max_workers=_env_int("PIVOT_TOOL_WORKERS", 8),
+                thread_name_prefix="pivot-tool")
         return _TOOL_POOL
 
 
@@ -14162,7 +14170,7 @@ def _run_tool(name: str, fn, args: dict) -> dict:
         try:
             out = fn(**args)
         except Exception as exc:  # noqa: BLE001 — a bad call must not kill the turn
-            logging.warning("charto tool %s failed: %s", name, exc)
+            logging.warning("dataserver tool %s failed: %s", name, exc)
             return {"error": f"{name} failed: {exc}"}
     finally:
         _data_slot_release()
@@ -14367,7 +14375,7 @@ answer and the correction is one word away. Ask which they meant when the two
 readings lead somewhere genuinely different and nothing in the conversation
 settles it.
 
-Read any instrument Charto holds bars for, not only the one on screen. Every
+Read any instrument the dataserver holds bars for, not only the one on screen. Every
 chart-reading tool takes `symbol`: when the question names a different one,
 pass it and read it. The chart is the default subject when nobody names one,
 never a limit on what you can look at.
@@ -14619,7 +14627,7 @@ def _execution_context(ctx: dict) -> str:
         f"{iv} is what they are looking at, so it is the sensible default bar "
         f"interval for a rule — not a constraint, and never a question to ask.\n"
         f"NOTHING ELSE ABOUT THE SCREEN MATTERS HERE. You are not limited to "
-        f"instruments the user has open: any symbol charto holds bars for can "
+        f"instruments the user has open: any symbol Pivot holds bars for can "
         f"be read, benchmarked against or backtested. A rule that references "
         f"NIFTY does not require NIFTY to be on screen, and asking the user to "
         f"open a chart before you can compute something is never the answer.\n"
@@ -15064,7 +15072,7 @@ def _suggest_events(messages: list[dict], answer: str):
         yield {"type": "suggest_done", "suggestions": []}
 
 
-# Charto's own tools that execution mode keeps. Two groups, for two reasons.
+# The dataserver's own tools that execution mode keeps. Two groups, for two reasons.
 #
 # The chart READS are here because a strategy is usually described against
 # something visible — "buy when it breaks the level it keeps failing at" needs
@@ -15072,10 +15080,10 @@ def _suggest_events(messages: list[dict], answer: str):
 #
 # The ALERT tools are here because Pivot refuses them. Its proposal tools
 # reject a notify-only draft outright (alerts left that chat surface in
-# 0ae2ded), while Charto's alert engine actually persists a rule, catches up
+# 0ae2ded), while the dataserver's alert engine actually persists a rule, catches up
 # on boot and fires on the live tick. So "tell me when" resolves to the
 # system that can do it, not to the one that would have to apologise.
-_EXECUTION_CHARTO_TOOLS = {
+_EXECUTION_DATASERVER_TOOLS = {
     "get_bars", "get_indicator", "read_indicators", "multi_timeframe",
     "get_patterns", "get_levels", "evaluate_pattern", "get_trend",
     "get_anchors", "get_gaps", "get_trendlines", "plan_position",
@@ -15110,7 +15118,7 @@ _EXECUTION_CHARTO_TOOLS = {
 }
 
 
-# Charto tools that belong to the BUILDER and to nothing else.
+# The dataserver tools that belong to the BUILDER and to nothing else.
 #
 # The plan store is defined in `TOOLS` like everything else — that is where a
 # tool's schema lives — but chat mode must not offer it. Chat is where a user
@@ -15128,10 +15136,10 @@ _EXECUTION_ONLY_TOOLS = frozenset(
 
 
 def _tools_for_request() -> list[dict]:
-    """Chat mode gets Charto's surface; execution mode gets Pivot's builder.
+    """Chat mode gets the dataserver's surface; execution mode gets Pivot's builder.
 
     Execution mode is deliberately NOT a subset of chat — it ADDS Pivot's
-    proposal and backtest tools, which Charto has no local equivalent of, plus
+    proposal and backtest tools, which dataserver has no local equivalent of, plus
     its own registration verbs, and subtracts nothing it can research with.
     """
     if getattr(_req, "chat_mode", "chat") != "execution":
@@ -15143,7 +15151,7 @@ def _tools_for_request() -> list[dict]:
         lab = ([t for t in execution_bridge.tools() if t.get("name") in _RESEARCH_STRATEGY_TOOLS]
                if ready else [])
         return own + lab
-    kept = [t for t in TOOLS if t.get("name") in _EXECUTION_CHARTO_TOOLS]
+    kept = [t for t in TOOLS if t.get("name") in _EXECUTION_DATASERVER_TOOLS]
     return kept + execution_bridge.tools()
 
 
@@ -15155,7 +15163,7 @@ def _tools_for_request() -> list[dict]:
 # line, and when a question needs one it loads it and calls the tool IN THE
 # SAME RESPONSE (measured on gpt-6-luna, 2026-10-10: no extra round). Nothing
 # here routes: the model decides what to load. Execution mode keeps its own
-# fixed surface. CHARTO_TOOL_SEARCH=0 puts every tool back on the wire.
+# fixed surface. PIVOT_TOOL_SEARCH=0 puts every tool back on the wire.
 TOOL_GROUPS: dict[str, tuple[str, tuple[str, ...]]] = {
     "alerts": ("Alerts on price, indicators or the user's drawings: create one, change it, "
                "check whether it would have fired, list them, cancel one.",
@@ -15186,7 +15194,7 @@ TOOL_GROUPS: dict[str, tuple[str, tuple[str, ...]]] = {
                           "whether a reversal is real.", ("plan_position", "confirm_reversal")),
     "memory": ("Search the user's earlier conversations.", ("recall_conversations",)),
 }
-TOOL_SEARCH = (environ.get("CHARTO_TOOL_SEARCH") or "1") != "0"
+TOOL_SEARCH = (environ.get("PIVOT_TOOL_SEARCH") or "1") != "0"
 
 # ── the launch is research ──────────────────────────────────────────────────
 # Pivot launches (2026-10-13) as research and analysis. A simple rule can be
@@ -15194,9 +15202,9 @@ TOOL_SEARCH = (environ.get("CHARTO_TOOL_SEARCH") or "1") != "0"
 # strategy or plan is armed into the paper book, and the Execution tab —
 # whose whole system prompt is the strategy builder — is closed, because an
 # analysis question asked there came back as a draft and a backtest.
-# CHARTO_EXECUTION=1 restores the tab, the arming routes and save_strategy.
-EXECUTION_ENABLED = (environ.get("CHARTO_EXECUTION")
-                     or _env_values("CHARTO_EXECUTION")["CHARTO_EXECUTION"] or "0") == "1"
+# PIVOT_CHART_EXECUTION=1 restores the tab, the arming routes and save_strategy.
+EXECUTION_ENABLED = (environ.get("PIVOT_CHART_EXECUTION")
+                     or _env_values("PIVOT_CHART_EXECUTION")["PIVOT_CHART_EXECUTION"] or "0") == "1"
 _NOT_RUNNING = ("Running strategies is not part of this release. Rules can be "
                 "built and backtested; nothing is armed or traded.")
 
@@ -15568,7 +15576,7 @@ def _stream_once(wire: list[dict], allow_tools: bool, model: str):
 # the ceiling exists for the session-shaped asks — walk the timeframes, mark
 # each, keep notes, fill a sheet — which are five to ten rounds of real work
 # and died at four with the reading done and nothing written down.
-_MAX_TOOL_ROUNDS = _env_int("CHARTO_CHAT_ROUNDS", 12)
+_MAX_TOOL_ROUNDS = _env_int("PIVOT_CHAT_ROUNDS", 12)
 # Why 4 and not 3. Every detector that can DRAW does it in its own call
 # (get_levels, volume_profile, get_indicator), so those finish inside two
 # rounds and drew reliably. get_anchors is the exception by design — it mints
@@ -15685,12 +15693,9 @@ def _wire_messages(messages: list[dict]) -> list[dict]:
 
 # ── execution mode with no engine behind it ─────────────────────────────────
 #
-# `execution_bridge` imports Pivot's automation engine out of the sibling
-# checkout. On this laptop that is the whole repo under Pivot's own venv and
-# the mode works. On the VM it is not there at all: the deploy is a SPARSE
-# checkout of `/charto/` (deploy/deploy.sh), and `/data/app/pivot/` exists only
-# to hold the .env the dataserver reads — no `backend` package, and no fastapi
-# or sqlalchemy in /data/venv to import it with even if there were.
+# `execution_bridge` imports Pivot's automation engine from the sibling api/
+# folder. When that package or its dependencies are missing from a deploy
+# (the old VM shipped the dataserver alone), the engine is simply not there.
 #
 # The bridge already handles that correctly and says so: `available()` returns
 # a user-showable reason, and `tools()` returns []. What nothing did was ASK.
@@ -15715,7 +15720,7 @@ def _execution_unavailable_reply() -> str | None:
         "Strategy building is not available on this server. " + reason
         + "\n\nResearch mode is unaffected — the chart reads, indicators, "
         "patterns, levels and alerts all work. Switch to Research and ask "
-        "there, or run Charto locally, where the engine is on the same disk."
+        "there, or run the dataserver locally, where the engine is on the same disk."
     )
 
 
@@ -16003,7 +16008,7 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
                     yield {"type": "done", "error": _stream_error(ev)}
                     return
         except Exception as exc:  # noqa: BLE001 — a broken stream must not hang the client
-            logging.warning("charto stream failed: %s", exc)
+            logging.warning("dataserver stream failed: %s", exc)
             yield {"type": "done", "error": f"stream failed: {exc}"}
             return
 
@@ -16450,7 +16455,7 @@ class _ThreadDB:
 
     MEMORY. `cache_size` is per connection, so N threads would otherwise claim
     N x the budget. `_CACHE_KIB` is therefore read as a TOTAL and divided by
-    `CHARTO_DB_CACHE_SHARES`. The number that matters is `mmap_size`, which is
+    `PIVOT_DB_CACHE_SHARES`. The number that matters is `mmap_size`, which is
     the OS page cache and is shared by every connection for free — which is why
     dividing the private cache costs little (see the note on _CACHE_KIB below).
 
@@ -16478,7 +16483,7 @@ class _ThreadDB:
 
         A request thread lives for one client connection, and the connection
         it opened here was NOT reclaimed when the thread ended: each finished
-        thread left its `charto_bars.db` and `-wal` handles open. Measured
+        thread left its `bars.db` and `-wal` handles open. Measured
         2026-10-16 — 120 short-lived clients locally took the process from 16
         to 240 handles, and on production ~500 clients reached the 1,024
         open-file limit, after which every chart read failed with "unable to
@@ -16536,8 +16541,8 @@ class _ThreadDB:
 # store is 13 GB against plenty of RAM, the VM store is 23 GB against 8 GB, and
 # there a cold symbol costs 6.24s against 0.74s warm (measured 2026-08-03 on
 # SBIN, 1h/4000 through nginx). Negative = KiB.
-_CACHE_KIB = int(environ.get("CHARTO_CACHE_KIB") or 262144)       # 256 MB
-_MMAP_BYTES = int(environ.get("CHARTO_MMAP_BYTES") or 4294967296)  # 4 GB
+_CACHE_KIB = int(environ.get("PIVOT_CACHE_KIB") or 262144)       # 256 MB
+_MMAP_BYTES = int(environ.get("PIVOT_MMAP_BYTES") or 4294967296)  # 4 GB
 
 # `cache_size` is PER CONNECTION and there is now one per worker thread, so
 # _CACHE_KIB is read as the total budget and divided. This is a smaller change
@@ -16554,15 +16559,15 @@ _MMAP_BYTES = int(environ.get("CHARTO_MMAP_BYTES") or 4294967296)  # 4 GB
 # 32 MB is generous rather than tight, because with mmap_size set the pages are
 # read straight out of the mapping and are NOT copied into this private cache.
 # It only has to keep one query from thrashing inside itself.
-_DB_CACHE_SHARES = max(1, int(environ.get("CHARTO_DB_CACHE_SHARES") or 16))
-_DB_CACHE_MAX_KIB = max(4096, int(environ.get("CHARTO_DB_CACHE_MAX_KIB") or 32768))
+_DB_CACHE_SHARES = max(1, int(environ.get("PIVOT_DB_CACHE_SHARES") or 16))
+_DB_CACHE_MAX_KIB = max(4096, int(environ.get("PIVOT_DB_CACHE_MAX_KIB") or 32768))
 _CACHE_KIB_EACH = max(8192, min(_CACHE_KIB // _DB_CACHE_SHARES,
                                 _DB_CACHE_MAX_KIB))               # 8-32 MB
 _BARS_PRAGMAS = (f"PRAGMA cache_size=-{_CACHE_KIB_EACH}",
                  f"PRAGMA mmap_size={_MMAP_BYTES}")
 
 # The scorer reads its four statement grids through this one call, so it never
-# opens a database of its own — charto's store is the only source, and the
+# opens a database of its own — the dataserver's store is the only source, and the
 # scores stop when the sync does rather than drifting onto Pivot's copy.
 company_scores.bind(_score_grid)
 
@@ -16599,7 +16604,7 @@ except sqlite3.Error as exc:  # noqa: BLE001 — absent sweep degrades, never ki
 _con = _ThreadDB(DB_PATH, _BARS_PRAGMAS,
                  attach=(("mkt", str(_MKT_PATH)),) if _HAVE_MKT else ())
 _daily_cache: dict[str, list[list]] = {}   # symbol -> daily bars (ascending)
-_DAILY_CACHE_MAX = max(1, int(environ.get('CHARTO_DAILY_CACHE') or 256))
+_DAILY_CACHE_MAX = max(1, int(environ.get('PIVOT_DAILY_CACHE') or 256))
 _daily_cache_lock = threading.Lock()
 
 # Resampled INTRADAY series, the same idea one interval down.
@@ -16630,7 +16635,7 @@ _daily_cache_lock = threading.Lock()
 # the symbol wherever `_daily_cache` is dropped. Bypassed entirely when a
 # forming bar exists — that merges live data INTO `rows` before the resample,
 # so its output is not a function of the key.
-_INTRA_CACHE_MAX = max(0, int(environ.get("CHARTO_INTRA_CACHE") or 96))
+_INTRA_CACHE_MAX = max(0, int(environ.get("PIVOT_INTRA_CACHE") or 96))
 _intra_cache: dict[tuple, tuple[list[list], bool]] = {}
 _intra_lock = threading.Lock()
 
@@ -16663,7 +16668,7 @@ def _intra_drop(symbol: str) -> None:
 
 # ── accounts, sessions and saved work ──────────────────────────────────────
 #
-# A SEPARATE database, and that is the whole point. charto_bars.db is a 9.7 GB
+# A SEPARATE database, and that is the whole point. bars.db is a 9.7 GB
 # derived store — rebuilt from the blob universe, re-synced, occasionally
 # dropped and re-imported. Accounts and a user's saved layouts are the only
 # data here that CANNOT be regenerated from an upstream source, so they must
@@ -16679,8 +16684,8 @@ def _intra_drop(symbol: str) -> None:
 # the trade; if this is ever hosted for real, revisit it.
 # Test/dev can isolate account state while reading the same immutable market
 # store. Production keeps the adjacent durable DB unless explicitly overridden.
-_USERS_PATH = Path(environ.get("CHARTO_USERS_DB")
-                   or Path(__file__).parent / "charto_users.db")
+_USERS_PATH = Path(environ.get("PIVOT_USERS_DB")
+                   or Path(__file__).parent / "users.db")
 # Deliberately NOT per-thread, unlike the bar store above. Every account read
 # and write already runs inside `_users_lock` (checked: the only four sites
 # outside it are the import-time migrations below and one helper whose
@@ -16773,7 +16778,7 @@ import analytics as _analytics  # noqa: E402
 
 _ent.bind(_users, _users_lock)
 _ADMIN_EMAILS = {e.strip().lower() for e in
-                 (environ.get("CHARTO_ADMIN_EMAILS") or "").split(",") if e.strip()}
+                 (environ.get("PIVOT_ADMIN_EMAILS") or "").split(",") if e.strip()}
 import referrals as _referral_mod  # noqa: E402
 _referrals = _referral_mod.open_store(_USERS_PATH) if _referral_mod.configured() else None
 
@@ -16905,7 +16910,7 @@ def _plan_sweep_loop() -> None:
             for uid in uids:
                 _alerts.enforce_caps(uid)
         except Exception as exc:                            # noqa: BLE001
-            logging.warning("charto plan sweep failed: %s", exc)
+            logging.warning("dataserver plan sweep failed: %s", exc)
 
 
 # ── parallel charts: a lease per open chart tab ────────────────────────────
@@ -17060,7 +17065,7 @@ def _history_note(uid: int | None, depth: int) -> dict:
 try:
     import journal as _journal
 except Exception as _journal_exc:  # noqa: BLE001
-    logging.warning("charto journal unavailable: %s", _journal_exc)
+    logging.warning("dataserver journal unavailable: %s", _journal_exc)
     _journal = None
 
 # Custom indicators: their own table in this account database, their own
@@ -17069,7 +17074,7 @@ try:
     import custom_indicators as _ci
     import indicator_builder as _ib
 except Exception as _cx_exc:  # noqa: BLE001
-    logging.warning("charto custom indicators unavailable: %s", _cx_exc)
+    logging.warning("dataserver custom indicators unavailable: %s", _cx_exc)
     _ci = _ib = None
 
 # The paper book and the strategy runtime, loaded on the same terms and for the
@@ -17081,14 +17086,14 @@ except Exception as _cx_exc:  # noqa: BLE001
 try:
     import paper as _paper
 except Exception as _paper_exc:  # noqa: BLE001
-    logging.warning("charto paper book unavailable: %s", _paper_exc)
+    logging.warning("dataserver paper book unavailable: %s", _paper_exc)
     _paper = None
 if _paper is not None and _notify is not None:
     _paper.on_fill = _notify.paper_filled
 try:
     import strategies as _strategies
 except Exception as _strat_exc:  # noqa: BLE001
-    logging.warning("charto strategies unavailable: %s", _strat_exc)
+    logging.warning("dataserver strategies unavailable: %s", _strat_exc)
     _strategies = None
 # `plans` last: it imports both of the above, and it is the registration unit
 # for anything with more than one leg — a basket, an immediate order, or a
@@ -17096,13 +17101,13 @@ except Exception as _strat_exc:  # noqa: BLE001
 try:
     import plans as _plans
 except Exception as _plans_exc:  # noqa: BLE001
-    logging.warning("charto plans unavailable: %s", _plans_exc)
+    logging.warning("dataserver plans unavailable: %s", _plans_exc)
     _plans = None
 
 try:
     import brokers as _brokers
 except Exception as _exc:                     # noqa: BLE001
-    logging.getLogger("charto").warning("broker layer not loaded: %s", _exc)
+    logging.getLogger("dataserver").warning("broker layer not loaded: %s", _exc)
     _brokers = None
 
 _SCRYPT = {"n": 2 ** 14, "r": 8, "p": 1}   # ~100ms/hash, OWASP-tier for scrypt
@@ -17126,7 +17131,7 @@ def _carried_ok(password: str, stored: bytes) -> bool:
         import bcrypt
         return bcrypt.checkpw(password.encode()[:72], stored)
     except Exception as exc:                  # noqa: BLE001
-        logging.getLogger("charto").warning("carried password check failed: %s", exc)
+        logging.getLogger("dataserver").warning("carried password check failed: %s", exc)
         return False
 
 
@@ -17279,7 +17284,7 @@ def _auth_login(body: dict) -> tuple[int, dict]:
 # half-verifying — the alternative is a sign-in that skips the audience check,
 # which is the whole security of this exchange.
 GOOGLE_CLIENT_ID = (environ.get("GOOGLE_CLIENT_ID")
-                    or _env_values("GOOGLE_CLIENT_ID")["GOOGLE_CLIENT_ID"]) if (environ.get("CHARTO_GOOGLE_SIGNIN_ENABLED") or "").lower() in ("1", "true", "yes", "on") else ""
+                    or _env_values("GOOGLE_CLIENT_ID")["GOOGLE_CLIENT_ID"]) if (environ.get("PIVOT_GOOGLE_SIGNIN_ENABLED") or "").lower() in ("1", "true", "yes", "on") else ""
 
 _GOOGLE_TOKENINFO = "https://oauth2.googleapis.com/tokeninfo"
 _GOOGLE_USERINFO = "https://www.googleapis.com/oauth2/v3/userinfo"
@@ -17425,7 +17430,7 @@ try:
     import password_reset as _pwreset
     _resets = _pwreset.Resets(_users, _users_lock, _pw_hash)
 except Exception as _exc:                     # noqa: BLE001
-    logging.getLogger("charto").warning("password reset not loaded: %s", _exc)
+    logging.getLogger("dataserver").warning("password reset not loaded: %s", _exc)
     _resets = None
 
 
@@ -17703,7 +17708,7 @@ def _layout_shared_get(token: str) -> tuple[int, dict]:
         return 500, {"error": "this layout's saved state is unreadable"}
     spec.pop("chat", None)          # never travels with a link
     return 200, {"name": r[0], "symbols": [s for s in r[1].split(",") if s],
-                 "updated": r[2], "by": r[4] or "a Charto user",
+                 "updated": r[2], "by": r[4] or "a dataserver user",
                  "read_only": True, "spec": spec}
 
 
@@ -17715,7 +17720,7 @@ try:
     import shares as _shares
     _shares.bind(_users, _users_lock, _layout_free_name)
 except Exception as _shares_exc:  # noqa: BLE001
-    logging.warning("charto shared setups unavailable: %s", _shares_exc)
+    logging.warning("dataserver shared setups unavailable: %s", _shares_exc)
     _shares = None
 
 # A user's own model key or ChatGPT plan driving the chat (byok.py). Optional
@@ -17724,7 +17729,7 @@ try:
     import byok as _byok
     _byok.bind(_users, _users_lock)
 except Exception as _byok_exc:  # noqa: BLE001
-    logging.warning("charto bring-your-own-model unavailable: %s", _byok_exc)
+    logging.warning("dataserver bring-your-own-model unavailable: %s", _byok_exc)
     _byok = None
 
 
@@ -18069,7 +18074,7 @@ def _bar_hook(sym: str, form: list, closed: bool) -> None:
         try:
             fn(sym, form, closed)
         except Exception:                             # noqa: BLE001
-            logging.warning("charto bar hook %s failed on %s",
+            logging.warning("dataserver bar hook %s failed on %s",
                             getattr(fn, "__qualname__", fn), sym, exc_info=True)
 
 
@@ -18170,7 +18175,7 @@ def _replay_run(sym: str, day0: int, rows: list[tuple], speed: float) -> None:
                               int(v or 0) - 3 * part if i == 3 else part)
                 time.sleep(step)
     except Exception as exc:  # noqa: BLE001 — a dead driver must not wedge state
-        logging.warning("charto replay %s failed: %s", sym, exc)
+        logging.warning("dataserver replay %s failed: %s", sym, exc)
     finally:
         with st["lock"]:
             f = st["form"]
@@ -18271,7 +18276,7 @@ def _venue_symbols(venue: str) -> list[str]:
     live and is one minute long.
 
     `kite` used to fall through this function to `[]`, which meant
-    CHARTO_LIVE_VENUES could arm the two crypto venues and never the Indian
+    PIVOT_LIVE_VENUES could arm the two crypto venues and never the Indian
     one: `symbols=ALL` 400'd, so the NSE feed existed only because somebody
     curled /live by hand — and deploy.sh restarts this service on any backend
     change. The store's own 1-minute coverage is the honest list: everything
@@ -18359,11 +18364,11 @@ def _driver_run(venue: str, drv) -> None:
     try:
         ok = drv.start()
         if ok is False:
-            logging.warning("charto live %s: every symbol refused", venue)
+            logging.warning("dataserver live %s: every symbol refused", venue)
         elif callable(runner):
             runner()
     except Exception as exc:                          # noqa: BLE001
-        logging.warning("charto live driver %s stopped: %s", venue, exc)
+        logging.warning("dataserver live driver %s stopped: %s", venue, exc)
         ok = False
     finally:
         # Only a driver whose blocking run() returned has actually finished.
@@ -18600,14 +18605,14 @@ _HEAVY_HTTP_PATHS = frozenset({
 # gate for the reason written at `_is_heavy_http_path`.
 _LIGHT_API_PATHS = ("/api/workflows", "/api/strategies", "/api/portfolio/")
 
-_BACKUP_MARKER = Path(environ.get("CHARTO_BACKUP_MARKER")
+_BACKUP_MARKER = Path(environ.get("PIVOT_BACKUP_MARKER")
                       or "/data/backup/charto_users.last_success.json")
-_BACKUP_MAX_AGE_S = _env_int("CHARTO_BACKUP_MAX_AGE_S", 9000)
-_REQUIRE_FRESH_BACKUP = (environ.get("CHARTO_REQUIRE_FRESH_BACKUP", "1")
+_BACKUP_MAX_AGE_S = _env_int("PIVOT_BACKUP_MAX_AGE_S", 9000)
+_REQUIRE_FRESH_BACKUP = (environ.get("PIVOT_REQUIRE_FRESH_BACKUP", "1")
                          .strip().lower() not in ("0", "false", "no", "off"))
-_REQUIRE_EXECUTION = (environ.get("CHARTO_REQUIRE_EXECUTION", "0")
+_REQUIRE_EXECUTION = (environ.get("PIVOT_REQUIRE_EXECUTION", "0")
                       .strip().lower() in ("1", "true", "yes", "on"))
-_DISK_MIN_FREE_PCT = _env_float("CHARTO_DISK_MIN_FREE_PCT", 10.0)
+_DISK_MIN_FREE_PCT = _env_float("PIVOT_DISK_MIN_FREE_PCT", 10.0)
 
 
 def _is_heavy_http_path(path: str) -> bool:
@@ -18653,9 +18658,9 @@ def _health_report(*, deep: bool = False) -> tuple[int, dict]:
     checks: dict[str, dict] = {}
     # `SELECT 1` is not a check on a store — it is a check on a CONNECTION, and
     # sqlite3.connect() CREATES the file it cannot find. So a deleted or
-    # mispointed CHARTO_DB does not raise here: it answers 1, reports ready,
+    # mispointed PIVOT_DB does not raise here: it answers 1, reports ready,
     # and serves an empty chart to every symbol. Measured 2026-09-01, after the
-    # local charto_bars.db was removed — opening the path left a 0-byte
+    # local bars.db was removed — opening the path left a 0-byte
     # database with no tables and no error anywhere.
     #
     # So ask the store for the one thing it exists to hold. `bars` present and
@@ -19047,17 +19052,17 @@ class Handler(BaseHTTPRequestHandler):
         return 404, {"error": f"no billing route {path}"}
 
     def _billing_consume(self, body: dict) -> tuple[int, dict]:
-        """Metering for OTHER services (pivot's chat). Charto stays the only
+        """Metering for OTHER services (pivot's chat). The dataserver stays the only
         writer of the ledger; pivot asks here instead of opening the file.
 
-        Two ways in: the user's own charto bearer (pivot forwards it), or the
+        Two ways in: the user's own dataserver bearer (pivot forwards it), or the
         service key plus an email, for a pivot account signed in with pivot's
         own JWT. Only quota features can be debited — a caller cannot use
         this route to change a limit or a flag."""
         me = _auth_user(self.headers)
         uid = me[0] if me else None
         plan_override = None
-        key = environ.get("CHARTO_INTERNAL_KEY") or ""
+        key = environ.get("PIVOT_INTERNAL_KEY") or ""
         got = self.headers.get("X-Internal-Key") or ""
         service = bool(key) and hmac.compare_digest(key, got)
         # A refund is the SERVICE saying its own turn failed. An end user's
@@ -19080,7 +19085,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not email:
                     return 400, {"error": "an account email or a client "
                                           "address is required"}
-                # a pivot account with no charto account: its own bucket, at
+                # a pivot account with no dataserver account: its own bucket, at
                 # the Free allowance — signed in, just not here
                 body = {**body, "client": f"email:{email}"}
                 plan_override = "free"
@@ -19280,7 +19285,7 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass
         except Exception as exc:  # noqa: BLE001
-            logging.warning("charto sse failed: %s", exc)
+            logging.warning("dataserver sse failed: %s", exc)
 
     def _send_stream(self, messages: list, context: dict | None,
                      meter: tuple | None = None) -> None:
@@ -19316,7 +19321,7 @@ class Handler(BaseHTTPRequestHandler):
             pass                                       # user navigated away mid-answer
         except Exception as exc:  # noqa: BLE001
             failed = True
-            logging.warning("charto sse failed: %s", exc)
+            logging.warning("dataserver sse failed: %s", exc)
             try:
                 self.wfile.write(
                     f"data: {json.dumps({'type': 'done', 'error': str(exc)})}\n\n".encode())
@@ -19392,7 +19397,7 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass
         except Exception as exc:  # noqa: BLE001
-            logging.warning("charto alerts sse failed: %s", exc)
+            logging.warning("dataserver alerts sse failed: %s", exc)
         finally:
             _alerts.unsubscribe(uid, q)
 
@@ -19424,7 +19429,7 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass
         except Exception as exc:  # noqa: BLE001
-            logging.warning("charto live sse failed: %s", exc)
+            logging.warning("dataserver live sse failed: %s", exc)
         finally:
             with st["lock"]:
                 if q in st["subs"]:
@@ -19498,7 +19503,7 @@ class Handler(BaseHTTPRequestHandler):
             # The Portfolio and Strategies pages, which are Pivot's own
             # components reused unchanged. They read the Agent System's paths,
             # so the mapping is served HERE rather than forked into a 3,000-line
-            # component: a Charto strategy is a workflow, and the two
+            # component: a dataserver strategy is a workflow, and the two
             # vocabularies differ only in their words for it.
             #
             # Ahead of the /api/ company shim below, which would otherwise
@@ -19519,7 +19524,7 @@ class Handler(BaseHTTPRequestHandler):
                 if u.path == "/api/portfolio/performance":
                     return self._send(*_paper.api_performance(
                         me[0], (q.get("period") or ["1Y"])[0]))
-                # Charto has neither options nor equity baskets on this
+                # The dataserver has neither options nor equity baskets on this
                 # surface. An empty list is the honest answer and the tabs are
                 # built to render it; a 404 would read as a fault.
                 if u.path == "/strategies/baskets":
@@ -19545,11 +19550,11 @@ class Handler(BaseHTTPRequestHandler):
                         return self._send(*_strategies.api_workflow(
                             me[0], int(parts[0])))
                 # Runs, positions, approvals — the parts of the Agent System
-                # Charto's runtime has no equivalent of. Empty, not missing.
+                # The dataserver's runtime has no equivalent of. Empty, not missing.
                 return self._send(200, {"items": [], "next_cursor": None})
 
             if u.path.startswith("/api/"):
-                # The company page's own routes, served from charto's store.
+                # The company page's own routes, served from the dataserver's store.
                 age = _api_max_age(u.path)
                 key = u.path + "?" + "&".join(
                     f"{k}={v}" for k, v in sorted(q.items()))
@@ -19767,7 +19772,7 @@ class Handler(BaseHTTPRequestHandler):
                     "fields": SCREEN_FEATURE_HELP,
                     "as_of": (_screen_cache.get("mode_day") or ""),
                     "coverage": len(clean),
-                    "source": "charto_daily_matrix",
+                    "source": "dataserver_daily_matrix",
                 })
             if u.path == "/screen/run":
                 # Pivot chat's market-wide technical scan. The SAME engine the
@@ -20272,7 +20277,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(403, {"error": "Shared replay is disabled until replay is isolated from live data.",
                                     "code": "shared_replay_disabled"})
         if u.path == "/live":
-            key = (environ.get("CHARTO_FEED_CONTROL_KEY") or "").strip()
+            key = (environ.get("PIVOT_FEED_CONTROL_KEY") or "").strip()
             supplied = self.headers.get("X-Pivot-Feed-Key", "")
             if not key or not hmac.compare_digest(key.encode(), supplied.encode()):
                 return self._send(403, {"error": "Operator authorization required."})
@@ -20665,7 +20670,7 @@ class Handler(BaseHTTPRequestHandler):
                         closes = strategy_lab.closes(res)
                     except Exception as exc:                # noqa: BLE001
                         # no closes, no buy & hold line; the run still stands
-                        logging.getLogger("charto").warning("lab closes failed: %s", exc)
+                        logging.getLogger("dataserver").warning("lab closes failed: %s", exc)
             finally:
                 _data_slot_release()
             if res.get("error"):
@@ -20915,7 +20920,7 @@ if __name__ == "__main__":
     # running server, so a driver started through /live shares its state.
     sys.modules.setdefault("dataserver", sys.modules[__name__])
 
-    # CHARTO_LIVE_VENUES="bybit,coinbase" arms those feeds at boot.
+    # PIVOT_LIVE_VENUES="bybit,coinbase" arms those feeds at boot.
     #
     # Without this a stream only exists because somebody curled /live, and the
     # unit is Restart=always — so any crash, deploy or reboot silently returns
@@ -20928,15 +20933,15 @@ if __name__ == "__main__":
     #
     # Deliberately opt-in and deliberately NOT defaulted to every venue: a
     # laptop running this file should not open sockets nobody asked for.
-    for _v in (environ.get("CHARTO_LIVE_VENUES") or "").replace(" ", "").split(","):
+    for _v in (environ.get("PIVOT_LIVE_VENUES") or "").replace(" ", "").split(","):
         if not _v:
             continue
         try:
             _code, _body = _live_stream(_v, _venue_symbols(_v), stop=False)
-            print(f"charto live autostart {_v}: {_code} {_body.get('note') or _body}")
+            print(f"dataserver live autostart {_v}: {_code} {_body.get('note') or _body}")
         except Exception as _exc:                              # noqa: BLE001
             # Never let a venue keep the chart server down — data first.
-            print(f"charto live autostart {_v} FAILED: {_exc}")
+            print(f"dataserver live autostart {_v} FAILED: {_exc}")
 
     # The watcher, after the alias and after the venues: catch_up() replays the
     # window this process was down for, and a feed that is already connecting
@@ -20951,11 +20956,11 @@ if __name__ == "__main__":
         _teach_alert_grammar()
         _alerts_mod.register_hook()
         _boot = _alerts_mod.start()
-        print(f"charto alerts: {_boot.get('armed', 0)} armed on "
+        print(f"dataserver alerts: {_boot.get('armed', 0)} armed on "
               f"{_boot.get('symbols', 0)} symbol(s), "
               f"catch-up {_boot.get('catch_up')}")
     except Exception as _exc:                                  # noqa: BLE001
-        print(f"charto alerts UNAVAILABLE: {_exc}")
+        print(f"dataserver alerts UNAVAILABLE: {_exc}")
     threading.Thread(target=_plan_sweep_loop, name="plan-sweep",
                      daemon=True).start()
 
@@ -20973,7 +20978,7 @@ if __name__ == "__main__":
         _paper.start()
         _strategies.register_hook()
         _sboot = _strategies.start()
-        print(f"charto strategies: {_sboot.get('armed', 0)} armed on "
+        print(f"dataserver strategies: {_sboot.get('armed', 0)} armed on "
               f"{_sboot.get('symbols', 0)} symbol(s), "
               f"catch-up {_sboot.get('catch_up')}")
         # The plan store has no runtime of its own — its conditional legs are
@@ -20984,7 +20989,7 @@ if __name__ == "__main__":
         if _plans is not None:
             _plans.init_db()
     except Exception as _exc:                                  # noqa: BLE001
-        print(f"charto strategies UNAVAILABLE: {_exc}")
+        print(f"dataserver strategies UNAVAILABLE: {_exc}")
 
     # The F&O file is ~1 MB from NSE and a second to parse; fetched now, so
     # the first option chain anyone opens answers from memory.
@@ -20992,7 +20997,7 @@ if __name__ == "__main__":
                      daemon=True).start()
 
     _analytics.init()
-    print(f"charto dataserver on :{PORT} (db={DB_PATH.name})")
+    print(f"dataserver on :{PORT} (db={DB_PATH.name})")
 
     class _Server(ThreadingHTTPServer):
         """ThreadingHTTPServer with a listen queue worth having.

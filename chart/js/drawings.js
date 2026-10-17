@@ -1,4 +1,4 @@
-/* Charto preview — the drawing runtime.
+/* Pivot preview — the drawing runtime.
  *
  * Tools are declarations (js/tools.js); geometry is shared (js/geometry.js).
  * This file owns only the things a tool must never re-implement:
@@ -119,7 +119,7 @@ const Drawings = (() => {
      *  tag it, so "is this any good?" carries a ref instead of leaving the
      *  model to guess which shape "this" meant. */
     /** How a drawing IDENTIFIES itself to the rest of the app — the shape of
-     *  every `charto:draw-select` detail and every `charto:draw-tag` one.
+     *  every `pivot:draw-select` detail and every `pivot:draw-tag` one.
      *
      *  One definition, because the two travel to the same places: the chat
      *  renders this object as the composer's attachment chip, and the chart's
@@ -138,7 +138,7 @@ const Drawings = (() => {
       // selection is on — the primary or a numbered secondary pane — so a
       // toolbar edit lands on the right runtime and mounts over the right pane.
       // The primary leaves it undefined, exactly as it always did.
-      document.dispatchEvent(new CustomEvent("charto:draw-select", {
+      document.dispatchEvent(new CustomEvent("pivot:draw-select", {
         detail: t && { ...t, via: via || "click", paneId: env.paneId || null },
       }));
     }
@@ -147,7 +147,7 @@ const Drawings = (() => {
       try { u = JSON.parse(localStorage.getItem(USAGE_KEY) || "{}"); } catch {}
       u[tool] = (u[tool] || 0) + 1;
       localStorage.setItem(USAGE_KEY, JSON.stringify(u));
-      console.log("[charto:tool-usage]", JSON.stringify(u));
+      console.log("[pivot:tool-usage]", JSON.stringify(u));
     }
 
     // ── panes ───────────────────────────────────────────
@@ -1397,7 +1397,7 @@ const Drawings = (() => {
     };
     // A secondary pane registers so the edit toolbar and the tool router can
     // find it from the paneId a select event carries. The primary does not —
-    // callers reach it as window.__charto.draw, the way they always have.
+    // callers reach it as window.__pivot.draw, the way they always have.
     if (api.paneId) REGISTRY.set(api.paneId, api);
     return api;
   }

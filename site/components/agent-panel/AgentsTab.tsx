@@ -199,7 +199,7 @@ function deriveCadence(wf: WorkflowSummary): string {
   const text = `${wf.name} ${wf.description ?? ""}`.toLowerCase();
   // A condition on a price or an indicator is watched, not run by hand — and
   // this has to be read BEFORE last_run_at, because having fired once is not
-  // what makes something manual. Charto's strategies are all of this kind.
+  // what makes something manual. Pivot's strategies are all of this kind.
   if (text.includes("real-time") || text.includes("price") ||
       text.includes("rsi") || text.includes("sma") || text.includes("ema") ||
       text.includes("indicator")) return "real-time";
@@ -483,7 +483,7 @@ export function AgentsTab({
       };
     }
     return {
-      // Charto's word for these is "strategy" — the chat builds them, the
+      // Pivot's word for these is "strategy" — the chat builds them, the
       // paper book fills them. Pivot calls the same object an agent.
       pageTitle: "Active Strategies",
       label: "Active strategies",

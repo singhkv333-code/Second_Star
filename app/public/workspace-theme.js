@@ -32,7 +32,7 @@
   }
   const contrast = (a,b) => (Math.max(luminance(a),luminance(b))+.05)/(Math.min(luminance(a),luminance(b))+.05);
   const ink = c => contrast(c,"#17191e") >= 4.5 ? "#17191e" : contrast(c,"#f5f5f6") >= 4.5 ? "#f5f5f6" : luminance(c) > .179 ? "#000000" : "#ffffff";
-  // CSS HSL triplets are needed by shadcn; charto consumes ordinary CSS colors.
+  // CSS HSL triplets are needed by shadcn; the chart consumes ordinary CSS colors.
   function hsl(c) {
     const [r,g,b] = rgb(c).map(v => v/255), max = Math.max(r,g,b), min = Math.min(r,g,b), d = max-min;
     let h = 0; const l = (max+min)/2, s = d === 0 ? 0 : d/(1-Math.abs(2*l-1));

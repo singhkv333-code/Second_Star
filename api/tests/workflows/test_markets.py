@@ -274,7 +274,7 @@ def test_sparkline_happy_path(
         ]),
     )
     with patch(
-        "backend.market.charto_bars.series", return_value=[]
+        "backend.market.dataserver_bars.series", return_value=[]
     ), patch(
         "backend.routers.markets.redis_client.get", return_value=None
     ), patch(
@@ -348,7 +348,7 @@ def test_sparkline_prefers_the_chart_store(
 ) -> None:
     """Our own bars answer before Kite or yfinance is touched."""
     own = [(1_790_000_000 + i * 86_400, 100.0 + i) for i in range(10)]
-    with patch("backend.market.charto_bars.series", return_value=own), patch(
+    with patch("backend.market.dataserver_bars.series", return_value=own), patch(
         "backend.routers.markets.yf.Ticker",
         side_effect=AssertionError("yfinance must not be called"),
     ):

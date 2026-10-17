@@ -1,7 +1,7 @@
 """The chart-store reader trims each range to the right window."""
 from unittest.mock import patch
 
-from backend.market import charto_bars as cb
+from backend.market import dataserver_bars as cb
 
 IST = 19800
 

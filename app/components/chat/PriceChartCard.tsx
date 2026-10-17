@@ -4,7 +4,7 @@
  * PriceChartCard — a price chart of one or two companies under a chat reply,
  * shown when the model calls `show_price_chart`.
  *
- * The tool only names the symbols; this card loads their bars from charto's
+ * The tool only names the symbols; this card loads their bars from the dataserver's
  * own store (`/bars`), after the reply has rendered. So the chart costs the
  * turn no latency, and no price ever passes through the model. The plot is
  * the stock page's StockPriceChart: an area for one company, two lines as %
@@ -41,7 +41,7 @@ const SPEC: Record<Range, { interval: string; limit: number; sessions?: number }
   "5Y": { interval: "1w", limit: 260 },
 };
 const COLORS = ["#2962FF", "#fb8500"];
-const IST = 19_800; // charto's bars are true UTC; the axis reads IST
+const IST = 19_800; // the dataserver's bars are true UTC; the axis reads IST
 
 type Bar = { t: number; o: number; h: number; l: number; c: number; v: number };
 type Series = { points: PricePoint[]; volume: VolumePoint[]; base: number; last: Bar };

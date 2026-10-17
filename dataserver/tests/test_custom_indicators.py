@@ -9,7 +9,7 @@ Run: ../../api/.venv/bin/python -m pytest test_custom_indicators.py -q
 import os
 import tempfile
 
-os.environ.setdefault("CHARTO_USERS_DB", os.path.join(tempfile.mkdtemp(), "users.db"))
+os.environ.setdefault("PIVOT_USERS_DB", os.path.join(tempfile.mkdtemp(), "users.db"))
 
 import custom_indicators as ci  # noqa: E402
 import indicator_sandbox as sb  # noqa: E402

@@ -1,4 +1,4 @@
-"""Pattern detection for Charto — candlesticks, chart patterns, market structure.
+"""Pattern detection for the dataserver — candlesticks, chart patterns, market structure.
 
 Three deliberate choices run through this file.
 

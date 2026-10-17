@@ -11,7 +11,7 @@ Why a separate router rather than opening the existing ones:
 
 * **Nothing here reaches a price feed.** Every number comes from a store or a
   cache that the Markets tab, the screener and the stock page already keep
-  warm: the screener's universe and fundamentals maps, charto's end-of-day
+  warm: the screener's universe and fundamentals maps, the dataserver's end-of-day
   matrix, the financials payload, quarterly_metrics and the shareholding
   filings. A crawler walking three thousand pages must not turn into three
   thousand Kite calls; the authenticated `/api/markets/quote` would.

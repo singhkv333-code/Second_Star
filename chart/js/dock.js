@@ -1,4 +1,4 @@
-/* Charto preview — the workspace.
+/* Pivot preview — the workspace.
  *
  * Everything between the tool rail and the conversation is one CANVAS, laid
  * out as a tree of splits: a row or a column of tiles, each of which is
@@ -94,10 +94,10 @@ const Dock = (() => {
   const warmed = new Map();
   function warm(sym) {
     const s = String(sym || "").toUpperCase();
-    if (!s || s === pageSymbol() || typeof window.__chartoWarm !== "function") return;
+    if (!s || s === pageSymbol() || typeof window.__pivotWarm !== "function") return;
     if (Date.now() - (warmed.get(s) || 0) < 60_000) return;
     warmed.set(s, Date.now());
-    window.__chartoWarm(s);
+    window.__pivotWarm(s);
   }
 
   /* ══ state: instances, groups, and the tree ═════════════════════════════
@@ -541,7 +541,7 @@ const Dock = (() => {
   let chartTools = null;
   let chartToolsTarget = CHART;
   let toolsHost = null, toolsRo = null, toolsMo = null, toolsRaf = 0;
-  document.addEventListener("charto:chart-widget-active", (e) => {
+  document.addEventListener("pivot:chart-widget-active", (e) => {
     chartToolsTarget = e.detail.id;
     syncChartTools();
   });
@@ -769,7 +769,7 @@ const Dock = (() => {
     syncDense();
     syncRail();
     if (before) play(before);
-    document.dispatchEvent(new CustomEvent("charto:dock-layout"));
+    document.dispatchEvent(new CustomEvent("pivot:dock-layout"));
     persist();
   }
 
@@ -1071,7 +1071,7 @@ const Dock = (() => {
     const again = pop && pop.__anchor === anchor;
     closePop();
     if (again) return null;
-    if (window.__chartoCloseMenus) window.__chartoCloseMenus(null);
+    if (window.__pivotCloseMenus) window.__pivotCloseMenus(null);
     const p = document.createElement("div");
     p.className = `dropdown floating open dk-menu ${cls}`;
     p.__anchor = anchor;
@@ -1957,7 +1957,7 @@ const Dock = (() => {
   function syncRail() {
     syncHeader();
     if (hubOpen) paintHubState();
-    document.dispatchEvent(new CustomEvent("charto:dock"));
+    document.dispatchEvent(new CustomEvent("pivot:dock"));
   }
 
   /* A widget can ask for attention — the alerts bell's "something fired".

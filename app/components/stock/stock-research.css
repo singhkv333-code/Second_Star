@@ -172,7 +172,7 @@
 .pv-select-menu .head:first-child { margin-top: -2px; }
 
 /* Company news — a quiet editorial stream at the natural end of research.
-   Kept on charto-deploy: StockNewsSection ships here even though the pivot
+   Kept on pivot-deploy: StockNewsSection ships here even though the pivot
    redesign that this file otherwise follows had retired it. */
 .stock-news { margin-top: 52px; padding-top: 28px; border-top: 1px solid var(--research-rule); }
 .stock-news__header { margin-bottom: 14px; }

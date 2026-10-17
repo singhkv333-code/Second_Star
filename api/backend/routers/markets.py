@@ -396,8 +396,8 @@ def get_indices(
             logger.info("[markets] kite index batch failed: %s", str(e)[:160])
     missing = [k for k in _INDICES if k not in got]
     if missing:
-        from backend.market.charto_bars import quotes as charto_quotes
-        for k, cq in charto_quotes(missing).items():
+        from backend.market.dataserver_bars import quotes as dataserver_quotes
+        for k, cq in dataserver_quotes(missing).items():
             if k in _INDICES:
                 got[k] = _index_quote(k, float(cq["last"]), cq.get("prev_close"))
     for k in [k for k in _INDICES if k not in got]:
@@ -877,9 +877,9 @@ def get_sparkline(
     # indices, fed by Kite, on this machine: milliseconds, where the tiers
     # below cost a rate-limited Kite call or a 3 s+ yfinance round trip (which
     # Yahoo has been refusing with 401 since October 2026).
-    from backend.market.charto_bars import RANGES, series as charto_series
+    from backend.market.dataserver_bars import RANGES, series as dataserver_series
 
-    own = charto_series(sym if exchange == "NSE" or _idx is not None else f"BSE:{sym}", range)
+    own = dataserver_series(sym if exchange == "NSE" or _idx is not None else f"BSE:{sym}", range)
     if len(own) >= 2:
         return SparklineResponse(
             symbol=sym, range=range, interval=RANGES[range][0],

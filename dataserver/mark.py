@@ -1,4 +1,4 @@
-"""Charto — the universal marking layer: addresses in, coordinates out.
+"""The dataserver — the universal marking layer: addresses in, coordinates out.
 
 Every other drawing tool here starts from a DETECTOR. get_levels finds
 levels, get_patterns finds patterns, get_anchors mints referenceable points

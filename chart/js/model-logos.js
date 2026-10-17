@@ -1,4 +1,4 @@
-/* Charto preview — logo marks for the AI providers a user can connect.
+/* Pivot preview — logo marks for the AI providers a user can connect.
  *
  * Each is the provider's own mark, used only to say which service a key
  * belongs to. OpenAI, Claude (Anthropic), Google Gemini and OpenRouter are

@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { AdvancedFilterDialog } from "@/components/screener/AdvancedFilterDialog";
 
 describe("AdvancedFilterDialog", () => {
-  it("organises market, fundamental and Charto filters with source context", () => {
+  it("organises market, fundamental and Pivot filters with source context", () => {
     render(<AdvancedFilterDialog value={[]} onChange={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: /all filters/i }));
 

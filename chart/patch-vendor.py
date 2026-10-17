@@ -1,4 +1,4 @@
-"""Re-apply Charto's patches to the vendored lightweight-charts bundle.
+"""Re-apply Pivot's patches to the vendored lightweight-charts bundle.
 
 The vendor directory is gitignored, so this script is the deployable source of
 the small rendering changes. It accepts both known v5.2.0 minifications and the

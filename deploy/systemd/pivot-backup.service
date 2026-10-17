@@ -1,0 +1,18 @@
+[Unit]
+Description=Pivot clean host verified user-state backup
+After=network-online.target
+RequiresMountsFor=/srv/pivot-data
+[Service]
+Type=oneshot
+User=pivot-data
+Group=pivot-runtime
+EnvironmentFile=/etc/pivot/runtime.env
+ExecStart=/bin/bash @RELEASE@/deploy/backup_users.sh
+TimeoutStartSec=10min
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=tmpfs
+ProtectSystem=strict
+ReadWritePaths=/srv/pivot-data
+InaccessiblePaths=/mnt /root /var/lib/waagent /var/lib/cloud

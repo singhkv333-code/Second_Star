@@ -13,7 +13,7 @@ export async function GET(
   context: { params: Promise<{ code: string }> },
 ): Promise<NextResponse> {
   const { code } = await context.params;
-  const upstream = process.env.CHARTO_UPSTREAM || "http://127.0.0.1:5174";
+  const upstream = process.env.PIVOT_DATASERVER_UPSTREAM || "http://127.0.0.1:5174";
   try {
     const response = await fetch(`${upstream}/referrals/visit?code=${encodeURIComponent(code)}`, {
       cache: "no-store",

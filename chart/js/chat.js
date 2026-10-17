@@ -1,4 +1,4 @@
-/* Charto preview — chat pane.
+/* Pivot preview — chat pane.
  *
  * Deliberately NOT a messenger. The thread reads as a document: your turn is
  * a quiet block, the model's turn is bare prose at full measure. Every
@@ -13,8 +13,8 @@
 (function () {
   // same-origin behind a proxy, explicit port in local dev (see main.js)
   const LOCAL_DEV = ["localhost", "127.0.0.1"].includes(location.hostname);
-  // Same origin wherever the chart is served — the Pivot shell on one port, or
-  // nginx on the VM. Only the standalone dev server (serve.py, :5173) is a
+  // Same origin wherever the chart is served — the app's /chart-app route in
+  // dev, or nginx on the VM. Only a standalone static server on :5173 is a
   // second origin, and only it needs the data server addressed directly.
   const API = location.port === "5173" ? "http://127.0.0.1:5174" : "";
   /* Execution mode was laptop-only while the deployed box had nowhere to keep
@@ -27,8 +27,8 @@
    * phone menu are all governed by a single rule. Set false and the switch
    * stays, inert, saying "Coming soon" on hover.
    *
-   * Off for the research launch (2026-10-13): the page's CHARTO_EXECUTION. */
-  const EXECUTION_ENABLED = window.CHARTO_EXECUTION === true;
+   * Off for the research launch (2026-10-13): the page's PIVOT_CHART_EXECUTION. */
+  const EXECUTION_ENABLED = window.PIVOT_CHART_EXECUTION === true;
   const el = (id) => document.getElementById(id);
   const msgsEl = el("chatMsgs"), threadEl = el("thread"), input = el("chatInput"),
         sendBtn = el("chatSend"), panel = el("chatPanel");
@@ -274,7 +274,7 @@
     row.style.display = j ? "" : "none";
     row.innerHTML = j ? `<span class="draw-tag journal-tag">${journalTagInner(j, true)}</span>` : "";
   }
-  document.addEventListener("charto:journal-chat", (e) => {
+  document.addEventListener("pivot:journal-chat", (e) => {
     setJournalTag(e.detail); panel.classList.remove("hidden"); el("splitter").classList.remove("hidden");
     el("chatToggle").classList.add("on"); input.placeholder = "Ask about this trade…"; input.focus();
   });
@@ -332,8 +332,8 @@
   }
   // Only an explicit "Ask in chat" on the drawing's card tags it — selecting
   // a shape to drag or edit must never attach it to the conversation.
-  document.addEventListener("charto:draw-tag", (e) => {
-    if (e.detail) reveal();     // same reason as charto:compose — see reveal()
+  document.addEventListener("pivot:draw-tag", (e) => {
+    if (e.detail) reveal();     // same reason as pivot:compose — see reveal()
     setDrawTag(e.detail);
     input.focus();
   });
@@ -349,7 +349,7 @@
     el("attachRow").style.display = uri ? "" : "none";
     if (uri) el("attachThumb").src = uri;
   }
-  document.addEventListener("charto:screenshot", (e) => {
+  document.addEventListener("pivot:screenshot", (e) => {
     el("shotPopImg").src = e.detail.uri;
     el("shotPop").style.display = "";
     el("shotAttach").onclick = () => {
@@ -553,7 +553,7 @@
     return out.join("");
   }
 
-  window.__chartoMd = md;   // sandbox debug hook, same spirit as window.__charto
+  window.__pivotMd = md;   // sandbox debug hook, same spirit as window.__pivot
 
   // ── thread ────────────────────────────────────────────
   function clearEmpty() {
@@ -710,7 +710,7 @@
 
   /* ── the wait ────────────────────────────────────────────────────────────
    *
-   * Pivot's waiting indicator, in Charto's words. A breathing dot labelled
+   * Pivot's waiting indicator, in Pivot's words. A breathing dot labelled
    * "Thinking…" said only that something was happening — and on a turn that
    * reads six tools before it writes a word, "something" is the least useful
    * thing it could say. This is the shape Pivot settled on instead: a
@@ -1015,11 +1015,11 @@
   function liveQueue(turn, fn) {
     turn.__live = (turn.__live || Promise.resolve())
       .then(fn)
-      .catch((e) => console.warn("[charto] live chart op failed", e));
+      .catch((e) => console.warn("[pivot] live chart op failed", e));
     return turn.__live;
   }
   function liveViewOp(turn, op) {
-    const c = window.__charto;
+    const c = window.__pivot;
     if (!c || op.seq == null) return;
     if (op.kind === "set_interval" && c.switchInterval) {
       (turn.__liveSeq || (turn.__liveSeq = new Set())).add(op.seq);
@@ -1252,7 +1252,7 @@
           // Drawn as the tool finds it, on the chart it was found on — queued
           // behind any chart switch this turn already asked for.
           turn.__liveScene = true;
-          liveQueue(turn, () => window.__charto && window.__charto.applyScenePatch(ev.patch || []));
+          liveQueue(turn, () => window.__pivot && window.__pivot.applyScenePatch(ev.patch || []));
         } else if (ev.type === "tool_start") {
           // the tool is RUNNING — say so now, not when it lands, or a
           // 20-second evaluation shows the step before it the whole time
@@ -1266,7 +1266,7 @@
           // while the reply is still being written (js/agentws.js)
           if (ev.op && ev.op.kind === "workspace" && typeof AgentWS !== "undefined") {
             turn.__wsKey = turn.__wsKey || `ws${Date.now()}`;
-            try { AgentWS.apply(ev.op, turn.__wsKey); } catch (e) { console.warn("[charto] workspace op", e); }
+            try { AgentWS.apply(ev.op, turn.__wsKey); } catch (e) { console.warn("[pivot] workspace op", e); }
           } else if (ev.op) {
             liveViewOp(turn, ev.op);
           }
@@ -1287,7 +1287,7 @@
             // anything a panel writes onto itself later (a backtest run from a
             // draft card) would mutate a record nobody saves.
             (turn.__cardRecs || (turn.__cardRecs = [])).push(ev.card);
-          } catch (e) { console.warn("[charto] card failed", e); }
+          } catch (e) { console.warn("[pivot] card failed", e); }
         } else if (ev.type === "done") {
           // Show whatever the smoothing buffer was still holding, then stop.
           // Without the cancel, a queued frame lands AFTER finishTurn has
@@ -1300,7 +1300,7 @@
           done.text = done.text || text;
           // Every answer reports the credits left; the composer shows them
           // (js/paywall.js). Absent when the turn is unmetered.
-          if (ev.credits) document.dispatchEvent(new CustomEvent("charto:credits", { detail: ev.credits }));
+          if (ev.credits) document.dispatchEvent(new CustomEvent("pivot:credits", { detail: ev.credits }));
           settled = true;
           settle(done);          // the turn is answered; the tail is follow-ups
         } else if (ev.type === "suggest_delta") {
@@ -1357,9 +1357,9 @@
     // a restored session renders before this fetch lands — mark it now that
     // the map exists, or a reopened conversation would lose every logo
     document.querySelectorAll(".prose").forEach((p) => {
-      try { linkCompanies(p); } catch (e) { console.warn("[charto] mark failed", e); }
+      try { linkCompanies(p); } catch (e) { console.warn("[pivot] mark failed", e); }
     });
-  }).catch((e) => { console.warn("[charto] symbols fetch failed", e); SYMS = new Set(); });
+  }).catch((e) => { console.warn("[pivot] symbols fetch failed", e); SYMS = new Set(); });
 
   /** Put each company's logo before its NAME — in TABLES only. Prose names the
    *  same company several times a paragraph, and a mark on each one is
@@ -1843,7 +1843,7 @@
    * was rendered from and says so here — the alternative is cards.js reaching
    * into `turns`, which would give two files an opinion about what a thread
    * is. The record is already the same object; this only makes it durable. */
-  document.addEventListener("charto:card-updated", () => saveTurns());
+  document.addEventListener("pivot:card-updated", () => saveTurns());
 
   function failTurn(turn, msg, ours = false) {
     endWait(turn);
@@ -1998,7 +1998,7 @@
       // missing illustration is worth one blank square, never a dead panel.
       let art = "";
       try { art = Icons.tile(t.icon); }
-      catch (e) { console.warn("[charto] no tile for", t.icon); }
+      catch (e) { console.warn("[pivot] no tile for", t.icon); }
       return `<button type="button" class="tpl-card" data-q="${attr(q)}"${act}>`
         + `<span class="tpl-box">${art}</span>`
         + `<span class="tpl-name">${attr(t.label)}</span></button>`;
@@ -2144,7 +2144,7 @@
     if (!card) return;
     if (card.dataset.act === "shot") {
       // The camera button's own "Full chart" item — same path, one owner.
-      // It ends at charto's review popover (Attach / Dismiss) rather than
+      // It ends at pivot's review popover (Attach / Dismiss) rather than
       // attaching outright, and that is left alone on purpose: the capture
       // is confirmed in exactly one place no matter who asked for it.
       const item = document.querySelector('#shotMenu [data-shot="full"]');
@@ -2250,8 +2250,8 @@
       // rather than from whatever happens to be selected now, and what came
       // back is recorded: a layout change can retire a chosen pane, and the
       // fallback has to be visible rather than silent.
-      let context = window.__charto
-        ? window.__charto.getChartContext(chosenCharts().map((c) => c.pane)) : null;
+      let context = window.__pivot
+        ? window.__pivot.getChartContext(chosenCharts().map((c) => c.pane)) : null;
       if (journal) context = Object.assign({}, context || {}, { journal });
       // what is on the desk, for the workspace tool: a manifest of widgets,
       // their contents for `read`, the catalog of kinds, and how the last
@@ -2361,22 +2361,22 @@
           // this is the path for a reply that arrived without the stream
           if (op.kind === "workspace" && typeof AgentWS !== "undefined") {
             turn.__wsKey = turn.__wsKey || `ws${Date.now()}`;
-            try { AgentWS.apply(op, turn.__wsKey); } catch (e) { console.warn("[charto] workspace op", e); }
+            try { AgentWS.apply(op, turn.__wsKey); } catch (e) { console.warn("[pivot] workspace op", e); }
             continue;
           }
           // Ink computed on a timeframe the chart is not showing: move the
           // chart there first, so the drawing below lands where it was made.
           if (turn.__liveSeq && op.seq != null && turn.__liveSeq.has(op.seq)) continue;
-          if (op.kind === "set_interval" && window.__charto?.switchInterval) {
-            try { await window.__charto.switchInterval(op.interval); }
-            catch (e) { console.warn("[charto] set_interval failed", op, e); }
+          if (op.kind === "set_interval" && window.__pivot?.switchInterval) {
+            try { await window.__pivot.switchInterval(op.interval); }
+            catch (e) { console.warn("[pivot] set_interval failed", op, e); }
             continue;
           }
-          if (op.kind !== "open_chart" || !window.__charto?.panes) continue;
+          if (op.kind !== "open_chart" || !window.__pivot?.panes) continue;
           try {
-            window.__charto.panes.openChart(op.symbol, op.interval, op.replace);
+            window.__pivot.panes.openChart(op.symbol, op.interval, op.replace);
           } catch (e) {
-            console.warn("[charto] open_chart failed", op, e);
+            console.warn("[pivot] open_chart failed", op, e);
           }
         }
         // After the opens: an alert on a symbol this same turn put on screen
@@ -2388,19 +2388,19 @@
         // turn comes back, not now.
         if (alertsStale && typeof Alerts !== "undefined") {
           Promise.resolve(Alerts.load()).catch((e) =>
-            console.warn("[charto] alert refresh failed", e));
+            console.warn("[pivot] alert refresh failed", e));
         }
       }
 
       // Apply anything the model chose to draw. Guarded like the open above:
       // the answer is already written and filed, and a patch that throws must
       // cost the drawing, never the reply.
-      if (d.scene_patch && d.scene_patch.length && window.__charto && !turn.__liveScene) {
+      if (d.scene_patch && d.scene_patch.length && window.__pivot && !turn.__liveScene) {
         try {
           // each mark to the pane it was computed on — see main.js
-          window.__charto.applyScenePatch(d.scene_patch);
+          window.__pivot.applyScenePatch(d.scene_patch);
         } catch (e) {
-          console.warn("[charto] scene patch failed", e);
+          console.warn("[pivot] scene patch failed", e);
         }
       }
 
@@ -2647,7 +2647,7 @@
       + `</span>`;
   }
 
-  document.addEventListener("charto:pins", (e) => {
+  document.addEventListener("pivot:pins", (e) => {
     const n = e.detail.length;
     // The caption is the whole point of the row: a pin is context for the
     // NEXT message, not an action, and nothing else on screen says that.
@@ -2661,12 +2661,12 @@
   pinRow.addEventListener("click", (e) => {
     const un = e.target.closest("[data-unpin]");
     if (un) {
-      document.dispatchEvent(new CustomEvent("charto:unpin", { detail: Number(un.dataset.unpin) }));
+      document.dispatchEvent(new CustomEvent("pivot:unpin", { detail: Number(un.dataset.unpin) }));
       return;
     }
     const find = e.target.closest("[data-find]");
     if (find) {
-      document.dispatchEvent(new CustomEvent("charto:reveal-pin", { detail: Number(find.dataset.find) }));
+      document.dispatchEvent(new CustomEvent("pivot:reveal-pin", { detail: Number(find.dataset.find) }));
     }
   });
   pinRow.addEventListener("keydown", (e) => {
@@ -2674,7 +2674,7 @@
     const chip = e.target.closest("[data-find]");
     if (!chip) return;
     e.preventDefault();
-    document.dispatchEvent(new CustomEvent("charto:reveal-pin", { detail: Number(chip.dataset.find) }));
+    document.dispatchEvent(new CustomEvent("pivot:reveal-pin", { detail: Number(chip.dataset.find) }));
   });
 
   /** The panel, if it is not already up. A tag that lands in a composer the
@@ -2686,7 +2686,7 @@
   }
 
   // Seed the composer from elsewhere in the app — text only, never a send.
-  document.addEventListener("charto:compose", (e) => {
+  document.addEventListener("pivot:compose", (e) => {
     reveal();
     input.value = (input.value ? input.value.replace(/\s*$/, " ") : "") + e.detail;
     input.focus();
@@ -2725,8 +2725,8 @@
 
   /** The open charts, primary first. Before main.js has finished booting there
    *  is exactly one and it is the page's own symbol. */
-  const openCharts = () => (window.__charto && window.__charto.charts)
-    ? window.__charto.charts()
+  const openCharts = () => (window.__pivot && window.__pivot.charts)
+    ? window.__pivot.charts()
     : [{ pane: 0, symbol: Sym.name, interval: "", primary: true }];
 
   /** The chosen panes as chart records, dropping any the layout has retired.
@@ -2735,7 +2735,7 @@
   function chosenCharts() {
     const open = openCharts();
     if (!pinned) {
-      const a = window.__chartoActivePane || 0;
+      const a = window.__pivotActivePane || 0;
       return [...open.filter((c) => c.pane === a), ...open.filter((c) => c.pane !== a)];
     }
     const byPane = new Map(open.map((c) => [c.pane, c]));
@@ -2805,7 +2805,7 @@
       e.stopPropagation();
       if (it.dataset.pane === "follow") {
         pinned = false;
-        chosen = [(window.__chartoActivePane || 0)];
+        chosen = [(window.__pivotActivePane || 0)];
         close(); paintCtxFlag();
         return;
       }
@@ -2825,15 +2825,15 @@
 
   // The selected chart is the subject — the same signal that re-aims the
   // toolbar. A pinned set ignores it.
-  document.addEventListener("charto:pane-active", (e) => {
-    window.__chartoActivePane = e.detail.pane;
+  document.addEventListener("pivot:pane-active", (e) => {
+    window.__pivotActivePane = e.detail.pane;
     if (pinned) return;
     chosen = [e.detail.pane];
     paintCtxFlag();
   });
   // A layout change retires panes; the chip must stop naming charts that are
   // no longer on screen.
-  document.addEventListener("charto:panes-changed", () => {
+  document.addEventListener("pivot:panes-changed", () => {
     const open = new Set(openCharts().map((c) => c.pane));
     const keep = chosen.filter((p) => open.has(p));
     chosen = keep.length ? keep : [0];

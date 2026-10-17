@@ -377,7 +377,7 @@ async def startup():
     from backend.utils.time_utils import format_ist, now_ist
 
     # See config.background_jobs_enabled: on the shared VM these belong to
-    # Charto, and a second scheduler there costs a core the live tick engine
+    # The dataserver, and a second scheduler there costs a core the live tick engine
     # needs. Announced rather than silent, so a box that is missing its jobs
     # says so in its own log instead of looking healthy and doing nothing.
     if not getattr(settings, "background_jobs_enabled", True):

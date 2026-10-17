@@ -2,7 +2,7 @@
  * The shell's own images, bundled rather than addressed by a root path.
  *
  * In production nginx sends only the shell's pages and `/_next/` to this app;
- * every other root path falls through to charto's data server. A file in
+ * every other root path falls through to the dataserver. A file in
  * `public/` addressed as `/loaders/x.svg` therefore answered the data
  * server's 404 (or, under `/brokers/`, its broker API's 401), and the loader
  * rendered as a broken image reading "Loading". A bundled asset is emitted
@@ -19,7 +19,7 @@
 const asset = (u: URL): string => u.pathname;
 
 export const LOADER_CUBES = asset(new URL("../public/loaders/isometric-cubes.svg", import.meta.url));
-export const CHARTO_MARK = asset(new URL("../public/charto-mark.png", import.meta.url));
+export const PIVOT_MARK = asset(new URL("../public/pivot-mark.png", import.meta.url));
 export const PIVOT_ICON = asset(new URL("../public/pivot-icon.png", import.meta.url));
 export const PIVOT_LIGHT = asset(new URL("../public/pivot-light.png", import.meta.url));
 /** The welcome cards' art: two public-domain paintings and a generated one (scripts/welcome-art.py). */

@@ -1,4 +1,4 @@
-/* Charto preview — alerts: the client half of the watcher.
+/* Pivot preview — alerts: the client half of the watcher.
  *
  * The engine is data/alerts.py. This file is three things and nothing else:
  * the state the Alerts widget paints, the stream that tells it something
@@ -54,7 +54,7 @@ const Alerts = (() => {
    *  Anything indicator-, volume-, drawing- or expression-based stays in the
    *  Alerts panel because putting it on the price scale would be a lie. */
   function alertPrice(a) {
-    if (!a || a.symbol !== window.__charto?.symbol || !Array.isArray(a.when)) {
+    if (!a || a.symbol !== window.__pivot?.symbol || !Array.isArray(a.when)) {
       return null;
     }
     const c = a.when[0] || {};
@@ -69,7 +69,7 @@ const Alerts = (() => {
   }
 
   function syncChartLines() {
-    const series = window.__charto?.candle;
+    const series = window.__pivot?.candle;
     if (!series || !series.createPriceLine || !series.removePriceLine) return;
     const keep = new Set();
     for (const a of state.alerts) {
@@ -226,10 +226,10 @@ const Alerts = (() => {
   };
   Theme.onChange(() => { syncChartLines(); syncBadges(); });
   // The chart-type switcher rebuilds the price series, taking its price lines
-  // (and __charto.candle) with it. Our map still names the old, destroyed
+  // (and __pivot.candle) with it. Our map still names the old, destroyed
   // lines, whose state keys match — so without this the alert lines would not
   // be redrawn on the new series. Forget them, then re-sync onto it.
-  document.addEventListener("charto:series-swapped", () => {
+  document.addEventListener("pivot:series-swapped", () => {
     chartLines.clear();
     syncChartLines();
     syncBadges();
@@ -239,7 +239,7 @@ const Alerts = (() => {
    *  DOM click for them. Hit-test their y coordinate against the price pane,
    *  then keep the interaction entirely in this module: select, drag, save. */
   function pricePane() {
-    const series = window.__charto?.candle;
+    const series = window.__pivot?.candle;
     const pane = series?.getPane && series.getPane();
     const node = pane?.getHTMLElement && pane.getHTMLElement();
     return series && node ? { series, node, rect: node.getBoundingClientRect() } : null;
@@ -539,7 +539,7 @@ const Alerts = (() => {
     try {
       const n = new Notification("Pivot alert", {
         body: `${line}\n${l.meta || ""} · saw ${l.value}`,
-        tag: `charto-alert-${l.id}`, silent: false,
+        tag: `pivot-alert-${l.id}`, silent: false,
       });
       n.onclick = () => {
         window.focus();

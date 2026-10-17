@@ -5,7 +5,8 @@
 > here drift from code, **the code wins** — verify file/flag/tool names before
 > relying on them. For anything touching a database, read `docs/DATA_MAP.md`
 > first; two of our stores are silently shared and fail without erroring.
-> (Last meaningful update: 2026-09-05. Branch `codex/vercel-waitlist-postgres`.)
+> (Last meaningful update: 2026-10-17, the cleanup and folder layout. `README.md`
+> is the folder map; `deploy/README.md` is how the VM runs it.)
 
 ---
 
@@ -114,28 +115,27 @@ Identity-level. Violating one is never "a small bug."
 
 ## 5. Architecture as it actually runs
 
-Four services behind one nginx on
-`pivot-india.centralindia.cloudapp.azure.com` (VM `Claudecodeforpivot`;
-**ssh is closed — use `az vm run-command`**).
+Behind nginx on `app.pivotnow.in` and `pivot-india.centralindia.cloudapp.azure.com`
+(VM `pivot-clean-stage`; **no ssh — use `az vm run-command`**, which runs as root).
+The release is a trimmed copy of this repo; `deploy/README.md` has the details.
 
-| Port | Service | Owns |
-|---|---|---|
-| `:5174` | **charto dataserver** (`dataserver/dataserver.py`) | Bars, indicators, patterns, the chart scene, drawings, alerts, live ticks, the paper book, armed strategies, auth |
-| `:5175` | **site** (Next.js) | The company page `/stock/[symbol]`, `/paper`, `/strategies` |
-| `:5176` | **pivotted** (`research/server.py`) | `/research/` — the filings + fundamentals research chat behind the company page's ask bar |
-| `:8000` | **pivot API** (FastAPI) | *Not deployed yet.* Workflows DSL, backtesters, the tool registry, options, screener |
-| `:3000` | **pivot-next** (Next.js) | *Not deployed yet.* The intended one app |
+| Port | Unit | Source | Owns |
+|---|---|---|---|
+| `:3000` | `pivot-app` | `app/` (Next.js) | The product: workspace shell, chat, stock pages, screener, strategies, paper, sign-in, public SEO pages |
+| `:5174` | `pivot-dataserver` | `dataserver/` | Bars, indicators, patterns, the chart's chat and scene, drawings, alerts, live ticks, accounts and sessions, billing, the paper book, armed strategies |
+| `:8000` | `pivot-api` | `api/` (FastAPI, package `backend`) | The full chat, tool registry, workflows DSL, backtesters, fundamentals, screener, options, `/api/public/*` |
+| `:5175` | `pivot-site` | `site/` (Next.js) | `/paper`, `/strategies`, `/brokers` on the VM; the same app is www.pivotnow.in on Vercel |
 
-`chart` (vanilla JS + a vendored Lightweight Charts v5) is served
-straight off disk by nginx at `/`, so preview edits are live immediately — but
-**every `<script>` carries a `?v=N` stamp that must be bumped on every JS edit.**
+`chart/` (vanilla JS over a patched Lightweight Charts v5) is served straight
+from the release by nginx at `/` and `/chart-app/`, and mounted in the shell —
+**every `<script>` carries a `?v=N` stamp that must be bumped on every edit.**
 
-**pivot is a library in production, not a service.** `dataserver/execution_bridge.py`
-imports `backend.agents.tools`, `backend.prompts.assembler`,
+**The API is also a library.** `dataserver/execution_bridge.py` imports
+`backend.agents.tools`, `backend.prompts.assembler`,
 `backend.services.tool_registry` and `backend.workflows.*` to borrow the
-strategy engine; `research/fundamentals.py` imports `backend.market.financials_db`
-rather than re-deriving the numbers. Both are deliberate — one derivation, one
-set of numbers.
+strategy engine, and `research/` imports `backend.market.financials_db` rather
+than re-deriving the numbers. Both are deliberate — one derivation, one set of
+numbers.
 
 ### Data — read `docs/DATA_MAP.md` before touching any store
 
@@ -143,14 +143,15 @@ One Postgres server (`pivot-db-india`, Central India, PG 18) with three
 databases — `pivot_db`, `financials`, `pivot_enrich` — plus two SQLite files
 on the VM. Two traps that have already cost us:
 
-- **`charto_users.db` is not an auth database.** It is the whole live
+- **The users database is not an auth database.** (`/srv/pivot-data/charto_users.db`
+  on the VM, `dataserver/users.db` locally, `PIVOT_USERS_DB` either way.) It is the whole live
   user-state plane: users (the **11 real accounts**), sessions, workspace,
   layouts, conversations, alerts, the paper book, armed strategies and the
   journal — all through one shared connection and lock (`ds._users`). You
   cannot migrate "just auth" out of it.
 - **`pivot_db` is upstream master and fails silently.** Quarterly data,
   instrument master and company identity live there and reach the user through
-  `sync_*.py` into `charto_bars.db`. Charto reads the *cache*, so a broken
+  `dataserver/jobs/sync_*.py` into the bars store. The dataserver reads the *cache*, so a broken
   upstream shows up as data that stops advancing, never as an error.
 
 **Market data:** Zerodha Kite is primary (live quotes, historical OHLCV, F&O);
@@ -210,7 +211,7 @@ user message
 ## 7. Subsystem map
 
 - **Chart engine** (`chart/`, `dataserver/`) — 26k lines of vanilla
-  JS over a vendored Lightweight Charts v5 (see `preview/VENDOR_PATCHES.md`),
+  JS over a vendored Lightweight Charts v5 (see `chart/VENDOR_PATCHES.md`),
   against a 497M-row minute store. 26 indicators computed **server-side** (the
   FE fetches, never computes), 34 candle + 22 chart patterns with base-rate
   controls, a 15-tool fib/Gann ratio rail, volume profile, drawings addressable
@@ -221,7 +222,7 @@ user message
   branching in v1). Idempotent actions, persist-before-external-call, per-step
   retries, approval gating, advisory lock, schema validation at every boundary.
   The DSL evaluator is driven through a **five-method `DataAccessor` Protocol**,
-  which is why charto needs one accessor (`strategies.py:299`), not a translator.
+  which is why the dataserver needs one accessor (`strategies.py:299`), not a translator.
 - **Backtester** (`backtester/`, `services/backtest/`) — the differentiator is
   the **trust ladder**: Deflated Sharpe, Minimum Track Record Length, block-
   bootstrap Monte Carlo, walk-forward, a no-skill permutation test, a trial
@@ -233,8 +234,8 @@ user message
   fires `late=1`; the tick hook swallows every exception, because an exception
   in `_live_on_tick` loses the minute.
 - **Paper trading** (`dataserver/paper.py`, `api/backend/paper/`) — the
-  simulated book that armed strategies fill into. Charto's tables in
-  `charto_users.db` hold the live positions.
+  simulated book that armed strategies fill into. The dataserver's tables in
+  `users.db` hold the live positions.
 - **Options / F&O** (`services/option_strategies.py`, `strategy_builder.py`) —
   15+ templates with live greeks/payoff/margin/POP + rule-based critique.
   **APScheduler jobs must be module-level** (closures kill the scheduler).
@@ -246,9 +247,11 @@ user message
 - **Research** (`research/`) — filings (577,952 grounded facts over 3,892
   companies), Moneycontrol quarterly, shareholding. Model READS, code COMPUTES,
   three grounding gates.
-- **Events** (`macro_events/`, `triggers/`) — a hardcoded 2026 macro calendar
-  (RBI MPC, CPI, FOMC) plus a verifier that reads the real outcome before
-  firing. Fail-safe: never false-fires.
+- **Events** (`api/backend/macro_events/`, `earnings_events/`, `triggers/`) — a
+  hardcoded 2026 macro calendar (RBI MPC, CPI, FOMC) that validates drafted
+  triggers, and an earnings verifier the scheduler runs. The macro verifier and
+  its poll loop were removed: a `trigger.scheduled_macro` (or
+  `trigger.polymarket`) workflow saves but nothing fires it.
 - **Screener, themes, baskets** (`services/thematic_map.py`,
   `sector_universe.py`, `weighting.py`) — ~19 sectors, ~200 tickers, weighting
   schemes equal/mcap/risk-parity/min-variance/black-litterman/factor.
@@ -262,15 +265,16 @@ a deploy path. Every new surface follows that template.
 
 - **Commit freely; ask before pushing** — any branch, any remote.
 - Kite is primary for market data; tag the relay when `source != "kite"`.
-- Ports: `3000` pivot-next · `8000` pivot API · `5174` charto · `5175`
-  site · `5176` pivotted.
-- **The VM's ssh is closed** — use `az vm run-command`, which runs as **root**,
-  so `git` needs `sudo -u azureuser`. Deploy polls the `charto-deploy` branch
-  every 30s. `deploy.sh` does `git reset --hard` (wipes unpushed VM edits).
-- **nginx has a route allowlist.** Unlisted routes silently return 200 with
-  `index.html` — they never 404. Apply with `deploy/apply_nginx.sh` (self-
-  applies with rollback) and gate with `deploy/check_routes.sh`.
-- Bump `?v=N` on every edited `chart` JS file.
+- Ports: `3000` app · `5174` dataserver · `8000` api · `5175` site.
+- **`production-live` is production.** The VM's deployer follows it every
+  minute; pushing it deploys. It never applies nginx, systemd or pip changes —
+  those are installed by hand from `deploy/nginx/` and `deploy/systemd/`, with a
+  backup, a test and a reload. Gate routes with `deploy/check_routes.sh`.
+- **The VM still runs the old layout until `deploy/cutover_layout.sh` runs.**
+  Never push a commit with the new folders to `production-live` before that.
+- Bump `?v=N` in `chart/index.html` on every edited `chart/js` or `chart/css` file.
+- `CHARTO_*` environment names still work (read as `PIVOT_*`), and the
+  persisted `charto` names listed in `README.md` must not be renamed.
 - Evals: **one instrumented multi-turn live run**, fix, retest at most once —
   no restart-and-rerun loops. Every eval/quality report carries the **triad**:
   tokens + latency + quality verdict per item.
@@ -288,14 +292,15 @@ sequence is:
 1. **Excise opinion markets** — ~43k lines across backend, frontend, schema and
    prose. Two generic utilities (`security_meta`, `commodities`) are rescued to
    `backend/market/` first, because the portfolio and paper book import them.
-2. **Deploy the pivot API beside charto** on `:8000`, additive, nothing moves.
-   **Share the session, not the store** — pivot reads charto's session; the 11
-   real accounts never migrate.
-3. **One shell** — `pivot-next` gains `/chart`, mounting `chart`;
-   `NAV_ITEMS` becomes Chart · Chat · Screener · Strategies · Portfolio · Paper.
-4. **One tool surface by deletion** — charto's 47 tools and pivot's 99 overlap;
-   dedupe rather than wrap. Charto owns anything chart- or bar-shaped; pivot
-   owns anything workflow-, backtest- or fundamentals-shaped.
+2. **Deploy the API beside the dataserver** on `:8000`, additive, nothing moves.
+   **Share the session, not the store** — the API reads the dataserver's
+   session; the accounts never migrate. (Done.)
+3. **One shell** — `app/` mounts `chart/` at `/chart-app`. (Done; `site/` still
+   serves `/paper`, `/strategies` and `/brokers` on the VM although `app/` has
+   its own copies of those pages.)
+4. **One tool surface by deletion** — the dataserver's 47 tools and the API's 99 overlap;
+   dedupe rather than wrap. The dataserver owns anything chart- or bar-shaped;
+   the API owns anything workflow-, backtest- or fundamentals-shaped.
 5. **Close the verification loop** — the agent runs its own backtest, reads the
    trust verdict, and revises or reports honestly. A `no_edge` strategy cannot
    be armed without a recorded override.

@@ -1,8 +1,8 @@
-/* Charto — the in-chart indicator legend.
+/* Pivot — the in-chart indicator legend.
  *
  * TradingView writes its indicators ON the chart, one row per study under the
  * symbol/OHLC block, and hangs the controls off the row itself: the eye, the
- * gear, the ×, the ⋯. Charto used to keep that list in the header as a strip
+ * gear, the ×, the ⋯. Pivot used to keep that list in the header as a strip
  * of chips, which meant the two halves of one idea — "SMA 20 is on this
  * chart" and "here is the SMA 20 line" — sat at opposite ends of the window,
  * and the chip could not say what the indicator was WORTH at the bar under
@@ -208,7 +208,7 @@ const IndLegend = (() => {
      * Each surface is probed against the pane it floats over: the readout
      * rows over the price pane, every floating box over its own. The rows in
      * `host` belong to the price pane by construction — overlays are the ones
-     * that go there, and it is pane 0 on every chart charto builds. */
+     * that go there, and it is pane 0 on every chart pivot builds. */
     function paintPlates() {
       if (!occl) return;
       const groups = [[0, host], ...boxes];
@@ -236,7 +236,7 @@ const IndLegend = (() => {
      *  which is a strange place to keep "put this back how it was". */
     function openMore(id, anchor) {
       closeMore();
-      if (window.__chartoCloseMenus) window.__chartoCloseMenus(null);
+      if (window.__pivotCloseMenus) window.__pivotCloseMenus(null);
       const hidden = mgr.isHidden(id);
       const pop = document.createElement("div");
       pop.className = "dropdown floating open ind-more";
@@ -310,7 +310,7 @@ const IndLegend = (() => {
       if (what === "cleardef") { mgr.clearDefault(id); render(); return; }
       if (what === "rm") { mgr.remove(id); notify(); return; }
       if (what === "cxedit" || what === "cxsource") {
-        document.dispatchEvent(new CustomEvent("charto:custom-indicator",
+        document.dispatchEvent(new CustomEvent("pivot:custom-indicator",
           { detail: { action: what === "cxedit" ? "edit" : "open", id } }));
         return;
       }

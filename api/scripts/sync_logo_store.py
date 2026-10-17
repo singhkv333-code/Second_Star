@@ -10,11 +10,11 @@ company's own website via logo.dev (fallback=404, so no generated letter
 tiles), then the precomputed column. Rows already stored are skipped unless
 --refresh. Idempotent; creates the table if it is missing.
 
---from-master covers the listed equities charto's instrument_master added
+--from-master covers the listed equities the dataserver's instrument_master added
 beyond company_identity (the full Kite universe: NSE and BSE ids such as
 20MICRONS and BSE:ANDHRAPET). Those come from SharePerks by ISIN only — the
 master carries the ISIN, so no domain is guessed — and each stored logo is
-linked into charto's `instrument_logo` map under the chart's own id, so the
+linked into the dataserver's `instrument_logo` map under the chart's own id, so the
 chart, search and screener show it without a code change. SharePerks answers
 200 with its own default mark for an ISIN it does not know; that image is
 learned by probing an ISIN that cannot exist, and never stored.
@@ -103,7 +103,7 @@ def fetch(url: str) -> tuple[bytes, str] | None:
 
 
 def master_equities(path: str) -> dict[str, str]:
-    """chart id -> ISIN for every listed equity in charto's instrument_master."""
+    """chart id -> ISIN for every listed equity in the dataserver's instrument_master."""
     con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     try:
         return {i.upper(): isin for i, isin in con.execute(
@@ -114,7 +114,7 @@ def master_equities(path: str) -> dict[str, str]:
 
 
 def link_to_chart(path: str, ids: list[str]) -> int:
-    """Point charto's logo map at our stored copy for each master id: by id,
+    """Point the dataserver's logo map at our stored copy for each master id: by id,
     else by ISIN (read back from the stored SharePerks URL), so a company's
     NSE and BSE listings share one image. A row already in company_profile
     wins the chart's map, so only the rest are written."""
@@ -149,7 +149,7 @@ def link_to_chart(path: str, ids: list[str]) -> int:
 
 def listed_isins(nse_csvs: list[str]) -> dict[str, str]:
     """Store id -> ISIN for every listed equity we can name without the
-    charto master: NSE's own lists (main board + SME) by symbol, then the
+    the dataserver master: NSE's own lists (main board + SME) by symbol, then the
     BSE-only companies in company_identity as BSE:<scrip id>. Each ISIN is
     taken once — a dual-listed company is fetched under its NSE symbol."""
     out: dict[str, str] = {}
@@ -180,7 +180,7 @@ def main() -> None:
     ap.add_argument("--only", default="")
     ap.add_argument("--refresh", action="store_true")
     ap.add_argument("--workers", type=int, default=12)
-    ap.add_argument("--from-master", default="", help="charto_bars.db holding instrument_master")
+    ap.add_argument("--from-master", default="", help="bars.db holding instrument_master")
     ap.add_argument("--nse-csv", action="append", default=[],
                     help="NSE EQUITY_L / SME_EQUITY_L csv; fetch by ISIN without the master")
     ap.add_argument("--link-only", action="store_true",

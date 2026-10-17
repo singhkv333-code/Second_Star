@@ -1,4 +1,4 @@
-/* Charto preview — hover a price in a reply, see it on the chart.
+/* Pivot preview — hover a price in a reply, see it on the chart.
  *
  * A reply says "resistance at 83,354-83,740"; the reader then has to find
  * 83,354 on the axis. Hovering the number now shows it: a shaded band for a
@@ -30,7 +30,7 @@ const PriceHover = (() => {
   const fmt = (v) => v.toLocaleString("en-IN", { maximumFractionDigits: 2 });
 
   function chartRange() {
-    const c = window.__charto;
+    const c = window.__pivot;
     const bars = c && c.state && c.state.bars;
     if (!bars || !bars.length) return null;
     let lo = Infinity, hi = -Infinity;
@@ -91,7 +91,7 @@ const PriceHover = (() => {
 
   function place() {
     raf = 0;
-    const c = window.__charto, stage = document.getElementById("stage");
+    const c = window.__pivot, stage = document.getElementById("stage");
     if (!cur || !c || !c.candle || !stage) return hide();
     ensure(stage);
     const H = stage.clientHeight;
@@ -114,7 +114,7 @@ const PriceHover = (() => {
 
   function show(span) {
     cur = { lo: Number(span.dataset.lo), hi: Number(span.dataset.hi) };
-    const c = window.__charto;
+    const c = window.__pivot;
     if (!sub && c && c.chart) {
       c.chart.timeScale().subscribeVisibleLogicalRangeChange(schedule);
       sub = true;
@@ -124,7 +124,7 @@ const PriceHover = (() => {
   function hide() {
     cur = null;
     if (box) box.hidden = true;
-    const c = window.__charto;
+    const c = window.__pivot;
     if (sub && c && c.chart) {
       c.chart.timeScale().unsubscribeVisibleLogicalRangeChange(schedule);
       sub = false;

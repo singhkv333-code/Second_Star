@@ -54,12 +54,12 @@ const ChartSize = (() => {
     observer.observe(host);
     // Run after the library's observer and the restored flex/grid layout.
     frame = requestAnimationFrame(() => { frame = requestAnimationFrame(check); });
-    document.addEventListener("charto:dock-layout", schedule);
+    document.addEventListener("pivot:dock-layout", schedule);
     return () => {
       stopped = true;
       observer.disconnect();
       cancelAnimationFrame(frame);
-      document.removeEventListener("charto:dock-layout", schedule);
+      document.removeEventListener("pivot:dock-layout", schedule);
     };
   }
   return { sync, watch };

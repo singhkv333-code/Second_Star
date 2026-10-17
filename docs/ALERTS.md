@@ -1,4 +1,4 @@
-# Charto Alerts — making the widget real
+# The dataserver Alerts — making the widget real
 
 > Email implementation update, 2026-10-09: `data/alert_email.py` adds a
 > transactional SMTP outbox and per-alert email control. Sender activation
@@ -73,7 +73,7 @@ FE work in this plan actually lives.
 - **SSE is already solved twice** — `_send_events` and `_send_live`, both with
   the load-bearing `X-Accel-Buffering: no` and the per-subscriber
   `queue.Queue(maxsize=64)` + drop-a-slow-reader rule.
-- **Auth is already solved** — bearer token, `charto_users.db`, `_auth_user()`,
+- **Auth is already solved** — bearer token, `users.db`, `_auth_user()`,
   and a `_account_post` dispatcher for the authenticated POST routes.
 - **Indicator math is already pure** — `indicators.py` is functions of rows,
   nothing stores a value. An alert can recompute RSI(14) on demand and never
@@ -82,7 +82,7 @@ FE work in this plan actually lives.
   "one minimum tick" rule TradingView's *greater than* / *less than* need,
   measured off real prints rather than assumed.
 
-So the design is not open-ended: **storage in `charto_users.db`, evaluation on
+So the design is not open-ended: **storage in `users.db`, evaluation on
 the `_live_on_tick` hook, delivery over a third SSE endpoint.**
 
 ---
@@ -113,9 +113,9 @@ the `_live_on_tick` hook, delivery over a third SSE endpoint.**
   Push API + VAPID keypair, HTTPS-only
   ([Push API](https://developer.mozilla.org/en-US/docs/Web/API/Push_API),
   [guide](https://blog.codercops.com/blog/web-push-notifications-implementation-guide-2026)).
-  Charto is already on HTTPS via Certbot, so this is available — but it is a
+  The dataserver is already on HTTPS via Certbot, so this is available — but it is a
   service worker plus a key-management story, which is why it is phased last.
-- **Charto's own doctrine argues about the default.** `CHARTO.md` #45:
+- **The dataserver's own doctrine argues about the default.** `docs/chart/DESIGN.md` #45:
   *"Setup-completion alerts — fire only on confirmed completion, never approach
   — kills alert fatigue (#1 cross-style complaint)."* And §3 bans the LLM from
   *"watcher evaluation, alert firing"* outright. That points at
@@ -130,13 +130,13 @@ feature ships looking finished and quietly never fires.
 
 ### 4.1 There is no guaranteed tick supply on the VM today
 
-`CHARTO_LIVE_VENUES` autostarts venue drivers at boot, and the comment on it is
+`PIVOT_LIVE_VENUES` autostarts venue drivers at boot, and the comment on it is
 already the right argument ("any crash, deploy or reboot silently returns the
 box to a state where it serves charts and records NOTHING"). But
 `_venue_symbols()` derives its list from `backfill_crypto`'s `COINBASE`/`BYBIT`
 tables and `.get(venue, [])` — so **for `kite` it returns `[]`**, `symbols=ALL`
 400s, and the NSE feed can only ever be started by hand with an explicit symbol
-list. Meanwhile `deploy.sh` restarts `charto.service` on **any** change under
+list. Meanwhile `deploy.sh` restarts `the dataserver.service` on **any** change under
 `dataserver/` — every backend deploy therefore drops the NSE stream until
 somebody curls `/live` again.
 
@@ -192,7 +192,7 @@ Three consequences worth stating:
   `patterns.py`'s 34 candles and 22 shapes.
 - **`all: true` is an AND**, so a breakout condition ANDed with a
   volume-confirmation condition fires once, on confirmation. That is
-  `CHARTO.md` #45 ("fire only on confirmed completion, never approach")
+  `docs/chart/DESIGN.md` #45 ("fire only on confirmed completion, never approach")
   expressible in the data model rather than as a special case in code.
 - **A refusal hands back the whole grammar**, exactly as `_screen_vocab` does,
   for the same reason: an error the model cannot act on costs more than the
@@ -207,9 +207,9 @@ That is what lets `close crossed 1420` (an event) and `RSI under 30 and price
 above its 200-day` (a conjunction of states) live in one rule with no second
 code path.
 
-### 5.1 Storage — `charto_users.db`, two tables
+### 5.1 Storage — `users.db`, two tables
 
-The users DB, not `charto_bars.db`: the existing comment says it exactly — bars
+The users DB, not `bars.db`: the existing comment says it exactly — bars
 are a 14 GB derived store that gets dropped and rebuilt, and a user's alerts
 cannot be regenerated from anything upstream.
 
@@ -301,7 +301,7 @@ GET  /alerts/stream        -> SSE, per-user queue: {type:"fired", alert, log}
 `feed` on the list response is §4.2 made visible: per venue, is a driver
 connected and how old is its last tick.
 
-**nginx.** `deploy/nginx-charto.conf` carries the explicit warning that a new
+**nginx.** `deploy/nginx-the dataserver.conf` carries the explicit warning that a new
 prefix is unreachable in production until it is added to the allowlist — `/auth`,
 `/workspace` and `/layouts` shipped without it and silently served
 `index.html`. So: `alerts` into the data-route regex, **and** `alerts/stream`
@@ -319,12 +319,12 @@ because a buffered SSE response is a page that looks hung.
 3. **Tab closed** — the log is the durable record and the bell is waiting when
    they return. Real push (§7, Phase 4) is the answer; until then the UI must
    not imply otherwise.
-4. **Email** — no SMTP is wired anywhere in charto. Out of scope, and said so
+4. **Email** — no SMTP is wired anywhere in the dataserver. Out of scope, and said so
    rather than half-built.
 
 ### 5.5 Chart-native creation — the actual differentiator
 
-A form is the commodity version. Charto has a full drawings layer with
+A form is the commodity version. The dataserver has a full drawings layer with
 never-recycled D-refs (`drawings.js`), `geometry.js` for price↔pixel, and
 `mark.py`'s precedent of *the model writes an address, code resolves it against
 real bars*. Two entry points worth having:
@@ -339,7 +339,7 @@ real bars*. Two entry points worth having:
 
 ### 5.6 The chat surface
 
-`CHARTO.md` §3 bans the LLM from watcher evaluation and alert firing, and gives
+`docs/chart/DESIGN.md` §3 bans the LLM from watcher evaluation and alert firing, and gives
 it meaning work. That boundary lands cleanly: a `set_alert` tool where the model
 translates *"tell me if Reliance breaks 1420 on the 5-min"* into the typed rule,
 and the deterministic engine owns every millisecond after. The confirmation
@@ -354,7 +354,7 @@ cost three schemas once the identity was already on the request).
 
 | Phase | Shipped |
 |---|---|
-| 0 — the feed | `_venue_symbols()` learns `kite`, so `CHARTO_LIVE_VENUES=kite` can arm the NSE feed at boot; feed health is a first-class field on every alerts response and a line in the panel |
+| 0 — the feed | `_venue_symbols()` learns `kite`, so `PIVOT_LIVE_VENUES=kite` can arm the NSE feed at boot; feed health is a first-class field on every alerts response and a line in the panel |
 | 1 — the spine | `data/alerts.py`: schema, the composed-expression engine, the guarded `_ON_BAR` hook + worker, `/alerts` CRUD, `/alerts/check`, `/alerts/stream`, boot catch-up, both nginx routes |
 | 2 — the widget | `MOCK` deleted; rows/log/counts/bell from the server; the create-edit dialog; pause/resume/delete/search/sort/bulk; watchlist bell awake; toast + Notification API; the signed-out and feed-down sentences |
 | 3 — the rest | every condition kind the fixture promised, plus indicator-vs-indicator, bands, windows, volume profile, detectors; right-click-to-alert; drawing-anchored alerts |
@@ -383,7 +383,7 @@ Verified, not assumed:
 
 **Still not built, deliberately:** Web Push (service worker + VAPID) — with
 every tab shut nothing is delivered, and the UI says so rather than implying a
-push. `CHARTO.md` #46–47 (thesis-invalidation, valuation buy-zones) are now
+push. `docs/chart/DESIGN.md` #46–47 (thesis-invalidation, valuation buy-zones) are now
 *expressible* as rules but there is no generator proposing them.
 
 ---
@@ -397,7 +397,7 @@ push. `CHARTO.md` #46–47 (thesis-invalidation, valuation buy-zones) are now
 3. **Default frequency: `Only once`.** All four remain selectable per alert, and
    `Once per bar close` stays one click away in the dialog. The trade is
    accepted knowingly: firing on the unclosed candle means a wick through the
-   level counts as a fire, and `CHARTO.md` #45's confirmed-completion argument
+   level counts as a fire, and `docs/chart/DESIGN.md` #45's confirmed-completion argument
    is not the default. Documented here so it reads as a choice, not an
    oversight — and worth revisiting once there is real firing data to look at.
 4. **Delivery: in-app SSE + the Notification API.** With every tab shut, nothing

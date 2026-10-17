@@ -1,4 +1,4 @@
-/* Charto preview — the Sheet widget: a spreadsheet beside the chart.
+/* Pivot preview — the Sheet widget: a spreadsheet beside the chart.
  *
  * The grid is Jspreadsheet CE (MIT) with its formula plugin; Excel files go
  * in and out through SheetJS. All of it is vendored (vendor/sheet/) and

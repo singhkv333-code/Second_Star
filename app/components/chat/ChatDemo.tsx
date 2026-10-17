@@ -416,7 +416,7 @@ type ChatDemoProps = {
   /** Full workspace may use Escape as Stop. A side panel reserves Escape for
    * collapse so hiding it never interrupts the response. */
   escapeStopsResponse?: boolean;
-  /** Compact Charto-style composer used only in the side-panel presentation. */
+  /** Compact Pivot-style composer used only in the side-panel presentation. */
   /** Accepted so the shell's call site keeps working. Currently inert:
    *  its only consumer was the mode-pill row, which this branch does not
    *  carry (MODES/onModeChange arrive in the unimported 17ee0285). */

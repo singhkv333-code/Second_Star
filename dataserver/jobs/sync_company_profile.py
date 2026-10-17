@@ -1,4 +1,4 @@
-"""Sync the company profile behind Charto's company page into the local store.
+"""Sync the company profile behind the dataserver's company page into the local store.
 
 Two Postgres databases, joined on sc_id — the Moneycontrol id — and never on
 ticker: enrich.company_profile.ticker is corrupted (dup-ticker groups hold
@@ -19,7 +19,7 @@ only then the precomputed mc.companies.logo_url — whose domain was *guessed*
 from the name, so it serves the wrong brand for names like RELIANCE
 (reliance.com is not ril.com). No guess is ever preferred over a known domain.
 
-Prices are NOT copied: the page reads them from charto's own bars, so the
+Prices are NOT copied: the page reads them from the dataserver's own bars, so the
 number on the company page and the number on the chart cannot disagree.
 
 Run:  api/.venv/bin/python dataserver/jobs/sync_company_profile.py
@@ -124,7 +124,7 @@ def logos_only() -> None:
     """Re-resolve logo_url for the stored rows, from their stored website and
     the stored URL as the last resort. The full sync needs both Postgres
     databases; a logo change shouldn't."""
-    db = sqlite3.connect(HERE / "charto_bars.db")
+    db = sqlite3.connect(HERE / "bars.db")
     ov = _overrides()
     rows = db.execute("SELECT symbol, website, logo_url FROM company_profile").fetchall()
     new = [(_logo(s, w, u, ov), s) for s, w, u in rows]
@@ -244,7 +244,7 @@ def main() -> None:
             raw.get("enterpriseToEbitda"),
             *_yf_ratios(raw), now))
 
-    db = sqlite3.connect(HERE / "charto_bars.db")
+    db = sqlite3.connect(HERE / "bars.db")
     db.execute("PRAGMA journal_mode=WAL")
     db.execute("DROP TABLE IF EXISTS company_profile")   # schema evolves here
     db.executescript(DDL)

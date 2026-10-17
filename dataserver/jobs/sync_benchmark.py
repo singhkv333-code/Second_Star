@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sync a benchmark index's daily bars into the local Charto store.
+"""Sync a benchmark index's daily bars into the local dataserver store.
 
 The attribution split in explain_move needs one reference series: without it
 a market-wide selloff is indistinguishable from a stock story. This syncs
@@ -80,7 +80,7 @@ def from_kite() -> list[tuple]:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--db", default=str((Path(__file__).resolve().parents[1] / "charto_bars.db")))
+    ap.add_argument("--db", default=str((Path(__file__).resolve().parents[1] / "bars.db")))
     ap.add_argument("--kite", action="store_true",
                     help="pull from Kite instead of yfinance (needs live session)")
     args = ap.parse_args()

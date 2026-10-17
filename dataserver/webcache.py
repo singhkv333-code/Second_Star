@@ -3,7 +3,7 @@
 Search results, readable pages, Wikipedia articles, site icons and fetched
 PDFs used to live in per-process dicts: unbounded, and gone on every backend
 deploy. This keeps them in their own SQLite file beside the code (never in
-charto_users.db, which is live user state), bounded by total size, with the
+users.db, which is live user state), bounded by total size, with the
 oldest-read rows evicted first.
 
     put(ns, key, value: bytes, ttl)      get(ns, key) -> bytes | None
@@ -20,8 +20,8 @@ import threading
 import time
 from pathlib import Path
 
-_PATH = Path(os.environ.get("CHARTO_WEBCACHE_DB") or Path(__file__).parent / "charto_web.db")
-_CAP = int(os.environ.get("CHARTO_WEBCACHE_MB") or 256) * 1_000_000
+_PATH = Path(os.environ.get("PIVOT_WEBCACHE_DB") or Path(__file__).parent / "webcache.db")
+_CAP = int(os.environ.get("PIVOT_WEBCACHE_MB") or 256) * 1_000_000
 _lock = threading.Lock()
 _db: sqlite3.Connection | None = None
 _puts = 0

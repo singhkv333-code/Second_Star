@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Crypto trade websockets -> charto's live tick engine.
+"""Crypto trade websockets -> the dataserver's live tick engine.
 
 The sibling of kite_stream.py, and deliberately the same shape: a pure
 `translate()`, a per-symbol cursor, a `freshness()` refusal, a `--self-test`,
@@ -132,7 +132,7 @@ import dataserver as ds
 import footprint as _fp
 import kite_stream as ks                # freshness(), and the sync_state guards
 
-log = logging.getLogger("charto.crypto_stream")
+log = logging.getLogger("dataserver.crypto_stream")
 
 UTC = timezone.utc
 IST = timezone(timedelta(seconds=ds.IST_OFF))
@@ -748,7 +748,7 @@ class WSClient:
                f"Connection: Upgrade\r\n"
                f"Sec-WebSocket-Key: {key}\r\n"
                f"Sec-WebSocket-Version: 13\r\n"
-               f"User-Agent: charto-crypto-stream/1.0\r\n\r\n")
+               f"User-Agent: pivot-crypto-stream/1.0\r\n\r\n")
         self._sock.sendall(req.encode())
         head = bytearray()
         while b"\r\n\r\n" not in head:
@@ -812,7 +812,7 @@ class WSClient:
     def send_json(self, obj: dict) -> None:
         self._send_frame(_OP_TEXT, json.dumps(obj).encode())
 
-    def ping(self, payload: bytes = b"charto") -> None:
+    def ping(self, payload: bytes = b"pivot") -> None:
         self._send_frame(_OP_PING, payload)
 
     # -- reading --------------------------------------------------

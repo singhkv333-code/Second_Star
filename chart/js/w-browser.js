@@ -1,4 +1,4 @@
-/* Charto preview — the Browser widget: the web, beside the chart.
+/* Pivot preview — the Browser widget: the web, beside the chart.
  *
  *   Search    /web-search — a search engine API (Brave, or our own SearXNG;
  *             dataserver/websearch.py). Real titles and snippets, paging,
@@ -655,7 +655,7 @@
     function fail(url, msg, why) {
       if (/\b(401|403|429)\b/.test(String(msg))) markRefused(url);
       beside(url, false, [msg, why].filter(Boolean).join(" "));
-      if (why === WHY.signin && typeof window.CHARTO_AUTH_OPEN === "function") {
+      if (why === WHY.signin && typeof window.PIVOT_AUTH_OPEN === "function") {
         view.querySelector(".br-beside-acts").insertAdjacentHTML("beforeend",
           `<button type="button" class="sh-btn" data-br="signin">${ic("user")}<span>Sign in to open pages live</span></button>`);
       }
@@ -755,7 +755,7 @@
       }
       if (a === "home") return nav({ kind: "home" });
       if (a === "unflash") { flash.hidden = true; return; }
-      if (a === "signin") { window.CHARTO_AUTH_OPEN(); return; }
+      if (a === "signin") { window.PIVOT_AUTH_OPEN(); return; }
       if (a === "resume") { over.hidden = true; const u = (cur && cur.url) || rb.st.url; rb.ws = null; return u && showRemote(u, ++seq); }
       if (a === "page") return morePage(b);
       if (a === "gsearch" && cur && cur.kind === "search") {

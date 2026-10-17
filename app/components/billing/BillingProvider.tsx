@@ -18,7 +18,7 @@
 import * as React from "react";
 import { usePathname } from "next/navigation";
 import { SNAPSHOT } from "@/lib/billing/catalog";
-import { billingApi, hasChartoSession } from "@/lib/billing/api";
+import { billingApi, hasDataserverSession } from "@/lib/billing/api";
 import {
   isRefusal,
   triggerFromRefusal,
@@ -159,7 +159,7 @@ export function BillingProvider({
       me,
       loading,
       error,
-      signedIn: demo ? !!me && me.plan !== "anonymous" : hasChartoSession() && !!me && me.plan !== "anonymous",
+      signedIn: demo ? !!me && me.plan !== "anonymous" : hasDataserverSession() && !!me && me.plan !== "anonymous",
       refresh,
       setMe,
       trigger,

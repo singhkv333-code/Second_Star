@@ -1,6 +1,6 @@
-"""Gated referral ledger. Identity is supplied by charto, never stored here.
+"""Gated referral ledger. Identity is supplied by the dataserver, never stored here.
 
-This database is separate from charto_users.db. All money is integer paise and
+This database is separate from users.db. All money is integer paise and
 enters through a signature-verified Razorpay webhook (billing.py), never a form.
 """
 from __future__ import annotations
@@ -94,7 +94,7 @@ class Referrals:
         """Bind once. Caller invokes this only after a genuinely new account insert.
 
         No email or IP is copied here. Duplicate account creation is already
-        rejected by charto's unique email constraint; this table is also unique
+        rejected by the dataserver's unique email constraint; this table is also unique
         on user_id and visit token. The browser's newest visit wins.
         """
         now = int(time.time()) if now is None else now

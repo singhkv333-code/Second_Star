@@ -19,7 +19,7 @@
  *   · DUOTONE: exactly one accent per tile, `.a` stroked or `.af` filled.
  *     "One is the whole trick — the accent is what the tile is about, and a
  *     second one turns a drawing into a diagram."
- *   · every tile is drawn ON a chart, because that is charto's one subject.
+ *   · every tile is drawn ON a chart, because that is the dataserver's one subject.
  *     A generic magnifier for "screen" would be an icon from any app; a
  *     magnifier over candles is from this one.
  *

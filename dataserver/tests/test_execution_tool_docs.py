@@ -9,7 +9,7 @@ import execution_bridge as eb
 import execution_tool_docs as docs
 
 # Tools this surface has besides PIVOT_TOOLS that a description may name.
-_CHARTO_TOOLS = {"register_plan", "set_alert", "save_strategy"}
+_DATASERVER_TOOLS = {"register_plan", "set_alert", "save_strategy"}
 _BANNED = (r"ASK_USER", r"ask_user", r"broker app", r"own broker", r"Pivot's",
            r"\boptions?\b", r"\bOptions?\b")
 
@@ -49,7 +49,7 @@ def test_apply_changes_text_only():
 
 def test_wire_text_names_no_absent_tool_and_no_banned_route():
     allt = _tools()
-    present = set(eb.PIVOT_TOOLS) | _CHARTO_TOOLS
+    present = set(eb.PIVOT_TOOLS) | _DATASERVER_TOOLS
     absent = [n for n in allt if n not in present]
     for name in eb.PIVOT_TOOLS:
         new = docs.apply(allt[name]["function"])

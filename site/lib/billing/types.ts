@@ -1,5 +1,5 @@
 /**
- * The billing wire, as charto's dataserver speaks it.
+ * The billing wire, as the dataserver speaks it.
  *
  * Every shape here mirrors a Python function in dataserver — the comment on
  * each names it — because the server decides and this side only displays.

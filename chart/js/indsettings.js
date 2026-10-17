@@ -1,4 +1,4 @@
-/* Charto preview — the indicator settings dialog.
+/* Pivot preview — the indicator settings dialog.
  *
  * TradingView's (and therefore Groww's) three-tab modal, rebuilt on Pivot's
  * design tokens: Inputs / Style / Visibility, a Defaults menu in the footer,
@@ -256,7 +256,7 @@ const IndSettings = (() => {
     return inputsHTML();
   }
 
-  /** Groww's dialog carries the indicator's name alone. Charto can have two
+  /** Groww's dialog carries the indicator's name alone. Pivot can have two
    *  of the same indicator open at once, so the instance label is appended
    *  only when it would otherwise be ambiguous which one you are editing. */
   function titleText() {
@@ -522,7 +522,7 @@ const IndSettings = (() => {
           render(); notify();
         }
       } catch (e) {
-        console.warn("[charto] indicator reset failed", e);
+        console.warn("[pivot] indicator reset failed", e);
       }
       return;
     }

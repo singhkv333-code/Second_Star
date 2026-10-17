@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: pivot
+        working-directory: api
     steps:
       - uses: actions/checkout@v4
 
@@ -52,7 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: pivot-next
+        working-directory: app
     steps:
       - uses: actions/checkout@v4
 

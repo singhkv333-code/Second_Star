@@ -1,4 +1,4 @@
-/* Charto preview — a custom indicator's code, in the sidebar.
+/* Pivot preview — a custom indicator's code, in the sidebar.
  *
  * The chat prints a file card when it builds an indicator; Open lands here.
  * The sidebar then carries editor tabs above the conversation — "Chat" and
@@ -258,7 +258,7 @@ const CodeView = (() => {
         const r = await fetch(`${API}/custom_indicators/${encodeURIComponent(f.id)}/code`, {
           method: "POST", headers: headers(true),
           // the chart the user is looking at is what the edit is tested on first
-          body: JSON.stringify({ code, ...(typeof window.__chartoChart === "function" ? window.__chartoChart() : {}) }),
+          body: JSON.stringify({ code, ...(typeof window.__pivotChart === "function" ? window.__pivotChart() : {}) }),
         });
         res = await r.json();
         if (!r.ok) throw new Error(res.error || `HTTP ${r.status}`);
@@ -269,7 +269,7 @@ const CodeView = (() => {
       if (res.ok) {
         f.editing = false; f.dirty = false; f.draft = null;
         f.rec = { ...f.rec, code, version: res.version, report: res.report };
-        document.dispatchEvent(new CustomEvent("charto:custom-indicator",
+        document.dispatchEvent(new CustomEvent("pivot:custom-indicator",
           { detail: { action: "updated", id: f.id, def: res.def } }));
       }
       renderTabs(); render();
@@ -281,7 +281,7 @@ const CodeView = (() => {
       const r = await fetch(`${API}/custom_indicators/${encodeURIComponent(f.id)}/delete`,
         { method: "POST", headers: headers() });
       if (!r.ok) { delArmed = false; render(); return; }
-      document.dispatchEvent(new CustomEvent("charto:custom-indicator",
+      document.dispatchEvent(new CustomEvent("pivot:custom-indicator",
         { detail: { action: "deleted", id: f.id } }));
       close(f.id);
     }

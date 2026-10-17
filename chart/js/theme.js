@@ -1,4 +1,4 @@
-/* Charto preview — theme module.
+/* Pivot preview — theme module.
  *
  * One palette per mode, one source of truth. The CSS side reads shadcn-style
  * tokens off :root[data-theme]; the canvas side (lightweight-charts, the

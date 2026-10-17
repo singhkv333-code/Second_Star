@@ -438,7 +438,7 @@ function DropdownRow({
       <span className="cas-instrument-quote">
         {result.price != null ? <>
           <span>{result.currency === "USD" ? "$" : "₹"}{result.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-          <small>{result.change_pct != null ? `${result.change_pct > 0 ? "+" : ""}${result.change_pct.toFixed(2)}%` : ""}{result.quote_source === "charto_relay" ? " · delayed" : ""}</small>
+          <small>{result.change_pct != null ? `${result.change_pct > 0 ? "+" : ""}${result.change_pct.toFixed(2)}%` : ""}{result.quote_source === "dataserver_relay" ? " · delayed" : ""}</small>
         </> : <small>{result.isHydrated === false ? "~6s to load" : "—"}</small>}
       </span>
     </li>

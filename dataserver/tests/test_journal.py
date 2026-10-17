@@ -16,7 +16,7 @@ class JournalTest(unittest.TestCase):
         db.execute("CREATE TABLE users(id INTEGER PRIMARY KEY)")
         db.executemany("INSERT INTO users(id) VALUES(?)", [(1,), (2,)])
         db.commit(); db.close()
-        os.environ["CHARTO_USERS_DB"] = str(path)
+        os.environ["PIVOT_USERS_DB"] = str(path)
         spec = importlib.util.spec_from_file_location("journal_test_module",
             Path(__file__).resolve().parents[1].joinpath("journal.py"))
         cls.j = importlib.util.module_from_spec(spec); spec.loader.exec_module(cls.j)

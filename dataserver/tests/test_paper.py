@@ -187,7 +187,7 @@ def test_a_draft_without_a_size_is_refused(book) -> None:
         strategies.parse_draft(_draft(order={"quantity": 0}))
 
 
-def test_an_interval_charto_cannot_fold_is_refused(book) -> None:
+def test_an_interval_dataserver_cannot_fold_is_refused(book) -> None:
     with pytest.raises(strategies.Unbuildable) as exc:
         strategies.parse_draft(_draft(tf="3m"))
     assert "3m" in str(exc.value)
@@ -216,22 +216,22 @@ def _rows(n=120, price=100.0):
             for i in range(n)]
 
 
-def test_the_accessor_reads_price_and_indicator_from_charto_bars(monkeypatch):
+def test_the_accessor_reads_price_and_indicator_from_dataserver_bars(monkeypatch):
     rows = _rows()
     monkeypatch.setattr(server, "get_bars", lambda s, iv, to, lim: {
         "bars": [{"t": r[0], "o": r[1], "h": r[2], "l": r[3], "c": r[4],
                   "v": r[5]} for r in rows]})
-    acc = strategies.ChartoDataAccessor(default_tf="1d")
+    acc = strategies.DataserverDataAccessor(default_tf="1d")
     assert acc.get_price(symbol="ACME", basis="close") == pytest.approx(100.0)
     assert acc.get_price(symbol="ACME", basis="high") == pytest.approx(101.0)
     assert acc.get_indicator(symbol="ACME", indicator="sma",
                              period=10) == pytest.approx(100.0)
-    # An indicator Charto has no mapping for must be UNKNOWN, never a guess.
+    # An indicator the dataserver has no mapping for must be UNKNOWN, never a guess.
     assert acc.get_indicator(symbol="ACME", indicator="not_a_thing",
                              period=10) is None
     # No bars is UNKNOWN too — a rule on a symbol with no data holds.
     monkeypatch.setattr(server, "get_bars", lambda *a, **k: {"bars": []})
-    empty = strategies.ChartoDataAccessor(default_tf="1d")
+    empty = strategies.DataserverDataAccessor(default_tf="1d")
     assert empty.get_price(symbol="NOPE") is None
 
 
@@ -240,7 +240,7 @@ def test_position_fields_answer_from_the_open_lot(monkeypatch):
     monkeypatch.setattr(server, "get_bars", lambda s, iv, to, lim: {
         "bars": [{"t": r[0], "o": r[1], "h": r[2], "l": r[3], "c": r[4],
                   "v": r[5]} for r in rows]})
-    acc = strategies.ChartoDataAccessor(
+    acc = strategies.DataserverDataAccessor(
         default_tf="1d",
         position={"symbol": "ACME", "entry_price": 50.0, "bars_held": 4,
                   "peak_pct": 1.2})
@@ -254,5 +254,5 @@ def test_position_fields_answer_from_the_open_lot(monkeypatch):
     assert acc.get_position_field(
         field="drawdown_from_peak_pct") == pytest.approx(0.2)
     # No position at all is UNKNOWN, not zero.
-    bare = strategies.ChartoDataAccessor(default_tf="1d")
+    bare = strategies.DataserverDataAccessor(default_tf="1d")
     assert bare.get_position_field(field="unrealised_pct") is None

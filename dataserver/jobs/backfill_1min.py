@@ -1,6 +1,6 @@
-"""Backfill full 1-minute Kite history for a symbol into dataserver/charto_bars.db.
+"""Backfill full 1-minute Kite history for a symbol into dataserver/bars.db.
 
-Standalone sandbox script (Charto preview). Reuses the Pivot backend's live
+Standalone sandbox script (the dataserver). Reuses the Pivot backend's live
 Kite session + instrument resolution. Measured limits (memory 2026-07-22):
 1-min archive floor = 2015-02-02, per-request cap 60d, 3 workers = 3 req/s
 sweet spot (~27s per stock, ~1.06M bars).
@@ -25,7 +25,7 @@ from backend.kite.auth import (                                # noqa: E402
 )
 from backend.kite.historical import _resolve_instrument_token  # noqa: E402
 
-DB_PATH = Path(__file__).resolve().parents[1] / "charto_bars.db"
+DB_PATH = Path(__file__).resolve().parents[1] / "bars.db"
 # Kite's client formats a datetime as a bare "%Y-%m-%d %H:%M:%S" string and
 # DROPS tzinfo, so the server reads whatever fields it is given as IST. A UTC
 # `now` therefore asks for "up to 13:13" and Kite hears 13:13 IST, silently

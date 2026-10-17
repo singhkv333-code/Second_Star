@@ -1525,7 +1525,7 @@ export type CompanySearchResult = {
   price?: number | null;
   change_pct?: number | null;
   currency?: string | null;
-  quote_source?: "kite" | "charto_relay" | string | null;
+  quote_source?: "kite" | "dataserver_relay" | string | null;
 };
 
 export type CompanySearchResponse = {

@@ -51,7 +51,7 @@ type SectionId = "scores" | "revenue_mix" | "peers" | "shareholding" | "flows" |
 // than the business itself.
 //
 // None of the three is announced by /sections: shareholding lives in shp.*
-// and the flows pair in charto's store, neither of which the coverage call
+// and the flows pair in the dataserver's store, neither of which the coverage call
 // counts. So each one loads unconditionally and reports its own emptiness by
 // returning `available: false`, and the section is dropped on that instead.
 // Scores sit after the peer table. They are arithmetic over the statements,

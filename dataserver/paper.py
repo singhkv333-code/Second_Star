@@ -1,4 +1,4 @@
-"""Charto's paper book — a simulated account that actually keeps the shares.
+"""The dataserver's paper book — a simulated account that actually keeps the shares.
 
 WHAT THIS IS
 ------------
@@ -11,7 +11,7 @@ it calls in here, and this is where the shares end up.
 
 Ported from Pivot's `backend/paper/` (fills, positions, valuation, portfolio,
 snapshots) — the same avg-cost engine, the same money discipline, the same
-read shapes, re-expressed for Charto's stdlib + SQLite server. The READ shapes
+read shapes, re-expressed for the dataserver's stdlib + SQLite server. The READ shapes
 are copied field-for-field on purpose: `site/lib/api.ts` already declares
 `PaperSummary`, `PaperHolding`, `PaperOpenOrder`, `PaperFillRow` and
 `PaperNavPoint`, and the dashboard components are byte-identical to Pivot's. A
@@ -62,13 +62,13 @@ from typing import Optional
 import dataserver as ds
 import trading_costs
 
-log = logging.getLogger("charto.paper")
+log = logging.getLogger("dataserver.paper")
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
 # The seed. A beta budget, overridable per deployment without touching a
 # constant that tests read.
-SEED_CAPITAL = Decimal(environ.get("CHARTO_PAPER_SEED") or "150000")
+SEED_CAPITAL = Decimal(environ.get("PIVOT_PAPER_SEED") or "150000")
 
 CENTS = Decimal("0.0001")
 
@@ -275,7 +275,7 @@ def account_of(uid: int):
 # ── marks ────────────────────────────────────────────────────────────
 #
 # One resolver, so the holdings table, the summary and the strategy watcher
-# can never disagree about what a symbol is worth. Charto's own bars are the
+# can never disagree about what a symbol is worth. The dataserver's own bars are the
 # only source: the forming minute when a feed is live, the last stored close
 # otherwise. There is no network call in here and there must not be one — this
 # runs inside a portfolio read and, on the tick path, inside a candle.

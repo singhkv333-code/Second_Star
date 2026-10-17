@@ -1,7 +1,7 @@
 /* ──────────────────────────────────────────────────────────────────────────
    ProductFilm — the landing page's product demo.
 
-   The frame is its own dark island on a light page, so it declares charto's
+   The frame is its own dark island on a light page, so it declares the dataserver's
    DARK tokens locally rather than inheriting the landing's paper palette. The
    values below are `:root[data-theme="dark"]` from `chart/index.html`
    verbatim, and every control rule after them is that file's own rule for the
@@ -41,7 +41,7 @@
   color: rgba(255, 255, 255, 0.62);
 }
 .film-outer {
-  /* ── charto dark, from :root[data-theme="dark"] ── */
+  /* ── the dataserver dark, from :root[data-theme="dark"] ── */
   --film-background: #000000;
   --film-foreground: #fbfcfc;
   --film-card: #1c1c1d;

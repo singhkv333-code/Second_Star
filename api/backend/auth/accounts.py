@@ -5,7 +5,7 @@ ONE ACCOUNT SYSTEM
 A Pivot account is created, signed into and recovered in one place: the
 account service behind `/auth/*` on the same origin (signup, sign-in, Google,
 password reset, email confirmation, sign-out). It keeps the accounts and their
-sessions in `charto_users.db` beside the rest of the live account state (the
+sessions in `users.db` beside the rest of the live account state (the
 workspace, layouts, alerts, the paper book), which is why that file is read
 here and never written. See `docs/DATA_MAP.md`.
 
@@ -52,7 +52,7 @@ logger = logging.getLogger(__name__)
 # The account service's store. Same default and override as the service, so a
 # box that moves the file moves it for both.
 _DEFAULT = Path(__file__).resolve().parents[3] / "dataserver" / "users.db"
-_PATH = Path(os.environ.get("CHARTO_USERS_DB") or _DEFAULT)
+_PATH = Path(os.environ.get("PIVOT_USERS_DB") or _DEFAULT)
 
 # The account service expires a session 30 days after it was created.
 _SESSION_TTL = 30 * 24 * 3600
@@ -115,7 +115,7 @@ def _connect() -> Optional[sqlite3.Connection]:
     if not _PATH.exists():
         if not _unavailable_logged:
             logger.warning("accounts: %s does not exist; no session can be accepted. "
-                           "Set CHARTO_USERS_DB if the store moved.", _PATH)
+                           "Set PIVOT_USERS_DB if the store moved.", _PATH)
             _unavailable_logged = True
         return None
     try:

@@ -1,6 +1,6 @@
 """Lift the paywall for the people building Pivot.
 
-    python3 comp_developers.py charto_users.db singhkv333@gmail.com dev@catalog.com
+    python3 comp_developers.py users.db singhkv333@gmail.com dev@catalog.com
 
 A developer comp is Pro+ plus every cap Pro+ still has, opened: AI credits,
 alerts, screens and parallel charts. It goes through `entitlements.grant`,

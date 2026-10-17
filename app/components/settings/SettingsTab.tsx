@@ -15,7 +15,7 @@
  *   5. Trading        empty for now.
  *   6. Notifications  empty for now.
  *
- * Usage and Billing read the plan from BillingProvider (charto's
+ * Usage and Billing read the plan from BillingProvider (the dataserver's
  * /billing/me), so they agree with /settings/billing and the paywall. Plan
  * changes and cancellation reuse the billing panels in a BillingModal.
  */

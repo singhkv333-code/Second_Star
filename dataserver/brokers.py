@@ -1,4 +1,4 @@
-"""Live broker connections for Charto — pivot's connectors, charto's user plane.
+"""Live broker connections for the dataserver — pivot's connectors, the dataserver's user plane.
 
 WHY THIS FILE EXISTS, AND WHY IT IS NOT A SECOND SET OF CONNECTORS.
 
@@ -10,15 +10,15 @@ thing to get wrong on a day the first one was right.
 
 What Pivot's connectors CANNOT be reused wholesale is their storage. They
 persist through `backend.brokers.sessions`, which writes `broker_sessions` in
-`pivot_db`, keyed by a *Pivot* user id. Charto's users live in
-`charto_users.db` and the two tables are disjoint — a charto user_id means a
+`pivot_db`, keyed by a *Pivot* user id. The dataserver's users live in
+`users.db` and the two tables are disjoint — a dataserver user_id means a
 different human in pivot_db, so writing there would attach a real person's
 broker tokens to a stranger's account.
 
-So this module does what `ChartoDataAccessor` does for the DSL evaluator: it
-implements the contract the borrowed code calls, against Charto's own store.
+So this module does what `DataserverDataAccessor` does for the DSL evaluator: it
+implements the contract the borrowed code calls, against the dataserver's own store.
 The connectors' module globals are rebound to the four functions below, so
-`complete_auth`/`mint_access_token` persist into `charto_users.db` while every
+`complete_auth`/`mint_access_token` persist into `users.db` while every
 byte of broker protocol stays Pivot's.
 
 Secrets are Fernet-encrypted at rest with the same key material Pivot uses
@@ -39,7 +39,7 @@ from typing import Any, Optional
 
 import dataserver as ds
 
-logger = logging.getLogger("charto.brokers")
+logger = logging.getLogger("dataserver.brokers")
 
 PIVOT_ROOT = Path(__file__).resolve().parents[1] / "api"
 
@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS broker_connections (
   UNIQUE(user_id, broker)
 );
 
--- Every live order Charto sends, recorded BEFORE the broker call returns so a
+-- Every live order the dataserver sends, recorded BEFORE the broker call returns so a
 -- crash mid-flight leaves evidence rather than a silent gap.
 CREATE TABLE IF NOT EXISTS broker_orders (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -172,7 +172,7 @@ def encryption_on() -> bool:
 # ── the contract Pivot's connectors call ─────────────────────────────────────
 #
 # These four names replace `backend.brokers.sessions`' versions inside each
-# connector module. Same signatures, charto's store.
+# connector module. Same signatures, the dataserver's store.
 
 def read_secret(value: Optional[str]) -> str:
     """Decrypt an at-rest column. Tolerates plaintext rows written before a key
@@ -199,7 +199,7 @@ class Row:
 
     The connectors only ever read attributes off it (`.access_token`,
     `.api_key`, `.broker_user_id`, `.persistence_mode`, `.user_id`), so a plain
-    attribute bag satisfies them without dragging SQLAlchemy into Charto.
+    attribute bag satisfies them without dragging SQLAlchemy into the dataserver.
     """
 
     __slots__ = ("id", "user_id", "broker") + _COLS
@@ -213,7 +213,7 @@ class Row:
 
 
 def get_broker_session(db, user_id: int, broker: str) -> Optional[Row]:
-    """Signature mirrors Pivot's; ``db`` is ignored (Charto has one store)."""
+    """Signature mirrors Pivot's; ``db`` is ignored (the dataserver has one store)."""
     return _load(int(user_id), broker)
 
 
@@ -246,7 +246,7 @@ def upsert_broker_session(db, user_id: int, broker: str, *, commit: bool = True,
         if key in _SECRET_COLS:
             value = _enc(value)
         elif key in ("login_time", "token_expires_at") and value is not None:
-            # Connectors hand us aware datetimes; Charto stores epoch seconds.
+            # Connectors hand us aware datetimes; the dataserver stores epoch seconds.
             value = int(value.timestamp()) if hasattr(value, "timestamp") else int(value)
         elif key in ("auto_login_opt_in", "is_active", "live_enabled") \
                 and value is not None:
@@ -297,10 +297,10 @@ def _ensure_pivot() -> dict[str, Any]:
             if root not in sys.path:
                 sys.path.insert(0, root)
             # Pivot's config is imported by the connectors; it needs these to
-            # construct Settings even though Charto never touches its DB.
+            # construct Settings even though the dataserver never touches its DB.
             os.environ.setdefault("DATABASE_URL", "postgresql://unused/unused")
             os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
-            os.environ.setdefault("JWT_SECRET_KEY", "charto-local")
+            os.environ.setdefault("JWT_SECRET_KEY", "pivot-local")
 
             from backend.brokers import registry as _registry
 

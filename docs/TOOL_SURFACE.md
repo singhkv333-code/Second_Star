@@ -1,6 +1,6 @@
 # The tool surface — what is shared, what is duplicated, and what must not be merged
 
-> Written 2026-09-05 while merging Charto and Pivot into one platform. The
+> Written 2026-09-05 while merging the dataserver and Pivot into one platform. The
 > merge plan called for collapsing the two tool registries into one. **That was
 > based on a wrong premise**, and this file records the measurement so nobody
 > re-derives it — or "fixes" an arrangement that is deliberate.
@@ -9,30 +9,30 @@
 
 | | count |
 |---|---:|
-| Charto tools (`dataserver.py`) | 47 |
+| the dataserver tools (`dataserver.py`) | 47 |
 | Pivot tools (`agents/tools.py`) | 90 |
 | **Exact name collisions** | **4** |
-| Charto tools with no Pivot equivalent | 43 |
+| the dataserver tools with no Pivot equivalent | 43 |
 
 The four names on both sides: `get_indicator`, `list_strategies`,
 `pause_strategy`, `delete_strategy`.
 
 ## Why the registries are not merged
 
-**They are never in the same process.** Charto's dataserver runs its own LLM
+**They are never in the same process.** the dataserver runs its own LLM
 loop over its 47 tools plus 9 borrowed from Pivot through
 `execution_bridge.PIVOT_TOOLS`. Pivot's API runs a separate loop over its 90.
 Two services, two prompt contracts, two tool tables. "One registry" would mean
 one of those loops absorbing the other — a rewrite of the chat brain, not a
 dedupe.
 
-**43 of Charto's 47 tools have no counterpart at all.** They are the chart:
+**43 of the dataserver's 47 tools have no counterpart at all.** They are the chart:
 `draw_shape`, `mark`, `evaluate_fib`, `volume_profile`, `get_trendlines`,
 `explain_move`, `screen_universe`, the alert verbs, the journal verbs. There is
 nothing to merge them with.
 
 **The 9 borrowed tools are already the merge.** `execution_bridge.py` lends
-Pivot's strategy engine to Charto's chat by SUBTRACTION — it names the tools it
+Pivot's strategy engine to the dataserver's chat by SUBTRACTION — it names the tools it
 wants, runs them on one daemon event loop, and reports honest unavailability
 when Pivot cannot be imported. That is a working seam, and it is smaller and
 more legible than a combined registry would be.
@@ -44,8 +44,8 @@ more legible than a combined registry would be.
     for _n in execution_bridge.PIVOT_TOOLS:
         _DISPATCH[_n] = _pivot_tool(_n)
 
-which **assigns**. All four colliding names are in `_EXECUTION_CHARTO_TOOLS`,
-so adding any of them to `PIVOT_TOOLS` would silently replace Charto's
+which **assigns**. All four colliding names are in `_EXECUTION_DATASERVER_TOOLS`,
+so adding any of them to `PIVOT_TOOLS` would silently replace the dataserver's
 implementation with Pivot's — and execution mode would answer `get_indicator`
 from Pivot's data path instead of the 497M-row bar store the chart is drawn
 from. Same tool name, same schema, different numbers, no error anywhere.
@@ -53,7 +53,7 @@ from. Same tool name, same schema, different numbers, no error anywhere.
 A collision now raises at import with a message naming the tools. The rule it
 enforces:
 
-> **Charto owns anything read off the bar store. Pivot owns the workflow,
+> **The dataserver owns anything read off the bar store. Pivot owns the workflow,
 > backtest and fundamentals surface.**
 
 ## The indicator engines are two on purpose
@@ -65,9 +65,9 @@ the repo and it is not duplication.
 
 They meet at a Protocol. `workflows/dsl/data_accessor.py:83` declares a
 five-method `DataAccessor`; `LiveDataAccessor` answers it from Pivot's data
-path and `ChartoDataAccessor` (`dataserver/strategies.py:299`) answers it from
-Charto's bars. **One DSL, two data planes, one seam** — which is why an armed
-rule in Charto IS the card's tree, evaluated by Pivot's evaluator over Charto's
+path and `DataserverDataAccessor` (`dataserver/strategies.py:299`) answers it from
+The dataserver's bars. **One DSL, two data planes, one seam** — which is why an armed
+rule in the dataserver IS the card's tree, evaluated by Pivot's evaluator over the dataserver's
 minute store.
 
 Deleting either engine means one data plane wins and the other surface loses

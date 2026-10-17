@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 import mail_templates
 import mailer
 
-log = logging.getLogger("charto.alert_email")
+log = logging.getLogger("dataserver.alert_email")
 SENDER = mailer.CONTACT
 MAX_AGE = 86400
 MAX_ATTEMPTS = 6

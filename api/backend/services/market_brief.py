@@ -47,7 +47,7 @@ def cached() -> dict:
 
 
 def _read(path: str) -> dict:
-    origin = os.environ.get('CHARTO_UPSTREAM', 'http://127.0.0.1:5174').rstrip('/')
+    origin = os.environ.get('PIVOT_DATASERVER_UPSTREAM', 'http://127.0.0.1:5174').rstrip('/')
     with urllib.request.urlopen(origin + path, timeout=12) as response:
         return json.load(response)
 

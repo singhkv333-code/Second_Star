@@ -1,4 +1,4 @@
-/* Charto preview — the chart's context menu.
+/* Pivot preview — the chart's context menu.
  *
  * The SHELL only: build a menu from a list of rows, put it where the pointer
  * is, run nested ones, and take it down again. What the rows SAY is decided

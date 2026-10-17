@@ -17,22 +17,22 @@ OLD=$(lsof -ti tcp:$PORT || true)
 # serving dev JS locally made the page look an order of magnitude slower than
 # the thing it is, and made it slower than the deployed site.
 if [ "${1:-}" = "dev" ]; then
-  nohup npx next dev -p $PORT > /tmp/charto_web.log 2>&1 &
+  nohup npx next dev -p $PORT > /tmp/pivot_site.log 2>&1 &
   sleep 6
 else
   # `next dev` and `next build` write incompatible things into .next, so a
   # build over a dev tree (or the reverse) leaves the running server serving
   # chunks that 404. Clear it rather than debug that twice.
   [ -f .next/BUILD_ID ] || rm -rf .next
-  npx next build > /tmp/charto_web_build.log 2>&1 || {
-    echo "BUILD FAILED"; tail -20 /tmp/charto_web_build.log; exit 1; }
-  nohup npx next start -p $PORT > /tmp/charto_web.log 2>&1 &
+  npx next build > /tmp/pivot_site_build.log 2>&1 || {
+    echo "BUILD FAILED"; tail -20 /tmp/pivot_site_build.log; exit 1; }
+  nohup npx next start -p $PORT > /tmp/pivot_site.log 2>&1 &
   sleep 4
 fi
 NEW=$(lsof -ti tcp:$PORT || true)
 if [ -z "$NEW" ] || [ "$NEW" = "$OLD" ]; then
   echo "START FAILED — port $PORT held by '${NEW:-nothing}' (was '$OLD')"
-  cat /tmp/charto_web.log
+  cat /tmp/pivot_site.log
   exit 1
 fi
 echo "company page up on :$PORT (pid $NEW)"

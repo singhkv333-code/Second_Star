@@ -9,7 +9,7 @@ Two sources, one shape:
            record, it needs no login, and it is END OF DAY: the payload says
            "Close, 13 Oct" and nothing pretends it is live.
   kite     When the day's Kite session is up (production pushes
-           CHARTO_KITE_ACCESS_TOKEN each morning), the strikes shown are
+           PIVOT_KITE_ACCESS_TOKEN each morning), the strikes shown are
            re-quoted live in one batched quote() call. The bhavcopy's
            instrument names ARE Kite trading symbols (NIFTY26OCT27050PE,
            weeklies NIFTY26O1920450PE), so no instrument dump is needed, and

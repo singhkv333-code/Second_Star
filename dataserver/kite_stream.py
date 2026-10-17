@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Kite websocket -> charto's live tick engine.
+"""Kite websocket -> the dataserver's live tick engine.
 
 dataserver.py already owns the whole live path. `_live_on_tick(sym, ts,
 price, vol)` is the single seam: it keeps one forming 1-min bar per symbol,
@@ -22,7 +22,7 @@ builder must have (gotcha #2 below). Subscribing to that channel would bake
 wall-clock bucketing in at the source, unfixable downstream, and no amount of
 care in this file could recover it. The payload also carries the raw
 cumulative volume with no cursor, and the channel is a single fan-in for
-pivot's universe (holdings + indices), not charto's 91-symbol minute store.
+pivot's universe (holdings + indices), not the dataserver's 91-symbol minute store.
 
 So we open our own KiteTicker with the same construction the manager uses
 (mirrored below, not imported, so this file never perturbs pivot's singleton).
@@ -31,7 +31,7 @@ The costs, stated plainly:
   - the construction params are duplicated and can drift from ticker.py,
   - reconnect/backoff behaviour is whatever kiteconnect does, same as there.
 The failure modes are independent, which is the point: pivot's ticker dying
-does not stop charto's candles, and this file cannot wedge pivot's WS clients.
+does not stop the dataserver's candles, and this file cannot wedge pivot's WS clients.
 
 WHAT THIS FEED IS, AND WHAT IT IS NOT
 -------------------------------------
@@ -114,7 +114,7 @@ try:                                   # noqa: SIM105
 except Exception:                      # noqa: BLE001
     sync_state = None                  # type: ignore[assignment]
 
-log = logging.getLogger("charto.kite_stream")
+log = logging.getLogger("dataserver.kite_stream")
 
 IST = timezone(timedelta(seconds=ds.IST_OFF))
 DEFAULT_MAX_STALE_SESSIONS = 2         # yesterday's close is fine; a week is not
@@ -1290,7 +1290,7 @@ def _kite_access_token() -> str:
     Imported lazily so --dry-run and --self-test need neither the pivot venv
     nor a database.
 
-    CHARTO_KITE_ACCESS_TOKEN overrides it, and exists for exactly one host:
+    PIVOT_KITE_ACCESS_TOKEN overrides it, and exists for exactly one host:
     the VM that HOLDS the 30 GB store has no DATABASE_URL and no Kite
     credentials, so the session this reads from Postgres is unreachable there.
     That is the same split `catchup_remote.py` was written for — the machine
@@ -1305,10 +1305,10 @@ def _kite_access_token() -> str:
     The token is a DAY token. It stops working at the next expiry whatever we
     do, so this is a value pushed each morning, never a secret committed.
     """
-    tok = (os.environ.get("CHARTO_KITE_ACCESS_TOKEN") or "").strip()
+    tok = (os.environ.get("PIVOT_KITE_ACCESS_TOKEN") or "").strip()
     if tok:
         if tok.startswith("mock_") or len(tok) < 20:
-            raise SystemExit("CHARTO_KITE_ACCESS_TOKEN is mock or too short")
+            raise SystemExit("PIVOT_KITE_ACCESS_TOKEN is mock or too short")
         return tok
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "api"))
     from backend.database import SessionLocal

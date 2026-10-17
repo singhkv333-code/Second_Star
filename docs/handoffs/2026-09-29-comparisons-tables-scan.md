@@ -7,8 +7,8 @@ Branch: `claude-cloud-29sep` (pushed). Two commits on top of `60d282a`:
 | `ddcaa2b` | chat: comparisons on the metrics the question needs, one table design, deeper replies |
 | `1a77d68` | scan: opening-range breakouts and 13 more technical features, patterns in words |
 
-Nothing is deployed. `pivot-next` and `pivot` ride the usual path; the charto
-change (`dataserver/dataserver.py`) only goes live through `charto-deploy`.
+Nothing is deployed. `pivot-next` and `pivot` ride the usual path; the dataserver
+change (`dataserver/dataserver.py`) only goes live through `pivot-deploy`.
 
 ---
 
@@ -22,9 +22,9 @@ change (`dataserver/dataserver.py`) only goes live through `charto-deploy`.
 | 4 | Long text cells stretch the table | Cells were `nowrap`, table-layout auto. | Sentence columns (>28 chars) wrap inside `min-w-[160px] max-w-[280px]`. |
 | 5/6 | Longer, structured, ChatGPT-style answers; crisp context, no templates | Flex brief's "Writing the answer" section carried example headings and a checklist. | Replaced with a 96-word section (was 235): depth by default, `###` headings, bullets, tables, short asks stay short. No templates/examples. Cards line now says "build your analysis around it". |
 | 7 | "Why web search for financials?" | In the test harness every Pivot tool was stubbed as unreachable, so the model fell back to web (correct). One real miss: it went web-first for *quarterly results*, which the brief didn't name as Pivot-first. | Brief: "Pivot's tools come first for prices, fundamentals, quarterly results, filings and scans." |
-| 8 | Scan card showed ", 0d ago" in Pattern | `_scan_technicals` read `p["kind"]`; charto sends `p["pattern"]`. The test fixture had the same wrong key. | Reads `pattern`; cell reads "Bull flag, latest session" / "N sessions ago". Fixture corrected. |
-| 9 | Reply leaked `bull_flag`, `ascending_triangle` | The model was handed snake_case ids in the tool description, charto's unknown-pattern list and its notes, and echoed them. | Pattern names go out and come back as plain words (charto normalises "Bull Flag"/"bull-flag" → id). |
-| 10 | "ORB not supported"; need more technical screeners | Every screen feature was daily-bar-only. | 15 new charto screen features (below). |
+| 8 | Scan card showed ", 0d ago" in Pattern | `_scan_technicals` read `p["kind"]`; the dataserver sends `p["pattern"]`. The test fixture had the same wrong key. | Reads `pattern`; cell reads "Bull flag, latest session" / "N sessions ago". Fixture corrected. |
+| 9 | Reply leaked `bull_flag`, `ascending_triangle` | The model was handed snake_case ids in the tool description, the dataserver's unknown-pattern list and its notes, and echoed them. | Pattern names go out and come back as plain words (the dataserver normalises "Bull Flag"/"bull-flag" → id). |
+| 10 | "ORB not supported"; need more technical screeners | Every screen feature was daily-bar-only. | 15 new dataserver screen features (below). |
 
 ## 2. Files touched
 
@@ -35,7 +35,7 @@ change (`dataserver/dataserver.py`) only goes live through `charto-deploy`.
 - `backend/services/flex_chat.py` — brief (writing section, cards line, quarterly results).
 - `backend/services/chat_service.py`, `backend/prompts/system_core.md` — legacy engine no longer forces `compare_performance`.
 
-**charto**
+**the dataserver**
 - `data/dataserver.py`
   - removed the dead first copy of `SCREEN_FEATURES`/`_VP_FEATURES`/`_VOLUME_FEATURES`/`SCREEN_FEATURE_HELP`/`SCREEN_OPS` (the second copy always won at import).
   - new features in `_screen_row_features` (daily): `gap_pct`, `ret_open`, `close_pos`, `hi20_break_pct`, `lo20_break_pct`, `vol_ratio20`, `streak`, `adx14`, `macd_hist_pct`, `bb_pct_b`, `bb_width_pct`, `stoch_k`, `supertrend_dir` — via `indicators.compute` (chart's own code). Windows: Bollinger/Stoch last 40 bars (exact), ADX/Supertrend/MACD last 300.
@@ -53,7 +53,7 @@ change (`dataserver/dataserver.py`) only goes live through `charto-deploy`.
 ## 3. Verification done
 
 - pivot: `test_flex_chat`, `test_compare`, `test_fundamentals_screen_*`, `test_screen_results_card`, `test_screener_filters`, `test_scan_technicals`, new `test_fundamentals_screen_compare` — all pass (one assertion in `test_flex_chat` updated: pins "go deep" instead of the old phrase).
-- charto: `test_screen_features.py` 20/20, `test_patterns.py` 0 failures, `test_indicators.py` 8 passed, `test_chart_patterns_v2.py` exit 0.
+- the dataserver: `test_screen_features.py` 20/20, `test_patterns.py` 0 failures, `test_indicators.py` 8 passed, `test_chart_patterns_v2.py` exit 0.
 - pivot-next: `tsc --noEmit` clean, eslint clean on changed files, table tests pass. **17 other chat tests fail identically on the untouched base** (chat-demo, chat-editor-sync, indicator-backtest-card, one assistant-message link test) — pre-existing, not from this work.
 - Visual: both tables screenshotted at 1100px and 390px via a throwaway `/design/tabletest` page (removed).
 - Live model (tools stubbed, see §4): comparison prompt → first calls `fetch_fundamentals` per peer (old code: `compare_performance`); "give me it stocks with orb" → `scan_technicals(industry="IT", filters=[orb15_pos gt 100])`, no snake_case in the reply.
@@ -67,7 +67,7 @@ change (`dataserver/dataserver.py`) only goes live through `charto-deploy`.
 - Tests need `REDIS_URL=redis://127.0.0.1:6399/0 JWT_SECRET_KEY=local-test`.
 - Live probe: `api/scripts/flex_turn_probe.py` (stubs tools by default; `--real-tools` when the DB is reachable). Set `DATABASE_URL=postgresql://x:x@127.0.0.1:1/x` (and `FINANCIALS_DSN`, `ENRICH_DSN`) when the DB is unreachable, or the LLM-cost logger hangs on connect.
 - Frontend: `cd app && pnpm install --frozen-lockfile && pnpm -s vitest run tests/chat`.
-- charto tests: `cd dataserver && python3 test_screen_features.py` (uses a scratch `CHARTO_DB`).
+- the dataserver tests: `cd dataserver && python3 test_screen_features.py` (uses a scratch `PIVOT_DB`).
 
 ## 5. Open items for the next session
 
@@ -75,5 +75,5 @@ change (`dataserver/dataserver.py`) only goes live through `charto-deploy`.
 2. **Tool choice for comparisons is the model's**: in one run it used `fetch_fundamentals` per peer (text table, no card) rather than `screen_fundamentals(symbols=…)` (card). Both are valid; if the card should win more often, improve the `screen_fundamentals` description's discoverability, don't add a rule.
 3. **Only one card renders per turn** (`raw_data` hoists the first `_render_hint`). A turn calling both `compare_performance` and `screen_fundamentals` shows one; `screen_fundamentals(metrics=[…, "sharpe"])` puts both in one card.
 4. **ORB coverage** equals minute-bar coverage (same subset as volume profile). The result's `minute_bar_coverage` says how many were scored; widen by hydrating more symbols' 1-minute bars.
-5. **Industry "IT" in charto's scan** matches by prefix for short words (pre-existing); the tool returns the closest industry names and the model re-calls. Watch whether IT scans land on the right slug in real runs.
+5. **Industry "IT" in the dataserver's scan** matches by prefix for short words (pre-existing); the tool returns the closest industry names and the model re-calls. Watch whether IT scans land on the right slug in real runs.
 6. `pivot-next` `/design/tabletest` was temporary and is gone; `app/design` is the ungated route if a visual harness is needed again.

@@ -1,4 +1,4 @@
-/* Charto preview — the Financials widget.
+/* Pivot preview — the Financials widget.
  *
  * The company behind the chart, from the same store the company page reads:
  * the profile and valuation (/company), the quarterly results

@@ -23,7 +23,7 @@ test('chat segments, pattern pieces and divergence legs all stay in the scene, u
     Panes: { all: () => [] },
     wireIv: (iv) => ({ D: '1d', W: '1w', M: '1mo' })[iv] || String(iv || ''),
   });
-  vm.runInContext(functionSource(main, 'applyScenePatch', '\n  window.__charto'), context);
+  vm.runInContext(functionSource(main, 'applyScenePatch', '\n  window.__pivot'), context);
   const patch = [
     { kind: 'clear', scope: 'segment', owner: 'get_trendlines' },
     { kind: 'segment', id: 'TL1', role: 'support', p1: { t: 1756783800, v: 1271 }, p2: { t: 1756878300, v: 1305.4 } },

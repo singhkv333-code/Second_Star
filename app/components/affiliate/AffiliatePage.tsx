@@ -6,7 +6,7 @@ import { ArrowLeft, ArrowRight, Instagram } from "lucide-react";
 import { HalftonePlanet, PixelGrid } from "./Pixels";
 import { LandingLogo } from "./LandingLogo";
 import { AFFILIATE_JOIN_HREF, AFFILIATE_SETTINGS_HREF, REFERRAL_RATE_PERCENT, inr } from "./referrals";
-import { readChartoToken } from "@/lib/charto-auth";
+import { readDataserverToken } from "@/lib/dataserver-auth";
 import "./affiliate.css";
 
 /**
@@ -254,7 +254,7 @@ function ReferralAdmin({ demo }: { demo: boolean }): React.ReactElement | null {
   const [reviewReason, setReviewReason] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [accessError, setAccessError] = useState("");
-  const token = demo ? "local-demo" : readChartoToken();
+  const token = demo ? "local-demo" : readDataserverToken();
   const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
   const refresh = async (): Promise<void> => {
     if (demo) return;

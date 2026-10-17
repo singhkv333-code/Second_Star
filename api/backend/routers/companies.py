@@ -68,7 +68,7 @@ class CompanyLogosResponse(BaseModel):
 # Cap the batch so a crafted query can't fan out into an unbounded number of
 # logo lookups. A single screener/portfolio table never shows this many rows.
 _MAX_LOGO_SYMBOLS = 200
-_CHARTO_INTERNAL_URL = os.getenv("CHARTO_INTERNAL_URL", "http://127.0.0.1:5174")
+_DATASERVER_INTERNAL_URL = os.getenv("PIVOT_INTERNAL_URL", "http://127.0.0.1:5174")
 
 
 def _instrument_context(
@@ -91,7 +91,7 @@ def _search_quote_preview(
 ) -> dict[str, dict]:
     """Best-effort batch prices for autosuggest rows.
 
-    Kite remains primary. Charto's stored/live quote plane fills gaps and is
+    Kite remains primary. The dataserver's stored/live quote plane fills gaps and is
     explicitly labelled so a delayed relay is never presented as live.
     Search itself never fails when either source is unavailable.
     """
@@ -131,7 +131,7 @@ def _search_quote_preview(
         return out
     try:
         query = urllib.parse.urlencode({"symbols": ",".join(missing)})
-        url = f"{_CHARTO_INTERNAL_URL.rstrip('/')}/quotes?{query}"
+        url = f"{_DATASERVER_INTERNAL_URL.rstrip('/')}/quotes?{query}"
         with urllib.request.urlopen(url, timeout=0.8) as response:  # noqa: S310
             payload = json.loads(response.read())
         for quote in payload.get("quotes") or []:
@@ -141,7 +141,7 @@ def _search_quote_preview(
                     "price": float(quote["last"]),
                     "change_pct": quote.get("change_pct"),
                     "currency": quote.get("currency"),
-                    "quote_source": "charto_relay",
+                    "quote_source": "dataserver_relay",
                 }
     except Exception:  # noqa: BLE001 — nulls are the honest fallback
         pass

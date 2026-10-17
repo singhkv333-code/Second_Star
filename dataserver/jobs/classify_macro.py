@@ -20,7 +20,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parents[1] / "charto_bars.db"
+DB_PATH = Path(__file__).resolve().parents[1] / "bars.db"
 
 # symbol -> (display name, industry slug)
 ROWS: dict[str, tuple[str, str]] = {}

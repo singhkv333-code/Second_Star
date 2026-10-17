@@ -1,4 +1,4 @@
-/* Charto preview — the tool catalogue.
+/* Pivot preview — the tool catalogue.
  *
  * A tool is DATA: how many anchors it takes, and how those anchors compose
  * into primitives. Rendering, hit-testing, dragging, persistence and

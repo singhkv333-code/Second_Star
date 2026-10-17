@@ -10,7 +10,7 @@
 The Vercel project `pivotnow` is linked to `site`, a Next.js 15 App
 Router app. Its `/checkout` page and same-origin Node.js API routes implement
 Razorpay Standard Web Checkout. The landing footer links to Checkout.
-Existing Charto subscription billing remains in `dataserver/billing.py`.
+Existing dataserver subscription billing remains in `dataserver/billing.py`.
 This one-time checkout does not grant plans or change those subscriptions.
 
 ## Local setup

@@ -1,4 +1,4 @@
-/* Charto preview — third-party widgets: live business TV and the economic
+/* Pivot preview — third-party widgets: live business TV and the economic
  * calendar.
  *
  * TV. The channels' own live streams on YouTube, embedded with YouTube's

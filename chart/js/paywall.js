@@ -1,4 +1,4 @@
-/* Charto preview — the paywall on the chart.
+/* Pivot preview — the paywall on the chart.
  *
  * What a person sees when their plan says no, and the plan itself:
  *
@@ -46,7 +46,7 @@ const Paywall = (() => {
   }
   // pivot-next serves /pricing at its root in development (the chart is
   // framed at /chart-app) and under /pv beside the chart in production.
-  const SHELL = window.CHARTO_SHELL_BASE
+  const SHELL = window.PIVOT_SHELL_BASE
     ?? (inShell() || location.pathname.startsWith("/chart-app") ? "" : "/pv");
   function go(path) {
     const url = SHELL + path;
@@ -200,7 +200,7 @@ const Paywall = (() => {
       close();
       if (b.dataset.pw === "plans") pricing(body.feature);
       if (b.dataset.pw === "signup" || b.dataset.pw === "login") {
-        if (window.CHARTO_AUTH_OPEN) window.CHARTO_AUTH_OPEN(b.dataset.pw);
+        if (window.PIVOT_AUTH_OPEN) window.PIVOT_AUTH_OPEN(b.dataset.pw);
       }
     });
     document.body.appendChild(modal);
@@ -382,7 +382,7 @@ const Paywall = (() => {
     if (a === "retry") return paintBilling();
     if (a === "plans") { close(); return pricing(); }
     if (a === "full") { close(); return go("/settings/billing"); }
-    if (a === "login") { close(); return window.CHARTO_AUTH_OPEN && window.CHARTO_AUTH_OPEN("login"); }
+    if (a === "login") { close(); return window.PIVOT_AUTH_OPEN && window.PIVOT_AUTH_OPEN("login"); }
     if (a === "cancel") {
       // A confirmation, not a gauntlet: what happens, one button each way.
       host.innerHTML = `<h2 class="pw-title">Cancel ${esc(host.dataset.plan)}?</h2>
@@ -428,13 +428,13 @@ const Paywall = (() => {
     return res;
   };
 
-  document.addEventListener("charto:evicted", (e) => evicted(e.detail || {}));
-  document.addEventListener("charto:credits", (e) => credits(e.detail));
+  document.addEventListener("pivot:evicted", (e) => evicted(e.detail || {}));
+  document.addEventListener("pivot:credits", (e) => credits(e.detail));
   // The shell's paywall offers "Use this tab" too; it reaches us here.
   if (inShell()) {
     try { window.parent.addEventListener("pivot:reclaim-tab", () => Plan.reclaim()); } catch { /* not framed by the shell */ }
   }
-  loadCatalog().then(() => document.dispatchEvent(new CustomEvent("charto:plan-catalog")));
+  loadCatalog().then(() => document.dispatchEvent(new CustomEvent("pivot:plan-catalog")));
 
   return { show, prompt, evicted, credits, openBilling, lockFor, enforced, close };
 })();

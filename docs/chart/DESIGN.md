@@ -1,32 +1,32 @@
-# Charto — the analyst at your chart
+# The dataserver — the analyst at your chart
 
-> **What this is.** Charto is Pivot's charting engine: a dual-pane experience
+> **What this is.** The dataserver is Pivot's charting engine: a dual-pane experience
 > where **chat is the single source of truth and a candlestick chart is the
 > renderer of that chat**. This document is its constitution, feature inventory
 > and build guide.
 >
 > **Status: shipped and in production since 2026-07-29.** `preview/` is served
-> off disk at `/`, `data/dataserver.py` runs as `charto.service` on `:5174`, and
+> off disk at `/`, `data/dataserver.py` runs as `the dataserver.service` on `:5174`, and
 > `web/` serves the company page on `:5175`. This blockquote previously read
 > "ideation + feasibility complete, nothing built" and stayed that way for six
 > weeks after the first deploy — corrected 2026-09-05. The feasibility verdicts
 > and roadmap below still reflect the 2026-07-23 audits; where they disagree
 > with the code, the code wins.
 >
-> **How this relates to the rest of Pivot.** Charto is the *rendering and
+> **How this relates to the rest of Pivot.** The dataserver is the *rendering and
 > judgment* layer over engines Pivot already owns (chat brain, backtester, Kite
 > data, detectors, workflow watcher, thematic map). Importing `pivot/` is
 > deliberate, not a violation: `data/execution_bridge.py` borrows the strategy
 > engine so there is one derivation and one set of numbers. The earlier
 > "View Markets" belief-to-expression thread that this document once extended
-> was **retired on 2026-09-05** — see `CLAUDE.md` section 4. Charto is the
+> was **retired on 2026-09-05** — see `CLAUDE.md` section 4. The dataserver is the
 > charting engine inside one platform, not a product beside it.
 
 ---
 
 ## 0. The one-sentence spec
 
-**Charto is the analyst standing at your chart — it measures what you believe,
+**The dataserver is the analyst standing at your chart — it measures what you believe,
 draws only what it can prove, watches so you don't have to, and remembers what
 you did.**
 
@@ -38,7 +38,7 @@ Everything below is a consequence of that sentence.
 
 Most retail traders live inside a chart they mark up by hand — levels, zones,
 trendlines, structure — and a set of tools (screeners, option calculators,
-scanners, journals) that never talk to each other or to the chart. Charto
+scanners, journals) that never talk to each other or to the chart. The dataserver
 collapses that into one calm conversation with a competent second person at the
 same screen: you describe a belief or ask a question in plain language (or
 Hinglish), and the chart *becomes* the answer — annotated, evidence-graded, and
@@ -49,7 +49,7 @@ The wedge is not detection. Auto-detection of the entire manual playbook is a
 TradingView's own AI Chart Copilot all ship it). What almost nobody ships is the
 **judgment layer above detection**: evidence per annotation, honest confidence,
 context-gating, move attribution, and chat-native delivery under India's
-register-not-execute reality. That layer is what Charto owns.
+register-not-execute reality. That layer is what the dataserver owns.
 
 North star: a non-expert holds a belief, sees it drawn on live candles with
 evidence and a causal map, checks it with a rigorous backtest, and arms it as an
@@ -83,7 +83,7 @@ every code decision, every prompt edit is checked against these.
 4. **Honest confidence is a feature, not a disclaimer.** Annotations are graded
    by an evidence hierarchy (§5). Attribution says "no clear catalyst" most days
    and means it. The empirical ceiling (~80% of moves are unexplained) is shown,
-   not hidden. Charto is the one chart tool that refuses to oversell its own
+   not hidden. The dataserver is the one chart tool that refuses to oversell its own
    drawings.
 
 5. **Cumulative, not conversational-soup.** One versioned scene object per
@@ -162,9 +162,9 @@ What *never* caused problems: deterministic **computation** (indicators,
 backtests, watchers) and **schema validation**. The model-owned-interpretation
 A/B proved the direction — the arm with four distrust layers removed won.
 
-**Charto's doctrine, from day one:**
+**The dataserver's doctrine, from day one:**
 
-1. **No pre-LLM interception, period.** Charto surfaces get no intent
+1. **No pre-LLM interception, period.** The dataserver surfaces get no intent
    classifiers, no phrase detectors, no special-case routers. Every message
    reaches the model; the scene emission is a tool call the *model* makes, not a
    route code selects. This is far easier to hold as a founding constraint than
@@ -191,9 +191,9 @@ A/B proved the direction — the arm with four distrust layers removed won.
 
 ---
 
-## 5. The evidence hierarchy (how Charto grades its own drawings)
+## 5. The evidence hierarchy (how the dataserver grades its own drawings)
 
-Charto ranks its annotations by credibility and displays confidence
+The dataserver ranks its annotations by credibility and displays confidence
 accordingly — it never presents all drawings as equal. Strong → weak, per the
 research sweep:
 
@@ -313,7 +313,7 @@ plain language ("Momentum = 3-month return > 8% and price above the 50-day
 average — tap to change") with the backtest verdict attached, so ambiguity
 becomes evidence-backed choice, not a hidden guess.
 
-**Where Charto refuses:** per-tick LLM discretion ("you decide each moment") —
+**Where the dataserver refuses:** per-tick LLM discretion ("you decide each moment") —
 refused on four independent grounds: cost (~2M tokens/agent/day at 60s ticks),
 latency, unbacktestability (the trust ladder becomes meaningless), and SEBI
 black-box exposure. The line: the LLM writes the rules; the rules run
@@ -328,7 +328,7 @@ guaranteed/target returns.
 Grouped by theme. Each line is one distinct feature; feasibility notes reflect
 the 2026-07-23 audits. Nothing here is built.
 
-### A. Charto core (chart-as-renderer)
+### A. The dataserver core (chart-as-renderer)
 1. **Dual-pane chat+chart** — chat is the single source; a right pane renders
    every reply visually on live candles.
 2. **Scene model / scene_patch** — one cumulative, versioned scene object per
@@ -386,7 +386,7 @@ the 2026-07-23 audits. Nothing here is built.
     leader/laggard rotation.
 31. **Confluence scoring** — multiple signals stacking at one price graded into a
     single level score with every input inspectable.
-32. **Evidence-hierarchy grading** — Charto ranks its own annotations by
+32. **Evidence-hierarchy grading** — the dataserver ranks its own annotations by
     credibility (§5) instead of presenting all as equal.
 33. **Evidence-on-hover** — hover any detected setup to see its historical
     hit-rate on THIS symbol. *The unshipped-anywhere wedge; Pivot owns both
@@ -441,7 +441,7 @@ the 2026-07-23 audits. Nothing here is built.
     against actual outcomes over years.
 53. **Thesis objects** — beliefs stored with confirm/invalidate conditions,
     tracked like positions.
-54. **Self-audit claim ledger** — Charto scores its own past analysis claims
+54. **Self-audit claim ledger** — the dataserver scores its own past analysis claims
     against what actually happened.
 55. **Portfolio X-ray with scenario sliders** — drag a macro scenario, watch
     modeled portfolio impact.
@@ -463,7 +463,7 @@ That resolves into a **daily loop of four stations**; every feature maps to
 exactly one:
 
 - **Plan** (before open / before the week): pre-market plan, EOD swing scan,
-  valuation buy-zones. Charto proposes the day drawn on candles; the trader edits
+  valuation buy-zones. The dataserver proposes the day drawn on candles; the trader edits
   the plan, not a form.
 - **Watch — which means *don't* watch:** the watcher watches. Completion-only
   alerts, against-the-tide warnings, thesis-invalidation flags. The trader's
@@ -472,7 +472,7 @@ exactly one:
 - **Act:** one tap from drawn bracket to registered order; the human commits in
   their broker app. Friction stays at exactly one confirmation — no nagging, no
   auto-exec.
-- **Review:** auto-journal, discipline score, self-audit ledger. Charto holds the
+- **Review:** auto-journal, discipline score, self-audit ledger. The dataserver holds the
   mirror — including to itself.
 
 Design consequences:
@@ -481,7 +481,7 @@ Design consequences:
   why it's there, what data produced it, how it's performed on this symbol. An
   analyst who shows their work survives being wrong; a black box doesn't survive
   being right.
-- **The trader brings belief and judgment; Charto brings measurement, memory,
+- **The trader brings belief and judgment; the dataserver brings measurement, memory,
   and discipline.** This is why refusing per-tick discretion doesn't feel
   diminishing — "you decide, I'll measure and remember" is a *stronger* offer
   than "I'll trade for you," especially where 91% of the self-directed lose.
@@ -494,7 +494,7 @@ Design consequences:
 
 ## 9. Feasibility & the LLM/backend split (2026-07-23 audits)
 
-**Verdict: Charto is assembly-priced, not infrastructure-priced.** The layout,
+**Verdict: the dataserver is assembly-priced, not infrastructure-priced.** The layout,
 card pipeline, data feeds, order rail, and even the level-detectors already
 exist in the Pivot repo. The genuinely green-field work is confined to three
 things.
@@ -551,7 +551,7 @@ block per chart-bearing turn, not a new hop.
   connector). Don't mistake it for an auto-exec rail.
 - **Keep it numeric-detector-first, not screenshot-vision.** 2025-26 research
   shows vision models reading chart images are competitive-not-superior, and some
-  CNNs "learned base rates, not charts." Charto detects from data, not pixels.
+  CNNs "learned base rates, not charts." The dataserver detects from data, not pixels.
 
 ---
 
@@ -600,7 +600,7 @@ only), `difurious/lightweight-charts-line-tools`, TradingView official
   owned substrate suffices.
 
 **The subtle win:** lightweight-charts having *no built-in indicators* is a
-FEATURE for Charto — it structurally enforces "every series comes from the
+FEATURE for the dataserver — it structurally enforces "every series comes from the
 backend registry" (one-source honesty). Batteries-included libs constantly tempt
 FE-computed indicators, the exact drift we design out. Net effect on the plan:
 drawing-layer risk drops (green-field → adapt-an-MIT-impl); RSI/MACD subpanes
@@ -657,7 +657,7 @@ contract once it exists.
 - **Detection is commoditized.** TrendSpider/LuxAlgo/ChartPrime/Autochartist and
   TradingView's own AI Chart Copilot (public beta Apr 2026) auto-detect the
   whole playbook. Copilot deliberately ships NO strategy-gen and NO orders — the
-  biggest platform risk, but it leaves Charto's deploy layer open.
+  biggest platform risk, but it leaves the dataserver's deploy layer open.
 - **India move-attribution is unclaimed.** Benzinga "Why Is It Moving" defines
   the US category (human-in-the-loop, licensed B2B into ChartIQ); no India
   product ships automated causal attribution tied to a chart. The top signals
@@ -682,12 +682,12 @@ Synthesized 2026-07-23 from: the chart-vision ideation arc (2026-07-19), two
 codebase feasibility audits (frontend + backend, 2026-07-23), and a three-agent
 web-research sweep (price-action automation, trading-style taxonomy, move
 attribution). Cross-references in Pivot's memory:
-`project_charto_feasibility_2026_07_23`,
-`project_charto_powers_research_2026_07_23`,
+`project_dataserver_feasibility_2026_07_23`,
+`project_dataserver_powers_research_2026_07_23`,
 `project_chart_vision_and_competitive_landscape_2026_07_19`,
 `project_strategy_automation_gap_analysis_2026_07_18`,
 `project_breakout_path_diagnostic_2026_07_19`.
 
 **When code claims here drift from the Pivot repo, the code wins** — verify
 file/flag/tool names before relying on them. This is a design sandbox; treat it
-as provisional until a feature graduates out of `charto/`.
+as provisional until a feature graduates out of `the dataserver/`.

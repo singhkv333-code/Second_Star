@@ -25,7 +25,7 @@ single layer is trusted to hold; an escape from one lands inside the next:
 
 A deployment that runs other people's code at scale should add a kernel-level
 jail outside all of this (nsjail/bubblewrap with no network namespace, or a
-microVM); indicator_sandbox.py takes it as CHARTO_SANDBOX_PREFIX.
+microVM); indicator_sandbox.py takes it as PIVOT_SANDBOX_PREFIX.
 
 The code is given a Pine-like `ta` namespace (ta.sma, ta.ema, ta.rma …). Its
 moving averages ARE the native engine's functions, imported from

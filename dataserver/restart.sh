@@ -27,13 +27,13 @@ OLD=$(lsof -ti tcp:$PORT -sTCP:LISTEN || true)
 # gap-fill reports, refusal reasons — sits in a buffer that is never flushed
 # while the process runs. The log read as empty for a whole debugging session,
 # which is indistinguishable from "the code never ran".
-nohup "$PY" -u dataserver.py > /tmp/charto_ds.log 2>&1 &
+nohup "$PY" -u dataserver.py > /tmp/pivot_dataserver.log 2>&1 &
 sleep 3
 NEW=$(lsof -ti tcp:$PORT -sTCP:LISTEN || true)
 if [ -z "$NEW" ] || [ "$NEW" = "$OLD" ]; then
   echo "RESTART FAILED — port $PORT still held by '${NEW:-nothing}' (was '$OLD')"
-  cat /tmp/charto_ds.log
+  cat /tmp/pivot_dataserver.log
   exit 1
 fi
 echo "dataserver restarted: pid $OLD -> $NEW"
-cat /tmp/charto_ds.log
+cat /tmp/pivot_dataserver.log

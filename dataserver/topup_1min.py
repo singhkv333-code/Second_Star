@@ -1,4 +1,4 @@
-"""Incremental 1-minute top-up for the NSE equities already in charto_bars.db.
+"""Incremental 1-minute top-up for the NSE equities already in bars.db.
 
 backfill_1min.py always restarts from the measured 2015-02-02 archive floor:
 ~70 windows per symbol, ~27s a stock, ~3.7 hours for 500 names. That is the
@@ -78,14 +78,14 @@ _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))                          # sibling dataserver
 sys.path.insert(0, str(_HERE.parent / "api"))     # pivot backend
 
-# CHARTO_DB retargets the store. The catch-up a REMOTE host needs is not the
+# PIVOT_DB retargets the store. The catch-up a REMOTE host needs is not the
 # one this laptop needs, and copying 13 GB across to find out is absurd — so we
 # seed a throwaway DB with the remote's watermarks (one anchor row per symbol),
 # run this script against THAT, and ship only the rows it fetched. plan_symbol
 # reads MAX(ts)/sync_state and nothing else, so a seeded DB plans exactly the
 # windows the remote is missing. Measured 2026-08-03: 500 NSE names, 22 Jul ->
 # 03 Aug, 1.5M bars fetched locally and shipped as 20 MB instead of 13 GB.
-DB_PATH = Path(environ.get("CHARTO_DB") or (_HERE / "charto_bars.db"))
+DB_PATH = Path(environ.get("PIVOT_DB") or (_HERE / "bars.db"))
 IST = timezone(timedelta(hours=5, minutes=30))
 
 WINDOW_DAYS = 55        # measured cap is 60; stay safe (same as the backfills)
@@ -737,7 +737,7 @@ def self_test() -> int:
 
 def main(argv: list[str]) -> None:
     ap = argparse.ArgumentParser(
-        description="Incremental 1-minute top-up for NSE equities in charto_bars.db")
+        description="Incremental 1-minute top-up for NSE equities in bars.db")
     ap.add_argument("symbols", nargs="*", help="default: every NSE equity in `bars`")
     ap.add_argument("--dry-run", action="store_true",
                     help="print the plan; touches neither Kite nor the DB")
@@ -767,7 +767,7 @@ def main(argv: list[str]) -> None:
     todo = [p for p in plans if not p.skip]
     skipped = [p for p in plans if p.skip]
 
-    print(f"charto top-up  {now:%Y-%m-%d %H:%M} IST  "
+    print(f"dataserver top-up  {now:%Y-%m-%d %H:%M} IST  "
           f"{len(symbols)} symbols scanned, {len(todo)} to fetch\n")
     for p in sorted(todo, key=lambda x: x.symbol):
         frm, to = p.windows[0][0], p.windows[-1][1]

@@ -1,1 +1,1 @@
-charto-web-rebuild-hook-v1
+pivot-web-rebuild-hook-v1

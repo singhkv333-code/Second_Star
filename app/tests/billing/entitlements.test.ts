@@ -31,7 +31,7 @@ const DAY = 86400;
 const cat = { ...SNAPSHOT, checkout: true };
 
 describe("catalog", () => {
-  it("is a byte-for-byte copy of charto's plans_catalog.json", () => {
+  it("is a byte-for-byte copy of the dataserver's plans_catalog.json", () => {
     const src = path.resolve(__dirname, "../dataserver/plans_catalog.json");
     if (!fs.existsSync(src)) return; // pivot-next built on its own (Docker)
     const snap = path.resolve(__dirname, "../../lib/billing/catalog.snapshot.json");

@@ -1,4 +1,4 @@
-/* Charto preview — the chart settings dialog.
+/* Pivot preview — the chart settings dialog.
  *
  * TradingView's gear: one modal with a left-hand list of sections — Symbol,
  * Status line, Scales and lines, Canvas — over the same card, tokens and

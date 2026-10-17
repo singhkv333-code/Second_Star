@@ -296,7 +296,7 @@
   stroke-linejoin: round;
 }
 /* One accent per drawing, and it is what the drawing is about. The mix is the
-   app's own light-mode formula: charto's blue pulled toward a saturated deep
+   app's own light-mode formula: the dataserver's blue pulled toward a saturated deep
    teal, which keeps the colour without letting a mid-teal wash out on paper. */
 .cf-tile .a {
   stroke: color-mix(in srgb, var(--cyan) 62%, #003347);
@@ -380,7 +380,7 @@
 
 
 /* ══════════════════════════════════════════════════════════════════════════
-   THE PRODUCT SURFACE — charto's light theme, quoted into the page.
+   THE PRODUCT SURFACE — the dataserver's light theme, quoted into the page.
    Token values are `:root[data-theme="light"]` from `chart/index.html`.
    ══════════════════════════════════════════════════════════════════════════ */
 

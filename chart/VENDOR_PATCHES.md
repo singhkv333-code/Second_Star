@@ -1,6 +1,6 @@
 # Lightweight Charts axis-label patches
 
-Charto uses Lightweight Charts' native canvas-rendered crosshair labels. They
+Pivot uses Lightweight Charts' native canvas-rendered crosshair labels. They
 remain coupled to the chart's scrolling, pane geometry, scale, and hit testing;
 there is no separate DOM badge layered over them.
 
