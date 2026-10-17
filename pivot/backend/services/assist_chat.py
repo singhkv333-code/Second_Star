@@ -23,6 +23,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 from collections.abc import AsyncIterator
 from functools import cache, lru_cache
@@ -299,12 +300,45 @@ async def page_snapshot(page: str, symbol: str | None, ctx: Any) -> str:
     return text
 
 
-def _tool_output(r: Any) -> str:
+# Said to the model beside a screen it has already shown as a card. Without
+# it the answer re-typed the rows as a markdown table under the card (two
+# tables for one result), and a second screen run left the card describing a
+# different list from the words.
+SHOWN_AS_CARD = ("These results are already on screen as a table card listing every match. "
+                 "Do not list them again or write a table of them: give the count, the "
+                 "criteria and what stands out in two or three lines. Do not run another "
+                 "screen unless the user asked for a different one.")
+
+
+_TABLE_ROW = re.compile(r"^\s*\|.*\|\s*$")
+_TABLE_RULE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$")
+
+
+def _drop_tables(text: str) -> str:
+    """The answer without its markdown tables: a screen shown as a card is
+    the table, and the instruction above is advice, this is the guarantee."""
+    lines, out, i = text.split("\n"), [], 0
+    while i < len(lines):
+        if _TABLE_ROW.match(lines[i]) and i + 1 < len(lines) and _TABLE_RULE.match(lines[i + 1]):
+            i += 2
+            while i < len(lines) and _TABLE_ROW.match(lines[i]):
+                i += 1
+            continue
+        out.append(lines[i])
+        i += 1
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip()
+
+
+def _tool_output(r: Any, shown: bool = False) -> str:
     """A tool result as the model reads it: the same compaction as the
-    snapshot (no render payloads, short lists), or its error in one line."""
+    snapshot (no render payloads, short lists), or its error in one line.
+    `shown`: the result is on screen as a card, and the model is told so."""
     if not r.success:
         return json.dumps({"error": (r.error or "unavailable")[:300]})
-    body = json.dumps(_compact(r.data), default=str, ensure_ascii=False,
+    data = _compact(r.data)
+    if shown and isinstance(data, dict):
+        data = {"_shown_to_user": SHOWN_AS_CARD, **data}
+    body = json.dumps(data, default=str, ensure_ascii=False,
                       separators=(",", ":"))
     return body if len(body) <= 3 * SECTION_CHARS else body[:3 * SECTION_CHARS] + "…"
 
@@ -574,14 +608,18 @@ async def stream_turn(
             logger.info("assist tool %s ok=%s args=%s", c["name"], r.success, c["args"][:200])
             yield {"type": "tool_done", "name": c["name"], "ok": bool(r.success)}
             found = _card_of(r.data) if r.success else None
-            if found is not None and found.get("_render_hint") == "screen_results_card" \
-                    and card is None:
+            shown = found is not None and found.get("_render_hint") == "screen_results_card"
+            if shown:
+                # The latest screen is the one the answer describes, so the
+                # card follows it (the panel replaces its card on each event).
                 card = found
                 yield {"type": "card", "card": found}
             messages.append(LLMMessage(role="tool", tool_call_id=c["call_id"],
-                                       name=c["name"], content=_tool_output(r)))
+                                       name=c["name"], content=_tool_output(r, shown)))
 
     final_text = final_text.strip()
+    if card is not None:
+        final_text = _drop_tables(final_text) or "The matches are listed in the table above."
     if not final_text:
         yield {"type": "error", "message": FAILURE["empty"]}
         return

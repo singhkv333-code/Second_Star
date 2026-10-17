@@ -148,3 +148,36 @@ def test_the_snapshot_is_fetched_in_parallel_cached_and_never_waits_on_a_slow_so
     one, two, took = asyncio.run(twice())
     assert took < 0.6 and one == two and len(calls) == 3
     assert "### Holdings\nunavailable" in one and '"v":1.23' in one
+
+
+def _screen(n):
+    return {"rows": [{"symbol": f"S{i}"} for i in range(n)], "_render_hint": "screen_results_card"}
+
+
+def test_a_screen_is_one_table_the_card_and_it_follows_the_latest_run(monkeypatch):
+    table = "Top picks:\n\n| Symbol | PE |\n|---|---|\n| S0 | 12 |\n| S1 | 14 |\n\nBoth trade below sector PE."
+    stream, calls = _fake_stream([_call("screen_fundamentals", {"q": "a"}),
+                                  _call("screen_fundamentals", {"q": "b"}),
+                                  _text(table)])
+    monkeypatch.setattr("backend.llm.openai_client.stream_openai", stream)
+    results = iter([_screen(5), _screen(2)])
+
+    async def run_tool(name, args, schemas, *, ctx, own_session):
+        return ToolResult(name=name, args=args, success=True, data=next(results))
+    monkeypatch.setattr(flex_chat, "_run_tool", run_tool)
+    evs = _run(a.stream_turn(message="cheap banks", history=[], ctx=_ctx(), client=None,
+                             page="markets"))
+    cards = [e["card"] for e in evs if e["type"] == "card"]
+    assert [len(c["rows"]) for c in cards] == [5, 2]
+    done = evs[-1]
+    assert done["type"] == "done" and len(done["card"]["rows"]) == 2
+    assert "|" not in done["response"]
+    assert done["response"].startswith("Top picks:") and done["response"].endswith("sector PE.")
+    out = [m for m in calls[1]["messages"] if m.role == "tool"][0].content
+    assert json.loads(out)["_shown_to_user"] == a.SHOWN_AS_CARD
+
+
+def test_tables_are_dropped_whole_and_plain_results_carry_no_note():
+    assert a._drop_tables("a\n\n| x | y |\n|---|---|\n| 1 | 2 |\n\nb") == "a\n\nb"
+    assert json.loads(a._tool_output(ToolResult(name="n", args={}, success=True,
+                                                data={"items": [1]}))) == {"items": [1]}
