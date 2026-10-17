@@ -3,7 +3,7 @@
 The private desk for whoever runs Pivot. You use it to make codes, look up an account, grant or revoke a plan, and see the business at a glance.
 
 - **Live:** https://pivot-owner-847d37.azurewebsites.net (Azure App Service, resource group `pivot-ops`, Central India)
-- **Passphrase:** `~/.config/pivot-ops/password` on the owner's laptop. Copy it with `pbcopy < ~/.config/pivot-ops/password`. Azure holds only its scrypt hash.
+- **Passphrase:** `~/.config/pivot-ops/password` on the owner's laptop. Copy it with `pbcopy < ~/.config/pivot-ops/password`. Azure holds only its scrypt hash. See [PASSPHRASE.md](PASSPHRASE.md).
 
 ## What it does
 
@@ -106,9 +106,7 @@ Azure:
 ```
 
 **New passphrase:**
-1. `python3 tools/make_password.py ~/.config/pivot-ops/password > ~/.config/pivot-ops/password.hash`
-2. `./deploy_azure.sh create` stores the new hash.
-3. Restart the app.
+See [PASSPHRASE.md](PASSPHRASE.md): what the passphrase is, where it lives, and the exact steps to change it.
 
 **On the VM** (`charto/deploy/activate_owner_console.py`, run through `az vm run-command`):
 - `stage` writes `/etc/pivot/owner-console.env` and a charto drop-in, then waits for the next restart.
