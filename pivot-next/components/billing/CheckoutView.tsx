@@ -58,7 +58,7 @@ export function CheckoutView({
   initialPhase?: CheckoutPhase;
   initialError?: string;
 }): React.ReactElement {
-  const { catalog: cat, me, loading, setMe, demo } = useBilling();
+  const { catalog: cat, me, loading, setMe, demo, celebrate } = useBilling();
   const router = useRouter();
   const [cycle, setCycle] = React.useState<Cycle>(initialCycle);
   const [phase, setPhase] = React.useState<CheckoutPhase>(initialPhase);
@@ -85,6 +85,12 @@ export function CheckoutView({
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one recovery per arrival
   }, [demo, me?.subscription]);
+
+  // However the payment was confirmed (verify, the pending poll, a recovered
+  // tab), the plan's welcome opens over the success screen.
+  React.useEffect(() => {
+    if (phase === "success" && !demo) celebrate(plan);
+  }, [phase, demo, plan, celebrate]);
 
   React.useEffect(() => {
     track("plan_selected", { plan, cycle, feature: feature ?? undefined, surface: surface ?? undefined });

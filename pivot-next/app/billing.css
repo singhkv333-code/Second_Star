@@ -539,3 +539,19 @@
 @media (prefers-reduced-motion: reduce) {
   .bl-overlay, .bl-modal, .bl-fade, .bl-skel, .bl-meter-fill, .bl-spin { animation: none !important; transition: none !important; }
 }
+
+/* the welcome after a payment: the alien on ink, then what the plan unlocked */
+.bl-welcome-art {
+  display: grid; place-items: center; height: 148px;
+  background: radial-gradient(ellipse at 50% 120%, #2a2a2e 0%, #0b0b0c 62%);
+  border-radius: var(--bl-r-lg) var(--bl-r-lg) 0 0;
+}
+.bl-welcome-badge {
+  width: 84px; height: 84px; border-radius: 50%; background: #fff;
+  box-shadow: 0 0 0 2px #fff, 0 0 48px rgba(255, 255, 255, 0.16);
+  display: grid; place-items: center; overflow: hidden;
+}
+.bl-welcome-badge img { width: 94%; height: 94%; object-fit: contain; }
+.bl-welcome-art + .bl-modal-close, .bl-panel:has(.bl-welcome-art) > .bl-modal-close { color: #f4f2ec; }
+.bl-benefits--welcome li { font-size: 15px; }
+.bl-benefits--welcome li svg { color: var(--bl-good); }
