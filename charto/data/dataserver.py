@@ -18872,11 +18872,14 @@ class Handler(BaseHTTPRequestHandler):
         if not meta:
             return self._send(404, {"error": "this setup is no longer shared"},
                               headers={"Cache-Control": "no-store"})
-        host = self.headers.get("Host", "pivot-india.centralindia.cloudapp.azure.com")
         # Host is client supplied; never let it inject markup or another domain.
-        if host != "pivot-india.centralindia.cloudapp.azure.com" and not re.fullmatch(r"(?:localhost|127\.0\.0\.1):\d{1,5}", host):
-            host = "pivot-india.centralindia.cloudapp.azure.com"
-        scheme = "https" if host == "pivot-india.centralindia.cloudapp.azure.com" else "http"
+        # app.pivotnow.in first: a link shared from the product must unfurl,
+        # canonicalise and land on the product's own domain.
+        public_hosts = ("app.pivotnow.in", "pivot-india.centralindia.cloudapp.azure.com")
+        host = self.headers.get("Host", public_hosts[0])
+        if host not in public_hosts and not re.fullmatch(r"(?:localhost|127\.0\.0\.1):\d{1,5}", host):
+            host = public_hosts[0]
+        scheme = "https" if host in public_hosts else "http"
         origin = f"{scheme}://{host}"
         share_url = f"{origin}/share/{quote(token, safe='')}"
         target = f"{origin}/chart-app/?{urlencode({'symbol': meta['symbol'], 'view': token})}"
