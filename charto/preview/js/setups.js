@@ -397,20 +397,15 @@ const Setups = (() => {
       try {
         const desk = await deskOf(state.include_data, [...new Set((spec.charts || []).map((x) => x.symbol))]);
         let ogImage = "";
-        // The candlestick card carries the author's drawings; the older
-        // line card stays as the fallback when there are too few bars or
-        // the canvas cannot be encoded.
+        // The card is the author's chart as captured, drawings and all; the
+        // older summary card stays as the fallback when there is no chart.
         try {
-          const ws = c && c.workspace ? c.workspace.read() : {};
           ogImage = await ShareCard.render({
-            bars: onScreen(c), drawings: ws.drawings || [], scene: ws.scene || [],
-            symbol: sym, interval: iv, title, note: note.value,
-            name: Universe.label(sym) !== String(sym).toUpperCase() ? Universe.label(sym) : "",
+            symbol: sym, interval: iv,
             logo: Universe.logo(sym) || Universe.logo(Universe.baseSymbol(sym)) || "",
             by: (Auth.user && Auth.user.name) || "",
-            chatTurns: state.include_chat ? chat.length : 0,
           });
-        } catch (e) { console.warn("Candlestick share card unavailable", e); }
+        } catch (e) { console.warn("Chart share card unavailable", e); }
         if (!ogImage) try {
           ogImage = await SharePreview.render({
             title, note: note.value, thumb, symbol: sym, interval: iv,

@@ -1,6 +1,7 @@
 import { ImageResponse } from "next/og";
 import { getDailyBars, getStock, type Bar } from "@/lib/seo/data";
 import { priceStats } from "@/lib/seo/stockCopy";
+import { WORDMARK_PATH } from "@/components/brand/PivotWordLogo";
 
 /** The card a stock page shows when it is shared on WhatsApp, X, LinkedIn or
  *  Telegram. Built like a cashtag card: one price, one move, one line. The
@@ -110,14 +111,10 @@ export default async function Image({ params }: { params: Promise<{ symbol: stri
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", color: BONE }}>
-            {/* The brand mark (components/brand/PivotMark), bars 132 wide. */}
-            <svg width={30} height={26} viewBox="-12 0 672 576" style={{ marginRight: 10 }}>
-              <rect x={-12} y={360} width={132} height={216} rx={8} fill={BONE} />
-              <rect x={168} y={180} width={132} height={180} rx={8} fill={BONE} />
-              <rect x={348} y={0} width={132} height={180} rx={8} fill={BONE} />
-              <rect x={528} y={0} width={132} height={576} rx={8} fill={BONE} />
+            {/* The wordmark (components/brand/PivotWordLogo), 847 x 319. */}
+            <svg width={101} height={38} viewBox="0 0 847 319">
+              <path d={WORDMARK_PATH} fill={BONE} fillRule="evenodd" />
             </svg>
-            <div style={{ fontSize: 30, fontWeight: 700, letterSpacing: -0.5 }}>Pivot</div>
           </div>
         </div>
 
