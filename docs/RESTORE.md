@@ -60,13 +60,13 @@ validates. Revert them in that order or the app will not boot.
 
 **Recover one file from the WIP snapshot:**
 
-    git checkout wip/pre-phase2-2026-09-05 -- pivot/backend/execution/
-    git checkout wip/pre-phase2-2026-09-05 -- pivot-next/components/stock/ResearchPanel.tsx
+    git checkout wip/pre-phase2-2026-09-05 -- api/backend/execution/
+    git checkout wip/pre-phase2-2026-09-05 -- app/components/stock/ResearchPanel.tsx
 
 **Recover the opinion-markets data** (107 rows, exported before anything was
 dropped, including two `view_positions` rows owned by a real user):
 
-    pivot/archive/view_markets_2026_09_05/*.json
+    api/archive/view_markets_2026_09_05/*.json
 
 ## What is NOT yet reversible-by-git, because it has not happened
 
@@ -81,7 +81,7 @@ These are the deliberate, separate acts still outstanding. None has run:
 3. **The nginx `/api/pivot/` block** — in the repo, not on the box.
    `apply_nginx.sh` installs it with a syntax check, a backup and a rollback.
 4. **The Chart tab** — `pivot-next` is not deployed, so nothing serves it.
-   `charto/preview/js/embed.js` IS live-on-disk once deployed, but it returns
+   `chart/js/embed.js` IS live-on-disk once deployed, but it returns
    immediately when the page is not in a frame, so the standalone chart at `/`
    is unaffected either way.
 5. **Phase 5 (the verification loop)** — not built. It needs a migration and

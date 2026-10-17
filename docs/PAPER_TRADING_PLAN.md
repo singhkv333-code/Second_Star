@@ -142,7 +142,7 @@ This keeps the blast radius to: one new module, a small `orders.py` router shim,
 
 ## 2. Dashboard UI Element Catalog (Quartr-themed)
 
-This catalog maps a best-in-class paper-trading / portfolio / forward-test dashboard onto Pivot's existing Quartr design tokens (from `pivot-next/app/globals.css`) and shadcn/ui primitives already vendored in `components/ui`. Survey base: Alpaca paper dashboard, Composer.trade (per-symphony scorecards), Koyfin (exposure analysis, drawdown chart + top drawdowns), Sharesight (contribution/attribution), Zerodha Console (P&L calendar heatmap), TradingView/lightweight-charts. Sources at the end.
+This catalog maps a best-in-class paper-trading / portfolio / forward-test dashboard onto Pivot's existing Quartr design tokens (from `app/app/globals.css`) and shadcn/ui primitives already vendored in `components/ui`. Survey base: Alpaca paper dashboard, Composer.trade (per-symphony scorecards), Koyfin (exposure analysis, drawdown chart + top drawdowns), Sharesight (contribution/attribution), Zerodha Console (P&L calendar heatmap), TradingView/lightweight-charts. Sources at the end.
 
 > **Token convention used below:** all colors are CSS custom properties; reference them as `hsl(var(--…))` only where the token is HSL (shadcn base tokens like `--border`, `--muted-foreground`), and as the raw var `var(--…)` for the Quartr hex tokens (`--text-primary`, `--color-profit`, `--bg-card`, etc.). Profit is **always** `--color-profit`, loss **always** `--color-loss`, never raw green/red. All numerics use `font-mono` + `.tabular-nums`. All cards: `background: var(--bg-card)`, `border: 1px solid var(--glass-border)`, `border-radius: var(--radius-lg)`, hover → `border-color: var(--glass-border-hover)` + 1px translate, transitioned with `--ease-quartr`.
 
@@ -497,7 +497,7 @@ Routers `backend/routers/portfolio.py`; services `backend/services/portfolio.py`
 
 Caching seam: `get_summary_cached(user_id, token)` / `get_holdings_cached(...)` (Redis 30s); `invalidate(user_id)` exists but is **not wired post-order today**. Service `get_user_portfolio(user_id, db)` returns the workflow `fetch.portfolio` shape `{holdings, buying_power, total_value}`.
 
-### E. Frontend Wiring (`pivot-next/`)
+### E. Frontend Wiring (`app/`)
 
 **Tab declaration (`AppShell.tsx` ~L73–90):**
 ```ts
@@ -851,7 +851,7 @@ All ratio endpoints call `sharpe_sortino`/`calendar_cagr_pct`/`methodology_note`
 
 ## 7. Frontend Dashboard Design (Quartr-themed)
 
-Build-ready FE design for the Paper-Trading surface in `pivot-next/`. It mirrors verified codebase conventions: inline-style components keyed to Quartr CSS tokens (as in `components/agent-panel/PortfolioTab.tsx`), the `ApiResult<T>` + `request`/`requestLegacy` fetch pattern in `lib/api.ts`, the `useLiveQuote` hook over the `liveQuoteManager` WS singleton, `recharts@2.15.3`, and `lucide-react` icons. **Every color is a token — never a hardcoded hex (the one carve-out is recharts `<stop>`/gradient fills; see §(c)).**
+Build-ready FE design for the Paper-Trading surface in `app/`. It mirrors verified codebase conventions: inline-style components keyed to Quartr CSS tokens (as in `components/agent-panel/PortfolioTab.tsx`), the `ApiResult<T>` + `request`/`requestLegacy` fetch pattern in `lib/api.ts`, the `useLiveQuote` hook over the `liveQuoteManager` WS singleton, `recharts@2.15.3`, and `lucide-react` icons. **Every color is a token — never a hardcoded hex (the one carve-out is recharts `<stop>`/gradient fills; see §(c)).**
 
 ### (a) IA / Navigation & Routing
 
@@ -885,7 +885,7 @@ Row clicks route to the existing `StockDetailPage` via `next/link` to `/stock/<s
 
 ### (b) Component Tree
 
-All under `pivot-next/components/paper/`, all `"use client"`. Each leaf takes already-fetched data as props; **only `PaperDashboard` fetches** (single-owner, like `PortfolioTab`'s `FetchState`). Shared primitives in `paper/_shared.tsx`.
+All under `app/components/paper/`, all `"use client"`. Each leaf takes already-fetched data as props; **only `PaperDashboard` fetches** (single-owner, like `PortfolioTab`'s `FetchState`). Shared primitives in `paper/_shared.tsx`.
 
 ```
 components/paper/
@@ -1004,7 +1004,7 @@ Fetchers (mirror `getPortfolioSummary`): `getPaperSummary`, `getPaperPositions`,
 - **Accessibility:** error cards `role="alert"`; live-pulse dot `aria-label="Live/Delayed price"`; sortable `<th scope="col">` buttons with `aria-sort`; color never the only signal (P&L pairs hue with `+`/`−` + arrow; chips carry text labels — WCAG 1.4.1); charts get `aria-label` summaries + visually-hidden data `<table>` fallback; Radix focus-trap/ESC inherited; focus rings `--glass-border-focus`.
 - **Motion (`--ease-quartr`):** card hover translate `-1px` + border shift over ~160ms; pill/sub-tab slide; `NumberTicker` count-up; **flash-on-update** tints rows on value change then fades; **live pulse** dot driven by `summary.is_live`, stale → dim `--text-disabled` + "as of HH:MM"; **`prefers-reduced-motion`** kills tickers/flashes/hover-lift, keeps instant updates.
 
-**Key reference files (absolute):** `/Users/karanveersingh/Downloads/Second_Star/pivot-next/components/agent-panel/PortfolioTab.tsx` (tab + table + donut + range pills + formatters to clone); `/Users/karanveersingh/Downloads/Second_Star/pivot-next/components/AppShell.tsx` (`TabKey`/`NAV_ITEMS`/render slot/`readHashTab`); `/Users/karanveersingh/Downloads/Second_Star/pivot-next/lib/api.ts`; `/Users/karanveersingh/Downloads/Second_Star/pivot-next/hooks/useLiveQuote.ts` over `/Users/karanveersingh/Downloads/Second_Star/pivot-next/lib/liveQuoteManager.ts`; `/Users/karanveersingh/Downloads/Second_Star/pivot-next/components/ui/` (`tabs`, `card`, `badge`, `dropdown-menu`, `alert-dialog`, `sheet`, `tooltip`, `skeleton`, `collapsible`); `recharts@2.15.3` in `package.json`; `/Users/karanveersingh/Downloads/Second_Star/pivot-next/app/globals.css`.
+**Key reference files (absolute):** `/Users/karanveersingh/Downloads/Second_Star/app/components/agent-panel/PortfolioTab.tsx` (tab + table + donut + range pills + formatters to clone); `/Users/karanveersingh/Downloads/Second_Star/app/components/AppShell.tsx` (`TabKey`/`NAV_ITEMS`/render slot/`readHashTab`); `/Users/karanveersingh/Downloads/Second_Star/app/lib/api.ts`; `/Users/karanveersingh/Downloads/Second_Star/app/hooks/useLiveQuote.ts` over `/Users/karanveersingh/Downloads/Second_Star/app/lib/liveQuoteManager.ts`; `/Users/karanveersingh/Downloads/Second_Star/app/components/ui/` (`tabs`, `card`, `badge`, `dropdown-menu`, `alert-dialog`, `sheet`, `tooltip`, `skeleton`, `collapsible`); `recharts@2.15.3` in `package.json`; `/Users/karanveersingh/Downloads/Second_Star/app/app/globals.css`.
 
 > **Note:** `components/ui/` has **no `table` primitive vendored** — the existing portfolio table is a hand-rolled `<table>` keyed to tokens; reuse that approach. `HoverCard` and `Calendar`/`DatePicker` are also **not** vendored — fall back to `Tooltip` for methodology notes and native `<input type="date">` for journal filters.
 
@@ -1064,7 +1064,7 @@ The build is split into seven phases. Each is itself a candidate for orchestrati
 ### Phase P5 — FE Dashboard
 - **Goal:** The Quartr-themed `PaperDashboard` tab renders the Tier-1 surface end-to-end against live endpoints.
 - **Deliverables:** `AppShell.tsx` tab wiring; `lib/api.ts` paper types + fetchers; `components/paper/` (`PaperDashboard`, `_shared`, `KpiStatCards`, `EquityCurveChart`, `DrawdownChart`, `HoldingsTable`, `OpenOrdersBlotter`, `TradeJournal`, `AllocationDonut`); 15s poll + `useLiveQuote` rows.
-- **Files:** `pivot-next/components/AppShell.tsx`, `pivot-next/lib/api.ts`, `pivot-next/components/paper/*`.
+- **Files:** `app/components/AppShell.tsx`, `app/lib/api.ts`, `app/components/paper/*`.
 - **DB migration:** none.
 - **Exit/acceptance:** tab loads, KPI strip + equity curve + holdings + blotter render with live LTP dots; dark/light token parity; empty/loading/error states present; `prefers-reduced-motion` respected.
 - **Workflow orchestration:** **fan-out one agent per component** (8 leaf components + the `_shared`/`api.ts` foundation as a join-barrier first). Adversarial-verify runs a Playwright pass (deep-link `#paper/overview`, toggle dark mode, assert no hardcoded hex via computed-style spot-checks, assert `role="alert"` on a forced error).
@@ -1073,7 +1073,7 @@ The build is split into seven phases. Each is itself a candidate for orchestrati
 ### Phase P6 — Forward-Test Scorecards (the differentiator)
 - **Goal:** Per-idea scorecards + the backtest-vs-live degradation drill-in, with lifecycle/cohorting and statistical gates.
 - **Deliverables:** `ideas.py` full resolver (dedup, label, inception, cohort_trial_count) + scorecard-cache refresh; PSR/MinTRL/Deflated-Sharpe helpers (new, next to `backtest_metrics`); `IdeaScorecards.tsx` + `IdeaDetailPanel.tsx`; promotion-gate logic (`paper`→`candidate`→`promoted`/`retired`).
-- **Files:** `backend/paper/ideas.py`, `backend/services/forward_stats.py` (new — PSR/MinTRL/DSR), `pivot-next/components/paper/IdeaScorecards.tsx`, `IdeaDetailPanel.tsx`; `backend/routers/paper.py` (scorecard fields).
+- **Files:** `backend/paper/ideas.py`, `backend/services/forward_stats.py` (new — PSR/MinTRL/DSR), `app/components/paper/IdeaScorecards.tsx`, `IdeaDetailPanel.tsx`; `backend/routers/paper.py` (scorecard fields).
 - **DB migration:** none (uses `forward_ideas` + idea snapshots from P0).
 - **Exit/acceptance:** degradation panel renders backtest vs forward with decay + verdict; PSR gate fires; cohort survival view; attribution dedup (one idea per workflow across 40 runs).
 - **Workflow orchestration:** **fan-out backend-stats vs resolver vs FE-scorecards vs FE-drill-in** (4 agents); the stats helper is a join-barrier before the API + FE. Adversarial-verify constructs a known overfit idea (high backtest Sharpe, flat forward) and asserts it scores `decayed`, and a slippage-dominated idea scores `execution-problem`, and a 3-week idea is flagged `insufficient-data` (maturity penalty).
@@ -1126,9 +1126,9 @@ no ALTER on any existing table.
 **Artifacts**
 | File | What |
 |---|---|
-| `pivot/backend/models.py` | 8 ORM models (`PaperAccount`, `PaperOrder`, `PaperFill`, `PaperPosition`, `PaperLedgerEntry`, `ForwardIdea`, `PaperNavSnapshot`, `PaperIdeaNavSnapshot`) + 4 frozensets (`PAPER_ACCOUNT_MODES`, `PAPER_ORDER_STATUSES`, `PAPER_LEDGER_KINDS`, `FORWARD_IDEA_STATUSES`) + `User.paper_account` |
-| `pivot/migrations/versions/0013_paper_trading.py` | Alembic `0013` (revises `0012_workflow_expires_at`), FK-dependency-ordered, dialect-aware JSONB/timestamps, clean `downgrade()` |
-| `pivot/tests/test_paper_trading_models.py` | 23 tests (self-contained in-memory SQLite, `PRAGMA foreign_keys=ON`) |
+| `api/backend/models.py` | 8 ORM models (`PaperAccount`, `PaperOrder`, `PaperFill`, `PaperPosition`, `PaperLedgerEntry`, `ForwardIdea`, `PaperNavSnapshot`, `PaperIdeaNavSnapshot`) + 4 frozensets (`PAPER_ACCOUNT_MODES`, `PAPER_ORDER_STATUSES`, `PAPER_LEDGER_KINDS`, `FORWARD_IDEA_STATUSES`) + `User.paper_account` |
+| `api/migrations/versions/0013_paper_trading.py` | Alembic `0013` (revises `0012_workflow_expires_at`), FK-dependency-ordered, dialect-aware JSONB/timestamps, clean `downgrade()` |
+| `api/tests/test_paper_trading_models.py` | 23 tests (self-contained in-memory SQLite, `PRAGMA foreign_keys=ON`) |
 
 **Verification**
 - 23/23 tests pass; ruff clean; mypy adds 0 new errors (paper block uses `String + CheckConstraint`, not `SQLEnum`).
@@ -1163,13 +1163,13 @@ no ALTER on any existing table.
 **Artifacts**
 | File | What |
 |---|---|
-| `pivot/backend/paper/broker.py` | `PaperBroker.place_order` / `place_gtt_order` — idempotent, MARKET fills synchronously, LIMIT/SL/GTT rest, accepts the Kite kwarg set (drop-in for P2) |
-| `pivot/backend/paper/fills.py` | `execute_market_fill` — fills at clean LTP, friction from `trading_costs` (no slippage double-count), avg-cost, realized P&L, cash + ledger, all `Decimal` |
-| `pivot/backend/paper/accounts.py` | `get_or_create_account` — ₹1.5L seed + seed ledger, race-safe (SAVEPOINT) |
-| `pivot/backend/paper/marks.py` | injectable mark price (Kite live → yfinance fallback; lazy imports) |
-| `pivot/backend/paper/money.py` | `Decimal` quantize to paise (`Numeric(18,4)`) |
-| `pivot/backend/kite/orders.py` | **TypeError fix** — `place_order` accepts `client_request_id` (squareoff legs `actions.py:665/:1011` now work) |
-| `pivot/tests/test_paper_broker.py` | 25 tests |
+| `api/backend/paper/broker.py` | `PaperBroker.place_order` / `place_gtt_order` — idempotent, MARKET fills synchronously, LIMIT/SL/GTT rest, accepts the Kite kwarg set (drop-in for P2) |
+| `api/backend/paper/fills.py` | `execute_market_fill` — fills at clean LTP, friction from `trading_costs` (no slippage double-count), avg-cost, realized P&L, cash + ledger, all `Decimal` |
+| `api/backend/paper/accounts.py` | `get_or_create_account` — ₹1.5L seed + seed ledger, race-safe (SAVEPOINT) |
+| `api/backend/paper/marks.py` | injectable mark price (Kite live → yfinance fallback; lazy imports) |
+| `api/backend/paper/money.py` | `Decimal` quantize to paise (`Numeric(18,4)`) |
+| `api/backend/kite/orders.py` | **TypeError fix** — `place_order` accepts `client_request_id` (squareoff legs `actions.py:665/:1011` now work) |
+| `api/tests/test_paper_broker.py` | 25 tests |
 
 **Verification:** 48 paper tests pass (25 broker + 23 P0 models); 534 backend tests pass with zero regressions (the 5 failing are pre-existing — stale step-types catalog + date-dependent calendar/chat — confirmed identical with P1 stashed); ruff clean; 0 genuine mypy errors (only the ambient `Column[T]` noise the whole backend carries).
 
@@ -1193,12 +1193,12 @@ no ALTER on any existing table.
 **Artifacts**
 | File | What |
 |---|---|
-| `pivot/backend/paper/routing.py` | `should_use_paper` (flag + mode); `submit_order`/`submit_gtt` (workflow ctx + retry-stable crid + attribution + `leg_key`); `submit_order_for_user`/`submit_gtt_for_user` (chat); `paper_position_qty` |
-| `pivot/backend/workflows/steps/actions.py` | 5 entry/GTT sites routed; squareoff_*/cancel_orders guarded to skip in paper mode; SL/TP size from paper position; basket legs carry `leg_key` |
-| `pivot/backend/routers/orders.py` | `/orders/confirm` + `/orders/gtt` routed; **`/orders/gtt` now commits + writes a TradeLog**; `conversation_id` threaded |
-| `pivot/backend/scheduler.py` | SIP autofire routed through the shim |
-| `pivot/backend/config.py` | `paper_trading_enabled` flag (default on; pinned off in tests) |
-| `pivot/tests/test_paper_routing.py` | 13 tests incl. a real engine `_ExecutorContext → paper fill` + an HTTP `/orders/gtt` persistence test |
+| `api/backend/paper/routing.py` | `should_use_paper` (flag + mode); `submit_order`/`submit_gtt` (workflow ctx + retry-stable crid + attribution + `leg_key`); `submit_order_for_user`/`submit_gtt_for_user` (chat); `paper_position_qty` |
+| `api/backend/workflows/steps/actions.py` | 5 entry/GTT sites routed; squareoff_*/cancel_orders guarded to skip in paper mode; SL/TP size from paper position; basket legs carry `leg_key` |
+| `api/backend/routers/orders.py` | `/orders/confirm` + `/orders/gtt` routed; **`/orders/gtt` now commits + writes a TradeLog**; `conversation_id` threaded |
+| `api/backend/scheduler.py` | SIP autofire routed through the shim |
+| `api/backend/config.py` | `paper_trading_enabled` flag (default on; pinned off in tests) |
+| `api/tests/test_paper_routing.py` | 13 tests incl. a real engine `_ExecutorContext → paper fill` + an HTTP `/orders/gtt` persistence test |
 
 **Routing decision:** paper ⟸ `paper_trading_enabled AND account.mode=='paper'` (the default); else Kite (mock in dev). Kite is called via the **canonical module** (`backend.kite.orders.*`) so it stays the patchable test seam. Crid is **retry-stable** (`wf:{run}:{step}:{side}:{symbol}[:{leg}]`, excludes the engine's `attempts`).
 
@@ -1281,9 +1281,9 @@ no ALTER on any existing table.
 
 ## 16. P5 Build Log — Quartr Paper Trading Dashboard (shipped 2026-05-30, branch `Eventtriggers`)
 
-**Status: COMPLETE & VERIFIED (visually + adversarially).** The right-side **Paper** tab in `pivot-next/` — a Quartr-themed forward-testing dashboard rendering the P4 `/paper/*` read API. **Built with a parallel agent workflow** (shared contracts → 6 leaf components → lead-wired data layer + AppShell), then visually verified end-to-end against an isolated mock and adversarially reviewed (3 lenses + completeness critic).
+**Status: COMPLETE & VERIFIED (visually + adversarially).** The right-side **Paper** tab in `app/` — a Quartr-themed forward-testing dashboard rendering the P4 `/paper/*` read API. **Built with a parallel agent workflow** (shared contracts → 6 leaf components → lead-wired data layer + AppShell), then visually verified end-to-end against an isolated mock and adversarially reviewed (3 lenses + completeness critic).
 
-**Artifacts** (all under `pivot-next/`)
+**Artifacts** (all under `app/`)
 | File | Role | Built |
 |---|---|---|
 | `components/paper/format.ts` | shared formatters (`inr`/`inrCompact`/`signedInr`/`pct`/`qty`/`pnlColor`/`relativeTime`/`dateShort`; U+2212 minus) | lead |
@@ -1328,7 +1328,7 @@ no ALTER on any existing table.
 
 **Integration (lead, shared files):** `broker.py` resolves the idea after the idempotency fast-path + `get_or_create_account` and stamps `order.idea_id`; `fills.py` dates `inception_date` on the FIRST fill (resting orders dated at fill, rejects never); `routing.py` threads the label (workflow=`Workflow.name`; **chat label = the SYMBOL**, so a BUY then SELL of one symbol in a conversation map to ONE idea and the SELL closes the BUY's FIFO lots instead of forking); `routers/paper.py` adds `GET /paper/ideas` + `/ideas/{id}`; `scheduler.py` calls `refresh_all_idea_scorecards` right after `snapshot_all_navs` (same EOD txn + same NIFTY close); `paper/__init__.py` exports. SIP stays unattributed in v1 (FK mismatch).
 
-**Frontend** (`pivot-next/`): `lib/api.ts` `getPaperIdeas`/`getPaperIdeaDetail` + `PaperIdea`/`PaperIdeaDetail`/`IdeaNavPoint`/`IdeaBacktest`/`IdeaGate` types (requestLegacy); a new **Ideas** tab (2nd, after Overview) in `PaperDashboard`; `IdeaScorecards.tsx` (verdict-chipped cards + Dialog drill-in) + `IdeaDetailPanel.tsx` (the **forward-vs-backtest decay chart rebased to 100** — solid forward Area + dashed backtest baseline via `ComposedChart` — plus the PSR/MinTRL/DSR stat panel + the pass/fail gates table). tsc clean (only the pre-existing `ChatDemo.tsx:750`), eslint clean. Visually verified: all four verdicts render correctly + the drill-in dual chart + gates.
+**Frontend** (`app/`): `lib/api.ts` `getPaperIdeas`/`getPaperIdeaDetail` + `PaperIdea`/`PaperIdeaDetail`/`IdeaNavPoint`/`IdeaBacktest`/`IdeaGate` types (requestLegacy); a new **Ideas** tab (2nd, after Overview) in `PaperDashboard`; `IdeaScorecards.tsx` (verdict-chipped cards + Dialog drill-in) + `IdeaDetailPanel.tsx` (the **forward-vs-backtest decay chart rebased to 100** — solid forward Area + dashed backtest baseline via `ComposedChart` — plus the PSR/MinTRL/DSR stat panel + the pass/fail gates table). tsc clean (only the pre-existing `ChatDemo.tsx:750`), eslint clean. Visually verified: all four verdicts render correctly + the drill-in dual chart + gates.
 
 **End-to-end test (`tests/test_e2e_chat_to_paper.py`):** drives the REAL chat path (`POST /orders/preview` → `POST /orders/confirm` via TestClient) and proves the whole chain — confirmed chat order → routes to PAPER (not Kite) → fills → lands in the book (order/fill/position/cash) → attributes to a `ForwardIdea` (origin=chat, label=symbol, inception dated) → a later SELL of the same symbol+conversation closes the SAME idea → mark-to-market moves NAV/unrealized → `refresh_idea_scorecard` writes the idea NAV snapshot + cache → `ideas_list`/`idea_detail` surface it. A second test (`RUN_LIVE_TESTS=1`) hits the REAL yfinance mark resolver — verified live 2026-05-30 (RELIANCE ₹1321.20, TCS ₹2258.90, INFY ₹1160.90), proving the marking is wired to live data.
 

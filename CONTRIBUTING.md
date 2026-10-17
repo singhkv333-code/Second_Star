@@ -3,10 +3,10 @@
 ```
 main            production — protected, every merge auto-deploys (see .github/workflows/deploy-*.yml)
  └─ develop     integration branch — protected, PRs merge here first
-     ├─ backend         general backend work (pivot/backend/** outside chat)
-     ├─ chat-services   chat pipeline work (pivot/backend/services/chat_service.py,
+     ├─ backend         general backend work (api/backend/** outside chat)
+     ├─ chat-services   chat pipeline work (api/backend/services/chat_service.py,
      │                  tool_router.py, tool_executor.py, prompts/*)
-     └─ frontend        pivot-next/**
+     └─ frontend        app/**
 ```
 
 ## Day to day

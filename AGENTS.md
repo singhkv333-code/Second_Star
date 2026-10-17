@@ -91,7 +91,7 @@ Identity-level. Violating one is never "a small bug."
   `"09:15 @ high"`, `repeat:"session"` — and a deterministic resolver lands it
   on real bars. This is `mark.py`'s contract, and it is a platform rule.
 - **Model reads, code computes.** The model chooses and explains; arithmetic is
-  Python. Proven the hard way: `pivotted/filing_llm.py`'s grounding gates
+  Python. Proven the hard way: `research/filing_llm.py`'s grounding gates
   caught a 10,000× unit error in the *deterministic* resolver.
 - **A rate without a control is decoration.** Every claimed edge ships with its
   base rate and its sample size.
@@ -120,20 +120,20 @@ Four services behind one nginx on
 
 | Port | Service | Owns |
 |---|---|---|
-| `:5174` | **charto dataserver** (`charto/data/dataserver.py`) | Bars, indicators, patterns, the chart scene, drawings, alerts, live ticks, the paper book, armed strategies, auth |
-| `:5175` | **charto/web** (Next.js) | The company page `/stock/[symbol]`, `/paper`, `/strategies` |
-| `:5176` | **pivotted** (`pivotted/server.py`) | `/research/` — the filings + fundamentals research chat behind the company page's ask bar |
+| `:5174` | **charto dataserver** (`dataserver/dataserver.py`) | Bars, indicators, patterns, the chart scene, drawings, alerts, live ticks, the paper book, armed strategies, auth |
+| `:5175` | **site** (Next.js) | The company page `/stock/[symbol]`, `/paper`, `/strategies` |
+| `:5176` | **pivotted** (`research/server.py`) | `/research/` — the filings + fundamentals research chat behind the company page's ask bar |
 | `:8000` | **pivot API** (FastAPI) | *Not deployed yet.* Workflows DSL, backtesters, the tool registry, options, screener |
 | `:3000` | **pivot-next** (Next.js) | *Not deployed yet.* The intended one app |
 
-`charto/preview` (vanilla JS + a vendored Lightweight Charts v5) is served
+`chart` (vanilla JS + a vendored Lightweight Charts v5) is served
 straight off disk by nginx at `/`, so preview edits are live immediately — but
 **every `<script>` carries a `?v=N` stamp that must be bumped on every JS edit.**
 
-**pivot is a library in production, not a service.** `charto/data/execution_bridge.py`
+**pivot is a library in production, not a service.** `dataserver/execution_bridge.py`
 imports `backend.agents.tools`, `backend.prompts.assembler`,
 `backend.services.tool_registry` and `backend.workflows.*` to borrow the
-strategy engine; `pivotted/fundamentals.py` imports `backend.market.financials_db`
+strategy engine; `research/fundamentals.py` imports `backend.market.financials_db`
 rather than re-deriving the numbers. Both are deliberate — one derivation, one
 set of numbers.
 
@@ -198,14 +198,14 @@ user message
 
 ## 7. Subsystem map
 
-- **Chart engine** (`charto/preview/`, `charto/data/`) — 26k lines of vanilla
+- **Chart engine** (`chart/`, `dataserver/`) — 26k lines of vanilla
   JS over a vendored Lightweight Charts v5 (see `preview/VENDOR_PATCHES.md`),
   against a 497M-row minute store. 26 indicators computed **server-side** (the
   FE fetches, never computes), 34 candle + 22 chart patterns with base-rate
   controls, a 15-tool fib/Gann ratio rail, volume profile, drawings addressable
   by never-recycled D-refs, and the universal `mark` tool. **Every fraction of
   time is measured in BARS, not seconds.**
-- **Workflows / strategies** (`pivot/backend/workflows/`) — a linear, ordered
+- **Workflows / strategies** (`api/backend/workflows/`) — a linear, ordered
   list of typed steps (trigger → fetch → condition → action → notify; no
   branching in v1). Idempotent actions, persist-before-external-call, per-step
   retries, approval gating, advisory lock, schema validation at every boundary.
@@ -217,17 +217,17 @@ user message
   counter that deflates for multiple testing, and a plain-English verdict
   (`insufficient_data → no_edge → unproven → promising`). Signals fill next-bar
   open.
-- **Alerts** (`charto/data/alerts.py`) — composed-expression rules with **no
+- **Alerts** (`dataserver/alerts.py`) — composed-expression rules with **no
   `kind` column**; crossing side is persisted per condition; boot catch-up
   fires `late=1`; the tick hook swallows every exception, because an exception
   in `_live_on_tick` loses the minute.
-- **Paper trading** (`charto/data/paper.py`, `pivot/backend/paper/`) — the
+- **Paper trading** (`dataserver/paper.py`, `api/backend/paper/`) — the
   simulated book that armed strategies fill into. Charto's tables in
   `charto_users.db` hold the live positions.
 - **Options / F&O** (`services/option_strategies.py`, `strategy_builder.py`) —
   15+ templates with live greeks/payoff/margin/POP + rule-based critique.
   **APScheduler jobs must be module-level** (closures kill the scheduler).
-- **Research** (`pivotted/`) — filings (577,952 grounded facts over 3,892
+- **Research** (`research/`) — filings (577,952 grounded facts over 3,892
   companies), Moneycontrol quarterly, shareholding. Model READS, code COMPUTES,
   three grounding gates.
 - **Events** (`macro_events/`, `triggers/`) — a hardcoded 2026 macro calendar
@@ -247,14 +247,14 @@ a deploy path. Every new surface follows that template.
 - **Commit freely; ask before pushing** — any branch, any remote.
 - Kite is primary for market data; tag the relay when `source != "kite"`.
 - Ports: `3000` pivot-next · `8000` pivot API · `5174` charto · `5175`
-  charto/web · `5176` pivotted.
+  site · `5176` pivotted.
 - **The VM's ssh is closed** — use `az vm run-command`, which runs as **root**,
   so `git` needs `sudo -u azureuser`. Deploy polls the `charto-deploy` branch
   every 30s. `deploy.sh` does `git reset --hard` (wipes unpushed VM edits).
 - **nginx has a route allowlist.** Unlisted routes silently return 200 with
   `index.html` — they never 404. Apply with `deploy/apply_nginx.sh` (self-
   applies with rollback) and gate with `deploy/check_routes.sh`.
-- Bump `?v=N` on every edited `charto/preview` JS file.
+- Bump `?v=N` on every edited `chart` JS file.
 - Evals: **one instrumented multi-turn live run**, fix, retest at most once —
   no restart-and-rerun loops. Every eval/quality report carries the **triad**:
   tokens + latency + quality verdict per item.
@@ -275,7 +275,7 @@ sequence is:
 2. **Deploy the pivot API beside charto** on `:8000`, additive, nothing moves.
    **Share the session, not the store** — pivot reads charto's session; the 11
    real accounts never migrate.
-3. **One shell** — `pivot-next` gains `/chart`, mounting `charto/preview`;
+3. **One shell** — `pivot-next` gains `/chart`, mounting `chart`;
    `NAV_ITEMS` becomes Chart · Chat · Screener · Strategies · Portfolio · Paper.
 4. **One tool surface by deletion** — charto's 47 tools and pivot's 99 overlap;
    dedupe rather than wrap. Charto owns anything chart- or bar-shaped; pivot

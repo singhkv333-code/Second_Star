@@ -4,7 +4,7 @@ Created 11 October 2026 for Pivot Tech. Contact: info@pivotnow.in, as supplied b
 
 Public routes: `/about`, `/terms`, `/privacy`. The landing footer, signup form, checkout and app settings link to the relevant pages. These pages render without sign-in and use a scrollable surface, short sections, accessible headings and mobile layouts.
 
-Content and styles live in `components/company/` in charto/web (pivotnow.in website) and pivot-next (app). Matching pages are available in the active local merge checkout. Keep the content aligned until these frontends are consolidated.
+Content and styles live in `components/company/` in site (pivotnow.in website) and pivot-next (app). Matching pages are available in the active local merge checkout. Keep the content aligned until these frontends are consolidated.
 
 ## References
 
@@ -19,7 +19,7 @@ Original Pivot wording; no copied clauses, company statistics or team biographie
 ## Facts used
 
 - Project context: charts, research, strategies, backtests and simulated paper trading; no live broker execution or personalised investment advice.
-- `pivot/backend/posthog_client.py` and `pivot/backend/auth/router.py`: backend analytics and error capture when configured; user identifiers and email profile properties. The host defaults to the US ingestion endpoint. No promise of active analytics on every deployment or browser session replay.
+- `api/backend/posthog_client.py` and `api/backend/auth/router.py`: backend analytics and error capture when configured; user identifiers and email profile properties. The host defaults to the US ingestion endpoint. No promise of active analytics on every deployment or browser session replay.
 - Auth/workspace clients: saved prompts, layouts, strategies and paper records, with browser storage for sessions and interface state.
 - Razorpay Standard Checkout: third-party payment collection, order/payment verification and a temporary HttpOnly order cookie. Test checkout does not collect real funds or upgrade subscriptions.
 

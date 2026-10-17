@@ -1,7 +1,7 @@
 # Shared setups: publish a desk read-only; others copy it as a template
 
-Branch `claude-cloud-29sep`. Chart app (charto) only: `charto/data` and
-`charto/preview`. pivot and pivot-next are untouched.
+Branch `claude-cloud-29sep`. Chart app (charto) only: `dataserver` and
+`chart`. pivot and pivot-next are untouched.
 
 ## What it does
 
@@ -46,12 +46,12 @@ travels with it.
 
 | Piece | File |
 |---|---|
-| Data model, publish/view/copy/unpublish, scrubbing, counters | `charto/data/shares.py` (bound to dataserver's `_users` connection and lock, like entitlements) |
-| Routes | `charto/data/dataserver.py`: `GET /setup?token=` and `GET /shared?token=` are public (setup first, then the old live layout link). `GET /setups` (mine, optional `?layout=`), `POST /setups` (publish, `{token}` to update, `{token, delete:true}` to unpublish) and `POST /setups/copy` need a session. |
+| Data model, publish/view/copy/unpublish, scrubbing, counters | `dataserver/shares.py` (bound to dataserver's `_users` connection and lock, like entitlements) |
+| Routes | `dataserver/dataserver.py`: `GET /setup?token=` and `GET /shared?token=` are public (setup first, then the old live layout link). `GET /setups` (mine, optional `?layout=`), `POST /setups` (publish, `{token}` to update, `{token, delete:true}` to unpublish) and `POST /setups/copy` need a session. |
 | Tables | `shared_setups` and `setup_copies` in `charto_users.db`; `layouts.origin` (JSON credit chain) |
-| UI | `charto/preview/js/setups.js` (Share dialog, My shared setups, view mode, Make it mine, ASCII kit) plus a CSS block `.su-*` in `index.html` |
-| ASCII type | `charto/preview/vendor/figlet/` (figlet.js 1.12, MIT, with Calvin S patched to add digits; see its README) |
-| Tests | `charto/data/test_shares.py` (10 unit tests); `charto/preview/e2e_shares.mjs` (browser, 13 checks) |
+| UI | `chart/js/setups.js` (Share dialog, My shared setups, view mode, Make it mine, ASCII kit) plus a CSS block `.su-*` in `index.html` |
+| ASCII type | `chart/vendor/figlet/` (figlet.js 1.12, MIT, with Calvin S patched to add digits; see its README) |
+| Tests | `dataserver/tests/test_shares.py` (10 unit tests); `chart/tests/e2e_shares.mjs` (browser, 13 checks) |
 
 No nginx change is needed: every non-file path already falls through to the
 dataserver (see the header of `deploy/nginx-charto.conf`).

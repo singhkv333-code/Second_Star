@@ -65,10 +65,10 @@ directly if you need the rest.
    you grade sequentially.
 
 2. **Understand what's possible right now.** Before scoring, glance at:
-   - `pivot/backend/prompts/system.md` — the chat system prompt
-   - `pivot/backend/agents/tools.py` — tools the chat layer can call
-   - `pivot/backend/workflows/dsl/llm_translate.py` — DSL translation prompt
-   - `pivot/scripts/eval_chat_quality.py` — what prompts were sent
+   - `api/backend/prompts/system.md` — the chat system prompt
+   - `api/backend/agents/tools.py` — tools the chat layer can call
+   - `api/backend/workflows/dsl/llm_translate.py` — DSL translation prompt
+   - `api/scripts/eval_chat_quality.py` — what prompts were sent
    This sets the bar at "what this build can do", not "what an ideal
    trading assistant would do". Grade against what's achievable here,
    then call out gaps that would unblock higher scores.

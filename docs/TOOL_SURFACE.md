@@ -58,14 +58,14 @@ enforces:
 
 ## The indicator engines are two on purpose
 
-`charto/data/indicators.py` (1,234 lines, ~26 indicators) and
-`pivot/backend/core/indicators/` (2,498 lines across five modules) both compute
+`dataserver/indicators.py` (1,234 lines, ~26 indicators) and
+`api/backend/core/indicators/` (2,498 lines across five modules) both compute
 RSI, SMA, MACD and the rest. This looks like the most obvious duplication in
 the repo and it is not duplication.
 
 They meet at a Protocol. `workflows/dsl/data_accessor.py:83` declares a
 five-method `DataAccessor`; `LiveDataAccessor` answers it from Pivot's data
-path and `ChartoDataAccessor` (`charto/data/strategies.py:299`) answers it from
+path and `ChartoDataAccessor` (`dataserver/strategies.py:299`) answers it from
 Charto's bars. **One DSL, two data planes, one seam** — which is why an armed
 rule in Charto IS the card's tree, evaluated by Pivot's evaluator over Charto's
 minute store.

@@ -1,7 +1,7 @@
 # Kite login procedure (market-data feed)
 
 Pivot's live NSE/BSE data comes from one Zerodha account, **NHB457** — the
-pinned `kite_data_account` (default in `pivot/backend/config.py`, overridable
+pinned `kite_data_account` (default in `api/backend/config.py`, overridable
 with a `KITE_DATA_ACCOUNT` env var). Kite access tokens expire around **6 AM IST
 every day**, so this account is logged in once each morning before 09:15.
 Zerodha requires that login to be done by the account holder; it is not
@@ -29,10 +29,10 @@ signed `state`) and the morning data-feed login below (no `state`).
    ```
 
 2. Log in as **NHB457** and enter the TOTP from the authenticator app, or
-   generate one locally from the seed in `pivot/.env` (prints only the code):
+   generate one locally from the seed in `api/.env` (prints only the code):
 
    ```
-   cd pivot && python3 -c "import re,time,hmac,hashlib,base64,struct;s=re.search(r'^KITE_PERMANENT_TOKEN=[\"\']?([^\"\'\s#]+)',open('.env').read(),re.M).group(1).upper();k=base64.b32decode(s+'='*(-len(s)%8));t=int(time.time());h=hmac.new(k,struct.pack('>Q',t//30),hashlib.sha1).digest();o=h[-1]&15;print('%06d'%((struct.unpack('>I',h[o:o+4])[0]&0x7FFFFFFF)%10**6),'| valid',30-t%30,'s')"
+   cd api && python3 -c "import re,time,hmac,hashlib,base64,struct;s=re.search(r'^KITE_PERMANENT_TOKEN=[\"\']?([^\"\'\s#]+)',open('.env').read(),re.M).group(1).upper();k=base64.b32decode(s+'='*(-len(s)%8));t=int(time.time());h=hmac.new(k,struct.pack('>Q',t//30),hashlib.sha1).digest();o=h[-1]&15;print('%06d'%((struct.unpack('>I',h[o:o+4])[0]&0x7FFFFFFF)%10**6),'| valid',30-t%30,'s')"
    ```
 
 3. Kite redirects to `/pv/callback`, and the server does the rest: it
@@ -94,7 +94,7 @@ systemd-run --unit=pivot-kite-catchup --uid=pivot-data --gid=pivot-runtime \
   /opt/pivot/venv/bin/python -u /var/lib/pivot-catchup/catch_up.py
 ```
 
-(`/var/lib/pivot-catchup/catch_up.py` is `charto/deploy/catch_up_clean_universe.py`
+(`/var/lib/pivot-catchup/catch_up.py` is `deploy/catch_up_clean_universe.py`
 with the release path baked in, because `pivot-data` cannot read
 `/etc/pivot/stage-release`.) Progress: `journalctl -u pivot-kite-catchup`.
 Crypto has the same gate: if its daily series falls behind, refold `bars_1d`
@@ -102,11 +102,11 @@ from the minutes before re-arming bybit/coinbase.
 
 ## Where things live
 
-- Callback and data-feed login: `pivot/backend/routers/brokers.py`
+- Callback and data-feed login: `api/backend/routers/brokers.py`
   (`_complete_data_feed_login`, `_rearm_charto_kite_feed`).
 - The pinned account: `settings.kite_data_account`, default `NHB457` in
-  `pivot/backend/config.py` (env `KITE_DATA_ACCOUNT` overrides).
+  `api/backend/config.py` (env `KITE_DATA_ACCOUNT` overrides).
 - Venues armed at charto boot: `CHARTO_LIVE_VENUES=bybit,coinbase,kite` in
   `/etc/pivot/runtime.env`.
 - Charto reads the token from the stored session
-  (`charto/data/kite_stream.py::_kite_access_token`).
+  (`dataserver/kite_stream.py::_kite_access_token`).

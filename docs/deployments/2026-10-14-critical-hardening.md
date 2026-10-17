@@ -61,12 +61,12 @@ Rollback selectively: restore affected application/nginx files from the backup a
 
 ## Files
 
-- `charto/data/dataserver.py` (only security hunks)
-- `charto/data/test_feed_security.py`
-- `charto/deploy/nginx-charto.conf`
-- `charto/deploy/harden_launch_controls.py`
-- `pivot/backend/auth/charto_session.py`
-- `pivot/backend/auth/router.py`
-- `pivot/backend/tests/test_charto_identity_binding.py`
-- `pivot/migrations/security/20261014_charto_account_links.sql`
+- `dataserver/dataserver.py` (only security hunks)
+- `dataserver/tests/test_feed_security.py`
+- `deploy/nginx-charto.conf`
+- `deploy/harden_launch_controls.py`
+- `api/backend/auth/charto_session.py`
+- `api/backend/auth/router.py`
+- `api/backend/tests/test_charto_identity_binding.py`
+- `api/migrations/security/20261014_charto_account_links.sql`
 - this deployment record

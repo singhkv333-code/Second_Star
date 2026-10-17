@@ -1,6 +1,6 @@
 # Home composer and grainy mesh
 
-The home in `pivot-next/components/HomeTab.tsx` opens with a dark mesh rectangle
+The home in `app/components/HomeTab.tsx` opens with a dark mesh rectangle
 containing Inter chart-introduction text and a shadcn CTA on the left, with a
 compact glass composer on the right. Three small decorative identity cards
 surround the composer. No separate capability cards or preview captions remain.
@@ -53,7 +53,7 @@ layout and placeholder contrast. No market data or agent behavior changed.
 cards and clean borders. Bitcoin and Ethereum logos were resolved read-only
 from `charto_bars.db.instrument_logo` (`BTCUSDT`, `ETHUSDT`); Reliance came from
 `company_profile` (`RELIANCE`). The image files served at those recorded URLs
-are bundled under `pivot-next/public/home-assets` so this purely decorative
+are bundled under `app/public/home-assets` so this purely decorative
 component does not need authenticated database calls to display its logos.
 The cards use recorded candles, with dated values as described below.
 

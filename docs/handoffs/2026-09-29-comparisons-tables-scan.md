@@ -8,7 +8,7 @@ Branch: `claude-cloud-29sep` (pushed). Two commits on top of `60d282a`:
 | `1a77d68` | scan: opening-range breakouts and 13 more technical features, patterns in words |
 
 Nothing is deployed. `pivot-next` and `pivot` ride the usual path; the charto
-change (`charto/data/dataserver.py`) only goes live through `charto-deploy`.
+change (`dataserver/dataserver.py`) only goes live through `charto-deploy`.
 
 ---
 
@@ -63,11 +63,11 @@ change (`charto/data/dataserver.py`) only goes live through `charto-deploy`.
 
 - Postgres (`pivot-db-india…:5432`) is **blocked by the cloud environment's network policy**; only HTTPS egress works. LLM (Azure) and yfinance are reachable. To run with real data, allow that host under the environment's Network access settings.
 - Backend venv: system pip fails building `ta`/`pyaes`; use a venv:
-  `python -m venv .venv && .venv/bin/pip install -U pip setuptools wheel && .venv/bin/pip install -r pivot/requirements.txt`
+  `python -m venv .venv && .venv/bin/pip install -U pip setuptools wheel && .venv/bin/pip install -r api/requirements.txt`
 - Tests need `REDIS_URL=redis://127.0.0.1:6399/0 JWT_SECRET_KEY=local-test`.
-- Live probe: `pivot/scripts/flex_turn_probe.py` (stubs tools by default; `--real-tools` when the DB is reachable). Set `DATABASE_URL=postgresql://x:x@127.0.0.1:1/x` (and `FINANCIALS_DSN`, `ENRICH_DSN`) when the DB is unreachable, or the LLM-cost logger hangs on connect.
-- Frontend: `cd pivot-next && pnpm install --frozen-lockfile && pnpm -s vitest run tests/chat`.
-- charto tests: `cd charto/data && python3 test_screen_features.py` (uses a scratch `CHARTO_DB`).
+- Live probe: `api/scripts/flex_turn_probe.py` (stubs tools by default; `--real-tools` when the DB is reachable). Set `DATABASE_URL=postgresql://x:x@127.0.0.1:1/x` (and `FINANCIALS_DSN`, `ENRICH_DSN`) when the DB is unreachable, or the LLM-cost logger hangs on connect.
+- Frontend: `cd app && pnpm install --frozen-lockfile && pnpm -s vitest run tests/chat`.
+- charto tests: `cd dataserver && python3 test_screen_features.py` (uses a scratch `CHARTO_DB`).
 
 ## 5. Open items for the next session
 

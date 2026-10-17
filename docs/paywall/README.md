@@ -4,7 +4,7 @@ Built 2026-09-28. The background research is in `RESEARCH.md`, every HTTP route 
 
 ## How it works
 
-- **The plans are data.** `charto/data/plans_catalog.json` defines the plans (free, pro, pro_plus, plus a signed-out pseudo-plan) and gives a value for every feature key. Code asks what a feature is worth for a user (`alerts.price`, `ai.credits` and so on). It never checks `plan == "pro"`. Changing a number or adding a plan is a catalog edit.
+- **The plans are data.** `dataserver/plans_catalog.json` defines the plans (free, pro, pro_plus, plus a signed-out pseudo-plan) and gives a value for every feature key. Code asks what a feature is worth for a user (`alerts.price`, `ai.credits` and so on). It never checks `plan == "pro"`. Changing a number or adding a plan is a catalog edit.
 - **One source of truth.** Plans, subscriptions and usage live in `charto_users.db`, next to the users. Pivot's API and pivotted never write that file. They call charto's `POST /billing/consume`.
 - **There are four kinds of feature:**
   - `flag`: on or off.
@@ -110,7 +110,7 @@ Still open:
 
 ### See it locally
 
-- **Every screen and state, no backend needed:** `cd pivot-next && pnpm dev`, then open
+- **Every screen and state, no backend needed:** `cd app && pnpm dev`, then open
   `http://localhost:3000/paywall-gallery`. It renders the production components with fixtures,
   in light and dark and at phone width, and never calls the network or Razorpay. Use the
   "Viewer" picker to walk the pricing page and Plan & billing through every subscription state.
@@ -123,12 +123,12 @@ Still open:
 
 | Piece | File |
 |---|---|
-| Catalog snapshot (a test fails if it drifts from `plans_catalog.json`) | `pivot-next/lib/billing/catalog.snapshot.json` |
-| Entitlement logic mirrored from `entitlements.py`, subscription states, guards | `pivot-next/lib/billing/entitlements.ts` |
+| Catalog snapshot (a test fails if it drifts from `plans_catalog.json`) | `app/lib/billing/catalog.snapshot.json` |
+| Entitlement logic mirrored from `entitlements.py`, subscription states, guards | `app/lib/billing/entitlements.ts` |
 | Copy (taglines, feature benefits, FAQ, terms, placeholders) | `lib/billing/presentation.ts`, `lib/billing/policy.ts` |
-| Design tokens and components | `pivot-next/app/billing.css`, `pivot-next/components/billing/*` |
+| Design tokens and components | `app/app/billing.css`, `app/components/billing/*` |
 | Pages | `app/pricing`, `app/checkout`, `app/settings/billing`, `app/paywall-gallery` |
-| Chart: prompt, credits, evicted banner, locks, billing dialog | `charto/preview/js/paywall.js` |
+| Chart: prompt, credits, evicted banner, locks, billing dialog | `chart/js/paywall.js` |
 
 ### How a 402 becomes a paywall
 

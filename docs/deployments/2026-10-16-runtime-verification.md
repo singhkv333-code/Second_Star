@@ -30,7 +30,7 @@ Added a narrowly scoped shell proxy to the repository nginx config and both
 active vhosts, preserving domain certificates, security rules and all other
 routing. No application service restart was needed.
 
-Reusable repair: `charto/deploy/repair_metadata_routes.py`; default is dry run,
+Reusable repair: `deploy/repair_metadata_routes.py`; default is dry run,
 `--apply` performs backup, nginx validation, reload and image-type probes.
 A failed first attempt rolled back; the revised probes tolerate graceful
 reload worker handover and pin HTTPS to this VM using curl `--resolve`.

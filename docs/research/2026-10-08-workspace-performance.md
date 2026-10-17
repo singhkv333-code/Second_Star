@@ -44,7 +44,7 @@ indicator: [IaaS security guidance](https://learn.microsoft.com/en-us/azure/secu
 
 ## Verification and boundaries
 
-`node --test charto/preview/tests/net-cache.test.cjs`: five passing tests,
+`node --test chart/tests/net-cache.test.cjs`: five passing tests,
 including a twelve-consumer burst producing exactly one network request,
 session isolation, TTL expiry, eviction and recovery after failure.
 Syntax and diff checks passed. Local workspace HTTP path returned 200 in

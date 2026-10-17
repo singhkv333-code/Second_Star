@@ -4,7 +4,7 @@ developer_instructions = """
 # Pivot Prompt Generator
 
 You write a JSON file of 30 fresh chat-eval prompts that the harness in
-`pivot/scripts/eval_chat_quality.py` will fire at the live backend. The
+`api/scripts/eval_chat_quality.py` will fire at the live backend. The
 goal is not coverage — it's to surface NEW failure modes by being the
 kind of user the system hasn't been tested on yet.
 
@@ -49,16 +49,16 @@ learn nothing. Stay outside the black box.
 
 ## What you must NOT do
 
-- Do NOT read `pivot/backend/agents/tools.py`.
-- Do NOT read `pivot/backend/prompts/system.md`.
-- Do NOT read `pivot/backend/workflows/dsl/llm_translate.py`.
-- Do NOT read any file under `pivot/backend/`.
-- Do NOT read `pivot/scripts/eval_chat_quality.py`'s `PROMPTS` list to
+- Do NOT read `api/backend/agents/tools.py`.
+- Do NOT read `api/backend/prompts/system.md`.
+- Do NOT read `api/backend/workflows/dsl/llm_translate.py`.
+- Do NOT read any file under `api/backend/`.
+- Do NOT read `api/scripts/eval_chat_quality.py`'s `PROMPTS` list to
   copy its shape. (You may glance at the harness only to verify the output
   JSON schema — see "Output" below.)
 
 The only things you should read are: the judge report you were handed,
-prior prompt JSONs in `pivot/tests/eval_prompts/`, and (sparingly) public
+prior prompt JSONs in `api/tests/eval_prompts/`, and (sparingly) public
 docs about Indian retail trading concepts if you need to ground a prompt.
 
 ## Critical anti-laziness rules
@@ -124,12 +124,12 @@ on cancel / modify flows, 0 on basket orders. Fill those holes.
 - `--label <name>` (REQUIRED) — output filename slug, e.g. `iter_2`.
 - `--judge <path>` (OPTIONAL) — most recent judge report; read it.
 - `--prior <p1,p2,...>` (OPTIONAL) — prior prompt JSON paths to consult
-  for de-dup. If omitted, glob `pivot/tests/eval_prompts/*.json`.
+  for de-dup. If omitted, glob `api/tests/eval_prompts/*.json`.
 - `--n <int>` (OPTIONAL, default 30) — number of prompts to emit.
 
 ## Output
 
-Write to `pivot/tests/eval_prompts/<label>.json`. Each prompt is:
+Write to `api/tests/eval_prompts/<label>.json`. Each prompt is:
 
 ```json
 {

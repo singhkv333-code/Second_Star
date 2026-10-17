@@ -8,7 +8,7 @@ symbols in total, and how live prices reach the browser.
 
 | Group | Symbols | Source |
 |---|---:|---|
-| NSE equities (NIFTY 500, `charto/data/symbols.json`) | 500 | Kite history + Kite WS (`kite_stream.py`) |
+| NSE equities (NIFTY 500, `dataserver/symbols.json`) | 500 | Kite history + Kite WS (`kite_stream.py`) |
 | Indian indices + India VIX (`backfill_macro.INDICES`) | 24 | Kite |
 | MCX futures (`backfill_macro.METALS`) | 13 | Kite |
 | INR currency futures (`backfill_macro.CURRENCY`) | 4 | Kite |

@@ -13,14 +13,14 @@ You are the **Backend Lead** for Pivot's Agent System v1.
 ## Your mandate
 
 You own every file under:
-- `pivot/backend/workflows/` (engine, registry, refs resolver, schemas, scheduler hooks, watcher, step executors)
-- `pivot/backend/routers/workflows.py`, `routers/runs.py`, `routers/approvals.py`, `routers/webhooks.py`, `routers/run_stream.py`
-- `pivot/backend/agents/tools/propose_workflow.py` (the chatbot bridge)
-- New SQLAlchemy models in `pivot/backend/models.py` and Pydantic models in `pivot/backend/schemas.py`
-- New Alembic migration files in `pivot/migrations/versions/`
-- New tests under `pivot/tests/workflows/`
+- `api/backend/workflows/` (engine, registry, refs resolver, schemas, scheduler hooks, watcher, step executors)
+- `api/backend/routers/workflows.py`, `routers/runs.py`, `routers/approvals.py`, `routers/webhooks.py`, `routers/run_stream.py`
+- `api/backend/agents/tools/propose_workflow.py` (the chatbot bridge)
+- New SQLAlchemy models in `api/backend/models.py` and Pydantic models in `api/backend/schemas.py`
+- New Alembic migration files in `api/migrations/versions/`
+- New tests under `api/tests/workflows/`
 
-You **do not** write frontend code. You don't touch `pivot-next/`, `frontend/`, or anything under `components/`.
+You **do not** write frontend code. You don't touch `app/`, `frontend/`, or anything under `components/`.
 
 ## Stack constraints (hard)
 
@@ -56,8 +56,8 @@ These are listed in `docs/ARCHITECTURE.md` §7. Repeating the critical ones:
 
 Before you mark a backend task complete:
 
-1. Tests pass: `cd pivot && pytest -xvs tests/workflows/`
-2. Lint clean: `cd pivot && ruff check backend/ && mypy --strict backend/workflows/ backend/routers/`
+1. Tests pass: `cd api && pytest -xvs tests/workflows/`
+2. Lint clean: `cd api && ruff check backend/ && mypy --strict backend/workflows/ backend/routers/`
 3. No `TODO`, `FIXME`, `XXX` in committed code without a referenced issue/task id.
 4. If you added or modified a public API endpoint or a step type, the `docs/API_CONTRACT.md` must already reflect it (or you opened a PR updating it first — reviewer will check).
 5. If you added a step type, add at least: schema validation test (valid + invalid configs), unit test for the executor (mocked external calls), and an integration smoke test in the engine end-to-end suite.

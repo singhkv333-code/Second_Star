@@ -29,11 +29,11 @@ things live here and they have different lifecycles:
 
 | Table | Rows | Built by | Reaches the user via |
 |---|---:|---|---|
-| `quarterly_statement_lines` | 6,641,992 | `pivotted/load_mc_quarterly.py` | `charto/data/sync_quarters.py` → `charto_bars.db.quarters` → company page Quarterly tab |
-| `quarterly_metrics` | 335,287 | `pivotted/build_quarterly_metrics.py` | same path |
+| `quarterly_statement_lines` | 6,641,992 | `research/load_mc_quarterly.py` | `dataserver/jobs/sync_quarters.py` → `charto_bars.db.quarters` → company page Quarterly tab |
+| `quarterly_metrics` | 335,287 | `research/build_quarterly_metrics.py` | same path |
 | `instrument_master` | 75,128 | `refresh_instrument_master` | option chains, symbol resolution |
 | `option_universe` | 11,699 | options admin | F&O tools |
-| `company_identity` | 5,206 | `pivotted/build_identity.py` | symbol↔ISIN↔sc_id resolution everywhere |
+| `company_identity` | 5,206 | `research/build_identity.py` | symbol↔ISIN↔sc_id resolution everywhere |
 | `result_filings` | 4,210 | filings pipeline | results markers on the chart |
 
 **The trap:** `dataserver.py:3810` reads `quarters` from `charto_bars.db`, not
@@ -59,7 +59,7 @@ not customers. See §5.
 ### 1c. The landing waitlist — live, customer-facing
 
 `charto_landing.waitlist_registrations` (9 rows, all `source=landing`).
-Written by `charto/web/app/api/waitlist/route.ts` on Vercel via
+Written by `site/app/api/waitlist/route.ts` on Vercel via
 `WAITLIST_DATABASE_URL`. Unrelated to everything else in this database and
 must survive any restructuring of `public`.
 
@@ -98,10 +98,10 @@ Three schemas, and **the schema is not ours — the scraper owns it.**
 | `shp.filings` | 36,192 |
 | `shp.universe` | 5,588 |
 
-**Readers:** `pivot/backend/market/financials_db.py` (via `mc.*`),
-`pivotted/fundamentals.py` (which imports pivot's `financials_db` rather than
+**Readers:** `api/backend/market/financials_db.py` (via `mc.*`),
+`research/fundamentals.py` (which imports pivot's `financials_db` rather than
 re-deriving — deliberate, keeps one set of numbers),
-`charto/data/sync_financials.py` (copies into `charto_bars.db.financials` and
+`dataserver/jobs/sync_financials.py` (copies into `charto_bars.db.financials` and
 `.balance_sheet`).
 
 `provision_research.sh` refuses to deploy if `FINANCIALS_DSN` is unset,
@@ -131,12 +131,12 @@ understates it by a wide margin. It is not an auth database.
 | Tables | Owner module |
 |---|---|
 | `users`, `sessions`, `workspace_state`, `layouts`, `conversations` | `dataserver.py:13511-13560` |
-| `alerts`, `alert_log` | `charto/data/alerts.py` (`_db()` → `ds._users`) |
-| `alert_email_outbox` (additive email feature) | `charto/data/alert_email.py`, initialized by `alerts.py`; same user DB and lock, included in whole-plane backups |
+| `alerts`, `alert_log` | `dataserver/alerts.py` (`_db()` → `ds._users`) |
+| `alert_email_outbox` (additive email feature) | `dataserver/alert_email.py`, initialized by `alerts.py`; same user DB and lock, included in whole-plane backups |
 | `subscriptions`, `billing_events`, `billing_checkouts`, `usage_ledger`, `entitlement_grants` | `entitlements.py` + `billing.py`; same user DB/lock. Checkout intent precedes provider calls; unfinished webhook receipts remain retryable. Included in whole-plane backups |
-| `paper_accounts`, `paper_orders`, `paper_fills`, `paper_positions`, `paper_ledger`, `paper_nav` | `charto/data/paper.py:212` |
-| `strategies`, `strategy_log` | `charto/data/strategies.py:172` |
-| `journal_trades`, `journal_revisions`, `journal_playbooks` | `charto/data/journal.py:24` |
+| `paper_accounts`, `paper_orders`, `paper_fills`, `paper_positions`, `paper_ledger`, `paper_nav` | `dataserver/paper.py:212` |
+| `strategies`, `strategy_log` | `dataserver/strategies.py:172` |
+| `journal_trades`, `journal_revisions`, `journal_playbooks` | `dataserver/journal.py:24` |
 
 Every one of those modules reaches it through the **same shared connection and
 lock** (`ds._users`, `ds._users_lock`). It holds the **11 real accounts**, 14
@@ -167,7 +167,7 @@ also hold charto accounts. **18 unique people across all three stores.**
 ## 6. `charto_bars.db` — SQLite, ~24 GB on the VM (`CHARTO_DB`)
 
 Bars plus a set of **read-caches synced from Postgres**. Sync scripts are
-one-directional (PG → SQLite) and are named `charto/data/sync_*.py`.
+one-directional (PG → SQLite) and are named `dataserver/sync_*.py`.
 
 - Bars: `bars`, `bars_*` (~497M minute rows, 557 symbols)
 - Synced caches: `financials`, `balance_sheet` (← `sync_financials.py`),

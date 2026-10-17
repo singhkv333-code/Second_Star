@@ -1,7 +1,7 @@
 # Paywall endpoint inventory — charto dataserver (:5174) + AI consumers
 
-Verifier, 2026-09-28. Read from `charto/data/dataserver.py` (`Handler.do_GET` L15896,
-`do_DELETE` L16508, `do_POST` L16544, `_account_post` L15693) and `charto/data/alerts.py`.
+Verifier, 2026-09-28. Read from `dataserver/dataserver.py` (`Handler.do_GET` L15896,
+`do_DELETE` L16508, `do_POST` L16544, `_account_post` L15693) and `dataserver/alerts.py`.
 Line numbers are as of this read; the code wins.
 
 Tags: **GATE** (must check an entitlement) · **METER** (consumes a quota) · **OPEN** · **ADMIN** (should not be user-reachable).
@@ -137,7 +137,7 @@ Tags: **GATE** (must check an entitlement) · **METER** (consumes a quota) · **
 | Watchlists (unlimited) | client-only, `WL_MAX=12` | nothing to enforce (note: unlimited contradicts WL_MAX=12) |
 | Multi-condition alerts (all plans) | `MAX_CONDITIONS=4` | no gate |
 
-## 6. pivot API (`pivot/backend/routers`) — AI-consuming routes only (not deployed)
+## 6. pivot API (`api/backend/routers`) — AI-consuming routes only (not deployed)
 
 | Route | Auth | Note |
 |---|---|---|

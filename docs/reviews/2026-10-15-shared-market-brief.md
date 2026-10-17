@@ -4,7 +4,7 @@ Not deployed. The production brief remains unchanged.
 
 ## Design
 
-- Dedicated system prompt: `pivot/backend/prompts/modules/market_brief.md`.
+- Dedicated system prompt: `api/backend/prompts/modules/market_brief.md`.
 - Five or six short labelled bullets covering India, Global, Crypto,
   Commodities, Currencies & rates; optional Watch next. One label per topic.
 - JSON output validated for category coverage, length, source IDs and numbers.

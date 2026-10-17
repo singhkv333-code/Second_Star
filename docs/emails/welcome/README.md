@@ -14,7 +14,7 @@ Subjects and inbox preview text are in `metadata.json`. Open `preview.html` to r
 
 White background, black text, a Georgia fallback for Pivot's serif wordmark and headings, and one black action button. No badges, gradients, shadows, decorative icons, or tracking pixels. Layout tables and inline styles keep the emails usable in mail clients, with a responsive inset for phones and an Outlook button fallback.
 
-The signup note is short and informal. The paid notes welcome the subscriber, confirm the captured payment and active plan, and include a plain payment-details table. Benefits follow `charto/data/plans_catalog.json`: Pro has 200 AI credits per month and 10 indicators per chart; Pro+ has 500 credits per month and unlimited indicators per chart. Pending features are omitted.
+The signup note is short and informal. The paid notes welcome the subscriber, confirm the captured payment and active plan, and include a plain payment-details table. Benefits follow `dataserver/plans_catalog.json`: Pro has 200 AI credits per month and 10 indicators per chart; Pro+ has 500 credits per month and unlimited indicators per chart. Pending features are omitted.
 
 ## Values to fill before sending
 

@@ -1,0 +1,2939 @@
+/* Newsreader carries the `ital` axis so display italics render as true
+   italics (the landing-page "That's all" treatment), not synthetic
+   obliques. */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;550;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400;1,6..72,500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 9%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 9%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 9%;
+
+    /* Tailwind "primary" rebinds to Quartr's ink color so legacy
+       references (bg-primary / text-primary / hover:bg-primary/90)
+       resolve to the Quartr neutral, not blue. CTAs that used
+       blue now sit in ink-on-paper, matching Quartr exactly. */
+    --primary: 240 4% 5%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 9%;
+
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 45%;
+
+    --accent: 0 0% 96%;
+    --accent-foreground: 0 0% 9%;
+
+    --destructive: 0 72% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 71% 38%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 9%;
+
+    --info: 217 91% 60%;
+    --info-foreground: 0 0% 100%;
+
+    --border: 0 0% 90%;
+    --input: 0 0% 90%;
+    --ring: 240 4% 30%;
+
+    --radius: 0.625rem;
+
+    /* ─── Quartr tokens — LIGHT mode (mirror of the dark palette).
+           In dark mode --bg-base is near-black #0d0d0e (NOT pure black) and
+           the warm grey #1f2127 lives in --bg-elevated as the active/hover
+           tint. Light mode mirrors that: --bg-base is near-pure white and
+           the warm grey moves into --bg-elevated where it does the same
+           job — used only for sidebar-active / hover / selected states. */
+    --bg-base:       #ffffff;   /* page bg — paper white */
+    --bg-primary:    #fbfbfc;   /* card surface — very subtle tint */
+    --bg-secondary:  #fafafa;   /* ElevenLabs' exact greyish sidebar surface */
+    --bg-card:       #fbfbfc;
+    --bg-elevated:   #ececee;   /* hover / active — the warm grey */
+    /* "Empty" fill for progress tracks & heatmap no-data cells — a step off the
+       card surface so unfilled elements stay visible (bg-elevated sits too
+       close to the card in dark mode and disappears). */
+    --surface-track: #e4e5e9;
+
+    --glass-bg:           #fbfbfc;
+    --glass-bg-hover:     #f6f6f8;
+    --glass-bg-active:    #ececee;
+    --glass-border:       rgba(15, 18, 22, 0.08);
+    /* Main shell divisions match chart's 2px seams. */
+    --shell-seam:         #e6e6e6;
+    --shell-sidebar-bg:   #ffffff;
+    /* The framed window (Codex/ChatGPT layout): the top bar and the rail are
+       one "chrome" surface, and the page sits inside it as a bordered,
+       rounded window. chart's `.in-shell` copies these values —
+       change them together. */
+    --shell-chrome:        #f3f3f4;
+    --shell-window-border: #e2e2e5;
+    --shell-window-shadow: 0 1px 2px rgba(15, 18, 22, 0.04);
+    --glass-border-hover: rgba(15, 18, 22, 0.16);
+    --glass-border-focus: rgba(15, 18, 22, 0.32);
+    --resize-line: #b8bcc1;
+
+    /* Theme-aware active/hover tints. In dark mode this is the
+       rgba(255,255,255,0.04) Quartr uses for active sidebar items;
+       light-mode mirror is the same opacity over the ink color so the
+       result reads as a faint grey wash. Use this everywhere we want
+       the "subtle elevated bg" treatment (sidebar nav active, theme
+       icon active, calendar selected cell, mode pill active). */
+    --surface-hover:  rgba(15, 18, 22, 0.03);
+    --surface-active: rgba(15, 18, 22, 0.06);
+
+    --text-primary:   #0d0d0e;   /* near-black ink */
+    --text-secondary: #4d555c;   /* mid-grey */
+    --text-tertiary:  #6b7280;
+    --text-disabled:  #9aa1a8;
+
+    /* Topbar metric-strip labels ("Portfolio value", "Day P&L"…). On
+       white bg `--text-tertiary` reads as too faint, so we alias the
+       label color to `--text-secondary` here. The dark-mode override
+       below keeps it on `--text-tertiary` where the contrast is fine. */
+    --metric-label: var(--text-secondary);
+
+    /* CTA on light = the dark ink itself, mirroring Quartr's "white CTA on dark" */
+    --shadow-cta:
+      rgba(0, 0, 0, 0)    0px 20px 6px 0px,
+      rgba(0, 0, 0, 0.02) 0px 13px 5px 0px,
+      rgba(0, 0, 0, 0.04) 0px  7px 4px 0px,
+      rgba(0, 0, 0, 0.06) 0px  3px 3px 0px,
+      rgba(0, 0, 0, 0.08) 0px  1px 2px 0px;
+
+    --color-profit: #059669;
+    --color-loss:   #dc2626;
+    --color-warn:   #d97706;
+    --pivot-blue:   #219ebc;
+    --price-line:   #0f172a;
+
+    /* Elevated-card surfaces (Home dashboard bento). --accent-* is the single
+       quiet teal thread, used only on interactive/focal moments (hover borders,
+       hero details), never as a card fill or persistent tint. */
+    --bg-inset:          #ffffff;
+    --shadow-card:       none;
+    --shadow-card-hover: none;
+    --accent:            var(--pivot-blue);
+    --accent-border:     color-mix(in srgb, var(--pivot-blue) 45%, transparent);
+    --accent-wash:       color-mix(in srgb, var(--pivot-blue) 8%, transparent);
+
+    /* Typography */
+    --font-display: 'Inter', system-ui, sans-serif;
+    --font-mono:    'Inter', system-ui, sans-serif;
+    --font-ui:      'Inter', system-ui, sans-serif;
+    --font-serif:   'Newsreader', 'Times New Roman', Georgia, serif;
+    /* Numerals — prices, NAVs, P&L, levels all set in the UI face (Inter),
+       with `tabular-nums` giving column alignment instead of a second family.
+       One token so the numeric voice can be swapped product-wide. */
+    --font-numeric: 'Inter', system-ui, sans-serif;
+
+    /* Experiment slot — applied ONLY to the topbar Pivot wordmark and
+       the chat greeting ("Good morning, …"). Swap this single value to
+       try different serifs without touching component code. */
+    --font-experiment: 'Newsreader', Georgia, serif;
+    --weight-display: 550;
+    --weight-medium:  500;
+    --weight-bold:    700;
+
+    /* Geometry — Quartr radii */
+    --radius-xs:   4px;
+    --radius-sm:   8px;
+    --radius-md:   12px;
+    --radius-lg:   16px;
+    --radius-xl:   24px;
+    --radius-pill: 9999px;
+
+    --ease-quartr: cubic-bezier(0.22, 1, 0.36, 1);
+    --ease-tw:     cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .dark {
+    --background: 0 0% 0%;
+    --foreground: 0 0% 96%;
+
+    --card: 240 2% 11%;
+    --card-foreground: 0 0% 96%;
+
+    --popover: 0 0% 7%;
+    --popover-foreground: 0 0% 96%;
+
+    /* In dark mode Tailwind primary becomes Quartr's off-white text
+       (#fbfcfc) — a true Quartr "white-on-dark" CTA. Buttons that
+       used to fill blue now fill with the off-white ink. */
+    --primary: 180 7% 99%;
+    --primary-foreground: 240 4% 5%;
+
+    --secondary: 0 0% 12%;
+    --secondary-foreground: 0 0% 96%;
+
+    --muted: 0 0% 12%;
+    --muted-foreground: 0 0% 60%;
+
+    --accent: 0 0% 10%;
+    --accent-foreground: 0 0% 96%;
+
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 55%;
+    --warning-foreground: 0 0% 9%;
+
+    --info: 217 91% 65%;
+    --info-foreground: 0 0% 100%;
+
+    --border: 0 0% 14%;
+    --input: 0 0% 14%;
+    --ring: 222 89% 60%;
+
+    /* ─── Quartr dark tokens — exact extracted values ─── */
+    --bg-base:       #000000;   /* page bg — ElevenLabs-style true black */
+    --bg-primary:    #111212;
+    --bg-secondary:  #1c1c1d;   /* ElevenLabs' exact greyish sidebar surface */
+    --bg-card:       #1c1c1d;
+    --bg-elevated:   #1e1e1e;   /* hover / active — lighter than the sidebar */
+    /* See light-mode note. On the near-black card #1e1e1e is invisible, so the
+       track surface is bumped several steps lighter to read as an empty fill. */
+    --surface-track: #34353b;
+
+    --glass-bg:           #111212;
+    --glass-bg-hover:     #181a1f;
+    --glass-bg-active:    #1f2127;
+    --glass-border:       rgba(255, 255, 255, 0.14);
+    --shell-seam:         #242424;
+    --shell-sidebar-bg:   #1c1c1d;
+    --shell-chrome:        #151516;
+    --shell-window-border: #29292c;
+    --shell-window-shadow: none;
+    --glass-border-hover: rgba(255, 255, 255, 0.22);
+    --glass-border-focus: rgba(255, 255, 255, 0.36);
+    --resize-line: #555d66;
+
+    /* Theme-aware active/hover tints — mirrors the values defined in
+       :root for light mode. In dark, these are the white-over-black
+       washes Quartr uses on active sidebar items / hover surfaces. */
+    --surface-hover:  rgba(255, 255, 255, 0.02);
+    --surface-active: rgba(255, 255, 255, 0.04);
+
+    --text-primary:   #fbfcfc;
+    --text-secondary: #8f98a1;
+    --text-tertiary:  #6b7280;
+    --text-disabled:  #485259;
+
+    /* Dark mode keeps metric-strip labels at tertiary — contrast is
+       fine against the deep-grey topbar. */
+    --metric-label: var(--text-tertiary);
+
+    --shadow-cta:
+      rgba(0, 0, 0, 0)    0px 20px 6px 0px,
+      rgba(0, 0, 0, 0.01) 0px 13px 5px 0px,
+      rgba(0, 0, 0, 0.03) 0px  7px 4px 0px,
+      rgba(0, 0, 0, 0.05) 0px  3px 3px 0px,
+      rgba(0, 0, 0, 0.06) 0px  1px 2px 0px;
+
+    --color-profit: #10b981;
+    --color-loss:   #ef4444;
+    --color-warn:   #f59e0b;
+    --pivot-blue:   #2bb3d1;
+    --price-line:   #e2e8f0;
+
+    /* Dark: cards are already lighter than the page, so elevation reads via
+       that contrast plus a soft black shadow; the inset page stays near-black. */
+    --bg-inset:          #000000;
+    --shadow-card:       none;
+    --shadow-card-hover: none;
+    --accent:            var(--pivot-blue);
+    --accent-border:     color-mix(in srgb, var(--pivot-blue) 55%, transparent);
+    --accent-wash:       color-mix(in srgb, var(--pivot-blue) 14%, transparent);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html, body {
+    height: 100%;
+    /* Lock the document scroll so only the inner panes (main content,
+       sidebar conversation list, Active Agents rail) handle scrolling.
+       Without this, the topbar + sidebar can drift on long pages. */
+    overflow: hidden;
+  }
+  body {
+    background: var(--bg-base);
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "cv11", "ss01";
+  }
+
+  /* Scrollbars — light-mode-aware */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: var(--glass-border-hover);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: var(--glass-border-focus); }
+  ::selection { background: var(--glass-border-hover); color: var(--text-primary); }
+
+  /* Hide the scrollbar entirely inside the chat scroll region (the
+     transcript still scrolls; just no visible scrollbar). Mirrors the
+     ChatGPT/Quartr "no scrollbar" reading. Apply via opt-in class
+     so other surfaces keep their thin scrollbars. */
+  .quartr-no-scrollbar { scrollbar-width: none; }
+  .quartr-no-scrollbar::-webkit-scrollbar { width: 0; height: 0; }
+}
+
+/* Borderless range slider — flat track + clean thumb, no native outline.
+   Kept UNLAYERED on purpose: unlayered author styles win the cascade over
+   @layer base, which the native widget would otherwise re-assert. */
+input[type="range"].payoff-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  cursor: pointer;
+}
+input[type="range"].payoff-slider:focus { outline: none; }
+input[type="range"].payoff-slider::-webkit-slider-runnable-track {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 9999px;
+  border: none;
+  box-shadow: none;
+  background: var(--glass-border-hover);
+}
+input[type="range"].payoff-slider::-moz-range-track {
+  height: 4px;
+  border-radius: 9999px;
+  border: none;
+  box-shadow: none;
+  background: var(--glass-border-hover);
+}
+input[type="range"].payoff-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  margin-top: -5px;
+  height: 14px;
+  width: 14px;
+  border-radius: 9999px;
+  border: none;
+  box-shadow: none;
+  background: hsl(var(--primary));
+}
+input[type="range"].payoff-slider::-moz-range-thumb {
+  height: 14px;
+  width: 14px;
+  border-radius: 9999px;
+  border: none;
+  box-shadow: none;
+  background: hsl(var(--primary));
+}
+
+/* Phone safety net: stop fixed-width children from leaking horizontal
+   scroll out of the chat surface. Only target the chat scroll region —
+   `main` already nests its own scroll panes per tab, so clamping it here
+   would convert overflow-y from `visible` to forced `auto` and break
+   scrolling on the screener/calendar pages. */
+@media (max-width: 639.98px) {
+  .quartr-no-scrollbar {
+    overflow-x: hidden;
+  }
+}
+
+/* Phone/mobile cleanup: on touch-sized viewports every scroll region should
+   read edge-to-edge with no visible scrollbar (content still scrolls). Hiding
+   globally covers the chat-history drawer <nav>, the dashboard tab panes, the
+   Home main view, and any nested scroll surface — not just <main>'s direct
+   children. Also drops the header's hairline (set inline, so it needs
+   !important to override). */
+@media (max-width: 1023.98px) {
+  * { scrollbar-width: none; }
+  *::-webkit-scrollbar { width: 0; height: 0; }
+  .top-header { border-bottom: none !important; }
+  /* …except a floating dropdown. The rule above is about PAGE scroll
+     regions reading edge-to-edge; an overlay list is the opposite case —
+     it is short, it sits on top of the page, and the rail is the only cue
+     that there is more below the seventh row. `*` also outranks the
+     .cas-scroll rules further down (same specificity, later wins), so
+     without this carve-out the autosuggest lost its 6px rail on every
+     window under 1024px and Chrome drew its own default thumb instead.
+     `scrollbar-width` is reset to `auto`, NOT `thin`: thin would make
+     Chromium abandon the webkit rules for its own ~10px bar, which is the
+     same trap the main .cas-scroll block documents. Firefox still gets
+     `thin` from the @supports block further down. */
+  .cas-scroll { scrollbar-width: auto; }
+  .cas-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+}
+
+/* ─── Quartr animations ────────────────────────────────────────────── */
+@keyframes pulse-quartr {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.4; transform: scale(0.85); }
+}
+@keyframes fadeUp-quartr {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes draftCardIn-quartr {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes stepIn-quartr {
+  from { opacity: 0; transform: translateX(-4px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes savedCheck-quartr {
+  0%   { opacity: 0; transform: scale(0.5); }
+  60%  { opacity: 1; transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+/* Agent panel slide-in — the drawer eases in from the right edge on open
+   instead of popping into place. */
+@keyframes agentPanelIn-quartr {
+  from { opacity: 0.4; transform: translateX(100%); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* Panel fade-in (in place) — used when one drawer hands off to another that
+   occupies the same slot (e.g. "Know more" → Apply), so the new panel
+   cross-fades over the old one instead of sliding in from the edge. */
+@keyframes panelFadeIn-quartr {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Instrument search — Charto's dense picker with a quieter, app-native
+   entrance. The panel stays geometrically tied to the outer header pill;
+   keyboard highlighting moves only two pixels so columns never wobble. */
+@keyframes companyAutosuggestIn {
+  from { opacity: 0; transform: translateY(-5px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes companyAutosuggestLoad {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(260%); }
+}
+.company-autosuggest-panel {
+  transform-origin: 38px top;
+  animation: companyAutosuggestIn 160ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.company-autosuggest-option:active {
+  transform: translateX(2px) scale(0.992) !important;
+}
+.global-instrument-search {
+  transition: box-shadow 160ms ease, border-color 160ms ease !important;
+}
+.global-instrument-search:focus-within {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--text-primary) 7%, transparent);
+}
+.company-autosuggest-loading::after {
+  content: "";
+  display: block;
+  width: 38%;
+  height: 100%;
+  background: var(--text-tertiary);
+  opacity: 0.45;
+  animation: companyAutosuggestLoad 900ms ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .company-autosuggest-panel,
+  .company-autosuggest-loading::after {
+    animation: none;
+  }
+  .company-autosuggest-option {
+    transition: none !important;
+  }
+}
+
+/* ─── P&L heatmap (Active Agents header) ─────────────────────────── */
+/* Each cell carries `--cell-light` / `--cell-dark` as inline CSS vars;
+   this rule picks the right one based on the theme so the SVG fills
+   (and the legend swatches) stay in sync without React having to know
+   about the current mode. */
+.heatmap-cell {
+  fill: var(--cell-light);
+  background: var(--cell-light);
+  transition: opacity 0.15s var(--ease-quartr);
+}
+.heatmap-cell:hover {
+  opacity: 0.78;
+}
+.dark .heatmap-cell {
+  fill: var(--cell-dark);
+  background: var(--cell-dark);
+}
+
+/* ─── Quartr utility classes (used by chat surface + topbar) ───────── */
+.q-display {
+  font-family: var(--font-display);
+  font-weight: var(--weight-display);
+  letter-spacing: -0.025em;
+}
+.q-serif {
+  font-family: var(--font-serif);
+  font-weight: var(--weight-display);
+  letter-spacing: -0.04em;
+}
+.q-mono { font-family: var(--font-mono); }
+
+.q-greeting {
+  font-family: var(--font-experiment);
+  font-weight: var(--weight-display);
+  font-size: clamp(24px, 7vw, 46px);
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+  color: var(--text-primary);
+  text-align: center;
+  margin: 0;
+}
+
+.q-uppercase-label {
+  font-size: 11px;
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+/* ─── Home tab: live market-status ping ───────────────────────────── */
+@keyframes homeLivePing {
+  0%        { transform: scale(1);   opacity: 0.55; }
+  70%, 100% { transform: scale(2.6); opacity: 0;    }
+}
+.home-live-ping { animation: homeLivePing 1.9s var(--ease-quartr) infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .home-live-ping { animation: none; }
+}
+
+/* Global Pivot Copilot ----------------------------------------------------
+   One chat instance changes presentation; these classes never create a
+   second transcript or composer. */
+.copilot-side-panel {
+  position: fixed;
+  top: var(--header-h, 56px);
+  right: 0;
+  bottom: 0;
+  z-index: 55;
+  display: flex;
+  width: var(--copilot-side-w, 25vw);
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-base);
+  border-left: 1px solid var(--shell-seam);
+  transform: translateX(14px);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    transform 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 180ms ease,
+    visibility 0s linear 240ms;
+}
+
+.copilot-side-panel--open {
+  transform: translateX(0);
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition:
+    transform 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 180ms ease,
+    visibility 0s;
+}
+
+/* The invisible drag target reveals a thin grey line on hover. */
+.copilot-resize-handle {
+  position: absolute;
+  top: 0;
+  left: -4px;
+  z-index: 3;
+  width: 10px;
+  height: 100%;
+  cursor: col-resize;
+  background: transparent;
+  touch-action: none;
+}
+
+.copilot-side-panel:has(.copilot-resize-handle:is(:hover, :focus-visible, :active)) { border-left-color: var(--resize-line); }
+.copilot-resize-handle:focus-visible { outline: none; }
+
+.copilot-panel-header {
+  display: flex;
+  min-height: 42px;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  padding: 6px 12px;
+  border-bottom: 0;
+  background: var(--bg-primary);
+}
+
+.copilot-panel-action {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.copilot-panel-action:hover,
+.copilot-panel-action:focus-visible {
+  background: var(--surface-active);
+  color: var(--text-primary);
+}
+
+.copilot-quick-ask {
+  position: fixed;
+  left: calc(50% + 24px);
+  bottom: max(40px, calc(env(safe-area-inset-bottom) + 32px));
+  z-index: 50;
+  width: min(440px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  font-family: var(--font-ui);
+  transition:
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 160ms ease,
+    visibility 0s;
+}
+
+.copilot-quick-ask--visible {
+  transform: translateX(-50%) translateY(0) scale(1);
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.copilot-quick-ask--hidden {
+  transform: translateX(-50%) translateY(10px) scale(0.97);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    transform 180ms cubic-bezier(0.4, 0, 1, 1),
+    opacity 140ms ease,
+    visibility 0s linear 180ms;
+}
+
+.copilot-quick-pill {
+  display: flex;
+  min-height: 54px;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px 7px 15px;
+  border: 1px solid var(--glass-border);
+  border-radius: 28px;
+  background: color-mix(in srgb, var(--bg-primary) 86%, transparent);
+  box-shadow: 0 14px 42px rgba(0, 0, 0, 0.16);
+  backdrop-filter: blur(28px) saturate(160%);
+}
+.copilot-quick-mark {
+  /* The alien badge — the same mark that signs the chart (chart
+     assets/pivot-alien.png). Addressed relative to this file so Next bundles
+     it under /_next/static/media/: in production a root path from public/
+     falls through to charto's data server (see lib/publicAssets.ts). */
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: 50%;
+  background: url("../public/pivot-alien.png") center / contain no-repeat;
+}
+.copilot-quick-input {
+  min-width: 0;
+  flex: 1;
+  height: 24px;
+  max-height: 72px;
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: 400 14px/24px var(--font-ui);
+}
+.copilot-quick-input::placeholder { color: var(--text-tertiary); }
+.copilot-quick-send {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: var(--text-primary);
+  color: var(--bg-primary);
+  cursor: pointer;
+}
+.copilot-quick-send:disabled { cursor: default; opacity: 0.28; }
+
+.copilot-main {
+  transition: padding-right 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.copilot-main-with-panel { padding-right: var(--copilot-side-w, 25vw); }
+
+/* Side-panel composer mirrors Charto's two-row box: prompt on top, compact
+   context at lower left, voice/send at lower right. Full Workspace keeps the
+   richer Pivot composer unchanged. */
+.copilot-side-panel .composer-dock {
+  margin-top: 0;
+  padding: 6px clamp(16px, 4%, 34px) 14px;
+  background: transparent;
+}
+.copilot-side-panel [data-testid="chat-scroll"] {
+  padding-right: clamp(16px, 4%, 34px);
+  padding-left: clamp(16px, 4%, 34px);
+}
+.copilot-side-panel [data-testid="chat-composer"] { display: block; }
+.copilot-side-panel .chat-composer-box {
+  padding: 10px 10px 8px 14px;
+  border-radius: var(--radius-lg) !important;
+  background: var(--bg-primary) !important;
+}
+.copilot-side-panel .chat-composer-row {
+  display: grid;
+  grid-template-columns: 1fr 30px 32px;
+  grid-template-rows: auto 32px;
+  gap: 4px 6px;
+  padding: 0 !important;
+}
+.copilot-side-panel .chat-composer-row > textarea {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  width: 100%;
+  padding: 2px 4px 4px 0 !important;
+  font-size: 14px !important;
+  line-height: 24px !important;
+}
+.copilot-side-panel [data-testid="composer-plus-btn"] { display: none; }
+.copilot-side-panel [data-testid="chat-voice-btn"] {
+  grid-column: 2;
+  grid-row: 2;
+  align-self: center;
+}
+.copilot-side-panel [data-testid="chat-submit-btn"],
+.copilot-side-panel [data-testid="chat-stop-btn"] {
+  grid-column: 3;
+  grid-row: 2;
+  align-self: center;
+  width: 30px;
+  height: 30px;
+}
+.copilot-side-panel [data-testid="composer-attachments"] {
+  position: absolute;
+  left: 14px;
+  bottom: 11px;
+  z-index: 2;
+  padding: 0 !important;
+}
+.copilot-side-panel [data-testid^="attachment-chip-"] {
+  gap: 5px !important;
+  padding: 4px 8px !important;
+  border: 0 !important;
+  border-radius: var(--radius-pill) !important;
+  background: var(--bg-elevated) !important;
+}
+.copilot-side-panel [data-testid^="attachment-chip-"] > div > div:last-child,
+.copilot-side-panel [data-testid^="attachment-chip-"] button { display: none; }
+.copilot-side-panel [data-testid^="attachment-chip-"] > :first-child { display: none; }
+
+@media (max-width: 820px) {
+  .copilot-side-panel {
+    left: 0;
+    width: 100vw;
+    border-left: 0;
+  }
+  .copilot-main-with-panel { padding-right: 0; }
+  .copilot-quick-ask { left: 50%; bottom: max(40px, calc(env(safe-area-inset-bottom) + 32px)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .copilot-side-panel,
+  .copilot-side-panel--open,
+  .copilot-quick-ask,
+  .copilot-quick-ask--hidden,
+  .copilot-main {
+    transition: none;
+  }
+}
+
+/* Strategy tile: the trailing arrow slides in on hover/focus. */
+.home-strat-arrow {
+  opacity: 0;
+  transform: translateX(-5px);
+  transition: opacity 0.2s var(--ease-quartr), transform 0.2s var(--ease-quartr),
+    color 0.2s var(--ease-quartr);
+}
+.home-strat:hover .home-strat-arrow,
+.home-strat:focus-visible .home-strat-arrow {
+  opacity: 1;
+  transform: translateX(0);
+  color: var(--text-secondary);
+}
+
+/* Strategy tile icon chip: a crafted white chip with a hairline, not a dead
+   grey square. On hover the hairline + glyph firm up in ink. */
+.home-strat-icon {
+  transition: border-color 0.2s var(--ease-quartr), color 0.2s var(--ease-quartr),
+    background-color 0.2s var(--ease-quartr);
+}
+.home-strat:hover .home-strat-icon,
+.home-strat:focus-visible .home-strat-icon {
+  border-color: var(--glass-border-hover);
+  color: var(--text-primary);
+}
+
+/* ─── Witty loader (chat thinking state) ──────────────────────────── */
+
+/* Phrase swap: a fade + tiny upward slide both ways. The component
+   keys on the phrase so the element remounts → these animations play
+   on every cycle. */
+@keyframes wittyPhraseIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0);   }
+}
+
+/* Three-bar ticker — playful price-chart style indicator. Each
+   bar scales its Y between 30% and 100% so the trio reads as a
+   tiny live chart pulsing next to the phrase. Different periods
+   per bar so they never lock into a synchronised wave. */
+@keyframes wittyBar1 {
+  0%, 100% { transform: scaleY(0.3); }
+  50%      { transform: scaleY(1);   }
+}
+@keyframes wittyBar2 {
+  0%, 100% { transform: scaleY(0.5); }
+  35%      { transform: scaleY(1);   }
+  70%      { transform: scaleY(0.4); }
+}
+@keyframes wittyBar3 {
+  0%, 100% { transform: scaleY(0.4); }
+  40%      { transform: scaleY(0.8); }
+  80%      { transform: scaleY(1);   }
+}
+
+/* Animated gradient bar — a thin shimmer that sweeps left-to-right
+   underneath the phrase, used in the pre-stream skeleton variant. */
+@keyframes wittyShimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+
+.witty-phrase {
+  animation: wittyPhraseIn 380ms var(--ease-quartr) both;
+}
+
+/* Mini-chart bars used by `WittyTicker`. Each bar scales its
+   transform-origin to the bottom so growth reads visually as
+   "rising volume" rather than "stretching from the middle". */
+.witty-bar {
+  display: inline-block;
+  width: 3px;
+  height: 14px;
+  border-radius: 1.5px;
+  background: var(--text-secondary);
+  transform-origin: bottom;
+  will-change: transform;
+}
+.witty-bar:nth-child(1) {
+  animation: wittyBar1 1.05s ease-in-out infinite;
+}
+.witty-bar:nth-child(2) {
+  animation: wittyBar2 1.25s ease-in-out infinite;
+  animation-delay: 0.08s;
+}
+.witty-bar:nth-child(3) {
+  animation: wittyBar3 0.95s ease-in-out infinite;
+  animation-delay: 0.18s;
+}
+
+.witty-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--surface-active) 30%,
+    var(--surface-hover) 50%,
+    var(--surface-active) 70%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: wittyShimmer 2.4s linear infinite;
+}
+
+/* ── shadcn `shimmer` text utility (ui.shadcn.com/docs/utils/shimmer) ──
+   Sweeps a bright band across the glyphs via background-clip:text. Drives
+   the chat "backend steps" waiting indicator: the active step shimmers so
+   the user reads it as work-in-progress, not static text. Theme-aware —
+   the base is the muted text colour, the moving highlight is the primary
+   text colour, so it reads on both light and dark. */
+@keyframes tw-shimmer {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+.shimmer {
+  /* Notion-style: grey letters with a LIGHTER washed-out band sweeping
+     through — never a dark/white flash. The highlight mixes the base
+     grey toward the page background, so it reads as a soft silver band
+     in light mode and a soft dim band in dark mode. */
+  --shimmer-base: var(--text-tertiary);
+  --shimmer-highlight: color-mix(in srgb, var(--text-tertiary) 25%, var(--bg-primary));
+  --shimmer-duration: 2.2s;
+  color: transparent;
+  background-image: linear-gradient(
+    100deg,
+    var(--shimmer-base) 0%,
+    var(--shimmer-base) 40%,
+    var(--shimmer-highlight) 50%,
+    var(--shimmer-base) 60%,
+    var(--shimmer-base) 100%
+  );
+  background-size: 200% 100%;
+  /* repeat, NOT no-repeat: with no-repeat the 200% gradient slides fully
+     out of the text box mid-cycle and transparent glyphs render as blank
+     white (the "turns completely white" bug). Both gradient ends are the
+     base colour so the tile seam is invisible. */
+  background-repeat: repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: tw-shimmer var(--shimmer-duration) linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .shimmer {
+    animation: none;
+    color: var(--shimmer-base);
+    -webkit-text-fill-color: currentColor;
+  }
+}
+
+/* ── Chat loader: one line, morphing in place ─────────────────────────
+   ▮▮▮  6s  Checking NIFTY 50 and SENSEX
+   Fixed height and no wrapping, so the reply below never jumps. The
+   elapsed timer comes BEFORE the phrase at a fixed width, so a longer
+   phrase pushes nothing. Words shared with the previous phrase stay put;
+   the rest blur out together, then the new words blur in one after
+   another (ChatDemo MorphText) and join the `.shimmer` sweep on landing. */
+.status-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 24px;
+  white-space: nowrap;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  letter-spacing: -0.005em;
+  color: var(--text-tertiary);
+}
+.status-elapsed {
+  min-width: 3ch;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--text-tertiary) 70%, var(--bg-primary));
+}
+.status-phrase {
+  font-weight: 500;
+}
+/* An animating word paints its own solid grey: a child on its own
+   opacity/filter/transform layer is left out of the parent's
+   background-clip:text and would otherwise render invisible. */
+.status-word {
+  display: inline-block;
+  white-space: pre;
+  color: var(--text-tertiary);
+  -webkit-text-fill-color: var(--text-tertiary);
+}
+@keyframes statusWordIn {
+  from { opacity: 0; filter: blur(6px); transform: translateY(3px); }
+  to   { opacity: 1; filter: blur(0);   transform: translateY(0); }
+}
+@keyframes statusWordOut {
+  from { opacity: 1; filter: blur(0); }
+  to   { opacity: 0; filter: blur(4px); }
+}
+.status-word-in {
+  animation: statusWordIn 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.status-word-out {
+  animation: statusWordOut 160ms ease-in both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .status-word-in,
+  .status-word-out {
+    animation: none;
+  }
+  .status-word-out {
+    display: none;
+  }
+}
+
+/* Hide native browser clear button on the topbar global search; we
+   render a Lucide X clear control next to the input that matches the
+   rest of the chrome's typography. */
+.global-search-input::-webkit-search-cancel-button,
+.global-search-input::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+.global-search-input::-ms-clear,
+.global-search-input::-ms-reveal {
+  display: none;
+}
+
+/* ─── Waitlist landing-page animations ────────────────────────────── */
+
+/* Chat bubbles fading in from below as the phone-mock script plays. */
+@keyframes bubbleIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Three-dot "typing" indicator in the phone mock. */
+@keyframes typingDot {
+  0%, 80%, 100% { opacity: 0.35; transform: translateY(0); }
+  40%           { opacity: 1;    transform: translateY(-2px); }
+}
+
+/* Vertical and horizontal sweeping highlights on the capability-canvas
+   moving lines. Each strip travels the full axis then resets. */
+@keyframes vSweep {
+  0%   { transform: translateY(-100%); opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { transform: translateY(100vh); opacity: 0; }
+}
+@keyframes hSweep {
+  0%   { transform: translateX(-100%); opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { transform: translateX(100vw); opacity: 0; }
+}
+
+/* Rotating prompt caption inside the capability tiles + FAQ reveal. */
+@keyframes promptIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Slides the agent-card row when the carousel rotates. The grid's
+   key={offset} forces a remount so this animation replays per click.
+   Direction follows the arrow pressed: → slides new cards in from the
+   right, ← from the left. */
+@keyframes agentSlideRight {
+  from { opacity: 0; transform: translateX(36px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes agentSlideLeft {
+  from { opacity: 0; transform: translateX(-36px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* Slow-drifting glow orbs used on the BuildSecuritiesSection's dark
+   canvas. Each orb has its own loop so the trio drifts independently
+   and never lines up. */
+@keyframes orbDrift1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%      { transform: translate(120px, 80px) scale(1.15); }
+  66%      { transform: translate(60px, 140px) scale(0.92); }
+}
+@keyframes orbDrift2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%      { transform: translate(-140px, -80px) scale(0.88); }
+  66%      { transform: translate(-80px, -140px) scale(1.12); }
+}
+@keyframes orbDrift3 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%      { transform: translate(90px, -120px) scale(1.1); }
+  66%      { transform: translate(-70px, -60px) scale(0.95); }
+}
+
+/* Copy-button tick pop — snappy scale+fade in when the icon flips from
+   Copy → Check so the success registers without the "Copied" text. */
+@keyframes copyTickPop {
+  0%   { transform: scale(0.4); opacity: 0; }
+  60%  { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1);    opacity: 1; }
+}
+.copy-tick-pop {
+  display: inline-flex;
+  animation: copyTickPop 260ms var(--ease-quartr) forwards;
+  color: inherit;
+}
+
+/* Thin scrollbar for the company-autosuggest dropdown.
+   Two engines, two mechanisms, and they must BOTH be stated:
+
+   - Chromium honours ::-webkit-scrollbar. The app's base layer already sets
+     a 6px rail globally, so Chrome was never the problem here.
+   - Firefox ignores ::-webkit-scrollbar completely and draws the OS default:
+     a wide rail WITH STEPPER ARROWS at both ends. Only `scrollbar-width`
+     reaches it.
+
+   `scrollbar-width: thin` does make Chromium switch to its own thin bar
+   (~10px, ignoring the webkit rules), so it is scoped to @supports on
+   Firefox's selector-free feature test below rather than set outright —
+   Chrome keeps the 6px webkit rail, Firefox gets its narrow bar. */
+.cas-scroll::-webkit-scrollbar { width: 6px; }
+.cas-scroll::-webkit-scrollbar-track { background: transparent; margin: 6px 0; }
+/* Kept on ONE line, like its neighbours. As a multi-line block this exact
+   rule was silently dropped from the compiled bundle — the rail and the
+   :hover state shipped, the resting thumb did not, so the dropdown drew a
+   6px track with the browser's own default thumb in it. */
+.cas-scroll::-webkit-scrollbar-thumb { background: var(--glass-border-hover); border-radius: 3px; border: 0; }
+.cas-scroll::-webkit-scrollbar-thumb:hover { background: var(--glass-border-focus); }
+
+/* Firefox only: it supports scrollbar-width but NOT the webkit pseudo, which
+   is exactly what this query tests. */
+@supports (scrollbar-width: thin) and (not selector(::-webkit-scrollbar)) {
+  .cas-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--glass-border-hover) transparent;
+  }
+}
+
+/* Hide the horizontal scrollbar on the Portfolio Performance range-pills
+   row when it overflows on very narrow phones. Vertical scroll is still
+   reachable via swipe. */
+.perf-pills::-webkit-scrollbar {
+  display: none;
+}
+
+/* Composer shortcut row. Option chain is the only visible shortcut for now. */
+.composer-modes {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+}
+.composer-modes::-webkit-scrollbar {
+  display: none;
+}
+
+/* Performance chart — on phone the 5 x-axis labels ("MMM yy", e.g.
+   "May 21 / Aug 22 / Nov 23 / Feb 25 / May 26") collide with each other
+   because each label is ~45px wide and the chart column is only ~250px.
+   Hide every other one so the remaining three (start / middle / end)
+   each get >60px of horizontal breathing room. */
+@media (max-width: 640px) {
+  .perf-x-tick[data-tick-index="1"],
+  .perf-x-tick[data-tick-index="3"] {
+    display: none;
+  }
+}
+
+/* How it works — preview pane animations.
+   orderFillIn: confirmation-check pop on the OrderPlacedPreview.
+   tickFade: subtle fade-up the price number plays each time a new tick
+   arrives so the live feed feels alive without flashing.
+   watchPulse: outer ring at the live cursor on the tracking chart's
+   trailing edge — soft, slow heartbeat. */
+@keyframes orderFillIn {
+  from { transform: scale(0.6); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+@keyframes tickFade {
+  from { opacity: 0.4; transform: translateY(1px); }
+  to   { opacity: 1;   transform: translateY(0);   }
+}
+@keyframes watchPulse {
+  0%   { transform: scale(1);   opacity: 0.55; }
+  70%  { transform: scale(2.2); opacity: 0;    }
+  100% { transform: scale(2.2); opacity: 0;    }
+}
+/* Check stroke-draw — matches Claude's copy-confirmation gesture.
+   The check path is dashed at its full length (28px ≈ path length for
+   the 24×24 viewBox check) and the dash offset slides from the full
+   length down to 0, drawing the stroke on in one continuous motion. */
+@keyframes drawCheck {
+  from { stroke-dashoffset: 28; }
+  to   { stroke-dashoffset: 0;  }
+}
+
+/* ---------------------------------------------------------------------------
+   Mobile (<1024px) — sidebar drawer, header height, tap targets, inputs.
+   Desktop (≥1024px) styles are unchanged: the sidebar sits inline in the
+   flex row, the top header is 60px, and the desktop search pill renders.
+   Everything below this comment is mobile-only.
+   --------------------------------------------------------------------------- */
+
+:root {
+  --header-h: 56px;
+  /* iOS safe-area insets — non-zero only on notched / Dynamic-Island phones
+     when the page opts into `viewport-fit=cover` (see app/layout.tsx). Exposed
+     as tokens so the shell, its fixed overlays, and the composer can all offset
+     by the SAME value and stay aligned. 0px everywhere else. */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@media (min-width: 1024px) {
+  :root {
+    /* A thin, quiet bar: every pixel of it is height the page (above all
+       the chart) does not get. chart's `.in-shell` header is
+       lifted into this slot and sets the same 40px — change them together. */
+    --header-h: 40px;
+  }
+  /* Keep the search immediately beside the wordmark. The old fixed 200px
+     slot left a large dead zone between the two controls. */
+  .brand-slot {
+    width: auto;
+  }
+  /* Smaller than the sidebar's, so it does not pull the eye off the chart,
+     but at the primary ink: at the secondary grey the brand read as a
+     disabled control. */
+  .top-header-wordmark {
+    font-size: 15px !important;
+    color: var(--text-primary) !important;
+  }
+}
+
+/* Sidebar close button — visible only inside the mobile drawer.
+   Inline `display: inline-flex` on the button would beat Tailwind's
+   lg:hidden, so we drive visibility from here. */
+.sidebar-close-mobile {
+  display: none;
+}
+
+/* Compact desktop navigation rail. Global destinations stay available on
+   every surface without reserving a full text column; their names remain in
+   accessible labels and native hover tooltips. Conversation controls belong
+   to the Chat surface and are therefore hidden from this global rail. */
+.sidebar-shell {
+  width: 48px;
+  padding: 6px 3px;
+}
+/* ── the chart tab: ONE top bar, and it is the chart's own ───────────────
+   The shared header stays outside the sidebar/content row on every surface.
+   On Chart, the same-origin frame is lifted by exactly one header height so
+   its chart-only controls occupy the shared header's middle slot. */
+.top-header--chart {
+  z-index: 40;
+  pointer-events: none;
+  background: transparent !important;
+}
+.top-header--chart .brand-slot,
+.top-header--chart [data-testid="mobile-nav-trigger"],
+.top-header--chart > .ml-auto {
+  pointer-events: auto;
+}
+.chart-shell-pane {
+  overflow: visible;
+}
+.chart-shell-pane .chart-frame-wrap {
+  position: absolute;
+  inset: calc(var(--header-h, 56px) * -1) 0 0;
+}
+.chart-frame-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-base);
+}
+.chart-frame-loading-window {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: var(--bg-base);
+  color: var(--text-secondary);
+}
+/* ── the framed window ─────────────────────────────────────────────────────
+   Desktop only. The top bar and the rail are one chrome surface; the page
+   is a window set inside it — flush against the rail and the top bar, a
+   4px margin on the right and bottom and a 10px corner.
+   Below lg the rail is a drawer and the page runs edge to edge, so the
+   header and drawer keep the page colour and nothing is framed.
+
+   Chart is the exception: its frame is lifted one header height so the
+   chart's own controls fill the shared top bar, and a window here would clip
+   that. chart draws the same window inside the frame instead
+   (`.in-shell` in its stylesheet), so the outer box only steps aside. */
+.top-header,
+.sidebar-shell {
+  background: var(--bg-base);
+}
+.top-header {
+  border-bottom: 2px solid var(--shell-seam);
+}
+@media (min-width: 1024px) {
+  :root {
+    --shell-gap: 4px;
+    --shell-radius: 10px;
+  }
+  .app-shell-root,
+  .top-header,
+  .sidebar-shell {
+    background: var(--shell-chrome);
+  }
+  .top-header {
+    border-bottom: 0;
+  }
+  .shell-window {
+    margin: 0 var(--shell-gap) var(--shell-gap) 0;
+    border: 0;
+    border-radius: var(--shell-radius);
+    background: var(--bg-base);
+    box-shadow: var(--shell-window-shadow);
+    overflow: hidden;
+  }
+  /* Rail collapsed: the window keeps the same margin on all three sides. */
+  .shell-window--no-rail {
+    margin-left: var(--shell-gap);
+  }
+  .shell-window--chart {
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    overflow: visible;
+  }
+  .chart-shell-pane .chart-frame-wrap {
+    background: transparent !important;
+  }
+  /* The loader covers the lifted frame, top bar included: leave that band
+     as chrome and draw the window where the chart's own will land. */
+  .chart-shell-pane .chart-frame-loading {
+    padding: var(--header-h, 56px) var(--shell-gap) var(--shell-gap) 0;
+    background: transparent;
+  }
+  .chart-shell-pane .chart-frame-loading-window {
+    border: 0;
+    border-radius: var(--shell-radius);
+    box-shadow: var(--shell-window-shadow);
+  }
+  /* The page assistant is fixed to the viewport; seat it inside the
+     window's border so it reads as the window's right column. */
+  .copilot-side-panel {
+    top: calc(var(--header-h, 56px) + 1px);
+    right: calc(var(--shell-gap) + 1px);
+    bottom: calc(var(--shell-gap) + 1px);
+    border-radius: 0 calc(var(--shell-radius) - 1px) calc(var(--shell-radius) - 1px) 0;
+  }
+}
+@media (max-width: 560px) and (orientation: portrait) {
+  /* Charto replaces its desktop header with an in-canvas mobile toolbar at
+     this breakpoint, so there is no framed header row to lift into the slot. */
+  .chart-shell-pane .chart-frame-wrap {
+    inset: 0;
+  }
+}
+/* ── the account dropdown's glass ───────────────────────────────────────────
+   Ported verbatim from the chart app's own `.dropdown` (chart's
+   --ctx-* tokens) so the menu is the SAME sheet on every page instead of a
+   near-miss: the shell's copy had no rim at all and sat 6% more opaque, which
+   read as flat next to the chart's. Two knobs, as over there — dark leans on
+   the rim (a dark sheet on a dark page has no edge without one), light leans
+   on opacity (white glass over white needs body, not outline). */
+:root {
+  --glass-paper: rgba(252, 252, 253, 0.72);
+  --glass-rim: rgba(15, 18, 22, 0.1);
+  --glass-sheen: rgba(255, 255, 255, 0.85);
+  --glass-sheen-low: rgba(15, 18, 22, 0.04);
+  --glass-shadow: 0 1px 2px rgba(15, 18, 22, 0.12), 0 12px 34px -10px rgba(15, 18, 22, 0.28);
+}
+.dark {
+  --glass-paper: rgba(30, 30, 32, 0.62);
+  --glass-rim: rgba(255, 255, 255, 0.13);
+  --glass-sheen: rgba(255, 255, 255, 0.14);
+  --glass-sheen-low: rgba(255, 255, 255, 0.05);
+  --glass-shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 12px 34px -8px rgba(0, 0, 0, 0.74);
+}
+.glass-menu {
+  background: var(--glass-paper);
+  border: 1px solid var(--glass-rim);
+  box-shadow:
+    inset 0 1px 0 var(--glass-sheen),
+    inset 0 -1px 0 var(--glass-sheen-low),
+    var(--glass-shadow);
+  -webkit-backdrop-filter: blur(22px) saturate(145%);
+  backdrop-filter: blur(22px) saturate(145%);
+}
+
+/* ── a dialog is open INSIDE the frame ──────────────────────────────────────
+   `position: fixed` inside an iframe is fixed to the IFRAME's viewport, not
+   the page's, so Charto's dialogs (settings, indicator settings, alerts,
+   shortcuts, layouts, the mobile sheet, the auth screen) centred inside the
+   chart pane and dimmed only the chart — the sidebar, header and right rail
+   stayed lit and clickable behind a modal that claimed to be modal. The pane
+   is also lifted one header height above, which is why the card sat high too.
+
+   While a dialog is up, the frame announces it ("chart:overlay", embed.js)
+   and we promote the frame to the shell content viewport. Fixed positioning
+   inside now resolves against that stable viewport, so the scrim and card are
+   correct at once without replacing any of Charto's dialogs in React. The
+   48px product rail remains visible: covering it made the app navigation
+   appear to disappear whenever Share, Settings, or another chart dialog
+   opened. A narrow pseudo-scrim over the rail keeps it visibly present,
+   subdued, and non-interactive while the dialog is modal.
+
+   z-index clears the shell's chrome: the top bar is 40, the sidebar and the
+   right rail sit below that. `position: fixed` on the wrapper takes it out of
+   the pane's flow, so the pane keeps its size and the chart does not reflow —
+   the iframe is the same box, just anchored to the window instead. */
+.chart-shell-pane .chart-frame-wrap--overlay {
+  position: fixed;
+  inset: 0 0 0 var(--content-overlay-left, 0px);
+  z-index: 60;
+}
+.chart-shell-pane .chart-frame-wrap--overlay::before {
+  content: "";
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: var(--content-overlay-left, 0px);
+  /* The open dialog's own veil (sent with "chart:overlay"), so the nav rail
+     and the frame dim as one surface; fades in with the dialog's pop. */
+  background: var(--chart-veil, rgba(0, 0, 0, 0.6));
+  pointer-events: auto;
+  animation: chart-veil-in 0.2s ease-out;
+}
+@keyframes chart-veil-in { from { opacity: 0; } }
+.sidebar-nav-list {
+  gap: 10px;
+}
+.sidebar-nav-item {
+  width: 34px;
+  height: 34px;
+  align-self: center;
+  flex: none;
+  padding: 0;
+}
+.sidebar-nav-icon {
+  width: 18px;
+  height: 18px;
+  stroke-width: 1.8;
+}
+.sidebar-nav-label,
+.sidebar-global-history {
+  display: none;
+}
+
+/* Broker row — docked at the sidebar foot. It mirrors .sidebar-nav-item so it
+   reads as a peer of the nav icons. In the collapsed 48px rail it is a single
+   centred 34px glyph: the button shrinks to the icon, the label is hidden (it
+   carries .sidebar-nav-label), and only the first broker mark is shown so a
+   lone coin sits centred without overflowing the rail. */
+.broker-sidebar-row {
+  /* Always pinned to the bottom of the sidebar column. The conversation-history
+     list that normally provides the flex-1 spacer is display:none in the
+     collapsed rail (and on the chart tab), so margin-top:auto is what keeps the
+     broker row in the bottom corner rather than floating up under the nav. */
+  margin-top: auto;
+  display: flex;
+  justify-content: center;
+  padding: 6px 0 2px;
+}
+.broker-sidebar-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  transition: color 160ms var(--ease-quartr), background 160ms var(--ease-quartr);
+}
+.broker-sidebar-button:hover {
+  color: var(--text-primary);
+  background: var(--surface-active);
+}
+.broker-mark-cluster {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+/* Collapsed rail: only the first mark; the overlap stack and the "+N" chip are
+   for the expanded drawer where there is room for them. */
+.broker-mark-cluster .broker-mark:not(:first-child) {
+  display: none;
+}
+
+/* Chat owns its conversation tools, mirroring the chart's self-contained
+   chat panel. The history button collapses this to a slim two-icon strip. */
+.chat-history-pane {
+  width: 224px;
+  background: var(--bg-base);
+  border-right: 2px solid var(--shell-seam);
+  transition: width 220ms var(--ease-quartr);
+  overflow: hidden;
+}
+.chat-history-pane[data-open="false"] {
+  width: 48px;
+}
+.chat-history-toolbar {
+  min-height: 48px;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--glass-border);
+}
+.chat-history-pane[data-open="false"] .chat-history-toolbar {
+  min-height: 96px;
+  flex-direction: column;
+  justify-content: flex-start;
+  padding: 6px;
+}
+.chat-history-action {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 160ms var(--ease-quartr), background 160ms var(--ease-quartr);
+}
+.chat-history-action:hover {
+  color: var(--text-primary);
+  background: var(--surface-active);
+}
+
+/* Sidebar — slide-in drawer below lg. Uses transform (not display:none)
+   so opening/closing animates instead of popping. */
+@media (max-width: 1023.98px) {
+  .sidebar-shell {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 50;
+    width: min(82vw, 320px) !important;
+    padding: 0 14px 16px;
+    /* Full-height overlay drawer. The top pad is a header's worth of room so
+       the drawer's wordmark lands on the SAME baseline as the one in the top
+       bar behind it — opening the drawer must not make the brand jump up.
+       --safe-top keeps it clear of the camera cutout on notched devices. */
+    padding-top: calc(var(--safe-top) + (var(--header-h, 56px) - 32px) / 2);
+    transform: translateX(-100%);
+    transition: transform 260ms var(--ease-quartr, cubic-bezier(0.22, 1, 0.36, 1));
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+  }
+  .sidebar-shell[data-mobile-open="true"] {
+    transform: translateX(0);
+  }
+  .sidebar-close-mobile {
+    display: inline-flex;
+  }
+  .sidebar-nav-item {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 12px;
+    padding: 0 14px;
+    font: 500 14px var(--font-ui);
+  }
+  .sidebar-nav-label {
+    display: inline;
+  }
+  /* Expanded drawer — the broker row becomes a full-width row with its label
+     and the full overlapping mark cluster, matching the nav items beside it. */
+  .broker-sidebar-row {
+    justify-content: stretch;
+    padding: 6px 0 2px;
+  }
+  .broker-sidebar-button {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 12px;
+    padding: 0 14px;
+    font: 500 14px var(--font-ui);
+  }
+  .broker-mark-cluster .broker-mark:not(:first-child) {
+    display: inline-flex;
+  }
+  .chat-history-pane {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    z-index: 20;
+    width: 88px;
+    height: 48px;
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  }
+  .chat-history-pane[data-open="true"] {
+    width: min(280px, calc(100% - 16px));
+    height: calc(100% - 16px);
+  }
+  .chat-history-pane[data-open="false"] {
+    width: 88px;
+  }
+  .chat-history-pane[data-open="false"] .chat-history-toolbar {
+    min-height: 48px;
+    flex-direction: row;
+    padding: 5px 6px;
+  }
+}
+
+/* Inputs at mobile — 16px minimum prevents iOS Safari from auto-zooming
+   on focus. Apply to text-style inputs and textareas; skip search-style
+   inputs that explicitly opt into smaller fonts (e.g. the topbar pill,
+   which is hidden on mobile anyway). */
+@media (max-width: 1023.98px) {
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="search"],
+  input[type="number"],
+  input[type="tel"],
+  input[type="url"],
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* Tap targets — interactive nav rows in the sidebar drawer get a 44px
+   minimum height on mobile so they meet WCAG/iOS guidelines. Scoped
+   to the drawer so desktop pixel-tight nav rows are unchanged. */
+@media (max-width: 1023.98px) {
+  .sidebar-shell button {
+    min-height: 44px;
+  }
+}
+
+/* Heading scale on mobile — only inside the app shell (waitlist sets
+   its own sizes via Tailwind and must not be touched). The `.app-shell-root`
+   class is added by AppShell to its outer wrapper. */
+@media (max-width: 767.98px) {
+  .app-shell-root h1:not([class*="text-"]) {
+    font-size: clamp(22px, 6vw, 28px);
+  }
+  .app-shell-root h2:not([class*="text-"]) {
+    font-size: clamp(18px, 5vw, 22px);
+  }
+}
+
+/* Mobile viewport height — the shell root uses Tailwind's `h-screen`
+   (height: 100vh). On phones `100vh` resolves to the LARGE viewport (as if
+   the browser's URL/toolbar were retracted), so while the toolbar is showing
+   the bottom of the layout — where the chat composer is pinned — falls behind
+   the browser chrome and gets clipped. `100dvh` tracks the *visible* height
+   and shrinks/grows with the toolbar, keeping the composer on-screen. The
+   `100vh` from `h-screen` stays as the fallback for browsers without `dvh`
+   (they simply ignore this declaration). */
+.app-shell-root {
+  height: 100dvh;
+  /* Push the whole shell (header included) below the status bar / camera
+     cutout. box-sizing is border-box (Tailwind preflight), so the inner
+     content still totals 100dvh — no overflow, no clipped composer. On
+     non-notched devices --safe-top is 0px and this is a no-op. */
+  padding-top: var(--safe-top);
+}
+
+/* Lock the document to the visible viewport whenever the app shell is
+   mounted. The shared <body> carries Tailwind's `min-h-screen` (min-height:
+   100vh) for the marketing/auth pages, but 100vh resolves to the LARGE mobile
+   viewport (toolbar retracted). That made the body taller than the shell's
+   100dvh, so when the mobile browser toolbar collapsed a blank band of body
+   background appeared below the composer. Pinning body/html to 100dvh with no
+   document scroll (each shell pane already scrolls internally) removes it. */
+html:has(.app-shell-root),
+body:has(.app-shell-root) {
+  min-height: 0;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+/* Pinned chat composer — keep its existing 12/20px bottom padding and add the
+   home-indicator inset on top so the pill isn't tucked under it (standalone /
+   home-screen installs). --safe-bottom is 0px in a normal browser tab where a
+   toolbar already occupies the bottom, so this is a no-op there. */
+.composer-dock {
+  padding-bottom: calc(0.75rem + var(--safe-bottom));
+}
+@media (min-width: 640px) {
+  .composer-dock {
+    padding-bottom: calc(1.25rem + var(--safe-bottom));
+  }
+}
+
+/* Topbar brand — on phone the hamburger + account avatar live at the
+   left/right edges and the "pivot" wordmark sits visually between them.
+   The brand is taken out of flow with absolute positioning so it stays
+   centered regardless of how wide the surrounding controls are.
+
+   The icon and "pivot" wordmark together form a left-heavy mark; a true
+   `left: 50%` puts the icon noticeably right of the visual axis between
+   the hamburger and account avatar. Shifting the slot left by ~22px
+   moves the wordmark onto that axis without overlapping the icons. */
+@media (max-width: 1023.98px) {
+  .top-header .brand-slot {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(calc(-50% - 22px), -50%);
+    /* The brand slot IS the home button — it must stay tappable. It was
+       `pointer-events: none` to let taps "fall through", but there is
+       nothing beneath it to receive them, so that only disabled the link.
+       Centering stays; the width is capped so the absolutely-positioned
+       slot never sits over the hamburger (left) or avatar (right) and
+       swallows their taps. */
+    max-width: 50vw;
+    pointer-events: auto;
+  }
+}
+
+/* Calendar — at <lg stack month grid above day panel; day panel goes
+   full width with a top border instead of left. */
+@media (max-width: 1023.98px) {
+  .calendar-body {
+    flex-direction: column !important;
+    overflow: auto !important;
+  }
+  .calendar-day-panel {
+    width: 100% !important;
+    border-left: none !important;
+    border-top: 1px solid var(--glass-border);
+    padding: 16px !important;
+  }
+  .calendar-month-view {
+    padding: 0 0 16px !important;
+  }
+
+  /* Toolbar wraps below lg too. At tablet widths the title + nav +
+     view toggle still don't fit on one row and the "Agenda" pill was
+     getting clipped. Title takes its own row; nav cluster sits on the
+     left of row 2 and the Month/Agenda toggle is pushed to the right
+     so the two clusters bookend that row instead of clumping left. */
+  .calendar-toolbar {
+    flex-wrap: wrap;
+    row-gap: 10px;
+    column-gap: 10px;
+  }
+  .calendar-toolbar-title {
+    flex-basis: 100%;
+  }
+  .calendar-toolbar-spacer {
+    display: none;
+  }
+  /* The view-toggle is the last child on row 2 — push it to the right
+     edge so the row reads "[< Today >] ............... [Month Agenda]". */
+  .calendar-toolbar > :last-child {
+    margin-left: auto;
+  }
+}
+
+/* Calendar — phone-specific (<=640):
+   - Month cells swap text event rows for colored dots (Google/iOS pattern)
+     because the truncated single-letter "T..." / "R..." labels are
+     unreadable at column widths around 40px.
+   - Agenda date column narrows so the event title gets room.
+*/
+@media (max-width: 640px) {
+  .calendar-cell-events {
+    flex-direction: row !important;
+    flex-wrap: wrap;
+    gap: 3px !important;
+    padding: 0 2px;
+  }
+  .calendar-cell-event {
+    padding: 0 !important;
+    gap: 0 !important;
+  }
+  .calendar-cell-event-label {
+    display: none !important;
+  }
+  .calendar-cell-event-dot {
+    width: 5px !important;
+    height: 5px !important;
+  }
+  .calendar-cell-overflow {
+    font-size: 9.5px !important;
+    padding: 0 2px !important;
+    line-height: 1;
+    align-self: center;
+  }
+
+  .calendar-agenda-row {
+    grid-template-columns: 56px minmax(0, 1fr) !important;
+    gap: 12px !important;
+  }
+}
+
+.agent-panel-shell:has(.agent-panel-resize-handle:is(:hover, :active, :focus-visible)) {
+  border-left-color: var(--resize-line);
+}
+
+/* AgentPanel (right-side workflow editor) — full screen at <lg so it
+   doesn't shoulder against the content. Desktop uses a resizable drawer
+   (width driven by React state + localStorage). Override the inline
+   `width` set by React with !important for mobile/tablet.
+   On non-desktop the panel drops below the top header so the logo +
+   account menu + mobile-nav trigger stay reachable while an agent is
+   open (lets the user tap the pivot logo to return to chat).
+   The panel is NON-MODAL on desktop (no overlay dimming); chat stays
+   fully visible and interactive while the editor is open. */
+@media (max-width: 1023.98px) {
+  .agent-panel-shell {
+    width: 100vw !important;
+    min-width: 0 !important;
+    max-width: 100vw !important;
+    border-left: none !important;
+    top: calc(var(--safe-top) + var(--header-h, 56px)) !important;
+  }
+  /* The backdrop is transparent (pointer-events-none) on desktop; on
+     mobile we still drop it below the header for consistency. */
+  .agent-panel-backdrop {
+    top: calc(var(--safe-top) + var(--header-h, 56px)) !important;
+  }
+}
+
+/* Backtest panel (shadcn Sheet) — match the Agent editor on phone: full
+   width, dropped below the top header, with the scrim also starting below
+   the header so the top bar stays bright and tappable. */
+@media (max-width: 1023.98px) {
+  .backtest-sheet-shell,
+  .basket-sheet-shell {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    top: calc(var(--safe-top) + var(--header-h, 56px)) !important;
+    bottom: 0 !important;
+    height: auto !important;
+    border-left: none !important;
+  }
+  .backtest-sheet-overlay,
+  .basket-sheet-overlay {
+    top: calc(var(--safe-top) + var(--header-h, 56px)) !important;
+  }
+}
+
+/* Tablet portrait (≥768px, below the lg desktop drawer) — both side panels
+   take half the width as a right-anchored sheet instead of full screen, so
+   the dimmed content stays partly visible. Phones (<768px) keep full width. */
+@media (min-width: 768px) and (max-width: 1023.98px) {
+  .agent-panel-shell,
+  .backtest-sheet-shell,
+  .basket-sheet-shell {
+    width: 50vw !important;
+    max-width: 50vw !important;
+    border-left: 1px solid var(--glass-border) !important;
+  }
+}
+
+/* Full-screen content overlays sit beside the visible desktop sidebar and
+   expand to the viewport edge when it is collapsed. */
+.content-overlay {
+  left: 0;
+}
+@media (min-width: 1024px) {
+  .content-overlay {
+    left: var(--content-overlay-left, 0px);
+  }
+}
+
+
+
+/* Screener — at <lg stack filter rail above results, tighten padding,
+   keep table horizontally scrollable, and collapse the filter rail by
+   default since it eats vertical space on phones.
+
+   Also switches the page from "fixed chrome + inner-scrolling table" to
+   "single page scroll" on phone, so the whole content (watchlist +
+   filters + table) scrolls as one and you don't have to land your finger
+   on the table specifically to scroll. */
+@media (max-width: 1023.98px) {
+  .screener-root {
+    overflow: auto !important;
+    height: auto !important;
+    min-height: 100% !important;
+  }
+  .screener-title-row {
+    padding: 16px 16px 10px !important;
+    flex-wrap: wrap;
+    gap: 12px !important;
+  }
+  .screener-watchlist {
+    padding: 0 16px 12px !important;
+  }
+  .screener-presets {
+    padding: 0 16px 10px !important;
+  }
+  .screener-body {
+    grid-template-columns: minmax(0, 1fr) !important;
+    padding: 0 16px 16px !important;
+    gap: 12px !important;
+    flex: 0 0 auto !important;
+    min-height: 0 !important;
+  }
+  /* Filter rail is collapsed by default on mobile — only renders when
+     the slider-icon toggle in the title row flips data-mobile-open
+     to "true". Desktop layout is untouched. */
+  .screener-filter-rail {
+    display: none !important;
+    max-height: none;
+  }
+  /* The horizontal filter toolbar (sector · cap · P/E · ROE) is redundant on
+     phone — the title-row Filters toggle opens the bottom sheet with the same
+     controls, so hide the inline toolbar to avoid a duplicate filter surface. */
+  .screener-toolbar {
+    display: none !important;
+  }
+  /* The open filter sheet is portaled to <body> as a bottom sheet — see
+     the .screener-sheet-* rules outside this media block. */
+  /* Slider-icon toggle in the title row — hidden on desktop, shown
+     as an inline-flex pill on mobile. The close (X) inside the rail
+     mirrors the same breakpoint pivot. */
+  .screener-filter-toggle {
+    display: inline-flex !important;
+    /* Borderless on phones — the ring around a 38px icon button read as a
+       stray chip beside the borderless title row. The icon alone is the
+       affordance; the active state still fills. */
+    border-color: transparent !important;
+    background: transparent !important;
+  }
+  .screener-filter-toggle[aria-expanded="true"] {
+    background: var(--surface-active) !important;
+  }
+  .screener-filter-close {
+    display: inline-flex !important;
+  }
+  /* On phone the wide table is replaced by a card-per-stock list (see
+     MobileStockList in StockTable.tsx), so there's nothing to swipe sideways
+     through — the results scroll vertically with the rest of the page. */
+  .screener-results {
+    position: relative;
+    -webkit-overflow-scrolling: touch;
+    overflow-x: hidden !important;
+  }
+  .screener-table-desktop {
+    display: none !important;
+  }
+  .screener-cards-mobile {
+    display: block !important;
+  }
+}
+
+/* ── Screener filter bottom sheet (portaled to <body>) ──────────────
+   Rendered only on mobile (the toggle that opens it is <lg-only), so these
+   need no media query. A real modal: dim scrim + slide-up panel pinned to
+   the viewport bottom, a fixed header/handle, a scrollable body, and a
+   pinned "Show results" CTA. */
+.screener-sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+.screener-filter-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  animation: screenerBackdropIn 220ms ease;
+}
+.screener-filter-sheet {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: var(--bg-base);
+  border-radius: 22px 22px 0 0;
+  padding: 8px 18px max(18px, env(safe-area-inset-bottom));
+  box-shadow: 0 -12px 48px -8px rgba(0, 0, 0, 0.4);
+  animation: screenerSheetUp 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.screener-sheet-handle {
+  width: 40px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--glass-border-hover);
+  margin: 4px auto 2px;
+  flex-shrink: 0;
+}
+.screener-filter-sheet .screener-filter-header {
+  flex-shrink: 0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--glass-border);
+}
+/* Scrollable filter groups; full-bleed so the scrollbar hugs the edge. */
+.screener-sheet-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 0 -18px;
+  padding: 2px 18px;
+}
+.screener-sheet-apply {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 48px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--text-primary);
+  color: var(--bg-base);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  transition: opacity 0.15s var(--ease-quartr);
+}
+.screener-sheet-apply:active {
+  opacity: 0.85;
+}
+@keyframes screenerSheetUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+@keyframes screenerBackdropIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Phone-only: watchlist becomes a single horizontal-scroll row so 6
+   cards don't take 500+ vertical pixels at the top of the screen. */
+@media (max-width: 640px) {
+  .screener-watchlist-cards {
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    /* Give the leftmost card breathing room from the section edge and
+       hint at horizontal scroll by letting cards bleed to the right
+       edge of the viewport. */
+    margin: 0 -16px;
+    padding: 4px 16px;
+  }
+  .screener-watchlist-cards::-webkit-scrollbar {
+    display: none;
+  }
+  .screener-watchlist-cards > * {
+    flex-shrink: 0;
+    min-width: 144px !important;
+  }
+}
+
+/* Active Agents tab — the stat row + P&L heatmap + agent grid were laid out
+   on a 2560x1440 design canvas (1440px tall). On shorter screens (e.g. a 15"
+   1920x1080 laptop, ~1080px tall) the stack overflows the fold and forces
+   scrolling, so below 1200px of viewport height we tighten vertical spacing
+   to claw back ~60px. The 1440px-tall design monitor (1440 > 1200) never
+   triggers this and stays exactly as designed. `!important` is needed to win
+   over the inline `gap` style on the tab root. */
+@media (max-height: 1200px) {
+  .agents-tab {
+    gap: 12px !important;
+  }
+  .agents-stat-card {
+    padding-top: 8px !important;
+    padding-bottom: 8px !important;
+  }
+  .agents-mini-card {
+    padding-top: 14px !important;
+    padding-bottom: 14px !important;
+    gap: 12px !important;
+  }
+  /* Agent editor step cards (right-side panel) — the 14px vertical padding +
+     36px icon tile make each row ~64px tall, so a multi-step agent overflows
+     the 1080px laptop. Trim padding to 8px and the icon tile to 32px (≈64→48px
+     per row) on short screens; the 1440px design monitor is untouched. */
+  .agent-step-card {
+    padding-top: 8px !important;
+    padding-bottom: 8px !important;
+  }
+  .agent-step-card .step-icon-tile {
+    height: 32px !important;
+    width: 32px !important;
+  }
+}
+
+/* ── Home dashboard: SHORT-VIEWPORT overrides ─────────────────────────────
+   The full "tall monitor" design only fits when the viewport is genuinely
+   tall, so these compactions key off max-height — the honest signal for
+   whether the rich layout fits. This replaced an earlier data-device flag
+   (a physical-pixel guess in useDevice()) that mis-labelled small-screen
+   Retina laptops as "monitor" and 1920 external monitors as "laptop",
+   producing exactly the overflow/clipping and wrong counts reported. Height
+   is scaling-honest: a heavily-scaled monitor with little room compacts too,
+   which is correct. The 1100px cutoff sits between the 1080-class laptop
+   (compacts) and the 1440-class monitor (full design).
+
+   1. Strategy COUNT — six when there's room, four when short. (The chat
+      prompts are handled separately: their count is measured from the card's
+      real height in ChatPromptsCard — see promptsThatFit().) */
+@media (max-height: 1100px) {
+  .home-strategies-grid > :nth-child(n + 5) {
+    display: none !important;
+  }
+}
+
+/* 2. The "Not sure what to trade?" teaser cards. ViewCard is a shared
+      component (full-size on the Opinions tab, detail page, and the tall
+      monitor's Home). The full card only fits when the row-2 cell is tall, so
+      we compact whenever the VIEWPORT IS SHORT — height-driven, NOT the
+      data-device flag. This is the fix for the "other cards overflow" report:
+      a small-screen Retina MacBook is mis-labelled "monitor" by the
+      physical-pixel useDevice() guess, so under the old [data-device="laptop"]
+      selector its full-size cards were never compacted and got clipped in the
+      short cell. Keying off max-height compacts them on the MacBook and the
+      1920 laptop alike, while the tall 2560 monitor keeps the full design.
+      We shrink every dimension with vh-clamps so both cards fit without
+      scrolling; margin-top:0 + center make the compact block read as a full,
+      balanced card. `!important` wins over ViewCard's inline styles. */
+@media (max-height: 1100px) {
+  .home-views-grid .view-card {
+    padding: clamp(8px, 1.5vh, 20px) clamp(10px, 1.7vh, 22px) !important;
+    justify-content: center !important;
+  }
+  .home-views-grid .view-card-thumb {
+    width: clamp(34px, 4.6vh, 68px) !important;
+    height: clamp(34px, 4.6vh, 68px) !important;
+  }
+  .home-views-grid .view-card-head {
+    gap: clamp(8px, 1.4vh, 16px) !important;
+  }
+  .home-views-grid .view-card-title {
+    font-size: clamp(12.5px, 1.6vh, 16px) !important;
+    line-height: 1.18 !important;
+    min-height: 0 !important;
+    margin-bottom: clamp(2px, 0.7vh, 9px) !important;
+  }
+  .home-views-grid .view-card-body {
+    margin-top: 0 !important;
+    padding-top: clamp(8px, 1.7vh, 24px) !important;
+    gap: clamp(8px, 1.6vh, 24px) !important;
+  }
+  .home-views-grid .view-card-hero {
+    font-size: clamp(20px, 3.3vh, 40px) !important;
+  }
+  .home-views-grid .view-card-caption {
+    margin-top: clamp(2px, 0.5vh, 5px) !important;
+    font-size: clamp(9px, 0.95vh, 11.5px) !important;
+  }
+  .home-views-grid .view-card-stance {
+    width: clamp(64px, 8vh, 112px) !important;
+    padding: clamp(3px, 0.8vh, 7px) 0 !important;
+  }
+  .home-views-grid .view-card-stance-col {
+    gap: clamp(3px, 0.8vh, 8px) !important;
+  }
+}
+
+/* Dialog full-screen on small phones — at <640px most modal content
+   benefits from edge-to-edge layout. The Radix Dialog primitive sets
+   sizing on `[role="dialog"]`; we override width/height/max via class. */
+@media (max-width: 639.98px) {
+  .dialog-mobile-full[role="dialog"],
+  [data-mobile-fullscreen="true"][role="dialog"] {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    border-radius: 0 !important;
+    top: 0 !important;
+    left: 0 !important;
+    transform: none !important;
+  }
+}
+
+/* Phone (<640px): a taller, more touch-friendly navbar. The header height
+   var also drives the agent-panel's top offset, so both stay in sync. The
+   brand is scaled as a unit (keeps the logo/wordmark + light/dark image
+   ratios intact), and the avatar + hamburger icon grow to match. Tablet and
+   desktop sizing are untouched. Placed last so it wins source order over the
+   <=1023.98px brand-slot centering rule. */
+@media (max-width: 639.98px) {
+  :root {
+    --header-h: 68px;
+  }
+  .top-header .brand-slot {
+    transform: translate(calc(-50% - 22px), -50%) scale(1.18);
+  }
+  .top-header [data-testid="account-menu-trigger"] {
+    width: 40px !important;
+    height: 40px !important;
+    font-size: 15px !important;
+  }
+  .top-header [data-testid="mobile-nav-trigger"] svg {
+    width: 26px !important;
+    height: 26px !important;
+  }
+}
+
+/* ─── DS motion & patterns (components/ds) ─────────────────────────── */
+
+/* Marquee — the ticker tape. Track holds two copies of its content and
+   translates exactly half its own width, so the loop is seamless at any
+   content length. Pause on hover so figures stay readable. */
+@keyframes ds-marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+.ds-marquee-track {
+  display: flex;
+  width: max-content;
+  animation: ds-marquee var(--ds-marquee-duration, 36s) linear infinite;
+}
+.ds-marquee:hover .ds-marquee-track { animation-play-state: paused; }
+
+/* Chain flow — the pulse that travels a workflow connector. */
+@keyframes ds-flow {
+  0%   { left: 0%;   opacity: 0; }
+  12%  { opacity: 1; }
+  88%  { opacity: 1; }
+  100% { left: 100%; opacity: 0; }
+}
+.ds-flow-dot {
+  position: absolute;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin-top: -2.5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: ds-flow 2.8s var(--ease-tw) infinite;
+}
+
+/* Node arming — each chain block breathes once as the pulse arrives. */
+@keyframes ds-node-arm {
+  0%, 100% { border-color: var(--glass-border); }
+  50%      { border-color: var(--glass-border-focus); }
+}
+
+/* Candles — bodies grow from the baseline on independent periods so
+   the cluster reads as a live tape, not a synchronized wave. */
+@keyframes ds-candle {
+  0%, 100% { transform: scaleY(0.45); }
+  50%      { transform: scaleY(1); }
+}
+
+/* Scan — a soft horizontal band sweeping down a tile. */
+@keyframes ds-scan {
+  0%   { top: -12%; opacity: 0; }
+  8%   { opacity: 1; }
+  92%  { opacity: 1; }
+  100% { top: 104%; opacity: 0; }
+}
+
+/* Drift — a dot-grid background slowly crawling diagonally. */
+@keyframes ds-drift {
+  from { background-position: 0 0; }
+  to   { background-position: 56px 56px; }
+}
+
+/* Cross pulse — Vercel-style "+" registration marks breathing. */
+@keyframes ds-cross {
+  0%, 100% { opacity: 0.18; transform: scale(0.9); }
+  50%      { opacity: 0.7;  transform: scale(1); }
+}
+
+/* Rise — staggered section/element reveal (pair with animation-delay). */
+@keyframes ds-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.ds-rise { animation: ds-rise 640ms var(--ease-quartr) both; }
+
+/* Draw — SVG line draws itself in (set pathLength=1 on the path). */
+@keyframes ds-draw {
+  from { stroke-dashoffset: 1; }
+  to   { stroke-dashoffset: 0; }
+}
+.ds-draw {
+  stroke-dasharray: 1;
+  animation: ds-draw 1.6s var(--ease-quartr) forwards;
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* Product tour styles: components/onboarding/product-tour.css */
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Stock detail page — phone
+
+   The page is built out of inline styles, which a class cannot outrank
+   without `!important`; the two rules below are the only two that need to,
+   and both only zero a horizontal padding.
+
+   The type ramp is variables rather than a set of overrides because the page
+   sets its sizes inline too. Each variable is named for its DESKTOP value and
+   holds exactly that value here, so nothing above 640px moves; the phone
+   block re-points the same names at a scale where the smallest label is 11px
+   instead of 9.5px. Compressed rather than shifted — the gap between a label
+   and its number has to survive, or the hierarchy goes with the size.
+   ───────────────────────────────────────────────────────────────────────── */
+:root {
+  --sd-f95: 9.5px;
+  --sd-f10: 10px;
+  --sd-f105: 10.5px;
+  --sd-f11: 11px;
+  --sd-f115: 11.5px;
+  --sd-f12: 12px;
+  --sd-f125: 12.5px;
+  --sd-f13: 13px;
+}
+
+@media (max-width: 639.98px) {
+  :root {
+    --sd-f95: 11px;
+    --sd-f10: 11.5px;
+    --sd-f105: 12px;
+    --sd-f11: 12.5px;
+    --sd-f115: 13px;
+    --sd-f12: 13.5px;
+    --sd-f125: 14px;
+    --sd-f13: 14.5px;
+  }
+
+  /* The scroll container already pads the page 12px. A second 20px inside
+     every section spent a sixth of a phone screen on nothing. */
+  .stock-gutter {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+
+  /* A table too wide to fit reads as broken when it is clipped by a margin
+     and as scrollable when it runs off the edge of the screen, so the ones
+     that scroll sideways are let out to the full width to say so. */
+  .stock-bleed {
+    margin-left: -12px;
+    margin-right: -12px;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+}
+
+
+/* Broker status pill (topbar) — lifts border + text on hover, matching the
+   account avatar's hover treatment. */
+.broker-pill:hover {
+  background: var(--surface-active) !important;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PRICING — the /pricing full-screen overlay (components/PricingPage.tsx)
+
+   A full-viewport layer OVER the app (topbar and sidebar hidden behind it),
+   with a close button top-right and Esc to dismiss. Laid out after Typeform's
+   pricing page under the original hero: the billing toggle above the cards,
+   three centred cards on a soft grey ground, a "Compare all plans" matrix with
+   a sticky price header. Every box is borderless except the Recommended
+   card. Built only from the tokens above; the serif is the app's own
+   --font-serif (Newsreader).
+   ══════════════════════════════════════════════════════════════════════════ */
+.pricing-overlay {
+  --pr-ground: color-mix(in srgb, var(--bg-elevated) 45%, var(--bg-base));
+  --pr-card: hsl(var(--card));
+  --pr-rule: var(--glass-border);
+  position: fixed; inset: 0; z-index: 100;
+  background: var(--pr-ground);
+  animation: pricing-overlay-in 0.18s var(--ease-quartr);
+}
+@keyframes pricing-overlay-in { from { opacity: 0; } }
+.pricing-overlay-scroll {
+  position: absolute; inset: 0;
+  overflow-y: auto; overscroll-behavior: contain;
+  padding: 0 clamp(16px, 4vw, 48px);
+}
+.pricing-close {
+  position: fixed; top: 18px; right: 20px; z-index: 3;
+  width: 38px; height: 38px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-pill);
+  color: var(--text-secondary); background: transparent;
+  border: 0; cursor: pointer;
+  transition: background 0.12s var(--ease-quartr), color 0.12s var(--ease-quartr);
+}
+.pricing-close:hover { background: var(--bg-elevated); color: var(--text-primary); }
+.pricing-close:focus-visible { outline: 2px solid var(--glass-border-focus); outline-offset: 2px; }
+
+.pricing-page {
+  width: 100%; max-width: 1280px;
+  margin: 0 auto; padding: 72px 0 64px;
+}
+
+/* ── hero ─────────────────────────────────────────────────── */
+.pricing-hero { text-align: center; margin: 0 auto 48px; }
+.pricing-eyebrow {
+  display: inline-block;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 14px;
+}
+/* the page title wears the same type as the section heads (.pricing-h2) */
+.pricing-title, .pricing-h2 {
+  margin: 0; text-align: center;
+  font-family: var(--font-serif); font-weight: 400;
+  font-size: clamp(34px, 4.6vw, 60px); line-height: 1.05;
+  letter-spacing: -0.02em; color: var(--text-primary);
+}
+.pricing-h2 { margin-bottom: 48px; }
+
+/* ── the bar above the cards ──────────────────────────────── */
+.pricing-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap; margin-bottom: 32px;
+}
+.pricing-toggle {
+  display: inline-flex; gap: 4px; padding: 5px;
+  background: var(--pr-card);
+  border-radius: var(--radius-md);
+}
+.pricing-seg {
+  border: 0; cursor: pointer; background: transparent;
+  height: 34px; padding: 0 14px; border-radius: var(--radius-sm);
+  font: 500 13.5px var(--font-ui); color: var(--text-secondary); white-space: nowrap;
+  transition: color 0.12s var(--ease-quartr), background 0.12s var(--ease-quartr);
+}
+.pricing-seg:hover { color: var(--text-primary); }
+.pricing-seg--active { color: var(--text-primary); background: var(--bg-elevated); }
+.pricing-seg:focus-visible { outline: 2px solid var(--glass-border-focus); outline-offset: 2px; }
+
+/* ── the card grid ────────────────────────────────────────── */
+.pricing-grid {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px; align-items: stretch;
+}
+.pricing-card {
+  position: relative;
+  display: flex; flex-direction: column;
+  padding: 44px 24px 32px;
+  background: var(--pr-card);
+  border-radius: var(--radius-md);
+}
+/* the one bordered box on the page */
+.pricing-card--featured {
+  box-shadow: 0 0 0 2px var(--text-primary), 0 12px 32px -18px rgba(0, 0, 0, 0.35);
+}
+.pricing-flag {
+  position: absolute; top: 0; left: 50%; transform: translate(-50%, -50%);
+  padding: 4px 12px; border-radius: var(--radius-pill);
+  background: var(--text-primary); color: var(--bg-base);
+  font-size: 12.5px; font-weight: 600; white-space: nowrap;
+}
+
+.pricing-card-head {
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  padding-bottom: 28px;
+}
+.pricing-name {
+  margin: 0 0 10px; font-size: 24px; font-weight: 500;
+  letter-spacing: -0.01em; color: var(--text-primary);
+}
+.pricing-tag {
+  margin: 0 auto; max-width: 290px; min-height: 48px;
+  font-size: 15px; line-height: 1.45; color: var(--text-secondary);
+}
+.pricing-price {
+  display: inline-flex; align-items: baseline;
+  font-family: var(--font-serif); font-weight: 400; color: var(--text-primary);
+  letter-spacing: -0.02em; font-variant-numeric: lining-nums tabular-nums;
+}
+.pricing-price--lg { margin-top: 36px; font-size: 44px; line-height: 1; }
+.pricing-price--sm { font-size: 24px; line-height: 1.1; }
+.pricing-per {
+  margin-left: 2px; font-family: var(--font-ui); font-size: 15px;
+  letter-spacing: 0; color: var(--text-secondary);
+}
+.pricing-note {
+  margin-top: 14px; font-size: 15px; color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.pricing-note--save { color: hsl(var(--success)); }
+.pricing-fade { animation: pricing-fade-in 0.16s var(--ease-quartr); }
+@keyframes pricing-fade-in { from { opacity: 0; transform: translateY(3px); } }
+
+.pricing-cta {
+  margin-top: 26px; min-width: 160px; height: 48px; padding: 0 24px;
+  border-radius: var(--radius-sm); border: 1px solid transparent; cursor: pointer;
+  background: var(--text-primary); color: var(--bg-base);
+  font: 600 15px var(--font-ui);
+  transition: opacity 0.12s var(--ease-quartr);
+}
+.pricing-cta:hover { opacity: 0.86; }
+.pricing-cta--current, .pricing-cta--current:hover {
+  background: var(--bg-elevated); color: var(--text-tertiary);
+  cursor: default; opacity: 1;
+}
+.pricing-cta:focus-visible, .pricing-cta-sm:focus-visible, .pricing-seeall:focus-visible {
+  outline: 2px solid var(--glass-border-focus); outline-offset: 2px;
+}
+
+/* the hairline-ruled checklist */
+.pricing-list { list-style: none; margin: 0; padding: 0; }
+.pricing-list li {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 11px 0; border-top: 1px solid var(--pr-rule);
+  font-size: 15px; line-height: 1.4; color: var(--text-primary);
+}
+.pricing-list li svg { flex: none; margin-top: 2px; }
+.pricing-list-heading {
+  margin-top: 20px; padding: 12px 0;
+  border-top: 1px solid var(--pr-rule);
+  font-size: 15px; font-weight: 600; color: var(--text-primary);
+}
+.pricing-seeall {
+  margin: auto auto 0; padding-top: 28px;
+  background: none; border: 0; cursor: pointer;
+  font: 500 15px var(--font-ui); color: var(--text-primary);
+  text-decoration: underline; text-underline-offset: 5px;
+  text-decoration-color: var(--text-tertiary);
+}
+.pricing-seeall:hover { text-decoration-color: var(--text-primary); }
+
+.pricing-aside {
+  margin: 36px auto 0; text-align: center;
+  font-size: 15px; color: var(--text-secondary);
+}
+
+/* ── compare all plans ────────────────────────────────────── */
+.pricing-compare { margin-top: 120px; scroll-margin-top: 24px; }
+.pricing-matrix {
+  --pr-cols: minmax(0, 1.4fr) repeat(3, minmax(0, 1fr));
+  display: flex; flex-direction: column; gap: 24px;
+}
+.pricing-matrix-head {
+  position: sticky; top: 0; z-index: 2;
+  display: grid; grid-template-columns: var(--pr-cols);
+  background: var(--pr-card);
+  border-radius: var(--radius-md);
+  box-shadow: 0 -24px 0 var(--pr-ground);   /* masks rows scrolling under the top gap */
+}
+.pricing-matrix-toggle { display: flex; align-items: center; justify-content: center; padding: 20px; }
+.pricing-matrix-plan {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 22px 12px; text-align: center; border-left: 1px solid var(--pr-rule);
+}
+.pricing-matrix-name { font-size: 17px; font-weight: 500; color: var(--text-primary); }
+.pricing-matrix-per { font-size: 14px; color: var(--text-secondary); }
+.pricing-cta-sm {
+  margin-top: 12px; height: 32px; padding: 0 14px;
+  border-radius: var(--radius-sm); cursor: pointer;
+  background: var(--bg-elevated); border: 0;
+  font: 500 13.5px var(--font-ui); color: var(--text-primary);
+  transition: background 0.12s var(--ease-quartr), color 0.12s var(--ease-quartr);
+}
+.pricing-cta-sm:hover:not(:disabled) { background: var(--text-primary); color: var(--bg-base); }
+.pricing-cta-sm:disabled { color: var(--text-tertiary); cursor: default; }
+
+.pricing-matrix-group {
+  background: var(--pr-card);
+  border-radius: var(--radius-md); overflow: hidden;
+}
+.pricing-matrix-group-title {
+  margin: 0; padding: 22px 24px;
+  font-size: 22px; font-weight: 500; letter-spacing: -0.01em; color: var(--text-primary);
+}
+.pricing-matrix-row {
+  display: grid; grid-template-columns: var(--pr-cols);
+  border-top: 1px solid var(--pr-rule);
+}
+.pricing-matrix-label {
+  display: flex; align-items: center; padding: 22px 20px;
+  font-size: 15px; color: var(--text-primary);
+}
+.pricing-matrix-cell {
+  display: flex; align-items: center; justify-content: center;
+  padding: 22px 12px; border-left: 1px solid var(--pr-rule);
+  font-size: 15px; color: var(--text-primary); font-variant-numeric: tabular-nums;
+}
+.pricing-cell-no { color: var(--text-tertiary); }
+
+.pricing-foot {
+  max-width: 640px; margin: 72px auto 0; text-align: center;
+  font-size: 13px; line-height: 1.6; color: var(--text-tertiary);
+}
+
+/* ── responsive ───────────────────────────────────────────── */
+@media (max-width: 1100px) {
+  .pricing-card { padding: 40px 18px 28px; }
+}
+/* tablet: cards stack, featured first */
+@media (max-width: 900px) {
+  .pricing-grid { grid-template-columns: minmax(0, 520px); justify-content: center; gap: 28px; }
+  .pricing-card--featured { order: -1; }
+  .pricing-tag { min-height: 0; }
+  .pricing-bar { justify-content: center; }
+}
+/* phone: the matrix label moves above its three cells */
+@media (max-width: 720px) {
+  .pricing-page { padding: 64px 0 48px; }
+  .pricing-hero { margin-bottom: 36px; }
+  .pricing-toggle { width: 100%; }
+  .pricing-seg { flex: 1; padding: 0 8px; }
+  .pricing-compare { margin-top: 88px; }
+  .pricing-h2 { margin-bottom: 32px; }
+  .pricing-matrix { --pr-cols: repeat(3, minmax(0, 1fr)); }
+  .pricing-matrix-toggle { display: none; }
+  .pricing-matrix-head { top: 56px; box-shadow: 0 -64px 0 var(--pr-ground); }
+  .pricing-matrix-plan { padding: 14px 6px; }
+  .pricing-matrix-plan:first-of-type { border-left: 0; }
+  .pricing-matrix-name { font-size: 15px; }
+  .pricing-price--sm { font-size: 20px; }
+  .pricing-matrix-per { font-size: 12px; }
+  .pricing-cta-sm { padding: 0 10px; font-size: 12.5px; }
+  .pricing-matrix-group-title { padding: 18px 16px; font-size: 19px; }
+  .pricing-matrix-label { grid-column: 1 / -1; padding: 14px 16px 0; font-size: 14px; color: var(--text-secondary); }
+  .pricing-matrix-cell { padding: 8px 6px 14px; font-size: 14px; }
+  .pricing-matrix-cell:nth-child(2) { border-left: 0; }
+  .pricing-close { top: 12px; right: 12px; width: 34px; height: 34px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pricing-overlay, .pricing-fade { animation: none; }
+}
+/* Website symbol picker mirrors the chart's instrument search surface. */
+.cas-scroll {
+  position: fixed !important; top: min(12vh, 100px) !important;
+  left: 50% !important; right: auto !important; z-index: 10001 !important;
+  transform: translateX(-50%); width: min(760px, calc(100vw - 24px)) !important;
+  max-height: 76vh !important; padding: 0 !important;
+  border-radius: 10px !important; box-shadow: 0 20px 48px rgba(0,0,0,.18) !important;
+  display: flex; flex-direction: column; overflow: hidden !important;
+  background: var(--bg-primary); border: 1px solid var(--glass-border);
+}
+.cas-scroll > :not(.cas-result-list) { flex-shrink: 0; }
+.cas-modal-head, .cas-modal-query, .cas-category-tabs, .cas-results-caption { list-style: none; }
+.cas-modal-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px 10px; }
+.cas-modal-head strong { font-size: 19px; font-weight: 600; letter-spacing: -.02em; color: var(--text-primary); }
+.cas-modal-head button { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.cas-modal-head button:hover { background: var(--bg-elevated); color: var(--text-primary); }
+.cas-modal-query { position: relative; margin: 0 22px 12px; }
+.cas-modal-query > svg { position: absolute; left: 9px; top: 50%; width: 15px; height: 15px; transform: translateY(-50%); color: var(--text-tertiary); pointer-events: none; }
+.cas-modal-query:focus-within > svg { color: var(--text-primary); }
+.cas-modal-query input {
+  display: block; width: 100%; padding: 8px 11px 8px 30px;
+  border: 0; border-radius: 4px;
+  background: hsl(var(--muted)); color: var(--text-primary); font: inherit; font-size: 14px; outline: none;
+}
+.cas-modal-query input::placeholder { color: var(--text-tertiary); }
+.cas-modal-query input:focus-visible { outline: none; }
+.cas-category-tabs { display: flex; gap: 6px; padding: 0 22px 13px; overflow-x: auto; border-bottom: 1px solid var(--glass-border); }
+.cas-category-tabs button { flex: none; border: 0; border-radius: 999px; padding: 7px 12px; background: var(--bg-elevated); color: var(--text-secondary); font-size: 12px; cursor: pointer; }
+.cas-category-tabs button.active { background: var(--text-primary); color: var(--bg-primary); }
+.cas-results-caption { padding: 12px 22px 6px; color: var(--text-tertiary); font-size: 10px; font-weight: 700; letter-spacing: .08em; }
+.cas-result-list { flex: 1 1 auto; min-height: 0; max-height: calc(76vh - 170px); overflow-y: auto; list-style: none; margin: 0; padding: 0 10px 10px; scrollbar-width: thin; }
+.cas-instrument-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center;
+  gap: 12px; min-height: 58px; margin: 0; padding: 9px 10px;
+  border-radius: 6px; cursor: pointer;
+}
+.cas-instrument-row:hover, .cas-instrument-row.active { background: var(--surface-hover); }
+.cas-instrument-lead { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.cas-instrument-lead > img, .cas-instrument-lead > div { flex: none; width: 34px !important; height: 34px !important; }
+.cas-instrument-lead > img { padding: 0 !important; border: 0 !important; border-radius: 0 !important; background: none !important; }
+.cas-instrument-lead > div { border-radius: 50% !important; background: color-mix(in srgb, currentColor 14%, transparent) !important; font-size: 14px !important; }
+/* the monogram's colour comes from CompanyLogo's `hue` (monogramHue in CompanyAutosuggest) */
+.cas-instrument-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.cas-instrument-symbol { display: flex; align-items: center; gap: 7px; font-size: 14px; font-weight: 600; letter-spacing: -.012em; color: var(--text-primary); }
+.cas-instrument-symbol small { flex: none; padding: 2px 5px; border-radius: 4px; background: var(--bg-elevated); color: var(--text-tertiary); font-size: 9.5px; font-weight: 600; letter-spacing: .04em; }
+.cas-instrument-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--text-secondary); }
+.cas-instrument-quote { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; min-width: 76px; color: var(--text-primary); font-size: 12px; font-variant-numeric: tabular-nums; }
+.cas-instrument-quote small { color: var(--text-tertiary); font-size: 10px; }
+.cas-empty { padding: 38px 22px; text-align: center; color: var(--text-secondary); font-size: 13px; }
+.cas-attribution { padding: 4px 22px 10px; color: var(--text-tertiary); font-size: 10px; }
+.cas-attribution a { color: inherit; text-underline-offset: 2px; }
+@media (max-width: 640px) {
+  .cas-scroll { top: 5vh !important; max-height: 90vh !important; }
+  .cas-result-list { max-height: calc(90vh - 170px); }
+  .cas-modal-head, .cas-category-tabs { padding-left: 16px; padding-right: 16px; }
+  .cas-modal-query { margin-left: 16px; margin-right: 16px; }
+}
+
+/* Home welcome: a chart scene with a contained composer surrounded by inset chart cards. */
+.home-dashboard { --font-display: var(--font-ui); --font-experiment: var(--font-ui); padding-top: 12px; scrollbar-gutter: stable; }
+.home-welcome { flex-shrink: 0; font-family: var(--font-ui); container-type: inline-size; }
+.home-welcome-banner {
+  position: relative; isolation: isolate; display: grid;
+  grid-template-columns: minmax(0, .65fr) minmax(0, 2fr);
+  align-items: center; gap: 28px; min-height: 240px;
+  padding: 12px 32px; border-radius: 18px; background: #263948;
+}
+.home-mesh {
+  position: absolute; inset: 0; z-index: -2; pointer-events: none;
+  border-radius: inherit; overflow: hidden;
+  background: radial-gradient(ellipse at 12% 0%, #afc3c4 0%, transparent 60%), radial-gradient(ellipse at 88% 25%, #6b8594 0%, transparent 55%), radial-gradient(ellipse at 45% 100%, #101723 0%, transparent 65%), #33495c;
+}
+.home-welcome-banner::after { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: linear-gradient(180deg, #0b121a00, #0b121a30); border: 1px solid #ffffff24; border-radius: inherit; }
+.home-chart-intro { position: relative; z-index: 1; padding-bottom: 0; }
+.home-chart-intro h2 { margin: 0 0 20px; font-family: var(--font-ui); font-size: clamp(25px, 2.4vw, 34px); font-weight: 500; letter-spacing: -.04em; line-height: 1.2; color: #f6f8f9; }
+.home-chart-cta { height: 38px; padding: 0 16px; border-radius: 6px; border: 1px solid #ffffffb3; background: #f7f9fa !important; color: #1c2a33 !important; font-size: 13px; font-weight: 500; box-shadow: 0 1px 2px #10192320; }
+.home-chart-cta:hover { background: #e6ecef !important; }
+.home-chart-scene { position: relative; isolation: isolate; width: min(100%, 820px); height: 220px; justify-self: end; min-width: 0; }
+.home-chart-scene::before { content: ""; position: absolute; z-index: -1; inset: 0; pointer-events: none; background-image: linear-gradient(#d3e1e10c 1px, transparent 1px), linear-gradient(90deg, #d3e1e10c 1px, transparent 1px); background-size: 28px 28px; mask-image: radial-gradient(ellipse at center, #000 25%, transparent 72%); }
+.home-asset-row { display: contents; }
+.home-asset-card { position: absolute; width: 190px; padding: 5px; border: 1.5px solid #dcdedc; border-radius: 12px; background: #fafbfa; box-shadow: 0 5px 18px #10192312; color: #222b2b; }
+.home-asset-card:hover, .home-asset-card:focus-within { z-index: 11; }
+.home-scene-bitcoin { left: 4%; top: 0; z-index: 2; }
+.home-scene-ethereum { right: 0; top: 0; z-index: 1; }
+.home-scene-candles { left: 0; bottom: 0; z-index: 3; }
+.home-scene-portfolio { right: 3%; bottom: 0; z-index: 2; width: 210px; display: grid; grid-template-columns: minmax(0, 1fr) 72px; gap: 2px 5px; background: #fff; border-color: #e2e5e3; box-shadow: 0 8px 20px #0e1c2524; }
+.home-asset-chart { border-radius: 8px; background: #eff0ef; padding: 6px 9px 5px; }
+.home-asset-header { line-height: 1.3; display: flex; align-items: center; gap: 7px; padding: 1px 4px 5px; }
+.home-asset-logo { flex-shrink: 0; width: 20px; height: 20px; object-fit: contain; background: none; border: 0; border-radius: 0; box-shadow: none; }
+.home-asset-monogram { color: #243342; font-size: 14px; }
+.home-asset-name { color: #273238; font-size: 11px; font-weight: 550; white-space: nowrap; }
+.home-price-row { line-height: 1.3; display: flex; align-items: center; gap: 7px; font-variant-numeric: tabular-nums; }
+.home-asset-price { font-size: 18px; font-weight: 550; letter-spacing: -.04em; white-space: nowrap; }
+.home-change-badge { display: inline-flex; padding: 3px 5px; border-radius: 4px; font-size: 9px; line-height: 1.3; font-weight: 500; white-space: nowrap; }
+.home-change-badge.is-negative { color: #b64d57; background: #eed7da; }
+.home-change-badge.is-positive { color: #397367; background: #dce9e3; }
+.home-chart-ranges { display: flex; justify-content: flex-end; gap: 10px; margin-top: 1px; }
+.home-chart-ranges button { line-height: 1.25; border: 0; padding: 2px 0; background: none; color: #777d7a; font: inherit; font-size: 9px; line-height: 1.25; cursor: pointer; }
+.home-chart-ranges button[aria-pressed="true"] { color: #202926; font-weight: 600; }
+.home-chart-ranges button:focus-visible, .home-portfolio-legend button:focus-visible { outline: 1px solid #437c73; outline-offset: 2px; }
+.home-asset-spark { display: block; width: 100%; height: 28px; margin: 3px 0 0; color: #4e8076; }
+.home-scene-ethereum .home-asset-spark { color: #697e9e; }
+.home-composer { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 10; width: min(58%, 400px); min-width: 0; }
+.home-portfolio-tabs { line-height: 1.3; grid-column: 1 / -1; display: flex; gap: 11px; border-bottom: 1px solid #dedfdd; font-size: 9px; color: #525e57; }
+.home-portfolio-tabs span { display: flex; gap: 4px; align-items: center; padding: 2px 0 5px; }
+.home-portfolio-tabs span:first-child { color: #252c28; border-bottom: 2px solid #252c28; margin-bottom: -1px; }
+.home-portfolio-total { grid-column: 1; grid-row: 2; align-self: center; color: #18291f; font-size: 19px; letter-spacing: -.04em; font-weight: 550; padding: 6px 5px 0; font-variant-numeric: tabular-nums; }
+.home-allocation { grid-column: 2; grid-row: 2; position: relative; width: 72px; height: 72px; margin: 0; }
+.home-allocation svg { width: 100%; height: 100%; overflow: visible; }
+.home-allocation-segment { cursor: pointer; transition: stroke-width .15s, opacity .15s; outline: none; }
+.home-allocation-segment:focus-visible { filter: drop-shadow(0 0 1px #263c35); }
+@media (prefers-reduced-motion: reduce) { .home-allocation-segment { transition: none; } }
+.home-allocation-label { position: absolute; pointer-events: none; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 2px; }
+.home-allocation-label strong { font-size: 10px; font-weight: 600; }
+.home-allocation-label span { font-size: 5px; color: #39483f; }
+.home-portfolio-legend { line-height: 1.3; grid-column: 1 / -1; display: flex; justify-content: center; gap: 7px; }
+.home-portfolio-legend button { display: flex; align-items: center; gap: 3px; border: 0; padding: 1px 0; color: #46574d; background: none; font: inherit; font-size: 7px; line-height: 1.3; cursor: pointer; }
+.home-portfolio-legend i { width: 5px; height: 5px; border-radius: 50%; }
+.home-glass-prompt { position: relative; width: 100%; padding: 14px 18px 11px; border-radius: 12px; border: 1px solid #f5fafb70; background: linear-gradient(120deg, #596e7ac9, #354956dc); backdrop-filter: blur(24px) saturate(.75); -webkit-backdrop-filter: blur(24px) saturate(.75); box-shadow: inset 0 1px 0 #ffffff26, inset 0 -1px 0 #ffffff08, 0 15px 28px -12px #08121c4d; transition: border-color .15s; }
+.home-glass-prompt:focus-within { border-color: #f0f7f8b3; }
+.home-prompt-textarea { font-family: var(--font-ui); font-size: 14px; font-weight: 400; line-height: 1.6; min-height: 32px; color: #fff; caret-color: white; padding: 0; }
+.home-glass-prompt .home-prompt-textarea::placeholder { color: #f3f6f7; opacity: .94; }
+.home-prompt-actions { justify-content: space-between; margin-top: 10px; gap: 16px; }
+.home-prompt-plus { height: 30px; width: 30px; color: #edf3f5; margin-left: -5px; border-radius: 5px; }
+.home-prompt-plus:hover { background: #ffffff14 !important; color: white !important; }
+.home-prompt-submit-group { display: flex; align-items: center; gap: 14px; }
+.home-prompt-key-hint { font-size: 11px; color: #e1eaed; }
+.home-prompt-send { width: 32px; height: 32px; background: #f2f6f7 !important; color: #263641 !important; border-radius: 6px; flex-shrink: 0; box-shadow: 0 1px 3px #0c1c2920; }
+.home-prompt-send:disabled { opacity: .65; }
+.home-prompt-send:focus-visible, .home-prompt-plus:focus-visible { outline: 2px solid #fff; outline-offset: 4px; }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { .home-glass-prompt { background: #344c60; } }
+@container (max-width: 1100px) {
+  .home-welcome-banner { grid-template-columns: minmax(0, .6fr) minmax(0, 1.5fr); gap: 18px; padding: 12px 24px; }
+  .home-chart-scene { height: 220px; }
+  .home-asset-card { width: 168px; }
+  .home-scene-bitcoin { left: 2%; }
+  .home-scene-ethereum { right: 0; top: 0; }
+  .home-scene-portfolio { width: 190px; right: 1%; grid-template-columns: minmax(0, 1fr) 64px; }
+  .home-allocation { width: 64px; height: 64px; }
+  .home-portfolio-total { font-size: 17px; }
+  .home-composer { width: 60%; }
+  .home-asset-price { font-size: 16px; }
+  .home-change-badge { font-size: 8px; padding: 3px; }
+  .home-portfolio-tabs { gap: 7px; font-size: 8px; }
+  .home-prompt-key-hint { display: none; }
+}
+@container (max-width: 900px) {
+  .home-welcome-banner { grid-template-columns: 1fr; gap: 20px; padding: 24px; }
+  .home-chart-intro h2 { font-size: 26px; margin-bottom: 15px; }
+  .home-chart-scene { width: 100%; height: 280px; }
+}
+/* Phones: a short band, not the desktop collage folded into a column. The
+   title and its button sit on the left; two of the example cards lean in
+   from the right edge, cropped by the band, as a glimpse of the chart.
+   The band's own ask box is dropped: the Ask bar is already on screen. */
+@container (max-width: 550px) {
+  .home-welcome-banner {
+    grid-template-columns: minmax(0, 1fr) 46%; gap: 0; align-items: center;
+    min-height: 0; height: 172px; padding: 0 0 0 18px; overflow: hidden; border-radius: 18px;
+  }
+  .home-chart-intro { align-self: center; padding: 18px 0; }
+  .home-chart-intro h2 { margin: 0 0 14px; font-size: 20px; line-height: 1.18; }
+  .home-chart-cta { height: 34px; padding: 0 12px; font-size: 12.5px; }
+  .home-chart-scene { position: relative; width: 100%; height: 100%; justify-self: stretch; }
+  .home-chart-scene::before { display: none; }
+  .home-asset-row { display: contents; }
+  .home-asset-card { position: absolute; width: 176px; pointer-events: none; box-shadow: 0 10px 26px #0a141d45; }
+  .home-scene-bitcoin { left: 6px; top: 30px; z-index: 2; transform: rotate(-7deg) scale(.8); transform-origin: top left; }
+  .home-scene-candles { left: 40px; top: 84px; bottom: auto; z-index: 3; transform: rotate(4deg) scale(.8); transform-origin: top left; }
+  .home-scene-ethereum, .home-scene-portfolio, .home-composer { display: none; }
+}
+
+/* Home cards keep their contents in independently scrollable bodies. */
+.home-card-grid { grid-auto-rows: 320px; }
+@media (min-width: 1024px) {
+  .home-card-grid {
+    height: clamp(520px, calc(100dvh - 235px), 720px);
+    grid-template-rows: minmax(0, 1.05fr) minmax(0, 1fr);
+    grid-auto-rows: minmax(0, 1fr);
+  }
+}
+
+/* Page assistant — shared Prompt Kit composer and consistent icon feedback. */
+.sidebar-nav-item,
+.copilot-panel-action,
+.broker-sidebar-button {
+  position: relative;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color 140ms var(--ease-quartr), color 140ms var(--ease-quartr);
+}
+.sidebar-nav-item { width: 34px; height: 34px; }
+.sidebar-nav-item:hover,
+.copilot-panel-action:not(:disabled):hover,
+.broker-sidebar-button:hover,
+.sidebar-nav-item[aria-current="page"] {
+  background: var(--surface-active);
+  color: var(--text-primary);
+}
+.sidebar-nav-item:focus-visible,
+.copilot-panel-action:focus-visible,
+.broker-sidebar-button:focus-visible,
+.assistant-composer-send:focus-visible {
+  outline: 2px solid var(--glass-border-focus);
+  outline-offset: 3px;
+}
+.copilot-panel-action { width: 32px; height: 32px; }
+.copilot-panel-action:disabled { opacity: .4; cursor: default; background: transparent; }
+.assistant-composer-dock { padding: 12px 14px 10px; border-top: 1px solid var(--glass-border); }
+.assistant-composer-wrap { width: 100%; min-width: 0; }
+.assistant-composer {
+  padding: 12px;
+  border: 1px solid var(--glass-border);
+  border-radius: 18px;
+  background: var(--bg-primary);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 3%);
+  transition: border-color 140ms var(--ease-quartr), box-shadow 140ms var(--ease-quartr);
+}
+.assistant-composer:focus-within { border-color: var(--glass-border-focus); box-shadow: 0 0 0 3px var(--surface-active); }
+.assistant-composer-row { display: flex; align-items: flex-end; gap: 10px; }
+.assistant-composer .assistant-composer-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 34px;
+  max-height: 160px;
+  padding: 5px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 24px;
+  box-shadow: none;
+  outline: none;
+}
+.assistant-composer-input::placeholder { color: var(--text-tertiary); }
+.assistant-composer-send {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  background: var(--text-primary);
+  color: var(--bg-primary);
+  cursor: pointer;
+  transition: opacity 140ms var(--ease-quartr), box-shadow 140ms var(--ease-quartr);
+}
+.assistant-composer-send:not(:disabled):hover { opacity: .85; box-shadow: 0 2px 5px rgb(0 0 0 / 12%); }
+.assistant-composer-send:disabled { background: var(--surface-active); color: var(--text-tertiary); cursor: default; }
+.assistant-composer-hint { margin: 7px 2px 0; font-size: 10px; color: var(--text-tertiary); }
+.assistant-composer-wrap--compact .assistant-composer { border-radius: 24px; padding: 9px 10px 9px 14px; }
+.assistant-composer-wrap--compact .assistant-composer-row { align-items: center; }
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-nav-item, .copilot-panel-action, .broker-sidebar-button, .assistant-composer, .assistant-composer-send { transition: none; }
+}
+@media (max-width: 1023px) {
+  .sidebar-nav-item { width: 100%; height: 40px; }
+}
+
+/* Keep every page and nested pane scrollable without visible scrollbar rails. */
+* {
+  scrollbar-width: none !important;
+  scrollbar-gutter: auto !important;
+}
+*::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+/* Phones: Sonner pins top toasts 20px from the top, over the header and
+   its menu and account buttons. Start them under the header instead. */
+@media (max-width: 600px) {
+  [data-sonner-toaster][data-y-position="top"] { top: calc(env(safe-area-inset-top, 0px) + 68px) !important; }
+}
+
+/* Sector looks (components/markets/sectorStyle.tsx): a soft tint of each
+   sector's own hue, so sectors are told apart without reading as up/down. */
+.sector-chip {
+  background: hsl(var(--sh) 70% 55% / 0.14);
+  color: hsl(var(--sh) 48% 38%);
+}
+.dark .sector-chip {
+  background: hsl(var(--sh) 60% 60% / 0.18);
+  color: hsl(var(--sh) 65% 76%);
+}
+.sector-dot {
+  fill: hsl(var(--sh) 68% 62%);
+  stroke: hsl(var(--sh) 45% 42%);
+}
+.dark .sector-dot {
+  fill: hsl(var(--sh) 55% 58%);
+  stroke: hsl(var(--sh) 60% 72%);
+}
+
+/* The alien is the floating composer's move handle. */
+.copilot-quick-drag {
+  border: 0;
+  padding: 0;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.copilot-quick-drag:active { cursor: grabbing; }
+.copilot-quick-drag:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 4px; }

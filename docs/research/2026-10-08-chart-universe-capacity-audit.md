@@ -75,7 +75,7 @@ corrected, gap-free or continuously available; review those boundaries.
 
 ## Why only a subset appears
 
-`charto/preview/js/universe.js` filters the payload from `/symbols`; its picker
+`chart/js/universe.js` filters the payload from `/symbols`; its picker
 has no fixed 500-result limit. It currently renders all matches into DOM rows,
 so a larger catalogue should use windowing/pagination rather than thousands
 of rows and quote requests on every search.

@@ -24,7 +24,7 @@ This implementation does not change DNS or Google account settings.
 The clean serving VM is `PIVOT/pivot-clean-stage`. Store the app password in
 `/etc/pivot/alert-smtp-password`, root-owned, group `pivot-data`, mode `0640`;
 never in Git, browser code, chat, a shell argument or a log. Copy the non-secret
-fields from [the example](../charto/deploy/alerts-mail.env.example) to
+fields from [the example](../deploy/alerts-mail.env.example) to
 `/etc/pivot/alerts-mail.env` with the same owner/group/mode. Add this systemd
 drop-in for the `charto` service:
 
@@ -64,7 +64,7 @@ email was sent. Enable only after verifying a Google app password and the
 sender alias, then validate an approved recipient's inbox. The source
 deployment does not install credentials or enable sending.
 
-The scoped deployment helper `charto/deploy/deploy_alert_email.py` reuses the
+The scoped deployment helper `deploy/deploy_alert_email.py` reuses the
 existing private-blob transport, checks original source hashes, preserves a
 whole-plane SQLite backup and updates only this feature's files/contexts.
 It restarts charto, checks readiness and restores source on failure. It does
@@ -105,10 +105,10 @@ for successful execution before claiming deployment.
 Run the isolated fixture suite (no network mail and no customer-state writes):
 
 ```sh
-PYTHONPATH=charto/data pivot/.venv/bin/python -m pytest -q \
-  charto/data/test_alerts.py charto/data/test_alert_email.py
-node --check charto/preview/js/alerts.js
-node --check charto/preview/js/panels.js
+PYTHONPATH=dataserver api/.venv/bin/python -m pytest -q \
+  dataserver/tests/test_alerts.py dataserver/tests/test_alert_email.py
+node --check chart/js/alerts.js
+node --check chart/js/panels.js
 ```
 
 For live validation, use an explicitly approved test account, create a real

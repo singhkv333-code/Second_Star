@@ -1,6 +1,6 @@
 # Strategy/Basket Builder + Dynamic Clarifying-Questions + Continuous-Improvement Harness — Approval Plan
 
-Owner: lead architect · Status: ready for approval · Target surface: `pivot/backend` + `pivot-next`
+Owner: lead architect · Status: ready for approval · Target surface: `api/backend` + `pivot-next`
 
 This is a **systemic redesign**, not a band-aid. We do **not** "add a few `system.md` examples." We add (A) a real value-of-information question engine that **dynamically generates** questions per request, (B) a creative, fundamentals-DB-driven multi-asset strategy/basket builder, and (C) a GAN-like continuous-improvement harness that gates regressions. The three workstreams are co-designed: questions feed the builder; the harness measures both.
 
@@ -109,7 +109,7 @@ We **supersede** the thin single-question `ASK_USER` with a structured, multi-qu
 New message kind + component, slotted into the existing dispatch (`ChatDemo.tsx:512-530` union; `_render_hint` switch at `ChatDemo.tsx:841+`):
 
 - **`kind: "clarify"`** in the `Message` union; dispatched when `hint === "clarify_card"`.
-- **New component `pivot-next/components/chat/ClarifyCard.tsx`** matching the reference:
+- **New component `app/components/chat/ClarifyCard.tsx`** matching the reference:
   - The question prompt + **4–5 option chips/radios** (one-click pick).
   - **"Something else"** → expands a free-text input.
   - **"Skip"** → advances without answering (sends `skip` for that `question_id`).
@@ -176,7 +176,7 @@ else                                  → risk-parity (smarter-than-1/N fallback
 | **Basket macro** | `services/workflow_macros.py:358-527` | Replace the hardwired `strategy="equal"` (363) and `sort_by="mcap"` (466-471) defaults: the macro now consumes `strategy`, `selection_gate`, `sector_cap`, `sleeves` from the builder and inserts a `screen_fundamentals` step **before** allocation. Equal-weight only survives for ≤4 names. |
 | **Tool router** | `services/tool_router.py:629-638` (basket) & `757-783` (options) | Surface `build_strategy` on basket/strategy intents; co-surface `screen_fundamentals` + `fetch_fundamentals` with the basket tools so the DB gate is always reachable. Add `build_strategy` to `_ALWAYS_INCLUDE` (49-62). |
 | **System prompt** | `prompts/system.md` (basket 79-82/1707-1711; fundamentals 727-750) | Behavioural contract only (NOT examples): "baskets must name a weighting scheme and a selection gate; never bare equal-weight/top-mcap; enforce sector cap; map any stated view to a structure or sleeve." |
-| **FE card** | **new `pivot-next/components/chat/StrategyBuilderCard.tsx`** + `ChatDemo.tsx` union/dispatch (512-530, 841+) | `kind: "strategy_builder"` on `hint === "strategy_builder_card"`. Shows constituents+weights with **scheme named** + **gate named**, sleeves (option legs w/ greeks, gold %, hedge), and a one-paragraph rationale tying back to `{view×risk×horizon×capital}`. Editable like `WorkflowDraftCard`; register-not-execute; ends with the not-advice disclaimer. |
+| **FE card** | **new `app/components/chat/StrategyBuilderCard.tsx`** + `ChatDemo.tsx` union/dispatch (512-530, 841+) | `kind: "strategy_builder"` on `hint === "strategy_builder_card"`. Shows constituents+weights with **scheme named** + **gate named**, sleeves (option legs w/ greeks, gold %, hedge), and a one-paragraph rationale tying back to `{view×risk×horizon×capital}`. Editable like `WorkflowDraftCard`; register-not-execute; ends with the not-advice disclaimer. |
 
 ### 3c. How it consumes the question answers
 
