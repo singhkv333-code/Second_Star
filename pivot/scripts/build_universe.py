@@ -14,15 +14,6 @@ Outputs (all derived from real exchange data — nothing hand-invented):
                                                          its category wins
                                                          (20-day median traded
                                                          value, ₹ cr).
-  backend/market/option_universe.json              every listed option
-                                                         underlying (NFO + BFO
-                                                         + MCX) with its
-                                                         nearest-expiry lot
-                                                         size — the table the
-                                                         affordability engine
-                                                         uses to price real
-                                                         option tickets
-                                                         offline.
 
 Why: the research/expression universe was a manually-dropped NIFTY-500 CSV and
 the codebase knew ~5 ETF tickers. The Kite dump has every listed stock + ETF;
@@ -32,11 +23,8 @@ depends on.
 
 Run:  python -m scripts.build_universe            (from the pivot/ dir)
       python -m scripts.build_universe --fetch-bars   (also cache ETF price bars)
-      python -m scripts.build_universe \
-          --equity-master ~/Downloads/EQUITY_L.csv \
-          --instruments ~/Downloads/instruments.csv
-        (merge NSE's official equity master + build the option universe from a
-         full Kite instruments dump; both snapshots land in _cache)
+      python -m scripts.build_universe --equity-master ~/Downloads/EQUITY_L.csv
+        (merge NSE's official equity master; the snapshot lands in _cache)
 
 The Kite dump is cached to _cache/nse_cash_dump.json; pass --refresh-dump to
 re-pull it (needs a live Kite session).
@@ -48,7 +36,7 @@ import json
 import os
 import sys
 from datetime import date
-from typing import Any, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -60,13 +48,7 @@ EQUITY_MASTER_SNAPSHOT = os.path.join(_CACHE, "nse_equity_master.csv")
 CATALOG_JSON = os.path.join(
     os.path.dirname(__file__), "..", "backend", "market", "etf_catalog.json"
 )
-OPTION_UNIVERSE_JSON = os.path.join(
-    os.path.dirname(__file__), "..", "backend", "market", "option_universe.json"
-)
 
-# Option segments the affordability engine can honestly quote lots for. NCO
-# (NSE commodity) is excluded — Pivot's commodity scope is MCX.
-_OPTION_EXCHANGES = ("NFO", "BFO", "MCX")
 
 # Candidate tradingsymbols per category, preference-ordered by brand/AUM
 # knowledge. Every candidate is VERIFIED against the exchange dump + yfinance
@@ -217,46 +199,6 @@ def _merge_equity_master(eq_df: pd.DataFrame, path: str) -> pd.DataFrame:
     return merged
 
 
-def _build_option_universe(path: str) -> dict[str, Any]:
-    """Snapshot every listed option underlying + its NEAREST-expiry lot size
-    from a full Kite instruments dump. Lot sizes occasionally differ across
-    expiries (exchange revisions apply from a future series), so the
-    front-expiry lot is the one a ticket bought today actually trades."""
-    df = pd.read_csv(path, parse_dates=["expiry"])
-    opt = df[
-        df["exchange"].isin(_OPTION_EXCHANGES)
-        & df["instrument_type"].isin(["CE", "PE"])
-    ].copy()
-
-    # Underlyings that also exist as NSE cash EQ rows are stocks; the rest are
-    # indices (NIFTY, SENSEX …) or commodities (MCX).
-    cash_eq = set(
-        df[(df["exchange"] == "NSE") & (df["instrument_type"] == "EQ")]["tradingsymbol"]
-    )
-
-    universe: dict[str, dict[str, Any]] = {}
-    for exch in _OPTION_EXCHANGES:
-        seg = opt[opt["exchange"] == exch]
-        entries: dict[str, Any] = {}
-        for name, g in seg.groupby("name"):
-            g2 = g.sort_values("expiry")
-            front = g2.iloc[0]
-            kind = (
-                "commodity" if exch == "MCX"
-                else ("stock" if str(name) in cash_eq else "index")
-            )
-            entries[str(name)] = {
-                "lot": int(front["lot_size"]),
-                "kind": kind,
-                "n_contracts": int(len(g)),
-                "first_expiry": str(pd.Timestamp(front["expiry"]).date()),
-                "last_expiry": str(pd.Timestamp(g2.iloc[-1]["expiry"]).date()),
-            }
-        universe[exch] = entries
-        print(f"  {exch}: {len(entries)} option underlyings")
-    return universe
-
-
 def _verify_candidates(all_syms: set[str]) -> dict[str, Any]:
     """For every category, verify candidates live (recent yfinance close +
     20-day median traded value) and pick the most liquid verified one."""
@@ -316,8 +258,6 @@ def main() -> None:
                     help="also cache daily bars for ALL extended NSE equities (slow)")
     ap.add_argument("--equity-master", metavar="PATH",
                     help="NSE official EQUITY_L.csv — union its EQ symbols into the equity list")
-    ap.add_argument("--instruments", metavar="PATH",
-                    help="full Kite instruments dump CSV — build option_universe.json (lots per underlying)")
     ap.add_argument("--skip-etf-verify", action="store_true",
                     help="keep the existing etf_catalog.json instead of re-verifying via yfinance")
     args = ap.parse_args()
@@ -345,17 +285,6 @@ def main() -> None:
         with open(os.path.abspath(CATALOG_JSON), "w") as f:
             json.dump(payload, f, indent=1)
         print(f"Wrote {os.path.abspath(CATALOG_JSON)}  ({len(catalog)} categories)")
-
-    if args.instruments:
-        universe = _build_option_universe(os.path.expanduser(args.instruments))
-        with open(os.path.abspath(OPTION_UNIVERSE_JSON), "w") as f:
-            json.dump({
-                "generated_on": str(date.today()),
-                "source": "Kite full instruments dump (front-expiry lot per underlying)",
-                "exchanges": universe,
-            }, f, indent=1)
-        total = sum(len(v) for v in universe.values())
-        print(f"Wrote {os.path.abspath(OPTION_UNIVERSE_JSON)}  ({total} underlyings)")
 
     if args.fetch_bars:
         syms = [f"{c['symbol']}.NS" for c in catalog.values()]

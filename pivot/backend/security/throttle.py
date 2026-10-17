@@ -1,7 +1,6 @@
 """Redis-backed fixed-window rate limiter for expensive / abusable endpoints.
 
-Complements ``auth/rate_limit.py`` (which is login-specific). This is a general
-per-principal throttle used as a FastAPI dependency:
+A general per-principal throttle used as a FastAPI dependency:
 
     @router.post("/chat", dependencies=[Depends(rate_limit("chat", 30, 60))])
 

@@ -72,6 +72,6 @@ def upgrade() -> None:
 def downgrade() -> None:
     raise NotImplementedError(
         "0027_drop_view_markets is irreversible by design — the opinion-markets "
-        "direction is retired. Data is archived at "
-        "pivot/archive/view_markets_2026_09_05/."
+        "direction is retired. The archived rows are in git history at "
+        "d5174056:pivot/archive/view_markets_2026_09_05/."
     )

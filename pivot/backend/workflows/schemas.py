@@ -376,11 +376,10 @@ class TriggerScheduledMacroConfig(_Strict):
     Fires when a KNOWN-DATE macro release (RBI MPC / FOMC decision, India
     or US CPI print) produces the ``expected_outcome`` — verified against
     the official source (RBI/Fed RSS, a CPI news feed) before firing, with
-    a prediction-market resolution fallback. The scheduler's
-    ``_poll_scheduled_macro_triggers`` loop (un-gated by market hours)
-    opens the verify window around the calendar date, calls
-    ``backend.macro_events.verifier.verify_macro_outcome``, and fires
-    out-of-band via ``fire_external_event`` only on a confident match.
+    a prediction-market resolution fallback.
+
+    NOT WIRED: the scheduler's macro poll loop and its verifier were removed,
+    so a workflow with this trigger validates and saves but nothing fires it.
 
     Allow-listed ``kind`` values are kept in lock-step with
     ``backend.workflows.propose._ALLOWED_MACRO_KINDS`` and the

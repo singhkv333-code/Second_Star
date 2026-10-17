@@ -284,8 +284,7 @@ function makeDraft(
   };
 }
 
-// The prebuilt strategies mirror the three demo agents seeded on registration
-// (see backend/services/demo_seeder.py) plus one options strategy. The three
+// The prebuilt strategies are three demo agents plus one options strategy. The three
 // AGENT tiles open the Agents tab with the side editor on that agent — the
 // shell looks the agent up by `matchName` and opens the user's REAL seeded
 // workflow when present, else the `draft` here. The OPTION tile opens the

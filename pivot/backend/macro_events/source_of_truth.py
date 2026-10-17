@@ -23,7 +23,7 @@ DecisionKind = Literal["rate", "print"]
 class SourceOfTruth:
     kind: str
     label: str
-    # FK into news_events.config._REGISTRY — the official feed we read.
+    # Id of the official feed we read (the RSS source registry it named is gone).
     primary_source_id: str
     # Lower-cased substrings; an RSS item must contain at least one to be
     # considered the relevant release (keeps us off unrelated headlines
