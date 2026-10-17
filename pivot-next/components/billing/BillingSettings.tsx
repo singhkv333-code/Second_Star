@@ -34,6 +34,7 @@ import {
   StatusBadge,
   UsageMeter,
 } from "./primitives";
+import { RedeemCodeCard } from "./CodeEntry";
 import { SubscriptionBanner } from "./Banners";
 import { BillingModal } from "./modal";
 import { PlanChangePanel, PlanPickerPanel } from "./PlanChange";
@@ -161,6 +162,7 @@ export function BillingSettings({
           undoError={undoError}
         />
         <Usage cat={cat} me={me} />
+        {!demo ? <RedeemCodeCard onRedeemed={setMe} /> : null}
         {view.state !== "free" && view.state !== "comp" ? <Payment inv={inv} onRetry={loadInvoices} /> : null}
         <History inv={inv} onRetry={loadInvoices} hasSub={!!me.subscription && view.state !== "comp"} />
       </>

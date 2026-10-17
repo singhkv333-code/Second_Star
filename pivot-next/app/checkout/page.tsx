@@ -6,7 +6,7 @@ import { CheckoutFallback, CheckoutView } from "@/components/billing/CheckoutVie
 import type { Cycle, PaidPlanId } from "@/lib/billing/types";
 
 /**
- * /checkout?plan=pro&cycle=annual&return=/chart&feature=chart.panes
+ * /checkout?plan=pro&cycle=annual&return=/chart&feature=chart.panes&code=LAUNCH40
  *
  * `return` is where the user was when they hit the paywall; success sends
  * them straight back there (filtered by safeReturnPath, so it can only be a
@@ -25,6 +25,7 @@ function Checkout(): React.ReactElement {
       returnTo={q?.get("return")}
       feature={q?.get("feature")}
       surface={q?.get("from")}
+      initialCode={q?.get("code")}
     />
   );
 }

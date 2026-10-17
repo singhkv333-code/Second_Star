@@ -38,6 +38,8 @@ import { useBilling } from "./BillingProvider";
 import { BillingToggle, Notice, SkeletonRows, TrustRow } from "./primitives";
 import { BillingModal } from "./modal";
 import { PlanChangePanel } from "./PlanChange";
+import { CodeEntry, offerFor } from "./CodeEntry";
+import type { CodeInfo } from "@/lib/billing/types";
 
 export type CheckoutPhase = "review" | "opening" | "verifying" | "success" | "pending" | "failed" | "dismissed";
 
@@ -49,6 +51,7 @@ export function CheckoutView({
   surface,
   initialPhase = "review",
   initialError,
+  initialCode,
 }: {
   plan: PaidPlanId;
   initialCycle?: Cycle;
@@ -57,6 +60,7 @@ export function CheckoutView({
   surface?: string | null;
   initialPhase?: CheckoutPhase;
   initialError?: string;
+  initialCode?: string | null;
 }): React.ReactElement {
   const { catalog: cat, me, loading, setMe, demo, celebrate } = useBilling();
   const router = useRouter();
@@ -64,11 +68,17 @@ export function CheckoutView({
   const [phase, setPhase] = React.useState<CheckoutPhase>(initialPhase);
   const [error, setError] = React.useState<string | null>(initialError ?? null);
   const [changeOpen, setChangeOpen] = React.useState(false);
+  const [code, setCode] = React.useState<CodeInfo | null>(null);
+  const [redeemedPlan, setRedeemedPlan] = React.useState<string | null>(null);
   const inFlight = React.useRef(false);
   const recovered = React.useRef(false);
   const back = safeReturnPath(returnTo, "/");
   const target = planById(cat, plan);
   const price = target?.prices[cycle];
+  // A discount code covers some plans and cycles; outside them, the catalog price.
+  const offer = offerFor(code, plan, cycle);
+  const due = offer ? offer.amount : price?.amount;
+  const freeTime = code?.kind === "access" ? code : null;
   const block = checkoutBlock(cat, me, plan, cycle);
   const confirmed = (billing: typeof me) => billing?.plan === plan &&
     billing.subscription?.status === "active" && billing.subscription?.cycle === cycle;
@@ -129,7 +139,7 @@ export function CheckoutView({
       setPhase("success");
       return;
     }
-    const co = await billingApi.checkout(plan, cycle);
+    const co = await billingApi.checkout(plan, cycle, offer ? code?.code : null);
     if (!co.ok) {
       setError(co.error);
       setPhase(co.code === "checkout_pending" ? "pending" : "failed");
@@ -181,7 +191,48 @@ export function CheckoutView({
     }
   };
 
+  // A free-time code: no payment, the plan starts now.
+  const redeem = async (): Promise<void> => {
+    if (!freeTime || inFlight.current) return;
+    inFlight.current = true;
+    setError(null);
+    setPhase("opening");
+    const r = await billingApi.redeem(freeTime.code);
+    inFlight.current = false;
+    if (!r.ok) {
+      setError(r.error);
+      setPhase("failed");
+      return;
+    }
+    setMe(r.data.billing);
+    track("code_redeemed", { plan: freeTime.plan, days: freeTime.days });
+    setRedeemedPlan(r.data.redeemed.plan_name);
+    setPhase("success");
+  };
+
   // ── the outcome screens ─────────────────────────────────────────────
+  if (phase === "success" && redeemedPlan) {
+    return (
+      <Shell back={back}>
+        <div className="bl-card bl-state" style={{ padding: "56px 24px" }}>
+          <div className="bl-state-icon bl-state-icon--good">
+            <Check size={26} />
+          </div>
+          <span className="bl-eyebrow" style={{ margin: 0 }}>Code redeemed</span>
+          <h1 className="bl-h2">Welcome to {redeemedPlan}</h1>
+          <p className="bl-p" style={{ maxWidth: 460 }}>
+            {freeTime ? `${freeTime.summary}. ` : ""}Nothing was charged and no payment method is on file. When the free days end, your account returns to its current plan.
+          </p>
+          <div className="bl-row-flex" style={{ justifyContent: "center" }}>
+            <button type="button" className="bl-btn bl-btn--primary bl-btn--lg" onClick={() => router.push(back)}>
+              {back === "/" ? "Go to Pivot" : "Back to where you were"}
+            </button>
+          </div>
+        </div>
+      </Shell>
+    );
+  }
+
   if (phase === "success") {
     const copy = feature ? featureCopy(cat, feature) : null;
     return (
@@ -287,7 +338,13 @@ export function CheckoutView({
                 </span>
                 <span>{inr(price?.amount)}</span>
               </div>
-              {cycle === "annual" && price ? (
+              {offer && code ? (
+                <div className="bl-line">
+                  <span>Code {code.code}</span>
+                  <span style={{ color: "var(--bl-good)" }}>−{inr(offer.was - offer.amount)}</span>
+                </div>
+              ) : null}
+              {cycle === "annual" && price && !offer ? (
                 <div className="bl-line">
                   <span>Works out to</span>
                   <span>{inr(price.per_month)}/mo</span>
@@ -305,24 +362,44 @@ export function CheckoutView({
               </div>
               <div className="bl-total">
                 <span className="bl-h3">Due today</span>
-                <strong>{inr(price?.amount)}</strong>
+                <strong>{freeTime ? inr(0) : inr(due)}</strong>
               </div>
             </div>
+
+            {block?.reason === "signin" ? null : (
+              <CodeEntry plan={plan} cycle={cycle} initialCode={initialCode} applied={code} onApplied={setCode} />
+            )}
+            {code?.kind === "discount" && !offer ? (
+              <Notice tone="warn" title="This code does not cover this choice">
+                {code.summary}. Switch plan or billing cycle to use it, or remove it to pay the full price.
+              </Notice>
+            ) : null}
 
             <BlockOrPay
               block={block}
               phase={phase}
               error={error}
               planName={target?.name ?? plan}
-              amount={inr(price?.amount)}
-              onPay={pay}
+              amount={inr(due)}
+              freeTime={freeTime ? `Start ${freeTime.days} days of ${freeTime.plan_name}, free` : null}
+              onPay={freeTime ? redeem : pay}
               onSignIn={() => router.push(`/login?next=${encodeURIComponent(`/checkout?plan=${plan}&cycle=${cycle}&return=${back}`)}`)}
               onManage={() => router.push("/settings/billing")}
               onChange={() => setChangeOpen(true)}
               currentName={block && block.reason === "use_change" ? planName(cat, block.current) : ""}
             />
 
-            {price ? <p className="bl-fine">{renewalTerms(inr(price.amount), cycle === "annual" ? "year" : "month")}</p> : null}
+            {freeTime ? (
+              <p className="bl-fine">No payment is taken. When the {freeTime.days} days end, the account returns to its current plan.</p>
+            ) : offer ? (
+              <p className="bl-fine">
+                {offer.discount_cycles
+                  ? `You pay ${inr(offer.amount)} each ${cycle === "annual" ? "year" : "month"} for ${offer.discount_cycles} billing cycle${offer.discount_cycles === 1 ? "" : "s"}. The subscription then ends, and you can renew at ${inr(offer.was)}. Cancel any time before then from Plan & billing.`
+                  : renewalTerms(inr(offer.amount), cycle === "annual" ? "year" : "month")}
+              </p>
+            ) : price ? (
+              <p className="bl-fine">{renewalTerms(inr(price.amount), cycle === "annual" ? "year" : "month")}</p>
+            ) : null}
           </section>
         </div>
       )}
@@ -358,6 +435,7 @@ function BlockOrPay(p: {
   error: string | null;
   planName: string;
   amount: string;
+  freeTime: string | null;
   currentName: string;
   onPay: () => void;
   onSignIn: () => void;
@@ -415,13 +493,21 @@ function BlockOrPay(p: {
         </Notice>
       ) : null}
       {p.phase === "failed" ? (
-        <Notice tone="bad" title="The payment did not go through">
-          {p.error || "The payment provider could not confirm this attempt."} Check Plan &amp; billing before paying again.
-        </Notice>
+        p.freeTime ? (
+          <Notice tone="bad" title="The code was not redeemed">
+            {p.error || "The server could not redeem this code."}
+          </Notice>
+        ) : (
+          <Notice tone="bad" title="The payment did not go through">
+            {p.error || "The payment provider could not confirm this attempt."} Check Plan &amp; billing before paying again.
+          </Notice>
+        )
       ) : null}
       <button type="button" className="bl-btn bl-btn--primary bl-btn--lg bl-btn--block" onClick={p.onPay} disabled={busy}>
-        {busy ? <Loader2 size={16} className="bl-spin" /> : <CreditCard size={16} />}
-        {p.phase === "opening"
+        {busy ? <Loader2 size={16} className="bl-spin" /> : p.freeTime ? <Check size={16} /> : <CreditCard size={16} />}
+        {p.freeTime && !busy
+          ? p.freeTime
+          : p.phase === "opening"
           ? "Opening secure payment"
           : p.phase === "verifying"
             ? "Confirming payment"

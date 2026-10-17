@@ -569,3 +569,21 @@
 .bl-signin > .bl-modal-close { color: #f4f2ec; background: rgba(7, 7, 7, 0.35); }
 .bl-modal .bl-signin-art { height: 176px; }
 @media (max-width: 640px) { .bl-modal .bl-signin-art { height: 132px; } }
+
+/* ── codes: "Have a code?" at checkout and in Plan & billing ─────────── */
+.bl-code { display: flex; gap: 8px; align-items: stretch; }
+.bl-input {
+  flex: 1; min-width: 0; height: 40px; padding: 0 12px;
+  border: 1px solid var(--bl-rule-strong); border-radius: var(--bl-r-sm);
+  background: var(--bl-card); color: var(--bl-ink);
+  font: 500 14px var(--font-ui); letter-spacing: 0.04em; text-transform: uppercase;
+}
+.bl-input::placeholder { color: var(--bl-muted); letter-spacing: 0; text-transform: none; font-weight: 400; }
+.bl-input:focus-visible { outline: 2px solid var(--bl-ink); outline-offset: 1px; }
+.bl-code-applied {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 12px; border-radius: var(--bl-r-sm); background: var(--bl-good-wash);
+  font-size: 14px; color: var(--bl-ink);
+}
+.bl-code-applied strong { font-weight: 600; letter-spacing: 0.04em; }
+.bl-line--was span:last-child { color: var(--bl-muted); text-decoration: line-through; }

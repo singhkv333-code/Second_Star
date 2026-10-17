@@ -16781,6 +16781,10 @@ import billing as _billing  # noqa: E402
 import analytics as _analytics  # noqa: E402
 
 _ent.bind(_users, _users_lock)
+import coupons as _coupons  # noqa: E402
+import ops_api as _ops  # noqa: E402
+_coupons.ensure_schema()
+_ops.ensure_schema()
 _ADMIN_EMAILS = {e.strip().lower() for e in
                  (environ.get("CHARTO_ADMIN_EMAILS") or "").split(",") if e.strip()}
 import referrals as _referral_mod  # noqa: E402
@@ -16826,6 +16830,8 @@ def _plan_downgraded(uid: int) -> None:
 
 
 _billing.on_downgrade = _plan_downgraded
+_ops.on_downgrade = _plan_downgraded
+_ops.health = lambda: _health_report(deep=False)   # resolved when called
 
 
 def _referral_conversion(uid: int, new: dict) -> str:
@@ -16971,6 +16977,60 @@ def _chart_lease(uid: int | None, client: str, body: dict) -> tuple[int, dict]:
         _leases[subject], _evicted[subject] = held, gone
         n = len(held)
     return 200, {"active": n, "limit": lim, "renew_in": 60}
+
+
+# Wrong codes per account per hour. A generated code is 8 characters from 31
+# (about 10^12 of them), so this is a courtesy to the server, not the lock.
+_CODE_FAILS: dict[int, list[float]] = {}
+_CODE_FAILS_LOCK = threading.Lock()
+_CODE_FAIL_LIMIT = 20
+
+
+def _code_attempts_ok(uid: int) -> bool:
+    now = time.time()
+    with _CODE_FAILS_LOCK:
+        recent = [t for t in _CODE_FAILS.get(uid, []) if now - t < 3600]
+        _CODE_FAILS[uid] = recent
+        return len(recent) < _CODE_FAIL_LIMIT
+
+
+def _code_attempt_failed(uid: int) -> None:
+    with _CODE_FAILS_LOCK:
+        _CODE_FAILS.setdefault(uid, []).append(time.time())
+
+
+def _ops_request(handler, method: str) -> None:
+    """/ops/*: the owner console's signed API (ops_api.py). Anything that is
+    not a valid signed request gets the same 404 an unknown path gets."""
+    u = urlparse(handler.path)
+    raw = b""
+    if method == "POST":
+        try:
+            ln = int(handler.headers.get("Content-Length", 0))
+        except ValueError:
+            ln = -1
+        if ln < 0 or ln > 2 * 1024 * 1024:
+            return handler._send(404, {"error": "not found"})
+        raw = handler.rfile.read(ln) if ln else b""
+    actor = _ops.authenticate(method, handler.path, handler.headers, raw,
+                              handler._client_ip())
+    if not actor:
+        return handler._send(404, {"error": "not found"},
+                             headers={"Cache-Control": "no-store"})
+    try:
+        body = json.loads(raw or b"{}") if method == "POST" else {}
+    except ValueError:
+        return handler._send(400, {"error": "bad JSON body"})
+    if not isinstance(body, dict):
+        return handler._send(400, {"error": "bad JSON body"})
+    q = {k: v[0] for k, v in parse_qs(u.query).items()}
+    ip = re.sub(r"[^0-9a-fA-F:.]", "", str(handler.headers.get("X-Ops-Client-IP") or ""))[:64]
+    try:
+        code, out = _ops.handle(method, u.path, q, body, actor, ip)
+    except Exception as exc:                            # noqa: BLE001
+        logging.getLogger("charto").exception("ops %s %s failed", method, u.path)
+        code, out = 500, {"error": f"server error ({type(exc).__name__})"}
+    return handler._send(code, out, headers={"Cache-Control": "no-store"})
 
 
 def _admin_grant(by: str, body: dict) -> tuple[int, dict]:
@@ -19101,6 +19161,29 @@ class Handler(BaseHTTPRequestHandler):
             if out[0] == 200 and out[1].get("effective") == "now":
                 _plan_downgraded(me[0])
             return out
+        if path == "/billing/coupon":
+            # What a code does for this account, before anything is used.
+            if not _code_attempts_ok(me[0]):
+                return 429, {"error": "Too many codes tried. Wait an hour and try again.",
+                             "code": "rate_limited"}
+            try:
+                c = _coupons.check(str(body.get("code") or ""), me[0], me[1],
+                                   body.get("plan") or None, body.get("cycle") or None)
+            except _coupons.CodeError as exc:
+                _code_attempt_failed(me[0])
+                return exc.status, exc.body()
+            return 200, {"coupon": _coupons.describe(c)}
+        if path == "/billing/redeem":
+            if not _code_attempts_ok(me[0]):
+                return 429, {"error": "Too many codes tried. Wait an hour and try again.",
+                             "code": "rate_limited"}
+            try:
+                out = _coupons.redeem_access(str(body.get("code") or ""), me[0], me[1])
+            except _coupons.CodeError as exc:
+                _code_attempt_failed(me[0])
+                return exc.status, exc.body()
+            _analytics.capture(me[0], "code_redeemed", {"plan": out["plan"], "days": out["days"]})
+            return 200, {"ok": True, "redeemed": out, "billing": _ent.summary(me[0])}
         if path == "/admin/billing/grant":
             if str(me[1]).lower() not in _ADMIN_EMAILS:
                 return 403, {"error": "not an admin"}
@@ -19512,6 +19595,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         u = urlparse(self.path)
+        if u.path.startswith("/ops/"):
+            return _ops_request(self, "GET")
         u = _strip_api_auth(u)
         if u.path.startswith("/share/") and u.path.endswith("/image.jpg"):
             return self._share_image(u.path[len("/share/"):-len("/image.jpg")])
@@ -20354,6 +20439,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         u = urlparse(self.path)
+        if u.path.startswith("/ops/"):
+            return _ops_request(self, "POST")
         u = _strip_api_auth(u)
         if u.path == "/replay":
             return self._send(403, {"error": "Shared replay is disabled until replay is isolated from live data.",

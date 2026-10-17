@@ -24,6 +24,7 @@ export type BillingEvent =
   | "checkout_succeeded"
   | "checkout_pending"
   | "checkout_failed"
+  | "code_redeemed"
   | "plan_change_requested"
   | "plan_change_confirmed"
   | "plan_change_undone"
