@@ -93,3 +93,40 @@ describe("handleUnauthorized", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("resumeSession", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    document.cookie = "pivot_signed_in=; max-age=0";
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    document.cookie = "pivot_signed_in=; max-age=0";
+  });
+
+  it("gets the token back from the session cookie when the browser dropped it", async () => {
+    document.cookie = "pivot_signed_in=1";
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ token: "back", user: { id: 1 } })));
+    vi.stubGlobal("fetch", fetchMock);
+    const s = await fresh();
+    expect(await s.resumeSession()).toBe(true);
+    expect(fetchMock).toHaveBeenCalledWith("/auth/resume", expect.objectContaining({ method: "POST", credentials: "same-origin" }));
+    expect(s.sessionToken()).toBe("back");
+  });
+
+  it("costs a first-time visitor nothing: no hint cookie, no request", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const s = await fresh();
+    expect(await s.resumeSession()).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("stays signed out when the session has ended", async () => {
+    document.cookie = "pivot_signed_in=1";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ user: null }))));
+    const s = await fresh();
+    expect(await s.resumeSession()).toBe(false);
+    expect(s.sessionToken()).toBeNull();
+  });
+});

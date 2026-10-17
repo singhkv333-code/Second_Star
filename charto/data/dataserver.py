@@ -16740,6 +16740,15 @@ CREATE INDEX IF NOT EXISTS conversations_recent
   ON conversations(user_id, updated DESC);
 """)
 
+# A session row keeps the SHA-256 of its token, never the token: a copy of
+# this file (a backup, a leak) then signs nobody in. Rows from before
+# 2026-10-17 held the token itself; a token is 43 characters and a digest 64,
+# so the rewrite below finds them and runs once.
+for (_raw,) in _users.execute("SELECT token FROM sessions WHERE length(token) != 64").fetchall():
+    _users.execute("UPDATE sessions SET token=? WHERE token=?",
+                   (hashlib.sha256(_raw.encode()).hexdigest(), _raw))
+_users.commit()
+
 # `layouts` predates the save/open/share system and had five columns. Added
 # here rather than in the CREATE above so an existing account keeps its saved
 # work: the CREATE is a no-op once the table exists, so a new column has to
@@ -17106,7 +17115,44 @@ except Exception as _exc:                     # noqa: BLE001
     _brokers = None
 
 _SCRYPT = {"n": 2 ** 14, "r": 8, "p": 1}   # ~100ms/hash, OWASP-tier for scrypt
-_SESSION_TTL = 30 * 86400
+# Signed in stays signed in, the way other apps behave: a session ends after
+# 90 days unused, and none outlives a year however busy (then one sign-in).
+# Until 2026-10-17 every session ended 30 days after it began, in use or not.
+# Sign-out, a password reset and "sign out everywhere" end sessions at once.
+# pivot/backend/auth/accounts.py reads the same rows and keeps the same rule.
+_SESSION_IDLE = 90 * 86400
+_SESSION_MAX = 365 * 86400
+# The token also rides an HttpOnly cookie, read ONLY by POST /auth/resume.
+# Safari deletes a site's localStorage after seven days without a visit, which
+# signed people out of a live session; the cookie hands the token back. Every
+# other route still wants the Bearer header, so the cookie opens nothing a
+# cross-site page could ride. The second cookie is readable, holds no secret,
+# and only tells the page that a resume is worth asking for.
+SESSION_COOKIE = "pivot_session"
+SIGNED_IN_COOKIE = "pivot_signed_in"
+
+
+def _token_key(tok: str) -> str:
+    """What the sessions table stores for a token (see the migration)."""
+    return hashlib.sha256(tok.encode()).hexdigest()
+
+
+def _session_cookies(headers, tok: str | None) -> list[str]:
+    """Set-Cookie values that keep (tok) or end (None) the session here."""
+    host = (headers.get("Host") or "").split(":")[0]
+    secure = "" if host in ("localhost", "127.0.0.1") else "; Secure"
+    age = _SESSION_MAX if tok else 0
+    return [f"{SESSION_COOKIE}={tok or ''}; Path=/; Max-Age={age}; HttpOnly; SameSite=Lax{secure}",
+            f"{SIGNED_IN_COOKIE}={'1' if tok else ''}; Path=/; Max-Age={age}; SameSite=Lax{secure}"]
+
+
+def _cookie_token(headers) -> str:
+    import http.cookies
+    try:
+        jar = http.cookies.SimpleCookie(headers.get("Cookie") or "")
+    except http.cookies.CookieError:
+        return ""
+    return jar[SESSION_COOKIE].value if SESSION_COOKIE in jar else ""
 
 
 def _pw_hash(password: str, salt: bytes) -> bytes:
@@ -17163,26 +17209,36 @@ def _auth_user(headers) -> tuple | None:
     raw = headers.get("Authorization") or ""
     if not raw.startswith("Bearer "):
         return None
-    tok, now = raw[7:].strip(), int(time.time())
+    return _session_user(raw[7:].strip())
+
+
+def _session_user(tok: str) -> tuple | None:
+    """The user behind a session token, or None once it has ended (unused
+    for _SESSION_IDLE, or older than _SESSION_MAX). last_seen is written at
+    most once a minute: a page load asks this ~20 times."""
+    if not tok:
+        return None
+    key, now = _token_key(tok), int(time.time())
     with _users_lock:
         row = _users.execute(
-            "SELECT u.id, u.email, u.name, s.created FROM sessions s "
-            "JOIN users u ON u.id = s.user_id WHERE s.token=?", (tok,)).fetchone()
-        if not row or now - row[3] > _SESSION_TTL:
+            "SELECT u.id, u.email, u.name, s.created, s.last_seen FROM sessions s "
+            "JOIN users u ON u.id = s.user_id WHERE s.token=?", (key,)).fetchone()
+        if not row or now - row[3] > _SESSION_MAX or now - row[4] > _SESSION_IDLE:
             if row:
-                _users.execute("DELETE FROM sessions WHERE token=?", (tok,))
+                _users.execute("DELETE FROM sessions WHERE token=?", (key,))
                 _users.commit()
             return None
-        _users.execute("UPDATE sessions SET last_seen=? WHERE token=?", (now, tok))
-        _users.commit()
+        if now - row[4] >= 60:
+            _users.execute("UPDATE sessions SET last_seen=? WHERE token=?", (now, key))
+            _users.commit()
     return row[:3]
 
 
 def _issue_session(user_id: int) -> str:
     tok, now = secrets.token_urlsafe(32), int(time.time())
     with _users_lock:
-        _users.execute("INSERT INTO sessions VALUES (?,?,?,?)",
-                       (tok, user_id, now, now))
+        _users.execute("INSERT INTO sessions (token, user_id, created, last_seen) "
+                       "VALUES (?,?,?,?)", (_token_key(tok), user_id, now, now))
         _users.commit()
     return tok
 
@@ -17198,8 +17254,8 @@ def _session_reply(user_id: int, user: dict) -> tuple[int, dict]:
     and far less breakable than a second endpoint or a rewrite of either
     client, and there is only one token, so the two can never disagree.
 
-    No refresh token: sessions here last 30 days and are revoked server-side,
-    so there is nothing to refresh. That field stays absent rather than
+    No refresh token: a session slides while it is used (see _SESSION_IDLE)
+    and is revoked server-side, so there is nothing to refresh. That field stays absent rather than
     faked — charto/web's storeToken already treats it as optional.
     """
     tok = _issue_session(user_id)
@@ -18932,7 +18988,8 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _send(self, code: int, payload: dict, *, max_age: int = 0,
-              headers: dict[str, str] | None = None) -> None:
+              headers: dict[str, str] | None = None,
+              cookies: list[str] | None = None) -> None:
         body = json.dumps(payload).encode()
         if code == 402 and isinstance(payload, dict):
             me = _auth_user(self.headers)
@@ -18944,7 +19001,7 @@ class Handler(BaseHTTPRequestHandler):
         # financials blob that changes when the sync runs and not otherwise,
         # so a reload should cost a round trip, not the payload.
         etag = None
-        if code == 200 and len(body) > 512:
+        if code == 200 and len(body) > 512 and not cookies:  # a 304 would drop them
             etag = '"%s"' % hashlib.blake2b(body, digest_size=12).hexdigest()
             if (self.headers.get("If-None-Match") or "").strip() == etag:
                 self.send_response(304)
@@ -18974,6 +19031,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", f"public, max-age={max_age}")
         for key, value in (headers or {}).items():
             self.send_header(str(key), str(value))
+        for value in cookies or ():
+            self.send_header("Set-Cookie", value)
+        if cookies:
+            self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -19170,12 +19231,31 @@ class Handler(BaseHTTPRequestHandler):
                                    "user_signed_up" if path == "/auth/signup" else "user_logged_in",
                                    {"method": "google" if path == "/auth/google" else "email"})
             return code, out
+        if path == "/auth/resume":
+            # The page lost its token (Safari's storage cap, cleared site
+            # data) while the session lives on: the cookie hands it back.
+            # Same-origin only, and never a new session. Sec-Fetch-Site is
+            # set by the browser, not the page, and survives nginx's Host
+            # rewriting; SameSite=Lax and the wildcard CORS answer already
+            # keep the cookie and the reply from another site.
+            if (self.headers.get("Sec-Fetch-Site") or "same-origin") not in ("same-origin", "none"):
+                return 403, {"error": "cross-origin"}
+            tok = _cookie_token(self.headers)
+            me = _session_user(tok)
+            if not me:
+                return 200, {"user": None}
+            return 200, {"token": tok, "access_token": tok, "user": _user_public(me)}
         if path == "/auth/logout":
             raw = self.headers.get("Authorization") or ""
-            if raw.startswith("Bearer "):
+            tok = raw[7:].strip() if raw.startswith("Bearer ") else _cookie_token(self.headers)
+            if tok:
+                me = _session_user(tok) if body.get("everywhere") else None
                 with _users_lock:
-                    _users.execute("DELETE FROM sessions WHERE token=?",
-                                   (raw[7:].strip(),))
+                    if me:     # every device this account is signed in on
+                        _users.execute("DELETE FROM sessions WHERE user_id=?", (me[0],))
+                    else:
+                        _users.execute("DELETE FROM sessions WHERE token=?",
+                                       (_token_key(tok),))
                     _users.commit()
             return 200, {"ok": True}          # logging out is never an error
         me = _auth_user(self.headers)
@@ -20182,9 +20262,16 @@ class Handler(BaseHTTPRequestHandler):
                     # complete. A button drawn from a hardcoded front-end
                     # constant is one that can promise a sign-in this box has
                     # no credentials to finish.
+                    #
+                    # A session from before 2026-10-17 has no cookie yet; this
+                    # boot-time call gives it one (see SESSION_COOKIE).
+                    raw = (self.headers.get("Authorization") or "")[7:].strip()
+                    cookies = (_session_cookies(self.headers, raw)
+                               if raw and _cookie_token(self.headers) != raw else None)
                     return self._send(200, {"user": {**_user_public(me), "email_verified":
                                                      _verifs.verified(me[0]) if _verifs else None},
-                                            "google_client_id": GOOGLE_CLIENT_ID})
+                                            "google_client_id": GOOGLE_CLIENT_ID},
+                                      cookies=cookies)
                 if u.path == "/setups":
                     if _shares is None:
                         return self._send(501, {"error": "sharing is not "
@@ -20603,7 +20690,13 @@ class Handler(BaseHTTPRequestHandler):
                 body = json.loads(self.rfile.read(ln) or b"{}")
             except (ValueError, TypeError):
                 return self._send(400, {"error": "bad JSON body"})
-            return self._send(*self._account_post(u.path, body))
+            code, out = self._account_post(u.path, body)
+            cookies = None
+            if u.path == "/auth/logout" or (u.path == "/auth/resume" and not out.get("token")):
+                cookies = _session_cookies(self.headers, None)
+            elif code == 200 and u.path.startswith("/auth/") and out.get("token"):
+                cookies = _session_cookies(self.headers, out["token"])
+            return self._send(code, out, cookies=cookies)
         if u.path == "/suggest":
             # LEGACY. The follow-ups now ride /chat's own stream, after that
             # turn's `done` — see _suggest_events for why the route mattered
