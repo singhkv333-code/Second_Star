@@ -54,8 +54,11 @@ logger = logging.getLogger(__name__)
 _DEFAULT = Path(__file__).resolve().parents[3] / "charto" / "data" / "charto_users.db"
 _PATH = Path(os.environ.get("CHARTO_USERS_DB") or _DEFAULT)
 
-# The account service expires a session 30 days after it was created.
-_SESSION_TTL = 30 * 24 * 3600
+# The account service's rule (dataserver._SESSION_IDLE / _SESSION_MAX): a
+# session ends after 90 days unused and none outlives a year. Rows keep the
+# SHA-256 of the token, never the token.
+_SESSION_IDLE = 90 * 24 * 3600
+_SESSION_MAX = 365 * 24 * 3600
 
 _lock = threading.Lock()
 _con: Optional[sqlite3.Connection] = None
@@ -151,11 +154,16 @@ def resolve_token(token: str) -> Optional[tuple[int, str, Optional[str]]]:
         return None
     try:
         with _lock:
+            # The token itself only while a box still runs the account
+            # service from before hashing (it rewrites its rows on start),
+            # and never a 64-character one: that is a stored digest, and
+            # taking it as a token would undo the hashing.
+            digest = hashlib.sha256(token.encode()).hexdigest()
             row = con.execute(
-                "SELECT u.id, u.email, u.name, s.created "
+                "SELECT u.id, u.email, u.name, s.created, s.last_seen "
                 "FROM sessions s JOIN users u ON u.id = s.user_id "
-                "WHERE s.token = ?",
-                (token,),
+                "WHERE s.token IN (?, ?)",
+                (digest, token if len(token) != 64 else digest),
             ).fetchone()
     except Exception as exc:  # noqa: BLE001
         logger.warning("accounts: lookup failed: %s", exc)
@@ -163,7 +171,8 @@ def resolve_token(token: str) -> Optional[tuple[int, str, Optional[str]]]:
         return None
     if not row:
         return None
-    if int(time.time()) - int(row[3]) > _SESSION_TTL:
+    now = int(time.time())
+    if now - int(row[3]) > _SESSION_MAX or now - int(row[4]) > _SESSION_IDLE:
         return None
     return int(row[0]), str(row[1]), row[2]
 

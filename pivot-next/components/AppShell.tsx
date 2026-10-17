@@ -1436,8 +1436,8 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
           onBrandClick={() => goTab(guest ? "chart" : "home")}
           onOpenChart={openChart}
           guest={guest}
-          onLogout={async () => {
-            await logoutUser();
+          onLogout={async (everywhere?: boolean) => {
+            await logoutUser(everywhere);
             router.replace("/login");
           }}
           onOpenShortcuts={() => setShortcutsOpen(true)}
@@ -1895,7 +1895,7 @@ function TopHeader({
   onToggleSidebar: () => void;
   onBrandClick: () => void;
   onOpenChart: (symbol: string) => void;
-  onLogout: () => void;
+  onLogout: (everywhere?: boolean) => void;
   onOpenShortcuts: () => void;
   onReportBug: () => void;
 }): React.ReactElement {
@@ -2061,7 +2061,7 @@ function AccountMenu({
   accountEmail: string;
   onOpenBroker: () => void;
   onOpenSettings: () => void;
-  onLogout: () => void;
+  onLogout: (everywhere?: boolean) => void;
   onOpenShortcuts: () => void;
   onReportBug: () => void;
   sidebarCollapsed: boolean;
@@ -2262,6 +2262,7 @@ function AccountMenu({
           )}
           <div aria-hidden={true} style={{ height: 1, background: "var(--glass-border)", margin: "5px -5px" }} />
           <MenuItem icon={LogOut} label="Sign out" testId="menu-logout-chart-style" onClick={() => { setOpen(false); onLogout(); }} />
+          <MenuItem icon={LogOut} label="Sign out everywhere" testId="menu-logout-everywhere" onClick={() => { setOpen(false); onLogout(true); }} />
 
         </div>
       )}

@@ -194,3 +194,28 @@ def test_401_handler_turns_store_failures_into_503():
     assert out.headers['X-Auth-Reason'] == 'store_unavailable'
     plain = HTTPException(401, 'Invalid token')
     assert _explain_401(req('/paper/summary', 'tok-unknown'), plain) is plain
+
+
+def test_a_session_slides_while_used_and_is_stored_hashed(tmp_path, monkeypatch):
+    import hashlib, sqlite3, time
+    path = tmp_path / 'users.db'
+    c = sqlite3.connect(path)
+    c.executescript('CREATE TABLE users(id INTEGER PRIMARY KEY, email TEXT, name TEXT);'
+                    'CREATE TABLE sessions(token TEXT PRIMARY KEY, user_id INTEGER, created INTEGER, last_seen INTEGER);'
+                    "INSERT INTO users VALUES (5, 'a@example.test', 'A');")
+    now, day = int(time.time()), 86400
+    h = lambda t: hashlib.sha256(t.encode()).hexdigest()
+    c.executemany('INSERT INTO sessions VALUES (?,5,?,?)', [
+        (h('busy'), now - 200 * day, now - day),          # old, in use: alive
+        (h('idle'), now - 100 * day, now - 91 * day),     # unused 91 days: ended
+        (h('ancient'), now - 366 * day, now),             # past a year: ended
+        ('raw-token', now, now)])                          # a pre-hash row still reads
+    c.commit(); c.close()
+    monkeypatch.setattr(accounts, '_PATH', path)
+    monkeypatch.setattr(accounts, '_con', None)
+    assert accounts.resolve_token('busy') == (5, 'a@example.test', 'A')
+    assert accounts.resolve_token('idle') is None
+    assert accounts.resolve_token('ancient') is None
+    assert accounts.resolve_token(h('busy')) is None       # the stored digest is not a token
+    assert accounts.resolve_token('raw-token') is not None
+    monkeypatch.setattr(accounts, '_con', None)

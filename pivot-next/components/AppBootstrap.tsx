@@ -6,7 +6,8 @@
  * Responsibilities:
  * 1. Flip `setBackendSource("real")` so every API call hits the live backend.
  * 2. Wire `setAuthTokenProvider` to the one Pivot session (lib/session.ts).
- * 3. **Auth gate**: with no session, send the visitor to /login with this
+ * 3. **Auth gate**: with no session (after asking the session cookie for
+ *    one, see resumeSession), send the visitor to /login with this
  *    page in `?next=`, so signing in comes back here. The public pages in
  *    UNGATED_PATHS render without it, and the app's root opens as the GUEST
  *    workspace: the chart, open to everyone, with the account asked for only
@@ -18,7 +19,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { setAuthTokenProvider, setBackendSource } from "@/lib/api";
 import { LoadingCubes } from "@/components/ui/LoadingCubes";
 import { loginForHere } from "@/lib/returnTo";
-import { saveSession, sessionToken } from "@/lib/session";
+import { resumeSession, saveSession, sessionToken } from "@/lib/session";
 
 /** Routes that render without the auth gate: the /design showcase, public
  *  marketing and legal pages, the auth routes themselves, the plans (a
@@ -61,23 +62,34 @@ export function AppBootstrap({
       }
     });
 
-    if (sessionToken()) {
-      setPhase("ready");
-    } else if (pathname != null && GUEST_PATHS.includes(pathname)) {
-      setPhase("guest");
-    } else {
-      setPhase("needs-auth");
-      // Redirect to /login instead of showing a modal gate — but never
-      // bounce the auth pages themselves (/login, /signup, …). Without
-      // this guard, opening /signup with no token yet immediately
-      // redirects back to /login, so the account-creation form is
-      // unreachable.
-      if (!ungated) {
-        // Carry the page along (?next=) so signing in returns to it — a
-        // shared chart's "Make it mine" lands here with the setup in the URL.
-        router.replace(loginForHere());
+    let live = true;
+    const decide = () => {
+      if (!live) return;
+      if (sessionToken()) {
+        setPhase("ready");
+      } else if (pathname != null && GUEST_PATHS.includes(pathname)) {
+        setPhase("guest");
+      } else {
+        setPhase("needs-auth");
+        // Redirect to /login instead of showing a modal gate — but never
+        // bounce the auth pages themselves (/login, /signup, …). Without
+        // this guard, opening /signup with no token yet immediately
+        // redirects back to /login, so the account-creation form is
+        // unreachable.
+        if (!ungated) {
+          // Carry the page along (?next=) so signing in returns to it — a
+          // shared chart's "Make it mine" lands here with the setup in the URL.
+          router.replace(loginForHere());
+        }
       }
-    }
+    };
+    // A signed-in visitor whose browser dropped the stored token gets it back
+    // from the session cookie before anything decides they are signed out.
+    if (sessionToken()) decide();
+    else void resumeSession().then(decide);
+    return () => {
+      live = false;
+    };
   }, [router, ungated, pathname]);
 
   if (ungated) return <>{children}</>;

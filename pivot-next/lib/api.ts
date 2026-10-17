@@ -1855,11 +1855,16 @@ export async function requestPasswordReset(email: string): Promise<ApiResult<{ o
   }
 }
 
-/** `POST /auth/logout` — end the session on the server, then here. */
-export async function logoutUser(): Promise<void> {
+/** `POST /auth/logout` — end the session on the server, then here.
+ *  `everywhere` ends every session the account has, on every device. */
+export async function logoutUser(everywhere = false): Promise<void> {
   const token = sessionToken();
   if (token) {
-    await fetch("/auth/logout", { method: "POST", headers: { Authorization: `Bearer ${token}` } }).catch(() => undefined);
+    await fetch("/auth/logout", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(everywhere ? { everywhere: true } : {}),
+    }).catch(() => undefined);
   }
   clearSession();
   // Drop every TTL-cached response (user profile, portfolio, quotes, ...) —
