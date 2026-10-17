@@ -30,7 +30,13 @@ def test_switching_dataserver_gates_on_restores_the_caps(monkeypatch):
         "features"]["chart.panes"]["values"]["anonymous"]
 
 
-def test_pivot_chat_is_still_charged_with_the_paywall_off(monkeypatch):
+def test_pivot_chat_is_still_metered_with_the_paywall_off(monkeypatch):
+    # The ledger applies with the switch off: signed out has no AI credits,
+    # so the question is refused rather than waved through.
     _bound(False, monkeypatch)
-    got = ent.consume(None, "ai.credits", "k1", 1, client="1.2.3.4")
-    assert got["charged"] == 1
+    try:
+        ent.consume(None, "ai.credits", "k1", 1, client="1.2.3.4")
+    except ent.PlanLimit as exc:
+        assert exc.body()["plan"] == "anonymous" and exc.body()["limit"] == 0
+    else:
+        raise AssertionError("a signed-out question was charged instead of refused")

@@ -2636,6 +2636,7 @@ header > .btn, header > .badge { flex: none; }
   padding-left: 12px;
   padding-right: 52px;
 }
+.in-shell.shell-guest body > header { padding-right: 184px; }
 .in-shell body > header > .brand,
 .in-shell body > header #acctBtn,
 .in-shell body > header #acctMenu {
@@ -11910,7 +11911,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- after icons.js: the sign-in screen draws the show/hide eye from the
        shared set, and a classic script cannot reach a const declared by one
        that has not run yet -->
-  <script src="./js/auth.js?v=10"></script>
+  <script src="./js/auth.js?v=12"></script>
   <!-- product analytics + front-end error monitoring; the key comes from the server -->
   <script src="./js/analytics.js?v=3"></script>
   <script src="./js/plan.js?v=7"></script>
@@ -11939,8 +11940,8 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/compare.js?v=18"></script>
   <script src="./js/panes.js?v=40"></script>
   <!-- the Footprint chart type: a primitive on the price series, mounted by main.js -->
-  <script src="./js/footprint.js?v=10"></script>
-  <script src="./js/main.js?v=189"></script>
+  <script src="./js/footprint.js?v=11"></script>
+  <script src="./js/main.js?v=190"></script>
   <!-- the floating drawing edit toolbar — listens for pivot:draw-select and
        drives js/drawings.js's setStyle/clone/lock/remove. After main.js so
        __pivot and ChartSettings exist by the first selection. -->
@@ -11951,23 +11952,23 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/agentws.js?v=2"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
-  <script src="./js/layouts.js?v=15"></script>
+  <script src="./js/layouts.js?v=16"></script>
   <script src="./js/share-preview.js?v=4"></script>
   <!-- shared setups: publish, view-only links, "Make it mine" -->
-  <script src="./js/setups.js?v=19"></script>
+  <script src="./js/setups.js?v=22"></script>
   <!-- Voice must load before chat.js, which wires it to the composer. -->
   <script src="./js/voice.js?v=3"></script>
   <!-- before chat.js, which asks it to render the panels a tool prints as the
        reply streams in. It reads Sym (store.js) for the instrument's currency
        and grouping, and nothing else — a renderer with no state of its own -->
-  <script src="./js/cards.js?v=74"></script>
-  <script src="./js/layers-panel.js?v=14"></script>
-  <script src="./js/model-logos.js?v=3"></script>
-  <script src="./js/models.js?v=6"></script>
-  <script src="./js/pricehover.js?v=2"></script>
-  <script src="./js/chat.js?v=196"></script>
-  <script src="./js/codeview.js?v=7"></script>
-  <script src="./js/journal.js?v=10"></script>
+  <script src="./js/cards.js?v=75"></script>
+  <script src="./js/layers-panel.js?v=15"></script>
+  <script src="./js/model-logos.js?v=4"></script>
+  <script src="./js/models.js?v=7"></script>
+  <script src="./js/pricehover.js?v=3"></script>
+  <script src="./js/chat.js?v=197"></script>
+  <script src="./js/codeview.js?v=8"></script>
+  <script src="./js/journal.js?v=11"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
        initialises. After auth.js and dlgkit.js, whose token and dialog shell it
        uses. Everything it needs from main.js (SYMBOL) and panels.js
@@ -11996,7 +11997,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- last: every control it proxies has to exist and be wired first -->
   <script src="./js/mobile.js?v=16"></script>
   <!-- after mobile.js: the pager turns the phone's chart/chat/widgets into pages -->
-  <script src="./js/pager.js?v=4"></script>
-  <script src="./js/embed.js?v=16"></script>
+  <script src="./js/pager.js?v=5"></script>
+  <script src="./js/embed.js?v=17"></script>
 </body>
 </html>

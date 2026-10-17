@@ -72,13 +72,16 @@ describe("handleUnauthorized", () => {
     expect(href).toBe("/login?next=%2Fstock%2FRELIANCE");
   });
 
-  it("treats a device with no session as signed out, without asking", async () => {
+  it("leaves a guest where they are: no session, nothing to sign out of", async () => {
+    // The open workspace (2026-10-17): a signed-out visitor's refused request
+    // is just that request, never a trip to /login.
     localStorage.removeItem(SESSION);
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
     const s = await fresh();
-    expect(await s.handleUnauthorized()).toBe(true);
+    expect(await s.handleUnauthorized()).toBe(false);
     expect(fetch).not.toHaveBeenCalled();
+    expect(href).toBe("");
   });
 
   it("asks once for a burst of refusals", async () => {
@@ -88,5 +91,42 @@ describe("handleUnauthorized", () => {
     await Promise.all([s.handleUnauthorized(), s.handleUnauthorized(), s.handleUnauthorized()]);
     await s.handleUnauthorized();
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("resumeSession", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    document.cookie = "pivot_signed_in=; max-age=0";
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    document.cookie = "pivot_signed_in=; max-age=0";
+  });
+
+  it("gets the token back from the session cookie when the browser dropped it", async () => {
+    document.cookie = "pivot_signed_in=1";
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ token: "back", user: { id: 1 } })));
+    vi.stubGlobal("fetch", fetchMock);
+    const s = await fresh();
+    expect(await s.resumeSession()).toBe(true);
+    expect(fetchMock).toHaveBeenCalledWith("/auth/resume", expect.objectContaining({ method: "POST", credentials: "same-origin" }));
+    expect(s.sessionToken()).toBe("back");
+  });
+
+  it("costs a first-time visitor nothing: no hint cookie, no request", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const s = await fresh();
+    expect(await s.resumeSession()).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("stays signed out when the session has ended", async () => {
+    document.cookie = "pivot_signed_in=1";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ user: null }))));
+    const s = await fresh();
+    expect(await s.resumeSession()).toBe(false);
+    expect(s.sessionToken()).toBeNull();
   });
 });

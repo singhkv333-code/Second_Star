@@ -138,6 +138,12 @@ understates it by a wide margin. It is not an auth database.
 | `strategies`, `strategy_log` | `dataserver/strategies.py:172` |
 | `journal_trades`, `journal_revisions`, `journal_playbooks` | `dataserver/journal.py:24` |
 
+`sessions.token` holds the SHA-256 of a session token, never the token
+(since 2026-10-17; the dataserver rewrites older rows on start). A session
+ends after 90 days unused or a year after sign-in. Its readers:
+`dataserver._session_user`, `pivot/backend/auth/accounts.py` (read-only, same
+rule), and `password_reset.py` (deletes by user).
+
 Every one of those modules reaches it through the **same shared connection and
 lock** (`ds._users`, `ds._users_lock`). It holds the **11 real accounts**, 14
 sessions and 31 conversations — the only genuine customer data we have.

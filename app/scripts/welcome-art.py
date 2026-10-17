@@ -11,8 +11,12 @@
              printed as a 1-bit dither in bone dots on ink, like the referral
              page's planets. The Met, Bequest of Mary Jane Dastich 1975,
              object 437979. Public domain, CC0.
+    moon     the sign-in prompt's art: Caspar David Friedrich, "Two Men
+             Contemplating the Moon" (ca. 1825-30), toned like the sunset.
+             The Met, Wrightsman Fund 2000, object 438417. Public domain, CC0.
 
-    python3.11 scripts/welcome-art.py      # writes public/welcome/*.webp
+    python3.11 scripts/welcome-art.py          # writes public/welcome/*.webp
+    python3.11 scripts/welcome-art.py moon     # only the named ones
 
 The paintings are fetched from The Met's open-access image server each run;
 everything else is deterministic.
@@ -32,6 +36,7 @@ INK, BONE = np.array([7, 7, 7], float), np.array([239, 233, 221], float)
 SOURCES = {
     "sunset": "https://images.metmuseum.org/CRDImages/ep/original/DT2557.jpg",
     "moonlight": "https://images.metmuseum.org/CRDImages/ep/original/DP-23290-001.jpg",
+    "moon": "https://images.metmuseum.org/CRDImages/ep/original/DP-31997-001-NEW.jpg",
 }
 
 
@@ -118,13 +123,30 @@ def moonlight(rng) -> np.ndarray:
     return tone(dots * 0.92)
 
 
-PAINTINGS = {"sunset": (sunset, 5), "orb": (orb, 7), "moonlight": (moonlight, 3)}
+def moon(rng) -> np.ndarray:
+    im = fetch(SOURCES["moon"])
+    w, h = im.size
+    im = im.crop((int(w * 0.03), int(h * 0.03), int(w * 0.97), int(h * 0.97)))   # no frame edge
+    im = band(im, top=0.22)                               # the moon, the tree and the two men
+    g = np.asarray(ImageOps.autocontrast(im, cutoff=0.5), float) / 255
+    g = np.clip((g - 0.03) / 0.95, 0, 1) ** 1.6
+    yy, xx = np.mgrid[0:H, 0:W]
+    vignette = 1 - 0.3 * (((xx / W - 0.5) / 0.7) ** 2 + ((yy / H - 0.45) / 0.8) ** 2)
+    return grain(rng, tone(np.clip(g * vignette, 0, 1), warm=0.6), 6)
+
+
+PAINTINGS = {"sunset": (sunset, 5), "orb": (orb, 7), "moonlight": (moonlight, 3), "moon": (moon, 11)}
 
 if __name__ == "__main__":
+    import sys
+    only = set(sys.argv[1:])
     OUT.mkdir(parents=True, exist_ok=True)
     for old in OUT.glob("*.webp"):
-        old.unlink()
+        if not only or old.stem in only:
+            old.unlink()
     for name, (make, seed) in PAINTINGS.items():
+        if only and name not in only:
+            continue
         img = Image.fromarray(np.clip(make(np.random.default_rng(seed)), 0, 255).astype(np.uint8))
         # A two-colour dither compresses far better without loss.
         lossless = len(np.unique(np.asarray(img).reshape(-1, 3), axis=0)) <= 4

@@ -65,6 +65,35 @@ export function clearSession(): void {
   }
 }
 
+/**
+ * The page lost its token but the session may live on: Safari deletes a
+ * site's localStorage after seven days without a visit, and cleared site data
+ * does the same. Sign-in also left an HttpOnly cookie that only
+ * `POST /auth/resume` reads; this asks for the token back and keeps it.
+ * Asked only when the readable `pivot_signed_in` cookie says there is a
+ * session to find, so a first-time visitor pays no round trip. Resolves true
+ * when a session was restored. Never throws.
+ */
+export async function resumeSession(): Promise<boolean> {
+  if (typeof document === "undefined" || sessionToken()) return false;
+  if (!/(?:^|;\s*)pivot_signed_in=1(?:;|$)/.test(document.cookie)) return false;
+  try {
+    const res = await fetch("/auth/resume", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+    const d = (await res.json().catch(() => null)) as { token?: string } | null;
+    if (!res.ok || !d?.token) return false;
+    saveSession(d.token);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 let checking: Promise<boolean> | null = null;
 let lastAlive = 0;
 
@@ -105,6 +134,9 @@ let leaving = false;
  */
 export async function handleUnauthorized(): Promise<boolean> {
   if (leaving) return true;
+  // A guest on the open workspace has no session to lose: a refused request
+  // is just that request, never a trip to /login.
+  if (!sessionToken()) return false;
   if (await sessionAlive()) return false;
   leaving = true;
   clearSession();

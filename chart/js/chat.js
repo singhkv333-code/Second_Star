@@ -2209,6 +2209,12 @@
     const widget = retry ? (againWidget || null) : pendingWidget;
     const text = retry ? again.trim() : (input.value.trim() || (widget && widget.question) || "");
     if ((!text && !pendingImage) || pending) return;
+    // The chat answers accounts only. Signed out, the question stays in the
+    // box and the app asks for an account; nothing is sent.
+    if (typeof Auth !== "undefined" && !Auth.token) {
+      if (window.PIVOT_SIGNIN) window.PIVOT_SIGNIN("chat");
+      return;
+    }
     clearSuggest();          // the offer is spent the moment anything is asked
     const image = retry ? null : pendingImage;
     const drawing = retry ? null : pendingDraw;

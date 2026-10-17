@@ -17,7 +17,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Check, X } from "lucide-react";
+import { ArrowRight, X } from "lucide-react";
 import { inr, num } from "@/lib/billing/format";
 import { planById, planName, rankOf } from "@/lib/billing/catalog";
 import {
@@ -35,6 +35,8 @@ import { BillingToggle, UsageMeter } from "./primitives";
 import { PaywallArt } from "./art";
 import { PlanChangePanel } from "./PlanChange";
 import { BillingModal, PanelDesc, PanelTitle } from "./modal";
+import { SignInPanel } from "./SignInPanel";
+import { authForHere } from "@/lib/returnTo";
 
 function kicker(t: PaywallTrigger, cat: PublicCatalog): string {
   switch (t.kind) {
@@ -115,6 +117,11 @@ export function PaywallPanel(props: PaywallPanelProps): React.ReactElement {
   const copy = t.feature ? featureCopy(cat, t.feature) : null;
   const f = t.feature ? cat.features[t.feature] : undefined;
 
+  // Signed out: the account comes before any plan, in its own prompt.
+  if (t.kind === "signin") {
+    return <SignInPanel trigger={t} catalog={cat} onSignIn={props.onSignIn} onClose={onClose} closable={props.closable} />;
+  }
+
   if (changing && pick && me) {
     return (
       <PlanChangePanel
@@ -151,8 +158,6 @@ export function PaywallPanel(props: PaywallPanelProps): React.ReactElement {
     onCheckout(pick, cycle);
   };
 
-  const isSignin = t.kind === "signin";
-
   return (
     <div className="bl-panel bl-scope">
       {props.closable !== false ? (
@@ -180,24 +185,8 @@ export function PaywallPanel(props: PaywallPanelProps): React.ReactElement {
           />
         ) : null}
 
-        {isSignin ? (
-          <ul className="bl-benefits">
-            {[
-              t.feature === "ai.credits" && cat.plans[0]
-                ? `${num(Number(cat.plans[0].features["ai.credits"] ?? 0))} AI questions a month, free`
-                : "Your own alerts, layouts and conversations, saved",
-              "Alerts that reach you when you are away from the chart",
-              "No card required",
-            ].map((s) => (
-              <li key={s}>
-                <Check size={16} aria-hidden />
-                {s}
-              </li>
-            ))}
-          </ul>
-        ) : null}
 
-        {!isSignin && plans.length ? (
+        {plans.length ? (
           <div className="bl-stack">
             <div className="bl-row-flex" style={{ justifyContent: "space-between" }}>
               <span className="bl-h3" style={{ fontSize: 15 }}>
@@ -237,7 +226,7 @@ export function PaywallPanel(props: PaywallPanelProps): React.ReactElement {
           </div>
         ) : null}
 
-        {!isSignin && !plans.length ? (
+        {!plans.length ? (
           <p className="bl-small">
             You are on the highest limit available for this.
           </p>
@@ -245,19 +234,7 @@ export function PaywallPanel(props: PaywallPanelProps): React.ReactElement {
       </div>
 
       <div className="bl-panel-foot">
-        {isSignin ? (
-          <>
-            <button type="button" className="bl-btn bl-btn--primary bl-btn--lg bl-btn--block" onClick={() => props.onSignIn?.("signup")}>
-              Create a free account
-            </button>
-            <div className="bl-row-flex">
-              <span className="bl-small">Already have one?</span>
-              <button type="button" className="bl-link" onClick={() => props.onSignIn?.("login")}>
-                Sign in
-              </button>
-            </div>
-          </>
-        ) : t.kind === "evicted" ? (
+        {t.kind === "evicted" ? (
           <>
             <button type="button" className="bl-btn bl-btn--primary bl-btn--lg bl-btn--block" onClick={() => { props.onReclaim?.(); onClose("cta"); }}>
               Use this tab
@@ -288,7 +265,7 @@ export function PaywallPanel(props: PaywallPanelProps): React.ReactElement {
           <button type="button" className="bl-btn bl-btn--ghost bl-btn--sm" onClick={() => onClose("dismiss")}>
             Not now
           </button>
-          {props.onComparePlans && !isSignin ? (
+          {props.onComparePlans ? (
             <button type="button" className="bl-btn bl-btn--ghost bl-btn--sm" onClick={props.onComparePlans}>
               Compare all plans
             </button>
@@ -319,7 +296,7 @@ export function PaywallDialog(): React.ReactElement | null {
           router.push(checkoutHref(plan, cycle, { returnTo: back, feature: trigger.feature, surface: trigger.surface }))
         }
         onReclaim={() => window.dispatchEvent(new CustomEvent("pivot:reclaim-tab"))}
-        onSignIn={(mode) => router.push(`/${mode}?next=${encodeURIComponent(back)}`)}
+        onSignIn={(mode) => router.push(authForHere(mode === "signup" ? "/signup" : "/login"))}
         onComparePlans={() => {
           closePaywall("cta");
           router.push("/pricing");

@@ -597,12 +597,12 @@ def test_user_cannot_refund_their_own_turn(env):
     assert ledger_used(env, f"u:{uid}") == 15, "user refunded their own credits"
 
 
-def test_anonymous_chat_is_metered_per_client(env):
-    for i in range(3):
-        code, _ = chat(env, text=f"q{i}", turn=f"a{i}")
-        assert code == 200
-    code, out = chat(env, text="q3", turn="a3")
+def test_anonymous_chat_needs_an_account(env):
+    # Signed out has no AI credits (2026-10-17): the first question is the
+    # sign-in prompt, worded by the 402, and a free account is the way on.
+    code, out = chat(env, text="q0", turn="a0")
     assert code == 402 and out["plan"] == "anonymous"
+    assert out["code"] == "quota_exhausted" and out["limit"] == 0
     assert out["upgrade_to"] == "free"
 
 

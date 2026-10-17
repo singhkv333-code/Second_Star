@@ -22,6 +22,7 @@ export const LOADER_CUBES = asset(new URL("../public/loaders/isometric-cubes.svg
 export const PIVOT_MARK = asset(new URL("../public/pivot-mark.png", import.meta.url));
 export const PIVOT_ICON = asset(new URL("../public/pivot-icon.png", import.meta.url));
 export const PIVOT_LIGHT = asset(new URL("../public/pivot-light.png", import.meta.url));
+export const PIVOT_ALIEN = asset(new URL("../public/pivot-alien.png", import.meta.url));
 /** The welcome cards' art: two public-domain paintings and a generated one (scripts/welcome-art.py). */
 // The Home hero's asset cards (an import would need sharp, see above).
 export const HOME_ASSETS = {
@@ -34,6 +35,8 @@ export const WELCOME_ART = {
   sunset: asset(new URL("../public/welcome/sunset.webp", import.meta.url)),
   orb: asset(new URL("../public/welcome/orb.webp", import.meta.url)),
   moonlight: asset(new URL("../public/welcome/moonlight.webp", import.meta.url)),
+  /** The sign-in prompt's art: Friedrich, "Two Men Contemplating the Moon". */
+  moon: asset(new URL("../public/welcome/moon.webp", import.meta.url)),
 };
 
 const BROKER_LOGOS: Record<string, string> = {

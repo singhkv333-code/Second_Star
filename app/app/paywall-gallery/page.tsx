@@ -35,6 +35,7 @@ import {
 } from "@/components/billing/primitives";
 import { ComparisonTable, PlanCards, PricingFAQ } from "@/components/billing/pricing";
 import { PaywallPanel } from "@/components/billing/PaywallDialog";
+import { WelcomePanel } from "@/components/billing/WelcomeDialog";
 import { PlanChangePanel } from "@/components/billing/PlanChange";
 import { CancelPanel, type CancelStep } from "@/components/billing/CancelFlow";
 import { CheckoutView, type CheckoutPhase } from "@/components/billing/CheckoutView";
@@ -416,6 +417,18 @@ function Gallery(): React.ReactElement {
                       <CheckoutView plan="pro" feature="chart.panes" returnTo="/chart" initialPhase={phase} initialError={phase === "failed" ? "Your bank declined the payment." : undefined} />
                     </Demo>
                   </Frame>
+                </Item>
+              ))}
+              {(
+                [
+                  ["Welcome after payment: Pro", "active", "pro"],
+                  ["Welcome after payment: Pro+", "pro_plus", "pro_plus"],
+                ] as [string, Fixture, "pro" | "pro_plus"][]
+              ).map(([label, f, plan]) => (
+                <Item key={label} label={label}>
+                  <div className="bl-panel-inline" style={{ maxWidth: 520, margin: "0 auto" }}>
+                    <WelcomePanel plan={plan} catalog={cat} me={me(f)} onClose={() => {}} onBilling={() => {}} />
+                  </div>
                 </Item>
               ))}
               <Item label="Signed out" stage={false}>

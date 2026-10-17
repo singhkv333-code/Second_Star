@@ -681,7 +681,7 @@ const Layouts = (() => {
       else if (act === "csv") downloadData();
       else if (act === "new") createNew();
       else if (act === "openall") openPicker();
-      else if (act === "signin" && window.PIVOT_AUTH_OPEN) window.PIVOT_AUTH_OPEN();
+      else if (act === "signin" && window.PIVOT_SIGNIN) window.PIVOT_SIGNIN("save");
     });
 
     // ⌘S / Ctrl+S — TradingView's shortcut, and the browser's Save Page is

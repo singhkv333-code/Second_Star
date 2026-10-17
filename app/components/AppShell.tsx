@@ -77,6 +77,9 @@ import { QuickAsk } from "@/components/copilot/QuickAsk";
 import { AssistantPanel } from "@/components/copilot/AssistantPanel";
 import { warmAssist, type AssistPage } from "@/lib/assist";
 import { getAccessToken } from "@/lib/authToken";
+import { sessionToken } from "@/lib/session";
+import { authForHere } from "@/lib/returnTo";
+import { showPaywall } from "@/components/billing/BillingProvider";
 import { putPendingScreen } from "@/lib/screensApi";
 import type { PendingScreen } from "@/lib/screensApi";
 import { ScreenerPage } from "@/components/screener/ScreenerPage";
@@ -288,10 +291,19 @@ export type AppShellProps = {
 export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   const router = useRouter();
   const pathname = usePathname();
-  const [active, setActive] = useState<TabKey>(DEFAULT_TAB);
+  // Signed out: the GUEST workspace (AppBootstrap lets "/" through without a
+  // session). The chart is open to everyone; every other tab, and every step
+  // that needs an account, raises the sign-in prompt instead. Decided in the
+  // initial state, so a guest's first render is already the workspace and
+  // Home never mounts. Safe at "/": AppBootstrap holds a splash until its
+  // effect has run, so this shell never renders on the server there.
+  const [guest] = useState<boolean>(
+    () => typeof window !== "undefined" && pathname === "/" && !children && !sessionToken());
+  const guestRef = useRef(guest);
+  const [active, setActive] = useState<TabKey>(guest ? "chart" : DEFAULT_TAB);
   // Always-fresh mirror of `active` so callbacks memoized with [] deps can read
   // the current tab without being recreated on every tab change.
-  const activeRef = useRef<TabKey>(DEFAULT_TAB);
+  const activeRef = useRef<TabKey>(guest ? "chart" : DEFAULT_TAB);
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelWorkflow, setPanelWorkflow] = useState<Workflow | undefined>(undefined);
   // The tab the side editor was opened from. When the user navigates away from
@@ -324,12 +336,14 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   // it is resolved here. Starts "dark" so the first server/client paint agree;
   // the effect below corrects it before the frame is ever told anything.
   const [resolvedTheme, setResolvedTheme] = useState<"dark" | "light">("dark");
-  const [chartSymbol, setChartSymbol] = useState<string | undefined>(undefined);
+  // A guest opens on BTC with the Screener on the left (the chart reads
+  // ?panel=); a shared setup or a symbol in the URL still wins, below.
+  const [chartSymbol, setChartSymbol] = useState<string | undefined>(guest ? "BTCUSDT" : undefined);
   // A shared chart handed over from its bare link (`/?symbol=&view=&mine=1`,
   // see chart/js/setups.js makeItMine): the frame opens the setup and
   // finishes the copy INSIDE the shell. Cleared as soon as the user opens any
   // other chart, so it never re-applies.
-  const [chartQuery, setChartQuery] = useState<Record<string, string> | undefined>(undefined);
+  const [chartQuery, setChartQuery] = useState<Record<string, string> | undefined>(guest ? { panel: "screener" } : undefined);
   // Global trading mode (real/live vs paper). Mirrors the persisted store so
   // the toggle + banner re-render; the data layer reads the store directly.
   // Default 'paper' matches lib/trading-mode.ts DEFAULT_MODE so the first
@@ -410,7 +424,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   // and stay mounted-but-hidden afterwards — the pattern Chat always used —
   // so a revisit repaints instantly from live DOM, like a proper SPA.
   const [visitedTabs, setVisitedTabs] = useState<Set<TabKey>>(
-    () => new Set<TabKey>([DEFAULT_TAB]),
+    () => new Set<TabKey>([guest ? "chart" : DEFAULT_TAB]),
   );
   useEffect(() => {
     setVisitedTabs((prev) =>
@@ -594,6 +608,11 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     // A tab switched off for launch (an old #chat or #agents link) shows
     // Home and says so in the address bar.
     const syncHash = (): void => {
+      if (guestRef.current) {
+        window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#chart`);
+        setActive("chart");
+        return;
+      }
       const raw = window.location.hash.replace(/^#/, "");
       if ((raw === "chat" || raw === "agents" || raw === "brokers") && !tabEnabled(raw)) {
         window.history.replaceState(null, "", `#${DEFAULT_TAB}`);
@@ -663,8 +682,9 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
       /* storage unavailable — skip the notice */
     }
 
-    // Load conversations from real backend
-    void fetchConversations().then(setConversations);
+    // Load conversations from real backend (a guest has none)
+    const signedIn = Boolean(sessionToken());
+    if (signedIn) void fetchConversations().then(setConversations);
 
     // Load /auth/me for the avatar initial. Mirrors Quartr's
     // TopHeader.jsx::getInitial(user) pattern (first letter of name
@@ -677,7 +697,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     // (instead of a bespoke fetch) also means this coalesces with
     // DashboardTab's own `getMe()` mount call via lib/api.ts's in-flight
     // GET de-dupe, instead of firing a second, uncoalesced /auth/me request.
-    void getMe().then((result) => {
+    if (signedIn) void getMe().then((result) => {
       if (isError(result)) return;
       const { full_name, email } = result.data;
       const src = (full_name && full_name.trim()) || email || "";
@@ -776,6 +796,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
 
   // Metric strip loading
   const loadMetrics = useCallback((): void => {
+    if (guestRef.current) { setMetrics({ kind: "hidden" }); return; }
     getPortfolioSummary()
       .then((result) => {
         if (isError(result)) {
@@ -920,6 +941,11 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   }, []);
 
   const goTab = useCallback((target: TabKey): void => {
+    // A guest has the chart; any other tab reads an account.
+    if (guestRef.current && target !== "chart") {
+      showPaywall({ kind: "signin", plan: "anonymous", feature: `tab:${target}`, surface: "nav" });
+      return;
+    }
     // A tab switched off for launch (lib/launch.ts) lands on Home, so no link,
     // shortcut or old bookmark opens a page that is not there.
     const key: TabKey = tabEnabled(target) ? target : DEFAULT_TAB;
@@ -1407,10 +1433,11 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
           sidebarCollapsed={sidebarCollapsed}
           isDesktop={isDesktop}
           onToggleSidebar={() => setSidebarCollapsed((collapsed) => !collapsed)}
-          onBrandClick={() => goTab("home")}
+          onBrandClick={() => goTab(guest ? "chart" : "home")}
           onOpenChart={openChart}
-          onLogout={async () => {
-            await logoutUser();
+          guest={guest}
+          onLogout={async (everywhere?: boolean) => {
+            await logoutUser(everywhere);
             router.replace("/login");
           }}
           onOpenShortcuts={() => setShortcutsOpen(true)}
@@ -1426,7 +1453,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
           onTabChange={goTab}
           mobileOpen={mobileNavOpen}
           onMobileClose={() => setMobileNavOpen(false)}
-          onBrandClick={() => goTab("home")}
+          onBrandClick={() => goTab(guest ? "chart" : "home")}
         />
       )}
 
@@ -1609,7 +1636,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
               {children}
             </div>
           )}
-          {visitedTabs.has("home") && (
+          {visitedTabs.has("home") && !guest && (
             // Home — fit-to-screen bento dashboard. overflow-hidden so the
             // bento grid fills the pane without an outer scrollbar; individual
             // cards fall back to scroll if a viewport is very short.
@@ -1792,7 +1819,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
       {/* First-run guided tour (spotlight coach marks). Auto-starts once per
           browser on the home shell; replayable from Help → "Replay the tour".
           Disabled on sub-routes (children) where its targets don't exist. */}
-      <ProductTour activeTab={active} onTabChange={goTab} enabled={!children} />
+      <ProductTour activeTab={active} onTabChange={goTab} enabled={!children && !guest} />
 
       <ReportBugDialog
         open={reportBugOpen}
@@ -1848,7 +1875,9 @@ function TopHeader({
   onLogout,
   onOpenShortcuts,
   onReportBug,
+  guest = false,
 }: {
+  guest?: boolean;
   variant?: "default" | "chart";
   theme: Theme;
   onChooseTheme: (t: Theme) => void;
@@ -1866,7 +1895,7 @@ function TopHeader({
   onToggleSidebar: () => void;
   onBrandClick: () => void;
   onOpenChart: (symbol: string) => void;
-  onLogout: () => void;
+  onLogout: (everywhere?: boolean) => void;
   onOpenShortcuts: () => void;
   onReportBug: () => void;
 }): React.ReactElement {
@@ -1954,8 +1983,32 @@ function TopHeader({
       {/* Right cluster — metric stack + account menu. The broker connection
           moved to the sidebar foot (<BrokerSidebarButton/>). */}
       <div className="ml-auto flex shrink-0 items-center gap-3 lg:gap-4">
-        {variant === "default" && <MetricStrip metrics={metrics} />}
-        <AccountMenu
+        {variant === "default" && !guest && <MetricStrip metrics={metrics} />}
+        {guest ? (
+          // The open workspace: the account is one click away, never a wall.
+          <div className="flex items-center gap-2">
+            {variant === "default" && (
+              <button
+                type="button"
+                onClick={() => router.push(authForHere("/login"))}
+                className="h-8 rounded-md px-3 text-[13px] font-medium"
+                style={{ color: "var(--text-primary)" }}
+                data-testid="guest-login"
+              >
+                Sign in
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => router.push(authForHere("/signup"))}
+              className="h-8 rounded-md px-3 text-[13px] font-semibold"
+              style={{ background: "var(--text-primary)", color: "var(--bg-base, #fff)" }}
+              data-testid="guest-signup"
+            >
+              Create free account
+            </button>
+          </div>
+        ) : <AccountMenu
           theme={theme}
           onChooseTheme={onChooseTheme}
           tradingMode={tradingMode}
@@ -1971,7 +2024,7 @@ function TopHeader({
           sidebarCollapsed={sidebarCollapsed}
           isDesktop={isDesktop}
           onToggleSidebar={onToggleSidebar}
-        />
+        />}
       </div>
     </header>
   );
@@ -2008,7 +2061,7 @@ function AccountMenu({
   accountEmail: string;
   onOpenBroker: () => void;
   onOpenSettings: () => void;
-  onLogout: () => void;
+  onLogout: (everywhere?: boolean) => void;
   onOpenShortcuts: () => void;
   onReportBug: () => void;
   sidebarCollapsed: boolean;
@@ -2209,6 +2262,7 @@ function AccountMenu({
           )}
           <div aria-hidden={true} style={{ height: 1, background: "var(--glass-border)", margin: "5px -5px" }} />
           <MenuItem icon={LogOut} label="Sign out" testId="menu-logout-chart-style" onClick={() => { setOpen(false); onLogout(); }} />
+          <MenuItem icon={LogOut} label="Sign out everywhere" testId="menu-logout-everywhere" onClick={() => { setOpen(false); onLogout(true); }} />
 
         </div>
       )}
