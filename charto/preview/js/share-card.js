@@ -4,10 +4,12 @@
  * The chart is captured, not redrawn: takeScreenshot(true) returns the
  * primary pane at device resolution with every series primitive composited —
  * the author's drawings, what the chat drew, indicators, the axes. A redraw
- * could only ever approximate that. On top of it go three things the canvas
- * does not carry: the company's mark and symbol where the legend sits, the
- * author's name as a faint watermark inside the plot, and the Pivot wordmark
- * (assets/pivot-logo.svg) small in the corner. No other words.
+ * could only ever approximate that. On top of it go the things the canvas
+ * does not carry, as the screen shows them: the legend (logo, ticker,
+ * interval, venue, the OHLC row, each indicator's reading) copied off the
+ * page in its own fonts and colours, the alien badge in its corner, and the
+ * author's name as a faint watermark inside the plot. The legend's controls
+ * stay behind: a card has nothing to click.
  *
  * Returns "" when there is no chart to capture, so the caller falls back to
  * SharePreview. */
@@ -17,9 +19,8 @@ const ShareCard = (() => {
   const W = 1200, H = 630;
   const MAX_URL = 640_000;                        // under shares.OG_IMAGE_MAX
   const SANS = "Inter, ui-sans-serif, -apple-system, Arial, sans-serif";
-  const LOGO_W = 847, LOGO_H = 319;               // assets/pivot-logo.svg
+  const LEGEND = 1.5;                             // card px per css px of legend
   const CARD_FONT = 17;                           // axis type in the capture
-  const INSET = 30;                               // inside every platform's crop
 
   const loadImage = (src, cors) => new Promise((resolve) => {
     if (!src) return resolve(null);
@@ -64,14 +65,101 @@ const ShareCard = (() => {
     return lum < 0.5 ? { ink: "#ffffff", dark: true } : { ink: "#0d0d0e", dark: false };
   }
 
-  function tinted(img, w, h, color) {
-    const c = document.createElement("canvas");
-    c.width = Math.round(w * 2); c.height = Math.round(h * 2);
-    const x = c.getContext("2d");
-    x.drawImage(img, 0, 0, c.width, c.height);
-    x.globalCompositeOperation = "source-in";
-    x.fillStyle = color; x.fillRect(0, 0, c.width, c.height);
-    return c;
+  /** The page's legend, redrawn on the card: every visible piece of text in
+   *  `.readout` at its own position, font and colour, scaled by `k` from the
+   *  chart's top-left corner, plus the company logo. Icons, buttons and
+   *  anything faded to nothing are skipped — those are the controls. Returns
+   *  the box it covered (card px) so a plate can sit under it. */
+  const SKIP = "svg, button, .ind-acts, .company-page-icon, .ind-toggle";
+  function legendRuns(origin) {
+    const ro = document.querySelector(".readout");
+    if (!ro) return [];
+    const runs = [];
+    const seen = (el) => {
+      let a = 1;
+      for (let e = el; e && e !== ro.parentElement; e = e.parentElement) {
+        const cs = getComputedStyle(e);
+        if (cs.display === "none" || cs.visibility === "hidden") return 0;
+        a *= Number(cs.opacity);
+      }
+      return a;
+    };
+    const walk = document.createTreeWalker(ro, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+    for (let n = walk.currentNode; n; n = walk.nextNode()) {
+      const el = n.nodeType === 1 ? n : n.parentElement;
+      if (!el || el.closest(SKIP)) continue;
+      if (n.nodeType === 1 && n.tagName !== "IMG") continue;
+      if (n.nodeType === 3 && !n.nodeValue.trim()) continue;
+      const alpha = seen(el);
+      if (alpha < 0.05) continue;
+      let r;
+      if (n.nodeType === 3) { const rg = document.createRange(); rg.selectNodeContents(n); r = rg.getBoundingClientRect(); }
+      else r = n.getBoundingClientRect();
+      if (!r.width || !r.height) continue;
+      const cs = getComputedStyle(el);
+      runs.push({
+        img: n.nodeType === 1 ? n.currentSrc || n.src : "",
+        text: n.nodeType === 3 ? n.nodeValue.replace(/\s+/g, " ") : "",
+        x: r.left - origin.left, y: r.top - origin.top, w: r.width, h: r.height,
+        font: [cs.fontStyle, cs.fontWeight, cs.fontSize, cs.fontFamily],
+        tracking: parseFloat(cs.letterSpacing) || 0,
+        color: cs.color, alpha, round: parseFloat(cs.borderTopLeftRadius) >= r.width / 2 - 1,
+      });
+    }
+    return runs;
+  }
+
+  async function drawLegend(ctx, runs, k, bg) {
+    if (!runs.length) return;
+    const imgs = await Promise.all(runs.map((r) => (r.img ? loadImage(r.img, true) : null)));
+    // One plate per legend row, hugging it: a level running through the row
+    // breaks once, cleanly, around the whole line rather than between words.
+    const rows = [];
+    for (const r of runs) {
+      const mid = r.y + r.h / 2;
+      const row = rows.find((w) => Math.abs(w.mid - mid) < r.h / 2);
+      if (row) { row.x0 = Math.min(row.x0, r.x); row.x1 = Math.max(row.x1, r.x + r.w); row.y0 = Math.min(row.y0, r.y); row.y1 = Math.max(row.y1, r.y + r.h); }
+      else rows.push({ mid, x0: r.x, x1: r.x + r.w, y0: r.y, y1: r.y + r.h });
+    }
+    ctx.save();
+    ctx.fillStyle = bg; ctx.globalAlpha = 0.9;
+    for (const w of rows) {
+      ctx.beginPath();
+      ctx.roundRect(w.x0 * k - 6, w.y0 * k - 1, (w.x1 - w.x0) * k + 12, (w.y1 - w.y0) * k + 2, 6);
+      ctx.fill();
+    }
+    ctx.restore();
+    runs.forEach((r, i) => {
+      ctx.save();
+      ctx.globalAlpha = r.alpha;
+      if (r.img) {
+        const im = imgs[i];
+        if (im) {
+          ctx.beginPath();
+          if (r.round) ctx.arc((r.x + r.w / 2) * k, (r.y + r.h / 2) * k, (r.w / 2 + 2) * k, 0, Math.PI * 2);
+          ctx.fillStyle = bg; ctx.fill();
+          ctx.beginPath();
+          if (r.round) ctx.arc((r.x + r.w / 2) * k, (r.y + r.h / 2) * k, (r.w / 2) * k, 0, Math.PI * 2);
+          else ctx.rect(r.x * k, r.y * k, r.w * k, r.h * k);
+          ctx.clip();
+          ctx.drawImage(im, r.x * k, r.y * k, r.w * k, r.h * k);
+        }
+      } else {
+        const [style, weight, size, family] = r.font;
+        font(ctx, `${style} ${weight} ${parseFloat(size) * k}px ${family}`, r.tracking * k);
+        ctx.textBaseline = "alphabetic";
+        const m = ctx.measureText(r.text);
+        const asc = m.fontBoundingBoxAscent, desc = m.fontBoundingBoxDescent;
+        // the range box is the font's content area: centre that on the run
+        const bx = r.x * k, by = r.y * k + (r.h * k - (asc + desc)) / 2 + asc;
+        // A halo of the chart's own ground, not a plate: a line or a wick
+        // stops a hair short of each letter and carries on between them.
+        ctx.lineJoin = "round"; ctx.lineWidth = 4 * k; ctx.strokeStyle = bg;
+        ctx.strokeText(r.text, bx, by);
+        ctx.fillStyle = r.color; ctx.fillText(r.text, bx, by);
+      }
+      ctx.restore();
+    });
   }
 
   /** The chart, laid out at the card's shape for the instant of the
@@ -117,11 +205,14 @@ const ShareCard = (() => {
     return "";
   }
 
-  /* opts: { symbol, interval, logo, by } */
+  /* opts: { by } — the author, for the watermark */
   async function render(opts = {}) {
     const c = window.__charto;
     const el = document.getElementById("chart");
     if (!c || !c.chart || !el) return "";
+    // Read before the capture: resizing the chart re-renders the legend, and
+    // for that moment an indicator's reading is blank.
+    const runs = legendRuns(el.getBoundingClientRect());
     const shot = captureAtCardSize(c.chart, el);
     if (!shot || !shot.width || !shot.height) return "";
 
@@ -137,11 +228,7 @@ const ShareCard = (() => {
     if (document.fonts && document.fonts.load) {
       await Promise.all([`700 22px ${SANS}`, `600 72px ${SANS}`].map((s) => document.fonts.load(s).catch(() => null)));
     }
-    const src = opts.logo || "";
-    const [mark, wordmark] = await Promise.all([
-      loadImage(src, src && !src.startsWith("/") && !src.startsWith(location.origin)),
-      loadImage("assets/pivot-logo.svg"),
-    ]);
+    const badge = await loadImage("assets/pivot-alien.png?v=5");
 
     const canvas = document.createElement("canvas");
     canvas.width = W; canvas.height = H;
@@ -173,56 +260,22 @@ const ShareCard = (() => {
       ctx.restore();
     }
 
-    // The company's mark and symbol, where the chart's legend sits, on a soft
-    // plate of the chart's own ground so a candle under it cannot cut it.
-    const lx = plot.x0 + INSET, ly = plot.y0 + INSET - 4, ls = 40;
-    font(ctx, `700 22px ${SANS}`, -0.2);
-    const symW = ctx.measureText(String(opts.symbol || "").toUpperCase().slice(0, 18)).width;
-    font(ctx, `600 14px ${SANS}`, 0.3);
-    const ivW = opts.interval ? ctx.measureText(String(opts.interval).slice(0, 6)).width + 26 : 0;
-    ctx.save();
-    ctx.beginPath(); ctx.roundRect(lx - 8, ly - 7, ls + 12 + symW + ivW + 24, ls + 14, 26);
-    ctx.fillStyle = bg; ctx.globalAlpha = 0.86; ctx.fill();
-    ctx.restore();
-    ctx.save();
-    ctx.beginPath(); ctx.arc(lx + ls / 2, ly + ls / 2, ls / 2, 0, Math.PI * 2);
-    ctx.fillStyle = mark ? "#ffffff" : (dark ? "#1b1d21" : "#eceef0"); ctx.fill();
-    if (mark) {
-      ctx.clip();
-      const k = Math.min((ls - 6) / mark.width, (ls - 6) / mark.height);
-      ctx.drawImage(mark, lx + (ls - mark.width * k) / 2, ly + (ls - mark.height * k) / 2, mark.width * k, mark.height * k);
-    } else {
-      ctx.fillStyle = ink; font(ctx, `700 17px ${SANS}`);
-      ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillText(String(opts.symbol || "?").slice(0, 1).toUpperCase(), lx + ls / 2, ly + ls / 2 + 1);
-    }
-    ctx.restore();
-    ctx.save();
-    ctx.fillStyle = ink; ctx.textBaseline = "middle";
-    font(ctx, `700 22px ${SANS}`, -0.2);
-    const sym = String(opts.symbol || "").toUpperCase().slice(0, 18);
-    ctx.fillText(sym, lx + ls + 12, ly + ls / 2 + 1);
-    if (opts.interval) {
-      const ix = lx + ls + 12 + ctx.measureText(sym).width + 10;
-      font(ctx, `600 14px ${SANS}`, 0.3);
-      const label = String(opts.interval).slice(0, 6), w = ctx.measureText(label).width + 16;
-      ctx.beginPath(); ctx.roundRect(ix, ly + ls / 2 - 12, w, 24, 7);
-      ctx.fillStyle = dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)"; ctx.fill();
-      ctx.fillStyle = dark ? "rgba(255,255,255,0.72)" : "rgba(0,0,0,0.62)";
-      ctx.fillText(label, ix + 8, ly + ls / 2 + 1);
-    }
-    ctx.restore();
+    // The legend, as large as fits left of the price axis.
+    const span = runs.length ? Math.max(...runs.map((r) => r.x + r.w)) : 0;
+    await drawLegend(ctx, runs, Math.min(LEGEND, span ? (plot.x1 - 24) / span : LEGEND), bg);
 
-    // The Pivot wordmark, small, bottom left of the plot.
-    if (wordmark) {
-      const h = 26, w = h * LOGO_W / LOGO_H;
+    // The alien badge, where the chart keeps it: bottom left, above the time
+    // axis, on its white plate with a thin ring.
+    if (badge) {
+      const d = 40 * LEGEND, x = 10 * LEGEND, y = plot.y1 - 10 * LEGEND - d;
       ctx.save();
-      // on the same soft plate as the legend: it sits over the volume bars
-      ctx.beginPath();
-      ctx.roundRect(plot.x0 + INSET - 12, plot.y1 - h - INSET - 2, w + 24, h + 16, 12);
-      ctx.fillStyle = bg; ctx.globalAlpha = 0.86; ctx.fill();
-      ctx.globalAlpha = 0.85;
-      ctx.drawImage(tinted(wordmark, w, h, ink), plot.x0 + INSET, plot.y1 - h - INSET + 6, w, h);
+      ctx.shadowColor = "rgba(19,23,34,.18)"; ctx.shadowBlur = 3; ctx.shadowOffsetY = 1;
+      ctx.beginPath(); ctx.arc(x + d / 2, y + d / 2, d / 2, 0, Math.PI * 2);
+      ctx.fillStyle = "#ffffff"; ctx.fill();
+      ctx.shadowColor = "transparent";
+      ctx.strokeStyle = "rgba(19,23,34,.12)"; ctx.lineWidth = 1; ctx.stroke();
+      const inset = 2 * LEGEND;
+      ctx.drawImage(badge, x + inset, y + inset, d - 2 * inset, d - 2 * inset);
       ctx.restore();
     }
     return encode(canvas);
