@@ -11,7 +11,9 @@
  *     webhook confirmed after the page closed, or one finished in another tab.
  *
  * The benefits are the plan's own catalog values (PLAN_COPY highlights), so
- * the dialog never promises a number the server does not enforce.
+ * the dialog never promises a number the server does not enforce. With the
+ * paywall switched off (PAYWALL_ENABLED) every limit but AI credits is lifted
+ * for everyone, so only the metered allowance is a real difference to list.
  */
 
 import * as React from "react";
@@ -25,6 +27,8 @@ import { BillingModal, PanelDesc, PanelTitle } from "./modal";
 
 const SEEN = "pivot-welcome-seen:";
 const RECENT = 2 * 86400;
+/** metered even with the paywall off (entitlements.paywall_enabled) */
+const METERED = "ai.credits";
 
 export function welcomeSeen(plan: PaidPlanId): boolean {
   try { return localStorage.getItem(SEEN + plan) === "1"; } catch { return true; }
@@ -61,7 +65,9 @@ export function WelcomePanel({
 }): React.ReactElement {
   const target = planById(catalog, plan);
   const name = target?.name ?? (plan === "pro" ? "Pro" : "Pro+");
+  const enforced = me?.paywall_enabled !== false;
   const benefits = PLAN_COPY[plan].highlights.flatMap((k) => {
+    if (!enforced && k !== METERED) return [];
     const f = catalog.features[k];
     const v = target?.features[k];
     if (!f || v === undefined || isUnbuilt(k, f) || !isShown(catalog, k)) return [];

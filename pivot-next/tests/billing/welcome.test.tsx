@@ -45,6 +45,13 @@ describe("welcome panel", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it("with the paywall off, lists only the metered allowance, the one real difference", () => {
+    const off = { ...fixtureMe("active", cat, NOW), paywall_enabled: false };
+    render(<WelcomePanel plan="pro" catalog={cat} me={off} onClose={vi.fn()} onBilling={vi.fn()} />);
+    expect(screen.getByText("200 AI credits a month")).toBeInTheDocument();
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+  });
+
   it("Pro+ shows its own benefits", () => {
     render(<WelcomePanel plan="pro_plus" catalog={cat} me={fixtureMe("pro_plus", cat, NOW)} onClose={vi.fn()} onBilling={vi.fn()} />);
     expect(screen.getByText("Welcome to Pivot Pro+")).toBeInTheDocument();
