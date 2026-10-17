@@ -25,8 +25,9 @@ import {
   type PaywallTrigger,
 } from "@/lib/billing/entitlements";
 import { track } from "@/lib/billing/analytics";
-import type { BillingMe, PublicCatalog } from "@/lib/billing/types";
+import type { BillingMe, PaidPlanId, PublicCatalog } from "@/lib/billing/types";
 import { PaywallDialog } from "./PaywallDialog";
+import { markWelcomed, unwelcomedPlan, WelcomeDialog } from "./WelcomeDialog";
 
 type BillingCtx = {
   catalog: PublicCatalog;
@@ -42,6 +43,8 @@ type BillingCtx = {
   trigger: PaywallTrigger | null;
   openPaywall: (t: PaywallTrigger | unknown) => void;
   closePaywall: (reason?: "dismiss" | "cta") => void;
+  /** a payment just made `plan` active: show the welcome once */
+  celebrate: (plan: PaidPlanId) => void;
   /** gallery / tests: fixed data, no network */
   demo: boolean;
 };
@@ -86,6 +89,7 @@ export function BillingProvider({
   const [loading, setLoading] = React.useState(!demo && initial?.me === undefined);
   const [error, setError] = React.useState<string | null>(null);
   const [trigger, setTrigger] = React.useState<PaywallTrigger | null>(null);
+  const [welcome, setWelcome] = React.useState<PaidPlanId | null>(null);
 
   // Demo data follows its props (the gallery swaps fixtures).
   React.useEffect(() => {
@@ -147,6 +151,20 @@ export function BillingProvider({
     [],
   );
 
+  const celebrate = React.useCallback((plan: PaidPlanId) => {
+    markWelcomed(plan);
+    setTrigger(null);
+    setWelcome(plan);
+  }, []);
+
+  // A payment confirmed somewhere this page did not see (the webhook after the
+  // tab closed, another tab): welcome it on the next load, once.
+  React.useEffect(() => {
+    if (demo || !mountDialog) return;
+    const plan = unwelcomedPlan(me);
+    if (plan) celebrate(plan);
+  }, [demo, mountDialog, me, celebrate]);
+
   React.useEffect(() => {
     const on = (e: Event): void => openPaywall((e as CustomEvent).detail);
     window.addEventListener("pivot:paywall", on);
@@ -165,15 +183,17 @@ export function BillingProvider({
       trigger,
       openPaywall,
       closePaywall,
+      celebrate,
       demo,
     }),
-    [catalog, me, loading, error, demo, refresh, trigger, openPaywall, closePaywall],
+    [catalog, me, loading, error, demo, refresh, trigger, openPaywall, closePaywall, celebrate],
   );
 
   return (
     <Ctx.Provider value={value}>
       {children}
       {mountDialog ? <PaywallDialog /> : null}
+      {mountDialog ? <WelcomeDialog plan={welcome} catalog={catalog} me={me} onClose={() => setWelcome(null)} /> : null}
     </Ctx.Provider>
   );
 }
