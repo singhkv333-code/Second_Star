@@ -6,8 +6,11 @@
  *
  *   The ladder   an isometric stack of glass plates (the 30-seconds-of-code
  *                isometric card: rotateX 51°, rotateZ 43°), one plate per
- *                rung of the strategy engine's trust ladder, lifting in turn
- *                beside its numbered step. Under it, the verdict scale, with
+ *                rung of the strategy engine's trust ladder. The stack opens
+ *                at the lit step: the plates above it rise to make room and
+ *                the lit plate lifts into the gap. (Lifting it alone, by half
+ *                a gap, pushed it under the blurred glass above, where it
+ *                could not be seen.) Under it, the verdict scale, with
  *                the real verdict for the backtest the desk shows lit.
  *   Three cards  server-checked alerts, the paper book, and the desk's real
  *                backtest set beside holding.
@@ -93,7 +96,7 @@ export function Honest(): React.ReactElement {
           <div className="hn-iso" aria-hidden="true">
             <div className="hn-stack">
               {STEPS.map((s, i) => (
-                <div key={s.n} className={`hn-plate${i === k ? " on" : ""}`} style={{ "--z": i } as React.CSSProperties}>
+                <div key={s.n} className={`hn-plate${i === k ? " on" : i > k ? " up" : ""}`} style={{ "--z": i } as React.CSSProperties}>
                   <span className="hn-pt"><i>{s.n}</i>{s.t}</span>
                 </div>
               ))}
