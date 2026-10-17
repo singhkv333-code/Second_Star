@@ -3,6 +3,7 @@
 
     python3 enable_paywall.py report     read-only: who the Free caps would touch
     python3 enable_paywall.py enable     the same report, then switch on
+    python3 enable_paywall.py enforce    switch on even if alerts pause (the owner's call)
 
 With the switch on, every catalog limit is enforced (docs/paywall/README.md
 "What is enforced") and the hourly plan sweep brings ARMED alerts inside each
@@ -126,7 +127,7 @@ def main(mode):
     print("IMPACT", json.dumps(report))
     if mode == "report":
         return
-    if report["accounts_paused"]:
+    if report["accounts_paused"] and mode != "enforce":
         raise RuntimeError("Existing accounts would have alerts paused; settle grandfathering first")
     if DROPIN.exists():
         raise RuntimeError("Paywall drop-in already exists; inspect before changing")
@@ -164,8 +165,8 @@ def main(mode):
 
 if __name__ == "__main__":
     mode = sys.argv[1] if len(sys.argv) > 1 else "report"
-    if mode not in ("report", "enable"):
-        raise SystemExit("usage: enable_paywall.py report|enable")
+    if mode not in ("report", "enable", "enforce"):
+        raise SystemExit("usage: enable_paywall.py report|enable|enforce")
     try:
         main(mode)
     except Exception as exc:
