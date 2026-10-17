@@ -83,7 +83,7 @@ HEADERS = [
     ("Strict-Transport-Security", "max-age=63072000; includeSubDomains"),
     ("X-Frame-Options", "DENY"),
     ("X-Content-Type-Options", "nosniff"),
-    ("Referrer-Policy", "no-referrer"),
+    ("Referrer-Policy", "same-origin"),
     ("Cross-Origin-Opener-Policy", "same-origin"),
     ("Cross-Origin-Resource-Policy", "same-origin"),
     ("Cross-Origin-Embedder-Policy", "require-corp"),
@@ -201,11 +201,21 @@ def _host_ok(environ) -> bool:
 
 
 def _origin_ok(environ) -> bool:
+    """Did this write come from the console's own page?
+
+    A browser says so in Sec-Fetch-Site, which no page can set. Origin is the
+    fallback for browsers without it; a form POST can carry `Origin: null`
+    (privacy settings, referrer policies), so null alone never passes. The
+    CLI sends neither and names itself; a cross-site page cannot add that
+    header without a CORS preflight this app never answers."""
     host = environ.get("HTTP_HOST", "")
     origin = environ.get("HTTP_ORIGIN", "")
-    if environ.get("HTTP_SEC_FETCH_SITE", "same-origin") not in ("same-origin", "none"):
-        return False
-    return origin == f"https://{host}" or (not origin and environ.get("HTTP_X_CONSOLE_CLIENT") == "cli")
+    site = environ.get("HTTP_SEC_FETCH_SITE", "")
+    if site:
+        return site == "same-origin"
+    if origin:
+        return origin == f"https://{host}"
+    return environ.get("HTTP_X_CONSOLE_CLIENT") == "cli"
 
 
 def _cookie(environ) -> str:

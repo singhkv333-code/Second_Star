@@ -83,6 +83,19 @@ def test_every_response_carries_the_security_headers():
     assert "noindex" in h["X-Robots-Tag"]
 
 
+def test_a_real_browser_form_post_with_origin_null_signs_in():
+    """Chrome sends Origin: null on a form POST under some referrer policies;
+    Sec-Fetch-Site is what proves the page was ours."""
+    form = urllib.parse.urlencode({"password": "right-horse-battery"}).encode()
+    browser = {"Origin": "null", "Sec-Fetch-Site": "same-origin", "Content-Type": "application/x-www-form-urlencoded"}
+    assert call("POST", "/login", form, headers=browser)[0] == 303
+    assert call("POST", "/login", form, headers={**browser, "Sec-Fetch-Site": "cross-site"})[0] == 403
+    assert call("POST", "/login", form, headers={"Origin": "null"})[0] == 403
+    assert call("POST", "/login", form, headers={"Origin": "https://evil.example"})[0] == 403
+    assert call("POST", "/login", form)[0] == 403                         # nothing at all
+    assert call("POST", "/login", form, headers={"X-Console-Client": "cli"})[0] == 303
+
+
 def test_the_cookie_is_host_only_secure_httponly_strict():
     code, h, _, _ = login()
     c = h["Set-Cookie"]
