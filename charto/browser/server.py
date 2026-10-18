@@ -649,7 +649,10 @@ async def main() -> None:
     await egress.serve(PROXY_PORT)
     await launch()
     asyncio.ensure_future(reaper())
+    # open_timeout covers process_request, and /shot answers from inside it:
+    # the library's 10 s default cut off a screenshot still loading the page.
     async with serve(handler, "0.0.0.0", PORT, process_request=process_request,
+                     open_timeout=SHOT_TIMEOUT + 20,
                      max_size=1 << 20, ping_interval=20, ping_timeout=30, compression=None):
         log.info("listening on :%d (max %d sessions)", PORT, MAX_SESSIONS)
         await asyncio.Future()
