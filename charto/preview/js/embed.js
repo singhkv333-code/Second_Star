@@ -173,11 +173,15 @@
   // uses this to label its own chrome — it cannot read the iframe's URL
   // (same-origin would allow it, but the shell should not be reaching into
   // this app's internals to find out something the app can simply say).
-  const announce = () => {
+  const announce = (tries = 0) => {
     // A loaded HTML document is not sufficient: failed scripts can leave
     // the static controls on screen without ever constructing the chart.
+    // But the canvas can also simply be late (a slow device, a slow first
+    // fetch), and saying "error" once on `load` left the shell on "Loading
+    // chart…" for good. So look again for up to ten seconds first.
     if (!document.querySelector("#chart canvas")) {
-      tell({ type: "chart:error" });
+      if (tries < 40) setTimeout(() => announce(tries + 1), 250);
+      else tell({ type: "chart:error" });
       return;
     }
     let symbol = null;
