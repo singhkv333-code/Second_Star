@@ -396,7 +396,16 @@ const Setups = (() => {
       try {
         const desk = await deskOf(state.include_data, [...new Set((spec.charts || []).map((x) => x.symbol))]);
         let ogImage = "";
+        // The card is the author's chart as captured, drawings and all; the
+        // older summary card stays as the fallback when there is no chart.
         try {
+          ogImage = await ShareCard.render({
+            symbol: sym, interval: iv,
+            logo: Universe.logo(sym) || Universe.logo(Universe.baseSymbol(sym)) || "",
+            by: (Auth.user && Auth.user.name) || "",
+          });
+        } catch (e) { console.warn("Chart share card unavailable", e); }
+        if (!ogImage) try {
           ogImage = await SharePreview.render({
             title, note: note.value, thumb, symbol: sym, interval: iv,
             bars: onScreen(c), chart: Layouts.capture(1400, 0.92),

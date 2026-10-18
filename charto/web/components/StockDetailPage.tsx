@@ -2393,7 +2393,7 @@ function FinancialsTable({
     if (financials?.available) return buildBalanceSheetFromDB(financials, null);
     return buildBalanceSheetEstimate();
   }, [financials]);
-  const source = financials?.available ? "Moneycontrol" : "placeholder";
+  const source = financials?.available ? "Pivot financials" : "Data unavailable";
   return (
     <FinancialsLikeTable
       title="Balance Sheet"
@@ -2418,7 +2418,7 @@ function ProfitLossTable({
     if (financials?.available) return buildProfitLossFromDB(financials, null);
     return buildProfitLoss(quote);
   }, [quote, financials]);
-  const source = financials?.available ? "Moneycontrol" : "placeholder";
+  const source = financials?.available ? "Pivot financials" : "Data unavailable";
   return (
     <FinancialsLikeTable
       title="Profit and Loss"

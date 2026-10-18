@@ -193,6 +193,31 @@ export function ChartFrame({
     return () => window.removeEventListener("pivot:workspace-colors", sync);
   }, [ready, theme, post]);
 
+  // Hidden shell tabs do not reliably trigger the chart's own resize observer.
+  useEffect(() => {
+    const frame = ref.current;
+    if (!ready || !frame) return;
+    let pending = 0;
+    const notify = (): void => {
+      cancelAnimationFrame(pending);
+      pending = requestAnimationFrame(() => {
+        if (frame.clientWidth > 0 && frame.clientHeight > 0 && !document.hidden)
+          post({ type: "pivot:chart-resize" });
+      });
+    };
+    const observer = new ResizeObserver(notify); observer.observe(frame);
+    const intersection = typeof IntersectionObserver !== "undefined" ? new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) notify();
+    }) : null;
+    intersection?.observe(frame);
+    window.addEventListener("resize", notify); document.addEventListener("visibilitychange", notify);
+    notify();
+    return () => {
+      observer.disconnect(); intersection?.disconnect(); cancelAnimationFrame(pending);
+      window.removeEventListener("resize", notify); document.removeEventListener("visibilitychange", notify);
+    };
+  }, [ready, post]);
+
   // The shell's global Quick Ask is only a presentation bridge on Chart. The
   // message is handed to Charto's own chat model and thread; Pivot Copilot is
   // deliberately not involved on this route.

@@ -1,4 +1,5 @@
 "use client";
+import { FinancialExportButton } from "@/components/stock/FinancialExportButton";
 
 /** Company research surface: price, business, financials, then ownership. */
 
@@ -2194,7 +2195,7 @@ function FinancialsTable({
     if (financials?.available) return buildBalanceSheetFromDB(financials, null);
     return buildBalanceSheetEstimate();
   }, [financials]);
-  const source = financials?.available ? "Moneycontrol" : "placeholder";
+  const source = financials?.available ? "Pivot financials" : "Data unavailable";
   return (
     <FinancialsLikeTable
       title="Balance Sheet"
@@ -2219,7 +2220,7 @@ function ProfitLossTable({
     if (financials?.available) return buildProfitLossFromDB(financials, null);
     return buildProfitLoss(quote);
   }, [quote, financials]);
-  const source = financials?.available ? "Moneycontrol" : "placeholder";
+  const source = financials?.available ? "Pivot financials" : "Data unavailable";
   return (
     <FinancialsLikeTable
       title="Profit and Loss"
@@ -2527,11 +2528,11 @@ function KeyMetricsStrip({
             color: "var(--text-primary)",
           }}
         >
-          Key Metrics
+          Metrics
         </h2>
         {period && (
-          <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
-            As of {period}
+          <span style={{ fontSize: 11, color: "var(--text-primary)" }}>
+            {period}
           </span>
         )}
       </div>
@@ -2541,7 +2542,7 @@ function KeyMetricsStrip({
             ? "grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7"
             : "grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8"
         }
-        style={{ gap: 8 }}
+        style={{ columnGap: 28, rowGap: 18 }}
       >
         {tiles.map((t) => {
           const raw = financials.latest[t.key];
@@ -2553,20 +2554,12 @@ function KeyMetricsStrip({
             <div
               key={t.key}
               style={{
-                padding: "12px 14px",
-                background: "var(--bg-secondary)",
+                padding: 0,
+                background: "transparent",
                 border: "none",
-                borderRadius: "var(--radius-md)",
                 display: "flex",
                 flexDirection: "column",
-                gap: 6,
-                transition: "background-color 0.2s var(--ease-quartr)",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = "var(--bg-elevated)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "var(--bg-secondary)";
+                gap: 5,
               }}
             >
               <div
@@ -3038,6 +3031,7 @@ function FinancialsPanel({
                 {TAB_LABEL[t]}
               </h2>
               <div style={{ display: "inline-flex", alignItems: "center", gap: 16 }}>
+                <FinancialExportButton symbol={quote.symbol} />
                 {t === "quarters" && (quarters?.bases_available.length ?? 0) > 1 ? (
                   <div style={{ display: "inline-flex", gap: 12 }}>
                     {quarters!.bases_available.map((b) => (
@@ -3079,10 +3073,11 @@ function FinancialsPanel({
           {/* Title. The heading owns this row alone, like every other section
               heading on the page — the way out to the full statement moved
               down to the tab strip, next to the tab it opens. */}
-          <div style={{ marginBottom: 10 }}>
+          <div style={{ marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
             <span style={{ fontFamily: "var(--font-ui)", fontSize: 21, fontWeight: 600, letterSpacing: "-0.022em", color: "var(--text-primary)" }}>
               Financial Performance
             </span>
+            <FinancialExportButton symbol={quote.symbol} />
           </div>
           {/* Tabs. The basis switch rides at the far end of this row when the
               quarterly tab is open — it belongs to that tab and only that tab,

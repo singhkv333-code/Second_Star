@@ -1055,41 +1055,34 @@ def get_deals(symbol: str, limit: int = Query(60, ge=5, le=200),
 
 
 @router.get("/{symbol}/patterns")
-def get_patterns(symbol: str, interval: str = Query("1d"),
-                 horizon: int = Query(20),
+def get_patterns(symbol: str, interval: str = Query("1d", pattern="^(15m|1h|1d)$"),
+                 horizon: int = Query(20, ge=5, le=20),
                  authorization: Optional[str] = Header(None)) -> dict:
-    """Pattern hit rates measured against a matched control.
-
-    These are UNIVERSE statistics, not a reading of this symbol's chart: every
-    row is the same pattern measured across 500 Indian equities, with the
-    control being the base rate of the same directional move on bars where the
-    pattern did NOT fire. `edge_pp` is the difference, and it is the only
-    number here worth acting on — a 58% hit rate against a 57% base rate is
-    noise wearing a pattern's name.
-
-    Rows are returned in both directions, including negative edges, because a
-    pattern that reliably fails is as useful as one that works and is the part
-    every other product leaves out.
-    """
+    """The selected stock's history, computed by the chart's own detector."""
+    from urllib.parse import urlencode, quote
+    from urllib.request import urlopen
+    from urllib.error import URLError
     _auth(authorization)
-    _resolve(symbol)
+    sym = _resolve(symbol)["symbol"]
+    if horizon not in (5, 10, 20):
+        raise HTTPException(status_code=400, detail="horizon must be 5, 10 or 20 bars")
 
     def build() -> dict:
-        rows = _charto(
-            "SELECT kind, family, interval, horizon, n, n_symbols, "
-            "       with_direction_rate_pct rate, control_base_rate_pct control, "
-            "       edge_pp edge, edge_se_pp se, avg_move_pct move "
-            "  FROM pattern_stats "
-            " WHERE scope = 'equity_in' AND interval = ? AND horizon = ? "
-            "   AND n >= 200 "
-            " ORDER BY edge_pp DESC", (interval, horizon))
-        opts = _charto(
-            "SELECT DISTINCT interval, horizon FROM pattern_stats "
-            " WHERE scope = 'equity_in' ORDER BY interval, horizon")
-        return {"available": bool(rows), "interval": interval, "horizon": horizon,
-                "options": opts, "patterns": rows}
+        origin = os.environ.get("CHARTO_INTERNAL_URL", "http://127.0.0.1:5174").rstrip("/")
+        query = urlencode({"interval": interval, "horizon": horizon, "scope": "symbol"})
+        try:
+            with urlopen(f"{origin}/api/stock/{quote(sym, safe='')}/patterns?{query}", timeout=90) as response:
+                result = json.load(response)
+        except (URLError, TimeoutError, OSError, ValueError) as exc:
+            logger.warning("Stock pattern history unavailable for %s: %s", sym, exc)
+            raise HTTPException(status_code=503, detail="This stock's pattern history is temporarily unavailable") from exc
+        if not isinstance(result, dict) or result.get("scope") != "symbol" or result.get("symbol") != sym:
+            raise HTTPException(status_code=502, detail="Pattern service returned a different scope or stock")
+        return result
 
-    return _cached(f"patterns:{interval}:{horizon}", build)
+    # The symbol and schema version are essential: pooled cached rows from the
+    # old endpoint must never be served as the current stock's own history.
+    return _cached(f"patterns:symbol-v3:{sym}:{interval}:{horizon}", build)
 
 
 # ── chat access ─────────────────────────────────────────────────────────────

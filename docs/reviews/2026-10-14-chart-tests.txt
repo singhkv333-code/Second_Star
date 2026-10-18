@@ -1,0 +1,45 @@
+✔ percentage lines share the same observed timestamp, not individual history starts (1.080375ms)
+✔ indexed-to-100 and independent prices preserve correct magnitudes (0.217458ms)
+✔ rebasing uses the first shared bar at or after the requested start (0.196875ms)
+✔ missing observations remain whitespace instead of invented or carried-forward prices (1.657542ms)
+✔ unavailable or non-overlapping history is an explicit error (0.530083ms)
+✔ observations are sorted, duplicate timestamps are deterministic, and invalid prices are skipped (0.30575ms)
+✔ intraday comparisons align actual instants while daily charts align trading dates across timezones (0.341083ms)
+✔ a viewport newer than available history falls back to a real shared window (0.090959ms)
+✔ a lone last common bar is not presented as a comparable chart (0.1095ms)
+✔ history cutoffs use to and retain the complete last intraday candle across timezones (0.173041ms)
+✔ newer securities are fetched back to the oldest available end before comparison (0.205917ms)
+✔ candle comparisons normalize every OHLC field against the same observed close (0.316958ms)
+✔ missing OHLC stays whitespace and is never synthesized from a close (0.947583ms)
+✔ axis tags retain the actual plotted price while their position uses normalized units (0.29125ms)
+✔ live OHLC replaces the forming bar, appends new observed bars, and rejects invalid or stale ticks (0.242542ms)
+✔ charts and comparison overlays share live connections and release them after the last subscriber (0.455625ms)
+✔ keeps the full chart and other widgets in their saved positions (3.308833ms)
+✔ replaces a visible reference chart when the full chart was closed (0.505833ms)
+✔ multiple reference charts become just one full chart without copying mini settings (0.772209ms)
+✔ keeps an intentionally closed full chart closed when no reference chart is visible (0.493375ms)
+✔ a floating reference chart reuses its window dimensions for the full chart (0.394875ms)
+✔ normalizes an old reference instance using the reserved primary id (0.350958ms)
+✔ does not reopen a reference chart stored in an orphaned group (0.38725ms)
+✔ preserves additional full chart widgets and their independent settings (0.93275ms)
+✔ repairs stale width even when height is correct after docking (2.143417ms)
+✔ repairs collapsed height and ignores healthy whole-chart dimensions (0.853833ms)
+✔ defers sizing detached or hidden charts (1.126042ms)
+✔ checks restored layouts after frames and releases secondary observers on teardown (0.586417ms)
+✔ repairs collapsed canvas inside a correctly sized table (0.755083ms)
+✔ repairs a stale canvas bitmap even when CSS and table size are correct (0.533625ms)
+✔ rechecks chart after visibility and parent viewport changes (0.528125ms)
+✔ repairs stale internal plot width even when DOM and canvas dimensions are healthy (0.452917ms)
+✔ a shell remount keeps the last instrument and other URL parameters (3.379125ms)
+✔ explicit instruments take precedence over the remembered layout instrument (0.690583ms)
+✔ shared setups leave the remembered working instrument alone (0.640541ms)
+✔ first visit falls back to RELIANCE (0.431875ms)
+✔ blocked storage does not stop an explicit symbol from loading (0.420208ms)
+ℹ tests 37
+ℹ suites 0
+ℹ pass 37
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 113.244083

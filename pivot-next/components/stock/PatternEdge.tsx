@@ -3,7 +3,7 @@
 /**
  * Pattern edge — a hit rate is meaningless without the rate it beat.
  *
- * Every row is one pattern measured across the Indian equity universe, against
+ * Every row is one pattern measured on the selected stock, against
  * a CONTROL: the base rate of the same directional move on bars where the
  * pattern did not fire. A 58% hit rate against a 57% control is noise wearing
  * a pattern's name, and the only column worth reading is the difference.
@@ -55,23 +55,25 @@ export function PatternEdge({ symbol }: { symbol: string }): React.ReactElement 
   React.useEffect(() => {
     let cancelled = false;
     setData(null);
+    setDead(false);
+    setAll(false);
     getPatterns(symbol, interval, horizon)
       .then((r) => {
         if (cancelled) return;
-        if (isError(r)) { setDead(true); return; }
+        if (isError(r) || r.data.scope !== "symbol" || r.data.symbol !== symbol.toUpperCase()) { setDead(true); return; }
         setData(r.data);
       })
       .catch(() => { if (!cancelled) setDead(true); });
     return () => { cancelled = true; };
   }, [symbol, interval, horizon]);
 
-  if (dead) return null;
+  if (dead) return <div style={{marginTop:SECTION_GAP}}>Pattern history for {symbol} is temporarily unavailable.</div>;
   const rows = data?.patterns ?? [];
-  if (data && !rows.length) return null;
+
 
   // Strongest edges either way, which is where the information is — the middle
   // of the list is a long tail of patterns that do nothing.
-  const ranked = [...rows].sort((a, b) => Math.abs(b.edge ?? 0) - Math.abs(a.edge ?? 0));
+  const ranked = [...rows].sort((a, b) => Number(b.enough) - Number(a.enough) || Math.abs(b.edge ?? 0) - Math.abs(a.edge ?? 0));
   const shown = all ? ranked : ranked.slice(0, 8);
 
   return (
@@ -108,6 +110,10 @@ export function PatternEdge({ symbol }: { symbol: string }): React.ReactElement 
         </div>
       </div>
 
+      <p style={{margin:"0 0 12px",fontSize:12,color:"var(--text-secondary)"}}>
+        {symbol} only{data?.coverage ? ` · ${data.coverage.bars_scanned.toLocaleString("en-IN")} bars · ${data.coverage.from ? new Date(data.coverage.from*1000).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric",timeZone:"Asia/Kolkata"}) : "—"} – ${data.coverage.to ? new Date(data.coverage.to*1000).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric",timeZone:"Asia/Kolkata"}) : "—"} · ${data.coverage.has_more ? "Latest available scan window" : "All stored history"}` : ""}
+      </p>
+      {data && !rows.length ? <p>No evaluated patterns were found in this stock's available history.</p> : null}
       {/* One rule in the whole table, under the header. The frame used to be
           eleven: a box around the block and a line between every pair of rows,
           which is more ink than the eight numbers those lines were separating.
@@ -181,7 +187,7 @@ function Row({ p }: { p: PatternStat }): React.ReactElement {
   // Two standard errors is the conventional bar for "this is not the sample
   // talking". Below it the row is drawn muted rather than dropped: the reader
   // should see that the pattern was measured and came back inconclusive.
-  const solid = Math.abs(edge) >= 2 * se;
+  const solid = p.enough && Math.abs(edge) >= 2 * se;
   const tone = edge > 0 ? "var(--color-profit)" : edge < 0 ? "var(--color-loss)" : "var(--text-tertiary)";
   const half = Math.min(50, (Math.abs(edge) / SCALE_PP) * 50);
 
@@ -209,7 +215,7 @@ function Row({ p }: { p: PatternStat }): React.ReactElement {
         {compactN(p.n)}
       </span>
       <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 12.5, fontVariantNumeric: "tabular-nums", color: "var(--text-primary)" }}>
-        {p.rate !== null ? `${p.rate.toFixed(1)}%` : "—"}
+        {p.enough && p.rate !== null ? `${p.rate.toFixed(1)}%` : "—"}
       </span>
       <span className="pat-control" style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 11.5, fontVariantNumeric: "tabular-nums", color: "var(--text-secondary)" }}>
         {p.control !== null ? `${p.control.toFixed(1)}%` : "—"}
@@ -232,14 +238,14 @@ function Row({ p }: { p: PatternStat }): React.ReactElement {
             background: tone,
             opacity: solid ? 1 : 0.38,
             left: edge >= 0 ? "50%" : `${50 - half}%`,
-            width: `${half}%`,
+            width: p.enough ? `${half}%` : "0%",
           }}
         />
       </span>
 
       <span style={{ textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 13, fontWeight: 600, fontVariantNumeric: "tabular-nums", color: tone, opacity: solid ? 1 : 0.6 }}>
-        {edge >= 0 ? "+" : "−"}{Math.abs(edge).toFixed(1)}
-        <span style={{ fontWeight: 400, color: "var(--text-secondary)" }}> ±{se.toFixed(1)}</span>
+        {p.enough ? <>{edge >= 0 ? "+" : "−"}{Math.abs(edge).toFixed(1)}
+        <span style={{ fontWeight: 400, color: "var(--text-secondary)" }}> ±{se.toFixed(1)}</span></> : <span style={{fontSize:11,fontWeight:400}}>Too few cases</span>}
       </span>
     </div>
   );

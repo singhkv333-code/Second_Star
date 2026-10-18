@@ -46,6 +46,20 @@ const SWITCH = ["HDFCBANK", "TCS", "NIFTY"] as const;
 /* The marked range is computed from NIFTY's prior 20 daily candles. */
 const ASK = "Mark the 20-session high and low on the daily chart";
 const LEVELS = NIFTY_LEVELS;
+
+/* Phones see the return between two RELIANCE results. Dates are the sessions
+   the market first reacted to each filing, from the dataserver's `results`
+   table (both announced after market); closes and the move are read off the
+   same daily bars the chart draws. */
+const EARN = (() => {
+  const sym = "RELIANCE" as const;
+  const bars = DAILY[sym]!;
+  const at = (t: number) => bars.findIndex((b) => b[0] === t);
+  const a = { t: 1777228200, q: "Q4 FY26", d: "27 Apr" }, b = { t: 1784485800, q: "Q1 FY27", d: "20 Jul" };
+  const ia = at(a.t), ib = at(b.t);
+  const ca = bars[ia]![4], cb = bars[ib]![4];
+  return { sym, a: { ...a, i: ia, c: ca }, b: { ...b, i: ib, c: cb }, pct: (cb / ca - 1) * 100, sessions: ib - ia };
+})();
 /* A few of the indicator engine's fifty (`/indicators`), as the menu lists them. */
 const IND_MENU: [string, string][] = [["EMA", "Exponential moving average"], ["SMA", "Simple moving average"], ["RSI", "Relative strength index"], ["MACD", "Moving average convergence divergence"], ["Bollinger Bands", "Bands two deviations around an average"], ["Supertrend", "ATR-based trend direction"], ["VWAP", "Volume-weighted average price"]];
 
@@ -98,6 +112,7 @@ export function Tour(): React.ReactElement {
   const [phase, setPhase] = React.useState(0); // 0 empty chat · 1 asked · 2 thinking · 3 answered
   const [draft, setDraft] = React.useState("");
   const [cur, setCur] = React.useState<Cursor>({ x: 0.55, y: 0.55, down: false, on: false });
+  const [earn, setEarn] = React.useState(0); // phones: 0 off · 1 first results · 2 second · 3 the return between
 
   /** Move the cursor onto an element by its data-t, in px within the app. */
   const aim = React.useCallback((t: string) => {
@@ -119,6 +134,22 @@ export function Tour(): React.ReactElement {
       const go = async (t: string, ms = 950) => { aim(t); await wait(ms); await click(); };
       try {
         for (;;) {
+          // A phone hides the chat, rail, hub and cursor, so the desk tour would
+          // play to nothing. It gets the chart's own story instead: the move
+          // between two results, then the levels.
+          if (window.matchMedia(PHONE).matches) {
+            setHub(false); setMenu(false); setDocked(false); setCal(false); setEma(false); setDraft(""); setPhase(0); setEarn(0);
+            setSym(EARN.sym); await wait(1100);
+            setEarn(1); await wait(1300);
+            setEarn(2); await wait(1300);
+            setEarn(3); await wait(4600);
+            setEarn(0); await wait(500);
+            setSym("NIFTY"); await wait(900);
+            setPhase(3); await wait(4200);
+            setPhase(0); await wait(400);
+            continue;
+          }
+          setEarn(0);
           setSym("NIFTY"); setHub(false); setMenu(false); setDocked(false); setCal(false); setFind(""); setEma(false); setPhase(0); setDraft("");
           await wait(1100);
           await go("widgets"); setHub(true); await wait(800);
@@ -162,7 +193,7 @@ export function Tour(): React.ReactElement {
             <TopBar hub={hub} />
             <div className="tw-main">
               <Rail />
-              <ChartPane sym={sym} ema={ema} levels={phase >= 3 && sym === "NIFTY"} menu={menu} dock={`${docked}${cal}`} />
+              <ChartPane sym={sym} ema={ema} levels={phase >= 3 && sym === "NIFTY"} menu={menu} dock={`${docked}${cal}`} earn={sym === EARN.sym ? earn : 0} />
               <div className={`tw-dock${docked ? " on" : ""}${cal ? " cal" : ""}`}><div className="tw-dock-w"><WatchPane sym={sym} /></div><div className="tw-dock-c"><CalPane /></div></div>
               <ChatCol sym={sym} draft={draft} phase={phase} />
             </div>
@@ -226,7 +257,7 @@ function PaneBar({ children, tools }: { children: React.ReactNode; tools?: React
 
 const fmtV = new Intl.NumberFormat("en-IN");
 
-function ChartPane({ sym, ema, levels, menu, dock }: { sym: Sym; ema: boolean; levels: boolean; menu: boolean; dock: string }) {
+function ChartPane({ sym, ema, levels, menu, dock, earn }: { sym: Sym; ema: boolean; levels: boolean; menu: boolean; dock: string; earn: number }) {
   const bars = sym === "NIFTY" ? NIFTY_DAILY : DAILY[sym]!;
   const [, o, h, l, c, v] = bars[bars.length - 1]!;
   const prev = bars[bars.length - 2]![4];
@@ -259,7 +290,7 @@ function ChartPane({ sym, ema, levels, menu, dock }: { sym: Sym; ema: boolean; l
             </ul>
           )}
         </div>
-        <Candles sym={sym} ema={showEma} levels={levels} dock={dock} />
+        <Candles sym={sym} ema={showEma} levels={levels} dock={dock} earn={earn} />
         <div className={`tw-menu${menu ? " open" : ""}`} aria-hidden="true">
           <div className="tw-hub-find"><Search />Search 50 indicators</div>
           <ul>{IND_MENU.map(([n, d]) => <li key={n} data-t={`ind-${n}`}><b>{n}</b><span>{d}</span></li>)}</ul>
@@ -269,10 +300,30 @@ function ChartPane({ sym, ema, levels, menu, dock }: { sym: Sym; ema: boolean; l
   );
 }
 
-function Candles({ sym, ema, levels, dock }: { sym: Sym; ema: boolean; levels: boolean; dock: string }) {
+type EarnGeo = { xa: number; xb: number; ya: number; yb: number; bottom: number; right: number };
+
+/** Frame both results with room either side; otherwise the screen's usual fit. */
+function frame(chart: IChartApi, sym: string, earn: number): void {
+  if (earn > 0 && sym === EARN.sym) chart.timeScale().setVisibleLogicalRange({ from: EARN.a.i - 6, to: EARN.b.i + 8 });
+  else fitBars(chart, (sym === "NIFTY" ? NIFTY_DAILY : DAILY[sym]!).length);
+}
+
+function Candles({ sym, ema, levels, dock, earn }: { sym: Sym; ema: boolean; levels: boolean; dock: string; earn: number }) {
   const ref = React.useRef<{ chart: IChartApi; k: ISeriesApi<"Candlestick">; v: ISeriesApi<"Histogram">; e: ISeriesApi<"Line">; lines: IPriceLine[] } | null>(null);
-  const state = React.useRef({ sym, ema, levels });
-  state.current = { sym, ema, levels };
+  const state = React.useRef({ sym, ema, levels, earn });
+  state.current = { sym, ema, levels, earn };
+  const [geo, setGeo] = React.useState<EarnGeo | null>(null);
+  // where the two results sit on screen, re-read whenever the view moves
+  const measure = React.useCallback(() => {
+    const api = ref.current, { sym: s, earn: n } = state.current;
+    if (!api || !n || s !== EARN.sym) { setGeo(null); return; }
+    const ts = api.chart.timeScale();
+    const xa = ts.timeToCoordinate(EARN.a.t as unknown as Time), xb = ts.timeToCoordinate(EARN.b.t as unknown as Time);
+    const ya = api.k.priceToCoordinate(EARN.a.c), yb = api.k.priceToCoordinate(EARN.b.c);
+    if (xa == null || xb == null || ya == null || yb == null) { setGeo(null); return; }
+    const el = api.chart.chartElement();
+    setGeo({ xa, xb, ya, yb, bottom: ts.height(), right: el.clientWidth - api.k.priceScale().width() });
+  }, []);
   const apply = React.useCallback(() => {
     const api = ref.current;
     if (!api) return;
@@ -283,10 +334,18 @@ function Candles({ sym, ema, levels, dock }: { sym: Sym; ema: boolean; levels: b
     api.e.setData(e ? NIFTY_EMA20.map(([t, v]) => ({ time: t as unknown as Time, value: v })) : []);
     api.lines.forEach((l) => api.k.removePriceLine(l));
     api.lines = lv ? LEVELS.map((x) => api.k.createPriceLine({ price: x.price, color: x.role === "H" ? C.dn : C.up, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: "" })) : [];
-    fitBars(api.chart, b.length);
-
-  }, []);
+    frame(api.chart, s, state.current.earn);
+    requestAnimationFrame(() => requestAnimationFrame(measure));
+  }, [measure]);
   React.useEffect(() => { apply(); }, [sym, ema, levels, apply]);
+  // entering or leaving the results view reframes; the steps inside it only redraw
+  const framed = earn > 0;
+  React.useEffect(() => {
+    const api = ref.current;
+    if (!api) return;
+    frame(api.chart, state.current.sym, state.current.earn);
+    requestAnimationFrame(() => requestAnimationFrame(measure));
+  }, [framed, measure]);
   // turning a phone or a narrowing window changes how many bars fit
   React.useEffect(() => {
     const mq = window.matchMedia(PHONE);
@@ -295,10 +354,11 @@ function Candles({ sym, ema, levels, dock }: { sym: Sym; ema: boolean; levels: b
   }, [apply]);
   // The pane changes width when a widget docks or leaves; re-fit once it settles.
   React.useEffect(() => {
-    const id = window.setTimeout(() => { const api = ref.current; if (api) { const s = state.current.sym; fitBars(api.chart, (s === "NIFTY" ? NIFTY_DAILY : DAILY[s]!).length); } }, 760);
+    const id = window.setTimeout(() => { const api = ref.current; if (api) frame(api.chart, state.current.sym, state.current.earn); }, 760);
     return () => clearTimeout(id);
   }, [dock]);
   return (
+    <>
     <LightweightChart
       height="100%"
       options={{
@@ -319,9 +379,41 @@ function Candles({ sym, ema, levels, dock }: { sym: Sym; ema: boolean; levels: b
         const e = chart.addSeries(LineSeries, { color: "#2962ff", lineWidth: 2, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false });
         ref.current = { chart, k, v, e, lines: [] };
         apply();
-        return () => { ref.current = null; };
+        chart.timeScale().subscribeVisibleLogicalRangeChange(measure);
+        chart.timeScale().subscribeSizeChange(measure);
+        return () => {
+          chart.timeScale().unsubscribeVisibleLogicalRangeChange(measure);
+          chart.timeScale().unsubscribeSizeChange(measure);
+          ref.current = null;
+        };
       }}
     />
+    {geo ? <EarnOverlay geo={geo} step={earn} /> : null}
+    </>
+  );
+}
+
+/** Two results on the chart and the move between them, drawn step by step. */
+function EarnOverlay({ geo, step }: { geo: EarnGeo; step: number }) {
+  const { xa, xb, ya, yb, bottom, right } = geo;
+  const top = 58, up = EARN.pct >= 0;
+  const mid = (xa + xb) / 2, chipY = Math.max(top + 46, Math.min(ya, yb) - 46);
+  return (
+    <div className={`te te-s${step} ${up ? "up" : "dn"}`} aria-hidden="true" style={{ ["--b" as string]: `${bottom}px` }}>
+      <div className="te-band" style={{ left: xa, width: xb - xa, top }} />
+      <i className="te-rule a" style={{ left: xa, top }} />
+      <i className="te-rule b" style={{ left: xb, top }} />
+      <span className="te-tag a" style={{ left: xa, top: top - 2 }}><b>{EARN.a.q} results</b>{EARN.a.d}</span>
+      <span className="te-tag b" style={{ left: Math.min(xb, right - 4), top: top - 2 }}><b>{EARN.b.q} results</b>{EARN.b.d}</span>
+      <svg className="te-link" width="100%" height="100%">
+        <line x1={xa} y1={ya} x2={xb} y2={yb} pathLength={1} />
+      </svg>
+      <i className="te-dot a" style={{ left: xa, top: ya }} />
+      <i className="te-dot b" style={{ left: xb, top: yb }} />
+      <span className="te-chip" style={{ left: mid, top: chipY }}>
+        {up ? "+" : "−"}{Math.abs(EARN.pct).toFixed(2)}%
+      </span>
+    </div>
   );
 }
 
