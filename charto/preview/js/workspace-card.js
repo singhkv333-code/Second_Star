@@ -1,26 +1,18 @@
-/* Charto preview — the card a shared workspace unfurls into: the whole
- * platform as it is on screen, sidebar and all.
+/* Charto preview — the card a shared workspace unfurls into, made in the page.
  *
- * It is a SCREENSHOT, taken by the browser. The chart runs in a frame inside
- * the Pivot shell, so a picture rebuilt from this page's DOM can only ever
- * show the frame: no shell sidebar, a badge the re-render cannot draw, text
- * reflowed into itself, and a crop wherever the frame's box ends. A capture of
- * the tab (getDisplayMedia, current tab preferred) is the real pixels of the
- * real screen instead. The browser asks the author once per publish; the share
- * dialog steps aside while the frame is taken, so the picture is the workspace
- * and not the dialog.
+ * The server normally takes this picture: it opens the published link in its
+ * own browser and screenshots it, shell sidebar and all (dataserver
+ * _setup_screenshot, charto/browser /shot). This module is the fallback for
+ * when it cannot: the page rebuilt from its DOM. It can only see this frame,
+ * so the shell around it is not in the picture, but it never asks the author
+ * for anything.
  *
- * Two sizes come out of one capture. A link preview wants a file the
- * messaging apps will actually fetch (WhatsApp drops big ones), so the
- * unfurled image is 2400 x 1260 with the screen whole inside it, nothing
- * cropped; the master is the screenshot itself at the screen's own pixels.
+ * Two sizes come out of one capture: the 2400 x 1260 link preview, with the
+ * frame whole inside it, and the capture itself for anyone who wants the
+ * picture.
  *
- * What the page keeps private stays out of the picture: with the conversation
- * unshared the chat panel is covered on screen before the frame is taken.
- *
- * A browser that cannot capture the tab, or an author who declines, gets the
- * older picture rebuilt from this page's DOM (the frame only). Returns null
- * when neither works, so the caller falls back to the chart-only ShareCard. */
+ * An unshared conversation is covered where it sits before anything is
+ * encoded. Returns null when the capture fails. */
 "use strict";
 
 const WorkspaceCard = (() => {
@@ -30,16 +22,6 @@ const WorkspaceCard = (() => {
   const HIRES_MAX = 6_800_000;           // under shares.HIRES_MAX
   // Floating surfaces that are not the workspace.
   const TRANSIENT = ".toast, .select-menu, .dlg-swatch-pop, [data-no-capture]";
-
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const frames = (n) => new Promise((r) => {
-    const step = () => (--n <= 0 ? r() : requestAnimationFrame(step));
-    requestAnimationFrame(step);
-  });
-  const videoFrame = (v) => new Promise((r) => {
-    if (v.requestVideoFrameCallback) v.requestVideoFrameCallback(() => r());
-    else setTimeout(r, 120);
-  });
 
   /** Halve until the next step lands within 2x of the target, then let the
    *  last drawImage finish; one big downscale aliases thin lines and text. */
@@ -99,97 +81,7 @@ const WorkspaceCard = (() => {
     return c;
   }
 
-  /** Clear the screen for the picture: the share dialog out of the way (the
-   *  shell stops floating the frame over the window when it goes, so the
-   *  workspace returns to its own layout), menus and toasts hidden, and an
-   *  unshared conversation covered where it sits. Returns the undo. */
-  function stage({ dialog, withChat }) {
-    const undo = [];
-    if (dialog) {
-      const prev = dialog.style.display;
-      dialog.style.display = "none";
-      undo.push(() => { dialog.style.display = prev; });
-    }
-    // A cursor resting where the Publish button was is now over the chart,
-    // whose crosshair would follow it into the picture. A clear shield over
-    // the page is what the cursor rests on instead, so the chart sees it leave.
-    const shield = document.createElement("div");
-    shield.style.cssText = "position:fixed;inset:0;z-index:2147483646;background:transparent";
-    document.body.appendChild(shield);
-    undo.push(() => shield.remove());
-    for (const el of document.querySelectorAll(".tv-lightweight-charts, .tv-lightweight-charts td")) {
-      el.dispatchEvent(new MouseEvent("mouseleave", { bubbles: false }));
-    }
-    const css = document.createElement("style");
-    css.textContent = `${TRANSIENT} { visibility: hidden !important; }`;
-    document.head.appendChild(css);
-    undo.push(() => css.remove());
-    const chat = document.getElementById("chatPanel");
-    if (!withChat && chat && chat.getBoundingClientRect().width > 4) {
-      const cover = document.createElement("div");
-      cover.style.cssText = "position:absolute;inset:0;z-index:2147483000;pointer-events:none;" +
-        `background:${getComputedStyle(chat).backgroundColor || "#faf8f2"}`;
-      chat.appendChild(cover);
-      undo.push(() => cover.remove());
-    }
-    return () => undo.reverse().forEach((f) => f());
-  }
-
-  /** One frame of this tab, as the browser shows it. Null when the browser
-   *  cannot capture a tab, the author declines, or something other than a
-   *  browser tab was picked (a window or a screen carries more than Pivot). */
-  async function grabTab(opts) {
-    const md = navigator.mediaDevices;
-    // CaptureController ships with the browsers that honour preferCurrentTab;
-    // elsewhere the picker opens on whole screens and windows, which is not
-    // what anyone asked to share.
-    if (!md || !md.getDisplayMedia || typeof window.CaptureController !== "function") return null;
-    let top = window;
-    try { if (window.top && window.top.innerWidth) top = window.top; } catch { /* another origin */ }
-    const dpr = window.devicePixelRatio || 1;
-    const restore = stage(opts);
-    let stream = null;
-    try {
-      await frames(2); await sleep(250);              // the shell un-floats the frame
-      stream = await md.getDisplayMedia({
-        video: {
-          width: { ideal: Math.round(top.innerWidth * dpr) },
-          height: { ideal: Math.round(top.innerHeight * dpr) },
-          frameRate: { ideal: 5 },
-        },
-        audio: false,
-        preferCurrentTab: true,
-        selfBrowserSurface: "include",
-        surfaceSwitching: "exclude",
-        monitorTypeSurfaces: "exclude",
-      });
-      const track = stream.getVideoTracks()[0];
-      const surface = track && track.getSettings ? track.getSettings().displaySurface : "browser";
-      if (!track || (surface && surface !== "browser")) return null;
-      const video = document.createElement("video");
-      video.muted = true; video.playsInline = true; video.srcObject = stream;
-      await video.play();
-      // The permission prompt closes and the browser's "sharing this tab" bar
-      // can shorten the viewport; let the page lay out again before the frame.
-      await sleep(500); await frames(2);
-      await videoFrame(video); await videoFrame(video);
-      if (!video.videoWidth || !video.videoHeight) return null;
-      const c = document.createElement("canvas");
-      c.width = video.videoWidth; c.height = video.videoHeight;
-      c.getContext("2d", { alpha: false }).drawImage(video, 0, 0);
-      return c;
-    } catch (e) {
-      if (!e || e.name !== "NotAllowedError") console.warn("Tab capture failed", e);
-      return null;
-    } finally {
-      if (stream) stream.getTracks().forEach((t) => t.stop());
-      restore();
-    }
-  }
-
-  /** The fallback: this page rebuilt from its DOM. It cannot see past the
-   *  frame, so it shows the workspace without the shell around it. */
-  async function grabDom(opts) {
+  async function grab(opts) {
     const lib = window.modernScreenshot;
     const root = document.body;
     const box = root.getBoundingClientRect();
@@ -216,11 +108,10 @@ const WorkspaceCard = (() => {
     return shot;
   }
 
-  /* opts: { withChat, dialog }. Call it inside the click that publishes: a
-   * browser only offers a screen capture to a user's gesture. */
+  /* opts: { withChat } */
   async function render(opts = {}) {
     const t0 = performance.now();
-    const shot = (await grabTab(opts)) || (await grabDom(opts));
+    const shot = await grab(opts);
     if (!shot) return null;
     if (window.__cardTiming) window.__cardTiming.capture = Math.round(performance.now() - t0);
 
