@@ -20355,6 +20355,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(*_paper.api_holdings(me[0]))
                 if tail == "orders":
                     return self._send(*_paper.api_orders(me[0]))
+                if tail == "ticket":
+                    return self._send(*_paper.api_ticket(
+                        me[0], (q.get("symbol") or [""])[0]))
                 if tail == "fills":
                     return self._send(*_paper.api_fills(
                         me[0], int((q.get("limit") or ["50"])[0] or 50),
@@ -20701,6 +20704,15 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(400 if "error" in out else 200, out)
                 if tail == "snapshot":
                     return self._send(200, _paper.snapshot_nav(me[0]))
+                # An order from the chart's Buy/Sell ticket, into the paper
+                # book. Simulated: nothing here reaches a broker.
+                if tail == "orders":
+                    code, out = _paper.api_place(me[0], body)
+                    _analytics.capture(me[0], "paper_order", {
+                        "symbol": str(body.get("symbol") or "")[:24],
+                        "side": body.get("side"), "type": body.get("order_type"),
+                        "ok": code == 200})
+                    return self._send(code, out)
                 return self._send(404, {"error": f"no paper route '{tail}'"})
             tail = u.path[len("/api/strategies"):].strip("/") \
                 if u.path.startswith("/api/strategies") \
