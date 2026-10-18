@@ -164,6 +164,9 @@
   const brandMark = document.createElement("div");
   brandMark.className = "chart-mark";
   brandMark.setAttribute("aria-hidden", "true");
+  // The badge is an <img>, not a CSS background: a screenshot rebuilt from
+  // the DOM drops pseudo-element backgrounds and left the plate empty.
+  brandMark.innerHTML = '<img src="assets/pivot-alien.png?v=5" alt="" draggable="false">';
   chartEl.appendChild(brandMark);
 
   /* Two measurements the stylesheet cannot take, published to it as custom

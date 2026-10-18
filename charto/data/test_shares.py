@@ -107,6 +107,19 @@ class SharesTest(unittest.TestCase):
         self.assertFalse(self.sh.preview(out["token"])["has_image"])
         self.assertIsNone(self.sh.preview_image(out["token"]))
 
+    def test_the_4k_master_is_kept_beside_the_unfurl_image(self):
+        small = b"\xff\xd8\xffsmall\xff\xd9"
+        big = b"\xff\xd8\xff" + b"b" * 2_000_000 + b"\xff\xd9"
+        enc = lambda raw: "data:image/jpeg;base64," + base64.b64encode(raw).decode()
+        _, out = self.publish(og_image=enc(small), og_hires=enc(big))
+        meta = self.sh.preview(out["token"])
+        self.assertTrue(meta["has_image"] and meta["has_hires"])
+        self.assertEqual(self.sh.preview_image(out["token"]), small)
+        self.assertEqual(self.sh.preview_image(out["token"], hires=True), big)
+        # a master with no unfurl image beside it is not stored on its own
+        _, lone = self.publish(og_hires=enc(big))
+        self.assertFalse(self.sh.preview(lone["token"])["has_hires"])
+
     def test_views_count_once_per_viewer_and_never_the_author(self):
         _, out = self.publish()
         tok = out["token"]

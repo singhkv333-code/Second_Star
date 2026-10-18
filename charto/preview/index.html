@@ -2873,9 +2873,9 @@ header > .btn, header > .badge { flex: none; }
 /* The alien badge — its own dark disc with the alien inside (512×512, cropped
    tight to the disc, crisp at any display density) — inset so a thin white
    ring of the plate shows around it. */
-.chart-mark::after {
-  content: ""; position: absolute; inset: 2px;
-  background: url("assets/pivot-alien.png?v=5") center / contain no-repeat;
+.chart-mark img {
+  position: absolute; inset: 2px; width: calc(100% - 4px); height: calc(100% - 4px);
+  object-fit: contain; display: block;
 }
 /* On a split the mark and the reset button are re-parented onto the grid
    wrapper (see reparentMarks() in js/main.js) so they sign the WHOLE desk
@@ -11945,7 +11945,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/panes.js?v=39"></script>
   <!-- the Footprint chart type: a primitive on the price series, mounted by main.js -->
   <script src="./js/footprint.js?v=9"></script>
-  <script src="./js/main.js?v=189"></script>
+  <script src="./js/main.js?v=190"></script>
   <!-- the floating drawing edit toolbar — listens for charto:draw-select and
        drives js/drawings.js's setStyle/clone/lock/remove. After main.js so
        __charto and ChartSettings exist by the first selection. -->
@@ -11959,8 +11959,10 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/layouts.js?v=15"></script>
   <script src="./js/share-preview.js?v=4"></script>
   <script src="./js/share-card.js?v=3"></script>
+  <script src="./vendor/modern-screenshot.js?v=1"></script>
+  <script src="./js/workspace-card.js?v=6"></script>
   <!-- shared setups: publish, view-only links, "Make it mine" -->
-  <script src="./js/setups.js?v=21"></script>
+  <script src="./js/setups.js?v=25"></script>
   <!-- Voice must load before chat.js, which wires it to the composer. -->
   <script src="./js/voice.js?v=2"></script>
   <!-- before chat.js, which asks it to render the panels a tool prints as the

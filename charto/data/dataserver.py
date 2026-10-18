@@ -19082,6 +19082,11 @@ class Handler(BaseHTTPRequestHandler):
         host = self.headers.get("Host", public_hosts[0])
         if host not in public_hosts and not re.fullmatch(r"(?:localhost|127\.0\.0\.1):\d{1,5}", host):
             host = public_hosts[0]
+        # The Azure hostname still answers, but a link that unfurls, canonicalises
+        # or redirects must name the product's own domain, whichever door the
+        # request came through. Only a local dev host keeps its own origin.
+        if host in public_hosts:
+            host = public_hosts[0]
         scheme = "https" if host in public_hosts else "http"
         origin = f"{scheme}://{host}"
         share_url = f"{origin}/share/{quote(token, safe='')}"
@@ -19093,6 +19098,8 @@ class Handler(BaseHTTPRequestHandler):
                        (" with the conversation behind it." if meta["has_chat"] else "."))
         image_url = (f"{share_url}/image.jpg?v={meta['updated']}" if meta["has_image"]
                      else f"{origin}/assets/share-preview.jpg")
+        # A workspace card is 2400 x 1260; the chart-only card and the stock image are 1200 x 630.
+        img_w, img_h = (2400, 1260) if meta["has_hires"] else (1200, 630)
         esc = lambda value: html.escape(value, quote=True)
         body = f'''<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -19103,8 +19110,9 @@ class Handler(BaseHTTPRequestHandler):
 <meta property="og:description" content="{esc(description)}">
 <meta property="og:url" content="{esc(share_url)}">
 <meta property="og:image" content="{esc(image_url)}">
+<meta property="og:image:secure_url" content="{esc(image_url)}">
 <meta property="og:image:type" content="image/jpeg">
-<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta property="og:image:width" content="{img_w}"><meta property="og:image:height" content="{img_h}">
 <meta property="og:image:alt" content="Pivot shared research preview">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="{esc(title)}">
@@ -19122,8 +19130,8 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _share_image(self, token: str) -> None:
-        body = _shares.preview_image(token) if _shares is not None else None
+    def _share_image(self, token: str, hires: bool = False) -> None:
+        body = _shares.preview_image(token, hires) if _shares is not None else None
         if body is None:
             return self._send(404, {"error": "this preview is no longer shared"},
                               headers={"Cache-Control": "no-store"})
@@ -19663,6 +19671,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         u = urlparse(self.path)
         u = _strip_api_auth(u)
+        if u.path.startswith("/share/") and u.path.endswith("/image-4k.jpg"):
+            return self._share_image(u.path[len("/share/"):-len("/image-4k.jpg")], True)
         if u.path.startswith("/share/") and u.path.endswith("/image.jpg"):
             return self._share_image(u.path[len("/share/"):-len("/image.jpg")])
         if u.path.startswith("/share/"):

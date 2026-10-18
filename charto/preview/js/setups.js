@@ -250,8 +250,13 @@ const Setups = (() => {
     return new Date(ts * 1000).toLocaleDateString([], { day: "2-digit", month: "short", year: "numeric" });
   }
 
+  // The product's own domain, whichever door the page was opened through: the
+  // Azure hostname still answers, but a link people post must not carry it.
+  const PRODUCT_ORIGIN = "https://app.pivotnow.in";
+  const LOCAL_HOST = /^(localhost|127\.0\.0\.1)(:\d+)?$/;
   function linkFor(token, symbol) {
-    return `${location.origin}/share/${encodeURIComponent(token)}`;
+    const origin = LOCAL_HOST.test(location.host) ? location.origin : PRODUCT_ORIGIN;
+    return `${origin}/share/${encodeURIComponent(token)}`;
   }
 
   async function copyText(text, done) {
@@ -393,12 +398,24 @@ const Setups = (() => {
       if (!title) { dlg.querySelector("#suTitle").focus(); return toast("Give the setup a title"); }
       ok.disabled = true;
       ok.querySelector("span").textContent = "Publishing…";
+      // The card is a screenshot of the whole platform: shell, chart, widgets
+      // and the conversation when it is shared. It starts here, inside the
+      // click, because a browser only offers a screen capture to a gesture.
+      // When widget contents are not shared the picture must not show them
+      // either, so that case (and any capture failure) falls back to the
+      // chart-only card below.
+      const card = state.include_data
+        ? WorkspaceCard.render({
+            withChat: !chat.length || !!state.include_chat,   // nothing said yet: nothing to hide
+            dialog: dlg.closest(".su-back"),
+          }).catch((e) => { console.warn("Workspace card unavailable", e); return null; })
+        : Promise.resolve(null);
       try {
         const desk = await deskOf(state.include_data, [...new Set((spec.charts || []).map((x) => x.symbol))]);
-        let ogImage = "";
-        // The card is the author's chart as captured, drawings and all; the
-        // older summary card stays as the fallback when there is no chart.
-        try {
+        let ogImage = "", ogHires = "";
+        const wc = await card;
+        if (wc) { ogImage = wc.og; ogHires = wc.hires; }
+        if (!ogImage) try {
           ogImage = await ShareCard.render({
             symbol: sym, interval: iv,
             logo: Universe.logo(sym) || Universe.logo(Universe.baseSymbol(sym)) || "",
@@ -417,11 +434,11 @@ const Setups = (() => {
           ...(state.mode === "update" && existing ? { token: existing.token } : {}),
           layout_id: cur && cur.id ? cur.id : undefined,
           title, note: note.value, spec: desk ? { ...spec, dock: desk } : spec, thumb,
-          og_image: ogImage,
+          og_image: ogImage, og_hires: ogHires,
           include_chat: !!(state.include_chat && chat.length), chat,
           allow_copy: state.allow_copy,
         });
-        published(dlg, close, d.token, sym, title, !d.created, deskMini(shapeOf(live), thumb, sym));
+        published(dlg, close, d.token, sym, title, !d.created, deskMini(shapeOf(live), thumb, sym), !!ogHires);
       } catch (err) {
         ok.disabled = false;
         ok.querySelector("span").textContent = existing ? "Update link" : "Publish";
@@ -453,7 +470,7 @@ const Setups = (() => {
     ? `<span class="sx-brand">${icon}</span>`
     : `<img class="sx-brand" src="${ICON(icon)}" alt="" loading="lazy" onerror="this.style.display='none'"/>`}</span>`;
 
-  function published(dlg, close, token, sym, title, updated, mini) {
+  function published(dlg, close, token, sym, title, updated, mini, hires) {
     const url = linkFor(token, sym);
     dlg.classList.add("sx-done");
     dlg.innerHTML = `
@@ -473,6 +490,7 @@ const Setups = (() => {
       <div class="ly-actions">
         <button class="btn" data-manage>${Icons.svg("eye", "xs")}<span>My shared setups</span></button>
         <a class="btn" href="${esc(url)}" target="_blank" rel="noopener">${Icons.svg("externalLink", "xs")}<span>Open as a viewer</span></a>
+        ${hires ? `<a class="btn" href="${esc(url)}/image-4k.jpg" download="pivot-workspace.jpg">${Icons.svg("download", "xs")}<span>Download screenshot</span></a>` : ""}
         <button class="btn" data-x>Done</button>
       </div>`;
     const input = dlg.querySelector(".sx-link input");

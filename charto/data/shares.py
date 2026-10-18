@@ -64,7 +64,8 @@ _free_name = None           # dataserver._layout_free_name (caller holds lock)
 
 SPEC_MAX = 1_500_000        # bytes of JSON; a heavy desk is ~200 KB
 THUMB_MAX = 220_000         # same guard as a layout thumbnail
-OG_IMAGE_MAX = 650_000      # 1200 x 630 JPEG, encoded as a data URL
+OG_IMAGE_MAX = 1_400_000    # 2400 x 1260 JPEG as a data URL: what unfurlers fetch
+HIRES_MAX = 7_000_000       # 3840 x 2016 master, served on request for download
 TITLE_MAX, NOTE_MAX = 120, 2_000
 CHAT_TURNS, CHAT_CHARS = 60, 6_000
 LINEAGE_MAX = 5             # credits kept up the chain
@@ -87,6 +88,7 @@ CREATE TABLE IF NOT EXISTS shared_setups (
   chat TEXT,                         -- NULL: the conversation was not shared
   thumb TEXT NOT NULL DEFAULT '',
   og_image TEXT NOT NULL DEFAULT '',
+  og_hires TEXT NOT NULL DEFAULT '',
   allow_copy INTEGER NOT NULL DEFAULT 1,
   lineage TEXT NOT NULL DEFAULT '[]',-- frozen credits, nearest first
   created INTEGER NOT NULL,
@@ -122,11 +124,12 @@ def bind(con: sqlite3.Connection, lock: threading.Lock, free_name) -> None:
                          "TEXT NOT NULL DEFAULT ''")
         except sqlite3.OperationalError:
             pass                                    # already there
-        try:
-            _con.execute("ALTER TABLE shared_setups ADD COLUMN og_image "
-                         "TEXT NOT NULL DEFAULT ''")
-        except sqlite3.OperationalError:
-            pass                                    # already there
+        for col in ("og_image", "og_hires"):
+            try:
+                _con.execute(f"ALTER TABLE shared_setups ADD COLUMN {col} "
+                             "TEXT NOT NULL DEFAULT ''")
+            except sqlite3.OperationalError:
+                pass                                # already there
         _con.commit()
 
 
@@ -192,9 +195,9 @@ def _clean_thumb(v) -> str:
     return s if len(s) <= THUMB_MAX else ""
 
 
-def _clean_og_image(v) -> str:
+def _clean_og_image(v, cap: int = OG_IMAGE_MAX) -> str:
     s = str(v or "")
-    if not s.startswith("data:image/jpeg;base64,") or len(s) > OG_IMAGE_MAX:
+    if not s.startswith("data:image/jpeg;base64,") or len(s) > cap:
         return ""
     try:
         raw = base64.b64decode(s.split(",", 1)[1], validate=True)
@@ -253,6 +256,7 @@ def publish(uid: int, author: str, body: dict) -> tuple[int, dict]:
     chat = _clean_chat(body.get("chat")) if body.get("include_chat") else None
     thumb = _clean_thumb(body.get("thumb"))
     og_image = _clean_og_image(body.get("og_image"))
+    og_hires = _clean_og_image(body.get("og_hires"), HIRES_MAX) if og_image else ""
     allow_copy = 0 if body.get("allow_copy") is False else 1
     syms = _symbols(spec)
     first = (spec.get("charts") or [{}])[0]
@@ -274,10 +278,10 @@ def publish(uid: int, author: str, body: dict) -> tuple[int, dict]:
             if not row:
                 return 404, {"error": "no such setup"}
             sets = ("title=?, note=?, symbol=?, symbols=?, interval=?, spec=?, "
-                    "chat=?, allow_copy=?, og_image=?, updated=?")
+                    "chat=?, allow_copy=?, og_image=?, og_hires=?, updated=?")
             args: list = [title, note, syms[0], ",".join(syms), interval,
                           json.dumps(spec),
-                          json.dumps(chat) if chat else None, allow_copy, og_image, now]
+                          json.dumps(chat) if chat else None, allow_copy, og_image, og_hires, now]
             if thumb:
                 sets += ", thumb=?"
                 args.append(thumb)
@@ -294,11 +298,11 @@ def publish(uid: int, author: str, body: dict) -> tuple[int, dict]:
         token = secrets.token_urlsafe(18)
         _con.execute(
             "INSERT INTO shared_setups (token, user_id, layout_id, title, note, "
-            "symbol, symbols, interval, spec, chat, thumb, og_image, allow_copy, lineage, "
-            "created, updated) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "symbol, symbols, interval, spec, chat, thumb, og_image, og_hires, allow_copy, "
+            "lineage, created, updated) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (token, uid, layout_id, title, note, syms[0], ",".join(syms),
              interval, json.dumps(spec), json.dumps(chat) if chat else None,
-             thumb, og_image, allow_copy, json.dumps(lineage), now, now))
+             thumb, og_image, og_hires, allow_copy, json.dumps(lineage), now, now))
         _con.commit()
     return 201, {"token": token, "updated": now, "created": True}
 
@@ -401,24 +405,25 @@ def preview(token: str) -> dict | None:
     with _lock:
         row = _con.execute(
             "SELECT s.title, s.note, s.symbol, s.interval, s.chat IS NOT NULL, "
-            "u.name, s.updated, s.og_image != '' FROM shared_setups s JOIN users u ON u.id=s.user_id "
+            "u.name, s.updated, s.og_image != '', s.og_hires != '' FROM shared_setups s JOIN users u ON u.id=s.user_id "
             "WHERE s.token=?", (tok,)).fetchone()
     if not row:
         return None
     return {"title": row[0], "note": row[1], "symbol": row[2],
             "interval": row[3], "has_chat": bool(row[4]),
             "by": (row[5] or "").strip() or "A Pivot trader",
-            "updated": row[6], "has_image": bool(row[7])}
+            "updated": row[6], "has_image": bool(row[7]), "has_hires": bool(row[8])}
 
 
-def preview_image(token: str) -> bytes | None:
-    """The published card image; the token is the only access path."""
+def preview_image(token: str, hires: bool = False) -> bytes | None:
+    """The published card image (or its 4K master); the token is the only
+    access path."""
     tok = (token or "").strip()
     if len(tok) < 16 or _con is None or _lock is None:
         return None
     with _lock:
-        row = _con.execute("SELECT og_image FROM shared_setups WHERE token=?",
-                           (tok,)).fetchone()
+        row = _con.execute(f"SELECT {'og_hires' if hires else 'og_image'} "
+                           "FROM shared_setups WHERE token=?", (tok,)).fetchone()
     if not row or not row[0]:
         return None
     try:
