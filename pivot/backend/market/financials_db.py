@@ -1393,7 +1393,7 @@ def get_statement(
             key=lambda p: (p[1] is None, p[1]),
             reverse=True,
         )
-        periods = [p[0] for p in period_pairs[:years]]
+        periods = [p[0] for p in (period_pairs if years == 0 else period_pairs[:years])]
         period_set = set(periods)
 
         by_row: dict[tuple, dict] = {}

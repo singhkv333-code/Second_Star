@@ -22,6 +22,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { FinancialExportButton } from "./FinancialExportButton";
 import { ArrowLeft } from "lucide-react";
 
 import {
@@ -145,6 +146,7 @@ export function StatementsPage({
         </div>
       </div>
 
+      <div style={{ display: "flex", justifyContent: "flex-end" }}><FinancialExportButton symbol={symbol} basis={basis} /></div>
       {/* ── basis + span ────────────────────────────────────────────────── */}
       <div style={{
         display: "flex", alignItems: "flex-end", justifyContent: "space-between",
@@ -165,7 +167,7 @@ export function StatementsPage({
           options={[
             { value: "5", label: "5 years" },
             { value: "10", label: "10 years" },
-            { value: "25", label: "All" },
+            { value: "0", label: "All" },
           ]}
           onChange={(v) => setYears(Number(v))}
         />

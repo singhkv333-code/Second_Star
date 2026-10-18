@@ -146,6 +146,9 @@
     if (!d || typeof d !== "object") return;
     if (d.type === "pivot:hello") announce();
 
+    if (d.type === "pivot:chart-resize") {
+      document.dispatchEvent(new CustomEvent("charto:viewport"));
+    }
     if (d.type === "pivot:workspace-theme") {
       window.PivotWorkspaceTheme?.setTheme(d.theme, false);
     }

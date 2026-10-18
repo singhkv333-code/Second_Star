@@ -4085,13 +4085,13 @@ def _api_sections(sym: str) -> tuple[int, dict]:
 # 20 the number stops carrying information at all and the row says so instead.
 _OWN_FLOOR = 20
 
-# Bars to mine for a symbol's own record. Daily reaches the whole listed
-# history in ~2,800 bars; the intraday intervals are capped because the store
-# holds a million minute bars per symbol and a page load must not walk them.
-_OWN_BARS = {"1d": 4000, "1h": 6000, "15m": 8000}
+# Mine the full stored daily history. Intraday scans reach up to 100,000
+# aggregated bars (over seven times the former hourly window); report actual
+# dates and has_more so a bounded intraday scan never claims lifetime coverage.
+_OWN_BARS = {"1d": 100000, "1h": 100000, "15m": 100000}
 
 
-def _own_pattern_stats(sym: str, interval: str, horizon: int) -> dict[str, dict]:
+def _own_pattern_stats(sym: str, interval: str, horizon: int) -> tuple[dict[str, dict], dict]:
     """This symbol's OWN record for every pattern, on its own bars.
 
     The rules are `tool_evaluate_pattern`'s, exactly, because a rate quoted
@@ -4109,22 +4109,25 @@ def _own_pattern_stats(sym: str, interval: str, horizon: int) -> dict[str, dict]
     come from THIS symbol — a market-wide base rate against a single stock's
     hit rate compares two different things.
     """
-    rows = _rows_for(sym, interval, _OWN_BARS.get(interval, 4000))
+    history = get_bars(sym, interval, None, _OWN_BARS.get(interval, 100000))
+    rows = [(b["t"], b["o"], b["h"], b["l"], b["c"], b["v"]) for b in history["bars"]]
     n = len(rows)
+    coverage = {"bars_scanned": n, "from": history.get("earliest"), "to": history.get("latest"),
+                "has_more": bool(history.get("has_more")), "bar_limit": _OWN_BARS[interval]}
     if n < 120:
-        return {}
+        return {}, coverage
     closes = [r[4] for r in rows]
     h = horizon
     ist = lambda ts: ts                                            # noqa: E731
 
     inst: dict[str, list[dict]] = {}
     for f in patterns.candlesticks(rows, _atr(rows, 14), ist,
-                                   set(patterns.CANDLE_KINDS), limit=100000):
+                                   set(patterns.CANDLE_KINDS), limit=n * len(patterns.CANDLE_KINDS)):
         inst.setdefault(f["pattern"], []).append(
             {"i": n - 1 - f["bars_ago"], "d": f["direction"]})
     try:
         chart = patterns.chart_patterns(rows, _pivots(rows, 5), _tolerance(rows),
-                                        ist, set(patterns.CHART_KINDS), limit=4000)
+                                        ist, set(patterns.CHART_KINDS), limit=n * len(patterns.CHART_KINDS))
     except Exception:                       # a detector must not fail the page
         chart = []
     for f in chart:
@@ -4139,6 +4142,7 @@ def _own_pattern_stats(sym: str, interval: str, horizon: int) -> dict[str, dict]
     fwd = [(closes[j + h] - closes[j]) / closes[j] * 100 for j in range(n - h)]
     up = sum(1 for x in fwd if x > 0)
     base_up = up / len(fwd) * 100 if fwd else None
+    base_down = sum(1 for x in fwd if x < 0) / len(fwd) * 100 if fwd else None
 
     out: dict[str, dict] = {}
     for kind, items in inst.items():
@@ -4155,11 +4159,11 @@ def _own_pattern_stats(sym: str, interval: str, horizon: int) -> dict[str, dict]
         if direction not in ("bullish", "bearish"):
             continue
         good = sum(1 for e in evals
-                   if ((closes[e["i"] + h] - closes[e["i"]]) > 0) == (direction == "bullish"))
+                   if ((closes[e["i"] + h] - closes[e["i"]]) > 0 if direction == "bullish"
+                       else (closes[e["i"] + h] - closes[e["i"]]) < 0))
         m = len(evals)
         rate = good / m * 100
-        control = base_up if direction == "bullish" else (
-            100 - base_up if base_up is not None else None)
+        control = base_up if direction == "bullish" else base_down
         moves = [(closes[e["i"] + h] - closes[e["i"]]) / closes[e["i"]] * 100
                  for e in evals]
         # Binomial standard error on the difference. The pattern rate carries
@@ -4175,7 +4179,7 @@ def _own_pattern_stats(sym: str, interval: str, horizon: int) -> dict[str, dict]
             "move": round(sum(moves) / len(moves), 2),
             "enough": m >= _OWN_FLOOR,
         }
-    return out
+    return out, coverage
 
 
 def _api_patterns(sym: str, interval: str, horizon: int,
@@ -4234,7 +4238,7 @@ def _api_patterns(sym: str, interval: str, horizon: int,
                          (v["n_symbols"] for v in market.values()
                           if v["n_symbols"]), default=None)}
 
-    own = _own_pattern_stats(sym, interval, horizon)
+    own, coverage = _own_pattern_stats(sym, interval, horizon)
     out = []
     for kind, o in own.items():
         m = market.get(kind) or {}
@@ -4256,7 +4260,7 @@ def _api_patterns(sym: str, interval: str, horizon: int,
     return 200, {
         "available": bool(out), "scope": "symbol", "symbol": sym,
         "interval": interval, "horizon": horizon, "options": opts,
-        "patterns": out, "min_cases": _OWN_FLOOR,
+        "patterns": out, "min_cases": _OWN_FLOOR, "coverage": coverage,
     }
 
 

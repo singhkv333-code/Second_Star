@@ -1,0 +1,16 @@
+{
+  "domain": "app.pivotnow.in",
+  "azure_vm": "pivot-clean-stage",
+  "azure_ip": "20.204.109.233",
+  "dns_provider": "Hostinger",
+  "landing_project": "pivotnow",
+  "landing_project_id": "prj_KDAYxkWZqEYasORE6oyTxdLQXbxw",
+  "landing_deployment": "dpl_DxmAmyePeb3un3DFHZodNn8CmxkN",
+  "landing_deployment_url": "https://pivotnow-9477x6pt4-singhkv333-codes-projects.vercel.app",
+  "previous_landing_deployment": "dpl_6gEsMKM546Lf1bsVh14LwvV76ZgZ",
+  "old_azure_hostname_retained": true,
+  "certificate_renewal": "webroot HTTP-01; simulated renewal passed",
+  "google_sign_in": "deferred at owner request",
+  "state_migration": false,
+  "production_security_followup": "PostgreSQL allow-all firewall remains unresolved"
+}
