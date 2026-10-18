@@ -166,7 +166,7 @@ def _drawing_job(ref: str, iv: str, lookback) -> tuple[str, dict]:
 
 def read_chart(read=None, symbol=None, intervals=None, studies=None, patterns=None,
                direction=None, drawing_ids=None, frm=None, to=None,
-               lookback_bars=None, draw=False, detail=None) -> dict:
+               lookback_bars=None, draw=False, detail=None, result_dates=None) -> dict:
     read = [r for r in (read or []) if r in READS] or ["trend", "levels", "indicators"]
     ivs = [_iv(i) for i in (intervals or []) if _iv(i) in _INTERVALS] or [_chart_iv()]
     note = []
@@ -236,7 +236,8 @@ def read_chart(read=None, symbol=None, intervals=None, studies=None, patterns=No
         jobs.append(("move", "explain_move", {"frm": frm, "to": to, **sym}))
     if "results_reaction" in read:
         jobs.append(("results_reaction", "evaluate_results",
-                     {"interval": "1w" if ivs[0] == "1w" else "1d", **sym}))
+                     {"interval": "1w" if ivs[0] == "1w" else "1d",
+                      **({"dates": result_dates} if result_dates else {}), **sym}))
 
     if not jobs:
         return {"error": "nothing to read", "_note": f"read takes any of: {', '.join(READS)}"}
@@ -791,7 +792,8 @@ def tools() -> list[dict]:
             "(POC, value area), patterns (34 candlestick, 22 chart patterns, market structure), "
             "pattern_stats (how a named pattern has played out on this stock), divergences (RSI and "
             "MACD), reversal (what would confirm a turn), results_reaction (how price reacted to past "
-            "results), move (why it moved over a window: anatomy, index share, news; pass from and to, "
+            "results; stored dates exist for few companies, so for the rest find the announcement dates "
+            "yourself and pass result_dates), move (why it moved over a window: anatomy, index share, news; pass from and to, "
             "or only the last session is explained), bars (raw "
             "OHLCV), drawings (score the trader's own drawings by id). Defaults to the chart in focus "
             "and the window on screen. draw=true marks what was found on the chart.",
@@ -814,7 +816,11 @@ def tools() -> list[dict]:
              "panel": {"type": "boolean", "description": "also show one compact panel of these readings in the "
                        "reply; only when a grid of numbers says more than the prose would, such as a "
                        "timeframe-by-timeframe comparison the trader asked for"},
-             "detail": {"type": "string", "enum": ["brief", "full"]}},
+             "detail": {"type": "string", "enum": ["brief", "full"]},
+             "result_dates": {"type": "array", "items": {"type": "string"},
+                              "description": "for results_reaction when the company has no stored "
+                              "results dates: past announcement dates you found (YYYY-MM-DD, "
+                              "oldest to newest in any order); reactions are measured on the real bars"}},
             ["read"]),
         _fn("draw",
             "Mark up the chart the way a trader would: levels, zones, trendlines, rays, arrows, boxes, "
@@ -1002,6 +1008,7 @@ You read charts with computed evidence (read_chart), mark them up (draw), arrang
 ## How to work
 - Gather what the question needs in as few rounds as possible. read_chart takes several reads and several timeframes in one call, and independent calls in the same round run in parallel. A full read is usually one read_chart call plus one draw call.
 - When no tool answers a question directly (seasonality, how often a gap fills, average move after an event, a custom ranking), write it yourself with query: SQL to fetch, Python to compute. First pin down the event and the outcome in the trader's own words ("the day after a gap down" is the NEXT session, measured against the gap day's close), compute exactly that, and state the definition and the sample size with the result.
+- Questions about how a stock behaves around events (results, gaps, ex-dates) are answered from the real bars. If the stored dates are missing for that company, find them: search the news and exchange announcements for the past results dates, then hand them to read_chart results_reaction as result_dates, or compute from them with query. A first empty answer is where the work starts; keep going until you have a measured number with its sample size, and say where the dates came from.
 - Pass only the parameters a request needs and leave the optional ones out. An expiry, a direction or a lookback the trader did not ask for changes the result.
 - For a why-did-it-move question, read move with from and to set to the window being asked about.
 - "The last swing leg" is the most recent completed move: from the last confirmed swing point to the one before it, or to the latest bar if price has moved on since.
@@ -1024,7 +1031,7 @@ When the trader asks for a read, a setup, a plan or "what do you see", the chart
 - the trendline or channel that defines the move;
 - the active pattern, a ruler (measure) on the last leg or the room to the next level;
 - arrows for the expected path or a breakout direction, and short text notes at the decisive bar ("Close above confirms").
-Use colour for meaning and keep it consistent: green for support and targets, red for resistance and stops, blue for trendlines and paths, orange for the zone being watched, grey for context. Solid lines for confirmed structure, dashed for projections and conditional levels. Use read_chart draw=true when the detected levels or patterns themselves are what you want on the chart. Do not draw for a quick factual question or when asked not to. Say in one line what you drew.
+Use colour for meaning and keep it consistent: green for support and targets, red for resistance and stops, blue for trendlines and paths, orange for the zone being watched, grey for context. Solid lines for confirmed structure, dashed for projections and conditional levels. Use read_chart draw=true when the detected levels or patterns themselves are what you want on the chart. Whatever your answer names by price or date and the trader would want to see, such as a breakout level, a support zone, a projected line, or the dates of past results with the move after each, goes on the chart in the same turn with its caption, so the prose and the drawing say the same thing (results dates become a vline each, captioned with the quarter and the move). Do not draw for a quick factual question or when asked not to. Say in one line what you drew.
 
 ## The workspace
 Open or fill widgets when the work produces something the trader will come back to: notes from a read (short lines, levels and a checklist of triggers), a sheet for a table worth keeping, a screener for a scan they may refine, a watchlist for names to follow, a second chart for the index or a peer. A widget you open for a purpose starts useful: write the notes, the table or the screen into it in the same call (a notes widget for results day gets the dates, levels and what to watch). When 'Workspace now' already has that kind for the same symbol, use it rather than adding a copy (open does this unless new is set). A quick answer opens nothing. Workspace changes can go in the same round as the reads. Say which symbol each opened widget follows.

@@ -9229,8 +9229,28 @@ def tool_get_results(limit: int = 8, interval: str = "1d",
     return out
 
 
+def _supplied_results(dates) -> list[dict]:
+    """Announcement dates the CALLER found (a news search, an exchange filing,
+    a table it queried), shaped like `_results()` rows so the same reaction
+    arithmetic runs on them. Each is an ISO date, or {date, label?,
+    after_market?}; a date that does not parse is skipped, never guessed."""
+    out = []
+    for d in dates or []:
+        raw = d.get("date") if isinstance(d, dict) else d
+        iso = str(raw or "")[:10]
+        if not _parse_ist(iso):
+            continue
+        label = (d.get("label") or d.get("quarter")) if isinstance(d, dict) else None
+        am = d.get("after_market") if isinstance(d, dict) else None
+        out.append({"quarter": label or iso, "period_end": None, "trade_date": iso,
+                    "broadcast_at": None, "after_market": bool(am), "filings": 0,
+                    "timing_known": am is not None})
+    out.sort(key=lambda e: e["trade_date"], reverse=True)
+    return out
+
+
 def tool_evaluate_results(horizon_bars: int = 5, interval: str = "1d",
-                          lookback_bars: int = 3000) -> dict:
+                          lookback_bars: int = 3000, dates=None) -> dict:
     """What price actually does around this company's results.
 
     Reaction size, direction, run-up and drift — each against the
@@ -9243,9 +9263,17 @@ def tool_evaluate_results(horizon_bars: int = 5, interval: str = "1d",
     rows = _rows(interval, max(300, min(int(lookback_bars or 3000), 4000)))
     if not rows:
         return {"error": f"no bars for interval {interval}"}
-    ev = _results()
+    supplied = bool(dates)
+    ev = _supplied_results(dates) if supplied else _results()
     if not ev:
-        return {"error": "no result dates stored"}
+        return {"error": ("none of the dates given could be read" if supplied
+                          else "no result dates stored for this symbol"),
+                "_note": ("Stored announcement dates exist for only some companies. "
+                          "Find this company's past results dates yourself (search the "
+                          "news or the exchange filings, or query a table you know "
+                          "holds them) and call again with result_dates; the reactions "
+                          "are then measured on the real bars here. Say how you got "
+                          "the dates.")}
     n = len(rows)
     closes = [r[4] for r in rows]
     opens = [r[1] for r in rows]
@@ -9253,6 +9281,8 @@ def tool_evaluate_results(horizon_bars: int = 5, interval: str = "1d",
     studied, too_early, too_recent = [], 0, 0
     for e in ev:
         i = _result_bar_index(rows, e["trade_date"])
+        if i is not None and e.get("after_market") and supplied and i + 1 < n:
+            i += 1                      # announced after the close: the next session reacts
         if i is None or i == 0:
             too_early += 1
             continue
@@ -9270,6 +9300,7 @@ def tool_evaluate_results(horizon_bars: int = 5, interval: str = "1d",
                       if i - h - 1 >= 0 else None),
         })
     res: dict = {"events_evaluated": len(studied),
+                 "dates_from": ("supplied by the caller" if supplied else "stored results table"),
                  "outside_scanned_window": too_early, "too_recent": too_recent,
                  "events_stored": len(ev),
                  "horizon_bars": h, "interval": interval}
@@ -9325,7 +9356,7 @@ def tool_evaluate_results(horizon_bars: int = 5, interval: str = "1d",
     res["recent"] = [{"quarter": s["quarter"], "date": s["date"],
                       "gap_pct": round(s["gap"], 2), "day_pct": round(s["day"], 2),
                       f"next_{h}_bars_pct": round(s["after"], 2)}
-                     for s in studied[:6]]
+                     for s in studied[:12 if supplied else 6]]
     res["recent_shown"] = len(res["recent"])
     res["aggregate_sample_n"] = len(studied)
     res["_sample_note"] = (
@@ -9343,12 +9374,24 @@ def tool_evaluate_results(horizon_bars: int = 5, interval: str = "1d",
         "method": ("each event is the first session able to react to the "
                    "filing (after-market announcements roll to the next day); "
                    "one event per quarter, first filing wins")}
+    if supplied:
+        unknown = sum(1 for e in ev if not e.get("timing_known"))
+        if unknown:
+            res["provenance"]["timing"] = (
+                f"{unknown} of {len(ev)} dates came without a before/after-market flag, "
+                "so the announcement day itself is treated as the reacting session; an "
+                "after-close announcement really reacts the next session, which the "
+                "next_N_bars figure partly covers. Say so in a clause.")
+        res["provenance"]["method"] = "reaction on the session of each supplied date; one event per date"
     res["_note"] = (
         "Lead with the reaction size AGAINST the control — 'results days move "
         "X% versus Y% on an ordinary day' — because the absolute move is the "
         "reliable finding and the direction usually is not. Never present the "
         "up-rate as a way to predict the next one, and obey the withheld "
-        "message when the rate is null.")
+        "message when the rate is null. These dates and moves belong on the "
+        "chart too: draw a vline at each date in `recent` captioned with the "
+        "quarter and its day move (e.g. 'Q2 FY25 +3.2%'), so the reader can "
+        "check the count against the bars.")
     return res
 
 
