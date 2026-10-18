@@ -113,7 +113,7 @@ export function PatternEdge({ symbol }: { symbol: string }): React.ReactElement 
       <p style={{margin:"0 0 12px",fontSize:12,color:"var(--text-secondary)"}}>
         {symbol} only{data?.coverage ? ` · ${data.coverage.bars_scanned.toLocaleString("en-IN")} bars · ${data.coverage.from ? new Date(data.coverage.from*1000).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric",timeZone:"Asia/Kolkata"}) : "—"} – ${data.coverage.to ? new Date(data.coverage.to*1000).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric",timeZone:"Asia/Kolkata"}) : "—"} · ${data.coverage.has_more ? "Latest available scan window" : "All stored history"}` : ""}
       </p>
-      {data && !rows.length ? <p>No evaluated patterns were found in this stock's available history.</p> : null}
+      {data && !rows.length ? <p>No evaluated patterns were found in this stock&apos;s available history.</p> : null}
       {/* One rule in the whole table, under the header. The frame used to be
           eleven: a box around the block and a line between every pair of rows,
           which is more ink than the eight numbers those lines were separating.
