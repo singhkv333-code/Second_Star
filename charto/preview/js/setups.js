@@ -38,6 +38,10 @@ const Setups = (() => {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const toast = (m) => Layouts.toast(m);
   const VIEW = Store.viewOnly ? Store.viewToken : "";
+  // The server photographing a setup for its link preview (dataserver
+  // _setup_screenshot): the author's workspace as it was shared, without the
+  // reader's chrome around it. It writes nothing, like any view.
+  const CAPTURE = !!VIEW && new URLSearchParams(location.search).get("capture") === "1";
   let viewing = null;                 // the setup on screen, in a view session
 
   /* ══ the visual kit ══════════════════════════════════════════════════ */
@@ -399,23 +403,21 @@ const Setups = (() => {
       ok.disabled = true;
       ok.querySelector("span").textContent = "Publishing…";
       // The card is a screenshot of the whole platform: shell, chart, widgets
-      // and the conversation when it is shared. It starts here, inside the
-      // click, because a browser only offers a screen capture to a gesture.
-      // When widget contents are not shared the picture must not show them
-      // either, so that case (and any capture failure) falls back to the
-      // chart-only card below.
-      const card = state.include_data
-        ? WorkspaceCard.render({
-            withChat: !chat.length || !!state.include_chat,   // nothing said yet: nothing to hide
-            dialog: dlg.closest(".su-back"),
-          }).catch((e) => { console.warn("Workspace card unavailable", e); return null; })
-        : Promise.resolve(null);
+      // and the conversation when it is shared. The SERVER takes it, of the
+      // link as published (so it holds exactly what a reader may see), at
+      // this window's size and theme; no browser prompt. The chart-only card
+      // goes up with the setup first, as the image until the screenshot lands.
+      let top = window;
+      try { if (window.top && window.top.innerWidth) top = window.top; } catch { /* another origin */ }
+      const screenshot = {
+        w: top.innerWidth, h: top.innerHeight,
+        dpr: Math.min(2, Math.max(1, window.devicePixelRatio || 1)),
+        scheme: document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark",
+      };
       try {
         const desk = await deskOf(state.include_data, [...new Set((spec.charts || []).map((x) => x.symbol))]);
         let ogImage = "", ogHires = "";
-        const wc = await card;
-        if (wc) { ogImage = wc.og; ogHires = wc.hires; }
-        if (!ogImage) try {
+        try {
           ogImage = await ShareCard.render({
             symbol: sym, interval: iv,
             logo: Universe.logo(sym) || Universe.logo(Universe.baseSymbol(sym)) || "",
@@ -430,14 +432,30 @@ const Setups = (() => {
             chatTurns: state.include_chat ? chat.length : 0,
           });
         } catch (e) { console.warn("Share preview unavailable", e); }
-        const d = await Layouts.call("/setups", {
+        ok.querySelector("span").textContent = "Taking the screenshot…";
+        const body = {
           ...(state.mode === "update" && existing ? { token: existing.token } : {}),
           layout_id: cur && cur.id ? cur.id : undefined,
           title, note: note.value, spec: desk ? { ...spec, dock: desk } : spec, thumb,
-          og_image: ogImage, og_hires: ogHires,
+          og_image: ogImage, symbol: sym, screenshot,
           include_chat: !!(state.include_chat && chat.length), chat,
           allow_copy: state.allow_copy,
-        });
+        };
+        const d = await Layouts.call("/setups", body);
+        // The server could not take it (its browser is down or not set up):
+        // the page makes its own card of the workspace, frame only, and
+        // updates the link with it.
+        if (!d.card && state.include_data) {
+          const wc = await WorkspaceCard.render({
+            withChat: !chat.length || !!state.include_chat,
+          }).catch(() => null);
+          if (wc) {
+            await Layouts.call("/setups", { ...body, token: d.token, screenshot: undefined,
+                                            og_image: wc.og, og_hires: wc.hires }).catch(() => null);
+            ogHires = wc.hires;
+          }
+        }
+        if (d.card) ogHires = "server";
         published(dlg, close, d.token, sym, title, !d.created, deskMini(shapeOf(live), thumb, sym), !!ogHires);
       } catch (err) {
         ok.disabled = false;
@@ -818,7 +836,7 @@ const Setups = (() => {
       return;
     }
     viewing = d;
-    document.body.classList.add("view-only");
+    if (!CAPTURE) document.body.classList.add("view-only");
     document.title = `${d.title} · ${d.symbol} — Pivot`;
     // Locked, so a reader's click selects a shape and reads it but cannot
     // drag the author's level somewhere it was never drawn.
@@ -827,8 +845,9 @@ const Setups = (() => {
     ws.drawings = (ws.drawings || []).map((x) => ({ ...x, locked: true }));
     try { await Layouts.restore(spec); }
     catch (e) { console.error("[charto] setup restore", e); }
-    mountBar(d);
+    if (!CAPTURE) mountBar(d);
     if (window.Chat && Chat.showShared) Chat.showShared(d.chat || []);
+    if (CAPTURE) return captureReady();
     await mountCard(d);
     let pending = null;
     try { pending = sessionStorage.getItem("charto:pending-copy"); } catch {}
@@ -846,6 +865,18 @@ const Setups = (() => {
       history.replaceState(history.state, "", u.toString());
       makeItMine();
     }
+  }
+
+  /** Tell the screenshotting browser the picture is ready: the desk is
+   *  restored and the chart has painted its bars. */
+  async function captureReady() {
+    const c = window.__charto;
+    for (let i = 0; i < 80 && !(c && c.state && c.state.bars && c.state.bars.length); i++) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    await document.fonts.ready.catch(() => null);
+    await new Promise((r) => setTimeout(r, 900));       // widgets and the chat lay out
+    document.documentElement.dataset.captureReady = "1";
   }
 
   /* ── boot ─────────────────────────────────────────────────────────────── */
@@ -866,7 +897,7 @@ const Setups = (() => {
     u.searchParams.set("view", legacy);
     location.replace(u.toString());
   } else if (VIEW) {
-    document.body.classList.add("view-only");
+    if (!CAPTURE) document.body.classList.add("view-only");
     document.addEventListener("charto:workspace-ready", () => { enterView(); }, { once: true });
   } else {
     // Arrived from "Make it mine" with drawings of your own on this symbol:

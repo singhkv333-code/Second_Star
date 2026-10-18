@@ -27,6 +27,14 @@ Isolation, from the inside out:
 Who may connect: the dataserver issues a one-minute, single-use HMAC ticket
 (/browser/ticket, signed-in users) and this service checks it with the shared
 CHARTO_BROWSER_SECRET.
+
+One plain HTTP route sits beside the socket: GET /shot, the dataserver asking
+for a screenshot of a shared setup (its link preview). Its ticket names
+"shot" as the user, and it only opens pages on our own site (RB_SHOT_ORIGINS),
+in a fresh context closed straight after. It answers JSON with two JPEGs: the
+screen at its own pixels, and the same screen fitted whole into the
+2400 x 1260 card link previews show, drawn on a canvas here because the VM
+has no image library.
 """
 from __future__ import annotations
 
@@ -58,6 +66,12 @@ MAX_SESSIONS = int(os.environ.get("RB_MAX_SESSIONS", "4"))
 PER_USER = int(os.environ.get("RB_PER_USER", "2"))
 GRACE, IDLE, LIFETIME = 90, 15 * 60, 2 * 3600
 MOTION_Q, STILL_Q, STILL_AFTER = 80, 92, 0.6     # JPEG quality while moving / once still; seconds
+
+SHOT_ORIGINS = tuple(o.strip().rstrip("/") for o in
+                     os.environ.get("RB_SHOT_ORIGINS", "https://app.pivotnow.in").split(",")
+                     if o.strip())
+SHOT_TIMEOUT = 40.0
+_shots = asyncio.Semaphore(int(os.environ.get("RB_SHOTS", "2")))
 
 _used: dict[str, float] = {}
 sessions: dict[str, "Session"] = {}
@@ -523,8 +537,102 @@ async def handler(ws) -> None:
         await s.detach(ws)
 
 
-def process_request(conn, req):
-    path = urllib.parse.urlsplit(req.path).path
+# The card: the whole screen inside 2400 x 1260, never cropped, the strip left
+# over in the colour of the screen's own edge (as js/workspace-card.js does).
+_FIT_JS = """async ([src, W, H]) => {
+  const img = new Image(); img.src = src; await img.decode();
+  const edge = (x, y, w, h) => {
+    const c = document.createElement("canvas"); c.width = c.height = 1;
+    const k = c.getContext("2d"); k.imageSmoothingQuality = "high";
+    k.drawImage(img, x, y, w, h, 0, 0, 1, 1);
+    const p = k.getImageData(0, 0, 1, 1).data; return `rgb(${p[0]},${p[1]},${p[2]})`;
+  };
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const x = c.getContext("2d", { alpha: false });
+  const f = Math.min(W / img.width, H / img.height);
+  const dw = Math.round(img.width * f), dh = Math.round(img.height * f);
+  const dx = Math.round((W - dw) / 2), dy = Math.round((H - dh) / 2);
+  if (dx > 0) {
+    x.fillStyle = edge(0, 0, 1, img.height); x.fillRect(0, 0, dx + 1, H);
+    x.fillStyle = edge(img.width - 1, 0, 1, img.height); x.fillRect(dx + dw - 1, 0, W - dx - dw + 1, H);
+  }
+  if (dy > 0) {
+    x.fillStyle = edge(0, 0, img.width, 1); x.fillRect(0, 0, W, dy + 1);
+    x.fillStyle = edge(0, img.height - 1, img.width, 1); x.fillRect(0, dy + dh - 1, W, H - dy - dh + 1);
+  }
+  x.imageSmoothingEnabled = true; x.imageSmoothingQuality = "high";
+  x.drawImage(img, dx, dy, dw, dh);
+  for (const q of [0.9, 0.85, 0.8, 0.72, 0.64]) {
+    const url = c.toDataURL("image/jpeg", q);
+    if (url.length <= 1350000) return url;
+  }
+  return "";
+}"""
+
+
+def _json(code: int, obj: dict) -> Response:
+    body = json.dumps(obj).encode()
+    return Response(code, "OK" if code == 200 else "Error",
+                    Headers({"Content-Type": "application/json",
+                             "Content-Length": str(len(body))}), body)
+
+
+async def shot(q: dict) -> Response:
+    """A screenshot of one of our own pages, for a shared setup's preview."""
+    if check_ticket(q.get("ticket", [""])[0]) != "shot":
+        return _json(403, {"error": "ticket"})
+    url = q.get("url", [""])[0]
+    if not any(url.startswith(o + "/") for o in SHOT_ORIGINS):
+        return _json(400, {"error": "url"})
+    w = int(max(800, min(_num(q, "w", 1512), 2560)))
+    h = int(max(500, min(_num(q, "h", 860), 1600)))
+    dpr = max(1.0, min(_num(q, "dpr", 2), 2.0))
+    scheme = "light" if q.get("scheme", ["dark"])[0] == "light" else "dark"
+    if _browser is None or not _browser.is_connected():
+        return _json(503, {"error": "browser"})
+    async with _shots:
+        t0 = time.monotonic()
+        ctx = await _browser.new_context(
+            viewport={"width": w, "height": h}, device_scale_factor=dpr, user_agent=_ua,
+            locale="en-IN", timezone_id="Asia/Kolkata", color_scheme=scheme,
+            service_workers="block")
+        try:
+            page = await ctx.new_page()
+            await page.goto(url, wait_until="domcontentloaded", timeout=SHOT_TIMEOUT * 1000)
+            # The chart frame says when the picture is ready (setups.js
+            # captureReady): the desk restored and the bars painted.
+            ready = False
+            while time.monotonic() - t0 < SHOT_TIMEOUT and not ready:
+                for fr in page.frames:
+                    try:
+                        if await fr.evaluate("document.documentElement.dataset.captureReady") == "1":
+                            ready = True
+                            break
+                    except Exception:  # noqa: BLE001 — a frame mid-navigation
+                        pass
+                if not ready:
+                    await asyncio.sleep(0.25)
+            if not ready:
+                return _json(504, {"error": "the page did not finish loading"})
+            await asyncio.sleep(0.4)
+            jpeg = await page.screenshot(type="jpeg", quality=90, animations="disabled",
+                                         caret="hide")
+            src = "data:image/jpeg;base64," + base64.b64encode(jpeg).decode()
+            og = await page.evaluate(_FIT_JS, [src, 2400, 1260])
+            log.info("shot %dx%d@%s in %.1fs", w, h, dpr, time.monotonic() - t0)
+            return _json(200, {"og": og, "hires": src, "ms": int((time.monotonic() - t0) * 1000)})
+        except Exception as e:  # noqa: BLE001
+            log.warning("shot failed: %s", e)
+            return _json(502, {"error": "shot failed"})
+        finally:
+            await ctx.close()
+
+
+async def process_request(conn, req):
+    split = urllib.parse.urlsplit(req.path)
+    path = split.path
+    if path in ("/shot", "/rb/shot"):
+        return await shot(urllib.parse.parse_qs(split.query))
     if path in ("/health", "/rb/health"):
         body = json.dumps({"ok": _browser is not None and _browser.is_connected(),
                            "sessions": len(sessions), "max": MAX_SESSIONS}).encode()

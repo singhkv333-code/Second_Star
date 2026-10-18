@@ -276,9 +276,7 @@ export function ChartFrame({
       // `allow-same-origin` on a frame we serve ourselves is not a sandbox
       // escape — it is the same trust the page already has.
       sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads"
-      // `display-capture` lets the chart's share card screenshot this tab,
-      // shell and all, which a frame cannot otherwise ask the browser for.
-      allow="clipboard-write; microphone; display-capture"
+      allow="clipboard-write; microphone"
     />
     </div>
   );

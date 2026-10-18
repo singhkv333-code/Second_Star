@@ -204,7 +204,7 @@ AZURE_ENDPOINT, AZURE_KEY = _load_azure_creds()
 # The Browser widget's search engine and remote browser read theirs the same
 # way (websearch.py, _browser_ticket). Env wins over .env.
 for _k, _v in _env_values("YOUTUBE_API_KEY", "BRAVE_SEARCH_API_KEY", "SEARXNG_URL",
-                          "CHARTO_BROWSER_SECRET", "CHARTO_BROWSER_WS",
+                          "CHARTO_BROWSER_SECRET", "CHARTO_BROWSER_WS", "CHARTO_BROWSER_HTTP",
                           # bring-your-own-model (byok.py)
                           "CHARTO_BYOK_SECRET", "OPENAI_SIWC_CLIENT_ID",
                           "OPENAI_SIWC_CLIENT_SECRET", "OPENAI_SIWC_REDIRECT_URI",
@@ -10707,6 +10707,62 @@ def _browser_ticket(me, ip: str) -> tuple[int, dict]:
                  "ws": environ.get("CHARTO_BROWSER_WS") or "/rb/ws"}
 
 
+def _rb_ticket(label: str, secret: str) -> str:
+    """A one-minute, single-use HMAC pass for the remote browser (charto/browser)."""
+    import base64
+    body = json.dumps({"u": label, "exp": int(time.time()) + 60,
+                       "n": secrets.token_urlsafe(9)}, separators=(",", ":")).encode()
+    raw = base64.urlsafe_b64encode(body).decode().rstrip("=")
+    sig = base64.urlsafe_b64encode(hmac.new(secret.encode(), raw.encode(), hashlib.sha256)
+                                   .digest()).decode().rstrip("=")
+    return f"{raw}.{sig}"
+
+
+# Where the server reaches the remote browser itself (not the /rb/ path the
+# page uses): CHARTO_BROWSER_HTTP, else the container SearXNG runs in, which
+# is the same one (deploy/provision_browser.sh).
+def _rb_http() -> str:
+    url = environ.get("CHARTO_BROWSER_HTTP", "").rstrip("/")
+    if url:
+        return url
+    host = urlparse(environ.get("SEARXNG_URL", "")).hostname
+    return f"http://{host}:5177" if host else ""
+
+
+PUBLIC_ORIGIN = (environ.get("CHARTO_PUBLIC_ORIGIN") or "https://app.pivotnow.in").rstrip("/")
+
+
+def _setup_screenshot(token: str, symbol: str, shot: dict) -> dict | None:
+    """The shared setup as the remote browser sees it: the public link opened
+    in capture mode (the workspace without the reader's chrome) at the
+    author's window size and theme. None when the browser is not set up or
+    the page did not load in time; the author's page then makes its own card."""
+    secret, base = environ.get("CHARTO_BROWSER_SECRET", ""), _rb_http()
+    if not secret or not base or not re.fullmatch(r"[\w-]{16,64}", token or ""):
+        return None
+    def num(k, lo, hi, d):
+        try:
+            return max(lo, min(hi, float(shot.get(k, d))))
+        except (TypeError, ValueError):
+            return d
+    page = f"{PUBLIC_ORIGIN}/?" + urlencode(
+        {**({"symbol": symbol.upper()} if re.fullmatch(r"[\w:&. -]{1,40}", symbol or "") else {}),
+         "view": token, "capture": "1"})
+    query = urlencode({"ticket": _rb_ticket("shot", secret), "url": page,
+                       "w": int(num("w", 800, 2560, 1512)), "h": int(num("h", 500, 1600, 860)),
+                       "dpr": num("dpr", 1, 2, 2),
+                       "scheme": "light" if shot.get("scheme") == "light" else "dark"})
+    t0 = time.time()
+    try:
+        with urllib.request.urlopen(f"{base}/shot?{query}", timeout=50) as r:
+            out = json.loads(r.read())
+    except Exception as exc:                                   # noqa: BLE001
+        logging.warning("setup screenshot failed: %s", exc)
+        return None
+    logging.info("setup screenshot %s in %.1fs", token[:6], time.time() - t0)
+    return out if out.get("og") else None
+
+
 def _web_search_model(q: str) -> dict:
     """The hosted web search (India-located), asked for the best pages on a
     query. Only pages the search itself cited are kept, so a listed address is
@@ -19425,7 +19481,16 @@ class Handler(BaseHTTPRequestHandler):
                 return 501, {"error": "sharing is not available on this server"}
             if path == "/setups/copy":
                 return _shares.copy(me[0], str(body.get("token") or ""))
-            return _shares.publish(me[0], me[2] or "", body)
+            code, out = _shares.publish(me[0], me[2] or "", body)
+            # The link preview is a screenshot the server takes of the setup as
+            # published (what a reader may see, nothing more), so the author's
+            # browser never has to ask to see its own tab.
+            shot = body.get("screenshot")
+            if code in (200, 201) and isinstance(shot, dict) and out.get("token"):
+                card = _setup_screenshot(out["token"], str(body.get("symbol") or ""), shot)
+                out["card"] = bool(card) and _shares.set_images(
+                    me[0], out["token"], card["og"], card.get("hires", ""))
+            return code, out
         if path == "/conversations":
             chats = body.get("chats")
             if not isinstance(chats, list):
@@ -20252,7 +20317,8 @@ class Handler(BaseHTTPRequestHandler):
                     key = hashlib.sha256(self._client_ip().encode()).hexdigest()[:16]
                     code, payload = _shares.view(
                         tok, viewer[0] if viewer else None, key,
-                        thumb=q.get("thumb") in ("1", "true"))
+                        thumb=q.get("thumb") in ("1", "true"),
+                        count=q.get("capture") != "1")
                     if code != 404 or u.path == "/setup":
                         return self._send(code, payload)
                 return self._send(*_layout_shared_get(tok))

@@ -361,8 +361,9 @@ def _count_view(setup_id: int, token: str, viewers: list[str]) -> bool:
 
 
 def view(token: str, viewer_uid: int | None, viewer_key: str,
-         thumb: bool = False) -> tuple[int, dict]:
-    """A setup for anyone holding the link. No account needed."""
+         thumb: bool = False, count: bool = True) -> tuple[int, dict]:
+    """A setup for anyone holding the link. No account needed. `count` is off
+    for the server's own screenshot of it, which is not a reader."""
     tok = (token or "").strip()
     if len(tok) < 16:
         return 404, {"error": "not found"}
@@ -376,7 +377,7 @@ def view(token: str, viewer_uid: int | None, viewer_key: str,
     if not r:
         return 404, {"error": "this setup is no longer shared"}
     own = viewer_uid == r[14]
-    counted = (not own) and _count_view(
+    counted = count and (not own) and _count_view(
         r[0], tok, [viewer_key] + ([f"u{viewer_uid}"] if viewer_uid else []))
     try:
         spec = json.loads(r[6])
@@ -395,6 +396,20 @@ def view(token: str, viewer_uid: int | None, viewer_key: str,
     if thumb:
         out["thumb"] = r[16]
     return 200, out
+
+
+def set_images(uid: int, token: str, og_image: str, og_hires: str = "") -> bool:
+    """Store the link-preview images for a setup the caller owns (the server's
+    screenshot of it, taken after it was published)."""
+    og = _clean_og_image(og_image)
+    if not og:
+        return False
+    hi = _clean_og_image(og_hires, HIRES_MAX)
+    with _lock:
+        cur = _con.execute("UPDATE shared_setups SET og_image=?, og_hires=? "
+                           "WHERE token=? AND user_id=?", (og, hi, token, uid))
+        _con.commit()
+    return cur.rowcount == 1
 
 
 def preview(token: str) -> dict | None:

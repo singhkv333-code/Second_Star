@@ -989,7 +989,12 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
       const panel = params.get("panel");
       if (view && symbol && /^[\w-]{8,64}$/.test(view)) {
         setChartSymbol(symbol.trim().toUpperCase());
-        setChartQuery(params.get("mine") === "1" ? { view, mine: "1" } : { view });
+        // capture=1 is the server screenshotting the setup for its link
+        // preview: the frame drops the reader's chrome, the shell its sign-in.
+        const capture = params.get("capture") === "1";
+        if (capture) document.documentElement.classList.add("pivot-capture");
+        setChartQuery(params.get("mine") === "1" ? { view, mine: "1" }
+          : capture ? { view, capture: "1" } : { view });
       } else if (symbol || ask) {
         // spaces allowed: an index is "NIFTY 50" here
         if (symbol && /^[\w:&. -]{1,40}$/.test(symbol)) setChartSymbol(symbol.trim().toUpperCase());
@@ -999,7 +1004,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
         return;
       }
       goTab("chart");
-      for (const key of ["view", "symbol", "mine", "ask", "panel"]) params.delete(key);
+      for (const key of ["view", "symbol", "mine", "ask", "panel", "capture"]) params.delete(key);
       const qs = params.toString();
       window.history.replaceState(null, "", `${window.location.pathname}${qs ? `?${qs}` : ""}#chart`);
     } catch {
