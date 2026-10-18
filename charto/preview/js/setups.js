@@ -412,7 +412,15 @@ const Setups = (() => {
       const screenshot = {
         w: top.innerWidth, h: top.innerHeight,
         dpr: Math.min(2, Math.max(1, window.devicePixelRatio || 1)),
-        scheme: document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark",
+        // the theme the author SEES: the shell's own ground, light or dark
+        scheme: (() => {
+          try {
+            const m = getComputedStyle(top.document.body).backgroundColor.match(/\d+(\.\d+)?/g) || [];
+            const [r, g, b] = m.map(Number);
+            if (m.length >= 3) return (0.2126 * r + 0.7152 * g + 0.0722 * b) > 128 ? "light" : "dark";
+          } catch { /* another origin */ }
+          return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+        })(),
       };
       try {
         const desk = await deskOf(state.include_data, [...new Set((spec.charts || []).map((x) => x.symbol))]);
@@ -875,6 +883,14 @@ const Setups = (() => {
       await new Promise((r) => setTimeout(r, 100));
     }
     await document.fonts.ready.catch(() => null);
+    // The shell holds its own "Loading chart…" over this frame until the
+    // frame says it is up; a picture taken before that is of the placeholder.
+    for (let i = 0; i < 60; i++) {
+      let loading = false;
+      try { loading = !!window.parent.document.querySelector(".chart-frame-loading"); } catch { /* not framed by us */ }
+      if (!loading) break;
+      await new Promise((r) => setTimeout(r, 250));
+    }
     await new Promise((r) => setTimeout(r, 900));       // widgets and the chat lay out
     document.documentElement.dataset.captureReady = "1";
   }
