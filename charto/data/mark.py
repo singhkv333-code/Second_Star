@@ -87,7 +87,40 @@ KIND = {
     # move between them — size, percent and bars, all computed here, so a
     # "this leg was +28 (+86%)" on the chart is arithmetic, not the model's
     "measure": "segment",
+    # a segment with a head on its second end: a projected path, "price
+    # likely travels here", a pointer from a note to the bar it is about
+    "arrow": "segment",
+    # free text on the chart — the same chip as a note, under the word a
+    # trader reaches for
+    "text": "label",
 }
+
+# Colour by NAME, resolved here so the chart, the markers layer and anything
+# replaying a saved scene read one palette. Chosen to read on both themes; the
+# role colours (amber/cyan/violet) remain the default when no colour is asked.
+PALETTE = {
+    "blue": "#2962ff", "teal": "#00897b", "green": "#089981", "red": "#f23645",
+    "orange": "#ff9800", "yellow": "#f7b500", "purple": "#9c27b0",
+    "pink": "#e91e63", "grey": "#787b86", "gray": "#787b86",
+}
+LINES = ("solid", "dashed", "dotted")
+WEIGHTS = ("thin", "normal", "thick")
+
+
+def _style(spec: dict) -> dict:
+    """The optional look of one shape — only keys the user's chart knows.
+    An unknown colour name is dropped rather than guessed at."""
+    out = {}
+    c = str(spec.get("color") or "").strip().lower()
+    if c in PALETTE:
+        out["color"] = PALETTE[c]
+    elif len(c) == 7 and c.startswith("#"):
+        out["color"] = c
+    if spec.get("line") in LINES:
+        out["line"] = spec["line"]
+    if spec.get("weight") in WEIGHTS:
+        out["weight"] = spec["weight"]
+    return out
 
 # ── the ratio family ────────────────────────────────────────────────────
 # Every Fibonacci and Gann tool the chart's rail offers, addressable the same
@@ -112,14 +145,14 @@ AXIS = {
     "hline": "price", "band": "price",
     "vline": "time", "vband": "time", "candle": "time", "marker": "time",
     "segment": "tv", "ray": "tv", "box": "tv", "poly": "tv",
-    "dot": "tv", "note": "tv", "measure": "tv",
+    "dot": "tv", "note": "tv", "measure": "tv", "arrow": "tv", "text": "tv",
 }
 AXIS.update({t: "tv" for t in drawtools.TOOLS})
 
 # how many addresses each shape consumes
 NEED = {"hline": 1, "band": 2, "vline": 1, "vband": 2, "segment": 2,
         "ray": 2, "box": 2, "poly": 3, "dot": 1, "candle": 1, "note": 1,
-        "marker": 1, "measure": 2}
+        "marker": 1, "measure": 2, "arrow": 2, "text": 1}
 NEED.update({t: s["anchors"] for t, s in drawtools.TOOLS.items()})
 
 
@@ -442,7 +475,7 @@ def build(specs: list, rows: list, env: dict, pane: str = "price",
 
             aid = f"{prefix}{gi}" + (f"-{ci}" if len(spans) > 1 else "")
             base = {"id": aid, "pane": pane, "role": role,
-                    "label": label, "owner": "mark",
+                    "label": label, "owner": "mark", **_style(spec),
                     "source": {"tool": "mark", "method": "resolved address",
                                "addresses": addrs,
                                "strength": "model-placed"}}
@@ -524,6 +557,10 @@ def _annotate(shape, pts, base, rows, marks, label, role):
         return {**base, "kind": "segment", "dashed": False, "move": move,
                 "p1": {"t": a["t"], "v": a["v"]}, "p2": {"t": b["t"], "v": b["v"]},
                 "extend": "none", "label": text}
+    if shape == "arrow":
+        return {**base, "kind": "segment", "dashed": False, "arrow": True,
+                "p1": {"t": p[0]["t"], "v": p[0]["v"]},
+                "p2": {"t": p[1]["t"], "v": p[1]["v"]}, "extend": "none"}
     if shape in ("segment", "ray"):
         return {**base, "kind": "segment", "dashed": True,
                 "p1": {"t": p[0]["t"], "v": p[0]["v"]},
@@ -539,7 +576,7 @@ def _annotate(shape, pts, base, rows, marks, label, role):
     if shape == "dot":
         return {**base, "kind": "point",
                 "a": {"t": p[0]["t"], "v": p[0]["v"]}}
-    if shape == "note":
+    if shape in ("note", "text"):
         return {**base, "kind": "label", "text": label,
                 "a": {"t": p[0]["t"], "v": p[0]["v"]}}
     if shape == "candle":
@@ -549,6 +586,7 @@ def _annotate(shape, pts, base, rows, marks, label, role):
                 **hl}
     if shape == "marker":
         marks.append({"t": p[0]["t"], "text": label or "",
+                      **({"color": base["color"]} if base.get("color") else {}),
                       "position": "belowBar" if role == "support" else "aboveBar",
                       "shape": "arrowUp" if role == "support"
                                else "arrowDown" if role == "resistance"

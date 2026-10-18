@@ -2452,6 +2452,23 @@ def tool_draw_shape(shape: str, anchor_ids: list, interval: str = "5m",
     return out
 
 
+_mark_last = [0]
+_mark_lock = threading.Lock()
+
+
+def _mark_seq() -> str:
+    """A short id stem that never repeats, across turns and restarts."""
+    with _mark_lock:
+        n = max(int(time.time() * 1000), _mark_last[0] + 1)
+        _mark_last[0] = n
+    digits = "0123456789abcdefghijklmnopqrstuvwxyz"
+    s = ""
+    while n:
+        n, r = divmod(n, 36)
+        s = digits[r] + s
+    return s
+
+
 def tool_mark(shapes: list | None = None, interval: str = "1d",
               lookback_bars: int = 300, pane: str = "price",
               draw_mode: str = "add") -> dict:
@@ -2480,9 +2497,11 @@ def tool_mark(shapes: list | None = None, interval: str = "1d",
     rows = _rows(interval, max(60, min(int(lookback_bars or 300), 1500)))
     if not rows:
         return {"error": f"no bars for interval {interval}"}
+    # ids are unique per call: the chart replaces an item with the same id, so
+    # a fixed "M0" let each turn's markup overwrite the last turn's
     out = mark.build(shapes, rows, {"tz_off": _tz_off(),
                                     "parse_time": _parse_ist, "fmt_time": _ist},
-                     pane=str(pane or "price"))
+                     pane=str(pane or "price"), prefix=f"M{_mark_seq()}.")
     for item in out["items"]:
         _scene_add(item)
 
@@ -11911,6 +11930,27 @@ def _ws_widgets() -> dict:
     return {w.get("id"): w for w in (ws.get("widgets") or []) if isinstance(w, dict) and w.get("id")}
 
 
+
+def _ws_same_widget(o: dict, have: dict, opened: dict) -> str:
+    """The widget on the desk an `open` should reuse: same kind, and showing the
+    symbol asked for (or following the chart when none is named). Newest wins."""
+    kind = o.get("type")
+    want = canon_symbol(o["symbol"]) if o.get("symbol") else None
+    focus = canon_symbol(getattr(_req, "symbol", "") or "")
+    for wid, w in reversed(list(have.items())):
+        if w.get("type") != kind:
+            continue
+        follows = (w.get("link") or "chart") == "chart"
+        shows = canon_symbol(w["symbol"]) if w.get("symbol") else (focus if follows else None)
+        if want is None or want == shows:
+            return wid
+    if want is None:            # opened earlier this turn; its symbol is not on record yet
+        for wid, k in reversed(list(opened.items())):
+            if k == kind:
+                return wid
+    return ""
+
+
 def _workspace_line() -> str:
     """The desk, in a few lines, for the end of the turn's input."""
     if getattr(_req, "chat_mode", "chat") == "execution" or not _ws_catalog():
@@ -12141,7 +12181,18 @@ def tool_workspace(ops: list | None = None) -> dict:
                 o["id"] = mine[-1]
             else:
                 verb = o["op"] = "open"
+        same = ""
+        if verb == "open" and not o.get("new"):
+            # a second news or notes pane beside the first is clutter, not an
+            # answer: the one already on the desk for this symbol takes the op
+            same = _ws_same_widget(o, have, opened)
+            if same:
+                o["id"] = same
+                verb = o["op"] = ("write" if o.get("content")
+                                  else "configure" if o.get("settings") else "focus")
         res = {"i": i, "op": verb}
+        if same:
+            res["reused"] = same
         err = ""
         if verb == "describe":
             e = cat.get(o.get("type"))
@@ -13839,6 +13890,22 @@ def tool_search_web(q: str = "", kind: str = "web", fresh: str = "") -> dict:
 
 _DISPATCH["search_web"] = tool_search_web
 
+# ── chat v2: ten flexible tools over the same engine (chat_v2.py) ──
+# Chosen per request: the /chat body's `harness` ("v1" | "v2") wins, else
+# CHARTO_CHAT_V2=1 makes v2 the default. Research mode on Pivot's own model
+# only — execution mode and a user's own model keep the v1 surface.
+import chat_v2 as _v2  # noqa: E402
+_v2.bind(sys.modules[__name__])
+CHAT_V2_DEFAULT = (environ.get("CHARTO_CHAT_V2")
+                   or _env_values("CHARTO_CHAT_V2")["CHARTO_CHAT_V2"] or "0") == "1"
+
+
+def _v2_on() -> bool:
+    if getattr(_req, "chat_mode", "chat") == "execution" or getattr(_req, "engine", None):
+        return False
+    want = getattr(_req, "chat_v2", None)
+    return CHAT_V2_DEFAULT if want is None else bool(want)
+
 
 def _byok_tools() -> list[dict]:
     return [t for t in TOOLS if t.get("name") not in _EXECUTION_ONLY_TOOLS
@@ -14031,17 +14098,25 @@ def _dispatch_calls(jobs: list[tuple[str, dict]]):
 
 
 def run_tool(name: str, args: dict) -> dict:
+    # a v2 tool fans out to the tools below and comes back through here for
+    # each of them; `v2_inner` is what tells the two layers apart
+    if name in _v2.DISPATCH and _v2_on() and not getattr(_req, "v2_inner", False):
+        return _v2.run(name, args)
     fn = _DISPATCH.get(name)
     if not fn:
         return {"error": f"unknown tool {name}"}
+    # v2 reads any stored instrument by name, so `symbol` scopes every tool
+    # that does not take one itself, not only the chart-scoped list
+    v2_reach = getattr(_req, "v2_inner", False) and _v2_on()
     # `symbol` is routing, not a parameter of the computation: the tools that
     # take it in their own signature (get_peers) keep it, and for everything
     # else it swaps the request's working chart for the length of this one
     # call. Doing it here means a tool never has to know that more than one
     # chart exists — and a tool added tomorrow inherits this for free.
     args = dict(args or {})
+    _own = _fn_params(fn)
     want = canon_symbol(args.pop("symbol", "") or "") \
-        if name in _CHART_SCOPED and "symbol" not in _fn_params(fn) else ""
+        if ((name in _CHART_SCOPED or (v2_reach and _own)) and "symbol" not in _own) else ""
     prev = getattr(_req, "symbol", "RELIANCE")
     if want and want != prev:
         # `symbol=` means "which chart on screen to read" — its own description
@@ -14065,8 +14140,10 @@ def run_tool(name: str, args: dict) -> dict:
         # user chose to display it. Bounding the builder to the open panes
         # turned "mark the entries this rule generated" into "open the NIFTY
         # chart first", which is a workspace errand, not an answer.
-        on_screen = ([] if getattr(_req, "chat_mode", "chat") == "execution"
+        on_screen = ([] if getattr(_req, "chat_mode", "chat") == "execution" or v2_reach
                      else [s.upper() for s in (getattr(_req, "charts", []) or [])])
+        if v2_reach and not _symbol_ready(want):
+            _ensure_symbol(want)        # a cold symbol hydrates once, ~6-10 s
         if on_screen and want not in on_screen:
             return {"error": f"{want} is not a chart in this conversation",
                     "_note": (f"The charts here are: {', '.join(on_screen)}. "
@@ -15134,6 +15211,8 @@ def _tools_for_request() -> list[dict]:
     proposal and backtest tools, which Charto has no local equivalent of, plus
     its own registration verbs, and subtracts nothing it can research with.
     """
+    if _v2_on():
+        return _v2.tools()
     if getattr(_req, "chat_mode", "chat") != "execution":
         withheld = _EXECUTION_ONLY_TOOLS | ({"save_strategy"} if not EXECUTION_ENABLED else set())
         own = [t for t in TOOLS if t.get("name") not in withheld]
@@ -15219,7 +15298,7 @@ def _tools_wire(tools: list[dict], model: str) -> list[dict]:
     """The offered tools as they go on the wire: core first, then each group
     as a namespace of deferred functions, then the search tool."""
     if (not TOOL_SEARCH or getattr(_req, "chat_mode", "chat") == "execution"
-            or not _supports_tool_search(model)):
+            or not _supports_tool_search(model) or _v2_on()):
         return tools
     by = {t.get("name"): t for t in tools if t.get("type") == "function"}
     deferred = {n for _, names in TOOL_GROUPS.values() for n in names}
@@ -15239,6 +15318,9 @@ def _tools_wire(tools: list[dict], model: str) -> list[dict]:
 def _wire_for(model: str, wire: list[dict]) -> list[dict]:
     """A deployment without tool search cannot be sent the search items a
     previous round produced (the fallback arm, mid-turn)."""
+    if model != LLM_DEPLOYMENT:
+        # reasoning items belong to the deployment that wrote them
+        wire = [it for it in wire if it.get("type") != "reasoning"]
     if _supports_tool_search(model) and TOOL_SEARCH:
         return wire
     out = []
@@ -15776,6 +15858,8 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
     common = (build_context_block(context), FORMAT_RULES, ANSWERING_RULES)
     mode_context = ((mode_rules,) if mode_rules else (READING_RULES, CAUSAL_RULES, WORKING_RULES))
     block = "\n\n".join(x for x in (*common, *mode_context) if x)
+    if _v2_on():
+        block = _v2.system_block(build_context_block(context))
     wire: list[dict] = []
     if block:
         wire.append({"role": "system", "content": block})
@@ -15897,6 +15981,8 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
     common = (build_context_block(context), FORMAT_RULES, ANSWERING_RULES)
     mode_context = ((mode_rules,) if mode_rules else (READING_RULES, CAUSAL_RULES, WORKING_RULES))
     block = "\n\n".join(x for x in (*common, *mode_context) if x)
+    if _v2_on():
+        block = _v2.system_block(build_context_block(context))
     guard = None
     offered = None
     if eng:
@@ -15927,7 +16013,7 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
     scene_patch: list[dict] = []
     view_ops: list[dict] = []
     cards: list[dict] = []
-    tok_in = tok_out = 0
+    tok_in = tok_out = tok_cached = 0
     turn_sources: list[str] = []
 
     _rounds = _max_tool_rounds()
@@ -15936,6 +16022,7 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
         text_parts: list[str] = []
         by_id: dict = {}
         searched: list[dict] = []
+        reasoned: list[dict] = []      # v2: this round's reasoning, replayed
         # Models from gpt-5.4 label each message `phase`: "commentary" for a
         # progress line written before tools, "final_answer" for the answer.
         # Commentary never enters the reply: it is held per message and sent
@@ -15988,11 +16075,14 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
                     u = r.get("usage") or {}
                     tok_in += u.get("input_tokens") or 0
                     tok_out += u.get("output_tokens") or 0
+                    tok_cached += (u.get("input_tokens_details") or {}).get("cached_tokens") or 0
                     # authoritative item list — the deltas above are only text
                     for item in r.get("output", []):
                         if item.get("type") == "function_call":
                             by_id[item.get("call_id") or item.get("id") or len(by_id)] = item
                     searched = _search_items(r.get("output", []))
+                    reasoned = [it for it in r.get("output", [])
+                                if it.get("type") == "reasoning"]
                 # `error` is the stream-level fault; `response.failed` is the
                 # RUN failing after it started, and it was not handled at all —
                 # the loop simply ran out of events, found no tool calls and
@@ -16032,7 +16122,8 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
                 # user's own page sent, not Pivot's rules.
                 eng.touch()
                 yield {"type": "done", "text": answer, "model": eng.label(), "engine": eng.provider,
-                       "usage": {"input_tokens": tok_in, "output_tokens": tok_out},
+                       "usage": {"input_tokens": tok_in, "output_tokens": tok_out,
+                             "cached_input_tokens": tok_cached}, "rounds": _round + 1,
                        "context_preview": build_context_block(context),
                        "tools_used": tool_trace, "scene_patch": scene_patch,
                        "view_ops": view_ops, "cards": cards, "sources": turn_sources[:8]}
@@ -16040,7 +16131,8 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
             yield {"type": "done",
                    "text": answer,
                    **({"model": _served} if _served != LLM_DEPLOYMENT else {}),
-                   "usage": {"input_tokens": tok_in, "output_tokens": tok_out},
+                   "usage": {"input_tokens": tok_in, "output_tokens": tok_out,
+                             "cached_input_tokens": tok_cached}, "rounds": _round + 1,
                    "context_preview": block,
                    "tools_used": tool_trace,
                    "scene_patch": scene_patch, "view_ops": view_ops,
@@ -16141,12 +16233,19 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
                                    "scene": _scene_take(), "views": _view_take(),
                                    "cards": _card_take()})
 
+        # v2 keeps the model's own reasoning across rounds: the reasoning items
+        # it produced before these calls go back ahead of them, as returned, so
+        # the next round continues that thought instead of starting over
+        replay = reasoned if (_v2_on() and not eng) else []
+        wire.extend(replay)
         # the transcript in the order the model asked, whatever order they landed
         for i, call in enumerate(calls):
             wire.append({"type": "function_call", "call_id": call.get("call_id"),
                          "name": call.get("name"), "arguments": call.get("arguments"),
                          **({"namespace": call["namespace"]} if call.get("namespace") else {}),
-                         **({"_sig": call["_sig"]} if call.get("_sig") else {})})
+                         **({"_sig": call["_sig"]} if call.get("_sig") else {}),
+                         # a replayed reasoning item must be followed by the call it led to
+                         **({"id": call["id"]} if replay and call.get("id") else {})})
             wire.append({"type": "function_call_output", "call_id": call.get("call_id"),
                          "output": json.dumps(outcomes[i]["result"], default=str)})
 
@@ -16155,7 +16254,8 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
     yield {"type": "done",
            **({"model": eng.label(), "engine": eng.provider} if eng else {}),
            "text": "I couldn't finish that lookup — try narrowing the question.",
-           "usage": {"input_tokens": tok_in, "output_tokens": tok_out},
+           "usage": {"input_tokens": tok_in, "output_tokens": tok_out,
+                             "cached_input_tokens": tok_cached}, "rounds": _round + 1,
            "context_preview": build_context_block(context) if eng else block,
            "tools_used": tool_trace,
            "scene_patch": scene_patch, "view_ops": view_ops, "cards": cards}
@@ -20860,6 +20960,9 @@ class Handler(BaseHTTPRequestHandler):
             _req.chat_mode = ("execution"
                               if body.get("mode") == "execution" and EXECUTION_ENABLED
                               else "chat")
+            # which chat surface: "v2" / "v1" from the page, else the default
+            _h = body.get("harness")
+            _req.chat_v2 = True if _h == "v2" else False if _h == "v1" else None
             # the desk, for the workspace tool — out of the chart envelope, so
             # neither the manifest's contents nor the catalog reach the prompt
             # except through the tool and the short "Workspace now" block

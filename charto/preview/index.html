@@ -2938,11 +2938,14 @@ header > .btn, header > .badge { flex: none; }
    ORDER MATTERS: panning comes after, so a pan that happens to travel over a
    shape keeps the closed hand. */
 .stage.overdraw #chart, .stage.overdraw #chart * { cursor: pointer !important; }
+/* the same hand over a shape the chat drew (js/scene.js) */
+.stage.overscene #chart, .stage.overscene #chart * { cursor: pointer !important; }
 .stage.panning #chart, .stage.panning #chart * { cursor: grabbing !important; }
 /* the same cursors on a secondary pane, which now draws too: its stage is the
    .subchart root and its chart element is the .sub-canvas */
 .sub-canvas.drawing, .sub-canvas.drawing * { cursor: crosshair !important; }
 .subchart.overdraw .sub-canvas, .subchart.overdraw .sub-canvas * { cursor: pointer !important; }
+.subchart.overscene .sub-canvas, .subchart.overscene .sub-canvas * { cursor: pointer !important; }
 
 .readout {
   /* The OHLC row is not allowed to reach the price scale. It used to be
@@ -11932,10 +11935,11 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- before panes.js and main.js: both register their charts with it as
        they build them, and read their series colours out of it -->
   <script src="./js/chartsettings.js?v=10"></script>
-  <script src="./js/geometry.js?v=25"></script>
+  <script src="./js/geometry.js?v=27"></script>
   <script src="./js/tools.js?v=23"></script>
   <script src="./js/drawings.js?v=46"></script>
-  <script src="./js/scene.js?v=54"></script>
+  <script src="./js/labels.js?v=4"></script>
+  <script src="./js/scene.js?v=61"></script>
   <script src="./js/chartsize.js?v=7"></script>
   <script src="./js/compare.js?v=17"></script>
   <script src="./js/panes.js?v=39"></script>
