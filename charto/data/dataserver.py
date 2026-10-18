@@ -17451,13 +17451,12 @@ def _auth_signup(body: dict, referral_token: str = "") -> tuple[int, dict]:
     except sqlite3.IntegrityError:
         return 409, {"error": "an account already exists for that email"}
     _bind_referral(uid, referral_token)
-    # Confirm the address is theirs. Mail goes out on a worker thread; when
-    # mail is not configured the account still works and can ask again later.
-    sent = _verifs.start(uid, email, name) if _verifs else False
-    code, out = _session_reply(uid, {"id": uid, "email": email, "name": name,
-                                     "email_verified": False})
-    out["verification_sent"] = bool(sent)
-    return code, out
+    # No confirmation step: the account works at once, and the first mail it
+    # gets is the welcome (notify.signed_in). The address stays recorded as
+    # unconfirmed, which is what lets a later Google sign-in by the inbox's
+    # real owner take the account back (see _auth_google).
+    return _session_reply(uid, {"id": uid, "email": email, "name": name,
+                                "email_verified": False})
 
 
 def _auth_login(body: dict) -> tuple[int, dict]:

@@ -179,10 +179,6 @@ export default function SignupPage(): React.ReactElement {
     try {
       localStorage.setItem(TOUR_PENDING_KEY, "1");
       sessionStorage.setItem("pivot:just-signed-in", "1");
-      // The server emailed a confirmation link; the shell says so once.
-      if ((result.data as { verification_sent?: boolean }).verification_sent) {
-        sessionStorage.setItem("pivot:verify-sent", data.email);
-      }
     } catch {
       /* private mode / storage full — skip; no functional impact */
     }
