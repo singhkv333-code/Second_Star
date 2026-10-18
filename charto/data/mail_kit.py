@@ -10,8 +10,12 @@ HOW IT IS BUILT, AND WHY
   This is the structure React Email and MJML both compile to, because Outlook
   for Windows still renders with Word and ignores most modern CSS. A <style>
   block carries only progressive extras: dark mode and the phone layout.
-- No images. The wordmark is live text in the brand serif, so nothing is
-  blank when a mail client blocks images, and nothing has to be hosted.
+- Black and white, like the product. Every message opens on a masthead: the
+  sign-in page's wave field (grain and vignette included) with the wordmark,
+  the alien inside "Pivot", in white. Those are the only two images, hosted
+  beside the chart app (charto/preview/assets/email). The masthead's colour is
+  set as well, and the wordmark's alt text is set in the brand serif, so a
+  client that blocks images still shows a black band reading "Pivot".
 - Readable everywhere: body text is 16px in near-black, secondary text is
   15px and still dark, and the footer is 14px in a colour that passes WCAG AA
   on the page background. No pills, no badges, no pale grey fine print.
@@ -30,17 +34,23 @@ from dataclasses import dataclass
 import html
 from typing import Iterable, NamedTuple, Sequence
 
-# ── the palette (from the landing page: ink, paper, cyan, amber) ────────────
-INK = "#111312"        # headings, values, the button
-TEXT = "#262a28"       # body copy
-SOFT = "#3b403e"       # labels and the footer: dark enough for AA at 14-15px
-LINE = "#e2ddcf"       # hairlines
-PAGE = "#f3f0e7"       # behind the card
-CARD = "#fffdf8"       # the card
-WELL = "#f6f3eb"       # the code panel and table header
-LINK = "#13687a"       # cyan, darkened until it reads as text (AA on CARD)
-AMBER = "#c5943f"      # the rule beside a note
-NOTE_BG = "#faf5ea"
+# ── the palette: ink, greys and bone, no colour (the brand's dark palette) ───
+INK = "#0b0b0c"        # headings, values, the button, links, the rule beside a note
+TEXT = "#232325"       # body copy
+SOFT = "#3d3d40"       # labels and the footer: dark enough for AA at 14-15px
+LINE = "#e3e2de"       # hairlines
+PAGE = "#efeeea"       # behind the card
+CARD = "#ffffff"       # the card
+WELL = "#f5f4f1"       # the code panel, the table header, a note
+LINK = INK             # underlined, so it reads as a link without a colour
+BONE = "#fbfcfc"       # text on the masthead
+MIST = "#cfcfcb"       # the masthead's second line
+NOTE_BG = WELL
+
+ASSETS = "https://app.pivotnow.in/assets/email"
+MASTHEAD = f"{ASSETS}/masthead.jpg"          # 1200 x 560, the wave field
+WORDMARK = f"{ASSETS}/wordmark-white.png"    # 480 x 181, white on clear
+MAST_BG = "#0a0a0b"
 
 SERIF = "Newsreader, Georgia, 'Times New Roman', serif"
 SANS = ("Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, "
@@ -69,6 +79,10 @@ def _url(url: str) -> str:
 class Block(NamedTuple):
     html: str
     text: str
+
+
+class Hero(Block):
+    """A headline that belongs on the masthead rather than in the card."""
 
 
 @dataclass(frozen=True)
@@ -105,23 +119,16 @@ def heading(text: str) -> Block:
         f"{text}\n{'=' * min(len(text), 60)}")
 
 
-def hero(title: str, line: str = "") -> Block:
-    """The opening panel for the moments that deserve one (a welcome, access,
-    a new plan): the landing page's dark hero in miniature, a cyan rule and
-    the headline in the brand serif. Live text, so it survives blocked images."""
+def hero(title: str, line: str = "") -> Hero:
+    """The headline for the moments that deserve one (a welcome, access, a new
+    plan). `page` sets it on the masthead, under the wordmark, in the brand
+    serif. Live text, so it survives blocked images."""
     sub = (f'<p style="margin:12px 0 0;font-family:{SANS};font-size:16px;line-height:25px;'
-           f'color:#dcd8cd;">{esc(line)}</p>') if line else ""
-    return Block(
-        '<table role="presentation" width="100%" border="0" cellpadding="0" '
-        'cellspacing="0" style="margin:0 0 28px;"><tr>'
-        f'<td class="pv-hero" bgcolor="{INK}" style="background:{INK};border-radius:12px;'
-        'padding:30px 30px 32px;">'
-        '<table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr>'
-        '<td style="width:44px;height:3px;background:#2b9bb1;font-size:0;line-height:0;">'
-        '&nbsp;</td></tr></table>'
-        f'<h1 class="pv-h1" style="margin:18px 0 0;font-family:{SERIF};font-size:32px;'
-        f'line-height:38px;font-weight:400;letter-spacing:-0.5px;color:#f3f0e7;">{esc(title)}</h1>'
-        f'{sub}</td></tr></table>',
+           f'color:{MIST};">{esc(line)}</p>') if line else ""
+    return Hero(
+        f'<h1 class="pv-h1" style="margin:64px 0 0;font-family:{SERIF};font-size:34px;'
+        f'line-height:40px;font-weight:400;letter-spacing:-0.5px;color:{BONE};">{esc(title)}</h1>'
+        f'{sub}',
         f"{title}\n{'=' * min(len(title), 60)}" + (f"\n{line}" if line else ""))
 
 
@@ -189,12 +196,12 @@ def code(value: str) -> Block:
 
 def note(*parts) -> Block:
     """Something the reader must not miss: a warning, an exception, a limit.
-    A rule in the brand amber, never a coloured badge."""
+    An ink rule on a quiet panel, never a coloured badge."""
     h, t = _inline(list(parts))
     return Block(
         '<table role="presentation" width="100%" border="0" cellpadding="0" '
         'cellspacing="0" style="margin:4px 0 24px;"><tr>'
-        f'<td class="pv-note pv-text" style="border-left:3px solid {AMBER};'
+        f'<td class="pv-note pv-text" style="border-left:3px solid {INK};'
         f'background:{NOTE_BG};padding:14px 18px;font-family:{SANS};font-size:15px;'
         f'line-height:24px;color:{TEXT};">{h}</td></tr></table>',
         f"Note: {t}")
@@ -279,30 +286,30 @@ body {{ margin:0; padding:0; width:100% !important; -webkit-text-size-adjust:100
 a.pv-btn-a:hover {{ opacity:.88; }}
 @media only screen and (max-width:620px) {{
   .pv-card {{ padding:30px 22px !important; }}
+  .pv-mast {{ padding:24px 22px !important; }}
   .pv-h1 {{ font-size:26px !important; line-height:32px !important; }}
   .pv-shell {{ padding:20px 10px !important; }}
 }}
 @media (prefers-color-scheme: dark) {{
-  .pv-page, body {{ background:#0e100f !important; }}
-  .pv-card {{ background:#171a19 !important; border-color:#2b302d !important; }}
-  .pv-ink {{ color:#f3f0e7 !important; }}
-  .pv-text {{ color:#dedad0 !important; }}
-  .pv-soft {{ color:#cdc9bf !important; }}
-  .pv-rule {{ border-color:#2b302d !important; }}
-  .pv-well {{ background:#1f2321 !important; border-color:#2b302d !important; }}
-  .pv-note {{ background:#231f16 !important; }}
-  .pv-link {{ color:#7fcbdb !important; }}
-  .pv-btn {{ background:#f3f0e7 !important; }}
-  .pv-btn-a {{ color:#111312 !important; }}
-  .pv-dot {{ color:#4fb4c8 !important; }}
-  .pv-hero {{ background:#050606 !important; border:1px solid #2b302d !important; }}
+  .pv-page, body {{ background:#070708 !important; }}
+  .pv-frame {{ border-color:#262628 !important; }}
+  .pv-card {{ background:#121213 !important; }}
+  .pv-ink {{ color:#f4f4f2 !important; }}
+  .pv-text {{ color:#dcdcd8 !important; }}
+  .pv-soft {{ color:#c9c9c4 !important; }}
+  .pv-rule {{ border-color:#262628 !important; }}
+  .pv-well {{ background:#1b1b1d !important; border-color:#262628 !important; }}
+  .pv-note {{ background:#1b1b1d !important; border-left-color:#f4f4f2 !important; }}
+  .pv-link {{ color:#f4f4f2 !important; }}
+  .pv-btn {{ background:#f4f4f2 !important; }}
+  .pv-btn-a {{ color:#0b0b0c !important; }}
 }}
-[data-ogsc] .pv-ink {{ color:#f3f0e7 !important; }}
-[data-ogsc] .pv-text {{ color:#dedad0 !important; }}
-[data-ogsc] .pv-soft {{ color:#cdc9bf !important; }}
-[data-ogsc] .pv-link {{ color:#7fcbdb !important; }}
-[data-ogsc] .pv-btn-a {{ color:#111312 !important; }}
-[data-ogsb] .pv-btn {{ background:#f3f0e7 !important; }}
+[data-ogsc] .pv-ink {{ color:#f4f4f2 !important; }}
+[data-ogsc] .pv-text {{ color:#dcdcd8 !important; }}
+[data-ogsc] .pv-soft {{ color:#c9c9c4 !important; }}
+[data-ogsc] .pv-link {{ color:#f4f4f2 !important; }}
+[data-ogsc] .pv-btn-a {{ color:#0b0b0c !important; }}
+[data-ogsb] .pv-btn {{ background:#f4f4f2 !important; }}
 """
 
 
@@ -344,7 +351,9 @@ def page(*, subject: str, preheader: str, blocks: Sequence[Block],
     # The preheader is the line inboxes show after the subject. The trailing
     # spacers stop clients from padding it with the first words of the body.
     spacer = "&#8199;&#65279;&#847;" * 40
-    body = "".join(b.html for b in blocks)
+    # A headline goes up on the masthead; everything else is the card.
+    lead = "".join(b.html for b in blocks if isinstance(b, Hero))
+    body = "".join(b.html for b in blocks if not isinstance(b, Hero))
     html_doc = f"""<!DOCTYPE html>
 <html lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
 <head>
@@ -366,11 +375,16 @@ def page(*, subject: str, preheader: str, blocks: Sequence[Block],
 <tr><td class="pv-shell" align="center" style="padding:36px 16px;">
 <!--[if mso]><table role="presentation" width="600" border="0" cellpadding="0" cellspacing="0"><tr><td><![endif]-->
 <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="max-width:600px;">
-<tr><td style="padding:0 6px 18px;">
-<a href="{SITE}" style="text-decoration:none;"><span class="pv-ink" style="font-family:{SERIF};font-size:26px;line-height:30px;font-weight:600;letter-spacing:-0.6px;color:{INK};">Pivot</span><span class="pv-dot" style="font-family:{SERIF};font-size:26px;line-height:30px;font-weight:600;color:#2b9bb1;">.</span></a>
+<tr><td>
+<table role="presentation" class="pv-frame" width="100%" border="0" cellpadding="0" cellspacing="0" style="border:1px solid {LINE};border-radius:14px;border-collapse:separate;overflow:hidden;">
+<tr><td class="pv-mast" background="{MASTHEAD}" bgcolor="{MAST_BG}" style="background-color:{MAST_BG};background-image:url('{MASTHEAD}');background-size:cover;background-position:center;border-radius:13px 13px 0 0;padding:{"34px 44px 40px" if lead else "26px 44px"};">
+<a href="{SITE}" style="text-decoration:none;"><img src="{WORDMARK}" width="{120 if lead else 96}" height="{45 if lead else 36}" alt="Pivot" style="display:block;border:0;outline:none;text-decoration:none;width:{120 if lead else 96}px;height:auto;font-family:{SERIF};font-size:26px;line-height:30px;color:{BONE};"></a>
+{lead}
 </td></tr>
-<tr><td class="pv-card" style="background:{CARD};border:1px solid {LINE};border-radius:14px;padding:40px 44px;">
+<tr><td class="pv-card" style="background:{CARD};border-radius:0 0 13px 13px;padding:40px 44px;">
 {body}
+</td></tr>
+</table>
 </td></tr>
 <tr><td style="padding:24px 6px 0;">
 {"".join(lines_html)}

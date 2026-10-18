@@ -646,15 +646,6 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
       const justSignedIn = sessionStorage.getItem("pivot:just-signed-in");
       if (justSignedIn === "1") {
         sessionStorage.removeItem("pivot:just-signed-in");
-        // A new account was sent a confirmation link: say so once.
-        const verifyTo = sessionStorage.getItem("pivot:verify-sent");
-        if (verifyTo) {
-          sessionStorage.removeItem("pivot:verify-sent");
-          window.setTimeout(() => toast("Confirm your email", {
-            description: `We sent a link to ${verifyTo}. It works for 24 hours.`,
-            duration: 9000,
-          }), 1600);
-        }
         if (storedMode === "paper") {
           // Defer until the brand intro (if any) finishes so the toast
           // doesn't overlap with the post-login animation.

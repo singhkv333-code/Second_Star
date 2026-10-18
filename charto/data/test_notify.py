@@ -44,13 +44,13 @@ def test_formatting():
     assert notify.device_of(SAFARI_IPHONE) == "Safari on iPhone"
 
 
-def test_email_signup_is_welcomed_once_confirmed_not_before():
+def test_email_signup_is_welcomed_at_once_and_only_once():
     sent: list = []
     n, _ = make(sent)
     n.signed_in(1, how="signup", new_account=True, ua=CHROME_MAC)
     n.drain()
-    assert sent == []
-    n.confirmed_email("asha@example.com")
+    assert kinds(sent) == ["welcome"]
+    # an old confirmation link clicked later does not welcome it again
     n.confirmed_email("asha@example.com")
     n.drain()
     assert kinds(sent) == ["welcome"]

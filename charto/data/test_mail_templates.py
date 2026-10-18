@@ -27,8 +27,8 @@ def test_design_rules(kind):
     assert min(sizes) >= 14, "no small print"
     # No pale grey text: every text colour on the light palette is dark.
     for colour in re.findall(r"(?<![-\w])color:(#[0-9a-fA-F]{6})", html):
-        if colour.lower() in ("#f3f0e7", "#fffdf8", "#dcd8cd", "#2b9bb1"):
-            continue                    # hero/button text on ink, preheader, brand dot
+        if colour.lower() in (mail_kit.BONE, mail_kit.MIST, mail_kit.CARD, mail_kit.PAGE):
+            continue                    # masthead text, button text on ink, preheader
         r, g, b = (int(colour[i:i + 2], 16) for i in (1, 3, 5))
         assert 0.2126 * r + 0.7152 * g + 0.0722 * b < 110, colour
     for href in re.findall(r'href="([^"]+)"', html):

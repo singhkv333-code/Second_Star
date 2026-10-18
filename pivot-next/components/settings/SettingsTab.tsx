@@ -67,7 +67,6 @@ import { track } from "@/lib/billing/analytics";
 import type { BillingMe, Cycle, InvoiceList, PaidPlanId, PlanId, PublicCatalog } from "@/lib/billing/types";
 import { brokerLogo } from "@/lib/publicAssets";
 import { LAUNCH } from "@/lib/launch";
-import { emailVerified, resendVerification } from "@/lib/emailVerification";
 import { REFERRALS_DEMO, REFERRAL_RATE_PERCENT, fetchReferralSummary, referralLink, type ReferralSummary } from "@/components/affiliate/referrals";
 
 export type SettingsSectionKey = "profile" | "account" | "usage" | "billing" | "affiliate" | "trading" | "notifications";
@@ -1048,16 +1047,6 @@ function AccountSection(): React.ReactElement {
   const [reset, setReset] = useState<"idle" | "busy" | "sent" | "error">("idle");
   const [del, setDel] = useState<"idle" | "confirm" | "busy" | "sent" | "error">("idle");
   const email = state.kind === "ok" ? state.value.email : "";
-  // Whether the address is confirmed (auth_guard.py); null while unknown.
-  const [verified, setVerified] = useState<boolean | null>(null);
-  const [confirm, setConfirm] = useState<{ kind: "idle" | "busy" | "sent" | "error"; message?: string }>({ kind: "idle" });
-  useEffect(() => { void emailVerified().then(setVerified); }, []);
-  const sendConfirm = async (): Promise<void> => {
-    setConfirm({ kind: "busy" });
-    const res = await resendVerification();
-    setConfirm(res.ok ? { kind: "sent" } : { kind: "error", message: res.message });
-  };
-
   const sendReset = async (): Promise<void> => {
     setReset("busy");
     const res = await requestPasswordReset(email);
@@ -1086,18 +1075,7 @@ function AccountSection(): React.ReactElement {
         <>
           <Row
             label="Email"
-            hint={
-              <span style={{ wordBreak: "break-all" }}>
-                {email}
-                {verified === true && " · Confirmed"}
-                {verified === false && confirm.kind === "idle" && " · Not confirmed yet"}
-                {confirm.kind === "sent" && ` · We sent a link to confirm it. Check your inbox.`}
-                {confirm.kind === "error" && <span style={{ color: DANGER }}> · {confirm.message || "The link could not be sent. Try again."}</span>}
-              </span>
-            }
-            control={verified === false && confirm.kind !== "sent" ? (
-              <Btn onClick={() => void sendConfirm()} busy={confirm.kind === "busy"}>Send link</Btn>
-            ) : undefined}
+            hint={<span style={{ wordBreak: "break-all" }}>{email}</span>}
           />
           <Row
             label="Password"

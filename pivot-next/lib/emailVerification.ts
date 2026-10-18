@@ -1,9 +1,10 @@
 /**
  * Confirming the account's email (charto/data/auth_guard.py).
  *
- *   GET  /auth/me              user.email_verified: true | false | null
  *   POST /auth/verify          {token} from the emailed link
- *   POST /auth/verify/resend   another link, a few an hour at most
+ *
+ * Sign-up no longer sends a confirmation link; this is kept so a link sent
+ * before that change still opens to an answer rather than a broken page.
  *
  * Same-origin fetches, like the password reset page: these routes belong to
  * the chart server, which the app reaches at its own origin. `requestLegacy`
@@ -28,19 +29,6 @@ async function call<T>(path: string, body?: Record<string, unknown>): Promise<{ 
   } catch {
     return { ok: false, data: { error: "Could not reach Pivot. Check your connection and try again." } as T & { error?: string } };
   }
-}
-
-/** True, false, or null when the server cannot say. */
-export async function emailVerified(): Promise<boolean | null> {
-  const { ok, data } = await call<{ user?: { email_verified?: boolean | null } | null }>("/auth/me");
-  const v = ok ? data.user?.email_verified : null;
-  return typeof v === "boolean" ? v : null;
-}
-
-export async function resendVerification(): Promise<{ ok: boolean; message?: string }> {
-  const { ok, data } = await call<{ already?: boolean }>("/auth/verify/resend", {});
-  if (!ok) return { ok: false, message: data.error };
-  return { ok: true, message: data.already ? "Your email is already confirmed." : undefined };
 }
 
 export async function confirmEmail(token: string): Promise<{ ok: boolean; email?: string; message?: string }> {
