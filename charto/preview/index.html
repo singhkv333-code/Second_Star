@@ -3039,6 +3039,82 @@ header > .btn, header > .badge { flex: none; }
    scoped to spans and a sixth kind of gap is not wanted here */
 .readout .row i { font-style: normal; }
 .readout .sep { margin: 0 5px; color: var(--faint); font-weight: 400; }
+/* Buy / Sell beside the venue (js/order-ticket.js): two small plain buttons
+   in the market's own colours, live in a legend that is otherwise inert. */
+.readout .ot-btns { display: inline-flex; gap: 4px; margin-left: 10px; pointer-events: auto; }
+.ot-b {
+  height: 22px; padding: 0 10px; border-radius: 4px; border: 0; cursor: pointer;
+  font: inherit; font-size: var(--text-xs); font-weight: var(--weight-semi); letter-spacing: .01em;
+  color: #fff; transition: filter var(--dur) var(--ease-quartr);
+}
+.ot-b.buy { background: var(--up); }
+.ot-b.sell { background: var(--down); }
+.ot-b:hover { filter: brightness(1.08); }
+body.view-only .readout .ot-btns { display: none; }
+
+/* the ticket */
+.ot {
+  width: min(380px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); overflow: auto;
+  background: var(--popover); color: var(--foreground); border: 1px solid var(--border);
+  border-radius: 10px; padding: 16px; box-shadow: 0 18px 50px rgba(0, 0, 0, .28);
+  display: flex; flex-direction: column; gap: 12px; --ot: var(--up);
+}
+.ot.sell { --ot: var(--down); }
+.ot-loading, .ot-msg { color: var(--muted-foreground); font-size: var(--text-sm); line-height: 1.5; margin: 0; }
+.ot-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ot-sym { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ot-sym b { font-size: var(--text-lg); }
+.ot-sym span { color: var(--muted-foreground); font-size: var(--text-xs); }
+.ot-px { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-top: -6px; }
+.ot-px b { font-size: 20px; font-variant-numeric: tabular-nums; }
+.ot-px span { color: var(--muted-foreground); font-size: var(--text-xs); }
+.ot-side { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.ot-side button {
+  height: 34px; border-radius: 6px; border: 1px solid var(--border); background: transparent;
+  color: var(--foreground); font: inherit; font-weight: var(--weight-semi); cursor: pointer;
+}
+.ot-side [data-side="BUY"].on { background: var(--up); border-color: var(--up); color: #fff; }
+.ot-side [data-side="SELL"].on { background: var(--down); border-color: var(--down); color: #fff; }
+.ot-types, .ot-by { display: flex; gap: 2px; background: var(--muted); border-radius: 6px; padding: 2px; }
+.ot-types button, .ot-by button {
+  flex: 1; height: 28px; border: 0; border-radius: 5px; background: transparent; cursor: pointer;
+  color: var(--muted-foreground); font: inherit; font-size: var(--text-sm);
+}
+.ot-types button.on, .ot-by button.on { background: var(--background); color: var(--foreground); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+.ot-fields { display: flex; flex-direction: column; gap: 10px; }
+.ot-f { display: flex; flex-direction: column; gap: 6px; font-size: var(--text-sm); }
+.ot-f[hidden] { display: none; }
+.ot-f > span { color: var(--muted-foreground); }
+.ot-f i { font-style: normal; color: var(--faint); }
+.ot-f input, .ot-ex input.textfield { font-variant-numeric: tabular-nums; }
+.ot-by { align-self: stretch; }
+.ot-pcts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.ot-pcts button {
+  height: 26px; border: 1px solid var(--border); border-radius: 5px; background: transparent;
+  color: var(--foreground); font: inherit; font-size: var(--text-xs); cursor: pointer;
+}
+.ot-pcts button:hover, .ot-side button:hover:not(.on) { background: var(--hover-fill); }
+.ot-exits { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--border-soft); padding-top: 12px; }
+.ot-exits[hidden] { display: none; }
+.ot-ex { display: grid; grid-template-columns: auto 92px 1fr 52px; align-items: center; gap: 8px; font-size: var(--text-sm); }
+.ot-ex input.textfield { padding: 6px 9px; }
+.ot-ex input.textfield:disabled { opacity: .45; }
+.ot-ex em { font-style: normal; font-size: var(--text-xs); color: var(--muted-foreground); text-align: right; }
+.ot-ex em.bad { color: var(--down); }
+.ot-sum { margin: 0; display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--border-soft); padding-top: 12px; }
+.ot-sum div { display: flex; justify-content: space-between; gap: 12px; font-size: var(--text-sm); }
+.ot-sum dt { color: var(--muted-foreground); }
+.ot-sum dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
+.ot-sum .tot dd, .ot-sum .tot dt { color: var(--foreground); font-weight: var(--weight-semi); }
+.ot-note { margin: 0; font-size: var(--text-xs); line-height: 1.5; color: var(--muted-foreground); }
+.ot-note:empty, .ot-err:empty { display: none; }
+.ot-err { margin: 0; font-size: var(--text-sm); color: var(--down); }
+.ot-go {
+  height: 40px; border: 0; border-radius: 7px; background: var(--ot); color: #fff; cursor: pointer;
+  font: inherit; font-weight: var(--weight-semi); font-size: var(--text-base);
+}
+.ot-go:disabled { opacity: .45; cursor: default; }
+.ot-foot { margin: -4px 0 0; text-align: center; font-size: var(--text-xs); color: var(--faint); }
 .readout b { font-weight: var(--weight-medium); }
 /* The figures follow the CANDLES, not the app's market palette: recolour the
    bars in Settings and the numbers describing them follow, which is what
@@ -11945,7 +12021,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/panes.js?v=39"></script>
   <!-- the Footprint chart type: a primitive on the price series, mounted by main.js -->
   <script src="./js/footprint.js?v=9"></script>
-  <script src="./js/main.js?v=190"></script>
+  <script src="./js/main.js?v=191"></script>
   <!-- the floating drawing edit toolbar — listens for charto:draw-select and
        drives js/drawings.js's setStyle/clone/lock/remove. After main.js so
        __charto and ChartSettings exist by the first selection. -->
@@ -11963,6 +12039,8 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/workspace-card.js?v=7"></script>
   <!-- shared setups: publish, view-only links, "Make it mine" -->
   <script src="./js/setups.js?v=27"></script>
+  <!-- Buy / Sell into the paper book, from the chart's legend -->
+  <script src="./js/order-ticket.js?v=1"></script>
   <!-- Voice must load before chat.js, which wires it to the composer. -->
   <script src="./js/voice.js?v=2"></script>
   <!-- before chat.js, which asks it to render the panels a tool prints as the
