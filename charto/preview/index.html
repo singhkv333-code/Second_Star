@@ -3115,6 +3115,40 @@ body.view-only .readout .ot-btns { display: none; }
 }
 .ot-go:disabled { opacity: .45; cursor: default; }
 .ot-foot { margin: -4px 0 0; text-align: center; font-size: var(--text-xs); color: var(--faint); }
+/* On a phone the ticket is a bottom sheet: it rises from the edge the thumb
+   is on, spans the width, and keeps clear of the home indicator. Touch
+   targets grow to 40px+, and fields are 16px so iOS does not zoom on focus.
+   The grab bar drags it down to dismiss (js/order-ticket.js). */
+.ot-grab { display: none; }
+@keyframes ot-rise { from { transform: translateY(100%); } }
+@keyframes ot-sink { to { transform: translateY(100%); } }
+@media (max-width: 640px) {
+  .dlg-wrap.ot-wrap { align-items: flex-end; animation: fade var(--dur-slow) var(--ease-quartr); }
+  .dlg-wrap.ot-wrap.closing { animation: fade var(--dur) var(--ease-quartr) reverse forwards; }
+  .ot {
+    width: 100%; max-height: 90dvh; border-radius: 16px 16px 0 0; border-width: 1px 0 0;
+    padding: 8px 16px calc(16px + env(safe-area-inset-bottom)); gap: 14px;
+    overscroll-behavior: contain; animation: ot-rise var(--dur-slow) var(--ease-quartr);
+    position: relative;
+  }
+  .ot-wrap.closing .ot { animation: ot-sink var(--dur) var(--ease-quartr) forwards; }
+  .ot::before {
+    content: ""; flex: none; align-self: center; width: 36px; height: 4px; border-radius: 2px;
+    background: var(--border); margin-bottom: 2px;
+  }
+  .ot-grab { display: block; position: absolute; left: 0; right: 0; top: 0; height: 28px; touch-action: none; }
+  .ot-side button { height: 44px; font-size: var(--text-base); }
+  .ot-types button, .ot-by button { height: 36px; }
+  .ot-pcts button { height: 36px; font-size: var(--text-sm); }
+  .ot-f input.textfield, .ot-ex input.textfield { font-size: 16px; min-height: 42px; }
+  .ot-ex { grid-template-columns: auto 88px minmax(0, 1fr) 48px; }
+  .ot-ex input[type="checkbox"] { width: 20px; height: 20px; }
+  .ot-go { height: 48px; border-radius: 10px; }
+  .ot-x { width: 36px; height: 36px; }
+}
+@media (max-width: 640px) and (prefers-reduced-motion: reduce) {
+  .ot, .ot-wrap.closing .ot { animation: none; }
+}
 .readout b { font-weight: var(--weight-medium); }
 /* The figures follow the CANDLES, not the app's market palette: recolour the
    bars in Settings and the numbers describing them follow, which is what
@@ -12040,7 +12074,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- shared setups: publish, view-only links, "Make it mine" -->
   <script src="./js/setups.js?v=27"></script>
   <!-- Buy / Sell into the paper book, from the chart's legend -->
-  <script src="./js/order-ticket.js?v=1"></script>
+  <script src="./js/order-ticket.js?v=2"></script>
   <!-- Voice must load before chat.js, which wires it to the composer. -->
   <script src="./js/voice.js?v=2"></script>
   <!-- before chat.js, which asks it to render the panels a tool prints as the

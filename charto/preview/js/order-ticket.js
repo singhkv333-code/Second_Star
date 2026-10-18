@@ -30,11 +30,50 @@ const OrderTicket = (() => {
     return { status: r.status, ok: r.ok, d };
   }
 
+  // A phone gets the ticket as a bottom sheet (the 640px block in index.html).
+  const sheet = () => matchMedia("(max-width: 640px)").matches;
+  const still = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+
   function close() {
     if (!open_) return;
-    open_.wrap.remove();
+    const { wrap } = open_;
     document.removeEventListener("keydown", open_.onKey);
     open_ = null;
+    if (!sheet() || still()) return wrap.remove();
+    // let the sheet sink before it goes; the timer covers a missed animationend
+    wrap.classList.add("closing");
+    const gone = () => wrap.remove();
+    wrap.addEventListener("animationend", gone, { once: true });
+    setTimeout(gone, 400);
+  }
+
+  // Drag the sheet down by its grab bar; past a third of its height, or a
+  // quick flick, it closes. Anything less springs back. The listeners live on
+  // the sheet, since render() and message() rewrite its contents (and the bar).
+  const grabBar = (box) => box.insertAdjacentHTML("afterbegin", '<div class="ot-grab" aria-hidden="true"></div>');
+  function dragToDismiss(box) {
+    let y0 = null, dy = 0, t0 = 0;
+    box.addEventListener("pointerdown", (e) => {
+      if (!sheet() || !e.target.closest(".ot-grab")) return;
+      y0 = e.clientY; dy = 0; t0 = e.timeStamp;
+      try { box.setPointerCapture(e.pointerId); } catch {}
+      box.style.transition = "none";
+    });
+    box.addEventListener("pointermove", (e) => {
+      if (y0 == null) return;
+      dy = Math.max(0, e.clientY - y0);
+      box.style.transform = `translateY(${dy}px)`;
+    });
+    const end = (e) => {
+      if (y0 == null) return;
+      const flick = dy / Math.max(1, e.timeStamp - t0) > 0.6;
+      y0 = null;
+      box.style.transition = "";
+      if (dy > box.offsetHeight / 3 || (flick && dy > 24)) return close();
+      box.style.transform = "";
+    };
+    box.addEventListener("pointerup", end);
+    box.addEventListener("pointercancel", end);
   }
 
   async function open(symbol, side) {
@@ -44,6 +83,9 @@ const OrderTicket = (() => {
     wrap.innerHTML = `<div class="ot" role="dialog" aria-modal="true" aria-label="Order ticket">
       <div class="ot-loading">Loading ${esc(symbol)}…</div></div>`;
     document.body.appendChild(wrap);
+    const box = wrap.querySelector(".ot");
+    grabBar(box);
+    dragToDismiss(box);
     const onKey = (e) => { if (e.key === "Escape") close(); };
     document.addEventListener("keydown", onKey);
     wrap.addEventListener("mousedown", (e) => { if (e.target === wrap) close(); });
@@ -65,6 +107,7 @@ const OrderTicket = (() => {
     wrap.querySelector(".ot").innerHTML = `
       <div class="ot-head"><b>${esc(title)}</b><button class="btn icon ot-x" aria-label="Close">${Icons.svg("x", "sm")}</button></div>
       <p class="ot-msg">${esc(body)}</p>`;
+    grabBar(wrap.querySelector(".ot"));
     wrap.querySelector(".ot-x").onclick = close;
   }
 
@@ -112,6 +155,7 @@ const OrderTicket = (() => {
       <p class="ot-err" id="otErr" role="alert"></p>
       <button class="ot-go" id="otGo"></button>
       <p class="ot-foot">Paper trade. Simulated with practice money; nothing reaches a broker.</p>`;
+    grabBar(box);
     const $ = (id) => box.querySelector("#" + id);
     const num = (id) => { const v = parseFloat(String($(id).value).replace(/,/g, "")); return Number.isFinite(v) ? v : null; };
     if (t.price != null) { $("otLimit").value = t.price; $("otTrig").value = t.price; }
@@ -233,7 +277,8 @@ const OrderTicket = (() => {
       close();
     }
     paint();
-    setTimeout(() => $("otSize").focus(), 30);
+    // on a phone the keyboard would cover the sheet it just opened
+    if (!sheet()) setTimeout(() => $("otSize").focus(), 30);
   }
 
   return { open, close };
