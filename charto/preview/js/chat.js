@@ -1891,121 +1891,160 @@
     el("toBottom").classList.toggle("show", !atBottom() && msgsEl.children.length > 0);
   });
 
-  /* ── the twelve openings ───────────────────────────────────────────────
+  /* ── the openings ──────────────────────────────────────────────────────
    * An empty chat box is the hardest screen in the product: it can do about
    * ninety things and shows none of them, so the first question is usually a
-   * guess at what it understands. These are the twelve it is best at, drawn
-   * rather than listed.
+   * guess at what it understands. Twelve one-word tiles ("Levels", "Plan")
+   * named the nouns and hid the verbs: nothing in them said the chat can read
+   * three timeframes in one pass, box five sessions of opening ranges, run its
+   * own statistics over a year of bars, score the trader's own drawings or
+   * open and write into the desk's widgets.
    *
-   * `q` is a real prompt, phrased the way a person would type it — not a
-   * command and not a tool name. Clicking one FILLS the composer and focuses
-   * it; it does not send. The point is to teach the vocabulary and leave the
-   * user holding the sentence, so the second question can be their own.
-   * (It is also the honest default while a turn costs what it currently
-   * costs — a mis-click should not spend a minute of somebody's time.)
+   * So the openings are SENTENCES now, grouped by what the trader is doing
+   * rather than by tool. Every prompt
+   * maps onto a tool the chat really has (chat_v2.py: read_chart, draw,
+   * workspace, market_data, search, query, screen, alerts, journal,
+   * strategy); none promises a capability that is not there.
    *
-   * `{sym}` is the chart's own instrument, so the sentence reads as a
-   * question about what is actually on screen.
+   * `q` is a real prompt, phrased the way a person would type it. Clicking
+   * one FILLS the composer and focuses it; it does not send. The point is to
+   * teach the vocabulary and leave the user holding the sentence, so the
+   * second question can be their own.
+   *
+   * `{sym}` is the chart's own instrument. `eq` marks a prompt that only
+   * means something for a listed stock or index (results, gaps, peers, the
+   * 500-stock screen): it is left out on crypto and MCX, and a group with
+   * nothing left is left out with it, rather than offering a question the
+   * data cannot answer.
    */
-  const TEMPLATES = [
-    { icon: "levels", label: "Levels",
-      q: "Mark the support and resistance on {sym} and tell me how many times each has been touched." },
-    { icon: "patterns", label: "Patterns",
-      q: "What chart patterns are forming on {sym} right now? Mark them." },
-    { icon: "trendlines", label: "Trends",
-      q: "Draw the trend lines that matter on {sym} and say which one is still intact." },
-    { icon: "indicators", label: "Indicators",
-      q: "Add RSI and a 50-period moving average to {sym}, and read them together." },
-    // The one tile that DOES something before it types: a screenshot prompt
-    // with no screenshot attached is a question about nothing, so the tile
-    // fires the capture too. `act` runs the same menu item the camera button
-    // runs — clicking the real control rather than reaching past it, which
-    // is the rule the keyboard shortcuts already follow.
-    { icon: "screenshot", label: "Screenshot", act: "shot",
-      q: "Read the screenshot of my chart and tell me what stands out — structure, levels, anything unusual." },
-    { icon: "whyMoved", label: "Why it moved",
-      q: "Explain {sym}'s last big move — what happened, and how far did it travel?" },
-    { icon: "planTrade", label: "Plan",
-      q: "Plan a position on {sym}: entry, stop, target and the R:R, with the levels you used." },
-    { icon: "evidence", label: "Evidence",
-      q: "Take the most recent pattern on {sym} and show me its historical record against a control." },
-    { icon: "screen", label: "Screen",
-      q: "Find other stocks setting up the same way {sym} is." },
-    { icon: "compare", label: "Compare",
-      q: "Compare {sym} against its sector peers over the last six months." },
-    { icon: "alert", label: "Alert",
-      q: "Alert me when {sym} closes above its nearest resistance." },
-    { icon: "earnings", label: "Earnings",
-      q: "How has {sym} reacted to its last few results? Mark them on the chart." },
+  const GROUPS = [
+    { id: "read", label: "Read the chart", items: [
+      { icon: "levels", q: "Mark the support and resistance on {sym} that actually held, and how many times each was touched." },
+      { icon: "trendlines", q: "Give me a top-down read of {sym}: weekly, daily and hourly, and where they agree." },
+      { icon: "patterns", q: "What patterns are forming on {sym}, and how have they played out on this stock before?" },
+      { icon: "whyMoved", q: "Why did {sym} move the way it did in the last session? Measure it and find the news." },
+      { icon: "cross", q: "Is there an RSI or MACD divergence on {sym}, and what would confirm a reversal from here?" },
+      // The one row that DOES something before it types: a screenshot prompt
+      // with no screenshot attached is a question about nothing, so the row
+      // fires the capture too. `act` runs the same menu item the camera
+      // button runs, clicking the real control rather than reaching past it.
+      { icon: "screenshot", act: "shot", q: "Read the screenshot of my chart and tell me what stands out: structure, levels, anything unusual." },
+    ]},
+    { id: "intraday", label: "Intraday", items: [
+      { icon: "levels", eq: true, q: "Box the opening range for the last five sessions on {sym} and tell me how often it broke up first." },
+      { icon: "volumeProfile", q: "Show today's volume profile on {sym}: the POC, the value area and where price sits in it." },
+      { icon: "indicators", q: "Add VWAP and Supertrend (10, 3) to {sym}'s 5-minute chart and read them together." },
+      { icon: "evidence", eq: true, q: "How often do {sym}'s opening gaps fill by the close? Use the last year of data." },
+      { icon: "schedule", q: "At what time of day does {sym} usually make its high and its low?" },
+      { icon: "alert", q: "Alert me when {sym} closes above its 20-period EMA on the 15-minute chart." },
+    ]},
+    { id: "swing", label: "Swing", items: [
+      { icon: "planTrade", q: "Plan a swing trade on {sym}: entry, stop, two targets and the size for 1% risk on 5 lakh." },
+      { icon: "trendlines", q: "Draw a Fibonacci retracement on {sym}'s last major swing and tell me which level is holding." },
+      { icon: "screen", eq: true, q: "Find the stocks whose chart looks most like {sym}'s does right now." },
+      { icon: "opRise", q: "Screen for stocks within 2% of a 52-week high on volume at least 1.5 times average." },
+      { icon: "alert", q: "Alert me when {sym} closes beyond the trendline I drew." },
+      { icon: "evidence", q: "Backtest buying {sym} on a close above its 20-day high over the last three years. Is there an edge?" },
+    ]},
+    { id: "invest", label: "Investing", eq: true, items: [
+      { icon: "earnings", q: "How has {sym} reacted to its last eight results? Mark each one on the chart." },
+      { icon: "indicators", q: "Show {sym}'s last eight quarters: revenue, profit, margins and growth." },
+      { icon: "compare", q: "Compare {sym} with its sector peers on valuation, growth and six-month returns." },
+      { icon: "volumeProfile", q: "Have FIIs and DIIs been buying or selling lately, and were there bulk deals in {sym}?" },
+      { icon: "schedule", q: "Which months have historically been strongest and weakest for {sym}?" },
+    ]},
+    { id: "options", label: "Options", eq: true, items: [
+      { icon: "levels", q: "Show the option chain for {sym}: max pain, the PCR and where open interest is building." },
+      { icon: "whyMoved", q: "Where are the biggest call and put OI walls on {sym} this expiry, and how did they shift today?" },
+      { icon: "indicators", q: "What is the implied volatility at the money on {sym}, and how does it skew across strikes?" },
+    ]},
+    { id: "desk", label: "Workspace", items: [
+      { icon: "compare", q: "Put NIFTY on a second chart beside {sym} and line up the last three months." },
+      { icon: "indicators", q: "Build me an indicator: the 20-day high minus the 20-day low, as a share of price." },
+      { icon: "trendlines", q: "Score the drawings I made on {sym}: which lines has price actually respected?" },
+      { icon: "lock", q: "Start a notes page for {sym} with today's levels and a checklist for the next session." },
+      { icon: "screen", eq: true, q: "Add {sym} and its four closest peers to my watchlist." },
+      { icon: "planTrade", q: "Log a long on {sym} in my journal with the plan and thesis, then show my paper P&L." },
+    ]},
   ];
 
-  /* Execution mode's own openings. NOT the research tiles reworded — a
+  /* Execution mode's own openings. NOT the research rows reworded: a
    * builder's blank page is a different blank page. Each one is a complete,
    * buildable rule with every value the tools need already in it (a size, a
    * threshold, a period), because a template that lands the user in a
    * clarifying question has taught them the mode asks questions rather than
-   * that it builds things.
-   *
-   * Ordered the way the work actually goes: state a rule, give it an exit,
-   * size it, schedule it, then test it and look at it. */
-  const EXEC_TEMPLATES = [
-    // Two openers that name only a NATURE. Every other tile here is a fully
-    // specified rule, which quietly taught the opposite of what the builder
-    // can do: that you have to arrive knowing the indicator, the lookback and
-    // the threshold. Most people arrive with an adjective.
-    { icon: "lock", label: "Defensive",
-      q: "Build me something defensive on {sym} — protect the downside even if the upside is small." },
-    { icon: "opRise", label: "Momentum",
-      q: "Build me a momentum strategy on {sym}." },
-    { icon: "indicators", label: "Dip buy",
-      q: "Buy 10 {sym} when RSI(14) falls below 30." },
-    { icon: "cross", label: "Crossover",
-      q: "Buy 25 {sym} when the 20-day EMA crosses above the 50-day EMA." },
-    { icon: "levels", label: "Breakout",
-      q: "Buy 15 {sym} when it closes above the highest high of the last 20 days." },
-    { icon: "trendlines", label: "Trend filter",
-      q: "Buy 10 {sym} when RSI(14) is under 35 and price is above the 200-day SMA." },
-    { icon: "volumeProfile", label: "On volume",
-      q: "Buy 20 {sym} when volume is more than 1.5 times its 20-day average and the bar closes up." },
-    { icon: "exit", label: "Add an exit",
-      q: "Buy 10 {sym} when RSI(14) drops below 30, and sell when unrealised profit reaches 8%." },
-    { icon: "planTrade", label: "Stop loss",
-      q: "Buy 10 {sym} on a close above the 50-day SMA, with a 3% stop from my entry." },
-    { icon: "trail", label: "Trailing exit",
-      q: "Buy 10 {sym} when RSI(14) is below 30 and exit when drawdown from the peak reaches 4%." },
-    { icon: "schedule", label: "Schedule",
-      q: "Every Friday at 10:00, buy 5 {sym}." },
-    { icon: "compare", label: "Relative",
-      q: "Buy 15 {sym} when its 20-day return beats NIFTY's 20-day return." },
-    { icon: "evidence", label: "Backtest",
-      q: "Backtest buying {sym} when RSI(14) is under 35 and selling when it is over 65, over the last two years with 1 lakh." },
-    { icon: "squareoff", label: "Square off",
-      q: "Square off all my intraday positions at 15:15 every trading day." },
+   * that it builds things. Grouped the way the work actually goes: an idea,
+   * an entry, an exit, then run it and test it. */
+  const EXEC_GROUPS = [
+    // The first two name only a NATURE. Most people arrive with an
+    // adjective, not an indicator, a lookback and a threshold.
+    { id: "idea", label: "Start from an idea", items: [
+      { icon: "lock", q: "Build me something defensive on {sym}: protect the downside even if the upside is small." },
+      { icon: "opRise", q: "Build me a momentum strategy on {sym}." },
+    ]},
+    { id: "entry", label: "Entries", items: [
+      { icon: "indicators", q: "Buy 10 {sym} when RSI(14) falls below 30." },
+      { icon: "cross", q: "Buy 25 {sym} when the 20-day EMA crosses above the 50-day EMA." },
+      { icon: "levels", q: "Buy 15 {sym} when it closes above the highest high of the last 20 days." },
+      { icon: "trendlines", q: "Buy 10 {sym} when RSI(14) is under 35 and price is above the 200-day SMA." },
+      { icon: "volumeProfile", q: "Buy 20 {sym} when volume is more than 1.5 times its 20-day average and the bar closes up." },
+      { icon: "compare", q: "Buy 15 {sym} when its 20-day return beats NIFTY's 20-day return." },
+    ]},
+    { id: "exit", label: "Exits and risk", items: [
+      { icon: "exit", q: "Buy 10 {sym} when RSI(14) drops below 30, and sell when unrealised profit reaches 8%." },
+      { icon: "planTrade", q: "Buy 10 {sym} on a close above the 50-day SMA, with a 3% stop from my entry." },
+      { icon: "trail", q: "Buy 10 {sym} when RSI(14) is below 30 and exit when drawdown from the peak reaches 4%." },
+      { icon: "squareoff", q: "Square off all my intraday positions at 15:15 every trading day." },
+    ]},
+    { id: "run", label: "Run and test", items: [
+      { icon: "schedule", q: "Every Friday at 10:00, buy 5 {sym}." },
+      { icon: "evidence", q: "Backtest buying {sym} when RSI(14) is under 35 and selling when it is over 65, over the last two years with 1 lakh." },
+    ]},
   ];
 
-  function templateGrid() {
-    // the thread's own esc() leaves quotes alone, which is fine for text
-    // nodes and wrong for an attribute — these prompts are going into one
-    const attr = (s) => String(s).replace(/[&<>"]/g,
-      (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-    const cards = (chatMode === "execution" ? EXEC_TEMPLATES : TEMPLATES).map((t) => {
+  // The open group per mode survives a rebuild, so a new chat or a symbol
+  // change keeps the trader on the shelf they were reading.
+  const tplOpen = { research: "read", execution: "idea" };
+
+  function tplGroups() {
+    const d = Sym.of(Sym.name);
+    const listed = !d.isCrypto && d.venue !== "MCX";
+    return (chatMode === "execution" ? EXEC_GROUPS : GROUPS)
+      .filter((g) => listed || !g.eq)
+      .map((g) => ({ ...g, items: g.items.filter((t) => listed || !t.eq) }))
+      .filter((g) => g.items.length);
+  }
+
+  // the thread's own esc() leaves quotes alone, which is fine for text
+  // nodes and wrong for an attribute — these prompts are going into one
+  const attr = (s) => String(s).replace(/[&<>"]/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const tplMode = () => (chatMode === "execution" ? "execution" : "research");
+
+  function tplRows(group) {
+    return group.items.map((t, i) => {
       const q = t.q.replace(/\{sym\}/g, Sym.name);
       const act = t.act ? ` data-act="${attr(t.act)}"` : "";
-      // `Icons.tile` THROWS on a name it doesn't carry, and the tiles are a
-      // separate curated family from the 24px glyphs — so a name borrowed
-      // from the wrong map took the whole tray down with it, and with it
-      // paintChatMode, which is what actually sets the mode on the panel. A
-      // missing illustration is worth one blank square, never a dead panel.
+      // `Icons.tile` THROWS on a name it doesn't carry; a missing
+      // illustration is worth one blank square, never a dead panel.
       let art = "";
       try { art = Icons.tile(t.icon); }
       catch (e) { console.warn("[charto] no tile for", t.icon); }
-      return `<button type="button" class="tpl-card" data-q="${attr(q)}"${act}>`
+      return `<button type="button" class="tpl-card" style="--i:${i}" data-q="${attr(q)}"${act}>`
         + `<span class="tpl-box">${art}</span>`
-        + `<span class="tpl-name">${attr(t.label)}</span></button>`;
+        + `<span class="tpl-q">${attr(q)}</span></button>`;
     }).join("");
-    return `<div class="tpl-head">${chatMode === "execution"
-        ? "START BUILDING WITH" : "START ASKING WITH"}</div>`
-      + `<div class="tpl-grid">${cards}</div>`;
+  }
+
+  function templateGrid() {
+    const groups = tplGroups();
+    const open = groups.find((g) => g.id === tplOpen[tplMode()]) || groups[0];
+    const tabs = groups.map((g) => `<button type="button" class="tpl-tab${g === open ? " is-on" : ""}"`
+      + ` role="tab" aria-selected="${g === open}" data-group="${attr(g.id)}">${attr(g.label)}</button>`).join("");
+    return `<div class="tpl-head">${tplMode() === "execution"
+        ? `Build a strategy on ${attr(Sym.name)}` : `What Pivot can do with ${attr(Sym.name)}`}</div>`
+      + `<div class="tpl-tabs" role="tablist">${tabs}</div>`
+      + `<div class="tpl-list" role="tabpanel">${tplRows(open)}</div>`;
   }
 
   /* The tray belongs to the prompt bar, not to the thread, so it is mounted
@@ -2103,7 +2142,7 @@
 
   const trayEl = el("tplTray");
   const groupEl = el("askGroup");
-  let trayBuilt = null;   // which MODE the mounted tray was built for
+  let trayBuilt = null;   // which mode and symbol the mounted tray was built for
   /* The refraction is attached only while the tray is up, and torn down
    * after. It costs a live SVG filter and a ResizeObserver, and with the
    * tray down the group is an ordinary composer that must look exactly as
@@ -2116,9 +2155,12 @@
     // grid was built once and never again. With two modes the cache key has
     // to be the MODE — otherwise flipping the switch on an empty thread
     // leaves the other mode's openings sitting under the new placeholder.
-    if (on && trayBuilt !== chatMode) {
+    // The key is the mode AND the symbol: the rows name the instrument and
+    // which groups exist depends on what it is (no results on a crypto pair).
+    const key = chatMode + "|" + Sym.name;
+    if (on && trayBuilt !== key) {
       trayEl.innerHTML = templateGrid();
-      trayBuilt = chatMode;
+      trayBuilt = key;
     }
     trayEl.hidden = !on;
     groupEl.classList.toggle("has-tray", !!on);
@@ -2140,6 +2182,24 @@
    * rebuilt from scratch on every clear, and per-card handlers would have to
    * be re-bound each time or silently stop working on the second new chat. */
   trayEl.addEventListener("click", (e) => {
+    const tab = e.target.closest && e.target.closest(".tpl-tab");
+    if (tab) {
+      // Only the list is swapped. Rebuilding the whole tray reset the tab
+      // strip's sideways scroll, so on a narrow pane the strip jumped back to
+      // the first tab and the one just chosen slid out of sight.
+      const group = tplGroups().find((g) => g.id === tab.dataset.group);
+      if (!group) return;
+      tplOpen[tplMode()] = group.id;
+      for (const t of trayEl.querySelectorAll(".tpl-tab")) {
+        const on = t === tab;
+        t.classList.toggle("is-on", on);
+        t.setAttribute("aria-selected", String(on));
+      }
+      const list = trayEl.querySelector(".tpl-list");
+      list.innerHTML = tplRows(group);
+      list.scrollTop = 0;
+      return;
+    }
     const card = e.target.closest && e.target.closest(".tpl-card");
     if (!card) return;
     if (card.dataset.act === "shot") {

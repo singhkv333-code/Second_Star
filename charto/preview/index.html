@@ -6086,68 +6086,107 @@ body.two-columns .readout .row { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .ask-glow::before, .ask-glow::after { animation: none; }
 }
+/* The tray takes the whole height the thread has, top-aligned like a
+   command palette, and its list scrolls inside it: with thirty-odd prompts
+   a centred block either clipped half-way down or pushed the bar off. */
 .thread > .tpl {
   position: absolute;
   left: 50%;
-  top: 46%;
+  top: 18px;
+  bottom: 6px;
   width: min(720px, calc(100% - 32px));
-  transform: translate(-50%, -55%);
+  transform: translateX(-50%);
+  display: flex; flex-direction: column;
   border: 0;
   border-radius: 0;
   background: transparent;
   box-shadow: none;
-  padding: 13px 14px 12px;
+  padding: 13px 14px 0;
   margin: 0;
 }
-.tpl-head {
-  font-size: var(--text-2xs); letter-spacing: .08em; color: var(--faint);
-  margin: 0 0 10px 1px; font-weight: var(--weight-display);
-}
-/* Twelve tiles want an even grid — 6x2, 4x3 or 3x4. A CONTAINER query, not
-   a media query: the chat pane is resizable, so the width that matters is
-   the pane's, not the window's. */
+/* ── the openings: a shelf per kind of trader ─────────────────────────────
+   A heading in the wordmark's face, a row of plain-text tabs, and a list of
+   sentences. Rows, not tiles: the prompt IS the content now, and a sentence
+   needs a line's width to be read at a glance. Each row is an icon tile on
+   the left and the prompt at body weight, the rhythm of a command palette,
+   so it reads as "things you can do" rather than as a gallery. */
 .tpl { container-type: inline-size; }
-.tpl-grid { display: grid; gap: 4px; grid-template-columns: repeat(4, 1fr); }
-@container (min-width: 476px) { .tpl-grid { grid-template-columns: repeat(6, 1fr); } }
-@container (max-width: 260px) { .tpl-grid { grid-template-columns: repeat(3, 1fr); } }
+.tpl-head {
+  flex: none;
+  font-family: var(--font-serif); font-weight: var(--weight-display);
+  font-size: 19px; line-height: 1.25; letter-spacing: -0.01em;
+  color: var(--foreground); margin: 0 0 12px 2px;
+}
+/* The tabs scroll sideways when the pane is narrow rather than wrapping:
+   a second row of tabs reads as a second level of navigation. */
+.tpl-tabs {
+  flex: none; display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none;
+  border-bottom: 1px solid var(--border); margin: 0 0 6px;
+  /* the last tab fades at the edge, so a tab past it reads as "scroll" */
+  mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent);
+}
+.tpl-tabs::-webkit-scrollbar { display: none; }
+.tpl-tab {
+  flex: none; border: 0; background: transparent; cursor: pointer;
+  font: inherit; font-size: var(--text-sm); font-weight: 500;
+  color: var(--muted-foreground); padding: 8px 10px 9px; position: relative;
+  white-space: nowrap; transition: color var(--dur) var(--ease-quartr);
+}
+.tpl-tab:hover { color: var(--foreground); }
+.tpl-tab.is-on { color: var(--foreground); }
+.tpl-tab::after {
+  content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px;
+  border-radius: 2px; background: var(--foreground);
+  transform: scaleX(0); transition: transform var(--dur) var(--ease-quartr);
+}
+.tpl-tab.is-on::after { transform: scaleX(1); }
+.tpl-tab:focus-visible { outline: 2px solid var(--ring, var(--primary)); outline-offset: -2px; border-radius: 6px; }
 
-/* The whole card lights up, icon and label and the air around both — the
-   thing you are aiming at is the tile, so the tile is what has to
-   acknowledge the pointer. Highlighting only the 48px frame made the
-   label look like it belonged to something else, and gave a target a
-   third the size of the one the eye had already picked. */
+.tpl-list {
+  flex: 1 1 auto; min-height: 0;
+  display: flex; flex-direction: column; gap: 1px;
+  overflow-y: auto; scrollbar-width: thin;
+  margin: 0 -6px; padding: 2px 0 22px;
+  /* rows dissolve into the bar rather than being cut by it */
+  mask-image: linear-gradient(180deg, #000 calc(100% - 26px), transparent);
+}
+/* The whole row lights up, icon and text and the air around both: the
+   thing you are aiming at is the row. */
 .tpl-card {
-  display: flex; flex-direction: column; align-items: center; gap: 7px;
-  padding: 9px 4px 7px; border: 0; background: transparent;
-  border-radius: var(--radius-md);
-  color: var(--faint); font: inherit; font-size: var(--text-2xs);
-  cursor: pointer; text-align: center; position: relative; z-index: 1;
-  transition: background var(--dur) var(--ease-quartr),
-              color var(--dur) var(--ease-quartr);
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 9px 10px 9px 8px; border: 0; background: transparent;
+  border-radius: var(--radius-md); font: inherit; text-align: left;
+  color: var(--foreground); cursor: pointer; position: relative; z-index: 1;
+  transition: background var(--dur) var(--ease-quartr);
+  animation: tplIn 260ms var(--ease-quartr) both;
+  animation-delay: calc(var(--i, 0) * 28ms);
 }
+@keyframes tplIn {
+  from { opacity: 0; transform: translateY(5px); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) { .tpl-card { animation: none; } }
 .tpl-card:hover, .tpl-card:focus-visible, .tpl-card.is-on {
-  background: color-mix(in srgb, var(--foreground) 8%, transparent);
-  color: var(--foreground);
-}
-/* The box holds the ICON ONLY — the label lives under it, outside the
-   frame, so a long name cannot stretch the box and break the row of
-   squares. 4px of air on every side: enough to read as a container,
-   not enough to read as padding. */
-.tpl-box {
-  width: 62px; height: 62px; border-radius: var(--radius);
-  border: 0;
-  background: color-mix(in srgb, var(--card) 60%, transparent);
-  display: flex; align-items: center; justify-content: center;
-  transition: border-color var(--dur) var(--ease-quartr),
-              background var(--dur) var(--ease-quartr);
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
 }
 .tpl-card:focus-visible { outline: none; }
-/* Selected is the hover block, held. It says only "this is the one that
-   wrote what is in the bar" — which is a pointer, not a status, so it
-   borrows hover's paint rather than inventing a louder one. A blue frame
-   read as a toggle that was now ON and armed, and nothing is armed: the
-   sentence is sitting in the bar waiting to be edited or sent. */
-.tpl-name { line-height: 1.2; }
+/* Selected is the hover block, held: it says only "this is the one that
+   wrote what is in the bar". */
+.tpl-box {
+  flex: none; width: 40px; height: 40px; border-radius: 11px;
+  background: var(--card);
+  box-shadow: inset 0 0 0 1px var(--border);
+  display: flex; align-items: center; justify-content: center;
+  transition: box-shadow var(--dur) var(--ease-quartr);
+}
+.tpl-card:hover .tpl-box, .tpl-card.is-on .tpl-box {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 22%, transparent);
+}
+.tpl-q {
+  min-width: 0;
+  font-size: 13.5px; line-height: 1.38; font-weight: 450; color: var(--foreground);
+  text-wrap: pretty;
+}
 
 /* The art. Stroke width is set ONCE here rather than per path, so the
    family stays consistent and no tile can drift heavier than its
@@ -6213,10 +6252,10 @@ body.two-columns .readout .row { display: none; }
 .tile-art .up { stroke: var(--up); }
 .tile-art .down { stroke: var(--down); }
 
-@container (max-width: 380px) {
-  .tpl-box { width: 52px; height: 52px; }
-  .tile-art { width: 44px; height: 44px; }
-}
+/* At 30px the 40-unit drawings need a heavier pen to hold their line. */
+.tpl-box .tile-art { width: 30px; height: 30px; stroke-width: 2.1; }
+:root[data-theme="light"] .tpl-box .tile-art { stroke-width: 1.9; }
+.tpl-box .tile-art .a { stroke-width: 1.5; }
 
 /* scroll-to-latest, Claude's floating pill */
 .to-bottom {
@@ -12085,7 +12124,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/model-logos.js?v=2"></script>
   <script src="./js/models.js?v=5"></script>
   <script src="./js/pricehover.js?v=1"></script>
-  <script src="./js/chat.js?v=196"></script>
+  <script src="./js/chat.js?v=199"></script>
   <script src="./js/codeview.js?v=6"></script>
   <script src="./js/journal.js?v=9"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
