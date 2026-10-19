@@ -27,7 +27,7 @@ export const metadata: Metadata = {
     images: [{ url: "/og-landing.jpg", width: 2400, height: 1260, alt: "Pivot: Superintelligent charts for trading" }],
   },
   twitter: {
-    card: "summary_large_image", site: "@investwithpivot",
+    card: "summary_large_image", site: "@pivotnow00",
     images: [{ url: "/og-landing.jpg", width: 2400, height: 1260, alt: "Pivot: Superintelligent charts for trading" }],
   },
   verification: {
@@ -52,7 +52,7 @@ const SITE_GRAPH = {
       logo: `${SITE}/pivot-icon.png`,
       email: "contact@pivotnow.in",
       areaServed: "IN",
-      sameAs: ["https://x.com/investwithpivot", "https://www.instagram.com/investwithpivot/"],
+      sameAs: ["https://x.com/pivotnow00", "https://www.instagram.com/pivotnow00/"],
     },
     { "@type": "WebSite", "@id": `${SITE}/#website`, url: SITE, name: "Pivot", inLanguage: "en-IN", publisher: { "@id": `${SITE}/#organization` } },
     {

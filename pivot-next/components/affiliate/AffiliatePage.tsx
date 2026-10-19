@@ -106,8 +106,8 @@ function AffFooter(): React.ReactElement {
             <a href="/pricing">Pricing</a>
           </nav>
           <div className="aff-footer-social">
-            <a href="https://www.instagram.com/investwithpivot/" target="_blank" rel="noopener noreferrer" aria-label="Pivot on Instagram (opens in a new tab)"><Instagram size={15} /></a>
-            <a href="https://x.com/investwithpivot" target="_blank" rel="noopener noreferrer" aria-label="Pivot on X (opens in a new tab)"><XGlyph /></a>
+            <a href="https://www.instagram.com/pivotnow00/" target="_blank" rel="noopener noreferrer" aria-label="Pivot on Instagram (opens in a new tab)"><Instagram size={15} /></a>
+            <a href="https://x.com/pivotnow00" target="_blank" rel="noopener noreferrer" aria-label="Pivot on X (opens in a new tab)"><XGlyph /></a>
           </div>
         </div>
       </footer>
