@@ -968,7 +968,7 @@ def _status(spec: dict, data: dict, series: dict) -> list[dict]:
     when = spec.get("when") or {}
     conds = when.get("all") or when.get("any") or []
     for c in conds:
-        row = {"text": describe(c, spec)}
+        row = {"text": describe(c, spec), "parts": _parts(c, spec)}
         try:
             t = truth(c, data, series)
             row["met"] = bool(t and t[-1] is True)
@@ -984,6 +984,48 @@ def _status(spec: dict, data: dict, series: dict) -> list[dict]:
             row["met"] = None
         rows.append(row)
     return rows
+
+
+def _with_parts(rows: list[dict], spec: dict) -> list[dict]:
+    """Rows stored before conditions carried their parts get them from the
+    rule itself, by position."""
+    when = spec.get("when") or {}
+    conds = when.get("all") or when.get("any") or []
+    return [r if r.get("parts") or i >= len(conds) else {**r, "parts": _parts(conds[i], spec)}
+            for i, r in enumerate(rows)]
+
+
+def _label(x, spec: dict) -> str:
+    if isinstance(x, (int, float)):
+        return _fmt_num(float(x))
+    names = {m["name"]: m.get("title") or m["name"] for m in spec.get("measures") or []}
+    k = _clean_name(x)
+    if k in names:
+        return names[k]
+    return f"{spec['symbol']} {k}" if k in FIELDS else str(x)
+
+
+def _parts(c: dict, spec: dict) -> dict:
+    """A condition as pieces the card draws as chips: what is read, the
+    comparison, and what it is compared with. Generated from the tree."""
+    if "all" in c or "any" in c:
+        return {"kind": "group", "join": "and" if "all" in c else "or",
+                "items": [_parts(x, spec) for x in (c.get("all") or c.get("any") or [])]}
+    if "time" in c:
+        return {"kind": "time", "text": describe(c, spec)}
+    op = c.get("op")
+    out = {"kind": "cmp", "left": _label(c.get("left"), spec), "op": op,
+           "left_live": not isinstance(c.get("left"), (int, float)),
+           "right_live": not isinstance(c.get("right"), (int, float))}
+    if op in ("between", "outside"):
+        out["right"] = f"{_label(c.get('right'), spec)} – {_label(c.get('right2'), spec)}"
+    elif op in ("rises_pct", "falls_pct"):
+        out["right"] = f"{_label(c.get('right'), spec)}% in {int(c.get('bars') or 1)} bar(s)"
+    elif op != "is_true":
+        out["right"] = _label(c.get("right"), spec)
+    if int(c.get("for_bars") or 1) > 1:
+        out["for_bars"] = int(c["for_bars"])
+    return out
 
 
 def _fmt_num(v) -> str:
@@ -1195,15 +1237,23 @@ def card(row: dict, live: dict | None = None) -> dict:
         "join": "any" if "any" in when else "all", "summary": summary(spec),
         "on": ({"reads": _on_words(spec["on"]), "test": _on_test(spec["on"]),
                 "recent": hist.get("events") or []} if spec.get("on") else None),
-        "conditions": (live or {}).get("conditions") or hist.get("conditions") or
-                      [{"text": describe(c, spec)} for c in (when.get("all") or when.get("any") or [])],
+        "conditions": _with_parts((live or {}).get("conditions") or hist.get("conditions") or
+                                  [{"text": describe(c, spec)} for c in (when.get("all") or when.get("any") or [])],
+                                  spec),
         "measures": [{"name": m["name"], "title": m["title"], "formula": m["formula"],
                       "now": (hist.get("now") or {}).get(m["name"]),
                       "spark": (hist.get("spark") or {}).get(m["name"])}
                      for m in spec.get("measures") or [] if not m["name"].endswith(tuple(f"_{f}" for f in FIELDS))
                      or m.get("code")],
         "action": action, "exits": exits, "contract": _contract_line(spec),
-        "history": {k: hist.get(k) for k in ("fires", "per_month", "last_fire", "bars", "from", "to")},
+        "history": {k: hist.get(k) for k in ("fires", "per_month", "last_fire", "bars", "from", "to",
+                                             "fire_ts", "price")},
+        "do": do, "manage": mg, "mandate": spec.get("mandate"), "policy": spec.get("policy"),
+        "lifespan": spec["contract"]["lifespan"], "authority": spec["contract"]["authority"],
+        "discretion": spec["contract"]["discretion"], "created": row.get("created"),
+        "held": row.get("held_legs") or ({row["held_sym"]: row["held_qty"]}
+                                         if row.get("held_qty") and row.get("held_sym") else {}),
+        "spent_inr": row.get("spent_inr") or 0,
         "notes": hist.get("notes") or [], "fires": row.get("fires", 0),
         "expires": row.get("expires"),
         "targets": ([{"symbol": k, "weight": v} for k, v in sorted((do.get("targets") or {}).items(),
@@ -1319,9 +1369,91 @@ def events(uid: int, limit: int = 60) -> list[dict]:
             "SELECT e.id, e.play_id, p.title, e.ts, e.created, e.kind, e.title, e.body, e.status, "
             "e.seen FROM play_events e LEFT JOIN plays p ON p.id = e.play_id WHERE e.user_id=? "
             "ORDER BY e.created DESC, e.id DESC LIMIT ?", (uid, limit)).fetchall()
-    return [{"id": r[0], "play_id": r[1], "play": r[2] or "", "ts": r[3], "created": r[4],
-             "kind": r[5], "title": r[6], "body": json.loads(r[7] or "{}"), "status": r[8],
-             "seen": bool(r[9])} for r in rows]
+    out = [{"id": r[0], "play_id": r[1], "play": r[2] or "", "ts": r[3], "created": r[4],
+            "kind": r[5], "title": r[6], "body": json.loads(r[7] or "{}"), "status": r[8],
+            "seen": bool(r[9])} for r in rows]
+    specs: dict[int, dict] = {}
+    for e in out:
+        if e["play_id"] not in specs:
+            p = _load(e["play_id"]) if e["play_id"] else None
+            specs[e["play_id"]] = p["spec"] if p else {}
+        e["alert"] = transcribe(e, specs[e["play_id"]])
+    return out
+
+
+_PAST = (("crosses above", "crossed above"), ("crosses below", "crossed below"),
+         ("rises", "rose"), ("falls", "fell"), ("is above", "is above"), ("is below", "is below"))
+
+
+def _past(text: str) -> str:
+    for a, b in _PAST:
+        text = text.replace(a, b)
+    return text
+
+
+def transcribe(ev: dict, spec: dict) -> dict:
+    """An event as one alert: a label ("Stock alert"), one sentence in parts
+    ({t: text} and {b: the value that decided it}), the source when an item
+    clocked it, and the symbol whose mark it carries. Built from what the
+    event recorded, so the sentence can only say what was seen or done."""
+    b, kind = ev.get("body") or {}, ev["kind"]
+    sym = (b.get("symbol") or spec.get("symbol") or "")
+    src = b.get("event") or None
+    t = b.get("ticket") or {}
+    if kind == "fired":
+        label = ("Filing alert" if src and src.get("source") == "filings" else
+                 "News alert" if src else
+                 "Basket alert" if sym.startswith("@") else
+                 "Crypto alert" if sym.endswith(("USDT", "-USD")) else
+                 "Index alert" if sym.startswith(("NIFTY", "SENSEX", "BANKNIFTY")) else "Stock alert")
+    else:
+        label = {"proposed": "Waiting for your confirm", "filled": "Placed on paper",
+                 "rejected": "Not placed", "exited": "Position closed",
+                 "note": "Policy check"}.get(kind, "Update")
+    line: list[dict] = []
+
+    def say(*bits):
+        for x in bits:
+            if isinstance(x, tuple):
+                line.append({"b": x[0]})
+            elif x:
+                line.append({"t": x})
+    seen = b.get("seen") or []
+    if t.get("rebalance"):
+        buys = sum(1 for lg in t.get("legs") or [] if lg["side"] == "BUY")
+        sells = len(t.get("legs") or []) - buys
+        say(f"{'Rebalanced' if kind == 'filled' else 'Rebalance'}: {buys} buy{'s' if buys != 1 else ''} and "
+            f"{sells} sell{'s' if sells != 1 else ''}, ", (f"₹{t.get('buys_inr', 0):,.0f}",), " in and ",
+            (f"₹{t.get('sells_inr', 0):,.0f}",), " out")
+    elif t.get("basket"):
+        say(f"{'Bought' if t.get('side') == 'BUY' else 'Sold'} {t['basket']} in {len(t.get('legs') or [])} "
+            "trades for ", (f"₹{t.get('inr') or 0:,.0f}",))
+        sym = t["basket"]
+    elif t.get("book") == "day" and t.get("legs"):
+        lg = t["legs"][0]
+        more = f" and {len(t['legs']) - 1} more" if len(t["legs"]) > 1 else ""
+        verb = ("Closed" if t.get("close") else "Opened") if kind == "filled" else "Open"
+        say(f"{verb} {lg['side']} {_fmt_num(float(lg['qty']))} {lg['symbol']}{more} at ",
+            (_fmt_num(float(lg.get("px") or 0)),))
+    elif t.get("symbol"):
+        verb = {"filled": "Bought" if t["side"] == "BUY" else "Sold",
+                "proposed": "Buy" if t["side"] == "BUY" else "Sell"}.get(kind, "Order:")
+        px = b.get("fill_price") or t.get("price")
+        say(f"{verb} {_fmt_num(float(t['qty']))} {t['symbol']} at {'about ' if kind == 'proposed' else ''}",
+            (_fmt_num(float(px or 0)),))
+        sym = t["symbol"]
+    elif seen and not src:
+        r = seen[0]
+        say(_past(r.get("text") or ""), ", now " if r.get("left") is not None else "",
+            (_fmt_num(float(r["left"])),) if r.get("left") is not None else "")
+    elif b.get("reason") and not src:
+        say(str(b["reason"]))
+    if kind in ("rejected", "note") and b.get("reason") and line and not line[-1].get("t", "").endswith(b["reason"]):
+        line = [{"t": str(b["reason"])}]
+    return {"label": label, "line": line, "symbol": sym,
+            "source": ({"who": src.get("who"), "title": src.get("title"), "url": src.get("url"),
+                        "quote": src.get("quote"), "kind": src.get("source")} if src else None),
+            "late": bool(b.get("late"))}
 
 
 # ── measures library ────────────────────────────────────────────────────────
@@ -2215,6 +2347,17 @@ def api_list(uid: int) -> tuple[int, dict]:
     return 200, {"plays": [card(p) for p in plays], "events": evs,
                  "unseen": sum(1 for e in evs if not e["seen"]), "book": book,
                  "securities": secs}
+
+
+def api_get(uid: int, tail: str) -> tuple[int, dict]:
+    init_db()
+    pid = tail.strip("/")
+    if not pid.isdigit():
+        return 404, {"error": f"no plays route '{tail}'"}
+    p = get(uid, int(pid))
+    if not p:
+        return 404, {"error": f"no play {pid}"}
+    return 200, {"play": card(p), "events": [e for e in events(uid, 300) if e["play_id"] == p["id"]][:40]}
 
 
 def api_post(uid: int, tail: str, body: dict) -> tuple[int, dict]:

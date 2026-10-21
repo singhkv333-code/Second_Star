@@ -526,3 +526,30 @@ def test_a_rebalance_takes_over_a_baskets_holdings_and_weights(uid) -> None:
     assert new["held_legs"] == legs and plays.get(uid, b["play_id"])["held_legs"] == {}
     assert new["spec"]["do"]["targets"] == {"HAL": pytest.approx(2 / 3, abs=1e-5),
                                             "BEL": pytest.approx(1 / 3, abs=1e-5)}
+
+
+# ── what the Plays page draws: chips and written-up alerts ──────────────────
+
+def test_conditions_carry_chip_parts_and_events_are_written_up(uid) -> None:
+    got = plays.tool_play("compile", _rsi_play(when={"all": [
+        {"left": "rsi14", "op": "cross_down", "right": 30, "for_bars": 2},
+        {"time": {"after": "09:30"}}]}))
+    card = plays.card(plays.get(uid, got["play_id"]))
+    p = card["conditions"][0]["parts"]
+    assert p == {"kind": "cmp", "left": "RSI 14", "op": "cross_down", "right": "30",
+                 "left_live": True, "right_live": False, "for_bars": 2}
+    assert card["conditions"][1]["parts"]["kind"] == "time"
+    play = plays._load(got["play_id"])
+    data, _ = plays.frame(play["spec"])
+    series, _ = plays.run_measures(play["spec"], data)
+    plays._fire(play, data, series, len(data["t"]) - 1, late=False)
+    ev = [e for e in plays.events(uid) if e["play_id"] == got["play_id"]][0]
+    a = ev["alert"]
+    assert a["label"] == "Stock alert" and a["symbol"] == "RELIANCE"
+    text = "".join(x.get("t") or x.get("b") for x in a["line"])
+    assert text.startswith("RSI 14 crossed below 30") and any("b" in x for x in a["line"])
+    # an order is written up from its ticket, with the price in bold
+    t = plays.transcribe({"kind": "filled", "body": {"ticket": {"symbol": "TCS", "side": "BUY", "qty": 3,
+                                                                 "price": 4100.0}, "fill_price": 4102.5}},
+                         {"symbol": "TCS"})
+    assert t["label"] == "Placed on paper" and t["line"] == [{"t": "Bought 3 TCS at "}, {"b": "4,102.5"}]

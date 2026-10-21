@@ -16386,6 +16386,19 @@ def _tool_hint(name: str, args: dict) -> str:
         return f"{n} candidates" + (f" on {sym}" if sym else "")
     if name == "custom_indicator":
         return str(args.get("action") or "")
+    if name in ("play", "measure"):
+        # the execution layer's tools carry their subject one level down
+        obj = args.get("play") or args.get("security") or args.get("measure")
+        if isinstance(obj, str):
+            try:
+                obj = json.loads(obj)
+            except ValueError:
+                obj = {}
+        obj = obj if isinstance(obj, dict) else {}
+        what = obj.get("title") or obj.get("name") or obj.get("symbol") or ""
+        return " ".join(x for x in (str(args.get("action") or ""), str(what)) if x)[:80]
+    if name == "search":
+        return str(args.get("query") or args.get("q") or "")[:80]
     if name == "workspace":
         # which widgets the desk change is about — "notes", "sheet, screener"
         kinds = []
@@ -20343,10 +20356,12 @@ class Handler(BaseHTTPRequestHandler):
                     if code != 404 or u.path == "/setup":
                         return self._send(code, payload)
                 return self._send(*_layout_shared_get(tok))
-            if u.path == "/plays":
+            if u.path == "/plays" or u.path.startswith("/plays/"):
                 me = _auth_user(self.headers)
                 if not me:
                     return self._send(401, {"error": "sign in to use plays"})
+                if u.path != "/plays":
+                    return self._send(*_plays.api_get(me[0], u.path[len("/plays"):]))
                 return self._send(*_plays.api_list(me[0]))
             if u.path in ("/alerts", "/alerts/stream"):
                 # Alerts are per-user by construction — they run on the server
