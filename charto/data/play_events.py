@@ -221,11 +221,18 @@ def _call_model(question: str, item: dict) -> dict:
     user = (f"Question: {question}\n\nSource (named by Pivot, not by the item): {src}\n"
             f"Published: {time.strftime('%d %b %Y %H:%M', time.gmtime(item['ts'] + 19800))} IST\n"
             f"<item>\n{_clean(item['title'])}\n{_clean(item['body'])}\n</item>")
-    payload = {"model": ds._model(), "input": [{"role": "system", "content": _SYSTEM},
+    return respond(_SYSTEM, user, _SCHEMA, "judgment")
+
+
+def respond(system: str, user: str, schema: dict, name: str, *, effort: str = "low",
+            max_tokens: int = 1200) -> dict:
+    """One tool-less model call in a fresh context, answered as JSON in the
+    given schema. The judge and the policy planner both come through here."""
+    payload = {"model": ds._model(), "input": [{"role": "system", "content": system},
                                                 {"role": "user", "content": user}],
-               "text": {"format": {"type": "json_schema", "name": "judgment", "schema": _SCHEMA,
+               "text": {"format": {"type": "json_schema", "name": name, "schema": schema,
                                    "strict": True}},
-               "reasoning": {"effort": "low"}, "max_output_tokens": 1200,
+               "reasoning": {"effort": effort}, "max_output_tokens": max_tokens,
                "service_tier": getattr(ds, "LLM_SERVICE_TIER", "auto")}
     req = urllib.request.Request(f"{ds.AZURE_ENDPOINT}/responses", data=json.dumps(payload).encode(),
                                  headers={"api-key": ds.AZURE_KEY, "Content-Type": "application/json"},

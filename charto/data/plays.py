@@ -37,6 +37,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, ROUND_DOWN
 
 import customsec
+import policy
 
 log = logging.getLogger("plays")
 
@@ -48,6 +49,7 @@ _paper = None
 def bind(module, alerts_mod=None, paper_mod=None) -> None:
     global ds, _alerts, _paper
     ds, _alerts, _paper = module, alerts_mod, paper_mod
+    policy.bind(module, paper_mod)
 
 
 # ══ storage ═════════════════════════════════════════════════════════════════
@@ -135,7 +137,7 @@ OPS = ("above", "below", "cross_up", "cross_down", "between", "outside",
 LOOKBACK = {"1m": 1500, "3m": 1500, "5m": 1500, "15m": 1200, "30m": 1000, "1h": 1000, "1d": 750}
 DEFAULT_SIZE_INR = 10_000
 DERIV_CAPITAL = 2_00_000
-DO_KINDS = ("notify", "buy", "sell", "short", "cover", "options", "future")
+DO_KINDS = ("notify", "buy", "sell", "short", "cover", "options", "future", "rebalance")
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 _HHMM = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
 _SQL_SECONDS = 6.0
@@ -688,10 +690,11 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
 
     on = _norm_on(raw.get("on"), sym)
     contract = dict(raw.get("contract") or {})
+    rebalance = (raw.get("do") or {}).get("kind") == "rebalance"
     lifespan = contract.get("lifespan") or ("once_when" if (when or on) else "now")
     if lifespan not in LIFESPANS:
         raise Bad(f"contract.lifespan must be one of {', '.join(LIFESPANS)}")
-    if lifespan != "now" and not when and not on:
+    if lifespan != "now" and not when and not on and not (rebalance and lifespan == "policy"):
         raise Bad("this play has no `when` and no `on`; give conditions or events, or set "
                   "contract.lifespan to now")
     authority = contract.get("authority") or "notify"
@@ -700,10 +703,11 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
     discretion = contract.get("discretion") or "none"
     if discretion not in DISCRETIONS:
         raise Bad(f"contract.discretion must be one of {', '.join(DISCRETIONS)}")
-    if discretion != "none":
-        said.append(f"{discretion} discretion is not wired yet, so it runs as a fixed rule")
+    if discretion == "judge" or (discretion == "plan" and not rebalance):
+        said.append(f"{discretion} discretion is not wired for this kind of play yet, so it runs "
+                    "as a fixed rule")
         discretion = "none"
-    if lifespan == "policy":
+    if lifespan == "policy" and not rebalance:
         said.append("standing policies with a planner are not wired yet, so it runs every time "
                     "the condition is met")
         lifespan = "standing"
@@ -772,6 +776,10 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
             authority = "propose"
             said.append("it proposes the order for you to confirm")
     do["kind"] = kind
+    pol = None
+    if kind == "rebalance":
+        do, pol = _norm_rebalance(do, raw, lifespan, discretion, said)
+        iv = "1d"
 
     manage = {}
     for k in ("stop_pct", "target_pct"):
@@ -810,18 +818,67 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
     mandate = {"capital_inr": cap,
                "max_order_inr": float((raw.get("mandate") or {}).get("max_order_inr") or cap),
                "max_fires": int((raw.get("mandate") or {}).get("max_fires")
-                                or (1 if lifespan in ("now", "once_when") else 20))}
+                                or (1 if lifespan in ("now", "once_when") else
+                                    10_000 if lifespan == "policy" else 20))}
+    if kind == "rebalance":
+        mandate["max_weight"] = float((raw.get("mandate") or {}).get("max_weight")
+                                      or policy.DEFAULT_MAX_WEIGHT)
+        if not (raw.get("mandate") or {}).get("max_order_inr"):
+            mandate["max_order_inr"] = 10_00_000
     days = contract.get("expires_in_days")
     spec = {
         "title": str(raw.get("title") or "")[:80] or f"{sym} play",
         "ask": str(raw.get("ask") or "")[:600],
         "symbol": sym, "interval": iv, "measures": measures, "when": when, "on": on,
-        "do": do, "manage": manage, "mandate": mandate,
+        "do": do, "manage": manage, "mandate": mandate, "policy": pol,
         "contract": {"lifespan": lifespan, "authority": authority, "discretion": discretion,
                      "inferred_from": str(contract.get("inferred_from") or "")[:200],
                      "expires_in_days": int(days) if days else None},
     }
     return spec, said
+
+
+def _norm_rebalance(do: dict, raw: dict, lifespan: str, discretion: str,
+                    said: list[str]) -> tuple[dict, dict | None]:
+    of = do.get("of") or "self"
+    if isinstance(of, str) and of.isdigit():
+        of = int(of)
+    if of not in ("self", "portfolio") and not isinstance(of, int):
+        raise Bad("do.of is self (what this play holds), portfolio (the whole paper delivery book) "
+                  "or the id of the play whose holdings it takes over")
+    out = {"kind": "rebalance", "of": of, "product": "CNC",
+           "objective": str(do.get("objective") or "")[:300],
+           "universe": sorted({ds.canon_symbol(str(x)) for x in do.get("universe") or []})[:30],
+           "cash_pct": float(do.get("cash_pct") or 0)}
+    size = do.get("size") or {}
+    if not isinstance(size, dict):
+        size = {"inr": size}
+    if size.get("inr"):
+        out["size"] = {"inr": float(size["inr"])}
+    if do.get("targets"):
+        cap = float((raw.get("mandate") or {}).get("max_weight") or policy.DEFAULT_MAX_WEIGHT)
+        try:
+            out["targets"], cut = policy.norm_targets(do["targets"], out["cash_pct"], cap)
+        except policy.Bad as exc:
+            raise Bad(str(exc)) from None
+        said.extend(cut)
+    elif discretion != "plan" and of == "self":
+        raise Bad("a rebalance of its own holdings needs targets: [{symbol, weight}], or "
+                  "contract.discretion plan with an objective so the planner chooses")
+    if discretion == "plan" and not out["objective"]:
+        raise Bad("a planned rebalance needs do.objective: the trader's instruction in their words")
+    if discretion == "plan" and not out["universe"] and not out.get("targets") and of == "self":
+        raise Bad("a planned rebalance needs do.universe: the names the planner may choose from")
+    pol = None
+    if lifespan == "policy":
+        p = raw.get("policy") or {}
+        every = p.get("every") or "week"
+        if every not in policy.EVERY:
+            raise Bad("policy.every is day, week or month")
+        pol = {"every": every, "drift_pct": float(p.get("drift_pct") or 5)}
+        if not raw.get("policy"):
+            said.append("checks weekly and whenever a holding drifts 5 points from its target")
+    return out, pol
 
 
 def _event_points(spec: dict, data: dict, tr: list) -> tuple[list[int], list[str], list[dict]]:
@@ -984,7 +1041,11 @@ def _contract_line(spec: dict) -> dict:
             "act": "Places it on paper, then tells you",
             "manage": "Places and manages it on paper"}[c["authority"]]
     out = {"runs": runs, "acts": acts}
-    if spec["do"]["kind"] != "notify":
+    if spec["do"]["kind"] == "rebalance":
+        new = (spec["do"].get("size") or {}).get("inr")
+        out["limit"] = f"at most {m.get('max_weight', policy.DEFAULT_MAX_WEIGHT) * 100:.0f}% in one name" + \
+            (f", ₹{new:,.0f} of new money" if new else "")
+    elif spec["do"]["kind"] != "notify":
         out["limit"] = f"₹{m['capital_inr']:,.0f}"
     return out
 
@@ -1011,6 +1072,13 @@ def order_words(spec: dict) -> str:
         return f"{do['underlying']} options: " + ", ".join(parts) + f" ({exp} expiry)"
     if do["kind"] == "future":
         return f"{do.get('side') or 'buy'} {do.get('lots') or 1} lot of the {do['underlying']} future"
+    if do["kind"] == "rebalance":
+        book = "the paper portfolio" if do.get("of") == "portfolio" else "its holdings"
+        if spec["contract"]["discretion"] == "plan":
+            return f"rebalances {book} to targets the planner sets for “{do['objective']}”"
+        t = do.get("targets") or {}
+        top = ", ".join(f"{k} {v * 100:.0f}%" for k, v in sorted(t.items(), key=lambda x: -x[1])[:4])
+        return f"rebalances {book} to {top}{' and more' if len(t) > 4 else ''}"
     if do["kind"] == "short":
         size = do.get("size") or {}
         amt = f"₹{size['inr']:,.0f} of " if size.get("inr") else f"{size.get('qty', 0):g} "
@@ -1030,6 +1098,15 @@ def summary(spec: dict) -> str:
     c, do = spec["contract"], spec["do"]
     when = spec.get("when")
     cond = describe(when, spec) if when else ""
+    if do["kind"] == "rebalance":
+        words = order_words(spec)
+        if c["authority"] == "propose":
+            words = "proposes that it " + words.replace("rebalances", "rebalance", 1)
+        if c["lifespan"] == "now":
+            return f"{words[0].upper()}{words[1:]}, now, on paper."
+        pol = spec.get("policy") or {}
+        return (f"{words[0].upper()}{words[1:]}: every {pol.get('every', 'week')}, and whenever a "
+                f"holding drifts {pol.get('drift_pct', 5):g} points from its target. On paper.")
     if do["kind"] == "notify":
         act = "tells you"
     elif do["kind"] in ("options", "future", "short", "cover"):
@@ -1079,7 +1156,7 @@ def card(row: dict, live: dict | None = None) -> dict:
     hist = row.get("history") or {}
     do = spec["do"]
     action = None
-    if do["kind"] in ("options", "future", "short", "cover"):
+    if do["kind"] in ("options", "future", "short", "cover", "rebalance"):
         action = {"side": do["kind"], "symbol": do.get("symbol") or do.get("underlying"),
                   "text": order_words(spec)[0].upper() + order_words(spec)[1:]}
     elif do["kind"] != "notify":
@@ -1127,6 +1204,12 @@ def card(row: dict, live: dict | None = None) -> dict:
         "history": {k: hist.get(k) for k in ("fires", "per_month", "last_fire", "bars", "from", "to")},
         "notes": hist.get("notes") or [], "fires": row.get("fires", 0),
         "expires": row.get("expires"),
+        "targets": ([{"symbol": k, "weight": v} for k, v in sorted((do.get("targets") or {}).items(),
+                                                                    key=lambda x: -x[1])]
+                    if do["kind"] == "rebalance" else None),
+        # the one-tap upgrade: a rebalance done once, kept that way
+        "offer": ({"action": "policy", "label": "Keep it this way: check weekly and on a 5-point drift"}
+                  if do["kind"] == "rebalance" and spec["contract"]["lifespan"] == "now" else None),
     }
 
 
@@ -1348,6 +1431,16 @@ def _tick(pid: int, minute_ts: int | None = None, force: bool = False) -> list[d
     if spec.get("on"):
         tr = []                       # its entries are clocked by events (on_items)
     out = []
+    if spec["contract"]["lifespan"] == "policy" and spec["do"]["kind"] == "rebalance":
+        # one run on the latest closed bar at most; bars missed while offline are not replayed
+        why = policy.due(play, t[-1])
+        if why:
+            ev = _fire(play, data, series, len(t) - 1, late=False)
+            if ev:
+                ev["body"]["due"] = why
+            out.append(ev)
+        _set(pid, last_eval_ts=t[-1])
+        return out
     for i in new:
         late = i != len(t) - 1
         if play["why"] == EXITS_ONLY and not play["held_qty"]:
@@ -1422,7 +1515,13 @@ def _fire(play: dict, data: dict, series: dict, i: int, *, late: bool,
         ev = _event(play, ts, "fired", title, {**body, "reason": reason}, status="done")
     else:
         ticket, why = _ticket(play, price)
-        if not ticket:
+        if ticket and ticket.get("structural") and authority in ("act", "manage"):
+            authority, reason = "propose", "the planner changed which names it holds, so you confirm"
+        if ticket and ticket.get("rebalance") and not ticket["legs"]:
+            ev = _event(play, ts, "note", title, {**body, "ticket": ticket, "reason":
+                        "every holding is within its band of the target, so nothing was traded"},
+                        status="done")
+        elif not ticket:
             ev = _event(play, ts, "rejected", title, {**body, "reason": why}, status="done")
         elif authority == "propose":
             ev = _event(play, ts, "proposed", title, {**body, "ticket": ticket, "reason": reason})
@@ -1486,6 +1585,8 @@ def _ticket(play: dict, price: float) -> tuple[dict | None, str]:
     spec, do, m = play["spec"], play["spec"]["do"], play["spec"]["mandate"]
     if _day_route(do):
         return _day_ticket(play)
+    if do["kind"] == "rebalance":
+        return _rebalance_ticket(play)
     sym = do["symbol"]
     if customsec.is_custom(sym):
         return _basket_ticket(play)
@@ -1521,6 +1622,38 @@ def _ticket(play: dict, price: float) -> tuple[dict | None, str]:
     if mg.get("target_pct"):
         t["take_profit"] = round(px * (1 + mg["target_pct"] / 100), 2)
     return t, ""
+
+
+def _rebalance_ticket(play: dict) -> tuple[dict | None, str]:
+    do = play["spec"]["do"]
+    last = do.get("targets") or {}
+    if play["spec"]["contract"]["discretion"] == "plan":
+        targets, why, problem = policy.plan(play)
+        if not targets:
+            return None, problem
+        held = set(policy.book(play))
+        structural = set(targets) != (set(last) or held)
+        return policy.ticket(play, targets, why=why + (f" ({problem})" if problem else ""),
+                             source="planner", structural=structural)
+    return policy.ticket(play, last, source="fixed")
+
+
+def _place_rebalance(play: dict, t: dict, ts: int, body: dict) -> dict:
+    fills, failed, got = policy.place(play, t)
+    spec = dict(play["spec"])
+    spec["do"] = {**spec["do"], "targets": t["targets"]}
+    with ds._users_lock:
+        _db().execute("UPDATE plays SET spec=? WHERE id=?", (json.dumps(spec), play["id"]))
+        _db().commit()
+    _set(play["id"], held_legs=json.dumps(got["held"]), held_sym="rebalance",
+         held_qty=float(sum(got["held"].values())), spent_inr=play["spent_inr"] + got["net"])
+    out = {**body, "ticket": t, "fills": fills}
+    if failed:
+        out["failed"] = failed
+        out["reason"] = (f"{len(failed)} of {len(t['legs'])} trades did not fill: "
+                         + "; ".join(f"{f['symbol']} ({f['reason']})" for f in failed))
+    return _event(play, ts, "filled" if fills or not t["legs"] else "rejected", play["spec"]["title"],
+                  out, status="done")
 
 
 def _mark(sym: str) -> float | None:
@@ -1636,6 +1769,8 @@ def _place(play: dict, ticket: dict, ts: int, body: dict) -> dict:
                       {**body, "reason": "the paper book is not running"}, status="done")
     if ticket.get("basket"):
         return _place_basket(play, ticket, ts, body)
+    if ticket.get("rebalance"):
+        return _place_rebalance(play, ticket, ts, body)
     try:
         got = _paper.place_order(play["user_id"], ticket["symbol"], ticket["side"], ticket["qty"],
                                  source="play", origin_kind=f"play:{play['id']}",
@@ -1811,6 +1946,7 @@ def compile_play(uid: int, raw: dict, *, chart_symbol: str = "", chart_interval:
     prior = get(uid, pid) if pid else None
     if pid and not prior:
         raise Bad(f"no play {pid} on this account")
+    adopt = _adoption(uid, spec, said) if spec["do"]["kind"] == "rebalance" else None
     try:
         hist, data, series, tr = replay(spec)
     except Bad:
@@ -1829,6 +1965,11 @@ def compile_play(uid: int, raw: dict, *, chart_symbol: str = "", chart_interval:
     # arm from the latest closed bar: history is the replay's, not the runtime's
     pid = _save(uid, spec, hist, state=state, pid=pid, last_eval_ts=data["t"][-1],
                 needs_confirm=bool(prior and structural and prior.get("fires")))
+    if adopt:
+        # the holdings move with the instruction: the old play no longer owns them
+        _set(pid, held_legs=json.dumps(adopt["legs"]), held_sym="rebalance",
+             held_qty=float(sum(adopt["legs"].values())), spent_inr=adopt["spent"])
+        _set(adopt["from"], held_legs="{}", held_qty=0, held_sym="")
     if prior and structural:
         _set(pid, accepted=0)
     row = get(uid, pid)
@@ -1849,6 +1990,39 @@ def compile_play(uid: int, raw: dict, *, chart_symbol: str = "", chart_interval:
             feed = None
     return {"play": row, "assumed": said, "diff": diff, "feed": feed,
             "card": card(row, {"conditions": status})}
+
+
+def _adoption(uid: int, spec: dict, said: list[str]) -> dict | None:
+    """A rebalance of another play's holdings takes them over, and with no
+    targets given keeps the weights that play was built with (a basket's)
+    or, failing that, the weights it holds now."""
+    do = spec["do"]
+    if isinstance(do["of"], int):
+        src = get(uid, do["of"])
+        if not src:
+            raise Bad(f"no play {do['of']} on this account")
+        legs = dict(src.get("held_legs") or {})
+        if not legs and src["held_qty"] and src["held_sym"] and not customsec.is_custom(src["held_sym"]):
+            legs = {src["held_sym"]: src["held_qty"]}
+        if not legs:
+            raise Bad(f"play {do['of']} holds nothing to rebalance")
+        do["of"] = "self"
+        if not do.get("targets") and spec["contract"]["discretion"] != "plan":
+            sec = customsec.get(src["held_sym"]) if customsec.is_custom(src["held_sym"]) else None
+            rows = ([{"symbol": m["symbol"], "weight": m["weight"]} for m in sec["members"]] if sec else
+                    [{"symbol": k, "weight": v * (policy.mark(k) or 0)} for k, v in legs.items()])
+            do["targets"], _ = policy.norm_targets(rows, do.get("cash_pct") or 0, 1.0)
+            said.append("keeps the weights " + ("the basket was built with" if sec else "it holds now"))
+        return {"from": src["id"], "legs": legs, "spent": src["spent_inr"]}
+    if do["of"] == "portfolio" and not do.get("targets") and spec["contract"]["discretion"] != "plan":
+        probe = {"user_id": uid, "held_legs": {}, "spent_inr": 0, "spec": spec}
+        w, _, _ = policy.weights_now(probe)
+        if not w:
+            raise Bad("the paper portfolio holds nothing to rebalance")
+        do["targets"], _ = policy.norm_targets([{"symbol": k, "weight": v} for k, v in w.items()],
+                                               0, 1.0)
+        said.append("keeps the weights the portfolio holds now")
+    return None
 
 
 def _bare() -> dict:
@@ -1900,6 +2074,20 @@ def act(uid: int, pid: int, action: str) -> dict:
         # resuming never replays the bars it was paused through
         data, _ = frame(play["spec"], limit=5)
         _set(pid, state="armed", why="", last_eval_ts=data["t"][-1])
+    elif action == "policy":
+        if play["spec"]["do"]["kind"] != "rebalance":
+            raise Bad("only a rebalance can become a standing policy")
+        spec = dict(play["spec"])
+        spec["contract"] = {**spec["contract"], "lifespan": "policy",
+                            "discretion": "plan" if spec["do"].get("objective") and
+                            (spec["do"].get("universe") or spec["do"].get("targets")) else "none"}
+        spec["policy"] = {"every": "week", "drift_pct": 5.0}
+        spec["mandate"] = {**spec["mandate"], "max_fires": 10_000}
+        data, _ = frame(spec, limit=5)
+        with ds._users_lock:
+            _db().execute("UPDATE plays SET spec=? WHERE id=?", (json.dumps(spec), pid))
+            _db().commit()
+        _set(pid, state="armed", why="", last_eval_ts=data["t"][-1])
     elif action == "delete":
         with ds._users_lock:
             _db().execute("DELETE FROM plays WHERE id=? AND user_id=?", (pid, uid))
@@ -1907,7 +2095,7 @@ def act(uid: int, pid: int, action: str) -> dict:
         _load_index()
         return {"deleted": pid}
     else:
-        raise Bad("action is pause, resume or delete")
+        raise Bad("action is pause, resume, policy or delete")
     _load_index()
     return {"play": card(get(uid, pid))}
 
@@ -1933,6 +2121,11 @@ def resolve_event(uid: int, eid: int, action: str) -> dict:
     t = dict(body.get("ticket") or {})
     if t.get("book") == "day":
         fresh, why = _day_ticket(play)
+        if not fresh:
+            raise Bad(why)
+        t = fresh
+    elif t.get("rebalance"):
+        fresh, why = policy.ticket(play, t["targets"], why=t.get("why") or "", source=t.get("source") or "")
         if not fresh:
             raise Bad(why)
         t = fresh
@@ -2049,7 +2242,14 @@ def tool_play(action: str = "", play: dict | str | None = None, play_id: int = 0
                                "Filings and headlines are read live. The price condition reads the "
                                "latest stored bar, and this symbol is not on a live stream, so that "
                                "bar may be old.")
-            if row["spec"].get("on"):
+            if row["spec"]["do"]["kind"] == "rebalance":
+                out["targets"] = row["spec"]["do"].get("targets")
+                out["_note"] = ("The play is on the trader's screen as a card. Say the targets and, if it "
+                                "ran now, the trades from did_now (whole shares, cash left over). A "
+                                "rebalance has no historical fire count: do not quote history. For a "
+                                "policy, say when it runs (schedule and drift) and every item in "
+                                "`assumed`. If it ran once, say the card can keep it that way.")
+            elif row["spec"].get("on"):
                 out["_note"] = ("The play is on the trader's screen as a card. Say in one or two "
                                 "lines what it reads and what it does; filings and headlines are "
                                 "polled live whatever the symbol's stream. For history, quote the "

@@ -139,6 +139,10 @@ const PlayUI = (() => {
       `<div class="py-then"><span class="py-act">${esc(did)}</span>` +
       ((c.exits || []).length ? `<span class="py-exits">${esc(c.exits.join(" · "))}</span>` : "") +
       `</div></div>` +
+      ((c.targets || []).length
+        ? `<div class="py-sec"><div class="py-label">Targets</div><ul class="py-members">` +
+          c.targets.map((t) => `<li><span>${esc(t.symbol)}</span><span>${esc(+(t.weight * 100).toFixed(1))}%</span></li>`).join("") +
+          `</ul></div>` : "") +
       `<dl class="py-contract">` +
       `<div><dt>Runs</dt><dd>${esc(contract.runs || "")}</dd></div>` +
       `<div><dt>Acts</dt><dd>${esc(contract.acts || "")}</dd></div>` +
@@ -189,10 +193,12 @@ const PlayUI = (() => {
   });
 
   function buttons(c) {
-    const b = (act, label) => `<button type="button" class="py-btn" data-py="${act}">${label}</button>`;
-    if (c.state === "armed") return b("pause", "Pause") + b("delete", "Delete");
-    if (c.state === "paused") return b("resume", "Resume") + b("delete", "Delete");
-    return b("delete", "Delete");
+    const b = (act, label, cls = "") => `<button type="button" class="py-btn${cls}" data-py="${act}">${esc(label)}</button>`;
+    // the one-tap upgrade the server offers (a rebalance done once, kept that way)
+    const offer = c.offer ? b(c.offer.action, c.offer.label, " primary") : "";
+    if (c.state === "armed") return offer + b("pause", "Pause") + b("delete", "Delete");
+    if (c.state === "paused") return offer + b("resume", "Resume") + b("delete", "Delete");
+    return offer + b("delete", "Delete");
   }
 
   /** Card buttons: one POST, and the card repaints from what came back. */
@@ -287,7 +293,12 @@ const PlayUI = (() => {
   function eventHTML(ev) {
     const b = ev.body || {};
     const t = b.ticket;
-    const ticket = t && t.basket ? `<div class="py-ticket"><span>${t.side === "BUY" ? "Buy" : "Sell"} ${esc(t.basket)}:</span>` +
+    const pctOf = (w) => `${+(w * 100).toFixed(1)}%`;
+    const ticket = t && t.rebalance ? `<div class="py-ticket py-ticket-list">` +
+      (t.legs || []).map((lg) => `<span>${lg.side === "BUY" ? "Buy" : "Sell"} ${esc(num(lg.qty))} ${esc(lg.symbol)} at about ${esc(num(lg.price))}</span>`).join("") +
+      `<span>Targets: ${esc(Object.entries(t.targets || {}).map(([k, w]) => `${k} ${pctOf(w)}`).join(", "))}</span>` +
+      (t.why ? `<span>${esc(t.why)}</span>` : "") + `</div>`
+      : t && t.basket ? `<div class="py-ticket"><span>${t.side === "BUY" ? "Buy" : "Sell"} ${esc(t.basket)}:</span>` +
       (t.legs || []).map((lg) => `<span>${esc(num(lg.qty))} ${esc(lg.symbol)} at about ${esc(num(lg.price))}</span>`).join("") +
       (t.uninvested_inr ? `<span>₹${esc(num(t.uninvested_inr))} left in cash</span>` : "") + `</div>`
       : t ? `<div class="py-ticket"><span>${t.side === "BUY" ? "Buy" : "Sell"} ${esc(num(t.qty))} ` +
@@ -306,6 +317,7 @@ const PlayUI = (() => {
       (b.seen && b.seen.length ? `<ul class="py-seen">${seenLine(b.seen)}</ul>` : "") +
       ticket +
       (b.fill_price ? `<p class="py-evline">Filled at ${esc(num(b.fill_price))}.</p>` : "") +
+      (b.due ? `<p class="py-evline">Ran for ${esc(b.due)}.</p>` : "") +
       (b.reason ? `<p class="py-evline">${esc(cap(b.reason))}.</p>` : "") +
       (open ? `<div class="py-actions"><button type="button" class="py-btn primary" data-evact="confirm">Confirm on paper</button>` +
               `<button type="button" class="py-btn" data-evact="dismiss">Dismiss</button></div>` :

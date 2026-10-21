@@ -432,3 +432,97 @@ def test_a_basket_is_bought_whole_and_sold_whole(uid, monkeypatch) -> None:
                                       "do": {"kind": "buy", "symbol": "@PAIR"},
                                       "contract": {"lifespan": "now", "authority": "act"}})
     assert "not something to hold" in bad["error"]
+
+
+# ── policy plays: rebalance once, then keep it that way ─────────────────────
+
+def _weights(uid):
+    rows = paper.api_holdings(uid)[1]
+    tot = sum(float(h["market_value"]) for h in rows)
+    return {h["symbol"]: float(h["market_value"]) / tot for h in rows}
+
+
+def test_a_rebalance_trades_the_book_to_its_targets_and_offers_the_policy(uid) -> None:
+    paper.place_order(uid, "RELIANCE", "BUY", 30)
+    paper.place_order(uid, "TCS", "BUY", 2)
+    got = plays.tool_play("compile", {
+        "title": "Even it out", "do": {"kind": "rebalance", "of": "portfolio",
+                                       "targets": [{"symbol": "RELIANCE", "weight": 1},
+                                                   {"symbol": "TCS", "weight": 1}]},
+        "mandate": {"max_weight": 0.6},
+        "contract": {"lifespan": "now", "authority": "act"}})
+    assert "error" not in got, got
+    ev = got["did_now"]
+    assert ev["kind"] == "filled", ev
+    sides = [lg["side"] for lg in ev["body"]["ticket"]["legs"]]
+    assert sides == sorted(sides, key=lambda x: x != "SELL")          # sells first
+    w = _weights(uid)
+    assert abs(w["RELIANCE"] - 0.5) < 0.05 and abs(w["TCS"] - 0.5) < 0.05
+    card = [c for c in server._scene.cards if c.get("kind") == "play"][-1]
+    assert card["offer"]["action"] == "policy"
+    assert card["summary"].startswith("Rebalances the paper portfolio to")
+    # the chip: kept that way, weekly and on drift
+    out = plays.act(uid, got["play_id"], "policy")
+    play = plays.get(uid, got["play_id"])
+    assert play["state"] == "armed" and play["spec"]["contract"]["lifespan"] == "policy"
+    assert out["play"]["offer"] is None and "every week" in out["play"]["summary"]
+    # inside its band: the policy does nothing on this bar
+    plays._set(got["play_id"], last_eval_ts=0)
+    assert plays._tick(got["play_id"], force=True) == []
+    # a drift past 5 points trades it back
+    paper.place_order(uid, "RELIANCE", "BUY", 20)
+    plays._set(got["play_id"], last_eval_ts=0)
+    evs = plays._tick(got["play_id"], force=True)
+    assert evs and evs[0]["kind"] == "filled" and "drifted" in evs[0]["body"]["due"]
+    assert abs(_weights(uid)["RELIANCE"] - 0.5) < 0.05
+
+
+def test_the_planner_is_checked_capped_and_proposed_when_it_changes_names(uid, monkeypatch) -> None:
+    import play_events
+    paper.place_order(uid, "RELIANCE", "BUY", 10)
+    paper.place_order(uid, "TCS", "BUY", 3)
+    seen = {}
+
+    def fake(system, user, schema, name, **kw):
+        seen["brief"] = user
+        return {"targets": [{"symbol": "INFY", "weight": 0.7}, {"symbol": "TCS", "weight": 0.3},
+                            {"symbol": "ZOMATO", "weight": 0.2}],
+                "cash_weight": 0, "why": "INFY has the strongest 3 month return."}
+    monkeypatch.setattr(play_events, "respond", fake)
+    got = plays.tool_play("compile", {
+        "title": "IT, aggressive", "do": {"kind": "rebalance", "of": "portfolio",
+                                          "objective": "go aggressive into the strongest IT names",
+                                          "universe": ["TCS", "INFY", "HCLTECH"]},
+        "contract": {"lifespan": "now", "authority": "act", "discretion": "plan"}})
+    assert "error" not in got, got
+    ev = got["did_now"]
+    # names held change (RELIANCE out, INFY in): proposed, never placed
+    assert ev["kind"] == "proposed" and "planner changed" in ev["body"]["reason"]
+    t = ev["body"]["ticket"]
+    assert "ZOMATO" not in t["targets"] and "not among its candidates" in t["why"]
+    assert max(t["targets"].values()) <= 0.4 + 1e-6                   # the 40% cap
+    # the brief carries figures code computed, never the model's
+    assert '"ret_3m_pct"' in seen["brief"] and '"holds_now"' in seen["brief"]
+    eid = [e for e in plays.events(uid) if e["kind"] == "proposed"][0]["id"]
+    plays.api_post(uid, f"/events/{eid}", {"action": "confirm"})
+    assert "INFY" in _weights(uid) and "RELIANCE" not in _weights(uid)
+    bad = plays.tool_play("compile", {"do": {"kind": "rebalance", "of": "portfolio"},
+                                      "contract": {"lifespan": "now", "discretion": "plan"}})
+    assert "objective" in bad["error"]
+
+
+def test_a_rebalance_takes_over_a_baskets_holdings_and_weights(uid) -> None:
+    _defence()
+    b = plays.tool_play("compile", {"title": "buy defence", "symbol": "@DEFENCE", "interval": "1d",
+                                    "do": {"kind": "buy", "symbol": "@DEFENCE", "size": {"inr": 40000}},
+                                    "contract": {"lifespan": "now", "authority": "act"}})
+    legs = plays.get(uid, b["play_id"])["held_legs"]
+    got = plays.tool_play("compile", {"title": "keep defence balanced",
+                                      "do": {"kind": "rebalance", "of": b["play_id"]},
+                                      "contract": {"lifespan": "policy", "authority": "act"}})
+    assert "error" not in got, got
+    assert "keeps the weights the basket was built with" in got["assumed"]
+    new = plays.get(uid, got["play_id"])
+    assert new["held_legs"] == legs and plays.get(uid, b["play_id"])["held_legs"] == {}
+    assert new["spec"]["do"]["targets"] == {"HAL": pytest.approx(2 / 3, abs=1e-5),
+                                            "BEL": pytest.approx(1 / 3, abs=1e-5)}
