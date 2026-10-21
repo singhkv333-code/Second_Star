@@ -128,6 +128,8 @@ OPS = ("above", "below", "cross_up", "cross_down", "between", "outside",
        "rises_pct", "falls_pct", "is_true")
 LOOKBACK = {"1m": 1500, "3m": 1500, "5m": 1500, "15m": 1200, "30m": 1000, "1h": 1000, "1d": 750}
 DEFAULT_SIZE_INR = 10_000
+DERIV_CAPITAL = 2_00_000
+DO_KINDS = ("notify", "buy", "sell", "short", "cover", "options", "future")
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 _HHMM = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
 _SQL_SECONDS = 6.0
@@ -701,19 +703,51 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
 
     do = dict(raw.get("do") or {})
     kind = do.get("kind") or ("notify" if authority == "notify" else "buy")
-    if kind not in ("notify", "buy", "sell"):
-        raise Bad("do.kind must be notify, buy or sell")
+    if kind not in DO_KINDS:
+        raise Bad(f"do.kind must be one of {', '.join(DO_KINDS)}")
     if kind == "notify" and authority != "notify":
         authority = "notify"
-    if kind != "notify":
+    mg_raw = raw.get("manage") or {}
+    intraday = bool(mg_raw.get("exit_at") or mg_raw.get("trail_pct") or mg_raw.get("on_leg_stop")
+                    or mg_raw.get("max_loss_inr") or mg_raw.get("target_inr"))
+    product = str(do.get("product") or "").upper()
+    if kind == "short" and product == "CNC" and not str(do.get("symbol") or sym).endswith(("USDT", "USD")):
+        raise Bad("a short in Indian equities is intraday only (product MIS, squared off at 15:20); "
+                  "delivery shorts are not allowed. Say so, and offer the intraday short")
+    if kind in ("short", "cover", "options", "future"):
+        product = product if product in ("MIS", "NRML") else ("MIS" if intraday or kind in ("short", "cover")
+                                                             else "NRML")
+    elif kind in ("buy", "sell"):
+        product = product if product in ("MIS", "CNC") else ("MIS" if intraday else "CNC")
+    do["product"] = product or None
+    if kind in ("options", "future"):
+        und = str(do.get("underlying") or sym)
+        do["underlying"] = und.upper()
+        if kind == "options":
+            legs = do.get("legs") or []
+            if not legs:
+                raise Bad("do.legs is the option legs: [{opt: CE|PE, strike: ATM|ATM+1|ATM-2|22750, "
+                          "side: buy|sell, lots, expiry: weekly|next|monthly|YYYY-MM-DD}]")
+            for lg in legs:
+                if str(lg.get("opt") or "").upper() not in ("CE", "PE"):
+                    raise Bad("each option leg needs opt CE or PE")
+                if str(lg.get("side") or "").lower() not in ("buy", "sell"):
+                    raise Bad("each option leg needs side buy or sell")
+                lg["opt"], lg["side"] = lg["opt"].upper(), lg["side"].lower()
+                lg["strike"] = str(lg.get("strike") or "ATM")
+                lg["lots"] = int(lg.get("lots") or 1)
+        if authority == "notify":
+            authority = "propose"
+            said.append("it proposes the order for you to confirm")
+    elif kind not in ("notify",):
         do["symbol"] = ds.canon_symbol(str(do.get("symbol") or sym))
         size = do.get("size") or {}
         if not isinstance(size, dict):
             size = {"inr": size}
         if not size.get("inr") and not size.get("qty") and not size.get("all"):
-            size = {"inr": DEFAULT_SIZE_INR} if kind == "buy" else {"all": True}
-            said.append(f"sized at ₹{DEFAULT_SIZE_INR:,}" if kind == "buy"
-                        else "sells what this play holds")
+            size = {"inr": DEFAULT_SIZE_INR} if kind in ("buy", "short") else {"all": True}
+            said.append(f"sized at ₹{DEFAULT_SIZE_INR:,}" if kind in ("buy", "short")
+                        else "closes what this play holds")
         do["size"] = size
         if authority == "notify":
             authority = "propose"
@@ -732,10 +766,28 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
         if not _HHMM.match(str(ex)):
             raise Bad("manage.exit_at must be HH:MM (IST)")
         manage["exit_at"] = str(ex)
+    if mg_raw.get("trail_pct") is not None:
+        v = float(mg_raw["trail_pct"])
+        if not 0 < v < 100:
+            raise Bad("manage.trail_pct is a percent between 0 and 100")
+        manage["trail_pct"] = v
+    if mg_raw.get("on_leg_stop"):
+        if mg_raw["on_leg_stop"] not in ("exit_all", "move_others_to_cost"):
+            raise Bad("manage.on_leg_stop is exit_all or move_others_to_cost")
+        manage["on_leg_stop"] = mg_raw["on_leg_stop"]
+    for k in ("max_loss_inr", "target_inr"):
+        if mg_raw.get(k):
+            manage[k] = abs(float(mg_raw[k]))
+    if (manage.get("trail_pct") or manage.get("on_leg_stop") or manage.get("max_loss_inr")
+            or manage.get("target_inr")) and do.get("product") not in ("MIS", "NRML"):
+        raise Bad("trailing stops, leg rules and profit or loss exits run in the day book: set "
+                  "do.product MIS (intraday) or use a short, options or future order")
 
     cap = float((raw.get("mandate") or {}).get("capital_inr")
-                or (do.get("size", {}).get("inr") or 0) * (1 if lifespan != "standing" else 5)
-                or DEFAULT_SIZE_INR)
+                or ((do.get("size") or {}).get("inr") or 0) * (1 if lifespan != "standing" else 5)
+                or (DERIV_CAPITAL if kind in ("options", "future") else DEFAULT_SIZE_INR))
+    if kind in ("options", "future") and not (raw.get("mandate") or {}).get("capital_inr"):
+        said.append(f"margin limit ₹{DERIV_CAPITAL:,} (estimated at fire)")
     mandate = {"capital_inr": cap,
                "max_order_inr": float((raw.get("mandate") or {}).get("max_order_inr") or cap),
                "max_fires": int((raw.get("mandate") or {}).get("max_fires")
@@ -928,6 +980,28 @@ def _paper_qty(symbol: str, inr: float, price: float) -> float:
     return float(q.to_integral_value(rounding=ROUND_DOWN))
 
 
+def order_words(spec: dict) -> str:
+    """The order in a trader's words, from the tree: "sell NIFTY ATM CE and
+    ATM PE, 1 lot each, weekly expiry"."""
+    do = spec["do"]
+    if do["kind"] == "options":
+        legs = do.get("legs") or []
+        parts = [f"{lg['side']} {lg.get('lots', 1)} lot{'s' if lg.get('lots', 1) != 1 else ''} "
+                 f"{lg['strike']} {lg['opt']}" for lg in legs]
+        exp = (legs[0].get("expiry") if legs else None) or "the nearest"
+        return f"{do['underlying']} options: " + ", ".join(parts) + f" ({exp} expiry)"
+    if do["kind"] == "future":
+        return f"{do.get('side') or 'buy'} {do.get('lots') or 1} lot of the {do['underlying']} future"
+    if do["kind"] == "short":
+        size = do.get("size") or {}
+        amt = f"₹{size['inr']:,.0f} of " if size.get("inr") else f"{size.get('qty', 0):g} "
+        return f"a short of {amt}{do['symbol']} (intraday)" if do.get("product") == "MIS" else \
+            f"a short of {amt}{do['symbol']}"
+    if do["kind"] == "cover":
+        return f"a cover of this play's {do['symbol']} short"
+    return do["kind"]
+
+
 def summary(spec: dict) -> str:
     """One sentence for the whole play, generated from the tree (Catalyst
     shows the same line beside its graph): what it checks, how often, what it
@@ -939,6 +1013,9 @@ def summary(spec: dict) -> str:
     cond = describe(when, spec) if when else ""
     if do["kind"] == "notify":
         act = "tells you"
+    elif do["kind"] in ("options", "future", "short", "cover"):
+        verb = "proposes" if c["authority"] == "propose" else "places"
+        act = f"{verb} {order_words(spec)}"
     else:
         size = do.get("size") or {}
         amt = (f"₹{size['inr']:,.0f} of " if size.get("inr") else
@@ -983,7 +1060,10 @@ def card(row: dict, live: dict | None = None) -> dict:
     hist = row.get("history") or {}
     do = spec["do"]
     action = None
-    if do["kind"] != "notify":
+    if do["kind"] in ("options", "future", "short", "cover"):
+        action = {"side": do["kind"], "symbol": do.get("symbol") or do.get("underlying"),
+                  "text": order_words(spec)[0].upper() + order_words(spec)[1:]}
+    elif do["kind"] != "notify":
         size = do.get("size") or {}
         action = {"side": do["kind"], "symbol": do["symbol"],
                   "size": (f"₹{size['inr']:,.0f}" if size.get("inr") else
@@ -991,11 +1071,25 @@ def card(row: dict, live: dict | None = None) -> dict:
     exits = []
     mg = spec.get("manage") or {}
     if mg.get("stop_pct"):
-        exits.append(f"stop {mg['stop_pct']:g}% below entry")
+        exits.append(f"stop {mg['stop_pct']:g}% against entry" if do["kind"] in ("short", "options")
+                     else f"stop {mg['stop_pct']:g}% below entry")
     if mg.get("target_pct"):
-        exits.append(f"target {mg['target_pct']:g}% above entry")
+        exits.append(f"target {mg['target_pct']:g}% in favour" if do["kind"] in ("short", "options")
+                     else f"target {mg['target_pct']:g}% above entry")
     if mg.get("exit_at"):
         exits.append(f"exit at {mg['exit_at']}")
+    if mg.get("trail_pct"):
+        exits.append(f"trail {mg['trail_pct']:g}%")
+    if mg.get("on_leg_stop"):
+        exits.append("one leg stopped: " + ("exit all" if mg["on_leg_stop"] == "exit_all"
+                                            else "move the others to cost"))
+    if mg.get("max_loss_inr"):
+        exits.append(f"exit all at ₹{mg['max_loss_inr']:,.0f} loss")
+    if mg.get("target_inr"):
+        exits.append(f"exit all at ₹{mg['target_inr']:,.0f} profit")
+    if do.get("product") == "MIS":
+        exits.append("squared off at 15:20" if not do.get("symbol", "").endswith(("USDT", "USD")) else "")
+    exits = [e for e in exits if e]
     when = spec.get("when") or {}
     return {
         "kind": "play", "id": row["id"], "title": spec["title"], "state": row["state"],
@@ -1334,10 +1428,42 @@ def _entries_over(pid: int, why: str, waiting: bool = False) -> None:
 EXITS_ONLY = "entries done; watching its exit"
 
 
+def _day_route(do: dict) -> bool:
+    return do["kind"] in ("short", "cover", "options", "future") or (
+        do["kind"] in ("buy", "sell") and do.get("product") == "MIS")
+
+
+def _day_ticket(play: dict) -> tuple[dict | None, str]:
+    import daybook
+    spec, do, m = play["spec"], play["spec"]["do"], play["spec"]["mandate"]
+    if do["kind"] in ("cover", "sell"):
+        opens = daybook.open_positions(play["user_id"], play["id"])
+        if not opens:
+            return None, "this play has no open position to close"
+        return {"book": "day", "close": True, "legs": [
+            {"symbol": p["symbol"], "side": p["side"], "qty": p["qty"], "px": p["mark_px"]} for p in opens]}, ""
+    rd = dict(do)
+    if do["kind"] == "buy":
+        rd["kind"] = "long"
+    try:
+        legs = daybook.resolve(rd, do.get("product") or "MIS")
+    except daybook.Refused as exc:
+        return None, str(exc)
+    need = daybook.group_margin(legs)
+    if need > m["capital_inr"] + 1e-6:
+        return None, (f"it needs about ₹{need:,.0f} of margin, above the play's ₹{m['capital_inr']:,.0f} "
+                      f"limit")
+    stale = [lg["symbol"] for lg in legs if lg.get("stale")]
+    return {"book": "day", "legs": legs, "margin_est": round(need, 2),
+            "stale": stale, "product": do.get("product")}, ""
+
+
 def _ticket(play: dict, price: float) -> tuple[dict | None, str]:
     """The order a fire would place, sized and checked against the mandate by
     code. The model chose rupees; this turns them into a quantity."""
     spec, do, m = play["spec"], play["spec"]["do"], play["spec"]["mandate"]
+    if _day_route(do):
+        return _day_ticket(play)
     sym = do["symbol"]
     mark = None
     if _paper is not None:
@@ -1374,6 +1500,20 @@ def _ticket(play: dict, price: float) -> tuple[dict | None, str]:
 
 
 def _place(play: dict, ticket: dict, ts: int, body: dict) -> dict:
+    if ticket.get("book") == "day":
+        import daybook
+        if ticket.get("close"):
+            res = daybook.close_play(play["id"], "closed by the play")
+            return _event(play, ts, "exited", play["spec"]["title"], {**body, "closed": res}, status="done")
+        got = daybook.open_group(play["user_id"], play["id"], ticket["legs"], play["spec"].get("manage") or {})
+        cost = sum(lg["px"] * lg["qty"] * lg.get("fx", 1.0) for lg in ticket["legs"] if lg["side"] == "long")
+        _set(play["id"], spent_inr=play["spent_inr"] + (ticket.get("margin_est") or cost))
+        note = ("priced at the last close because no live quote came back. Quotes are asked for "
+                "every 5 seconds; its stop and target are watched from the first live quote, and "
+                "until then they are not" if ticket.get("stale") else "")
+        return _event(play, ts, "filled", play["spec"]["title"],
+                      {**body, "ticket": ticket, "legs": got["legs"], "group": got["group"],
+                       "estimates": got["estimates"], **({"reason": note} if note else {})}, status="done")
     if _paper is None:
         return _event(play, ts, "rejected", play["spec"]["title"],
                       {**body, "reason": "the paper book is not running"}, status="done")
@@ -1430,6 +1570,14 @@ def _held_now(play: dict) -> float:
     except Exception:                                       # noqa: BLE001
         return held
     return min(held, pos.get(play["held_sym"], 0.0))
+
+
+def _day_event(play_id: int, kind: str, title: str, body: dict) -> None:
+    """An exit or a note from the day book, into the play's inbox."""
+    play = _load(play_id)
+    if play:
+        _event(play, int(time.time()), kind, play["spec"]["title"], {**body, "detail": title},
+               status="done")
 
 
 JUDGE_PER_DAY = 300
@@ -1503,6 +1651,13 @@ def start() -> dict:
         _WORKER = threading.Thread(target=_worker, name="plays", daemon=True)
         _WORKER.start()
     try:
+        import daybook
+        daybook.bind(ds)
+        daybook.on_event = _day_event
+        daybook.start()
+    except Exception:                                       # noqa: BLE001
+        log.warning("plays: the day book did not start", exc_info=True)
+    try:
         import play_events
         play_events.bind(ds)
         play_events.start(on_items)
@@ -1529,7 +1684,16 @@ def compile_play(uid: int, raw: dict, *, chart_symbol: str = "", chart_interval:
     prior = get(uid, pid) if pid else None
     if pid and not prior:
         raise Bad(f"no play {pid} on this account")
-    hist, data, series, tr = replay(spec)
+    try:
+        hist, data, series, tr = replay(spec)
+    except Bad:
+        # "do it now" reads no bars: an option order on an index whose chart has
+        # no stored bars here is still an order
+        if spec["contract"]["lifespan"] != "now" or spec.get("measures") or spec.get("when") \
+                or spec.get("on"):
+            raise
+        data, series, tr = _bare(), {}, []
+        hist = {"bars": 0, "fires": 0, "per_month": 0, "notes": [], "now": {}}
     status = _status(spec, data, series)
     hist["conditions"] = status
     diff = _diff(prior["spec"], spec) if prior else None
@@ -1554,6 +1718,14 @@ def compile_play(uid: int, raw: dict, *, chart_symbol: str = "", chart_interval:
             feed = None
     return {"play": row, "assumed": said, "diff": diff, "feed": feed,
             "card": card(row, {"conditions": status})}
+
+
+def _bare() -> dict:
+    """One bar at the present moment, for a play that acts now and reads
+    nothing: the clock its event is stamped with, and no price of its own."""
+    t = int(time.time()) // 60 * 60
+    return {"t": [t], "hhmm": [_hhmm(t, "1m")], "open": [None], "high": [None], "low": [None],
+            "close": [None], "volume": [None]}
 
 
 def _diff(a: dict, b: dict) -> list[dict]:
@@ -1628,7 +1800,12 @@ def resolve_event(uid: int, eid: int, action: str) -> dict:
     if not play:
         raise Bad("the play behind this proposal was deleted")
     t = dict(body.get("ticket") or {})
-    if t.get("side") == "BUY":
+    if t.get("book") == "day":
+        fresh, why = _day_ticket(play)
+        if not fresh:
+            raise Bad(why)
+        t = fresh
+    elif t.get("side") == "BUY":
         fresh, why = _ticket(play, float(t.get("price") or 0))
         if not fresh:
             raise Bad(why)
@@ -1660,8 +1837,14 @@ def _after_proposal(pid: int) -> None:
 def api_list(uid: int) -> tuple[int, dict]:
     init_db()
     plays = list_plays(uid)
-    return 200, {"plays": [card(p) for p in plays], "events": events(uid),
-                 "unseen": sum(1 for e in events(uid) if not e["seen"])}
+    import daybook
+    _, book = daybook.api_list(uid)
+    names = {p["id"]: p["spec"]["title"] for p in plays}
+    for p in book["positions"]:
+        p["play"] = names.get(p["play_id"], "")
+    evs = events(uid)
+    return 200, {"plays": [card(p) for p in plays], "events": evs,
+                 "unseen": sum(1 for e in evs if not e["seen"]), "book": book}
 
 
 def api_post(uid: int, tail: str, body: dict) -> tuple[int, dict]:
@@ -1672,6 +1855,9 @@ def api_post(uid: int, tail: str, body: dict) -> tuple[int, dict]:
             return 200, act(uid, int(parts[0]), str(body.get("action") or ""))
         if len(parts) == 2 and parts[0] == "events" and parts[1].isdigit():
             return 200, resolve_event(uid, int(parts[1]), str(body.get("action") or ""))
+        if len(parts) == 2 and parts[0] == "positions" and parts[1].isdigit():
+            import daybook
+            return daybook.api_close(uid, int(parts[1]))
         if parts == ["seen"]:
             with ds._users_lock:
                 _db().execute("UPDATE play_events SET seen=1 WHERE user_id=?", (uid,))

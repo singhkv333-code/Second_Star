@@ -223,3 +223,107 @@ def test_a_headline_alone_never_places_an_order(uid, events_db, monkeypatch) -> 
 
 def test_cue_words_are_stripped_before_the_judge_reads(events_db) -> None:
     assert play_events._clean("BREAKING: JUST IN 🚨 Reliance wins order") == "Reliance wins order"
+
+
+# ── the day book: shorts, option legs, trailing, leg rules, square-off ──────
+
+import daybook  # noqa: E402
+from datetime import datetime as _dt  # noqa: E402
+
+
+def _fake_chain(prices):
+    rows = [{"strike": k, "ce": {"sym": f"NIFTY26OCT{int(k)}CE", "ltp": prices.get(f"{int(k)}CE", 100.0)},
+             "pe": {"sym": f"NIFTY26OCT{int(k)}PE", "ltp": prices.get(f"{int(k)}PE", 100.0)}}
+            for k in (22700.0, 22750.0, 22800.0)]
+    return {"available": True, "underlying": "NIFTY", "index": True, "source": "kite", "expiry": "2026-10-27",
+            "lot_size": 65, "spot": 22760.0, "step": 50.0, "atm_strike": 22750.0, "rows": rows}
+
+
+@pytest.fixture
+def book(uid, monkeypatch):
+    import options
+    quotes = {}
+    monkeypatch.setattr(daybook, "_ready", False)
+    daybook.bind(server, quote_fn=lambda keys: {k: {"last_price": quotes[k]} for k in keys if k in quotes})
+    monkeypatch.setattr(options, "chain", lambda *a, **k: _fake_chain({"22750CE": 120.0, "22750PE": 110.0}))
+    daybook.on_event = plays._day_event
+    yield quotes
+    daybook.on_event = None
+
+
+def _straddle(**over):
+    p = {"title": "NIFTY 9:20 straddle", "symbol": "RELIANCE", "interval": "5m",
+         "when": {"all": [{"time": {"at": "09:20"}}]},
+         "do": {"kind": "options", "underlying": "NIFTY",
+                "legs": [{"opt": "CE", "strike": "ATM", "side": "sell", "lots": 1},
+                         {"opt": "PE", "strike": "ATM", "side": "sell", "lots": 1}]},
+         "manage": {"stop_pct": 25, "on_leg_stop": "move_others_to_cost"},
+         "contract": {"lifespan": "standing", "authority": "act"}}
+    p.update(over)
+    return p
+
+
+def _fire_now(pid):
+    play = plays._load(pid)
+    plays._set(pid, accepted=1, fires=1)
+    play = plays._load(pid)
+    data, _ = plays.frame(play["spec"])
+    series, _ = plays.run_measures(play["spec"], data)
+    return plays._fire(play, data, series, len(data["t"]) - 1, late=False)
+
+
+def test_a_straddle_opens_two_short_legs_with_premium_stops(book) -> None:
+    got = plays.tool_play("compile", _straddle())
+    assert got["state"] == "armed", got
+    card = [c for c in server._scene.cards if c.get("kind") == "play"][-1]
+    assert card["action"]["text"].startswith("NIFTY options: sell 1 lot ATM CE, sell 1 lot ATM PE")
+    ev = _fire_now(got["play_id"])
+    assert ev["kind"] == "filled", ev
+    legs = {p["opt"]: p for p in daybook.open_positions(1)}
+    assert legs["CE"]["side"] == "short" and legs["CE"]["qty"] == 65 and legs["CE"]["product"] == "MIS"
+    assert legs["CE"]["stop_px"] == 150.0 and legs["PE"]["stop_px"] == 137.5
+
+
+def test_one_leg_stopped_moves_the_other_to_cost(book) -> None:
+    pid = plays.tool_play("compile", _straddle(do={**_straddle()["do"], "product": "MIS"}))["play_id"]
+    _fire_now(pid)
+    book["NFO:NIFTY26OCT22750CE"] = 151.0        # the call runs through its stop
+    book["NFO:NIFTY26OCT22750PE"] = 80.0
+    out = daybook.sweep(now=_dt(2026, 10, 22, 10, 0, tzinfo=daybook.IST))
+    assert [o["why"] for o in out] == ["stop"]
+    pe = daybook.open_positions(1)[0]
+    assert pe["opt"] == "PE" and pe["stop_px"] == pe["entry_px"]
+    kinds = [e["kind"] for e in plays.events(1)]
+    assert "exited" in kinds and "note" in kinds
+    # and at 15:20 the intraday leg that is left is squared off
+    out = daybook.sweep(now=_dt(2026, 10, 22, 15, 21, tzinfo=daybook.IST))
+    assert out and out[0]["why"].startswith("intraday square-off") and not daybook.open_positions(1)
+
+
+def test_a_whole_position_loss_limit_closes_every_leg(book) -> None:
+    pid = plays.tool_play("compile", _straddle(manage={"max_loss_inr": 3000}))["play_id"]
+    _fire_now(pid)
+    book["NFO:NIFTY26OCT22750CE"] = 150.0
+    book["NFO:NIFTY26OCT22750PE"] = 130.0       # both against: about ₹3,250 gross plus costs
+    out = daybook.sweep(now=_dt(2026, 10, 22, 11, 0, tzinfo=daybook.IST))
+    assert len(out) == 2 and all("limit" in o["why"] for o in out)
+
+
+def test_an_intraday_short_trails_and_a_delivery_short_is_refused(book) -> None:
+    bad = plays.tool_play("compile", {"symbol": "RELIANCE", "interval": "5m",
+                                      "do": {"kind": "short", "product": "CNC"},
+                                      "contract": {"lifespan": "now", "authority": "act"}})
+    assert "intraday only" in bad["error"]
+    got = plays.tool_play("compile", {"symbol": "RELIANCE", "interval": "5m",
+                                      "do": {"kind": "short", "size": {"inr": 50000}},
+                                      "manage": {"trail_pct": 1},
+                                      "contract": {"lifespan": "now", "authority": "act"}})
+    assert got["did_now"]["kind"] == "filled", got
+    p = daybook.open_positions(1)[0]
+    assert p["side"] == "short" and p["product"] == "MIS"
+    entry = p["entry_px"]
+    assert daybook.check(p, entry * 0.97, stale=False) is None      # it falls: the trail follows
+    p = daybook.open_positions(1)[0]
+    assert abs(p["stop_px"] - entry * 0.97 * 1.01) < 0.01
+    r = daybook.check(p, entry * 0.985, stale=False)                # bounces through the trail
+    assert r and r["why"] == "trailing stop" and r["pnl"] > 0

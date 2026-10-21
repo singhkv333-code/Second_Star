@@ -833,8 +833,15 @@ _PLAY_DOC = (
     "headlines. X, Telegram and other social posts are not connected yet: say so and offer news or "
     "filings. With on, `when` is optional and is checked on the latest bar when the item arrives "
     "(a price confirmation). A headline alone never places an order: it proposes.\n"
-    "do: {kind: notify} or {kind: buy | sell, symbol, size: {inr} | {qty} | {all: true}}. Size in "
-    "rupees; code works out the quantity. manage: {stop_pct, target_pct, exit_at: '15:15'}.\n"
+    "do: {kind: notify}; {kind: buy | sell | short | cover, symbol, size: {inr} | {qty} | {all: true}, "
+    "product: CNC (delivery) | MIS (intraday, squared off at 15:20)}; {kind: options, underlying: "
+    "NIFTY | BANKNIFTY | a stock, legs: [{opt: CE | PE, strike: ATM | ATM+1 | ATM-2 | 22750, side: buy "
+    "| sell, lots, expiry: weekly | next | monthly | YYYY-MM-DD}]}; {kind: future, underlying, side, "
+    "lots, expiry}. Size in rupees or lots; code works out quantities, lot sizes and the strike. A "
+    "short in Indian equities is intraday only. manage: {stop_pct and target_pct (per leg; on an "
+    "option, a percent of its premium), trail_pct, exit_at: '15:15', on_leg_stop: exit_all | "
+    "move_others_to_cost, max_loss_inr and target_inr (the whole position's profit or loss)}. "
+    "Re-entry after a stop is mandate.max_fires above 1 with lifespan standing.\n"
     "contract: {lifespan, authority, inferred_from (the trader's deciding words)}. lifespan: now "
     "(do it once, immediately), once_when (default with a condition), standing ('whenever', 'every "
     "time', 'each'), policy ('keep it', 'maintain'). authority: notify ('tell me', 'alert'; the "
@@ -843,8 +850,9 @@ _PLAY_DOC = (
     "asks once), manage (act, and runs its exits). When the words are unclear, take the shorter "
     "lifespan and the lower authority and say what one tap upgrades. mandate: {capital_inr, "
     "max_fires}; code picks defaults.\n"
-    "Orders go to the paper book: long only, cash equities and crypto. Short selling, options and "
-    "futures orders are not placed yet; for those, build a notify play and say so in one line.")
+    "Every order is simulated in the paper books (delivery, and the day book for intraday, shorts, "
+    "options and futures, with estimated costs and margin); nothing reaches a broker. A stop, target, "
+    "trail or square-off runs on its own once a position is open.")
 
 
 def _play_tools() -> list[dict]:

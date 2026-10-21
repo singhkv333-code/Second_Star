@@ -11783,6 +11783,15 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
              border-radius: 8px; background: var(--muted); font-variant-numeric: tabular-nums; font-weight: 550; }
 .py-evline { margin: 8px 0 0; line-height: 1.45; }
 .py-on { display: flex; flex-direction: column; gap: 3px; line-height: 1.45; }
+.py-pos { border: 1px solid var(--border); border-radius: 10px; padding: 9px 11px; display: flex;
+          flex-direction: column; gap: 3px; }
+.py-pos.closed { border-style: dashed; }
+.py-pos-top, .py-pos-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.py-pos-head { font-family: var(--font-serif); font-size: 17px; padding: 4px 2px; }
+.py-pos-name { font-weight: 600; }
+.py-pos-pnl { font-variant-numeric: tabular-nums; font-weight: 650; }
+.py-pos-line { font-size: var(--text-xs); line-height: 1.45; font-variant-numeric: tabular-nums; }
+.py-pos .py-actions { margin-top: 6px; }
 .py-recent { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .py-recent li { display: flex; flex-direction: column; gap: 1px; font-size: var(--text-xs); line-height: 1.4; }
 .py-recent a, .py-src a { color: var(--foreground); text-decoration: underline;
@@ -12208,7 +12217,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        uses. Everything it needs from main.js (SYMBOL) and panels.js
        (openWidget) is read inside handlers, so those may come later. -->
   <script src="./js/alerts.js?v=25"></script>
-  <script src="./js/plays.js?v=3"></script>
+  <script src="./js/plays.js?v=4"></script>
   <!-- after chat.js: the widget panels share the phone's one panel slot with
        the conversation, and close it by clicking its real toggle -->
   <script src="./js/panels.js?v=27"></script>

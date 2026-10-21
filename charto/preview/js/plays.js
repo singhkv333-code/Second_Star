@@ -112,9 +112,9 @@ const PlayUI = (() => {
     const conds = c.conditions || [];
     const h = c.history || {};
     const measures = (c.measures || []).filter((m) => m.formula || m.spark);
-    const did = c.action
-      ? `${c.action.side === "buy" ? "Buy" : "Sell"} ${c.action.size} of ${c.action.symbol}`
-      : "Tell you";
+    const did = !c.action ? "Tell you"
+      : c.action.text ? c.action.text
+      : `${c.action.side === "buy" ? "Buy" : "Sell"} ${c.action.size} of ${c.action.symbol}`;
     const contract = c.contract || {};
     const span = h.bars ? `${h.bars} ${c.interval === "1d" ? "daily" : c.interval} bars since ${day(h.from)}` : "";
     const hist = h.bars == null ? "" : !conds.length ? "" :
@@ -203,6 +203,40 @@ const PlayUI = (() => {
     toast._t = setTimeout(() => t.classList.remove("show"), 3200);
   }
 
+  /* ── positions: the day book ──────────────────────────────────────────── */
+  const inr = (v) => v == null || !Number.isFinite(+v) ? "" :
+    `${v < 0 ? "−" : v > 0 ? "+" : ""}₹${Math.abs(+v).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+
+  function posRow(p) {
+    const open = p.state === "open";
+    const name = p.kind === "option" ? `${p.underlying} ${num(p.strike)} ${p.opt}` :
+      p.kind === "future" ? `${p.underlying} future` : p.symbol;
+    const pnl = open ? p.open_pnl : p.pnl;
+    const stops = [p.stop_px != null ? `stop ${num(p.stop_px)}` : "",
+                   p.target_px != null ? `target ${num(p.target_px)}` : ""].filter(Boolean).join(" · ");
+    return `<div class="py-pos${open ? "" : " closed"}">` +
+      `<div class="py-pos-top"><span class="py-pos-name">${p.side === "short" ? "Short" : "Long"} ${esc(name)}</span>` +
+      `<span class="py-pos-pnl">${esc(inr(pnl))}</span></div>` +
+      `<div class="py-pos-line">${esc(num(p.qty))} at ${esc(num(p.entry_px))}` +
+      (open ? ` · now ${esc(num(p.mark_px))}${p.stale ? " (last close, no live quote)" : ""}`
+            : ` · out at ${esc(num(p.exit_px))}, ${esc(p.exit_why)}`) +
+      `${p.product === "MIS" ? " · intraday" : ""}</div>` +
+      (open && stops ? `<div class="py-pos-line">${esc(stops)}</div>` : "") +
+      (p.play ? `<div class="py-pos-line">From ${esc(p.play)}</div>` : "") +
+      (open ? `<div class="py-actions"><button type="button" class="py-btn" data-close-pos="${esc(p.id)}">Close now</button></div>` : "") +
+      `</div>`;
+  }
+
+  function positionsHTML(book) {
+    const pos = book.positions || [];
+    if (!pos.length) return `<div class="side-empty"><p>No positions. Intraday trades, shorts and option or future legs that your plays open appear here, with their stops.</p></div>`;
+    const open = pos.filter((p) => p.state === "open"), shut = pos.filter((p) => p.state !== "open");
+    return `<div class="py-pos-head"><span>Today</span><span class="py-pos-pnl">${esc(inr(book.day_pnl))}</span></div>` +
+      (open.length ? `<div class="py-label">Open</div>${open.map(posRow).join("")}` : "") +
+      (shut.length ? `<div class="py-label">Closed</div>${shut.slice(0, 30).map(posRow).join("")}` : "") +
+      `<p class="py-paper">Simulated. Costs and margin are estimates.</p>`;
+  }
+
   /* ── the inbox ─────────────────────────────────────────────────────────── */
   const KIND = { fired: "Triggered", proposed: "Waiting for you", filled: "Placed on paper",
                  rejected: "Not placed", exited: "Exited", note: "Note" };
@@ -263,6 +297,7 @@ const PlayUI = (() => {
     host.innerHTML =
       `<div class="py-w-head"><div class="dk-seg py-tabs">` +
       `<button type="button" data-tab="plays">Plays</button>` +
+      `<button type="button" data-tab="positions">Positions</button>` +
       `<button type="button" data-tab="inbox">Inbox</button></div>` +
       `<span class="sh-gap"></span>` +
       `<button type="button" class="sh-btn i" data-py-refresh title="Refresh">${ic("rotateCw")}</button></div>` +
@@ -302,6 +337,8 @@ const PlayUI = (() => {
           wire(box, c, load);
           body.appendChild(box);
         }
+      } else if (tab === "positions") {
+        body.innerHTML = positionsHTML(data.book || { positions: [] });
       } else {
         body.innerHTML = data.events.length
           ? data.events.map(eventHTML).join("")
@@ -323,7 +360,14 @@ const PlayUI = (() => {
       }
     }
 
-    host.addEventListener("click", (e) => {
+    host.addEventListener("click", async (e) => {
+      const x = e.target.closest("[data-close-pos]");
+      if (x) {
+        x.disabled = true;
+        try { await call(`/plays/positions/${x.dataset.closePos}`, {}); load(); }
+        catch (err) { x.disabled = false; toast(err.message); }
+        return;
+      }
       const t = e.target.closest("[data-tab]");
       if (t) { tab = t.dataset.tab; paint(); return; }
       if (e.target.closest("[data-py-refresh]")) load();
