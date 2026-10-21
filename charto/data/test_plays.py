@@ -140,3 +140,86 @@ def test_plays_replace_alerts_and_strategy_on_the_v2_surface(uid) -> None:
     server._req.plays = False
     assert "alerts" in [t["name"] for t in server._tools_for_request()]
     server._req.chat_v2 = None
+
+
+# ── events: filings and headlines ───────────────────────────────────────────
+
+import play_events  # noqa: E402
+
+
+@pytest.fixture
+def events_db(monkeypatch, tmp_path):
+    monkeypatch.setattr(play_events, "_PATH", tmp_path / "events.db")
+    monkeypatch.setattr(play_events, "_con", None)
+    monkeypatch.setattr(play_events, "fetch_filings", lambda symbol="": [])
+    play_events.bind(server)
+    yield
+    play_events._con = None
+
+
+def _item(source="filings", sym="RELIANCE", title="Award of Order", body="Reliance Industries has "
+          "informed the Exchange about receipt of an order worth Rs 1,200 crore", ts=None):
+    import time as _t
+    t = int(ts or _t.time())
+    return {"source": source, "key": f"{source}:{t}:{title}", "ts": t, "seen": t, "symbol": sym,
+            "who": "Reliance Industries Limited" if source == "filings" else "Mint", "title": title,
+            "body": body, "url": "https://example.test/x", "late": False}
+
+
+def _event_play(**over):
+    p = {"title": "RELIANCE order wins", "symbol": "RELIANCE", "interval": "1d",
+         "on": {"sources": ["filings"], "symbols": ["RELIANCE"], "match": ["order"],
+                "judge": "Does this announce a new order?"},
+         "contract": {"lifespan": "standing", "authority": "notify"}}
+    p.update(over)
+    return p
+
+
+def test_unconnected_sources_are_refused_in_one_sentence(uid, events_db) -> None:
+    got = plays.tool_play("compile", _event_play(on={"sources": ["x"], "match": ["Elon"]}))
+    assert "not connected yet" in got["error"] and "filings" in got["error"]
+
+
+def test_an_event_play_reads_filings_and_quotes_its_judge(uid, events_db, monkeypatch) -> None:
+    got = plays.tool_play("compile", _event_play())
+    assert got["state"] == "armed", got
+    card = [c for c in server._scene.cards if c.get("kind") == "play"][-1]
+    assert card["summary"].startswith("Reads NSE filings from RELIANCE and tells you each time")
+    asked = []
+    monkeypatch.setattr(play_events, "_call_model", lambda q, it: asked.append(q) or {
+        "verdict": True, "confidence": 0.9, "value": 1200,
+        "quote": "receipt of an order worth Rs 1,200 crore"})
+    plays.on_items([_item(), _item(sym="TCS", title="Order", body="TCS order")])
+    evs = plays.events(uid)
+    assert len(evs) == 1 and evs[0]["kind"] == "fired"         # TCS's filing is not this play's
+    assert evs[0]["body"]["event"]["quote"] == "receipt of an order worth Rs 1,200 crore"
+    assert asked == ["Does this announce a new order?"]
+    # the store hands each item over once; a judged item is never asked twice
+    plays.on_items([_item()])
+    assert asked == ["Does this announce a new order?"]
+
+
+def test_a_judge_that_cannot_point_at_the_words_does_not_fire(uid, events_db, monkeypatch) -> None:
+    plays.tool_play("compile", _event_play())
+    monkeypatch.setattr(play_events, "_call_model", lambda q, it: {
+        "verdict": True, "confidence": 0.95, "value": None, "quote": "a 5,000 crore defence order"})
+    plays.on_items([_item()])
+    assert plays.events(uid) == []
+
+
+def test_a_headline_alone_never_places_an_order(uid, events_db, monkeypatch) -> None:
+    plays.tool_play("compile", _event_play(
+        on={"sources": ["news"], "match": ["Reliance"], "judge": "Is this good news for Reliance?"},
+        do={"kind": "buy", "size": {"inr": 4000}}, contract={"lifespan": "standing", "authority": "act"}))
+    pid = plays.list_plays(uid)[0]["id"]
+    plays._set(pid, accepted=1, fires=1)                       # past the first-fire check
+    monkeypatch.setattr(play_events, "_call_model", lambda q, it: {
+        "verdict": True, "confidence": 0.9, "value": None, "quote": "Reliance shares jump"})
+    plays.on_items([_item(source="news", sym="", title="BREAKING: Reliance shares jump", body="")])
+    ev = plays.events(uid)[0]
+    assert ev["kind"] == "proposed" and "headline alone" in ev["body"]["reason"]
+    assert not paper.api_holdings(uid)[1]
+
+
+def test_cue_words_are_stripped_before_the_judge_reads(events_db) -> None:
+    assert play_events._clean("BREAKING: JUST IN 🚨 Reliance wins order") == "Reliance wins order"

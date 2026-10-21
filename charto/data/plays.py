@@ -595,6 +595,34 @@ def _hours(spec) -> str:
     return str(spec or "")
 
 
+def _norm_on(raw, sym: str) -> dict | None:
+    """The events a play is clocked by: {sources, symbols, match, judge}."""
+    if not raw:
+        return None
+    if not isinstance(raw, dict):
+        raise Bad("on must be {sources, symbols, match, judge}")
+    import play_events
+    srcs = [str(x).lower().strip() for x in (raw.get("sources") or ["filings", "news"])]
+    off = sorted({x for x in srcs if x.split(":")[0].lstrip("@") in play_events.UNCONNECTED})
+    if off:
+        raise Bad(f"{', '.join(off)} {'is' if len(off) == 1 else 'are'} not connected yet. The sources "
+                  f"are filings (NSE corporate announcements) and news (Economic Times, Mint, "
+                  f"CNBC-TV18, BusinessLine, BBC, CoinDesk headlines). Use those and say so.")
+    bad = [x for x in srcs if x not in play_events.SOURCES]
+    if bad:
+        raise Bad(f"on.sources must be filings and/or news, not {', '.join(bad)}")
+    syms = [ds.canon_symbol(str(x)) for x in raw.get("symbols") or [] if str(x).strip()]
+    words = [str(w).strip() for w in raw.get("match") or [] if str(w).strip()][:20]
+    question = str(raw.get("judge") or "").strip()[:400]
+    if not (syms or words or question):
+        raise Bad("on needs symbols (whose filings), match (words an item must contain) or judge "
+                  "(the question each item must answer yes to)")
+    if "news" in srcs and not (words or question):
+        raise Bad("a news source needs match words or a judge question, or every headline fires")
+    return {"sources": srcs, "symbols": syms, "match": words, "judge": question,
+            "min_confidence": float(raw.get("min_confidence") or 0.6)}
+
+
 def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str = "") -> tuple[dict, list[str]]:
     """The model's play, checked and filled in. Returns (spec, assumptions):
     every default this function chose is listed, so the reply can say it."""
@@ -647,12 +675,14 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
                                     "expr": "x", "unit": ""})
                 seen.add(alias)
 
+    on = _norm_on(raw.get("on"), sym)
     contract = dict(raw.get("contract") or {})
-    lifespan = contract.get("lifespan") or ("once_when" if when else "now")
+    lifespan = contract.get("lifespan") or ("once_when" if (when or on) else "now")
     if lifespan not in LIFESPANS:
         raise Bad(f"contract.lifespan must be one of {', '.join(LIFESPANS)}")
-    if lifespan != "now" and not when:
-        raise Bad("this play has no `when`; give conditions, or set contract.lifespan to now")
+    if lifespan != "now" and not when and not on:
+        raise Bad("this play has no `when` and no `on`; give conditions or events, or set "
+                  "contract.lifespan to now")
     authority = contract.get("authority") or "notify"
     if authority not in AUTHORITIES:
         raise Bad(f"contract.authority must be one of {', '.join(AUTHORITIES)}")
@@ -714,7 +744,7 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
     spec = {
         "title": str(raw.get("title") or "")[:80] or f"{sym} play",
         "ask": str(raw.get("ask") or "")[:600],
-        "symbol": sym, "interval": iv, "measures": measures, "when": when,
+        "symbol": sym, "interval": iv, "measures": measures, "when": when, "on": on,
         "do": do, "manage": manage, "mandate": mandate,
         "contract": {"lifespan": lifespan, "authority": authority, "discretion": discretion,
                      "inferred_from": str(contract.get("inferred_from") or "")[:200],
@@ -723,13 +753,56 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
     return spec, said
 
 
+def _event_points(spec: dict, data: dict, tr: list) -> tuple[list[int], list[str], list[dict]]:
+    """Bars where a past event would have fired the play: each stored item the
+    words match, on the first bar that closed after it was published, where
+    the play's own conditions held. The judge reads new items only, so the
+    count on history is of items that MATCH, and the note says so."""
+    import play_events
+    on = spec["on"]
+    if "filings" in on["sources"]:
+        for sym in on["symbols"] or []:
+            try:
+                play_events.backfill_filings(sym)
+            except Exception:                               # noqa: BLE001
+                pass
+    t = data["t"]
+    items = [it for it in play_events.history(on["sources"], t[0], on["symbols"] or None)
+             if play_events.matches(it, on)]
+    pts, hits, j = [], [], 0
+    for it in items:
+        while j < len(t) and _bar_close(t[j], spec["interval"]) < it["ts"]:
+            j += 1
+        if j >= len(t):
+            break
+        if tr and tr[j] is not True:
+            continue
+        pts.append(j)
+        hits.append({"ts": it["ts"], "who": it["who"], "title": it["title"], "url": it["url"]})
+    notes = []
+    if items:
+        first = min(it["ts"] for it in items)
+        notes.append(f"history counts {len(items)} stored item(s) since "
+                     f"{time.strftime('%d %b %Y', time.gmtime(first + ds.IST_OFF))} that match its words"
+                     + ("; the judge's question is asked of new items only" if on["judge"] else ""))
+    else:
+        notes.append("no stored filing or headline matches it yet, so history cannot show a count; "
+                     "it reads every new one")
+    return pts, notes, hits[-5:]
+
+
 def replay(spec: dict, check: bool = True) -> dict:
     """The play over stored history: the same measures and the same condition
     code the live bar runs. What the trader sees before it is armed."""
     data, notes = frame(spec)
     series, problems = run_measures(spec, data, check=check)
     tr = truth(spec["when"], data, series) if spec.get("when") else []
-    pts = fire_points(tr) if tr else []
+    hits = []
+    if spec.get("on"):
+        pts, more, hits = _event_points(spec, data, tr)
+        notes = notes + more
+    else:
+        pts = fire_points(tr) if tr else []
     n = len(data["t"])
     first, last = data["t"][0], data["t"][-1]
     span_days = max(1.0, (last - first) / 86400)
@@ -746,8 +819,10 @@ def replay(spec: dict, check: bool = True) -> dict:
         "price": data["close"][-1],
         "spark": {k: [round(x, 6) if isinstance(x, float) else x for x in s[-60:]]
                   for k, s in series.items()},
-        "notes": notes + problems,
+        "notes": notes + problems, "events": hits,
     }
+    if spec.get("on"):
+        return out, data, series, tr
     if tr and not pts:
         out["notes"].append("it would not have fired once on the stored history; check the levels")
     elif out["per_month"] > 40 and spec["interval"] != "1m":
@@ -876,7 +951,29 @@ def summary(spec: dict) -> str:
     if c["lifespan"] == "now":
         return f"{act[0].upper()}{act[1:]} now, on paper." if do["kind"] != "notify" else "Tells you now."
     times = "the first time" if c["lifespan"] == "once_when" else "each time"
+    on = spec.get("on")
+    if on:
+        return f"Reads {_on_words(on)} and {act} {times} one {_on_test(on)}" + \
+            (f", while {cond}" if cond else "") + "."
     return f"Checks {spec['symbol']} at {every} and {act} {times} {cond}."
+
+
+def _on_words(on: dict) -> str:
+    parts = []
+    if "filings" in on["sources"]:
+        parts.append("NSE filings" + (f" from {', '.join(on['symbols'])}" if on["symbols"] else ""))
+    if "news" in on["sources"]:
+        parts.append("market news headlines")
+    return " and ".join(parts)
+
+
+def _on_test(on: dict) -> str:
+    bits = []
+    if on["match"]:
+        bits.append("mentions " + " or ".join(f"“{w}”" for w in on["match"][:4]))
+    if on["judge"]:
+        bits.append(f"answers yes to “{on['judge']}”")
+    return " and ".join(bits) or "arrives"
 
 
 def card(row: dict, live: dict | None = None) -> dict:
@@ -904,6 +1001,8 @@ def card(row: dict, live: dict | None = None) -> dict:
         "kind": "play", "id": row["id"], "title": spec["title"], "state": row["state"],
         "why": row.get("why") or "", "symbol": spec["symbol"], "interval": spec["interval"],
         "join": "any" if "any" in when else "all", "summary": summary(spec),
+        "on": ({"reads": _on_words(spec["on"]), "test": _on_test(spec["on"]),
+                "recent": hist.get("events") or []} if spec.get("on") else None),
         "conditions": (live or {}).get("conditions") or hist.get("conditions") or
                       [{"text": describe(c, spec)} for c in (when.get("all") or when.get("any") or [])],
         "measures": [{"name": m["name"], "title": m["title"], "formula": m["formula"],
@@ -1130,6 +1229,8 @@ def _tick(pid: int, minute_ts: int | None = None, force: bool = False) -> list[d
     if not new:
         return []
     tr = truth(spec["when"], data, series) if spec.get("when") else []
+    if spec.get("on"):
+        tr = []                       # its entries are clocked by events (on_items)
     out = []
     for i in new:
         late = i != len(t) - 1
@@ -1170,15 +1271,20 @@ def _seen(spec: dict, data: dict, series: dict, i: int) -> list[dict]:
     return rows
 
 
-def _fire(play: dict, data: dict, series: dict, i: int, *, late: bool) -> dict:
+def _fire(play: dict, data: dict, series: dict, i: int, *, late: bool,
+          event: dict | None = None) -> dict:
     spec, do, c = play["spec"], play["spec"]["do"], play["spec"]["contract"]
     ts, price = data["t"][i], data["close"][i]
     seen = _seen(spec, data, series, i)
+    if event:
+        ts = event["ts"]
     STATS["fires"] += 1
     fires = play["fires"] + 1
     _set(play["id"], fires=fires)
     body = {"seen": seen, "price": price, "symbol": spec["symbol"], "interval": spec["interval"],
             "late": late}
+    if event:
+        body["event"] = event
     title = spec["title"]
     authority = c["authority"]
     reason = ""
@@ -1191,6 +1297,10 @@ def _fire(play: dict, data: dict, series: dict, i: int, *, late: bool) -> dict:
         authority, reason = "propose", "first fire: confirm it once and it acts on its own after"
     elif authority in ("act", "manage") and play["needs_confirm"]:
         authority, reason = "propose", "the play was edited, so this one needs your confirm"
+    elif (authority in ("act", "manage") and event and event.get("source") == "news"
+          and not spec.get("when")):
+        authority, reason = "propose", ("a headline alone never places an order; a filing or a "
+                                        "price condition has to back it")
     ev = None
     if do["kind"] == "notify" or authority == "notify":
         ev = _event(play, ts, "fired", title, {**body, "reason": reason}, status="done")
@@ -1322,6 +1432,68 @@ def _held_now(play: dict) -> float:
     return min(held, pos.get(play["held_sym"], 0.0))
 
 
+JUDGE_PER_DAY = 300
+_judged: dict[tuple, int] = {}
+
+
+def _judge_budget(pid: int) -> bool:
+    """A play's judge reads at most JUDGE_PER_DAY items a day. Words that match
+    half the news would otherwise spend a model call per headline."""
+    key = (pid, int(time.time() // 86400))
+    n = _judged.get(key, 0)
+    if n >= JUDGE_PER_DAY:
+        if n == JUDGE_PER_DAY:
+            log.info("plays: play %s reached its judge budget for today", pid)
+            _judged[key] = n + 1
+        return False
+    _judged[key] = n + 1
+    return True
+
+
+def on_items(items: list[dict]) -> None:
+    """New filings and headlines, from play_events' poller. Each armed play
+    clocked by events gets the ones its words match; its judge reads each;
+    its own conditions are checked on the latest closed bar; then it fires."""
+    import play_events
+    with ds._users_lock:
+        rows = _db().execute(f"SELECT {', '.join(_COLS)} FROM plays WHERE state='armed' "
+                             "AND spec LIKE '%\"on\": {%'").fetchall()
+    for t in rows:
+        play = _row(t)
+        on = play["spec"].get("on")
+        if not on:
+            continue
+        for it in items:
+            try:
+                if not play_events.matches(it, on):
+                    continue
+                verdict = None
+                if on["judge"] and not _judge_budget(play["id"]):
+                    continue
+                if on["judge"]:
+                    verdict = play_events.judge(on["judge"], it)
+                    if not verdict.get("verdict") or verdict.get("confidence", 0) < on["min_confidence"]:
+                        continue
+                ev = {"source": it["source"], "who": it["who"], "symbol": it["symbol"],
+                      "title": it["title"], "url": it["url"], "ts": it["ts"],
+                      "quote": (verdict or {}).get("quote"), "value": (verdict or {}).get("value"),
+                      "question": on["judge"]}
+                play = _load(play["id"])
+                if not play or play["state"] != "armed" or play["why"] in (EXITS_ONLY, "fired"):
+                    break
+                data, _ = frame(play["spec"])
+                series, _ = run_measures(play["spec"], data)
+                i = len(data["t"]) - 1
+                if play["spec"].get("when"):
+                    tr = truth(play["spec"]["when"], data, series)
+                    if tr[i] is not True:
+                        continue
+                _fire(play, data, series, i, late=bool(it.get("late")), event=ev)
+            except Exception:                               # noqa: BLE001
+                STATS["errors"] += 1
+                log.warning("plays: event play %s failed", play["id"], exc_info=True)
+
+
 def start() -> dict:
     global _WORKER
     init_db()
@@ -1330,6 +1502,12 @@ def start() -> dict:
         _STOP.clear()
         _WORKER = threading.Thread(target=_worker, name="plays", daemon=True)
         _WORKER.start()
+    try:
+        import play_events
+        play_events.bind(ds)
+        play_events.start(on_items)
+    except Exception:                                       # noqa: BLE001
+        log.warning("plays: the event poller did not start", exc_info=True)
     with _INDEX_LOCK:
         return {"armed": sum(len(v) for v in _INDEX.values()), "symbols": len(_INDEX)}
 
@@ -1369,7 +1547,7 @@ def compile_play(uid: int, raw: dict, *, chart_symbol: str = "", chart_interval:
         row = get(uid, pid)
         row["_now_event"] = ev
     feed = None
-    if _alerts is not None and state == "armed":
+    if _alerts is not None and state == "armed" and (spec.get("when") or not spec.get("on")):
         try:
             feed = _alerts.ensure_feed(spec["symbol"])
         except Exception:                                   # noqa: BLE001
@@ -1544,11 +1722,21 @@ def tool_play(action: str = "", play: dict | str | None = None, play_id: int = 0
                 out["did_now"] = {k: row["_now_event"].get(k) for k in ("kind", "body")}
             fs = got.get("feed") if isinstance(got.get("feed"), dict) else {}
             if fs.get("note"):
-                out["feed"] = fs["note"]
-            out["_note"] = ("The play is on the trader's screen as a card. Say in one or two lines "
-                            "what it watches, how often it would have fired on history "
-                            "(history.fires over history.bars bars), and every item in `assumed` "
-                            "as a choice they can change. Quote only these numbers.")
+                out["feed"] = (fs["note"] if not row["spec"].get("on") else
+                               "Filings and headlines are read live. The price condition reads the "
+                               "latest stored bar, and this symbol is not on a live stream, so that "
+                               "bar may be old.")
+            if row["spec"].get("on"):
+                out["_note"] = ("The play is on the trader's screen as a card. Say in one or two "
+                                "lines what it reads and what it does; filings and headlines are "
+                                "polled live whatever the symbol's stream. For history, quote the "
+                                "note about how many stored items match its words (not bars). Say "
+                                "every item in `assumed` as a choice they can change.")
+            else:
+                out["_note"] = ("The play is on the trader's screen as a card. Say in one or two "
+                                "lines what it watches, how often it would have fired on history "
+                                "(history.fires over history.bars bars), and every item in "
+                                "`assumed` as a choice they can change. Quote only these numbers.")
             return out
         if action == "list":
             return {"plays": [{k: c[k] for k in ("id", "title", "state", "symbol", "interval",

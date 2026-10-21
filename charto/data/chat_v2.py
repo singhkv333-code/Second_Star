@@ -825,6 +825,14 @@ _PLAY_DOC = (
     "are numbers, measure names, close/open/high/low/volume, or 'SYMBOL.close'. Time: {time: "
     "{after: '09:20', before: '15:00'}} or {time: {at: '09:20'}} (bar close, IST). for_bars N means "
     "it must hold N bars in a row ('stays under 3,000 for 15 minutes' on 5m is for_bars 3).\n"
+    "on (events instead of bars clock the play): {sources: ['filings', 'news'], symbols: [whose NSE "
+    "filings], match: [specific words, any one of which an item must contain: names and terms, never "
+    "common words like 'cut' or 'up'], judge: 'a yes/no question each matching item must "
+    "answer yes to, e.g. Does this announce a new order worth over 500 crore?'}. filings are NSE "
+    "corporate announcements; news is Economic Times, Mint, CNBC-TV18, BusinessLine, BBC and CoinDesk "
+    "headlines. X, Telegram and other social posts are not connected yet: say so and offer news or "
+    "filings. With on, `when` is optional and is checked on the latest bar when the item arrives "
+    "(a price confirmation). A headline alone never places an order: it proposes.\n"
     "do: {kind: notify} or {kind: buy | sell, symbol, size: {inr} | {qty} | {all: true}}. Size in "
     "rupees; code works out the quantity. manage: {stop_pct, target_pct, exit_at: '15:15'}.\n"
     "contract: {lifespan, authority, inferred_from (the trader's deciding words)}. lifespan: now "
@@ -1163,7 +1171,7 @@ I marked the two levels, the trendline and a ruler on the last leg.
 
 _PLAYS_LINE = (
     "manage the trade journal and paper portfolio (journal), and turn any idea into a play that "
-    "watches price, indicators or your own measures on every bar close and tells the trader, "
+    "watches price, indicators, your own measures, NSE filings or news headlines and tells the trader, "
     "proposes an order, or places it on paper (play, measure)")
 
 

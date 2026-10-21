@@ -67,6 +67,18 @@ const PlayUI = (() => {
       `<path d="${d}"/></svg>`;
   }
 
+  /** What an event play reads, and the test each item has to pass. */
+  function onSection(on) {
+    const recent = (on.recent || []).slice(-3).reverse();
+    return `<div class="py-sec"><div class="py-label">On</div>` +
+      `<div class="py-on"><span class="py-act">${esc(cap(on.reads))}</span>` +
+      `<span>Each one that ${esc(on.test)}</span></div>` +
+      (recent.length ? `<ul class="py-recent">${recent.map((r) =>
+        `<li><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a>` +
+        `<span>${esc(r.who)} · ${esc(day(r.ts))}</span></li>`).join("")}</ul>` : "") +
+      `</div>`;
+  }
+
   function condRow(c) {
     const met = c.met === true;
     let right = "";
@@ -113,8 +125,9 @@ const PlayUI = (() => {
       `<div class="py-head"><h3 class="py-title">${esc(c.title)}</h3>` +
       `<span class="py-state"><i class="py-dot" aria-hidden="true"></i>${esc(STATE[c.state] || c.state)}</span></div>` +
       (c.summary ? `<p class="py-summary">${esc(c.summary)}</p>` : "") +
+      (c.on ? onSection(c.on) : "") +
       (conds.length
-        ? `<div class="py-sec"><div class="py-label">${c.join === "any" ? "When any of these" : "When all of these"}</div>` +
+        ? `<div class="py-sec"><div class="py-label">${c.on ? "And only while" : c.join === "any" ? "When any of these" : "When all of these"}</div>` +
           `<ul class="py-conds">${conds.map(condRow).join("")}</ul></div>` : "") +
       (measures.length
         ? `<div class="py-sec"><div class="py-label">Measures it computes</div>` +
@@ -213,6 +226,10 @@ const PlayUI = (() => {
       `<header><span class="py-evk">${ic(ev.kind === "proposed" ? "clock" : ev.kind === "filled" ? "check" : "bell")}` +
       `${esc(KIND[ev.kind] || ev.kind)}</span><time>${esc(ago(ev.created))}</time></header>` +
       `<div class="py-evt">${esc(ev.play || ev.title)}</div>` +
+      (b.event ? `<div class="py-src"><div class="py-srcwho">${esc(b.event.who)}` +
+        `${b.event.source === "filings" ? " · NSE filing" : ""}</div>` +
+        `<a href="${esc(b.event.url)}" target="_blank" rel="noopener">${esc(b.event.title)}</a>` +
+        (b.event.quote ? `<blockquote>${esc(b.event.quote)}</blockquote>` : "") + `</div>` : "") +
       (b.seen && b.seen.length ? `<ul class="py-seen">${seenLine(b.seen)}</ul>` : "") +
       ticket +
       (b.fill_price ? `<p class="py-evline">Filled at ${esc(num(b.fill_price))}.</p>` : "") +
