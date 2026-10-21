@@ -26,8 +26,8 @@ const LAUNCH40: CodeInfo = {
   kind: "discount", code: "LAUNCH40", plan: "pro", plan_name: "Pro", cycles: "any", percent_off: 40,
   amount_off: null, discount_cycles: 3, valid_until: null, summary: "40% off Pro for 3 billing cycles",
   offers: [
-    { plan: "pro", plan_name: "Pro", cycle: "monthly", was: 49900, amount: 29900, discount_cycles: 3 },
-    { plan: "pro", plan_name: "Pro", cycle: "annual", was: 538800, amount: 323200, discount_cycles: 3 },
+    { plan: "pro", plan_name: "Pro", cycle: "monthly", was: 59900, amount: 35900, discount_cycles: 3 },
+    { plan: "pro", plan_name: "Pro", cycle: "annual", was: 598800, amount: 359200, discount_cycles: 3 },
   ],
 };
 const FRIENDS30: CodeInfo = {
@@ -48,18 +48,18 @@ describe("codes at checkout", () => {
   it("a discount from the link lowers what is due and states how long it lasts", async () => {
     const check = vi.spyOn(billingApi, "checkCode").mockResolvedValue({ ok: true, status: 200, data: { coupon: LAUNCH40 } });
     renderCheckout("launch40");
-    await waitFor(() => expect(screen.getByRole("button", { name: /Pay ₹299 securely/ })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: /Pay ₹359 securely/ })).toBeInTheDocument());
     expect(check).toHaveBeenCalledWith("LAUNCH40", "pro", "monthly");
-    expect(screen.getByText("−₹200")).toBeInTheDocument();
-    expect(screen.getByText(/for 3 billing cycles\. The subscription then ends, and you can renew at ₹499/)).toBeInTheDocument();
+    expect(screen.getByText("−₹240")).toBeInTheDocument();
+    expect(screen.getByText(/for 3 billing cycles\. The subscription then ends, and you can renew at ₹599/)).toBeInTheDocument();
   });
 
   it("removing the code restores the catalog price", async () => {
     vi.spyOn(billingApi, "checkCode").mockResolvedValue({ ok: true, status: 200, data: { coupon: LAUNCH40 } });
     renderCheckout("LAUNCH40");
-    await screen.findByRole("button", { name: /Pay ₹299 securely/ });
+    await screen.findByRole("button", { name: /Pay ₹359 securely/ });
     fireEvent.click(screen.getByRole("button", { name: "Remove code" }));
-    expect(screen.getByRole("button", { name: /Pay ₹499 securely/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Pay ₹599 securely/ })).toBeInTheDocument();
   });
 
   it("a free-time code redeems instead of paying", async () => {
@@ -85,6 +85,6 @@ describe("codes at checkout", () => {
     vi.spyOn(billingApi, "checkCode").mockResolvedValue({ ok: false, status: 409, error: "This code has been fully used.", code: "used_up" });
     renderCheckout("GONE");
     await screen.findByText("This code has been fully used.");
-    expect(screen.getByRole("button", { name: /Pay ₹499 securely/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Pay ₹599 securely/ })).toBeInTheDocument();
   });
 });

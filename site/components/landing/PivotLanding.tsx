@@ -180,6 +180,7 @@ function Footer() {
           <a href="/terms">Terms & conditions</a>
           <a href="/privacy">Privacy policy</a>
           <a href="/pricing">Pricing</a>
+          <a href="https://app.pivotnow.in/affiliate?from=site">Affiliate</a>
           <a href="/refunds">Refunds & cancellation</a>
         </nav>
         <div className="pl-footer2-social">

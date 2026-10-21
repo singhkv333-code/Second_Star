@@ -41,8 +41,8 @@ describe("catalog", () => {
   it("reads prices and limits from the catalog, not from code", () => {
     const pro = SNAPSHOT.plans.find((p) => p.id === "pro")!;
     expect(SNAPSHOT.plans.map((p) => p.id)).toEqual(["free", "pro", "pro_plus"]);
-    expect(pro.prices.monthly?.amount).toBe(49900);
-    expect(pro.prices.annual?.amount).toBe(538800);
+    expect(pro.prices.monthly?.amount).toBe(59900);
+    expect(pro.prices.annual?.amount).toBe(598800);
     expect(SNAPSHOT.plans[0]!.features["ai.credits"]).toBe(15);
     expect(SNAPSHOT.trial_days).toBeNull();
   });
@@ -54,7 +54,7 @@ describe("catalog", () => {
   });
 
   it("annual saving is 12 months minus the annual price", () => {
-    expect(annualSaving(cat, "pro")).toBe(49900 * 12 - 538800);
+    expect(annualSaving(cat, "pro")).toBe(59900 * 12 - 598800);
     expect(annualSaving(cat, "free")).toBe(0);
   });
 });
@@ -111,13 +111,13 @@ describe("allows() never pre-blocks when the server would not", () => {
   });
   it("applies the cap when the paywall is on", () => {
     const m = fixtureMe("free", cat);
-    expect(allows(m, "chart.panes", 4)).toBe(true);
-    expect(allows(m, "chart.panes", 5)).toBe(false);
+    expect(allows(m, "chart.panes", 25)).toBe(true);
+    expect(allows(m, "chart.panes", 26)).toBe(false);
     expect(allows(m, "watchlists", 10_000)).toBe(true); // null = unlimited
   });
   it("lock markers follow the catalog regardless of the switch", () => {
-    expect(overPlan(cat, "chart.panes", "free", 6)).toBe(true);
-    expect(overPlan(cat, "chart.panes", "pro", 8)).toBe(false);
+    expect(overPlan(cat, "chart.panes", "free", 26)).toBe(true);
+    expect(overPlan(cat, "chart.panes", "free", 25)).toBe(false);
     expect(overPlan(cat, "chart.indicators", "pro_plus", 500)).toBe(false);
   });
 });
@@ -127,7 +127,7 @@ describe("upgradeFor mirrors entitlements.upgrade_for", () => {
     expect(upgradeFor(cat, "ai.credits", "free", 15)).toBe("pro");
     expect(upgradeFor(cat, "ai.credits", "pro", 200)).toBe("pro_plus");
     expect(upgradeFor(cat, "chart.parallel", "free", 25)).toBe("pro_plus");
-    expect(upgradeFor(cat, "chart.panes", "pro", 8)).toBeNull(); // 8 is the ceiling
+    expect(upgradeFor(cat, "chart.panes", "free", 25)).toBeNull(); // 25 on every plan
     expect(upgradeFor(cat, "chart.custom_timeframes", "free")).toBe("pro");
   });
 });

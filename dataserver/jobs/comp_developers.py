@@ -6,8 +6,8 @@ A developer comp is Pro+ plus every cap Pro+ still has, opened: AI credits,
 alerts, screens and parallel charts. It goes through `entitlements.grant`,
 the same writer the admin route uses, so each row carries a reason and who
 granted it, and it never expires. Re-running adds nothing that is already in
-force. Two caps are left alone on purpose: `chart.panes` (8 on every paid
-plan, a layout ceiling rather than a price) and `alerts.fundamental` (0
+force. Two caps are left alone on purpose: `chart.panes` (25 on every plan,
+the largest grid, a layout ceiling rather than a price) and `alerts.fundamental` (0
 everywhere — the feature is not built, so there is nothing to unlock).
 """
 from __future__ import annotations

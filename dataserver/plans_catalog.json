@@ -24,8 +24,8 @@
       "public": true,
       "rank": 1,
       "prices": {
-        "monthly": {"amount": 49900, "per_month": 49900},
-        "annual": {"amount": 538800, "per_month": 44900, "saving_pct": 10}
+        "monthly": {"amount": 59900, "per_month": 59900},
+        "annual": {"amount": 598800, "per_month": 49900, "saving_pct": 16}
       }
     },
     "pro_plus": {
@@ -33,8 +33,8 @@
       "public": true,
       "rank": 2,
       "prices": {
-        "monthly": {"amount": 99900, "per_month": 99900},
-        "annual": {"amount": 1078800, "per_month": 89900, "saving_pct": 10}
+        "monthly": {"amount": 109900, "per_month": 109900},
+        "annual": {"amount": 1138800, "per_month": 94900, "saving_pct": 13}
       }
     }
   },
@@ -87,7 +87,7 @@
     },
     "chart.panes": {
       "kind": "limit", "label": "Charts per tab",
-      "values": {"anonymous": 4, "free": 4, "pro": 8, "pro_plus": 8}
+      "values": {"anonymous": 25, "free": 25, "pro": 25, "pro_plus": 25}
     },
     "chart.parallel": {
       "kind": "limit", "label": "Parallel charts",

@@ -7,6 +7,7 @@ import { HalftonePlanet, PixelGrid } from "./Pixels";
 import { LandingLogo } from "./LandingLogo";
 import { AFFILIATE_JOIN_HREF, AFFILIATE_SETTINGS_HREF, REFERRAL_RATE_PERCENT, inr } from "./referrals";
 import { readDataserverToken } from "@/lib/dataserver-auth";
+import { SNAPSHOT, planById } from "@/lib/billing/catalog";
 import "./affiliate.css";
 
 /**
@@ -15,10 +16,13 @@ import "./affiliate.css";
  * referrals are then followed in Settings → Affiliate.
  */
 
-// Plan prices as /pricing states them (₹ per month, billed monthly).
+// Plan prices as /pricing states them (₹ per month, billed monthly), read from
+// the catalog so the calculator never drifts from the plans.
+const monthlyRupees = (id: "pro" | "pro_plus"): number =>
+  (planById(SNAPSHOT, id)?.prices.monthly?.amount ?? 0) / 100;
 const PLANS = [
-  { id: "pro", name: "Pro", price: 499 },
-  { id: "proplus", name: "Pro+", price: 999 },
+  { id: "pro", name: "Pro", price: monthlyRupees("pro") },
+  { id: "proplus", name: "Pro+", price: monthlyRupees("pro_plus") },
 ] as const;
 
 const STEPS: { title: string; pattern: "share" | "trade" | "paid" }[] = [
@@ -66,10 +70,22 @@ function useAffiliateScroll(): void {
   }, []);
 }
 
+/** The landing site, where a visitor who arrived from it (?from=site) is
+ *  taken back to. */
+const LANDING_URL = "https://www.pivotnow.in/";
+
 /** The landing page's topbar (site PivotLanding → Nav), always on its
- *  dark variant here, with "Back to Pivot" in place of "Log in". */
+ *  dark variant here. Opened from the landing site (?from=site) it is the
+ *  landing's own bar: the logo goes home to the landing and the one button
+ *  is its "Sign in" saucer, as on the landing's /pricing. Opened from the
+ *  product, "Back to Pivot" stands in place of "Sign in". */
 function AffNav(): React.ReactElement {
   const [scrolled, setScrolled] = useState(false);
+  // Read after mount: the server render cannot see the query string.
+  const [fromSite, setFromSite] = useState(false);
+  useEffect(() => {
+    setFromSite(new URLSearchParams(window.location.search).get("from") === "site");
+  }, []);
   useEffect(() => {
     const onScroll = (): void => {
       const y = document.body.scrollTop || document.documentElement.scrollTop || window.scrollY || 0;
@@ -82,10 +98,42 @@ function AffNav(): React.ReactElement {
   return (
     <header className={scrolled ? "aff-nav scrolled" : "aff-nav"}>
       <div className="aff-nav-inner">
-        <Link className="aff-brand" href="/" aria-label="Pivot home"><LandingLogo className="aff-brand-logo" /></Link>
-        <Link className="aff-nav-cta" href="/"><ArrowLeft size={14} aria-hidden="true" /> Back to Pivot</Link>
+        {fromSite ? (
+          <>
+            <a className="aff-brand" href={LANDING_URL} aria-label="Pivot home"><LandingLogo className="aff-brand-logo" /></a>
+            <SignIn />
+          </>
+        ) : (
+          <>
+            <Link className="aff-brand" href="/" aria-label="Pivot home"><LandingLogo className="aff-brand-logo" /></Link>
+            <Link className="aff-nav-cta" href="/"><ArrowLeft size={14} aria-hidden="true" /> Back to Pivot</Link>
+          </>
+        )}
       </div>
     </header>
+  );
+}
+
+/** The landing's "Sign in" saucer (site PivotLanding → SignIn): it idles on
+ *  a slow bob with its running lights cycling, and on hover lifts, tilts and
+ *  lowers a beam that draws a star up into it. */
+function SignIn(): React.ReactElement {
+  return (
+    <a className="aff-nav-cta aff-ufo" href="/login">
+      <span className="aff-ufo-craft" aria-hidden="true">
+        <span className="aff-ufo-beam" />
+        <i className="aff-ufo-star" />
+        <svg viewBox="0 0 28 18" width="24" height="16" fill="none">
+          <path d="M8.6 8.2C8.9 4.9 11.2 2.6 14 2.6s5.1 2.3 5.4 5.6" fill="currentColor" fillOpacity=".18" stroke="currentColor" strokeWidth="1.4" />
+          <ellipse cx="14" cy="10" rx="12" ry="3.9" fill="currentColor" />
+          <ellipse cx="14" cy="8.9" rx="8.4" ry="1.4" fill="var(--ufo-ground)" fillOpacity=".55" />
+          <circle className="aff-ufo-light" cx="7.4" cy="10.6" r="1" />
+          <circle className="aff-ufo-light" cx="14" cy="11.4" r="1" />
+          <circle className="aff-ufo-light" cx="20.6" cy="10.6" r="1" />
+        </svg>
+      </span>
+      <span className="aff-ufo-label">Sign in</span>
+    </a>
   );
 }
 

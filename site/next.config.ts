@@ -89,8 +89,7 @@ const nextConfig: NextConfig = {
       // Stock pages live on the platform, where they are public and indexed.
       // One address per company, so search engines never split it in two.
       { source: "/stock/:symbol", has: site, destination: "https://app.pivotnow.in/stock/:symbol", permanent: true },
-      { source: "/stocks", has: site, destination: "https://app.pivotnow.in/stocks", permanent: true },
-    ];
+      { source: "/stocks", has: site, destination: "https://app.pivotnow.in/stocks", permanent: true },    ];
   },
   async rewrites() {
     return [

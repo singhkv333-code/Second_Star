@@ -61,6 +61,7 @@ export function PublicFrame({
             <Link href="/stocks/52-week-high">52-week highs</Link>
             <Link href="/stocks/52-week-low">52-week lows</Link>
             <Link href="/pricing">Pricing</Link>
+            <Link href="/affiliate">Affiliate</Link>
             <a href={`${HOME_URL}/about`}>About</a>
             <a href={`${HOME_URL}/terms`}>Terms</a>
             <a href={`${HOME_URL}/privacy`}>Privacy</a>

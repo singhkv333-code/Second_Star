@@ -10,7 +10,7 @@ Status tags: `TODO` · `DOING` · `DONE` · `BLOCKED` · `QUESTION`.
 - shared: this file (append only)
 
 ## The spec (from the user's hand-written sheet, 2026-09-28)
-| Feature | Free | Pro ₹499 (annual ₹449/mo) | Pro+ ₹999 (annual ₹899/mo) |
+| Feature | Free | Pro ₹599 (annual ₹499/mo) | Pro+ ₹1,099 (annual ₹949/mo) |
 |---|---|---|---|
 | AI credits (row placement ambiguous daily vs monthly) | 15 | 200 | 500 |
 | Alerts F (unspecified) | ? | ? | ? |
@@ -18,7 +18,7 @@ Status tags: `TODO` · `DOING` · `DONE` · `BLOCKED` · `QUESTION`.
 | Alerts P (price) | 20 | 400 | 1000 |
 | Watchlist alerts | no | yes | yes |
 | Indicators per chart | 5 | 10 | all |
-| Charts per tab (layout) | 4 | 8 | 8 |
+| Charts per tab (layout) | 25 | 25 | 25 |
 | Parallel charts | 10 | 20 | 50 |
 | Ad-free | no | yes | yes |
 | Custom timeframes | no | yes | yes |

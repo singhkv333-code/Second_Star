@@ -45,7 +45,7 @@ Every plan refusal from every service returns HTTP **402**:
 | Multi-condition alerts ✓✓✓ | `alerts.multi_condition` | same |
 | Alert expiry 2m / 6m / never | `alerts.expiry_days` 60 / 180 / null | same. The expiry is brought within the limit rather than refused, and the reply states the date |
 | Indicators per chart 5 / 10 / all | `chart.indicators` | layout save (server); the indicator menu and chat-added indicators (client) |
-| Charts per tab 4 / 8 / 8 | `chart.panes` | layout save and the `open_chart` tool (server); the grid menu (client) |
+| Charts per tab 25 on every plan (the largest grid, 5×5) | `chart.panes` | layout save and the `open_chart` tool (server); the grid menu (client) |
 | Parallel charts 10 / 20 / 50 | `chart.parallel` | `POST /charts/lease` heartbeat. The oldest tab is evicted, as on TradingView |
 | Historical bars 10K / – / – | `chart.history_bars` | `/bars` and `/indicator`, intraday only. Daily and longer charts are unlimited on every plan, as on TradingView |
 | Watchlists U / U / U | `watchlists` null | nothing to enforce |
@@ -66,7 +66,7 @@ Every plan refusal from every service returns HTTP **402**:
 
 ## Switching on payments (nothing charges until this is done)
 
-1. In the Razorpay dashboard, create 4 plans: Pro monthly ₹499, Pro annual ₹5,388, Pro+ monthly ₹999 and Pro+ annual ₹10,788. Prices are GST-inclusive.
+1. In the Razorpay dashboard, create 4 plans: Pro monthly ₹599, Pro annual ₹5,988 (₹499/mo), Pro+ monthly ₹1,099 and Pro+ annual ₹11,388 (₹949/mo). Prices are GST-inclusive.
 2. Set these on the VM:
    - `RAZORPAY_KEY_ID`
    - `RAZORPAY_KEY_SECRET`

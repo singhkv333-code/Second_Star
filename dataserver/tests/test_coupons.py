@@ -186,13 +186,13 @@ def test_discount_checkout_subscribes_on_a_plan_at_the_code_price(env, rzp):
     code, out = env.post("/billing/coupon", {"code": "LAUNCH40", "plan": "pro", "cycle": "monthly"}, token=tok)
     assert code == 200
     pro_m = next(o for o in out["coupon"]["offers"] if o["plan"] == "pro" and o["cycle"] == "monthly")
-    assert (pro_m["was"], pro_m["amount"]) == (49900, 29900)
+    assert (pro_m["was"], pro_m["amount"]) == (59900, 35900)
 
     code, out = env.post("/billing/checkout", {"plan": "pro", "cycle": "monthly", "code": "launch40"}, token=tok)
     assert code == 200, out
-    assert (out["amount"], out["was"], out["code"]) == (29900, 49900, "LAUNCH40")
+    assert (out["amount"], out["was"], out["code"]) == (35900, 59900, "LAUNCH40")
     plan_call = next(b for m, p, b in rzp.calls if p == "/plans")
-    assert plan_call["item"]["amount"] == 29900 and plan_call["period"] == "monthly"
+    assert plan_call["item"]["amount"] == 35900 and plan_call["period"] == "monthly"
     sub_call = next(b for m, p, b in rzp.calls if p == "/subscriptions")
     assert sub_call["plan_id"] == "plan_code1" and sub_call["total_count"] == 3
     assert coupons.usage(c["id"]) == {"reserved": 1}
@@ -202,7 +202,7 @@ def test_discount_checkout_subscribes_on_a_plan_at_the_code_price(env, rzp):
     now = int(time.time())
     rzp.subs[sid].update(status="active", current_start=now - 60, current_end=now + 30 * DAY)
     rzp.payment = {"id": "pay_1", "status": "captured", "invoice_id": "inv_1",
-                   "currency": "INR", "amount": 29900, "sub": sid}
+                   "currency": "INR", "amount": 35900, "sub": sid}
     sig = billing._hmac_hex("key-secret", f"pay_1|{sid}".encode())
     code, out = env.post("/billing/verify", {"razorpay_payment_id": "pay_1",
                                              "razorpay_subscription_id": sid,
@@ -220,7 +220,7 @@ def test_full_catalog_amount_is_refused_for_a_code_plan(env, rzp):
     now = int(time.time())
     rzp.subs[sid].update(status="active", current_start=now - 60, current_end=now + 30 * DAY)
     rzp.payment = {"id": "pay_2", "status": "captured", "invoice_id": "inv_2",
-                   "currency": "INR", "amount": 49900, "sub": sid}
+                   "currency": "INR", "amount": 59900, "sub": sid}
     sig = billing._hmac_hex("key-secret", f"pay_2|{sid}".encode())
     code, _ = env.post("/billing/verify", {"razorpay_payment_id": "pay_2",
                                            "razorpay_subscription_id": sid,
@@ -253,13 +253,13 @@ def test_resume_keeps_the_price_and_another_code_replaces_an_unpaid_checkout(env
     a = env.post("/billing/checkout", {"plan": "pro", "code": "TENOFF"}, token=tok)[1]
     again = env.post("/billing/checkout", {"plan": "pro", "code": "TENOFF"}, token=tok)[1]
     assert again["resumed"] and again["subscription_id"] == a["subscription_id"]
-    assert again["amount"] == 44900
+    assert again["amount"] == 53900
     b = env.post("/billing/checkout", {"plan": "pro", "code": "TWENTY"}, token=tok)
     assert b[0] == 200 and b[1]["subscription_id"] != a["subscription_id"], b
     assert rzp.subs[a["subscription_id"]]["status"] == "cancelled"
-    assert b[1]["amount"] == 39900
+    assert b[1]["amount"] == 47900
     plain = env.post("/billing/checkout", {"plan": "pro"}, token=tok)[1]
-    assert plain["amount"] == 49900 and "code" not in plain
+    assert plain["amount"] == 59900 and "code" not in plain
 
 
 def test_code_kinds_go_to_their_own_door(env, rzp):

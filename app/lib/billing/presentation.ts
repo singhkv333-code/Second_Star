@@ -28,7 +28,7 @@ export const PLAN_COPY: Record<Exclude<PlanId, "anonymous">, PlanCopy> = {
   pro: {
     tagline: "More questions, more alerts and a larger desk for the active trader.",
     forWho: "For daily traders and researchers",
-    highlights: ["ai.credits", "chart.indicators", "chart.panes", "alerts.price", "alerts.technical", "alerts.expiry_days"],
+    highlights: ["ai.credits", "chart.indicators", "chart.parallel", "alerts.price", "alerts.technical", "alerts.expiry_days"],
   },
   pro_plus: {
     tagline: "The highest limits across AI, alerts and parallel charts.",

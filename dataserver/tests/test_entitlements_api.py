@@ -228,7 +228,7 @@ def test_plans_public_and_me_reflects_the_server_plan(env):
     ids = [p["id"] for p in cat["plans"]]
     assert ids == ["free", "pro", "pro_plus"], ids
     pro = next(p for p in cat["plans"] if p["id"] == "pro")
-    assert pro["prices"]["monthly"]["amount"] == 49900
+    assert pro["prices"]["monthly"]["amount"] == 59900
     assert pro["features"]["alerts.price"] == 400
 
     code, me = env.get("/billing/me")
@@ -682,28 +682,29 @@ def test_layout_panes_and_indicators(env):
     uid_f, tf = env.signup("f@x.io")
     uid_p, tp = env.signup("p@x.io")
     make_plan(uid_p, "pro")
-    assert env.post("/layouts", layout(4, 5), token=tf)[0] == 200
-    code, out = env.post("/layouts", layout(5, 0, "L2"), token=tf)
+    assert env.post("/layouts", layout(25, 5), token=tf)[0] == 200   # the largest grid, on Free
+    code, out = env.post("/layouts", layout(26, 0, "L2"), token=tf)
     assert_402(code, out, "chart.panes", "free")
+    assert out["upgrade_to"] is None                    # 25 on every plan
     code, out = env.post("/layouts", layout(4, 6, "L3"), token=tf)
     assert_402(code, out, "chart.indicators", "free")
-    assert env.post("/layouts", layout(8, 10), token=tp)[0] == 200
-    code, out = env.post("/layouts", layout(9, 0, "L4"), token=tp)
+    assert env.post("/layouts", layout(25, 10), token=tp)[0] == 200
+    code, out = env.post("/layouts", layout(26, 0, "L4"), token=tp)
     assert_402(code, out, "chart.panes", "pro")
-    assert out["upgrade_to"] is None                    # nothing above 8
+    assert out["upgrade_to"] is None                    # nothing above 25
 
 
 def test_downgraded_layout_still_opens_and_deletes(env):
     uid, tok = env.signup("p@x.io")
     make_plan(uid, "pro")
-    code, out = env.post("/layouts", layout(8), token=tok)
+    code, out = env.post("/layouts", layout(4, 8), token=tok)
     lid = out["id"]
     ent.set_subscription(uid, plan="pro", status="expired")
     assert ent.plan_of(uid) == "free"
     code, out = env.get(f"/layouts?id={lid}", token=tok)
-    assert code == 200 and len(out["spec"]["charts"]) == 8
+    assert code == 200 and len(out["spec"]["workspace"]["indicators"]) == 8
     # re-saving it as it is over the new cap is refused — the data is intact
-    code, _ = env.post("/layouts", {"id": lid, **layout(8)}, token=tok)
+    code, _ = env.post("/layouts", {"id": lid, **layout(4, 8)}, token=tok)
     assert code == 402
     assert env.db.execute("SELECT COUNT(*) FROM layouts WHERE id=?",
                           (lid,)).fetchone()[0] == 1
@@ -713,7 +714,7 @@ def test_downgraded_layout_still_opens_and_deletes(env):
 def test_open_chart_tool_is_gated_by_panes(env):
     uid, _ = env.signup("f@x.io")
     ds._req.user = (uid, "f@x.io", None)
-    ds._req.chart_pairs = [("TEST", "1d")] * 4
+    ds._req.chart_pairs = [("TEST", "1d")] * 25
     ds._req.charts = ["TEST"]
     try:
         out = ds.tool_open_chart(symbol="TEST", interval="1d")

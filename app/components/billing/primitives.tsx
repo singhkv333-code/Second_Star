@@ -50,7 +50,7 @@ export function BillingToggle({
           onClick={() => onChange(o.id)}
         >
           {o.text}
-          {o.id === "annual" && savePct ? <span className="bl-seg-save">Save {savePct}%</span> : null}
+          {o.id === "annual" && savePct ? <span className="bl-seg-save">Save up to {savePct}%</span> : null}
         </button>
       ))}
     </div>

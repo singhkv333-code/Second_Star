@@ -24,7 +24,7 @@ import { LoadingCubes } from "@/components/ui/LoadingCubes";
 // `/paper` is ungated for the same reason `/stock` is: the page says where to
 // sign in instead of sending a visitor away.
 const UNGATED_PATHS = ["/", "/design", "/waitlist", "/checkout", "/pricing", "/about", "/terms", "/privacy", "/refunds", "/cancellation", "/contact",
-                       "/stock", "/paper"];
+                       "/affiliate", "/stock", "/paper"];
 
 type Phase = "loading" | "needs-auth" | "ready";
 

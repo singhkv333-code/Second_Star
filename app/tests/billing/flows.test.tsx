@@ -153,9 +153,9 @@ describe("checkout", () => {
 
   it("shows the true total and renewal terms before the button", () => {
     renderCheckout("free", "pro");
-    expect(screen.getAllByText("₹5,388").length).toBeGreaterThan(0);
-    expect(screen.getByText(/Renews automatically at ₹5,388 a year/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Pay ₹5,388 securely/ })).toBeInTheDocument();
+    expect(screen.getAllByText("₹5,988").length).toBeGreaterThan(0);
+    expect(screen.getByText(/Renews automatically at ₹5,988 a year/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Pay ₹5,988 securely/ })).toBeInTheDocument();
   });
 
   it("an existing subscriber is sent to change, never to a second purchase", () => {
@@ -181,7 +181,7 @@ describe("checkout", () => {
 
   it("success returns the user to the feature they wanted", async () => {
     renderCheckout("free", "pro");
-    fireEvent.click(screen.getByRole("button", { name: /Pay ₹5,388 securely/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Pay ₹5,988 securely/ }));
     fireEvent.click(await screen.findByRole("button", { name: "Back to where you were" }));
     expect(push).toHaveBeenCalledWith("/chart");
   });

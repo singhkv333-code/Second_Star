@@ -30,7 +30,7 @@ def account(monkeypatch):
     state = {"entity": {"id": "sub_test", "plan_id": "plan_pro", "status": "active",
                          "current_start": now, "current_end": now + 30 * 86400},
              "payment": {"id": "pay_test", "invoice_id": "inv_test", "status": "captured",
-                         "amount": 49900, "currency": "INR"}, "calls": [], "fail": False}
+                         "amount": 59900, "currency": "INR"}, "calls": [], "fail": False}
 
     def wire(method, path, body=None):
         state["calls"].append((method, path, body))
