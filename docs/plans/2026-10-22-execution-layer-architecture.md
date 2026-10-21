@@ -1,402 +1,250 @@
-# Execution layer: autonomy, and conditions with no fixed vocabulary
+# Execution layer: final plan (v2, stress-tested)
 
-2026-10-22. This document answers two design questions for the new execution
-layer. It builds on the research report from the same day: competitors,
-SEBI rules, broker APIs and the reuse map.
+2026-10-22. This replaces v1 (d458f831) of this file. v1 answered two
+questions: how much the model does on its own, and how conditions work
+without a fixed vocabulary. v2 tests that answer against three things: what
+broke last time, what the 2025-26 research says breaks agent harnesses, and
+the actual code. It then fixes what failed and sets out the harness.
 
-1. **Autonomy.** How much does the user want the model to do, and does "rebalance
-   it and go aggressive" happen once, keep happening, or something in between?
-2. **Open conditions.** How do we stop building a backend for every ratio,
-   spread, filter and settlement rule, and let the model define any condition
-   itself, safely?
+**Verdict: the architecture holds, with eleven revisions (§3).** Seven of them
+come from weak points in v1 itself. The old system failed because of
+**structure**:
+- two engines;
+- a borrowed 36k-token adapter;
+- a second translator model;
+- three fill rules for one sentence;
+- no validation at arm time;
+- one shared position per symbol.
 
-Both answers rest on one principle that runs through the whole design:
+This design removes each of those by construction rather than by prompt
+rules. It would fail the same way only if we break the hard rules in §6:
+borrowing the old tools, adding a second model in the loop, or letting a card
+render something that isn't in the store.
+
+The one idea everything rests on:
 
 > **The model decides what things mean, on a slow clock. Code decides when
 > they happen and what is allowed, on a fast clock.**
 
-- The model interprets intent, writes formulas, judges unstructured text and
-  re-plans policies. These steps take seconds to days.
-- Code evaluates conditions on every bar or event, enforces limits, routes
-  actions and keeps state. These steps take milliseconds, and the same inputs
-  always give the same result.
-- That split keeps the platform flexible (no fixed vocabulary) and honest
-  (backtest and live trading run the same compiled thing).
+---
+
+## 1. What broke last time, and what prevents it now
+
+| Old failure (source) | Root cause | What prevents it in this design |
+|---|---|---|
+| ~36k-token borrowed adapter, 190 s turns, 15% failed calls (`EXECUTION_MODE_GRADE_2026_09_21`) | Pivot's tools lent into another runtime, carrying rules for tools that weren't there | Our own tools, written for this runtime. Nothing is imported from `execution_bridge` or `pivot/backend/workflows`. |
+| "how many shares?" with **0 strategies saved** | A parameter doc said ASK_USER, and ASK_USER wasn't on the wire | Defaults live in our own parameter docs ("size defaults to ₹10k; say so"). Never ask first. The wire is checked for names of tools that aren't on it. |
+| A 20-day EMA silently became a 50-day one | A second LLM re-translated the rule on every edit | One model writes the Play JSON directly. The edit result carries a structural diff (`draft_delta`). If the structure changed, the play drops to `propose`. |
+| Backtest, alerts and live strategies used **three different fill rules** | `strategies.on_bar` ignored `closed`; the backtest was a separate engine | **One runtime.** The backtest *is* that runtime replayed over history, and every rule names its bar. |
+| 47% of armed rules sat on symbols with no bars; `RSI>70 AND RSI<30` armed fine | No validation when a rule was armed | Every input must resolve to fresh data, and a **historical fire count** is computed at compile time. "Would have fired 0 times in 2 years" or "fires every day" is shown before anything is armed. |
+| An exit sold shares that belonged to another rule; a duplicate arm doubled the size | `paper_positions UNIQUE(account_id, symbol)`; no idempotency | Each play has its own sub-ledger and can exit only its own quantity. Idempotency key `(play, bar_ts, leg)`. Identical plays are de-duplicated by hash. |
+| A single global bar hook silently replaced the alerts hook | Hook stored in one variable | Already fixed (`register_bar_hook` is a list). Plays add one more subscriber. |
+| "Saved" shown with no store behind it; journal writes it couldn't make | Card text came from the model | **A card renders only from the stored row.** The tool returns an id, and the UI reads the row. |
+| Research chat had no path to an order | Separate Research and Execution modes | One chat. Execution is two tools in the same harness. |
+| Three data planes (backtest 21 Sep, chart 2 Sep, screener 22 Jul) | Different stores per feature | Measures, backtest and live all read `ds.get_bars`, and every output carries `as_of`. |
+
+## 2. What the research says breaks agent harnesses, and our answer
+
+| Failure class | Evidence | Our answer |
+|---|---|---|
+| **Compounding steps.** 10 steps at 95% each succeed only ~60% of the time | [Openlayer](https://www.openlayer.com/blog/ai-agent-failure-modes-tool-calling-loops-propagation), [Atlan](https://atlan.com/know/agent-harness-failures-anti-patterns/) | A typical build is **1 tool round plus the answer**: `play` takes measures inline. Code validates between steps. |
+| **Silent tool failures** (HTTP 200 with an empty body) and the agent carrying on | [Arize](https://arize.com/blog/common-ai-agent-failures/) | Missing data makes the value UNKNOWN, so the play holds and the card names what is missing. Every error says what to fix, with an example ([Anthropic, tools](https://www.anthropic.com/engineering/writing-tools-for-agents)). |
+| **Too many tools.** Our own bench: the tool surface, not the prompt, costs ~2.9 s TTFT per round; 10 strict tools save ~2.1 s per round | `project_chat_tool_latency_bench_2026_10_18` | The tool count **stays at 10**: `strategy` and `alerts` are replaced by `play`, and `measure` is added. |
+| **Context rot.** Long, stale tool results; "lost in the middle" | [Anthropic, context](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) | Tool results are shaped (an id, the current value, ≤5 points, problems). Series go to the chart, not the model. Stale tool results are cleared first. The judge and the planner run in **fresh, tiny contexts**, never in chat history. |
+| **Information injection beats prompt injection.** Fabricated news worked 62% of the time vs 14% for prompt injection; credibility cues ("BREAKING", a named source) drove it; only hierarchical aggregation helped | [Fake News, Real Crashes, arXiv 2610.26438](https://arxiv.org/abs/2610.26438) | A judge has **no tools and returns a typed fact**, never an action. Code binds the source by account id, not by display name. Cue words are stripped before judging. A judge alone can never trigger `act`: it needs a primary-source match (an NSE/BSE filing) or price confirmation. This is the hierarchical-aggregation pattern. |
+| **Lookahead in model-written code.** A leaky strategy with a Sharpe ratio of 35 passed Deflated Sharpe; "prompting to avoid lookahead is weak, make the environment causal" | [arXiv 2608.27734](https://arxiv.org/pdf/2608.27734) | Inputs are **point-in-time by construction**: bars are cut at t, and SQL inputs must name a `known_at` column (no `known_at` means live-only, never backtested). The validator runs the existing **truncation (repaint) test** from `custom_indicators`. |
+| **Search inflates false edges** | same | Every measure or play variant that gets backtested increments the trial counter, so the trust ladder deflates for it (and `num_trials:1` is no longer stuck). |
+| **Loops and runaway cost** | [Openlayer](https://www.openlayer.com/blog/ai-agent-failure-modes-tool-calling-loops-propagation) | Round cap (existing). Daily judge budget per user. Code pre-filters before any model is called. Judgments are cached per `(judge, event)`. |
+| **Guardrails that live only in prompts** | All of the above | Mandate, escalation, idempotency and causality are all code. The prompt only describes intent. |
+
+## 3. Revisions to v1 (weak points found while stress-testing it)
+
+1. **The paper book can't serve the day-trader half.** `paper.py` is
+   *long-only delivery* (`_NO_FUTURE` refuses NFO, MCX and futures), with one
+   position per symbol. Straddles, intraday shorts, MIS square-off and futures
+   need **a new intraday/derivatives paper book**:
+   - play-scoped lots;
+   - short positions;
+   - option and futures legs with lot sizes;
+   - margin from Kite's basket-margin API instead of our own SPAN model;
+   - auto square-off at 15:20.
+
+   This is the largest single build for the day-trader half. `paper.py` stays
+   as the delivery book.
+2. **Too many rounds.** v1 needed `measure.define` → `play.compile` → answer,
+   about 3 rounds × ~8 s. Now `play` accepts **inline measures** (promoted to
+   the library when the play is saved), so a typical turn is 1 tool round plus
+   the answer.
+3. **Too many tools.** v1 added 4; now it's 2 inside chat v2 (§4).
+   - A **judge** becomes `measure` with `kind:"judge"`.
+   - A **custom security** becomes `measure` with `as_symbol:"@DEFENCE"`: a
+     NAV measure published as a chartable, alertable symbol.
+4. **Lookahead.** Point-in-time inputs, `known_at` on SQL, and the
+   truncation test (§2).
+5. **Information injection.** The judge's isolation and corroboration rules
+   (§2).
+6. **Late fires after a restart.** `alerts.catch_up` fires with `late=1`. A
+   late fire **never trades**: it drops to notify, with "missed while
+   offline".
+7. **The historical fire count** becomes the universal compile-time check. It
+   catches impossible rules, too-loose rules, wrong units and dead symbols
+   with one mechanism.
+8. **The policy planner** runs as a fresh, small context: objective, mandate,
+   holdings, the referenced measures and the last 3 receipts. It returns plan
+   JSON. If the structure changes, it drops to `propose`.
+9. **Sandbox throughput.** Measured at 33 ms per process, and 500 jobs in one
+   process also take about 33 ms. Use **persistent workers partitioned per
+   user**, evaluate by clock batch, and recycle after N runs.
+10. **Fills for a rule that names a closed bar** happen at the next bar's
+    open, in replay and live alike. This closes the one-bar gap the old
+    system left between backtest and live.
+11. **Kite token expiry (~6 AM).** Live-data plays go UNKNOWN and the account
+    shows "data paused, re-login". They never fire on stale or yfinance data
+    without escalating.
 
 ---
 
-## Part 1: Autonomy is three separate dials
+## 4. The harness: the same recipe as chat v2
 
-"Autonomy" mixes three independent questions. Each Play answers all three
-explicitly and shows the answers on its card.
+Chat v2 (2026-10-18) is the proven recipe:
+- 10 consolidated tools that fan out to engine functions;
+- a ~1.8k-token prompt first, live context after;
+- flag-gated (`harness:"v2"`);
+- a live blind A/B against v1 that v2 won 21-7: p90 25.7 s vs 57.6 s, input
+  tokens 30k vs 79k per turn, cost down 32%.
 
-| Dial | Question | Values |
-|---|---|---|
-| **Lifespan** | How long does this instruction live? | `now` (do it once, immediately) · `once_when` (wait for a condition, act once, done) · `standing` (act every time the condition recurs, until it expires or hits a cap) · `policy` (maintain an objective continuously, e.g. "keep it rebalanced") |
-| **Authority** | Who pulls the trigger when it fires? | `notify` (tell me) · `propose` (pre-filled card or ticket, one tap) · `act` (do it within the limits, then tell me) · `manage` (act, and also modify or close what it opened) |
-| **Discretion** | How much does the model decide *at fire time*? | `none` (compiled rule; code only) · `judge` (the model only classifies unstructured input such as a post or filing, with a quoted reason) · `plan` (the model chooses the action, for example new weights, within the limits) |
+The execution layer is **built into that harness**, not alongside it.
 
-The dials are independent:
+### 4.1 The chat (one model, 10 tools)
 
-| Example | Lifespan | Authority | Discretion |
+`read_chart · draw · workspace · market_data · search · query · screen · journal · measure · play`
+
+(`alerts` and `strategy` are retired. An alert is a Play with authority
+`notify`.)
+
+**`measure`** has actions define, test, list and get.
+- `define` takes `{title, formula, inputs, code, output, clock, check?, kind?: "value"|"judge", as_symbol?}`.
+- Input kinds: `bars · sql(known_at) · chain · events · judge · measure · holding`.
+- The description is about 900 tokens. It holds the compute contract, the
+  input kinds, one example, and "if you don't know the formula, search first".
+- The result is `{id, now, as_of, last_5, unit, problems[], chart_card}`. The
+  backfilled series goes to the card, never into the context.
+
+**`play`** has actions compile, edit, pause, resume, list, explain and kill_all.
+- `compile` takes `{title, contract, mandate, when, do, manage, settle?, measures?: [inline]}`.
+- The parameter docs hold the dial defaults ("no schedule named → `now` /
+  `once_when`; 'go ahead' → one step up; ambiguous → shortest lifespan and
+  lowest authority, and offer the upgrade"). They do not live in the prompt.
+- The result is `{id, readback, contract_line, fires_hist:{n, per_month, last}, base_rate?, diff?, problems[]}`.
+  The card renders from the stored row.
+- Large free-form objects (`when`, `manage`) are sent as JSON strings and
+  validated on the server with actionable errors, because strict mode rejects
+  free-form objects. `strict:false` is used, per the deferred-function trap.
+
+The **prompt** gets about 6 lines on execution: the slow/fast-clock rule,
+"build, don't ask", "quote the card", and "real money = propose".
+
+**Live context** goes after the prompt, so the cache holds: the focused
+symbol, the user's autonomy profile, and the active play count. Never the full
+play list; that comes from `play list` when needed.
+
+### 4.2 Two background model callers, never in chat history
+
+| Caller | Context | Tools | Output |
 |---|---|---|---|
-| "Alert me if HAL tweets about an order win" | `once_when` | `notify` | `judge` |
-| A day trader's trailing stop | `standing` | `manage` | `none` |
-| "Keep my defence basket rebalanced, aggressive" | `policy` | `propose` | `plan` |
+| **Judge** | ~300-token brief + one event, source identity added by code, cue words stripped | **None** | `{verdict, value?, confidence, quote}`; no quote means unknown |
+| **Planner** (policy plays, weekly or on drift) | Objective + mandate + holdings + the referenced measures + 3 receipts (~2k tokens) | `query`, `measure test` (read-only) | Plan JSON. Code sizes the orders; the mandate is checked; structural change drops to `propose` |
 
-### How the dials are set from what the user says
+"Explain this fire" runs lazily when the user opens a receipt, not on every
+fire.
 
-The model sets them, not keyword matching. Each dial records the user's words
-that set it (`inferred_from`) and a confidence. The defaults live in the
-**tool's parameter documentation**, not the system prompt, because a parameter
-doc sits closer to the call.
+### 4.3 Measurement (the same discipline as v2)
 
-- "buy X if Y", "when X happens" → `once_when`
-- "whenever", "every time", "each day" → `standing`
-- "keep it", "maintain", "manage", "hedge it", "stay at" → `policy`
-- "tell me", "ping me", "alert" → `notify`
-- "go ahead", "just do it", "don't ask" → authority one step up, capped by
-  limits and by the money rail (below)
-- Wording that names nothing → the user's **autonomy profile** (set once at
-  onboarding and editable)
+- **One instrumented, multi-turn live run** per step, with the triad
+  (tokens, latency, quality). Fix the problems, retest once.
+- Labelled sets:
+  - 30 autonomy-contract prompts across trader types;
+  - 15 measure asks;
+  - 10 fabricated-news injections (BREAKING / named source / blended);
+  - a replay-determinism check (replay twice → identical receipts).
+- A/B against the current `strategy`/`alerts` tools behind `harness:"v2x"`,
+  blind-judged, before anything ships.
 
-**The ambiguity rule is: shortest lifespan, lowest authority, and offer the
-upgrade in one tap. Never ask first.**
-
-Worked example. "Rebalance it and go aggressive":
-- "Rebalance it" names no schedule, so the lifespan is `now`.
-- "Go ahead" raises the authority to `act` on paper, or to `propose` with
-  real money.
-- "Aggressive" is not an autonomy setting. It is a **parameter of the
-  objective**: a risk tilt the planner turns into target weights, such as
-  momentum-weighted, a 25% cap per name and no cash buffer.
-- The card does the rebalance once and then offers one-tap chips: **[Keep it
-  this way · weekly]** and **[only when drift > 5%]**. Choosing one turns the
-  same Play into a `policy`.
-
-The upgrade is never applied silently, and the downgrade (pause, or back to
-propose) is always one tap.
-
-### What the user sees on the card
-
-Every Play card shows a one-line contract with editable chips:
+## 5. The runtime (code only)
 
 ```
-Runs: every time it triggers · Acts: proposes, you confirm · Limit ₹50,000 · Ends 30 Nov
+Sources ─► Event store ─────────────┐
+Kite/crypto ticks ─► bars (exists) ─┼─► Measure engine (persistent sandbox workers, clock batches, as_of)
+                                    │        │
+Judge worker (no tools) ◄── prefilter ◄──────┘
+                                    ▼
+Play runtime (alerts.py lineage: crossing state, closed-bar ctx, catch-up)
+  watching → fired → proposed | acting → in position → managing → settled
+                                    │  escalation: first fire · low confidence · limit · slippage
+                                    │              · stale/non-Kite · structural plan change · late
+                                    ▼
+Mandate check (code) ─► Router: notify │ ticket │ paper (delivery │ intraday/derivatives) │ broker-native exit
+                                    ▼
+Receipts (inputs, measure values, judge quote, mandate check, action) ─► journal, card, explain
 ```
 
-### Mandate: hard limits enforced by code
+Backtest is this same runtime replayed over history, with the trial counter
+and trust-ladder verdict reused.
 
-Authority of `act` or above needs a **mandate**. The model cannot widen it.
-It changes only through UI controls, or a confirm card that the user taps.
+## 6. Hard rules (break one and we are back to the old system)
 
-- Per-play mandate: capital, maximum per order, maximum fires, expiry,
-  allowed instruments and segments, allowed hours.
-- Account-wide mandate: maximum daily loss, maximum open plays, maximum gross
-  exposure, F&O selling allowed yes/no, and a kill switch that pauses
-  everything.
+1. Never import `execution_bridge`, `strategies.py` runtime, or Pivot workflow
+   tools and schemas.
+2. Never put a second model in the compile path. The only model calls outside
+   chat are the judge and the planner, both tool-less or read-only.
+3. A card renders only from a stored row. A tool never returns "saved"
+   without an id.
+4. The model never writes a price, a size in shares, or a timestamp. It
+   writes addresses, measures and ₹ budgets; code converts them.
+5. Every input is point-in-time. No `known_at` means no backtest.
+6. A judge never causes `act` alone.
+7. Late, stale or non-Kite data never trades. It escalates.
+8. Real money stops at `propose` (plus broker-native exits) until we are
+   empanelled with NSE as an algo provider.
+9. Behaviour fixes go into **tool and parameter docs**, not the prompt.
+   Every fix should make the wire smaller.
 
-Every action passes a pre-trade check in code and leaves a receipt: inputs,
-measure values, judge evidence, the mandate check, and what was done.
+## 7. Build order (each step ships behind the flag, with its eval)
 
-This is the gap in Robinhood Agents, where the account ceiling is the only real
-gate once approvals are switched off. Our limits apply per play and
-account-wide, every action is checked first, and every action leaves a receipt.
+| # | Step | Lines (est.) | Done when |
+|---|---|---|---|
+| 1 | **Measure engine**: `measure` tool, validator (policy, determinism, NaN, units, truncation, known value), backfill + chart card, persistent workers, indicators as library measures | ~1,200 | 15 varied asks ("HDFC/ICICI P/B", "NIFTY PCR", "3-day FII streak", "basket NAV") correct with **zero backend edits**; eval ≤ 1 tool round on 80% |
+| 2 | **Plays**: `play` tool, the three dials, mandate, escalation, receipts, historical fire count; runtime on the `alerts` lineage; notify + delivery-paper routes; play-scoped lots | ~1,500 | ≥ 90% contract inference on 30 labelled prompts, 0 silent upgrades, replay determinism |
+| 3 | **Custom securities v1** (`as_symbol`): baskets, ratios and pairs as symbols, with NAV, alerts and share links | ~500 | "Make me a defence basket and alert me when it breaks its 50-DMA" works end to end |
+| 4 | **Event store + judges**: NSE/BSE filings, SEBI/RBI/PIB, RSS, X watchlist; funnel; cue stripping; corroboration | ~1,200 | A real filing fires with a quote and logged latency; injection set reaches `act` 0/10 |
+| 5 | **Intraday/derivatives paper book + day-trader management**: short positions, option/futures legs, Kite basket margin, square-off, bracket, trailing, OCO, time exit, opening range, straddle, re-entry, P&L exit | ~2,000 | A replayed day's 09:20-straddle fills match the backtest bar for bar |
+| 6 | **Policy plays + planner** | ~600 | "Rebalance it, go aggressive" does it once, offers the chip, and the chip turns it into a weekly policy |
+| 7 | **Real-money proposals**: pre-filled tickets; Dhan Super Order / Kite GTT OCO exits when the user confirms | ~600 | A confirmed entry places its exit at the broker in the same action |
 
-### Escalation: a play acting on its own still stops to ask
+About 7.6k new lines. Retiring the old strategy runtime, bridge, `triggers/`
+and the v1 `alerts`/`strategy` tools removes more than that. When we're done
+the codebase is smaller.
 
-This follows the "Approver" level (L4) from Feng, McDonald and Zhang, *Levels of
-Autonomy for AI Agents* (2025). Even with authority set to `act`, a play drops
-to `propose` for that one fire when:
+## 8. Risks that remain (stated, not hidden)
 
-1. it is the play's first fire;
-2. judge confidence is below the play's threshold;
-3. the action would breach any limit;
-4. price has moved beyond the slippage band since the trigger;
-5. data is stale (`as_of` more than 2 bars old), or the source is not Kite;
-6. the model's plan changed the structure, not just the parameters. This is
-   detected by a structural diff (`draft_delta`), never by a regex.
+- **The model can write a wrong formula** that passes validation, such as
+  book value per share in the wrong unit. The known-value check and the unit
+  guard reduce this but don't remove it, so the formula is always shown on
+  the card.
+- **Interpreting the autonomy contract will be wrong sometimes.** We default
+  to the safe side and offer one-tap upgrades, so a wrong guess costs a tap,
+  not money.
+- **Event latency.** We will be seconds to minutes behind HFT on posts. The
+  product's value is interpretation, base rates and confirmation, not speed.
+- **One VM core** limits measure throughput. Persistent workers and clock
+  batching should hold to hundreds of live plays. Step 2's eval measures it.
+- **Regulation.** Paper trading on live prices needs our data licence
+  confirmed. Unattended real-money trading needs empanelment.
 
-### Risk-reducing actions get more autonomy than risk-increasing ones
+## 9. Open decisions (none blocks steps 1-3)
 
-- Exits, stop-losses, square-offs and hedges may run at `manage` even when
-  entries are `propose`. A stop-loss that waits for a tap is not a stop-loss.
-- With real money this is handled **without unattended algo execution**. When
-  the user taps to confirm an entry, the exit goes to the broker as a native
-  order in the same action: a Dhan Super Order with a trailing jump, or a Kite
-  GTT OCO. The user placed both, and the broker holds the exit.
-
-### Autonomy is earned
-
-- A new Play starts at `propose`.
-- After N proposals accepted unedited, or a paper run of M fires, the card
-  offers to step up: "let it act within ₹Y".
-- Edits and rejections reset the counter.
-
-### The money rail caps authority (decided by regulation, not by product)
-
-| Book | Maximum authority | Why |
-|---|---|---|
-| Paper | `manage` | It's a simulation |
-| Real money, v1 | `propose`, plus broker-native exits | The user places every order; no unattended execution |
-| Real money, after empanelment | `act` / `manage` | Exchange algo ID, broker partner, white-box strategies |
-
-The dials and the product are built in full now; only the cap moves later.
-
-### Policy plays (continuous objectives)
-
-- A policy has a cadence or a drift trigger, for example weekly, or when any
-  weight drifts more than 5%.
-- On each fire the **planner** runs the model on the slow clock. The model
-  reads measures, may define new ones, and returns target weights or orders
-  with a reason.
-- Code turns targets into orders: lot sizes, costs and the mandate check. The
-  result goes through the normal router at the play's authority.
-- The planner never runs on a tick.
-
----
-
-## Part 2: Measures, conditions with no fixed vocabulary
-
-Any fixed condition vocabulary will be missing something:
-- the alerts address grammar;
-- the DSL node types;
-- a ratio, a spread, P/B relative to the sector median, PCR, a three-day FII
-  selling streak, a custom security's NAV, a settlement payoff.
-
-So the platform has **one primitive the model authors itself**.
-
-### Measure
-
-A **Measure** is a named, versioned function over declared inputs. The model
-writes it, a validator checks it, and the runtime evaluates it in the sandbox.
-
-```jsonc
-{
-  "id": "M:pb_rel_hdfc_icici@3",          // name@version; the version is the hash of inputs + code
-  "title": "HDFC Bank P/B ÷ ICICI Bank P/B",
-  "formula": "(close_H / bvps_H) / (close_I / bvps_I)",   // plain English/maths, always shown
-  "inputs": {                                // DATA ADDRESSES the runtime can fetch live and historically
-    "close_H": {"bars": {"symbol": "HDFCBANK", "interval": "1d", "field": "close", "lookback": 300}},
-    "close_I": {"bars": {"symbol": "ICICIBANK", "interval": "1d", "field": "close", "lookback": 300}},
-    "bvps_H":  {"sql": "SELECT ... FROM quarters WHERE symbol='HDFCBANK' ...", "refresh": "1d"},
-    "bvps_I":  {"sql": "SELECT ... FROM quarters WHERE symbol='ICICIBANK' ...", "refresh": "1d"}
-  },
-  "code": "def compute(data, params):\n    ...",   // sandboxed; same contract as the query tool
-  "output": {"kind": "series", "unit": "ratio"},  // scalar | series | bool ; unit feeds the magnitude guard
-  "clock": "bar:1d",                         // bar:<iv> | event:<stream> | schedule:<cron> | on_demand
-  "check": {"at": "2026-10-20", "expect": 1.3, "tol": 0.1, "source": "company_profile.pb"},
-  "provenance": {"author": "model", "conversation": "...", "validated_at": "...", "sources": ["url"]}
-}
-```
-
-**Input kinds.** These are the only things the runtime must know how to
-fetch. Everything else is the model's arithmetic.
-
-| Kind | Fetches | Live path |
-|---|---|---|
-| `bars` | OHLCV for any symbol or interval. Several symbols are aligned causally (`custom_indicators.align_basket`) | `ds.get_bars` (memory, forming bar dropped for closed-bar clocks) |
-| `sql` | One read-only SELECT on the market DB (fundamentals, quarters, deals, results, pattern stats) | Cached per `refresh`. **Not allowed on clocks faster than 1 minute** |
-| `chain` | Option chain field by underlying, expiry and strike selector (ATM±k, delta) | Kite overlay plus bhavcopy |
-| `events` | Counts, recency and fields from a normalised event stream (filings, posts, news, macro), with a filter | Event store |
-| `judge` | The output series of a Judge (below) | Judge cache |
-| `measure` | Another measure (composition) | Measure engine |
-| `holding` | A paper position or custom security's quantity, cost or P&L | Paper book |
-
-**How a Measure is born.** This makes "the model makes any ratio itself" real:
-1. **Explore** with `query` (SQL plus Python, already live in chat v2).
-2. If the formula isn't known, **search** for it (web search is on every turn),
-   e.g. the definition of a Piotroski F-score.
-3. **Define** it: the model calls `measure.define`. The validator then:
-   - checks the code against the sandbox's AST and policy rules;
-   - runs it over the full lookback and backfills history;
-   - checks it is deterministic (two runs give identical output);
-   - counts NaN, None and inf values;
-   - checks the unit's scale (the magnitude guard from `alerts`);
-   - checks the latency budget;
-   - checks it against a **known value** where one exists (`check`), for example
-     a P/B we already store.
-4. The validator returns the current value, a backfilled series (so the measure
-   is **chartable and backtestable at once**), and any problems found, which the
-   model fixes and resubmits.
-5. Saved measures are reused: library measures are shared, user measures are
-   private by default, and duplicates are found by `(inputs, code)` hash.
-
-**White box by construction.** Every Play is formulas the user can read and
-code they can open. That matches SEBI's white-box category and the
-"evidence you can check" rule.
-
-**Built-ins are just measures.** The 48 indicators, patterns and volume-profile
-levels become pre-written library measures. One evaluation path, not two.
-
-### Judge: the measure's sibling, for things code cannot read
-
-A Judge is a model-evaluated predicate over unstructured input, for example
-"is this post bullish for HAL?" or "does this filing announce an order above
-₹500 cr?"
-
-```jsonc
-{
-  "id": "J:hal_order_win@1",
-  "question": "Does this announce a new order or contract for HAL? If so, what is its value in ₹ crore?",
-  "over": {"events": {"streams": ["nse_filings", "x:@HALHQBLR", "rss:et_markets"], "match": ["HAL", "Hindustan Aeronautics"]}},
-  "returns": {"verdict": "bool", "value_cr": "number|null", "confidence": "0-1", "quote": "verbatim"},
-  "funnel": ["prefilter", "small", "strong_if_positive"]
-}
-```
-
-- **Prefilter (code):** entity and keyword match, so most events never reach a
-  model.
-- **Small model:** classifies what's left. TypeSafe-style typed judgments are
-  a candidate here.
-- **Strong model:** confirms positives and **must return a verbatim quote**.
-  If it gives no quote, the judge returns unknown, which never fires. This is
-  the `macro_events/verifier.py` rule.
-- Results are cached by event ID, so a backtest replays the same judgments it
-  made live. Judge outputs are series, so measures can use them, e.g. "bullish
-  posts in the last hour".
-
-### Settlement is a measure too
-
-- A custom security's NAV, a payoff at expiry, a play's P&L attribution and a
-  maturity value are all measures.
-- Settling is a scheduled trigger that evaluates the settlement measure and
-  books the result in the paper book.
-- No settlement code per product.
-
-### Conditions shrink to a tiny grammar
-
-`Play.when` is a boolean tree over measures, judges and time. It uses a few
-operators that the runtime owns because they need state:
-- `above` / `below` / `between`;
-- `cross_up` / `cross_down` (side persisted per condition, as in `alerts.cstate`);
-- `enters` / `exits`;
-- `for N bars`;
-- `within T of` (sequence and confirmation, e.g. "judge true, then price holds
-  above VWAP for 2 bars within 10 minutes");
-- `at` (a time of day or session event).
-
-Anything else is a measure that returns a bool.
-
-### Performance: compile once, evaluate fast
-
-- The sandbox starts a process per run: measured at about 33 ms, and 500 jobs
-  in one process also take about 33 ms. That is fine for define, backfill and
-  slow clocks. On the 1-minute clock, with hundreds of plays on a one-core
-  machine, it is not.
-- Fix: **long-lived sandbox workers.**
-  - Each worker holds compiled measures, partitioned per user for user code.
-  - Bindings are fetched once per clock tick and shared.
-  - Measures on the same clock are evaluated in one batch.
-  - Workers are recycled after N evaluations or on a memory high-water mark.
-  - The isolation layers stay the same: AST allowlist, audit hook, rlimits,
-    no environment, uid 65534.
-- Only measures that a live Play references are evaluated. Charts evaluate on
-  demand and cache, as custom indicators already do.
-
-### Missing and stale data
-
-- A binding that returns None makes the measure None, and the condition
-  UNKNOWN, so the play **holds** (the three-valued evaluator rule).
-- Each output carries `as_of` = the oldest of its inputs. Acting on stale data
-  escalates to `propose`, with the reason shown.
-
----
-
-## Part 3: The architecture
-
-```
- CHAT (one model, a few tools, slow clock)        RUNTIME (code, fast clock, no model on the hot path)
- ────────────────────────────────────────         ─────────────────────────────────────────────────────
- query            explore (exists)                 Sources ─► Event store (filings, posts, news, macro)
- measure.define   write a formula ───────► Measures ─► Measure engine (sandbox workers, clocks, cache)
- judge.define     write a question ──────► Judges   ─► Judge funnel (prefilter → small → strong+quote)
- play.compile     intent → Play ─────────► Plays    ─► Play runtime (alerts.py lineage):
- play.edit / pause / explain                            watching → fired → (proposed | acting)
-                                                         → in position → managing → settled
-                                                           │ escalation rules
-                                                           ▼
-                                                        Mandate check (code) ──► Router:
-                                                           notify · ticket · paper fill · broker-native exit
-                                                           │
- planner          policy re-plan ◄── schedule/drift ───────┤  (slow clock only)
- explain          why it fired ◄──── receipt ──────────────┘  receipts / journal
-```
-
-**The tool surface is four tools.** The model already has `query` and web
-search, and the old strategy tool is retired.
-- `measure`: define, test, list
-- `judge`: define, test
-- `play`: compile, edit, pause, resume, list, explain
-- `custom_security`: create a basket, ratio or payoff template. This is sugar
-  for "a measure that is a NAV, plus a symbol".
-
-### Play object (abridged)
-
-```jsonc
-{
-  "id": "P:...", "title": "...", "readback": "plain-English, generated from the tree",
-  "contract": {"lifespan": "once_when", "authority": "propose", "discretion": "judge",
-               "inferred_from": "buy HAL if they announce a big order", "confidence": 0.8,
-               "expires": "2026-11-30"},
-  "mandate": {"capital_inr": 50000, "max_order_inr": 25000, "max_fires": 1, "hours": "09:15-15:20"},
-  "when": {"all": [{"j": "J:hal_order_win", "is": true, "where": "value_cr >= 500"},
-                   {"m": "M:close_vs_vwap", "op": "above", "rhs": 0, "for": "2 bars", "within": "10m"}]},
-  "do": {"enter": {"symbol": "HAL", "side": "buy", "size": {"inr": 25000}}},
-  "manage": {"stop": {"m": "M:atr_stop_2x"}, "target": {"pct": 4}, "trail": null,
-             "time_exit": "15:15", "reentry": {"max": 0}},
-  "settle": null,
-  "base_rate": {"event": "NSE order win > 5% mcap", "n": 31, "median_1d": "…", "control": "…"}
-}
-```
-
-Day-trader plays are mostly `manage`. Event plays are mostly `when` with a
-judge. A custom security is a measure plus a symbol. **One compiler, one
-runtime, one router.**
-
-### What is reused
-
-| Piece | Becomes |
-|---|---|
-| `alerts.py` worker, crossing state, closed-bar context, catch-up | Play runtime core |
-| `custom_indicators` + `indicator_sandbox` (`free` mode, `align_basket`) | Measure engine, generalised beyond one symbol's OHLCV |
-| `chat_v2.query` | Unchanged; becomes the exploration step before `measure.define` |
-| `indicators.py`, `patterns.py` | Library measures |
-| `macro_events/verifier.py` | The judge funnel's rule that no quote means no fire |
-| `news_events` Telegram and RSS, `webfeeds.py`, `company_news` NSE fetch | Event-store sources |
-| `paper.py` (OCO, crypto in INR) | Router sink for paper fills; holding inputs |
-| DSL `evaluator.py` three-valued logic, `readback.py`, `strategies.draft_delta` | `when` evaluation, readback, structural diff for escalation |
-| `notify.py` outbox | Router sink for notify |
-| `weighting.py` | Planner helpers for policy plays and custom securities |
-
----
-
-## Part 4: Build order
-
-Each step ends with a live, multi-turn eval with the triad (tokens, latency,
-quality). Bump `?v=N` on every edit to a front-end file.
-
-1. **Measures.** `measure.define`, the validator, backfill and chart overlay;
-   persistent sandbox workers; indicators exposed as library measures. Done
-   when 15 varied asks ("HDFC/ICICI P/B", "NIFTY PCR", "3-day FII streak", "my
-   basket NAV") define a correct measure with zero backend edits.
-2. **Plays: runtime and contract.** `play.compile` with the three dials and
-   `inferred_from`, mandate, escalation and receipts, on the `alerts` lineage;
-   paper and notify routes. Done when 30 autonomy-labelled prompts infer
-   lifespan and authority correctly in ≥ 90% of cases and never upgrade
-   silently.
-3. **Judges and the event store.** NSE filings, SEBI, RBI and PIB releases, RSS
-   and an X watchlist; the funnel; cached replays. Done when a real filing
-   fires with its quote, and the latency is logged.
-4. **Management and day-trader policies.** Bracket, trailing, OCO, time exit,
-   opening range, straddle legs, re-entry, P&L exit; replay backtest on the
-   same runtime. Done when a replayed day's fills match the backtest bar for
-   bar.
-5. **Policy plays, planner, custom securities.** Done when "rebalance it, go
-   aggressive" does it once, offers the chip, and the chip turns it into a
-   weekly policy.
-6. **Real-money proposals.** Pre-filled tickets, with broker-native exits on
-   confirm (Dhan Super Order, Kite GTT OCO).
-
-Out of scope until empanelment and a legal opinion: unattended real-money
-`act` and `manage`.
+1. Which app is "Listen" (send the X handle)?
+2. The custom-securities description, which didn't arrive in the message.
+3. US stocks and perps in scope? (This changes CLAUDE.md's India-only rule.)
+4. Start NSE empanelment and get a legal opinion now?
+5. The X API watchlist budget (~$300 a month) — needed by step 4.
