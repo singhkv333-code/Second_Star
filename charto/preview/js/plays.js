@@ -294,7 +294,11 @@ const PlayUI = (() => {
     const b = ev.body || {};
     const t = b.ticket;
     const pctOf = (w) => `${+(w * 100).toFixed(1)}%`;
-    const ticket = t && t.rebalance ? `<div class="py-ticket py-ticket-list">` +
+    const leg = (lg) => `<span>${t.close ? "Close " : ""}${lg.side === "short" ? "Short" : lg.side === "long" ? "Long" : cap(lg.side)} ` +
+      `${esc(num(lg.qty))} ${esc(lg.symbol)} at about ${esc(num(lg.px))}</span>`;
+    const ticket = t && t.book === "day" ? `<div class="py-ticket py-ticket-list">${(t.legs || []).map(leg).join("")}` +
+      (t.margin_est ? `<span>Margin about ₹${esc(num(t.margin_est))}</span>` : "") + `</div>`
+      : t && t.rebalance ? `<div class="py-ticket py-ticket-list">` +
       (t.legs || []).map((lg) => `<span>${lg.side === "BUY" ? "Buy" : "Sell"} ${esc(num(lg.qty))} ${esc(lg.symbol)} at about ${esc(num(lg.price))}</span>`).join("") +
       `<span>Targets: ${esc(Object.entries(t.targets || {}).map(([k, w]) => `${k} ${pctOf(w)}`).join(", "))}</span>` +
       (t.why ? `<span>${esc(t.why)}</span>` : "") + `</div>`
@@ -443,13 +447,8 @@ const PlayUI = (() => {
     return { show() { load(); }, hide() {} };
   }
 
-  if (typeof Dock !== "undefined") {
-    Dock.register({
-      type: "plays", title: "Plays", icon: "radio", hue: "green", group: "Trade",
-      desc: "Your plays, and what they saw and did", zone: "right", minW: 300, mount,
-      single: true,
-    });
-  }
+  // Plays are not a desk widget: they live on their own page (plays.html),
+  // where they are built and adjusted in conversation. `mount` stays for it.
 
   /* A play's event on the alerts stream: tell the widget, and say it once. */
   window.addEventListener("pivot:play", (e) => {
@@ -460,5 +459,5 @@ const PlayUI = (() => {
     toast(`${ev.play || ev.title} ${what}`);
   });
 
-  return { html, wire, eventHTML, call, security };
+  return { html, wire, eventHTML, call, security, compact, positionsHTML, wireInbox, toast, num };
 })();

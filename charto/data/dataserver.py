@@ -14730,6 +14730,9 @@ def build_context_block(ctx: dict | None) -> str:
     """
     if not ctx:
         return ""
+    if isinstance(ctx, dict) and ctx.get("surface") == "plays":
+        # the Plays page: a conversation about plays, with no chart on screen
+        return _plays.surface_block(ctx)
     journal_ctx = ctx.get("journal") if isinstance(ctx, dict) else None
     journal_block = ""
     if isinstance(journal_ctx, dict):
@@ -21100,6 +21103,8 @@ class Handler(BaseHTTPRequestHandler):
             ctx = body.get("context") or {}
             sym = canon_symbol(ctx.get("symbol") or "RELIANCE")
             _req.symbol = sym
+            # the Plays page has no chart: a play there names its own symbol
+            _req.surface = str(ctx.get("surface") or "")
             # HOW MANY BARS THE USER CAN ACTUALLY SEE.
             #
             # The scan detectors defaulted to a fixed 300 and the model was

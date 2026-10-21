@@ -641,6 +641,8 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
         raise Bad("play must be an object")
     said: list[str] = []
     sym = ds.canon_symbol(str(raw.get("symbol") or chart_symbol or ""))
+    if not sym and (raw.get("do") or {}).get("kind") == "rebalance":
+        sym = "NIFTY 50" if ds._symbol_ready("NIFTY 50") else "RELIANCE"   # only its daily clock
     if not sym:
         raise Bad("play needs a symbol (the instrument whose bars it watches)")
     if customsec.is_custom(sym) and not customsec.get(sym):
@@ -2156,6 +2158,44 @@ def _after_proposal(pid: int) -> None:
         _entries_over(pid, "fired")
 
 
+# ══ the Plays page ══════════════════════════════════════════════════════════
+
+def surface_block(ctx: dict) -> str:
+    """The context block for the Plays page: no chart, and what the trader
+    already has, so "make it 25" can find the play it means."""
+    uid = _uid()
+    lines = ["## Where the trader is",
+             "The Plays page: a conversation for building and adjusting plays. No chart is on "
+             "screen, so do not draw; read_chart, market_data and the rest still work for any "
+             "symbol. Every play you compile or edit appears in this conversation as its card. "
+             "When they ask to change a play, edit it (play edit with its id and the whole play) "
+             "rather than making a second one."]
+    if not uid:
+        lines.append("They are signed out: plays need an account, so say they must sign in.")
+        return "\n".join(lines)
+    init_db()
+    rows = list_plays(uid, ("armed", "paused", "draft", "done"))[:20]
+    if rows:
+        lines.append("\n## Their plays (id · state · title · what it does)")
+        for p in rows:
+            lines.append(f"- {p['id']} · {p['state']} · {p['spec']['title']} · {summary(p['spec'])}")
+    try:
+        secs = customsec.list_for(uid)[:10]
+    except Exception:                                       # noqa: BLE001
+        secs = []
+    if secs:
+        lines.append("\n## Their custom securities")
+        lines += [f"- {x['symbol']} · {x['title']} · {customsec.describe(x)}" for x in secs]
+    focus = ctx.get("focus_play")
+    if focus:
+        p = get(uid, int(focus)) if str(focus).isdigit() else None
+        if p:
+            lines.append(f"\nThey opened play {p['id']} ({p['spec']['title']}) to work on it: a change "
+                         f"they ask for applies to it. Its spec: "
+                         + json.dumps(p["spec"], separators=(",", ":"), default=str)[:3000])
+    return "\n".join(lines)
+
+
 # ══ HTTP ════════════════════════════════════════════════════════════════════
 
 def api_list(uid: int) -> tuple[int, dict]:
@@ -2222,8 +2262,10 @@ def tool_play(action: str = "", play: dict | str | None = None, play_id: int = 0
         if action in ("compile", "edit"):
             if action == "edit" and not play_id:
                 return {"error": "edit needs play_id"}
-            got = compile_play(uid, play or {}, chart_symbol=getattr(ds._req, "symbol", ""),
-                               chart_interval=getattr(ds._req, "ctx_interval", ""),
+            no_chart = getattr(ds._req, "surface", "") == "plays"
+            got = compile_play(uid, play or {},
+                               chart_symbol="" if no_chart else getattr(ds._req, "symbol", ""),
+                               chart_interval="" if no_chart else getattr(ds._req, "ctx_interval", ""),
                                arm=arm, pid=play_id or None)
             ds._card_add(got["card"])
             row = got["play"]
