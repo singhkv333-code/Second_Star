@@ -539,3 +539,51 @@
 @media (prefers-reduced-motion: reduce) {
   .bl-overlay, .bl-modal, .bl-fade, .bl-skel, .bl-meter-fill, .bl-spin { animation: none !important; transition: none !important; }
 }
+
+/* the welcome after a payment: the alien on ink, then what the plan unlocked */
+.bl-welcome-art {
+  display: grid; place-items: center; height: 148px;
+  background: radial-gradient(ellipse at 50% 120%, #2a2a2e 0%, #0b0b0c 62%);
+  border-radius: var(--bl-r-lg) var(--bl-r-lg) 0 0;
+}
+.bl-welcome-badge {
+  width: 84px; height: 84px; border-radius: 50%; background: #fff;
+  box-shadow: 0 0 0 2px #fff, 0 0 48px rgba(255, 255, 255, 0.16);
+  display: grid; place-items: center; overflow: hidden;
+}
+.bl-welcome-badge img { width: 94%; height: 94%; object-fit: contain; }
+.bl-welcome-art + .bl-modal-close, .bl-panel:has(.bl-welcome-art) > .bl-modal-close { color: #f4f2ec; }
+.bl-benefits--welcome li { font-size: 15px; }
+.bl-benefits--welcome li svg { color: var(--bl-good); }
+
+/* the sign-in prompt: an oil painting on ink above the reason and the free account */
+.bl-signin-art {
+  position: relative; height: 168px; overflow: hidden; background: #070707;
+  border-radius: var(--bl-r-lg) var(--bl-r-lg) 0 0;
+}
+.bl-signin-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 38%; }
+.bl-signin-art::after {
+  content: ""; position: absolute; inset: auto 0 0 0; height: 56px;
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--bl-raised) 55%, transparent));
+}
+.bl-signin > .bl-modal-close { color: #f4f2ec; background: rgba(7, 7, 7, 0.35); }
+.bl-modal .bl-signin-art { height: 176px; }
+@media (max-width: 640px) { .bl-modal .bl-signin-art { height: 132px; } }
+
+/* ── codes: "Have a code?" at checkout and in Plan & billing ─────────── */
+.bl-code { display: flex; gap: 8px; align-items: stretch; }
+.bl-input {
+  flex: 1; min-width: 0; height: 40px; padding: 0 12px;
+  border: 1px solid var(--bl-rule-strong); border-radius: var(--bl-r-sm);
+  background: var(--bl-card); color: var(--bl-ink);
+  font: 500 14px var(--font-ui); letter-spacing: 0.04em; text-transform: uppercase;
+}
+.bl-input::placeholder { color: var(--bl-muted); letter-spacing: 0; text-transform: none; font-weight: 400; }
+.bl-input:focus-visible { outline: 2px solid var(--bl-ink); outline-offset: 1px; }
+.bl-code-applied {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 12px; border-radius: var(--bl-r-sm); background: var(--bl-good-wash);
+  font-size: 14px; color: var(--bl-ink);
+}
+.bl-code-applied strong { font-weight: 600; letter-spacing: 0.04em; }
+.bl-line--was span:last-child { color: var(--bl-muted); text-decoration: line-through; }

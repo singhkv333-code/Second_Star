@@ -15,6 +15,7 @@ import { z } from "zod";
 import { Loader2, Eye, EyeOff } from "lucide-react";
 import { registerUser } from "@/lib/api";
 import { BrandPanel } from "@/components/auth/BrandPanel";
+import { SocialSignIn } from "@/components/auth/SocialSignIn";
 import { PivotWordLogo } from "@/components/brand/PivotWordLogo";
 import { armLoginIntro } from "@/components/onboarding/LoginIntroGate";
 import { AnybodyFontPreload } from "@/components/onboarding/AnybodyFontPreload";
@@ -179,10 +180,6 @@ export default function SignupPage(): React.ReactElement {
     try {
       localStorage.setItem(TOUR_PENDING_KEY, "1");
       sessionStorage.setItem("pivot:just-signed-in", "1");
-      // The server emailed a confirmation link; the shell says so once.
-      if ((result.data as { verification_sent?: boolean }).verification_sent) {
-        sessionStorage.setItem("pivot:verify-sent", data.email);
-      }
     } catch {
       /* private mode / storage full — skip; no functional impact */
     }
@@ -212,6 +209,11 @@ export default function SignupPage(): React.ReactElement {
               <p className="text-sm text-muted-foreground">
                 Start investing smarter with your own copilot.
               </p>
+            </div>
+
+            {/* Google makes the account on first sign-in, so it belongs here too. */}
+            <div className="mb-5">
+              <SocialSignIn />
             </div>
 
             <form method="post" onSubmit={handleSubmit(onSubmit)} onKeyDown={onKeyDown} noValidate className="flex flex-col gap-5">

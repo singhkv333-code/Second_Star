@@ -12,7 +12,7 @@ import { SITE_URL } from "@/lib/seo/site";
 // pages (stocks, sectors, lists, pricing, the company pages) opt back in.
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: "Pivot — AI stock research for Indian markets",
+  title: "Pivot — Superintelligent charts",
   description:
     "Charts you can talk to, fundamentals for every NSE company, and strategies you can backtest honestly. " +
     "Pivot is AI stock research for Indian investors and traders.",

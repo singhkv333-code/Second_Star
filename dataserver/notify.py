@@ -4,7 +4,7 @@ The templates (mail_templates.py) and the sender (mailer.py) existed; four
 messages were wired (confirm email, reset, password changed, alerts). This
 module sends the rest at the moment each event happens:
 
-    first sign-in on a new account    welcome            (email accounts: once confirmed)
+    first sign-in on a new account    welcome            (at sign-up, email or Google)
     sign-in from a new browser/OS     new_sign_in
     first payment                     subscription_started
     renewal paid                      payment_received
@@ -181,9 +181,9 @@ CREATE TABLE IF NOT EXISTS known_devices (
                 "INSERT INTO known_devices VALUES (?,?,?,?) ON CONFLICT(user_id, device) "
                 "DO UPDATE SET last_seen=excluded.last_seen", (uid, device, now, now))
             self.db.commit()
-        if new_account and how == "google":
-            # Google already confirmed the address: welcome now. An email
-            # sign-up is welcomed when it confirms (see `confirmed`).
+        if new_account:
+            # Every new account is welcomed at once, email or Google; sign-up
+            # sends no confirmation link first.
             self._deliver(uid, "welcome", "1", lambda w: T.welcome(name=w[1], origin=self.origin))
             return
         # The first device an account is seen on is recorded silently, so the

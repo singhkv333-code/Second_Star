@@ -2937,3 +2937,8 @@ body:has(.app-shell-root) {
 }
 .copilot-quick-drag:active { cursor: grabbing; }
 .copilot-quick-drag:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 4px; }
+
+/* The server's screenshot of a shared setup (?capture=1, see AppShell): the
+   workspace as its author sees it, without a guest's sign-in buttons. */
+.pivot-capture [data-testid="guest-signup"],
+.pivot-capture [data-testid="guest-login"] { visibility: hidden; }

@@ -175,12 +175,29 @@ CREATE INDEX IF NOT EXISTS grants_user ON entitlement_grants(user_id);
 """
 
 
+# Tables other modules keep in the same store (coupons.py), created whenever
+# this module is bound, so every harness and script that binds gets them too.
+_EXTRA_SCHEMA: list = []
+
+
+def register_schema(create) -> None:
+    """`create(con)` runs inside bind(), under the lock, before the commit."""
+    if create not in _EXTRA_SCHEMA:
+        _EXTRA_SCHEMA.append(create)
+        if _con is not None:
+            with _lock:
+                create(_con)
+                _con.commit()
+
+
 def bind(con, lock) -> None:
     """Point this module at the account database and create its tables."""
     global _con, _lock
     _con, _lock = con, lock
     with _lock:
         _con.executescript(_SCHEMA)
+        for create in _EXTRA_SCHEMA:
+            create(_con)
         try:
             # Added after the table shipped: a plan change the provider has
             # scheduled for the cycle end, as {"plan", "cycle", "at"}.
@@ -285,11 +302,13 @@ def _effective(row, now: int) -> str:
 
 
 def _grant_plan(uid: int, now: int) -> str | None:
-    row = _con.execute(
+    # The best grant in force, not the newest: a 30-day Pro code redeemed by
+    # someone already comped to Pro+ must not hide the Pro+ for a month.
+    rows = _con.execute(
         "SELECT plan FROM entitlement_grants WHERE user_id=? AND plan IS NOT NULL "
-        "AND (expires IS NULL OR expires>?) ORDER BY id DESC LIMIT 1",
-        (uid, now)).fetchone()
-    return row[0] if row and row[0] in CATALOG["plans"] else None
+        "AND (expires IS NULL OR expires>?)", (uid, now)).fetchall()
+    plans = [r[0] for r in rows if r[0] in CATALOG["plans"]]
+    return max(plans, key=lambda p: CATALOG["plans"][p]["rank"]) if plans else None
 
 
 def plan_of(uid: int | None) -> str:

@@ -70,3 +70,13 @@ Rollback selectively: restore affected application/nginx files from the backup a
 - `api/backend/tests/test_dataserver_identity_binding.py`
 - `api/migrations/security/20261014_charto_account_links.sql`
 - this deployment record
+
+## Reviewed automated-release candidate
+
+An isolated worktree is based on `origin/production-live` (`ea8fa934`), with only the security commit cherry-picked. SHA-256 comparison confirmed all three candidate runtime files exactly match the hardened VM files:
+
+- `charto/data/dataserver.py`: `1ec1daaf67b99d15ee8718158d81b20a7d55f1c165e02d39e675d2cf3c2acb4f`
+- `pivot/backend/auth/charto_session.py`: `41a24e8d0e9f90b08695647b289f89d7a2f3b00d508eb14b534e304315c6071b`
+- `pivot/backend/auth/router.py`: `f46e680fc807a92a8b4d3ff358fad3850c7d3fca9c20e354e052a9266014dac9`
+
+The isolated candidate's three shared-control tests passed as well. A private compressed source capture is retained at `pivotmarketdata / pivot-clean-backups / release/security-20261014-source.json.gz`; no credentials were included. The candidate can fast-forward `production-live` after approval, then the automatic release timer can resume. No branch was pushed.

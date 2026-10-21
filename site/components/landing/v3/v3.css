@@ -355,6 +355,29 @@
 .tw-levels { margin: 8px 0 0; padding: 0; list-style: none; font: 500 12px/1.55 var(--sans); font-variant-numeric: tabular-nums; animation: ws-in 0.5s var(--ease); }
 .tw-levels .dn { color: #f23645; }
 .tw-levels .up { color: #22ab94; }
+/* phones: two results on the chart and the return between them (Tour EarnOverlay) */
+.tw-cwrap > .te { z-index: 1; pointer-events: none; overflow: hidden; }
+.te > * { position: absolute; }
+.te-band { bottom: var(--b); background: rgba(255,255,255,.06); clip-path: inset(0 100% 0 0); transition: clip-path .9s var(--ease); }
+.te.dn .te-band { background: linear-gradient(180deg, rgba(242,54,69,.10), rgba(242,54,69,.02)); }
+.te.up .te-band { background: linear-gradient(180deg, rgba(34,171,148,.10), rgba(34,171,148,.02)); }
+.te-s3 .te-band { clip-path: inset(0 0 0 0); }
+.te-rule { bottom: var(--b); width: 0; border-left: 1px dashed rgba(255,255,255,.55); opacity: 0; transform: scaleY(0); transform-origin: top; transition: opacity .3s ease, transform .5s var(--ease); }
+.te-s1 .te-rule.a, .te-s2 .te-rule, .te-s3 .te-rule { opacity: 1; transform: none; }
+.te-tag { display: grid; gap: 2px; padding: 5px 8px; border-radius: 7px; background: #f4f2ec; color: #0d0d0e; font: 500 10.5px/1.15 var(--sans); white-space: nowrap; opacity: 0; transform: translateY(-6px); transition: opacity .3s ease, transform .4s var(--ease); }
+.te-tag b { font-weight: 600; font-size: 11px; }
+.te-tag.a { margin-left: -1px; }
+.te-tag.b { translate: -100% 0; margin-left: 1px; }
+.te-s1 .te-tag.a, .te-s2 .te-tag, .te-s3 .te-tag { opacity: 1; transform: none; }
+.te-dot { width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: 50%; background: #f4f2ec; box-shadow: 0 0 0 3px rgba(244,242,236,.22); opacity: 0; scale: .2; transition: opacity .25s ease, scale .35s var(--ease); }
+.te-s1 .te-dot.a, .te-s2 .te-dot, .te-s3 .te-dot { opacity: 1; scale: 1; }
+.te-link { inset: 0; overflow: visible; }
+.te-link line { stroke: #f4f2ec; stroke-width: 1.5; stroke-dasharray: 1; stroke-dashoffset: 1; transition: stroke-dashoffset .9s var(--ease); }
+.te-s3 .te-link line { stroke-dashoffset: 0; }
+.te-chip { font: 600 28px/1 var(--sans); font-variant-numeric: tabular-nums; letter-spacing: -.025em; white-space: nowrap; translate: -50% 0; text-shadow: 0 2px 14px rgba(0,0,0,.85), 0 0 3px rgba(0,0,0,.7); opacity: 0; transform: translateY(8px) scale(.94); transition: opacity .35s ease .55s, transform .5s var(--ease) .55s; }
+.te.dn .te-chip { color: #f23645; }
+.te.up .te-chip { color: #22ab94; }
+.te-s3 .te-chip { opacity: 1; transform: none; }
 .tw-menu {
   position: absolute; z-index: 4; left: 96px; top: 4px; width: 280px; padding: 8px; border-radius: 12px;
   background: rgba(22, 22, 24, 0.92); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1), 0 30px 60px -20px rgba(0, 0, 0, 0.9);

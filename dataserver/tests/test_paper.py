@@ -256,3 +256,67 @@ def test_position_fields_answer_from_the_open_lot(monkeypatch):
     # No position at all is UNKNOWN, not zero.
     bare = strategies.DataserverDataAccessor(default_tf="1d")
     assert bare.get_position_field(field="unrealised_pct") is None
+
+
+# ── orders from the chart's ticket ────────────────────────────────────
+
+def test_ticket_market_buy_then_sell_round_trip(book) -> None:
+    code, out = paper.api_place(7, {"symbol": "ACME", "side": "BUY", "quantity": 5})
+    assert code == 200 and out["status"] == "filled" and out["quantity"] == 5
+    code, out = paper.api_place(7, {"symbol": "ACME", "side": "SELL", "quantity": 5})
+    assert code == 200 and out["status"] == "filled"
+    _c, h = paper.api_holdings(7)
+    assert h == []
+
+
+def test_ticket_refusals_are_sentences(book) -> None:
+    code, out = paper.api_place(7, {"symbol": "ACME", "side": "SELL", "quantity": 1})
+    assert code == 400 and "only sell what you hold" in out["error"]
+    code, out = paper.api_place(7, {"symbol": "NIFTY", "side": "BUY", "quantity": 1})
+    assert code == 400 and "NIFTYBEES" in out["error"]
+    code, out = paper.api_place(7, {"symbol": "GOLD", "side": "BUY", "quantity": 1})
+    assert code == 400 and "GOLDBEES" in out["error"]
+    code, out = paper.api_place(7, {"symbol": "ACME", "side": "BUY", "quantity": 1,
+                                    "order_type": "LIMIT"})
+    assert code == 400 and "limit price" in out["error"]
+
+
+def test_limit_rests_then_fills_on_a_tick(book) -> None:
+    paper.api_place(7, {"symbol": "ACME", "side": "BUY", "quantity": 2,
+                        "order_type": "LIMIT", "limit_price": 95})
+    _c, orders = paper.api_orders(7)
+    assert len(orders) == 1 and orders[0]["order_type"] == "LIMIT"
+    paper.on_price("ACME", 96)
+    assert len(paper.api_orders(7)[1]) == 1          # not yet
+    paper.on_price("ACME", 94)
+    assert paper.api_orders(7)[1] == []
+    _c, h = paper.api_holdings(7)
+    assert h[0]["quantity"] == 2
+
+
+def test_stop_and_target_are_one_cancels_the_other(book) -> None:
+    code, out = paper.api_place(7, {"symbol": "ACME", "side": "BUY", "quantity": 3,
+                                    "stop_loss": 90, "take_profit": 110})
+    assert code == 200 and len(out["exits"]) == 2
+    _c, orders = paper.api_orders(7)
+    assert {o["order_type"] for o in orders} == {"SL-M", "LIMIT"}
+    paper.on_price("ACME", 111)                       # target hit
+    assert paper.api_orders(7)[1] == []               # stop went with it
+    assert paper.api_holdings(7)[1] == []
+    code, out = paper.api_place(7, {"symbol": "ACME", "side": "BUY", "quantity": 1,
+                                    "stop_loss": 120})
+    assert code == 400 and "below" in out["error"]
+
+
+def test_crypto_trades_in_fractions_and_pays_in_rupees(book, monkeypatch) -> None:
+    monkeypatch.setattr(paper, "fx_rate", lambda ccy: (Decimal("95.0000"), None))
+    monkeypatch.setattr(paper, "last_price", lambda s: (Decimal("100.0000"), None))
+    code, out = paper.api_place(7, {"symbol": "BTCUSDT", "side": "BUY", "quantity": "0.5"})
+    assert code == 200 and out["quantity"] == 0.5 and out["ccy"] == "USDT"
+    # 0.5 at 100 USDT at 95 = Rs 4,750 plus the spot fee and slippage
+    assert out["gross_value"] == pytest.approx(4750.0)
+    assert out["charges"] == pytest.approx(4750 * 0.0015, abs=1e-3)
+    _c, h = paper.api_holdings(7)
+    assert h[0]["quantity"] == 0.5 and h[0]["market_value"] == pytest.approx(4750.0)
+    code, out = paper.api_place(7, {"symbol": "BTCUSDT", "side": "SELL", "quantity": "0.5"})
+    assert code == 200 and paper.api_holdings(7)[1] == []

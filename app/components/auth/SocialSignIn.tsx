@@ -5,13 +5,14 @@
  * "Login with Google" outline buttons over an "Or continue with" divider.
  * Sits above the email/password form on the login page.
  *
- * Google is live when NEXT_PUBLIC_GOOGLE_CLIENT_ID is set: we load Google
- * Identity Services, run its OAuth popup for an access token, and hand that
- * to the backend (POST /auth/google) which verifies it with Google and
- * issues Pivot tokens. On success we arm the brand intro and land on the
- * app — identical to an email login. Without the env var (or for Apple,
- * which has no backend yet) the buttons stay honest: a "coming soon" toast,
- * never a fake success.
+ * Google is live when the account server says so: GET /auth/me carries its
+ * `google_client_id`, empty when the server cannot finish a Google sign-in
+ * (PIVOT_GOOGLE_SIGNIN_ENABLED off). A client id baked in at build time could
+ * draw a button the server then refuses; this way the button exists exactly
+ * where POST /auth/google works. We load Google Identity Services, run its
+ * OAuth popup for an access token, and the server verifies it with Google and
+ * issues a session. On success we arm the brand intro and land on the app,
+ * as after an email login. Apple has no backend yet and is never drawn.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -24,7 +25,6 @@ import { armLoginIntro } from "@/components/onboarding/LoginIntroGate";
 import { isError } from "@/lib/types";
 import { returnPath } from "@/lib/returnTo";
 
-const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "";
 // Apple has no backend yet. A sign-in page at launch shows only what works,
 // so the block draws nothing until Google is configured, and never Apple.
 const SHOW_APPLE = false;
@@ -87,6 +87,21 @@ export function SocialSignIn(): React.ReactElement | null {
   const [gisReady, setGisReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const tokenClientRef = useRef<TokenClient | null>(null);
+  const [clientId, setClientId] = useState("");
+
+  // Ask the account server whether it can finish a Google sign-in.
+  useEffect(() => {
+    let live = true;
+    fetch("/auth/me", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { google_client_id?: string } | null) => {
+        if (live && d?.google_client_id) setClientId(d.google_client_id);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
 
   const comingSoon = (provider: string): void => {
     toast(`${provider} sign-in is coming soon`, {
@@ -123,14 +138,14 @@ export function SocialSignIn(): React.ReactElement | null {
     [router],
   );
 
-  // Load Google Identity Services once, only when a client id is configured.
+  // Load Google Identity Services once, only when the server offers Google.
   useEffect(() => {
-    if (!GOOGLE_CLIENT_ID) return;
+    if (!clientId) return;
 
     const init = (): void => {
       if (!window.google || tokenClientRef.current) return;
       tokenClientRef.current = window.google.accounts.oauth2.initTokenClient({
-        client_id: GOOGLE_CLIENT_ID,
+        client_id: clientId,
         scope: "openid email profile",
         callback: (resp) => {
           if (resp.access_token) {
@@ -160,13 +175,9 @@ export function SocialSignIn(): React.ReactElement | null {
     }
     script.addEventListener("load", init);
     return () => script?.removeEventListener("load", init);
-  }, [onGoogleToken]);
+  }, [clientId, onGoogleToken]);
 
   const onGoogleClick = (): void => {
-    if (!GOOGLE_CLIENT_ID) {
-      comingSoon("Google");
-      return;
-    }
     if (!gisReady || !tokenClientRef.current) {
       toast("Google sign-in is still loading", {
         description: "One moment, then try again.",
@@ -177,7 +188,7 @@ export function SocialSignIn(): React.ReactElement | null {
     tokenClientRef.current.requestAccessToken();
   };
 
-  if (!GOOGLE_CLIENT_ID && !SHOW_APPLE) return null;
+  if (!clientId && !SHOW_APPLE) return null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -192,7 +203,7 @@ export function SocialSignIn(): React.ReactElement | null {
           <AppleIcon />
           Login with Apple
         </Button>}
-        {GOOGLE_CLIENT_ID && <Button
+        {clientId && <Button
           type="button"
           variant="outline"
           className="w-full"
@@ -200,7 +211,7 @@ export function SocialSignIn(): React.ReactElement | null {
           onClick={onGoogleClick}
         >
           <GoogleIcon />
-          {busy ? "Signing in…" : "Login with Google"}
+          {busy ? "Signing in…" : "Continue with Google"}
         </Button>}
       </div>
 

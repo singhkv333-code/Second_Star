@@ -162,6 +162,9 @@
   const brandMark = document.createElement("div");
   brandMark.className = "chart-mark";
   brandMark.setAttribute("aria-hidden", "true");
+  // The badge is an <img>, not a CSS background: a screenshot rebuilt from
+  // the DOM drops pseudo-element backgrounds and left the plate empty.
+  brandMark.innerHTML = '<img src="assets/pivot-alien.png?v=5" alt="" draggable="false">';
   chartEl.appendChild(brandMark);
 
   /* Two measurements the stylesheet cannot take, published to it as custom
@@ -570,11 +573,20 @@
       + `${Universe.logoHTML(SYMBOL, "co-logo lg")}${Universe.shown(SYMBOL)}</span>`
       + `${Universe.companyLinkHTML(SYMBOL)}</span>`
       + `<span class="sep">·</span>${state.interval === "1d" ? "1D" : state.interval}`
-      + `<span class="sep">·</span><span class="ex">${Sym.venue}</span>`;
+      + `<span class="sep">·</span><span class="ex">${Sym.venue}</span>`
+      // Buy / Sell into the paper book (js/order-ticket.js), beside the venue.
+      + `<span class="ot-btns"><button type="button" class="ot-b buy" data-ot="BUY">Buy</button>`
+      + `<button type="button" class="ot-b sell" data-ot="SELL">Sell</button></span>`;
   }
   // Delegated once: paintTitle rewrites its own children on every interval
   // change, and a listener per repaint leaks one per switch.
   el("roTitle").addEventListener("click", (e) => {
+    const ot = e.target.closest("[data-ot]");
+    if (ot) {
+      e.stopPropagation();
+      if (window.OrderTicket) OrderTicket.open(SYMBOL, ot.dataset.ot);
+      return;
+    }
     const btn = e.target.closest("[data-sym-btn]");
     if (!btn) return;
     e.stopPropagation();

@@ -26,6 +26,14 @@ const Scene = (() => {
   // as structure. Amber above, cyan below, violet for anything else.
   const COL = (role) => Theme.c(
     role === "resistance" ? "annRes" : role === "support" ? "annSup" : "annNeutral");
+  // A shape the chat styled itself (mark.py resolves the colour NAME to a hex,
+  // so the palette lives in one place) wins over the role colour; everything
+  // else keeps the role's hue, dash and weight exactly as before.
+  const colOf = (a) => (/^#[0-9a-f]{6}$/i.test(a.color || "") ? a.color : COL(a.role));
+  const DASH = { solid: [], dashed: [7, 4], dotted: [2, 3] };
+  const dashOf = (a, dflt) => DASH[a.line] || dflt;
+  const WEIGHT = { thin: 0.7, normal: 1, thick: 1.8 };
+  const wOf = (a) => WEIGHT[a.weight] || 1;
   const rgba = (hex, a) => {
     const n = parseInt(hex.slice(1), 16);
     return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
@@ -84,7 +92,7 @@ const Scene = (() => {
             time: env.toChartTime ? env.toChartTime(m.t) : m.t,
             position: m.position || "aboveBar",
             shape: m.shape || "circle",
-            color: m.color || COL(a.role),
+            color: m.color || colOf(a),
             text: m.text || "",
           });
         }
@@ -483,14 +491,37 @@ const Scene = (() => {
       // all resolve through here, so this one line is what stops a hidden
       // level raising a provenance card over an empty chart.
       if (state.hidden) return null;
+      // a caption names its shape, so pointing at the words is pointing at it
+      if (x != null) {
+        const named = labelAt(key || "price", x, y);
+        if (named) return named;
+      }
+      // Two passes: a LINE under the pointer beats a FILL under it. A
+      // trendline crossing a resistance band is the thing you aimed at when
+      // you click on the line, but the band's fill covers that pixel too, and
+      // whichever was added last used to win — so clicking the line selected
+      // the band behind it.
+      // A band's EDGE is a line too, but a trendline crossing it is the
+      // finer target, so edges come second and fills last.
+      return hitScan(y, key, x, "line") || hitScan(y, key, x, "edge")
+        || hitScan(y, key, x, "area");
+    }
+
+    const AREA = new Set(["box", "vband", "poly", "position", "trade", "exposure"]);
+
+    function hitScan(y, key, x, pass) {
+      const areas = pass === "area";
       for (let i = state.items.length - 1; i >= 0; i--) {
         const a = state.items[i];
         if (!mine(a, key)) continue;
+        if (!areas && AREA.has(a.kind)) continue;
+        if (pass === "line" && a.kind === "zone") continue;
+        if (pass === "edge" && a.kind !== "zone") continue;
         if (a.kind === "vprofile") {
           // the histogram answers for itself; its POC/VAH/VAL lines answer
           // anywhere along their length
           const w = plotW();
-          if (x != null && w && x > w - vpBand(w)) {
+          if (areas && x != null && w && x > w - vpBand(w)) {
             const y1 = vToY(a.rows[a.rows.length - 1].hi, a.pane);
             const y2 = vToY(a.rows[0].lo, a.pane);
             if (y1 !== null && y2 !== null && y > y1 - HIT && y < y2 + HIT) return a;
@@ -504,7 +535,10 @@ const Scene = (() => {
           if (ly !== null && Math.abs(y - ly) < HIT) return a;
         } else if (a.kind === "zone") {
           const y1 = vToY(a.hi, a.pane), y2 = vToY(a.lo, a.pane);
-          if (y1 !== null && y2 !== null && y > y1 - HIT && y < y2 + HIT) return a;
+          if (y1 === null || y2 === null) continue;
+          // its edges are lines; its inside is a fill
+          if (areas ? (y > y1 - HIT && y < y2 + HIT)
+                    : (Math.abs(y - y1) < HIT || Math.abs(y - y2) < HIT)) return a;
         } else if (a.kind === "segment" && x != null) {
           // the DRAWN line answers, not the anchor pair — a ray you can see
           // but cannot point at is a ray that reads as dead
@@ -765,7 +799,7 @@ const Scene = (() => {
     let plateReq = 0;
     function schedulePlates() {
       if (plateReq || !occl) return;
-      plateReq = requestAnimationFrame(() => { plateReq = 0; paintPlates(); });
+      plateReq = requestAnimationFrame(() => { plateReq = 0; paintPlates(); measureReserved(); });
     }
     if (occl) occl.onData(schedulePlates);
 
@@ -775,31 +809,256 @@ const Scene = (() => {
       overlays.delete(key); chipPool.delete(key);
     }
 
+    /* ── captions on the shapes ───────────────────────────────────────
+     *
+     * Where each caption may go comes from its own geometry (js/labels.js);
+     * what it must keep clear of comes from here: the candles on screen, the
+     * chart's own text (OHLC readout, indicator legend, the layers control),
+     * the text notes the chat pinned, and every caption already placed. */
+    const labelHits = new Map();        // paneKey -> placed captions, for the pointer
+    const lastPick = new Map();         // paneKey -> Map(id -> candidate), so captions hold still
+    const reserved = new Map();         // paneKey -> chrome rects in pane pixels
+    const reservedSig = new Map();
+
+    /** Where a selected primitive shows its handles: the points that define
+     *  it, as the user's own shapes do (js/drawings.js `handles`). */
+    function gripsOf(px, w, h) {
+      if (px.p) return [px.p];
+      if (px.a && px.b) return [px.a, px.b];
+      if (px.pts) return px.pts.slice(0, 8);
+      if (px.top != null && px.bot != null) return [[w * 0.5, px.top], [w * 0.5, px.bot]];
+      if (px.left != null && px.right != null) return [[px.left, h * 0.5], [px.right, h * 0.5]];
+      if (px.x != null && px.y == null) return [[px.x, 14], [px.x, h - 14]];
+      if (px.y != null && px.x == null) return [[14, px.y], [w - 14, px.y]];
+      return [];
+    }
+
+    /** A clicked shape STAYS visibly selected after the pointer leaves it.
+     *  Hover and selection used to look the same (a half-pixel heavier line
+     *  and a faint glow), so the moment the pointer moved on there was no
+     *  telling the click had taken. Round handles in the shape's colour, the
+     *  idiom the user's own drawings use for "this one is selected". */
+    function paintGrips(ctx, pts, col) {
+      if (!pts.length || !col) return;
+      ctx.save();
+      ctx.shadowBlur = 0; ctx.shadowColor = "transparent"; ctx.setLineDash([]);
+      ctx.fillStyle = Theme.c("handleFill") || Theme.c("chartBg");
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 1.5;
+      for (const [x, y] of pts) {
+        if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+        ctx.beginPath(); ctx.arc(x, y, 4.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    /** A projected primitive's candidate caption spots. */
+    function candsOf(px, w, h) {
+      if (px.top != null && px.bot != null) return Labels.alongZone(px.top, px.bot, w);
+      if (px.left != null && px.right != null) {
+        return [{ x: (px.left + px.right) / 2, y: 6, ax: 0.5, ay: 0 },
+                ...Labels.alongVline(px.left, h)];
+      }
+      if (px.a && px.b && px.draw) return Labels.alongSegment(px.a, px.b);
+      if (px.w != null && px.h != null && px.x != null) {          // a box
+        return [{ x: px.x + 4, y: px.y + 3, ax: 0, ay: 0 },
+                { x: px.x, y: px.y - 3, ax: 0, ay: 1 },
+                { x: px.x + px.w, y: px.y - 3, ax: 1, ay: 1 },
+                { x: px.x, y: px.y + px.h + 3, ax: 0, ay: 0 }];
+      }
+      if (px.pts && px.pts.length) {                                // a pattern outline
+        const top = px.pts.reduce((m, q) => (q[1] < m[1] ? q : m));
+        const bot = px.pts.reduce((m, q) => (q[1] > m[1] ? q : m));
+        return [...Labels.aroundPoint(top[0], top[1]), ...Labels.aroundPoint(bot[0], bot[1])];
+      }
+      if (px.x != null && px.y == null) return Labels.alongVline(px.x, h);
+      if (px.y != null && px.x == null) return Labels.alongLevel(px.y, w);
+      if (px.p) return Labels.aroundPoint(px.p[0], px.p[1]);
+      return [];
+    }
+
+    /** The candles on screen, as a skyline the placer can ask "how much of
+     *  this box is bars". Price pane only: an oscillator pane's line is thin
+     *  and the caption's halo reads over it. */
+    function candleSky(w) {
+      const sky = Labels.sky(w, 3);
+      const bars = env.getBars();
+      if (!bars.length) return sky;
+      const ts = chart.timeScale();
+      let r = null;
+      try { r = ts.getVisibleLogicalRange(); } catch { return sky; }
+      if (!r) return sky;
+      let bs = 6;
+      try { bs = ts.options().barSpacing || 6; } catch { /* default */ }
+      const hw = Math.max(1, bs * 0.45);
+      const i0 = Math.max(0, Math.floor(r.from)), i1 = Math.min(bars.length - 1, Math.ceil(r.to));
+      for (let i = i0; i <= i1; i++) {
+        const b = bars[i], x = ts.logicalToCoordinate(i);
+        if (x === null || !b) continue;
+        const yH = vToY(b.high, "price"), yL = vToY(b.low, "price");
+        if (yH !== null && yL !== null) sky.add(x - hw, x + hw, yH, yL);
+      }
+      return sky;
+    }
+
+    /** The chat's pinned text notes are painted where they were asked to be;
+     *  captions keep off them. */
+    function noteBoxes(key, w, h) {
+      const out = [];
+      const e = { tToX, vToY: (v) => vToY(v, key), w, h };
+      for (const a of state.items) {
+        if (a.kind !== "label" || !mine(a, key)) continue;
+        for (const prim of SHAPES.label(a)) {
+          const px = Geo.project(prim, e);
+          if (!px || !Geo.chipBox) continue;
+          const b = Geo.chipBox(px.p, prim.text, prim.align || "right", w, prim.place);
+          out.push({ x0: b.x, y0: b.top, x1: b.x + b.w, y1: b.bot });
+        }
+      }
+      return out;
+    }
+
+    function placeLabels(key, reqs, w, h, ctx, hlines = [], vlines = []) {
+      if (!reqs.length) { lastPick.delete(key); return []; }
+      ctx.font = `500 10px ${FONT}`;
+      const widths = new Map();
+      const measure = (t) => {
+        let v = widths.get(t);
+        if (v == null) { v = ctx.measureText(t).width; widths.set(t, v); }
+        return v;
+      };
+      const placed = Labels.place(reqs, {
+        w, h, measure,
+        blocked: (reserved.get(key) || []).concat(noteBoxes(key, w, h)),
+        sky: key === "price" ? candleSky(w) : null,
+        hlines, vlines,
+        // a busy chart names its most important shapes and lets the rest
+        // answer the pointer; the budget scales with the room there is
+        max: Math.max(4, Math.floor((w * h) / 20000)),
+        prev: lastPick.get(key),
+      });
+      const ids = new Map(reqs.map((r) => [r.id, r.ann]));
+      for (const p of placed) p.ann = ids.get(p.id);
+      lastPick.set(key, new Map(placed.map((p) => [p.id, p.k])));
+      return placed;
+    }
+
+    /** Small, clean, readable over anything: 10px in the shape's colour with
+     *  a thin outline in the chart's own background, so a caption crossing
+     *  a gridline or a wick keeps its letterforms without a box behind it. */
+    function paintLabels(ctx, placed) {
+      if (!placed.length) return;
+      const bg = Theme.c("chartBg") || "#0d0e12";
+      ctx.save();
+      ctx.shadowBlur = 0; ctx.shadowColor = "transparent";
+      ctx.setLineDash([]);
+      ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.lineJoin = "round";
+      ctx.font = `500 10px ${FONT}`;
+      for (const p of placed) {
+        // over empty chart the outline is enough; where lines or bars run
+        // behind the words, a plate of the chart's own paper, as the legends
+        // get (js/occlusion.js), so the caption never reads as struck through
+        if (p.busy) {
+          ctx.fillStyle = rgba(bg, 0.86);
+          ctx.beginPath();
+          if (ctx.roundRect) ctx.roundRect(p.x0, p.y0, p.x1 - p.x0, p.y1 - p.y0, 3);
+          else ctx.rect(p.x0, p.y0, p.x1 - p.x0, p.y1 - p.y0);
+          ctx.fill();
+        }
+        ctx.save();
+        ctx.translate(p.cx, p.cy);
+        if (p.rot) ctx.rotate(-Math.PI / 2);
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = bg;
+        ctx.strokeText(p.text, 0, 0.5);
+        ctx.fillStyle = p.col;
+        ctx.globalAlpha = p.hot ? 1 : 0.92;
+        ctx.fillText(p.text, 0, 0.5);
+        ctx.restore();
+      }
+      ctx.restore();
+    }
+
+    /** The chart's own chrome, in each pane's pixels. Read in a frame after
+     *  the paint (never inside it: reading layout from a draw callback
+     *  stalls the frame), and a change asks for one more paint. */
+    function measureReserved() {
+      const stage = env.container.closest(".stage") || env.container.parentElement;
+      if (!stage) return;
+      const els = [...stage.querySelectorAll(
+        ".readout-hover, .ind-legend:not(.empty) > *, .pane-legend > *, .scene-layers")]
+        .filter((e) => e.offsetParent !== null);
+      let changed = false;
+      for (const key of attached.keys()) {
+        const p = paneFor(key);
+        const el = p && p.pane.getHTMLElement && p.pane.getHTMLElement();
+        if (!el) continue;
+        const pr = el.getBoundingClientRect();
+        const rects = [];
+        for (const e of els) {
+          const r = e.getBoundingClientRect();
+          if (!r.width || r.bottom <= pr.top || r.top >= pr.bottom) continue;
+          rects.push({ x0: r.left - pr.left - 3, y0: r.top - pr.top - 3,
+                       x1: r.right - pr.left + 3, y1: r.bottom - pr.top + 3 });
+        }
+        const sig = rects.map((r) => `${r.x0 | 0},${r.y0 | 0},${r.x1 | 0},${r.y1 | 0}`).join(";");
+        if (reservedSig.get(key) !== sig) {
+          reservedSig.set(key, sig);
+          reserved.set(key, rects);
+          changed = true;
+        }
+      }
+      if (changed) _ru();
+    }
+
+    /** The annotation whose caption is under the pointer, if any. */
+    function labelAt(key, x, y) {
+      for (const p of labelHits.get(key) || []) {
+        if (x >= p.x0 && x <= p.x1 && y >= p.y0 && y <= p.y1) {
+          return state.items.find((q) => q.id === p.ann) || null;
+        }
+      }
+      return null;
+    }
+
     function render(ctx, w, h, key) {
       // The chips are DOM and outlive a skipped canvas pass, so folding away
       // has to paint an EMPTY legend rather than simply not painting one —
       // otherwise the names of the annotations survive in the corner while
       // the annotations themselves are gone.
-      if (state.hidden) { paintChips(key, []); return; }
+      if (state.hidden) { labelHits.delete(key); paintChips(key, []); return; }
       ctx.save();
       const clearGlow = () => { ctx.shadowBlur = 0; ctx.shadowColor = "transparent"; };
       ctx.font = `11px ${FONT}`;
+      // The corner legend keeps only what has no geometry to sit on (the
+      // strategy layer's one line); every other caption is a placement
+      // request, written on or beside its own shape once all are known.
       const chips = [];
-      let curHot = false, curId = null;   // set per annotation, read by chip()
+      const reqs = [];
+      const hlines = [], vlines = [];     // other shapes' strokes, for the placer
+      const selPts = [];                  // the selected shape's handles
+      let selCol = null, curPicked = false;
+      const grip = (...pts) => { if (curPicked) for (const q of pts) if (q) selPts.push(q); };
+      let curHot = false, curId = null;   // set per annotation, read by chip() and lab()
       const chip = (text, x, y, col) => chips.push({ text, col, hot: curHot, id: curId });
+      const lab = (text, col, cands, prio, sub = "") => {
+        const t = Labels.shorten(text);
+        if (t) reqs.push({ id: `${curId}${sub}`, ann: curId, text: t, col, prio, hot: curHot, cands });
+      };
       for (const a of state.items) {
         if (!mine(a, key)) continue;
-        const col = COL(a.role);
+        const col = colOf(a);
         // a linked pair (a divergence's two legs) highlights as one object
         const selKey = a.link || a.id;
         const picked = state.sel && state.sel === selKey;
         const hot = picked || state.hover && (state.hover === a.id
           || (a.link && state.hover === a.link)
           || (a.link && state.items.some((q) => q.id === state.hover && q.link === a.link)));
-        curHot = hot; curId = a.id;
+        curHot = hot; curId = a.id; curPicked = !!picked;
+        if (picked) selCol = col;
         ctx.strokeStyle = col;
         ctx.fillStyle = col;
-        ctx.lineWidth = hot ? 2 : 1.5;
+        ctx.lineWidth = (hot ? 2 : 1.5) * wOf(a);
         /* Hover reads as a HALO rather than a half-pixel of extra weight —
          * at 1.5px a width bump is invisible on a busy chart, and the whole
          * point of the hover is to answer "which one am I pointing at?".
@@ -854,7 +1113,8 @@ const Scene = (() => {
             ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w - band, y); ctx.stroke();
             ctx.setLineDash([]);
             ctx.globalAlpha = 1;
-            chip(`${tag} ${fmt(v)}`, 8, y, col);
+            lab(`${tag} ${fmt(v)}`, col, Labels.alongLevel(y, w, w - band - 6), 3, tag);
+            if (tag === "POC") grip([(w - band) / 2, y]);
           }
         } else if (a.kind === "level") {
           const y = vToY(a.price, a.pane);
@@ -863,15 +1123,18 @@ const Scene = (() => {
           // says the word, and fading text to encode what it spells out only
           // costs legibility.
           ctx.globalAlpha = shade(a);
-          ctx.setLineDash(a.strength === "weak" ? [2, 4] : [7, 4]);
+          hlines.push(y);
+          ctx.setLineDash(dashOf(a, a.strength === "weak" ? [2, 4] : [7, 4]));
           ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
           ctx.setLineDash([]);
           ctx.globalAlpha = 1;
-          chip(a.label || fmt(a.price), 8, y, col);
+          lab(a.label || fmt(a.price), col, Labels.alongLevel(y, w), 5);
+          grip([14, y], [w * 0.5, y], [w - 14, y]);
         } else if (a.kind === "zone") {
           const y1 = vToY(a.hi, a.pane), y2 = vToY(a.lo, a.pane);
           if (y1 === null || y2 === null) continue;
           const hgt = Math.max(4, y2 - y1);
+          hlines.push(y1, y1 + hgt);
           // A band, not two lines with a tint between them: the fill fades
           // toward the middle so the edges stay the assertion and the
           // interior reads as "somewhere in here".
@@ -884,13 +1147,15 @@ const Scene = (() => {
           ctx.fillRect(0, y1, w, hgt);
           // solid edges — a zone is bounded; a level is a single dashed line.
           // Different shapes should not share a stroke style.
-          ctx.lineWidth = hot ? 1.6 : 1.1;
+          ctx.lineWidth = (hot ? 1.6 : 1.1) * wOf(a);
+          ctx.setLineDash(dashOf(a, []));
           ctx.globalAlpha = k;
           ctx.beginPath(); ctx.moveTo(0, y1); ctx.lineTo(w, y1);
           ctx.moveTo(0, y1 + hgt); ctx.lineTo(w, y1 + hgt); ctx.stroke();
           ctx.globalAlpha = 1;
           ctx.fillStyle = col;
-          chip(a.label || `${fmt(a.lo)}–${fmt(a.hi)}`, 8, y1, col);
+          lab(a.label || `${fmt(a.lo)}–${fmt(a.hi)}`, col, Labels.alongZone(y1, y1 + hgt, w), 5);
+          grip([w * 0.5, y1], [w * 0.5, y1 + hgt]);
         } else if (a.kind === "candle") {
           const m = markDot(a);
           if (!m) continue;
@@ -898,33 +1163,28 @@ const Scene = (() => {
           ctx.beginPath();
           ctx.arc(m.cx, m.cy, hot ? MARK_DOT + 1.2 : MARK_DOT, 0, Math.PI * 2);
           ctx.fill();
-          if (a.label) {
-            const lw = ctx.measureText(a.label).width + 12;
-            chip(a.label, Math.min(Math.max(m.cx - lw / 2, 8), w - lw - 4),
-                 m.cy - MARK_DOT - 3, col);
-          }
+          if (a.label) lab(a.label, col, Labels.aroundPoint(m.cx, m.cy - MARK_DOT), 2);
+          grip([m.cx, m.cy]);
         } else if (a.kind === "segment") {
           const s = segPx(a, w, h);
           if (!s) continue;
           const [x1, y1] = s.a, [x2, y2] = s.b;
-          ctx.setLineDash(a.dashed ? [7, 4] : []);
+          ctx.setLineDash(dashOf(a, a.dashed ? [7, 4] : []));
           ctx.beginPath();
           ctx.moveTo(s.draw[0][0], s.draw[0][1]);
           ctx.lineTo(s.draw[1][0], s.draw[1][1]);
           ctx.stroke();
           ctx.setLineDash([]);
+          if (a.arrow) Geo.arrowHead(ctx, s.draw[0], s.draw[1], col);
           // No anchor dots. A segment already ENDS at the swing it was fitted
           // to — where the stroke stops is the claim — so a filled circle
           // there restates it and nothing more. On a pattern like a wedge,
           // whose two legs are two segments, it put four dots on the chart
           // that read as handles you could grab and cannot.
-          if (a.label) {
-            // clamp by the MEASURED label width — a fixed margin let long
-            // pattern labels run under the price axis
-            const lw = ctx.measureText(a.label).width + 12;
-            const mx = Math.min(Math.max((x1 + x2) / 2, 8), w - lw - 4);
-            chip(a.label, mx, Math.min(y1, y2) - 4, col);
-          }
+          // named along its own anchors, not the clipped stroke: a ray's
+          // far end is somewhere off in blank chart
+          if (a.label) lab(a.label, col, Labels.alongSegment([x1, y1], [x2, y2], !!a.arrow), 4);
+          grip([x1, y1], [x2, y2]);
         } else if (SHAPES[a.kind]) {
           const e = { tToX, vToY: (v) => vToY(v, a.pane), w, h };
           let anchor = null;
@@ -944,10 +1204,13 @@ const Scene = (() => {
             // nothing (main.js's onSelect is empty), so pointing at one IS how
             // this layer is addressed.
             Geo.paint(ctx, prim, px,
-                      { color: prim.color || col, width: hot ? 2 : 1.5,
-                        dash: prim.dash ?? [7, 4], fillAlpha: 0.12,
+                      { color: prim.color || col, width: (hot ? 2 : 1.5) * wOf(a),
+                        dash: dashOf(a, prim.dash ?? [7, 4]), fillAlpha: 0.12,
                         detail: hot }, e);
             if (!anchor) anchor = px;
+            if (curPicked) grip(...gripsOf(px, w, h));
+            if (px.y != null && px.x == null) hlines.push(px.y);
+            if (px.x != null && px.y == null) vlines.push(px.x);
           }
           // a position paints its own pills and centre chip — the generic
           // label chip would duplicate them
@@ -963,14 +1226,17 @@ const Scene = (() => {
            * all of it. */
           if (a.kind === "exposure" && a.label) {
             chip(a.label, 8, 20, Theme.c("accent"));
-          } else if (a.label && anchor && !NO_HALO.has(a.kind)) {
-            const ax = anchor.x ?? (anchor.p && anchor.p[0]) ?? 8;
-            const ay = anchor.y ?? (anchor.p && anchor.p[1]) ?? 20;
-            chip(a.label, Math.min(Math.max(ax, 8), w - 150), ay, col);
+          } else if (a.label && anchor && !NO_HALO.has(a.kind) && a.kind !== "label") {
+            const c = candsOf(anchor, w, h);
+            if (c.length) lab(a.label, col, c, 3);
           }
         }
       }
       clearGlow();
+      paintGrips(ctx, selPts, selCol);
+      const placed = placeLabels(key, reqs, w, h, ctx, hlines, vlines);
+      labelHits.set(key, placed);
+      paintLabels(ctx, placed);
       ctx.restore();
       // Chips are DOM, so they are positioned after the canvas pass rather
       // than drawn during it.
@@ -1097,6 +1363,8 @@ const Scene = (() => {
       if (e.target && e.target.closest && e.target.closest(".scene-chip")) return;
       const p = pointIn(e);
       const a = inPlot(e) ? hitAt(p.y, p.key, p.x) : null;
+      // a hand over a shape, as over the user's own: it can be picked up
+      overShape(!!a && env.isCursorMode());
       const id = a ? a.id : null;
       if (id !== state.hover) {
         state.hover = id;
@@ -1104,6 +1372,12 @@ const Scene = (() => {
         _ru();
       }
     });
+
+    const shapeHost = env.container.closest(".stage, .subchart");
+    function overShape(on) {
+      if (shapeHost) shapeHost.classList.toggle("overscene", on);
+    }
+    env.container.addEventListener("mouseleave", () => overShape(false));
 
     // ── manual adjustment ───────────────────────────────
     // Chat drawings are draggable like the user's own shapes: the whole

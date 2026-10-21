@@ -520,6 +520,17 @@ def _run(code: str, jobs: list, datasets: dict | None = None) -> dict:
         if cut:
             cols = {k: (v[:cut] if isinstance(v, list) else
                         _basket(v, cut) if k == "basket" else v) for k, v in cols.items()}
+        if job.get("free"):
+            # the chat's `query` tool: the columns of a SQL result in, any
+            # JSON-shaped statistics out — no series contract, no derived bars
+            try:
+                got = compute({k: (list(v) if isinstance(v, list) else v) for k, v in cols.items()},
+                              dict(job.get("params") or {}))
+                results.append({"id": job.get("id"), "ok": True, "value": _plain(got)})
+            except Exception as exc:  # noqa: BLE001
+                results.append({"id": job.get("id"), "ok": False,
+                                "error": f"{type(exc).__name__}: {exc}", "line": _err_line(exc)})
+            continue
         n = len(cols["close"])
         bars = dict(cols)
         bars["n"] = n
@@ -562,6 +573,21 @@ def _err_line(exc):
             line = tb.tb_lineno
         tb = tb.tb_next
     return line
+
+
+def _plain(v, depth=0):
+    """Any result → JSON-safe: tuples to lists, non-finite floats to None."""
+    if depth > 8:
+        return None
+    if isinstance(v, float):
+        return v if math.isfinite(v) else None
+    if isinstance(v, (int, str, bool)) or v is None:
+        return v
+    if isinstance(v, dict):
+        return {str(k): _plain(x, depth + 1) for k, x in list(v.items())[:2000]}
+    if isinstance(v, (list, tuple, set)):
+        return [_plain(x, depth + 1) for x in list(v)[:5000]]
+    return str(v)
 
 
 def _normalise(got, n):

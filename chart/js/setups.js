@@ -38,6 +38,10 @@ const Setups = (() => {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const toast = (m) => Layouts.toast(m);
   const VIEW = Store.viewOnly ? Store.viewToken : "";
+  // The server photographing a setup for its link preview (dataserver
+  // _setup_screenshot): the author's workspace as it was shared, without the
+  // reader's chrome around it. It writes nothing, like any view.
+  const CAPTURE = !!VIEW && new URLSearchParams(location.search).get("capture") === "1";
   let viewing = null;                 // the setup on screen, in a view session
 
   /* ══ the visual kit ══════════════════════════════════════════════════ */
@@ -250,8 +254,13 @@ const Setups = (() => {
     return new Date(ts * 1000).toLocaleDateString([], { day: "2-digit", month: "short", year: "numeric" });
   }
 
+  // The product's own domain, whichever door the page was opened through: the
+  // Azure hostname still answers, but a link people post must not carry it.
+  const PRODUCT_ORIGIN = "https://app.pivotnow.in";
+  const LOCAL_HOST = /^(localhost|127\.0\.0\.1)(:\d+)?$/;
   function linkFor(token, symbol) {
-    return `${location.origin}/share/${encodeURIComponent(token)}`;
+    const origin = LOCAL_HOST.test(location.host) ? location.origin : PRODUCT_ORIGIN;
+    return `${origin}/share/${encodeURIComponent(token)}`;
   }
 
   async function copyText(text, done) {
@@ -393,10 +402,37 @@ const Setups = (() => {
       if (!title) { dlg.querySelector("#suTitle").focus(); return toast("Give the setup a title"); }
       ok.disabled = true;
       ok.querySelector("span").textContent = "Publishing…";
+      // The card is a screenshot of the whole platform: shell, chart, widgets
+      // and the conversation when it is shared. The SERVER takes it, of the
+      // link as published (so it holds exactly what a reader may see), at
+      // this window's size and theme; no browser prompt. The chart-only card
+      // goes up with the setup first, as the image until the screenshot lands.
+      let top = window;
+      try { if (window.top && window.top.innerWidth) top = window.top; } catch { /* another origin */ }
+      const screenshot = {
+        w: top.innerWidth, h: top.innerHeight,
+        dpr: Math.min(2, Math.max(1, window.devicePixelRatio || 1)),
+        // the theme the author SEES: the shell's own ground, light or dark
+        scheme: (() => {
+          try {
+            const m = getComputedStyle(top.document.body).backgroundColor.match(/\d+(\.\d+)?/g) || [];
+            const [r, g, b] = m.map(Number);
+            if (m.length >= 3) return (0.2126 * r + 0.7152 * g + 0.0722 * b) > 128 ? "light" : "dark";
+          } catch { /* another origin */ }
+          return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+        })(),
+      };
       try {
         const desk = await deskOf(state.include_data, [...new Set((spec.charts || []).map((x) => x.symbol))]);
-        let ogImage = "";
+        let ogImage = "", ogHires = "";
         try {
+          ogImage = await ShareCard.render({
+            symbol: sym, interval: iv,
+            logo: Universe.logo(sym) || Universe.logo(Universe.baseSymbol(sym)) || "",
+            by: (Auth.user && Auth.user.name) || "",
+          });
+        } catch (e) { console.warn("Chart share card unavailable", e); }
+        if (!ogImage) try {
           ogImage = await SharePreview.render({
             title, note: note.value, thumb, symbol: sym, interval: iv,
             bars: onScreen(c), chart: Layouts.capture(1400, 0.92),
@@ -404,15 +440,31 @@ const Setups = (() => {
             chatTurns: state.include_chat ? chat.length : 0,
           });
         } catch (e) { console.warn("Share preview unavailable", e); }
-        const d = await Layouts.call("/setups", {
+        ok.querySelector("span").textContent = "Taking the screenshot…";
+        const body = {
           ...(state.mode === "update" && existing ? { token: existing.token } : {}),
           layout_id: cur && cur.id ? cur.id : undefined,
           title, note: note.value, spec: desk ? { ...spec, dock: desk } : spec, thumb,
-          og_image: ogImage,
+          og_image: ogImage, symbol: sym, screenshot,
           include_chat: !!(state.include_chat && chat.length), chat,
           allow_copy: state.allow_copy,
-        });
-        published(dlg, close, d.token, sym, title, !d.created, deskMini(shapeOf(live), thumb, sym));
+        };
+        const d = await Layouts.call("/setups", body);
+        // The server could not take it (its browser is down or not set up):
+        // the page makes its own card of the workspace, frame only, and
+        // updates the link with it.
+        if (!d.card && state.include_data) {
+          const wc = await WorkspaceCard.render({
+            withChat: !chat.length || !!state.include_chat,
+          }).catch(() => null);
+          if (wc) {
+            await Layouts.call("/setups", { ...body, token: d.token, screenshot: undefined,
+                                            og_image: wc.og, og_hires: wc.hires }).catch(() => null);
+            ogHires = wc.hires;
+          }
+        }
+        if (d.card) ogHires = "server";
+        published(dlg, close, d.token, sym, title, !d.created, deskMini(shapeOf(live), thumb, sym), !!ogHires);
       } catch (err) {
         ok.disabled = false;
         ok.querySelector("span").textContent = existing ? "Update link" : "Publish";
@@ -444,7 +496,7 @@ const Setups = (() => {
     ? `<span class="sx-brand">${icon}</span>`
     : `<img class="sx-brand" src="${ICON(icon)}" alt="" loading="lazy" onerror="this.style.display='none'"/>`}</span>`;
 
-  function published(dlg, close, token, sym, title, updated, mini) {
+  function published(dlg, close, token, sym, title, updated, mini, hires) {
     const url = linkFor(token, sym);
     dlg.classList.add("sx-done");
     dlg.innerHTML = `
@@ -464,6 +516,7 @@ const Setups = (() => {
       <div class="ly-actions">
         <button class="btn" data-manage>${Icons.svg("eye", "xs")}<span>My shared setups</span></button>
         <a class="btn" href="${esc(url)}" target="_blank" rel="noopener">${Icons.svg("externalLink", "xs")}<span>Open as a viewer</span></a>
+        ${hires ? `<a class="btn" href="${esc(url)}/image-4k.jpg" download="pivot-workspace.jpg">${Icons.svg("download", "xs")}<span>Download screenshot</span></a>` : ""}
         <button class="btn" data-x>Done</button>
       </div>`;
     const input = dlg.querySelector(".sx-link input");
@@ -791,7 +844,7 @@ const Setups = (() => {
       return;
     }
     viewing = d;
-    document.body.classList.add("view-only");
+    if (!CAPTURE) document.body.classList.add("view-only");
     document.title = `${d.title} · ${d.symbol} — Pivot`;
     // Locked, so a reader's click selects a shape and reads it but cannot
     // drag the author's level somewhere it was never drawn.
@@ -800,8 +853,9 @@ const Setups = (() => {
     ws.drawings = (ws.drawings || []).map((x) => ({ ...x, locked: true }));
     try { await Layouts.restore(spec); }
     catch (e) { console.error("[pivot] setup restore", e); }
-    mountBar(d);
+    if (!CAPTURE) mountBar(d);
     if (window.Chat && Chat.showShared) Chat.showShared(d.chat || []);
+    if (CAPTURE) return captureReady();
     await mountCard(d);
     let pending = null;
     try { pending = sessionStorage.getItem("charto:pending-copy"); } catch {}
@@ -819,6 +873,26 @@ const Setups = (() => {
       history.replaceState(history.state, "", u.toString());
       makeItMine();
     }
+  }
+
+  /** Tell the screenshotting browser the picture is ready: the desk is
+   *  restored and the chart has painted its bars. */
+  async function captureReady() {
+    const c = window.__pivot;
+    for (let i = 0; i < 80 && !(c && c.state && c.state.bars && c.state.bars.length); i++) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    await document.fonts.ready.catch(() => null);
+    // The shell holds its own "Loading chart…" over this frame until the
+    // frame says it is up; a picture taken before that is of the placeholder.
+    for (let i = 0; i < 60; i++) {
+      let loading = false;
+      try { loading = !!window.parent.document.querySelector(".chart-frame-loading"); } catch { /* not framed by us */ }
+      if (!loading) break;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    await new Promise((r) => setTimeout(r, 900));       // widgets and the chat lay out
+    document.documentElement.dataset.captureReady = "1";
   }
 
   /* ── boot ─────────────────────────────────────────────────────────────── */
@@ -839,7 +913,7 @@ const Setups = (() => {
     u.searchParams.set("view", legacy);
     location.replace(u.toString());
   } else if (VIEW) {
-    document.body.classList.add("view-only");
+    if (!CAPTURE) document.body.classList.add("view-only");
     document.addEventListener("pivot:workspace-ready", () => { enterView(); }, { once: true });
   } else {
     // Arrived from "Make it mine" with drawings of your own on this symbol:

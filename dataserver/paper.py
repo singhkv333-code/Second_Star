@@ -33,6 +33,14 @@ short. India bans naked short delivery and this book is a delivery book; a
 strategy that wants to be short is a strategy this surface will not run, and
 saying so is cheaper than modelling margin nobody asked for.
 
+**One currency: rupees.** Crypto is quoted in USDT or USD; an order on it is
+priced in that currency (the limit and trigger a user types), and every fill
+is converted to rupees at the USDINR rate of that moment, so cash, cost basis
+and P&L all stay in the book's one currency. Crypto trades in fractions (8 dp)
+and pays a spot exchange's fee instead of India's equity-delivery charges.
+Indices and futures are refused with the reason: an index cannot be bought,
+and a future needs lot sizes and margin this book does not model.
+
 **Nothing here reaches a broker.** There is no order id that means anything
 outside this database, and no code path that could acquire one. That is the
 constitution's line (§8, register-not-execute) expressed as an absence rather
@@ -53,7 +61,7 @@ import threading
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP
 from os import environ
 from typing import Optional
 
@@ -71,6 +79,15 @@ IST = timezone(timedelta(hours=5, minutes=30))
 SEED_CAPITAL = Decimal(environ.get("PIVOT_PAPER_SEED") or "150000")
 
 CENTS = Decimal("0.0001")
+QTY_DP = Decimal("0.00000001")         # crypto trades in fractions; 8 dp
+
+# A spot exchange's taker fee per side (Bybit and Binance charge 0.10%), plus
+# the same slippage allowance the equity table carries.
+CRYPTO_FEE = Decimal(environ.get("PIVOT_PAPER_CRYPTO_FEE") or "0.001")
+CRYPTO_SLIP = Decimal("0.0005")
+# A 24/7 market whose last price is older than this is not trading here; a
+# market order on it would fill at a price nobody can deal at.
+STALE_24x7 = 2 * 86400
 
 # Resting order types. MARKET fills the instant it is placed; everything else
 # waits for a price. GTT is a resting trigger with no expiry, which is exactly
@@ -183,17 +200,24 @@ def f(x) -> float:
 
 
 def _qty(x) -> Decimal:
-    """Quantities are whole shares here. Indian delivery equity has no
-    fractional unit, and truncating toward zero means a fill can never claim
-    more than the cash bought."""
+    """A quantity at the book's precision. Rupee instruments are whole shares
+    (Indian delivery equity has no fractional unit); that is enforced where an
+    order comes in (`_order_qty`), so a stored crypto fraction reads back as
+    itself rather than as zero. Truncating toward zero means a fill can never
+    claim more than the cash bought."""
     try:
-        return Decimal(int(Decimal(str(x or 0))))
+        return Decimal(str(x or 0)).quantize(QTY_DP, rounding=ROUND_DOWN)
     except Exception:                                       # noqa: BLE001
         return Decimal(0)
 
 
+def _order_qty(inst: dict, x) -> Decimal:
+    q = _qty(x)
+    return q if inst.get("fractional") else Decimal(int(q))
+
+
 def _qty_out(q):
-    n = float(q or 0)
+    n = float(_qty(q))
     return int(n) if n == int(n) else n
 
 
@@ -228,6 +252,16 @@ def init_db() -> None:
             return
         with ds._users_lock:
             _db().executescript(_SCHEMA)
+            # Added with orders from the chart (brackets) and crypto (a fill's
+            # own currency and the rate it was converted at). Old rows read
+            # NULL: no exits, rupees, rate 1.
+            for table, cols in (("paper_orders", ("stop_loss REAL", "take_profit REAL",
+                                                   "oco_id TEXT", "ccy TEXT")),
+                                ("paper_fills", ("ccy TEXT", "fx REAL", "px_native REAL"))):
+                have = {r[1] for r in _db().execute(f"PRAGMA table_info({table})")}
+                for col in cols:
+                    if col.split()[0] not in have:
+                        _db().execute(f"ALTER TABLE {table} ADD COLUMN {col}")
             _db().commit()
         _ready = True
 
@@ -270,6 +304,107 @@ def account_of(uid: int):
     init_db()
     with ds._users_lock:
         return _account_row(uid)
+
+
+# ── what can be traded here, and in what money ───────────────────────
+
+_INDICES = {"NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "NIFTYNXT50", "SENSEX",
+            "BANKEX", "INDIAVIX", "INDIA VIX"}
+_FUTURES = {"GOLD", "GOLDM", "SILVER", "SILVERM", "CRUDEOIL", "NATURALGAS", "COPPER",
+            "ZINC", "ALUMINIUM", "USDINR", "EURINR", "GBPINR", "JPYINR"}
+_NO_INDEX = ("An index is not something you can buy. NIFTYBEES and BANKBEES are "
+             "ETFs that track the NIFTY 50 and NIFTY Bank.")
+_NO_FUTURE = ("Futures and currency pairs need lot sizes and margin, which the paper "
+              "book does not model yet. Gold and silver trade here as ETFs: "
+              "GOLDBEES, SILVERBEES.")
+
+
+def instrument(symbol: str) -> dict:
+    """What the book makes of a symbol: its quote currency, whether it trades
+    in fractions, and whether it can be traded here at all (with the reason
+    when not). The instrument master decides where it has the symbol; the
+    shape of the name decides otherwise, by the chart's own rules (Sym.of)."""
+    sym = (symbol or "").upper().strip()
+    m = {}
+    try:
+        m = ds._master()[0].get(sym) or {}
+    except Exception:                                       # noqa: BLE001
+        m = {}
+    kind, ex = m.get("kind") or "", m.get("exchange") or ""
+    base = {"symbol": sym, "venue": ex or "NSE"}
+    if sym.endswith("USDT") or sym.endswith("-USD"):
+        return {**base, "kind": "crypto", "ccy": "USDT" if sym.endswith("USDT") else "USD",
+                "venue": "BYBIT" if sym.endswith("USDT") else "COINBASE",
+                "fractional": True, "tradable": True}
+    if kind == "index" or ex in ("GLOBAL", "NSEIX") or sym in _INDICES or " " in sym:
+        return {**base, "kind": "index", "ccy": "INR", "fractional": False,
+                "tradable": False, "why": _NO_INDEX}
+    if kind in ("future", "continuous", "option") or ex in ("MCX", "CDS", "NFO") \
+            or sym in _FUTURES:
+        return {**base, "kind": "future", "ccy": "INR", "fractional": False,
+                "tradable": False, "why": _NO_FUTURE}
+    return {**base, "kind": "equity", "ccy": "INR", "fractional": False, "tradable": True}
+
+
+def last_price(symbol: str) -> tuple[Optional[Decimal], Optional[int]]:
+    """The newest price for a symbol and the time of the bar it came from:
+    the forming minute when a feed is live, else the last daily close."""
+    sym = (symbol or "").upper()
+    try:
+        live = ds._live_view(sym)
+        form = live[0] if live else None
+        if form and form[4] is not None and float(form[4]) > 0:
+            return to_money(form[4]), int(form[0]) if form[0] else int(time.time())
+    except Exception:                                       # noqa: BLE001
+        pass
+    try:
+        bars = (ds.get_bars(sym, "1d", None, 2) or {}).get("bars") or []
+        if bars and bars[-1].get("c") is not None and float(bars[-1]["c"]) > 0:
+            b = bars[-1]
+            return to_money(b["c"]), int(b.get("t") or b.get("time") or 0) or None
+    except Exception:                                       # noqa: BLE001
+        pass
+    return None, None
+
+
+_fx_cache: dict[str, tuple[float, Optional[Decimal], Optional[int]]] = {}
+
+
+def fx_rate(ccy: str) -> tuple[Optional[Decimal], Optional[int]]:
+    """Rupees per unit of `ccy`, and when that rate was set. USDT is taken at
+    one dollar. None when the server holds no USDINR price: a crypto order is
+    then refused rather than converted at a made-up rate."""
+    if ccy not in ("USD", "USDT"):
+        return Decimal(1), None
+    now = time.monotonic()
+    hit = _fx_cache.get("USD")
+    if hit and now - hit[0] < 60:
+        return hit[1], hit[2]
+    rate, ts = last_price("USDINR")
+    _fx_cache["USD"] = (now, rate, ts)
+    return rate, ts
+
+
+def _to_book(inst: dict, px: Optional[Decimal]) -> Optional[Decimal]:
+    """A price in the instrument's own currency, in rupees."""
+    if px is None:
+        return None
+    if inst.get("ccy", "INR") == "INR":
+        return px
+    rate, _ts = fx_rate(inst["ccy"])
+    return to_money(px * rate) if rate else None
+
+
+def _costs(inst: dict, side: str, book_px: Decimal, qty: Decimal) -> tuple[Decimal, Decimal]:
+    """(net cash moved, charges) for one fill, in rupees. Crypto pays a spot
+    fee plus slippage; everything else the equity-delivery table."""
+    if inst.get("kind") == "crypto":
+        notional = to_money(book_px * qty)
+        charges = to_money(notional * (CRYPTO_FEE + CRYPTO_SLIP))
+        return (notional + charges if side == "BUY" else notional - charges), charges
+    f_ = trading_costs.buy_cost if side == "BUY" else trading_costs.sell_cost
+    net, charges = f_(float(book_px), float(qty))
+    return to_money(net), to_money(charges)
 
 
 # ── marks ────────────────────────────────────────────────────────────
@@ -404,7 +539,8 @@ def _position(acct_id: int, uid: int, symbol: str):
         "WHERE account_id=? AND symbol=?", (acct_id, symbol)).fetchone()
 
 
-def _fill(acct: tuple, order: dict, price: Decimal, *, seed_prev: Optional[Decimal]) -> dict:
+def _fill(acct: tuple, order: dict, price: Decimal, *, seed_prev: Optional[Decimal],
+          inst: Optional[dict] = None, fx: Decimal = Decimal(1)) -> dict:
     """Fill one order at `price`. CALLER HOLDS THE WRITE LOCK.
 
     The cost model is `trading_costs`, which already bakes slippage into
@@ -423,6 +559,12 @@ def _fill(acct: tuple, order: dict, price: Decimal, *, seed_prev: Optional[Decim
     side = order["side"]
     if qty <= 0:
         raise Reject("quantity_must_be_positive")
+    # `price` is in the instrument's own currency; the book keeps rupees.
+    inst = inst or {"kind": "equity", "ccy": "INR"}
+    native = to_money(price)
+    price = to_money(native * fx) if inst.get("ccy", "INR") != "INR" else native
+    if seed_prev is not None and inst.get("ccy", "INR") != "INR":
+        seed_prev = to_money(seed_prev * fx)
 
     cash_av = to_money(cash_av)
     cash_st = to_money(cash_st)
@@ -430,9 +572,7 @@ def _fill(acct: tuple, order: dict, price: Decimal, *, seed_prev: Optional[Decim
     reserved = to_money(order.get("reserved_cash") or 0)
 
     if side == "BUY":
-        net_f, charges_f = trading_costs.buy_cost(float(price), int(qty))
-        net = to_money(net_f)
-        charges = to_money(charges_f)
+        net, charges = _costs(inst, "BUY", price, qty)
         # A resting BUY already moved its estimate out of cash_available into
         # cash_reserved. Release it first, then spend — otherwise the same
         # rupees are counted twice and a legitimate fill is rejected for
@@ -473,9 +613,7 @@ def _fill(acct: tuple, order: dict, price: Decimal, *, seed_prev: Optional[Decim
         # the module header — this is a delivery book.
         if pos_row is None or qty > cur_qty:
             raise Reject("insufficient_position")
-        net_f, charges_f = trading_costs.sell_cost(float(price), int(qty))
-        net = to_money(net_f)
-        charges = to_money(charges_f)
+        net, charges = _costs(inst, "SELL", price, qty)
         cashflow = net
         cur_avg = to_money(pos_row[2])
         realized = to_money(net - cur_avg * qty)
@@ -497,14 +635,17 @@ def _fill(acct: tuple, order: dict, price: Decimal, *, seed_prev: Optional[Decim
 
     fill_id = uuid.uuid4().hex
     gross = to_money(price * qty)
+    ccy = inst.get("ccy", "INR")
     _db().execute(
         "INSERT INTO paper_fills (id, order_id, account_id, user_id, symbol, "
         "side, quantity, fill_price, gross_value, charges, net_cashflow, "
-        "realized_pnl, strategy_id, filled_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "realized_pnl, strategy_id, filled_at, ccy, fx, px_native) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (fill_id, order["id"], acct_id, uid, symbol, side, _qty_out(qty),
          f(price), f(gross), f(charges), f(cashflow),
          None if realized is None else f(realized),
-         order.get("strategy_id"), now))
+         order.get("strategy_id"), now, ccy,
+         float(fx) if ccy != "INR" else 1.0, f(native)))
     _db().execute(
         "INSERT INTO paper_ledger (account_id, kind, amount, balance_after, "
         "ref_id, ts) VALUES (?,?,?,?,?,?)",
@@ -512,13 +653,47 @@ def _fill(acct: tuple, order: dict, price: Decimal, *, seed_prev: Optional[Decim
     _db().execute(
         "UPDATE paper_orders SET status='filled', reserved_cash=0, updated=? "
         "WHERE id=?", (now, order["id"]))
+    # One of a stop-loss / take-profit pair filled: the other goes (OCO).
+    if order.get("oco_id"):
+        _db().execute(
+            "UPDATE paper_orders SET status='cancelled', updated=? WHERE oco_id=? "
+            "AND id!=? AND status='resting'", (now, order["oco_id"], order["id"]))
+    # A sell that closes the position takes its resting exits with it: there
+    # is nothing left for them to sell.
+    if side == "SELL" and new_qty == 0:
+        _db().execute(
+            "UPDATE paper_orders SET status='cancelled', updated=? WHERE account_id=? "
+            "AND symbol=? AND side='SELL' AND status='resting'", (now, acct_id, symbol))
+    # A buy with exits attached: they rest now, sized to what was bought, and
+    # whichever fills first cancels the other.
+    exits = []
+    if side == "BUY" and (order.get("stop_loss") or order.get("take_profit")):
+        oco = uuid.uuid4().hex if (order.get("stop_loss") and order.get("take_profit")) else None
+        for otype, lim, trig in (("SL-M", None, order.get("stop_loss")),
+                                 ("LIMIT", order.get("take_profit"), None)):
+            if lim is None and trig is None:
+                continue
+            xid = uuid.uuid4().hex
+            _db().execute(
+                "INSERT INTO paper_orders (id, account_id, user_id, symbol, side, "
+                "order_type, quantity, limit_price, trigger_price, reserved_cash, "
+                "status, source, origin_kind, strategy_id, created, updated, oco_id, ccy) "
+                "VALUES (?,?,?,?,'SELL',?,?,?,?,0,'resting','bracket',?,?,?,?,?,?)",
+                (xid, acct_id, uid, symbol, otype, _qty_out(qty),
+                 None if lim is None else f(lim), None if trig is None else f(trig),
+                 "stop_loss" if trig is not None else "take_profit",
+                 order.get("strategy_id"), now, now, oco, ccy))
+            exits.append({"order_id": xid, "kind": "stop_loss" if trig is not None else "take_profit",
+                          "price": f(lim if lim is not None else trig)})
     out = {
         "id": fill_id, "order_id": order["id"], "symbol": symbol, "side": side,
         "quantity": _qty_out(qty), "fill_price": f(price),
         "gross_value": f(gross), "charges": f(charges),
         "net_cashflow": f(cashflow),
         "realized_pnl": None if realized is None else f(realized),
-        "filled_at": _iso(now),
+        "filled_at": _iso(now), "ccy": ccy, "price_native": f(native),
+        "fx": float(fx) if ccy != "INR" else 1.0,
+        **({"exits": exits} if exits else {}),
     }
     if on_fill is not None:
         # Enqueue only: the caller holds the write lock (see notify.py).
@@ -536,7 +711,8 @@ def place_order(uid: int, symbol: str, side: str, quantity, *,
                 trigger_price=None, source: str = "manual",
                 origin_kind: Optional[str] = None,
                 strategy_id: Optional[int] = None,
-                price: Optional[Decimal] = None) -> dict:
+                price: Optional[Decimal] = None,
+                stop_loss=None, take_profit=None) -> dict:
     """Place one order into the book.
 
     MARKET fills synchronously at the resolved mark and returns its fill.
@@ -553,15 +729,38 @@ def place_order(uid: int, symbol: str, side: str, quantity, *,
     sym = (symbol or "").upper().strip()
     side = (side or "").upper().strip()
     otype = (order_type or "MARKET").upper().strip()
-    qty = _qty(quantity)
     if not sym:
         raise Reject("symbol_required")
+    inst = instrument(sym)
+    if not inst["tradable"]:
+        raise Reject(inst["why"])
+    qty = _order_qty(inst, quantity)
     if side not in ("BUY", "SELL"):
         raise Reject(f"bad_side:{side}")
     if qty <= 0:
         raise Reject("quantity_must_be_positive")
     if otype != "MARKET" and otype not in _RESTING_TYPES:
         raise Reject(f"bad_order_type:{otype}")
+    for v, name in ((limit_price, "limit_price"), (trigger_price, "trigger_price"),
+                    (stop_loss, "stop_loss"), (take_profit, "take_profit")):
+        if v is not None and to_money(v) <= 0:
+            raise Reject(f"{name}_must_be_positive")
+    if otype in ("LIMIT", "SL") and limit_price is None:
+        raise Reject("limit_price_required")
+    if otype in ("SL", "SL-M") and trigger_price is None:
+        raise Reject("trigger_price_required")
+    # Exits ride on an entry that buys: a market or limit buy (as TradingView
+    # allows). The stop sits below where it buys and the target above.
+    if stop_loss is not None or take_profit is not None:
+        if side != "BUY" or otype not in ("MARKET", "LIMIT"):
+            raise Reject("exits_need_a_market_or_limit_buy")
+    # A rupee price for the fill needs a rate for anything quoted in dollars.
+    fx = Decimal(1)
+    if inst["ccy"] != "INR":
+        rate, _ts = fx_rate(inst["ccy"])
+        if not rate:
+            raise Reject("no_fx_rate")
+        fx = rate
 
     # Everything slow happens before the lock: a mark resolution reads bars,
     # and holding the account lock across a bar read would serialise every
@@ -573,7 +772,16 @@ def place_order(uid: int, symbol: str, side: str, quantity, *,
             px = mark_price(sym)
         if px is None:
             raise Reject("no_price_available")
+        if inst["kind"] == "crypto" and price is None:
+            _p, ts = last_price(sym)
+            if ts and time.time() - ts > STALE_24x7:
+                raise Reject("stale_price")
         seed_prev = prev_close(sym)
+    entry = to_money(px if px is not None else (limit_price or 0))
+    if stop_loss is not None and entry and to_money(stop_loss) >= entry:
+        raise Reject("stop_loss_must_be_below_entry")
+    if take_profit is not None and entry and to_money(take_profit) <= entry:
+        raise Reject("take_profit_must_be_above_entry")
     # An SL-M knows its trigger but not its fill, so its reserve has to be
     # estimated off the mark. Resolved HERE because it reads bars, and the
     # account lock below must never be held across a bar read.
@@ -586,7 +794,7 @@ def place_order(uid: int, symbol: str, side: str, quantity, *,
     oid = uuid.uuid4().hex
     order = {"id": oid, "user_id": int(uid), "symbol": sym, "side": side,
              "quantity": _qty_out(qty), "strategy_id": strategy_id,
-             "reserved_cash": 0}
+             "reserved_cash": 0, "stop_loss": stop_loss, "take_profit": take_profit}
 
     with ds._users_lock:
         acct = _account_row(uid)
@@ -597,20 +805,22 @@ def place_order(uid: int, symbol: str, side: str, quantity, *,
             ref = to_money(limit_price or trigger_price or 0)
             if ref <= 0:
                 ref = ref_px or to_money(0)
-            est, _c = trading_costs.buy_cost(float(ref), int(qty))
-            reserve = to_money(est)
+            reserve, _c = _costs(inst, "BUY", to_money(ref * fx), qty)
             if reserve > to_money(acct[3]):
                 raise Reject("insufficient_buying_power")
         _db().execute(
             "INSERT INTO paper_orders (id, account_id, user_id, symbol, side, "
             "order_type, quantity, limit_price, trigger_price, reserved_cash, "
-            "status, source, origin_kind, strategy_id, created, updated) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "status, source, origin_kind, strategy_id, created, updated, "
+            "stop_loss, take_profit, ccy) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (oid, acct[0], int(uid), sym, side, otype, _qty_out(qty),
              None if limit_price is None else f(limit_price),
              None if trigger_price is None else f(trigger_price),
              f(reserve), "resting" if otype != "MARKET" else "pending",
-             source, origin_kind, strategy_id, now, now))
+             source, origin_kind, strategy_id, now, now,
+             None if stop_loss is None else f(stop_loss),
+             None if take_profit is None else f(take_profit), inst["ccy"]))
         if reserve:
             _db().execute(
                 "UPDATE paper_accounts SET cash_available=cash_available-?, "
@@ -623,12 +833,12 @@ def place_order(uid: int, symbol: str, side: str, quantity, *,
             _index_add(sym)
             return {"order_id": oid, "status": "resting", "symbol": sym,
                     "side": side, "quantity": _qty_out(qty),
-                    "order_type": otype,
+                    "order_type": otype, "ccy": inst["ccy"],
                     "limit_price": None if limit_price is None else f(limit_price),
                     "trigger_price": None if trigger_price is None else f(trigger_price)}
 
         try:
-            fill = _fill(acct, order, px, seed_prev=seed_prev)
+            fill = _fill(acct, order, px, seed_prev=seed_prev, inst=inst, fx=fx)
         except Reject as exc:
             _db().execute(
                 "UPDATE paper_orders SET status='rejected', reject_reason=?, "
@@ -636,6 +846,8 @@ def place_order(uid: int, symbol: str, side: str, quantity, *,
             _db().commit()
             raise
         _db().commit()
+    if fill.get("exits"):
+        _index_add(sym)
     return {"order_id": oid, "status": "filled", **fill}
 
 
@@ -731,20 +943,38 @@ def on_price(symbol: str, price: float) -> None:
         px = to_money(price)
         if px <= 0:
             return
+        # Read before the lock, like every other slow thing: the instrument
+        # master and, for a dollar-quoted symbol, the USDINR rate.
+        inst = instrument(sym)
+        fx = Decimal(1)
+        if inst["ccy"] != "INR":
+            rate, _ts = fx_rate(inst["ccy"])
+            if not rate:
+                return                  # no rate: neither mark nor fill in rupees
+            fx = rate
+        book_px = to_money(px * fx) if inst["ccy"] != "INR" else px
         now = int(time.time())
         fills = []
+        done: set[str] = set()
         with ds._users_lock:
             _db().execute(
                 "UPDATE paper_positions SET last_price=?, last_mark_at=?, "
                 "stale=0 WHERE symbol=? AND quantity != 0",
-                (f(px), now, sym))
+                (f(book_px), now, sym))
             resting = _db().execute(
                 "SELECT id, account_id, user_id, symbol, side, order_type, "
                 "quantity, limit_price, trigger_price, reserved_cash, "
-                "strategy_id FROM paper_orders WHERE status='resting' AND symbol=?",
+                "strategy_id, stop_loss, take_profit, oco_id "
+                "FROM paper_orders WHERE status='resting' AND symbol=?",
                 (sym,)).fetchall()
             for row in resting:
-                if not _triggered(row, px):
+                if row[0] in done or not _triggered(row, px):
+                    continue
+                # an earlier fill this tick may have cancelled it (its pair
+                # filled, or the position it would sell is gone)
+                st = _db().execute("SELECT status FROM paper_orders WHERE id=?",
+                                   (row[0],)).fetchone()
+                if not st or st[0] != "resting":
                     continue
                 acct = _db().execute(
                     "SELECT id, mode, starting_capital, cash_available, "
@@ -754,7 +984,9 @@ def on_price(symbol: str, price: float) -> None:
                     continue
                 order = {"id": row[0], "user_id": row[2], "symbol": row[3],
                          "side": row[4], "quantity": row[6],
-                         "reserved_cash": row[9], "strategy_id": row[10]}
+                         "reserved_cash": row[9], "strategy_id": row[10],
+                         "stop_loss": row[11], "take_profit": row[12],
+                         "oco_id": row[13]}
                 # A LIMIT fills at its own price when the market has gone
                 # past it (that is the price the user asked for); a trigger
                 # order fills at the market, which is what a stop does.
@@ -764,7 +996,9 @@ def on_price(symbol: str, price: float) -> None:
                     fill_px = lim if ((row[4] == "BUY" and px < lim)
                                       or (row[4] == "SELL" and px > lim)) else px
                 try:
-                    fills.append(_fill(acct, order, fill_px, seed_prev=None))
+                    fills.append(_fill(acct, order, fill_px, seed_prev=None,
+                                       inst=inst, fx=fx))
+                    done.add(row[0])
                 except Reject as exc:
                     _db().execute(
                         "UPDATE paper_orders SET status='rejected', "
@@ -841,7 +1075,9 @@ def api_summary(uid: int) -> tuple[int, dict]:
         if _qty(p["quantity"]) == 0:
             continue
         n_open += 1
-        mark = mark_price(p["symbol"])
+        inst = instrument(p["symbol"])
+        native = mark_price(p["symbol"])
+        mark = _to_book(inst, native)
         v = _value(p, mark)
         mv += v["mv"]; invested += v["invested"]
         unreal += v["unrealized"]; day += v["day"]
@@ -879,7 +1115,9 @@ def api_holdings(uid: int) -> tuple[int, list]:
     for p in _positions(acct[0]):
         if _qty(p["quantity"]) == 0:
             continue
-        mark = mark_price(p["symbol"])
+        inst = instrument(p["symbol"])
+        native = mark_price(p["symbol"])
+        mark = _to_book(inst, native)
         v = _value(p, mark)
         out.append({
             "symbol": p["symbol"], "quantity": _qty_out(p["quantity"]),
@@ -896,6 +1134,9 @@ def api_holdings(uid: int) -> tuple[int, list]:
             # outside hours the last close is the right price, not a warning.
             "stale": mark is None and p["last_price"] is None,
             "last_mark_at": _iso(p["last_mark_at"]),
+            # what it trades in: crypto is valued in rupees above, and shown
+            # in its own currency here
+            "ccy": inst["ccy"], "last_price_native": None if native is None else f(native),
         })
     out.sort(key=lambda r: r["market_value"], reverse=True)
     return 200, out
@@ -908,7 +1149,8 @@ def api_orders(uid: int) -> tuple[int, list]:
     with ds._users_lock:
         rows = _db().execute(
             "SELECT id, symbol, side, order_type, quantity, limit_price, "
-            "trigger_price, reserved_cash, status, source, origin_kind, created "
+            "trigger_price, reserved_cash, status, source, origin_kind, created, "
+            "stop_loss, take_profit, oco_id, ccy "
             "FROM paper_orders WHERE account_id=? AND status='resting' "
             "ORDER BY created DESC", (acct[0],)).fetchall()
     return 200, [{
@@ -916,6 +1158,7 @@ def api_orders(uid: int) -> tuple[int, list]:
         "quantity": _qty_out(r[4]), "limit_price": r[5], "trigger_price": r[6],
         "reserved_cash": f(r[7]), "status": r[8], "source": r[9],
         "origin_kind": r[10], "created_at": _iso(r[11]),
+        "stop_loss": r[12], "take_profit": r[13], "oco_id": r[14], "ccy": r[15] or "INR",
     } for r in rows]
 
 
@@ -927,8 +1170,8 @@ def api_fills(uid: int, limit: int = 50, offset: int = 0) -> tuple[int, list]:
     with ds._users_lock:
         rows = _db().execute(
             "SELECT id, symbol, side, quantity, fill_price, gross_value, "
-            "charges, net_cashflow, realized_pnl, filled_at, order_id "
-            "FROM paper_fills WHERE account_id=? ORDER BY filled_at DESC, "
+            "charges, net_cashflow, realized_pnl, filled_at, order_id, "
+            "ccy, fx, px_native FROM paper_fills WHERE account_id=? ORDER BY filled_at DESC, "
             "rowid DESC LIMIT ? OFFSET ?",
             (acct[0], limit, max(0, int(offset or 0)))).fetchall()
     return 200, [{
@@ -937,7 +1180,95 @@ def api_fills(uid: int, limit: int = 50, offset: int = 0) -> tuple[int, list]:
         "net_cashflow": f(r[7]),
         "realized_pnl": None if r[8] is None else f(r[8]),
         "filled_at": _iso(r[9]), "order_id": r[10],
+        "ccy": r[11] or "INR", "fx": r[12] or 1.0,
+        "price_native": r[13] if r[13] is not None else f(r[4]),
     } for r in rows]
+
+
+# What a refusal means, in a sentence the order ticket can show as is.
+REASONS = {
+    "insufficient_buying_power": "There is not enough cash in your paper book for this order.",
+    "insufficient_position": "You can only sell what you hold. This book does not short.",
+    "quantity_must_be_positive": "Enter a quantity above zero.",
+    "no_price_available": "There is no price for this instrument yet.",
+    "stale_price": "This pair has not traded here for over two days, so there is no live price to fill at.",
+    "no_fx_rate": "There is no USDINR rate to convert this order to rupees right now.",
+    "limit_price_required": "Enter a limit price.",
+    "trigger_price_required": "Enter a trigger price.",
+    "exits_need_a_market_or_limit_buy": "Stop loss and take profit attach to a market or limit buy.",
+    "stop_loss_must_be_below_entry": "The stop loss has to be below the price you buy at.",
+    "take_profit_must_be_above_entry": "The take profit has to be above the price you buy at.",
+}
+
+
+def reason_text(code: str) -> str:
+    if code in REASONS:
+        return REASONS[code]
+    if code.endswith("_must_be_positive"):
+        return "Prices have to be above zero."
+    return code if " " in code else code.replace("_", " ").capitalize() + "."
+
+
+def api_place(uid: int, body: dict) -> tuple[int, dict]:
+    """An order from the chart's ticket. Validation is place_order's; this
+    only reads the body and turns a refusal into a sentence."""
+    def num(k):
+        v = body.get(k)
+        if v in (None, ""):
+            return None
+        try:
+            return Decimal(str(v))
+        except Exception:                                   # noqa: BLE001
+            raise Reject(f"{k}_must_be_positive")
+    try:
+        out = place_order(
+            uid, str(body.get("symbol") or ""), str(body.get("side") or ""),
+            body.get("quantity"), order_type=str(body.get("order_type") or "MARKET"),
+            limit_price=num("limit_price"), trigger_price=num("trigger_price"),
+            stop_loss=num("stop_loss"), take_profit=num("take_profit"),
+            source="ticket", origin_kind="chart")
+    except Reject as exc:
+        return 400, {"error": reason_text(exc.reason), "code": exc.reason}
+    return 200, out
+
+
+def api_ticket(uid: Optional[int], symbol: str) -> tuple[int, dict]:
+    """Everything the order ticket shows before an order exists: the price and
+    how old it is, the rate it converts at, the cash and the holding, and what
+    a fill costs. Reads only: a book is opened by the first order, not here."""
+    inst = instrument(symbol)
+    px, ts = last_price(inst["symbol"])
+    rate, fx_ts = fx_rate(inst["ccy"])
+    stale = bool(inst["kind"] == "crypto" and ts and time.time() - ts > STALE_24x7)
+    cash = to_money(SEED_CAPITAL)
+    held = Decimal(0); avg = None; opened = False
+    if uid is not None:
+        acct = account_of(uid)
+        if acct is not None:
+            opened = True
+            cash = to_money(acct[3])
+            with ds._users_lock:
+                row = _db().execute(
+                    "SELECT quantity, avg_cost FROM paper_positions WHERE account_id=? "
+                    "AND symbol=?", (acct[0], inst["symbol"])).fetchone()
+            if row:
+                held, avg = _qty(row[0]), to_money(row[1])
+    if inst["kind"] == "crypto":
+        buy_pct = sell_pct = float(CRYPTO_FEE + CRYPTO_SLIP)
+    else:
+        buy_pct, sell_pct = trading_costs.leg_bps("buy"), trading_costs.leg_bps("sell")
+    return 200, {
+        **{k: inst[k] for k in ("symbol", "kind", "ccy", "venue", "fractional", "tradable")},
+        "why": inst.get("why"),
+        "price": None if px is None else f(px), "price_at": _iso(ts),
+        "stale": stale,
+        "fx": None if rate is None else float(rate), "fx_at": _iso(fx_ts),
+        "qty_step": 0.00000001 if inst["fractional"] else 1,
+        "cash_available": f(cash), "account_open": opened,
+        "position_qty": _qty_out(held), "position_avg_cost": None if avg is None else f(avg),
+        "charges_pct": {"buy": buy_pct, "sell": sell_pct},
+        "order_types": ["MARKET", "LIMIT", "SL-M", "SL"],
+    }
 
 
 def api_nav(uid: int, start: str = "", end: str = "") -> tuple[int, list]:

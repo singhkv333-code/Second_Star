@@ -14,7 +14,7 @@
  */
 
 import * as React from "react";
-import { Segmented, SECTION_GAP, PanelSkeleton } from "./chrome";
+import { SECTION_GAP, PanelSkeleton } from "./chrome";
 
 type Side = {
   ltp: number;
@@ -126,44 +126,40 @@ export function OptionChainSection({ symbol }: { symbol: string }): React.ReactE
         <div>
           <h2>Options</h2>
           <div className="pv-oc-sub">
-            {c ? <>
-              <span className={`pv-oc-src${c.source === "kite" ? " live" : ""}`}><i />{c.as_of_label}</span>
-              <span>Option chain · OI and volume in contracts · lot {c.lot_size}</span>
-            </> : "Option chain"}
+            {c ? `${c.as_of_label} · ${c.lot_size} lot` : "Option chain"}
           </div>
         </div>
-        <Segmented value={view} onChange={(v) => setView(v as "chain" | "oi")}
-          options={[{ value: "chain", label: "Chain" }, { value: "oi", label: "Open interest" }]} />
+        <div className="pv-oc-views" role="tablist" aria-label="Options view">
+          <button type="button" role="tab" aria-selected={view === "chain"} onClick={() => setView("chain")}>Chain</button>
+          <button type="button" role="tab" aria-selected={view === "oi"} onClick={() => setView("oi")}>Open interest</button>
+        </div>
       </div>
 
       {!c ? <PanelSkeleton rows={8} /> : <>
         <div className="pv-oc-exps" role="tablist" aria-label="Expiry">
+          <span className="pv-oc-exps-label">Expiry</span>
           {c.expiries.map((e) => (
             <button key={e.date} type="button" role="tab" aria-selected={e.date === c.expiry}
+              aria-label={`${day(e.date)}, ${e.dte <= 0 ? "expires today" : `${e.dte} days to expiry`}${e.monthly ? ", monthly expiry" : ""}`}
               className={e.date === c.expiry ? "on" : ""} onClick={() => setExpiry(e.date)}>
-              <b>{day(e.date)}</b><span>{e.dte <= 0 ? "today" : `${e.dte}d`}{e.monthly ? " · monthly" : ""}</span>
+              <b>{day(e.date)}</b><span>{e.dte <= 0 ? "today" : `${e.dte}d`}</span>
             </button>
           ))}
         </div>
 
         <div className="pv-oc-stats">
-          <Stat label={c.index ? "Spot" : "Price"} value={`₹${px(c.spot)}`}
-            sub={c.forward_basis === "future" ? `Future ₹${px(c.forward)}` : `Forward ₹${px(c.forward)}`} />
-          <Stat label="Put-call ratio" value={fin(c.pcr_oi) ? c.pcr_oi.toFixed(2) : "—"} sub={fin(c.pcr_volume) ? `By volume ${c.pcr_volume.toFixed(2)}` : undefined} />
-          <Stat label="Max pain" value={strike(c.max_pain)} sub={fin(c.max_pain) && c.spot ? `${pct((c.max_pain / c.spot - 1) * 100)} from ${c.index ? "spot" : "price"}` : undefined} />
-          <Stat label="ATM implied vol" value={fin(c.atm_iv) ? `${c.atm_iv.toFixed(1)}%` : "—"} sub={fin(c.one_sd_move) ? `One s.d. ±${strike(Math.round(c.one_sd_move))}` : undefined} />
-          <Stat label="Straddle prices" value={c.expected_move ? `±${strike(Math.round(c.expected_move.abs))}` : "—"}
-            sub={c.expected_move ? `±${c.expected_move.pct.toFixed(2)}% by ${day(c.expiry)}` : undefined} />
+          <Stat label={c.index ? "Spot" : "Price"} value={`₹${px(c.spot)}`} />
+          <Stat label="Put-call ratio" value={fin(c.pcr_oi) ? c.pcr_oi.toFixed(2) : "—"} />
+          <Stat label="Max pain" value={strike(c.max_pain)} />
+          <Stat label="ATM implied vol" value={fin(c.atm_iv) ? `${c.atm_iv.toFixed(1)}%` : "—"} />
+          <Stat label="Expected move" value={c.expected_move ? `±${strike(Math.round(c.expected_move.abs))}` : "—"} />
         </div>
 
         <OiSplit c={c} />
 
         <div className="pv-oc-walls">
-          <span><i className="ce" />Most call OI <b>{c.walls.call.map((w) => strike(w.strike)).join(" · ") || "—"}</b></span>
-          <span><i className="pe" />Most put OI <b>{c.walls.put.map((w) => strike(w.strike)).join(" · ") || "—"}</b></span>
-          {(c.oi_added.call.length || c.oi_added.put.length) ? (
-            <span className="muted">Added today: calls {c.oi_added.call.map((w) => strike(w.strike)).join(", ") || "—"}; puts {c.oi_added.put.map((w) => strike(w.strike)).join(", ") || "—"}</span>
-          ) : null}
+          <span>Call wall <b>{c.walls.call.map((w) => strike(w.strike)).join(" · ") || "—"}</b></span>
+          <span>Put wall <b>{c.walls.put.map((w) => strike(w.strike)).join(" · ") || "—"}</b></span>
         </div>
 
         {view === "chain" ? <ChainTable c={c} rows={rows} /> : <OiProfile c={c} rows={rows} />}
@@ -181,12 +177,7 @@ export function OptionChainSection({ symbol }: { symbol: string }): React.ReactE
               if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
               e.preventDefault();
               window.dispatchEvent(new CustomEvent("pivot:open-chart", { detail: { symbol: c.symbol, panel: "options" } }));
-            }}>Open in the chart workspace →</a>
-        </div>
-        <div className="pv-oc-note">
-          IV and Greeks are priced off {c.forward_basis === "future" ? "the same-expiry future" : c.forward_basis === "parity" ? "put-call parity at the money" : "spot"}.
-          {" "}Source: {c.source === "kite" ? "Kite live quotes, OI change against the last close" : "NSE's end-of-day F&O file"}.
-          {" "}Data for analysis, not a recommendation to trade any option.
+            }}>Open chart ↗</a>
         </div>
       </>}
       <style>{CSS}</style>
@@ -194,8 +185,8 @@ export function OptionChainSection({ symbol }: { symbol: string }): React.ReactE
   );
 }
 
-function Stat({ label, value, sub }: { label: string; value: string; sub?: string }): React.ReactElement {
-  return <div className="pv-oc-stat"><span>{label}</span><b>{value}</b>{sub ? <em>{sub}</em> : null}</div>;
+function Stat({ label, value }: { label: string; value: string }): React.ReactElement {
+  return <div className="pv-oc-stat"><span>{label}</span><b>{value}</b></div>;
 }
 
 function OiSplit({ c }: { c: OptionChain }): React.ReactElement {
@@ -299,42 +290,37 @@ const CSS = `
 .pv-oc { --oc-ce: var(--color-loss); --oc-pe: var(--color-profit); font-variant-numeric: tabular-nums;
   --oc-ce-soft: color-mix(in srgb, var(--color-loss) 14%, transparent); --oc-pe-soft: color-mix(in srgb, var(--color-profit) 14%, transparent);
   --oc-itm: color-mix(in srgb, #f5a524 7%, transparent); }
-.pv-oc-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 12px; }
+.pv-oc-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
 .pv-oc-head h2 { margin: 0; font-family: var(--font-ui); font-size: 21px; font-weight: 600; letter-spacing: -0.022em; color: var(--text-primary); }
-.pv-oc-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 4px; font-size: 11.5px; color: var(--text-tertiary); }
-.pv-oc-src { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--glass-border); color: var(--text-secondary); }
-.pv-oc-src i { width: 6px; height: 6px; border-radius: 50%; background: var(--text-tertiary); }
-.pv-oc-src.live { color: var(--text-primary); } .pv-oc-src.live i { background: var(--color-profit); }
-.pv-oc-exps { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.pv-oc-sub { margin-top: 3px; font-size: 11.5px; color: var(--text-primary); }
+.pv-oc-views { display: inline-flex; align-items: center; gap: 22px; }
+.pv-oc-views button { padding: 0 0 5px; border: 0; border-bottom: 1.5px solid transparent; background: transparent; color: var(--text-primary); cursor: pointer; font: inherit; font-size: 12.5px; }
+.pv-oc-views button[aria-selected="true"] { border-bottom-color: var(--text-primary); font-weight: 650; }
+.pv-oc-exps { display: flex; align-items: baseline; gap: 18px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
 .pv-oc-exps::-webkit-scrollbar { display: none; }
-.pv-oc-exps button { flex: none; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 6px 12px; border-radius: 10px;
-  border: 1px solid var(--glass-border); background: transparent; color: var(--text-primary); cursor: pointer; font: inherit; transition: background 150ms ease; }
-.pv-oc-exps button b { font-size: 12.5px; font-weight: 600; }
-.pv-oc-exps button span { font-size: 10.5px; color: var(--text-tertiary); }
-.pv-oc-exps button:hover { background: color-mix(in srgb, var(--text-primary) 5%, transparent); }
-.pv-oc-exps button.on { background: var(--text-primary); color: var(--bg-primary); border-color: var(--text-primary); }
-.pv-oc-exps button.on span { color: inherit; opacity: .7; }
-.pv-oc-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); margin-top: 14px; border-top: 1px solid var(--glass-border); border-bottom: 1px solid var(--glass-border); }
-.pv-oc-stat { display: flex; flex-direction: column; gap: 3px; padding: 12px 14px; min-width: 0; }
-.pv-oc-stat + .pv-oc-stat { border-left: 1px solid var(--glass-border); }
-.pv-oc-stat span { font-size: 10.5px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--text-tertiary); }
-.pv-oc-stat b { font-size: 19px; font-weight: 600; letter-spacing: -0.02em; color: var(--text-primary); white-space: nowrap; }
-.pv-oc-stat em { font-style: normal; font-size: 11px; color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pv-oc-split { margin-top: 14px; }
-.pv-oc-split .bar { display: flex; height: 6px; border-radius: 999px; overflow: hidden; background: var(--oc-pe); }
+.pv-oc-exps-label { flex: none; font-size: 11px; font-weight: 600; color: var(--text-primary); }
+.pv-oc-exps button { flex: none; display: inline-flex; align-items: baseline; gap: 5px; padding: 0 0 4px; border: 0; border-bottom: 1.5px solid transparent; background: transparent; color: var(--text-primary); cursor: pointer; font: inherit; }
+.pv-oc-exps button b { font-size: 12.5px; font-weight: 500; }
+.pv-oc-exps button span { font-size: 10.5px; color: var(--text-primary); }
+.pv-oc-exps button.on { border-bottom-color: var(--text-primary); }
+.pv-oc-exps button.on b { font-weight: 700; }
+.pv-oc-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 20px; margin-top: 22px; }
+.pv-oc-stat { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.pv-oc-stat span { font-size: 10.5px; font-weight: 600; letter-spacing: .045em; text-transform: uppercase; color: var(--text-primary); }
+.pv-oc-stat b { font-size: 18px; font-weight: 650; letter-spacing: -0.02em; color: var(--text-primary); white-space: nowrap; }
+.pv-oc-split { margin-top: 20px; }
+.pv-oc-split .bar { display: flex; height: 3px; overflow: hidden; background: var(--oc-pe); }
 .pv-oc-split .bar i { background: var(--oc-ce); }
-.pv-oc-split .lab { display: flex; justify-content: space-between; margin-top: 6px; font-size: 12px; color: var(--text-tertiary); }
+.pv-oc-split .lab { display: flex; justify-content: space-between; margin-top: 7px; font-size: 11.5px; color: var(--text-primary); }
 .pv-oc-split b { color: var(--text-primary); font-weight: 600; } .pv-oc-split em { font-style: normal; }
-.pv-oc-walls { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-top: 10px; font-size: 12px; color: var(--text-tertiary); }
+.pv-oc-walls { display: flex; flex-wrap: wrap; gap: 4px 24px; margin-top: 10px; font-size: 11.5px; color: var(--text-primary); }
 .pv-oc-walls b { color: var(--text-primary); font-weight: 500; }
-.pv-oc-walls i, .pv-oc-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
-.pv-oc-walls i.ce { background: var(--oc-ce); } .pv-oc-walls i.pe { background: var(--oc-pe); }
-.pv-oc-walls .muted { flex-basis: 100%; }
 .pv-oc-table, .pv-oc-prof { margin-top: 16px; font-size: 12.5px; }
 .pv-oc-sides { display: flex; justify-content: space-between; font-size: 10.5px; font-weight: 650; letter-spacing: .07em; text-transform: uppercase; padding-bottom: 4px; }
 .pv-oc-sides span:first-child { color: var(--oc-ce); } .pv-oc-sides span:last-child { color: var(--oc-pe); }
 .pv-oc-row { display: grid; grid-template-columns: minmax(0,.9fr) minmax(0,1.5fr) minmax(0,.7fr) minmax(0,1fr) 92px minmax(0,1fr) minmax(0,.7fr) minmax(0,1.5fr) minmax(0,.9fr);
   align-items: stretch; min-height: 34px; border-bottom: 1px solid var(--glass-border); }
+.pv-oc-table > .pv-oc-row:last-child { border-bottom: 0; }
 .pv-oc-row.th { min-height: 28px; font-size: 10.5px; color: var(--text-tertiary); border-top: 1px solid var(--glass-border); }
 .pv-oc-row.th > span { display: flex; align-items: center; }
 .pv-oc-row .c { position: relative; display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding: 0 10px; white-space: nowrap; min-width: 0; }
@@ -372,22 +358,18 @@ const CSS = `
 .pv-oc-prof .b.ce em { left: 0; } .pv-oc-prof .b.pe em { right: 0; }
 .pv-oc-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; padding-bottom: 8px; font-size: 11px; color: var(--text-tertiary); }
 .pv-oc-legend i.tot { background: color-mix(in srgb, var(--text-tertiary) 35%, transparent); } .pv-oc-legend i.add { background: var(--text-tertiary); }
-.pv-oc-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 12px; font-size: 12.5px; }
+.pv-oc-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 14px; font-size: 12.5px; }
 .pv-oc-foot button { border: 0; background: transparent; padding: 0; cursor: pointer; font: inherit; color: var(--text-primary); font-weight: 500; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--glass-border); }
 .pv-oc-foot a { color: var(--text-primary); font-weight: 500; text-decoration: none; }
 .pv-oc-foot a:hover, .pv-oc-foot button:hover { opacity: .75; }
-.pv-oc-note { margin-top: 8px; font-size: 10.5px; line-height: 1.45; color: var(--text-tertiary); }
 @media (max-width: 900px) {
-  .pv-oc-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .pv-oc-stat:nth-child(4) { border-left: 0; } .pv-oc-stat:nth-child(n+4) { border-top: 1px solid var(--glass-border); }
+  .pv-oc-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 18px; }
 }
 @media (max-width: 720px) {
   .pv-oc-row { grid-template-columns: minmax(0,1.4fr) minmax(0,1fr) 76px minmax(0,1fr) minmax(0,1.4fr); }
   .pv-oc-row .c.chg, .pv-oc-row .c.iv { display: none; }
-  .pv-oc-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .pv-oc-stat:nth-child(n) { border-left: 0; border-top: 1px solid var(--glass-border); }
-  .pv-oc-stat:nth-child(even) { border-left: 1px solid var(--glass-border); }
-  .pv-oc-stat:nth-child(-n+2) { border-top: 0; }
+  .pv-oc-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 16px; }
   .pv-oc-prow { grid-template-columns: 1fr 70px 1fr; }
+  .pv-oc-foot { align-items: flex-start; flex-direction: column; }
 }
 `;

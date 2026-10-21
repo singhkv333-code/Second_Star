@@ -889,7 +889,7 @@ const Geo = (() => {
   return {
     point, hline, vline, segment, band, vband, box, poly, label, position,
     trade, exposure,
-    project, hit, paint, chip, rgba, FONT,
+    project, hit, paint, chip, chipBox, rgba, FONT, arrowHead,
     distToSegment, distToLine, pointInPoly, clipToRect,
     linearFit, valueAt, ladder, riskReward, positionTone,
     arcPts, ellipsePts, quadPts, crossArcPts, spiralPts, blendArcPts,

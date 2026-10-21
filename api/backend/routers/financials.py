@@ -415,7 +415,7 @@ def get_statement(
     symbol: str,
     type: str = Query("balance_sheet", pattern="^(balance_sheet|profit_loss|cash_flow|ratios)$"),
     basis: str = Query("consolidated", pattern="^(consolidated|standalone)$"),
-    years: int = Query(10, ge=1, le=25),
+    years: int = Query(10, ge=0, le=25),
     authorization: Optional[str] = Header(None),
 ) -> dict:
     """One statement grid for `symbol`.

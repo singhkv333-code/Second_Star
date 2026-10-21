@@ -23,8 +23,13 @@ export const metadata: Metadata = {
     type: "website", url: SITE, siteName: "Pivot", locale: "en_IN",
     title: "Pivot: Superintelligent charts for trading",
     description: "Ask a question, get the answer drawn on live NSE charts with the evidence. Fundamentals, patterns and honest backtests in one workspace.",
+    // The landing page itself, so a pasted link unfurls into what the visitor will see.
+    images: [{ url: "/og-landing.jpg", width: 2400, height: 1260, alt: "Pivot: Superintelligent charts for trading" }],
   },
-  twitter: { card: "summary_large_image", site: "@investwithpivot" },
+  twitter: {
+    card: "summary_large_image", site: "@pivotnow00",
+    images: [{ url: "/og-landing.jpg", width: 2400, height: 1260, alt: "Pivot: Superintelligent charts for trading" }],
+  },
   verification: {
     ...(process.env.GOOGLE_SITE_VERIFICATION ? { google: process.env.GOOGLE_SITE_VERIFICATION } : {}),
     ...(process.env.BING_SITE_VERIFICATION ? { other: { "msvalidate.01": process.env.BING_SITE_VERIFICATION } } : {}),
@@ -47,7 +52,7 @@ const SITE_GRAPH = {
       logo: `${SITE}/pivot-icon.png`,
       email: "contact@pivotnow.in",
       areaServed: "IN",
-      sameAs: ["https://x.com/investwithpivot", "https://www.instagram.com/investwithpivot/"],
+      sameAs: ["https://x.com/pivotnow00", "https://www.instagram.com/pivotnow00/"],
     },
     { "@type": "WebSite", "@id": `${SITE}/#website`, url: SITE, name: "Pivot", inLanguage: "en-IN", publisher: { "@id": `${SITE}/#organization` } },
     {

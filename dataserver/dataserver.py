@@ -212,7 +212,7 @@ AZURE_ENDPOINT, AZURE_KEY = _load_azure_creds()
 # The Browser widget's search engine and remote browser read theirs the same
 # way (websearch.py, _browser_ticket). Env wins over .env.
 for _k, _v in _env_values("YOUTUBE_API_KEY", "BRAVE_SEARCH_API_KEY", "SEARXNG_URL",
-                          "PIVOT_BROWSER_SECRET", "PIVOT_BROWSER_WS",
+                          "PIVOT_BROWSER_SECRET", "PIVOT_BROWSER_WS", "PIVOT_BROWSER_HTTP",
                           # bring-your-own-model (byok.py)
                           "PIVOT_BYOK_SECRET", "OPENAI_SIWC_CLIENT_ID",
                           "OPENAI_SIWC_CLIENT_SECRET", "OPENAI_SIWC_REDIRECT_URI",
@@ -2460,6 +2460,23 @@ def tool_draw_shape(shape: str, anchor_ids: list, interval: str = "5m",
     return out
 
 
+_mark_last = [0]
+_mark_lock = threading.Lock()
+
+
+def _mark_seq() -> str:
+    """A short id stem that never repeats, across turns and restarts."""
+    with _mark_lock:
+        n = max(int(time.time() * 1000), _mark_last[0] + 1)
+        _mark_last[0] = n
+    digits = "0123456789abcdefghijklmnopqrstuvwxyz"
+    s = ""
+    while n:
+        n, r = divmod(n, 36)
+        s = digits[r] + s
+    return s
+
+
 def tool_mark(shapes: list | None = None, interval: str = "1d",
               lookback_bars: int = 300, pane: str = "price",
               draw_mode: str = "add") -> dict:
@@ -2488,9 +2505,11 @@ def tool_mark(shapes: list | None = None, interval: str = "1d",
     rows = _rows(interval, max(60, min(int(lookback_bars or 300), 1500)))
     if not rows:
         return {"error": f"no bars for interval {interval}"}
+    # ids are unique per call: the chart replaces an item with the same id, so
+    # a fixed "M0" let each turn's markup overwrite the last turn's
     out = mark.build(shapes, rows, {"tz_off": _tz_off(),
                                     "parse_time": _parse_ist, "fmt_time": _ist},
-                     pane=str(pane or "price"))
+                     pane=str(pane or "price"), prefix=f"M{_mark_seq()}.")
     for item in out["items"]:
         _scene_add(item)
 
@@ -4074,13 +4093,13 @@ def _api_sections(sym: str) -> tuple[int, dict]:
 # 20 the number stops carrying information at all and the row says so instead.
 _OWN_FLOOR = 20
 
-# Bars to mine for a symbol's own record. Daily reaches the whole listed
-# history in ~2,800 bars; the intraday intervals are capped because the store
-# holds a million minute bars per symbol and a page load must not walk them.
-_OWN_BARS = {"1d": 4000, "1h": 6000, "15m": 8000}
+# Mine the full stored daily history. Intraday scans reach up to 100,000
+# aggregated bars (over seven times the former hourly window); report actual
+# dates and has_more so a bounded intraday scan never claims lifetime coverage.
+_OWN_BARS = {"1d": 100000, "1h": 100000, "15m": 100000}
 
 
-def _own_pattern_stats(sym: str, interval: str, horizon: int) -> dict[str, dict]:
+def _own_pattern_stats(sym: str, interval: str, horizon: int) -> tuple[dict[str, dict], dict]:
     """This symbol's OWN record for every pattern, on its own bars.
 
     The rules are `tool_evaluate_pattern`'s, exactly, because a rate quoted
@@ -4098,22 +4117,25 @@ def _own_pattern_stats(sym: str, interval: str, horizon: int) -> dict[str, dict]
     come from THIS symbol — a market-wide base rate against a single stock's
     hit rate compares two different things.
     """
-    rows = _rows_for(sym, interval, _OWN_BARS.get(interval, 4000))
+    history = get_bars(sym, interval, None, _OWN_BARS.get(interval, 100000))
+    rows = [(b["t"], b["o"], b["h"], b["l"], b["c"], b["v"]) for b in history["bars"]]
     n = len(rows)
+    coverage = {"bars_scanned": n, "from": history.get("earliest"), "to": history.get("latest"),
+                "has_more": bool(history.get("has_more")), "bar_limit": _OWN_BARS[interval]}
     if n < 120:
-        return {}
+        return {}, coverage
     closes = [r[4] for r in rows]
     h = horizon
     ist = lambda ts: ts                                            # noqa: E731
 
     inst: dict[str, list[dict]] = {}
     for f in patterns.candlesticks(rows, _atr(rows, 14), ist,
-                                   set(patterns.CANDLE_KINDS), limit=100000):
+                                   set(patterns.CANDLE_KINDS), limit=n * len(patterns.CANDLE_KINDS)):
         inst.setdefault(f["pattern"], []).append(
             {"i": n - 1 - f["bars_ago"], "d": f["direction"]})
     try:
         chart = patterns.chart_patterns(rows, _pivots(rows, 5), _tolerance(rows),
-                                        ist, set(patterns.CHART_KINDS), limit=4000)
+                                        ist, set(patterns.CHART_KINDS), limit=n * len(patterns.CHART_KINDS))
     except Exception:                       # a detector must not fail the page
         chart = []
     for f in chart:
@@ -4128,6 +4150,7 @@ def _own_pattern_stats(sym: str, interval: str, horizon: int) -> dict[str, dict]
     fwd = [(closes[j + h] - closes[j]) / closes[j] * 100 for j in range(n - h)]
     up = sum(1 for x in fwd if x > 0)
     base_up = up / len(fwd) * 100 if fwd else None
+    base_down = sum(1 for x in fwd if x < 0) / len(fwd) * 100 if fwd else None
 
     out: dict[str, dict] = {}
     for kind, items in inst.items():
@@ -4144,11 +4167,11 @@ def _own_pattern_stats(sym: str, interval: str, horizon: int) -> dict[str, dict]
         if direction not in ("bullish", "bearish"):
             continue
         good = sum(1 for e in evals
-                   if ((closes[e["i"] + h] - closes[e["i"]]) > 0) == (direction == "bullish"))
+                   if ((closes[e["i"] + h] - closes[e["i"]]) > 0 if direction == "bullish"
+                       else (closes[e["i"] + h] - closes[e["i"]]) < 0))
         m = len(evals)
         rate = good / m * 100
-        control = base_up if direction == "bullish" else (
-            100 - base_up if base_up is not None else None)
+        control = base_up if direction == "bullish" else base_down
         moves = [(closes[e["i"] + h] - closes[e["i"]]) / closes[e["i"]] * 100
                  for e in evals]
         # Binomial standard error on the difference. The pattern rate carries
@@ -4164,7 +4187,7 @@ def _own_pattern_stats(sym: str, interval: str, horizon: int) -> dict[str, dict]
             "move": round(sum(moves) / len(moves), 2),
             "enough": m >= _OWN_FLOOR,
         }
-    return out
+    return out, coverage
 
 
 def _api_patterns(sym: str, interval: str, horizon: int,
@@ -4223,7 +4246,7 @@ def _api_patterns(sym: str, interval: str, horizon: int,
                          (v["n_symbols"] for v in market.values()
                           if v["n_symbols"]), default=None)}
 
-    own = _own_pattern_stats(sym, interval, horizon)
+    own, coverage = _own_pattern_stats(sym, interval, horizon)
     out = []
     for kind, o in own.items():
         m = market.get(kind) or {}
@@ -4245,7 +4268,7 @@ def _api_patterns(sym: str, interval: str, horizon: int,
     return 200, {
         "available": bool(out), "scope": "symbol", "symbol": sym,
         "interval": interval, "horizon": horizon, "options": opts,
-        "patterns": out, "min_cases": _OWN_FLOOR,
+        "patterns": out, "min_cases": _OWN_FLOOR, "coverage": coverage,
     }
 
 
@@ -10649,6 +10672,62 @@ def _browser_ticket(me, ip: str) -> tuple[int, dict]:
                  "ws": environ.get("PIVOT_BROWSER_WS") or "/rb/ws"}
 
 
+def _rb_ticket(label: str, secret: str) -> str:
+    """A one-minute, single-use HMAC pass for the remote browser (browser/)."""
+    import base64
+    body = json.dumps({"u": label, "exp": int(time.time()) + 60,
+                       "n": secrets.token_urlsafe(9)}, separators=(",", ":")).encode()
+    raw = base64.urlsafe_b64encode(body).decode().rstrip("=")
+    sig = base64.urlsafe_b64encode(hmac.new(secret.encode(), raw.encode(), hashlib.sha256)
+                                   .digest()).decode().rstrip("=")
+    return f"{raw}.{sig}"
+
+
+# Where the server reaches the remote browser itself (not the /rb/ path the
+# page uses): PIVOT_BROWSER_HTTP, else the container SearXNG runs in, which
+# is the same one (deploy/provision_browser.sh).
+def _rb_http() -> str:
+    url = environ.get("PIVOT_BROWSER_HTTP", "").rstrip("/")
+    if url:
+        return url
+    host = urlparse(environ.get("SEARXNG_URL", "")).hostname
+    return f"http://{host}:5177" if host else ""
+
+
+PUBLIC_ORIGIN = (environ.get("PIVOT_PUBLIC_ORIGIN") or "https://app.pivotnow.in").rstrip("/")
+
+
+def _setup_screenshot(token: str, symbol: str, shot: dict) -> dict | None:
+    """The shared setup as the remote browser sees it: the public link opened
+    in capture mode (the workspace without the reader's chrome) at the
+    author's window size and theme. None when the browser is not set up or
+    the page did not load in time; the author's page then makes its own card."""
+    secret, base = environ.get("PIVOT_BROWSER_SECRET", ""), _rb_http()
+    if not secret or not base or not re.fullmatch(r"[\w-]{16,64}", token or ""):
+        return None
+    def num(k, lo, hi, d):
+        try:
+            return max(lo, min(hi, float(shot.get(k, d))))
+        except (TypeError, ValueError):
+            return d
+    page = f"{PUBLIC_ORIGIN}/?" + urlencode(
+        {**({"symbol": symbol.upper()} if re.fullmatch(r"[\w:&. -]{1,40}", symbol or "") else {}),
+         "view": token, "capture": "1"})
+    query = urlencode({"ticket": _rb_ticket("shot", secret), "url": page,
+                       "w": int(num("w", 800, 2560, 1512)), "h": int(num("h", 500, 1600, 860)),
+                       "dpr": num("dpr", 1, 2, 2),
+                       "scheme": "light" if shot.get("scheme") == "light" else "dark"})
+    t0 = time.time()
+    try:
+        with urllib.request.urlopen(f"{base}/shot?{query}", timeout=50) as r:
+            out = json.loads(r.read())
+    except Exception as exc:                                   # noqa: BLE001
+        logging.warning("setup screenshot failed: %s", exc)
+        return None
+    logging.info("setup screenshot %s in %.1fs", token[:6], time.time() - t0)
+    return out if out.get("og") else None
+
+
 def _web_search_model(q: str) -> dict:
     """The hosted web search (India-located), asked for the best pages on a
     query. Only pages the search itself cited are kept, so a listed address is
@@ -11919,6 +11998,27 @@ def _ws_widgets() -> dict:
     return {w.get("id"): w for w in (ws.get("widgets") or []) if isinstance(w, dict) and w.get("id")}
 
 
+
+def _ws_same_widget(o: dict, have: dict, opened: dict) -> str:
+    """The widget on the desk an `open` should reuse: same kind, and showing the
+    symbol asked for (or following the chart when none is named). Newest wins."""
+    kind = o.get("type")
+    want = canon_symbol(o["symbol"]) if o.get("symbol") else None
+    focus = canon_symbol(getattr(_req, "symbol", "") or "")
+    for wid, w in reversed(list(have.items())):
+        if w.get("type") != kind:
+            continue
+        follows = (w.get("link") or "chart") == "chart"
+        shows = canon_symbol(w["symbol"]) if w.get("symbol") else (focus if follows else None)
+        if want is None or want == shows:
+            return wid
+    if want is None:            # opened earlier this turn; its symbol is not on record yet
+        for wid, k in reversed(list(opened.items())):
+            if k == kind:
+                return wid
+    return ""
+
+
 def _workspace_line() -> str:
     """The desk, in a few lines, for the end of the turn's input."""
     if getattr(_req, "chat_mode", "chat") == "execution" or not _ws_catalog():
@@ -12149,7 +12249,18 @@ def tool_workspace(ops: list | None = None) -> dict:
                 o["id"] = mine[-1]
             else:
                 verb = o["op"] = "open"
+        same = ""
+        if verb == "open" and not o.get("new"):
+            # a second news or notes pane beside the first is clutter, not an
+            # answer: the one already on the desk for this symbol takes the op
+            same = _ws_same_widget(o, have, opened)
+            if same:
+                o["id"] = same
+                verb = o["op"] = ("write" if o.get("content")
+                                  else "configure" if o.get("settings") else "focus")
         res = {"i": i, "op": verb}
+        if same:
+            res["reused"] = same
         err = ""
         if verb == "describe":
             e = cat.get(o.get("type"))
@@ -13847,6 +13958,22 @@ def tool_search_web(q: str = "", kind: str = "web", fresh: str = "") -> dict:
 
 _DISPATCH["search_web"] = tool_search_web
 
+# ── chat v2: ten flexible tools over the same engine (chat_v2.py) ──
+# Chosen per request: the /chat body's `harness` ("v1" | "v2") wins, else
+# PIVOT_CHAT_V2=1 makes v2 the default. Research mode on Pivot's own model
+# only — execution mode and a user's own model keep the v1 surface.
+import chat_v2 as _v2  # noqa: E402
+_v2.bind(sys.modules[__name__])
+CHAT_V2_DEFAULT = (environ.get("PIVOT_CHAT_V2")
+                   or _env_values("PIVOT_CHAT_V2")["PIVOT_CHAT_V2"] or "0") == "1"
+
+
+def _v2_on() -> bool:
+    if getattr(_req, "chat_mode", "chat") == "execution" or getattr(_req, "engine", None):
+        return False
+    want = getattr(_req, "chat_v2", None)
+    return CHAT_V2_DEFAULT if want is None else bool(want)
+
 
 def _byok_tools() -> list[dict]:
     return [t for t in TOOLS if t.get("name") not in _EXECUTION_ONLY_TOOLS
@@ -14039,17 +14166,25 @@ def _dispatch_calls(jobs: list[tuple[str, dict]]):
 
 
 def run_tool(name: str, args: dict) -> dict:
+    # a v2 tool fans out to the tools below and comes back through here for
+    # each of them; `v2_inner` is what tells the two layers apart
+    if name in _v2.DISPATCH and _v2_on() and not getattr(_req, "v2_inner", False):
+        return _v2.run(name, args)
     fn = _DISPATCH.get(name)
     if not fn:
         return {"error": f"unknown tool {name}"}
+    # v2 reads any stored instrument by name, so `symbol` scopes every tool
+    # that does not take one itself, not only the chart-scoped list
+    v2_reach = getattr(_req, "v2_inner", False) and _v2_on()
     # `symbol` is routing, not a parameter of the computation: the tools that
     # take it in their own signature (get_peers) keep it, and for everything
     # else it swaps the request's working chart for the length of this one
     # call. Doing it here means a tool never has to know that more than one
     # chart exists — and a tool added tomorrow inherits this for free.
     args = dict(args or {})
+    _own = _fn_params(fn)
     want = canon_symbol(args.pop("symbol", "") or "") \
-        if name in _CHART_SCOPED and "symbol" not in _fn_params(fn) else ""
+        if ((name in _CHART_SCOPED or (v2_reach and _own)) and "symbol" not in _own) else ""
     prev = getattr(_req, "symbol", "RELIANCE")
     if want and want != prev:
         # `symbol=` means "which chart on screen to read" — its own description
@@ -14073,8 +14208,10 @@ def run_tool(name: str, args: dict) -> dict:
         # user chose to display it. Bounding the builder to the open panes
         # turned "mark the entries this rule generated" into "open the NIFTY
         # chart first", which is a workspace errand, not an answer.
-        on_screen = ([] if getattr(_req, "chat_mode", "chat") == "execution"
+        on_screen = ([] if getattr(_req, "chat_mode", "chat") == "execution" or v2_reach
                      else [s.upper() for s in (getattr(_req, "charts", []) or [])])
+        if v2_reach and not _symbol_ready(want):
+            _ensure_symbol(want)        # a cold symbol hydrates once, ~6-10 s
         if on_screen and want not in on_screen:
             return {"error": f"{want} is not a chart in this conversation",
                     "_note": (f"The charts here are: {', '.join(on_screen)}. "
@@ -15142,6 +15279,8 @@ def _tools_for_request() -> list[dict]:
     proposal and backtest tools, which dataserver has no local equivalent of, plus
     its own registration verbs, and subtracts nothing it can research with.
     """
+    if _v2_on():
+        return _v2.tools()
     if getattr(_req, "chat_mode", "chat") != "execution":
         withheld = _EXECUTION_ONLY_TOOLS | ({"save_strategy"} if not EXECUTION_ENABLED else set())
         own = [t for t in TOOLS if t.get("name") not in withheld]
@@ -15227,7 +15366,7 @@ def _tools_wire(tools: list[dict], model: str) -> list[dict]:
     """The offered tools as they go on the wire: core first, then each group
     as a namespace of deferred functions, then the search tool."""
     if (not TOOL_SEARCH or getattr(_req, "chat_mode", "chat") == "execution"
-            or not _supports_tool_search(model)):
+            or not _supports_tool_search(model) or _v2_on()):
         return tools
     by = {t.get("name"): t for t in tools if t.get("type") == "function"}
     deferred = {n for _, names in TOOL_GROUPS.values() for n in names}
@@ -15247,6 +15386,9 @@ def _tools_wire(tools: list[dict], model: str) -> list[dict]:
 def _wire_for(model: str, wire: list[dict]) -> list[dict]:
     """A deployment without tool search cannot be sent the search items a
     previous round produced (the fallback arm, mid-turn)."""
+    if model != LLM_DEPLOYMENT:
+        # reasoning items belong to the deployment that wrote them
+        wire = [it for it in wire if it.get("type") != "reasoning"]
     if _supports_tool_search(model) and TOOL_SEARCH:
         return wire
     out = []
@@ -15781,6 +15923,8 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
     common = (build_context_block(context), FORMAT_RULES, ANSWERING_RULES)
     mode_context = ((mode_rules,) if mode_rules else (READING_RULES, CAUSAL_RULES, WORKING_RULES))
     block = "\n\n".join(x for x in (*common, *mode_context) if x)
+    if _v2_on():
+        block = _v2.system_block(build_context_block(context))
     wire: list[dict] = []
     if block:
         wire.append({"role": "system", "content": block})
@@ -15902,6 +16046,8 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
     common = (build_context_block(context), FORMAT_RULES, ANSWERING_RULES)
     mode_context = ((mode_rules,) if mode_rules else (READING_RULES, CAUSAL_RULES, WORKING_RULES))
     block = "\n\n".join(x for x in (*common, *mode_context) if x)
+    if _v2_on():
+        block = _v2.system_block(build_context_block(context))
     guard = None
     offered = None
     if eng:
@@ -15932,7 +16078,7 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
     scene_patch: list[dict] = []
     view_ops: list[dict] = []
     cards: list[dict] = []
-    tok_in = tok_out = 0
+    tok_in = tok_out = tok_cached = 0
     turn_sources: list[str] = []
 
     _rounds = _max_tool_rounds()
@@ -15941,6 +16087,7 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
         text_parts: list[str] = []
         by_id: dict = {}
         searched: list[dict] = []
+        reasoned: list[dict] = []      # v2: this round's reasoning, replayed
         # Models from gpt-5.4 label each message `phase`: "commentary" for a
         # progress line written before tools, "final_answer" for the answer.
         # Commentary never enters the reply: it is held per message and sent
@@ -15993,11 +16140,14 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
                     u = r.get("usage") or {}
                     tok_in += u.get("input_tokens") or 0
                     tok_out += u.get("output_tokens") or 0
+                    tok_cached += (u.get("input_tokens_details") or {}).get("cached_tokens") or 0
                     # authoritative item list — the deltas above are only text
                     for item in r.get("output", []):
                         if item.get("type") == "function_call":
                             by_id[item.get("call_id") or item.get("id") or len(by_id)] = item
                     searched = _search_items(r.get("output", []))
+                    reasoned = [it for it in r.get("output", [])
+                                if it.get("type") == "reasoning"]
                 # `error` is the stream-level fault; `response.failed` is the
                 # RUN failing after it started, and it was not handled at all —
                 # the loop simply ran out of events, found no tool calls and
@@ -16037,7 +16187,8 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
                 # user's own page sent, not Pivot's rules.
                 eng.touch()
                 yield {"type": "done", "text": answer, "model": eng.label(), "engine": eng.provider,
-                       "usage": {"input_tokens": tok_in, "output_tokens": tok_out},
+                       "usage": {"input_tokens": tok_in, "output_tokens": tok_out,
+                             "cached_input_tokens": tok_cached}, "rounds": _round + 1,
                        "context_preview": build_context_block(context),
                        "tools_used": tool_trace, "scene_patch": scene_patch,
                        "view_ops": view_ops, "cards": cards, "sources": turn_sources[:8]}
@@ -16045,7 +16196,8 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
             yield {"type": "done",
                    "text": answer,
                    **({"model": _served} if _served != LLM_DEPLOYMENT else {}),
-                   "usage": {"input_tokens": tok_in, "output_tokens": tok_out},
+                   "usage": {"input_tokens": tok_in, "output_tokens": tok_out,
+                             "cached_input_tokens": tok_cached}, "rounds": _round + 1,
                    "context_preview": block,
                    "tools_used": tool_trace,
                    "scene_patch": scene_patch, "view_ops": view_ops,
@@ -16146,12 +16298,19 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
                                    "scene": _scene_take(), "views": _view_take(),
                                    "cards": _card_take()})
 
+        # v2 keeps the model's own reasoning across rounds: the reasoning items
+        # it produced before these calls go back ahead of them, as returned, so
+        # the next round continues that thought instead of starting over
+        replay = reasoned if (_v2_on() and not eng) else []
+        wire.extend(replay)
         # the transcript in the order the model asked, whatever order they landed
         for i, call in enumerate(calls):
             wire.append({"type": "function_call", "call_id": call.get("call_id"),
                          "name": call.get("name"), "arguments": call.get("arguments"),
                          **({"namespace": call["namespace"]} if call.get("namespace") else {}),
-                         **({"_sig": call["_sig"]} if call.get("_sig") else {})})
+                         **({"_sig": call["_sig"]} if call.get("_sig") else {}),
+                         # a replayed reasoning item must be followed by the call it led to
+                         **({"id": call["id"]} if replay and call.get("id") else {})})
             wire.append({"type": "function_call_output", "call_id": call.get("call_id"),
                          "output": json.dumps(outcomes[i]["result"], default=str)})
 
@@ -16160,7 +16319,8 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
     yield {"type": "done",
            **({"model": eng.label(), "engine": eng.provider} if eng else {}),
            "text": "I couldn't finish that lookup — try narrowing the question.",
-           "usage": {"input_tokens": tok_in, "output_tokens": tok_out},
+           "usage": {"input_tokens": tok_in, "output_tokens": tok_out,
+                             "cached_input_tokens": tok_cached}, "rounds": _round + 1,
            "context_preview": build_context_block(context) if eng else block,
            "tools_used": tool_trace,
            "scene_patch": scene_patch, "view_ops": view_ops, "cards": cards}
@@ -16786,6 +16946,10 @@ import billing as _billing  # noqa: E402
 import analytics as _analytics  # noqa: E402
 
 _ent.bind(_users, _users_lock)
+import coupons as _coupons  # noqa: E402
+import ops_api as _ops  # noqa: E402
+_coupons.ensure_schema()
+_ops.ensure_schema()
 _ADMIN_EMAILS = {e.strip().lower() for e in
                  (environ.get("PIVOT_ADMIN_EMAILS") or "").split(",") if e.strip()}
 import referrals as _referral_mod  # noqa: E402
@@ -16831,6 +16995,8 @@ def _plan_downgraded(uid: int) -> None:
 
 
 _billing.on_downgrade = _plan_downgraded
+_ops.on_downgrade = _plan_downgraded
+_ops.health = lambda: _health_report(deep=False)   # resolved when called
 
 
 def _referral_conversion(uid: int, new: dict) -> str:
@@ -16976,6 +17142,60 @@ def _chart_lease(uid: int | None, client: str, body: dict) -> tuple[int, dict]:
         _leases[subject], _evicted[subject] = held, gone
         n = len(held)
     return 200, {"active": n, "limit": lim, "renew_in": 60}
+
+
+# Wrong codes per account per hour. A generated code is 8 characters from 31
+# (about 10^12 of them), so this is a courtesy to the server, not the lock.
+_CODE_FAILS: dict[int, list[float]] = {}
+_CODE_FAILS_LOCK = threading.Lock()
+_CODE_FAIL_LIMIT = 20
+
+
+def _code_attempts_ok(uid: int) -> bool:
+    now = time.time()
+    with _CODE_FAILS_LOCK:
+        recent = [t for t in _CODE_FAILS.get(uid, []) if now - t < 3600]
+        _CODE_FAILS[uid] = recent
+        return len(recent) < _CODE_FAIL_LIMIT
+
+
+def _code_attempt_failed(uid: int) -> None:
+    with _CODE_FAILS_LOCK:
+        _CODE_FAILS.setdefault(uid, []).append(time.time())
+
+
+def _ops_request(handler, method: str) -> None:
+    """/ops/*: the owner console's signed API (ops_api.py). Anything that is
+    not a valid signed request gets the same 404 an unknown path gets."""
+    u = urlparse(handler.path)
+    raw = b""
+    if method == "POST":
+        try:
+            ln = int(handler.headers.get("Content-Length", 0))
+        except ValueError:
+            ln = -1
+        if ln < 0 or ln > 2 * 1024 * 1024:
+            return handler._send(404, {"error": "not found"})
+        raw = handler.rfile.read(ln) if ln else b""
+    actor = _ops.authenticate(method, handler.path, handler.headers, raw,
+                              handler._client_ip())
+    if not actor:
+        return handler._send(404, {"error": "not found"},
+                             headers={"Cache-Control": "no-store"})
+    try:
+        body = json.loads(raw or b"{}") if method == "POST" else {}
+    except ValueError:
+        return handler._send(400, {"error": "bad JSON body"})
+    if not isinstance(body, dict):
+        return handler._send(400, {"error": "bad JSON body"})
+    q = {k: v[0] for k, v in parse_qs(u.query).items()}
+    ip = re.sub(r"[^0-9a-fA-F:.]", "", str(handler.headers.get("X-Ops-Client-IP") or ""))[:64]
+    try:
+        code, out = _ops.handle(method, u.path, q, body, actor, ip)
+    except Exception as exc:                            # noqa: BLE001
+        logging.getLogger("dataserver").exception("ops %s %s failed", method, u.path)
+        code, out = 500, {"error": f"server error ({type(exc).__name__})"}
+    return handler._send(code, out, headers={"Cache-Control": "no-store"})
 
 
 def _admin_grant(by: str, body: dict) -> tuple[int, dict]:
@@ -17292,13 +17512,12 @@ def _auth_signup(body: dict, referral_token: str = "") -> tuple[int, dict]:
     except sqlite3.IntegrityError:
         return 409, {"error": "an account already exists for that email"}
     _bind_referral(uid, referral_token)
-    # Confirm the address is theirs. Mail goes out on a worker thread; when
-    # mail is not configured the account still works and can ask again later.
-    sent = _verifs.start(uid, email, name) if _verifs else False
-    code, out = _session_reply(uid, {"id": uid, "email": email, "name": name,
-                                     "email_verified": False})
-    out["verification_sent"] = bool(sent)
-    return code, out
+    # No confirmation step: the account works at once, and the first mail it
+    # gets is the welcome (notify.signed_in). The address stays recorded as
+    # unconfirmed, which is what lets a later Google sign-in by the inbox's
+    # real owner take the account back (see _auth_google).
+    return _session_reply(uid, {"id": uid, "email": email, "name": name,
+                                "email_verified": False})
 
 
 def _auth_login(body: dict) -> tuple[int, dict]:
@@ -18933,11 +19152,19 @@ class Handler(BaseHTTPRequestHandler):
         if not meta:
             return self._send(404, {"error": "this setup is no longer shared"},
                               headers={"Cache-Control": "no-store"})
-        host = self.headers.get("Host", "pivot-india.centralindia.cloudapp.azure.com")
         # Host is client supplied; never let it inject markup or another domain.
-        if host != "pivot-india.centralindia.cloudapp.azure.com" and not re.fullmatch(r"(?:localhost|127\.0\.0\.1):\d{1,5}", host):
-            host = "pivot-india.centralindia.cloudapp.azure.com"
-        scheme = "https" if host == "pivot-india.centralindia.cloudapp.azure.com" else "http"
+        # app.pivotnow.in first: a link shared from the product must unfurl,
+        # canonicalise and land on the product's own domain.
+        public_hosts = ("app.pivotnow.in", "pivot-india.centralindia.cloudapp.azure.com")
+        host = self.headers.get("Host", public_hosts[0])
+        if host not in public_hosts and not re.fullmatch(r"(?:localhost|127\.0\.0\.1):\d{1,5}", host):
+            host = public_hosts[0]
+        # The Azure hostname still answers, but a link that unfurls, canonicalises
+        # or redirects must name the product's own domain, whichever door the
+        # request came through. Only a local dev host keeps its own origin.
+        if host in public_hosts:
+            host = public_hosts[0]
+        scheme = "https" if host in public_hosts else "http"
         origin = f"{scheme}://{host}"
         share_url = f"{origin}/share/{quote(token, safe='')}"
         target = f"{origin}/chart-app/?{urlencode({'symbol': meta['symbol'], 'view': token})}"
@@ -18948,6 +19175,8 @@ class Handler(BaseHTTPRequestHandler):
                        (" with the conversation behind it." if meta["has_chat"] else "."))
         image_url = (f"{share_url}/image.jpg?v={meta['updated']}" if meta["has_image"]
                      else f"{origin}/assets/share-preview.jpg")
+        # A workspace card is 2400 x 1260; the chart-only card and the stock image are 1200 x 630.
+        img_w, img_h = (2400, 1260) if meta["has_hires"] else (1200, 630)
         esc = lambda value: html.escape(value, quote=True)
         body = f'''<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -18958,8 +19187,9 @@ class Handler(BaseHTTPRequestHandler):
 <meta property="og:description" content="{esc(description)}">
 <meta property="og:url" content="{esc(share_url)}">
 <meta property="og:image" content="{esc(image_url)}">
+<meta property="og:image:secure_url" content="{esc(image_url)}">
 <meta property="og:image:type" content="image/jpeg">
-<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta property="og:image:width" content="{img_w}"><meta property="og:image:height" content="{img_h}">
 <meta property="og:image:alt" content="Pivot shared research preview">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="{esc(title)}">
@@ -18977,8 +19207,8 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _share_image(self, token: str) -> None:
-        body = _shares.preview_image(token) if _shares is not None else None
+    def _share_image(self, token: str, hires: bool = False) -> None:
+        body = _shares.preview_image(token, hires) if _shares is not None else None
         if body is None:
             return self._send(404, {"error": "this preview is no longer shared"},
                               headers={"Cache-Control": "no-store"})
@@ -19106,6 +19336,29 @@ class Handler(BaseHTTPRequestHandler):
             if out[0] == 200 and out[1].get("effective") == "now":
                 _plan_downgraded(me[0])
             return out
+        if path == "/billing/coupon":
+            # What a code does for this account, before anything is used.
+            if not _code_attempts_ok(me[0]):
+                return 429, {"error": "Too many codes tried. Wait an hour and try again.",
+                             "code": "rate_limited"}
+            try:
+                c = _coupons.check(str(body.get("code") or ""), me[0], me[1],
+                                   body.get("plan") or None, body.get("cycle") or None)
+            except _coupons.CodeError as exc:
+                _code_attempt_failed(me[0])
+                return exc.status, exc.body()
+            return 200, {"coupon": _coupons.describe(c)}
+        if path == "/billing/redeem":
+            if not _code_attempts_ok(me[0]):
+                return 429, {"error": "Too many codes tried. Wait an hour and try again.",
+                             "code": "rate_limited"}
+            try:
+                out = _coupons.redeem_access(str(body.get("code") or ""), me[0], me[1])
+            except _coupons.CodeError as exc:
+                _code_attempt_failed(me[0])
+                return exc.status, exc.body()
+            _analytics.capture(me[0], "code_redeemed", {"plan": out["plan"], "days": out["days"]})
+            return 200, {"ok": True, "redeemed": out, "billing": _ent.summary(me[0])}
         if path == "/admin/billing/grant":
             if str(me[1]).lower() not in _ADMIN_EMAILS:
                 return 403, {"error": "not an admin"}
@@ -19273,7 +19526,16 @@ class Handler(BaseHTTPRequestHandler):
                 return 501, {"error": "sharing is not available on this server"}
             if path == "/setups/copy":
                 return _shares.copy(me[0], str(body.get("token") or ""))
-            return _shares.publish(me[0], me[2] or "", body)
+            code, out = _shares.publish(me[0], me[2] or "", body)
+            # The link preview is a screenshot the server takes of the setup as
+            # published (what a reader may see, nothing more), so the author's
+            # browser never has to ask to see its own tab.
+            shot = body.get("screenshot")
+            if code in (200, 201) and isinstance(shot, dict) and out.get("token"):
+                card = _setup_screenshot(out["token"], str(body.get("symbol") or ""), shot)
+                out["card"] = bool(card) and _shares.set_images(
+                    me[0], out["token"], card["og"], card.get("hires", ""))
+            return code, out
         if path == "/conversations":
             chats = body.get("chats")
             if not isinstance(chats, list):
@@ -19517,7 +19779,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         u = urlparse(self.path)
+        if u.path.startswith("/ops/"):
+            return _ops_request(self, "GET")
         u = _strip_api_auth(u)
+        if u.path.startswith("/share/") and u.path.endswith("/image-4k.jpg"):
+            return self._share_image(u.path[len("/share/"):-len("/image-4k.jpg")], True)
         if u.path.startswith("/share/") and u.path.endswith("/image.jpg"):
             return self._share_image(u.path[len("/share/"):-len("/image.jpg")])
         if u.path.startswith("/share/"):
@@ -20098,7 +20364,8 @@ class Handler(BaseHTTPRequestHandler):
                     key = hashlib.sha256(self._client_ip().encode()).hexdigest()[:16]
                     code, payload = _shares.view(
                         tok, viewer[0] if viewer else None, key,
-                        thumb=q.get("thumb") in ("1", "true"))
+                        thumb=q.get("thumb") in ("1", "true"),
+                        count=q.get("capture") != "1")
                     if code != 404 or u.path == "/setup":
                         return self._send(code, payload)
                 return self._send(*_layout_shared_get(tok))
@@ -20135,6 +20402,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(*_paper.api_holdings(me[0]))
                 if tail == "orders":
                     return self._send(*_paper.api_orders(me[0]))
+                if tail == "ticket":
+                    return self._send(*_paper.api_ticket(
+                        me[0], (q.get("symbol") or [""])[0]))
                 if tail == "fills":
                     return self._send(*_paper.api_fills(
                         me[0], int((q.get("limit") or ["50"])[0] or 50),
@@ -20359,6 +20629,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         u = urlparse(self.path)
+        if u.path.startswith("/ops/"):
+            return _ops_request(self, "POST")
         u = _strip_api_auth(u)
         if u.path == "/replay":
             return self._send(403, {"error": "Shared replay is disabled until replay is isolated from live data.",
@@ -20481,6 +20753,15 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(400 if "error" in out else 200, out)
                 if tail == "snapshot":
                     return self._send(200, _paper.snapshot_nav(me[0]))
+                # An order from the chart's Buy/Sell ticket, into the paper
+                # book. Simulated: nothing here reaches a broker.
+                if tail == "orders":
+                    code, out = _paper.api_place(me[0], body)
+                    _analytics.capture(me[0], "paper_order", {
+                        "symbol": str(body.get("symbol") or "")[:24],
+                        "side": body.get("side"), "type": body.get("order_type"),
+                        "ok": code == 200})
+                    return self._send(code, out)
                 return self._send(404, {"error": f"no paper route '{tail}'"})
             tail = u.path[len("/api/strategies"):].strip("/") \
                 if u.path.startswith("/api/strategies") \
@@ -20862,6 +21143,9 @@ class Handler(BaseHTTPRequestHandler):
             _req.chat_mode = ("execution"
                               if body.get("mode") == "execution" and EXECUTION_ENABLED
                               else "chat")
+            # which chat surface: "v2" / "v1" from the page, else the default
+            _h = body.get("harness")
+            _req.chat_v2 = True if _h == "v2" else False if _h == "v1" else None
             # the desk, for the workspace tool — out of the chart envelope, so
             # neither the manifest's contents nor the catalog reach the prompt
             # except through the tool and the short "Workspace now" block

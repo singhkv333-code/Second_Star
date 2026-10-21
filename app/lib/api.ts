@@ -2995,7 +2995,7 @@ export function getDeals(
   );
 }
 
-// ── pattern statistics (universe base rates, with a control) ────────────────
+// ── pattern statistics (this stock, with its own control) ────────────────
 
 export type PatternStat = {
   kind: string;
@@ -3003,7 +3003,8 @@ export type PatternStat = {
   interval: string;
   horizon: number;
   n: number;
-  n_symbols: number;
+  n_symbols?: number;
+  enough: boolean;
   rate: number | null;
   control: number | null;
   edge: number | null;
@@ -3013,6 +3014,10 @@ export type PatternStat = {
 
 export type PatternsResponse = {
   available: boolean;
+  scope: "symbol" | "universe";
+  symbol: string;
+  min_cases: number;
+  coverage?: { bars_scanned: number; from: number | null; to: number | null; has_more: boolean; bar_limit: number };
   interval: string;
   horizon: number;
   options: { interval: string; horizon: number }[];
@@ -3025,6 +3030,6 @@ export function getPatterns(
   horizon = 20,
 ): Promise<ApiResult<PatternsResponse>> {
   return request<PatternsResponse>(
-    `/stock/${encodeURIComponent(symbol)}/patterns?interval=${encodeURIComponent(interval)}&horizon=${horizon}`,
+    `/stock/${encodeURIComponent(symbol)}/patterns?interval=${encodeURIComponent(interval)}&horizon=${horizon}&scope=symbol`,
   );
 }

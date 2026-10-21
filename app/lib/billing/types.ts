@@ -131,3 +131,29 @@ export type InvoiceList = {
   payment_method: string | null;
   manage_url: string | null;
 };
+
+/** A code as /billing/coupon describes it to the account that entered it. */
+export type CodeOffer = {
+  plan: PaidPlanId;
+  plan_name: string;
+  cycle: Cycle;
+  was: number;
+  amount: number;
+  discount_cycles: number | null;
+};
+
+export type CodeInfo =
+  | { kind: "access"; code: string; plan: PaidPlanId; plan_name: string; days: number; summary: string; valid_until: number | null }
+  | {
+      kind: "discount";
+      code: string;
+      plan: PaidPlanId | "any";
+      plan_name: string;
+      cycles: Cycle | "any";
+      percent_off: number | null;
+      amount_off: number | null;
+      discount_cycles: number | null;
+      offers: CodeOffer[];
+      summary: string;
+      valid_until: number | null;
+    };

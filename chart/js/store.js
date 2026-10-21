@@ -179,7 +179,9 @@ const Store = (() => {
       ? "http://127.0.0.1:5174" : "";
     let tok = null;
     try { tok = localStorage.getItem("charto:auth:token"); } catch {}
-    viewSetup = fetch(`${API}/shared?token=${encodeURIComponent(VIEW)}`,
+    // The server's own screenshot of a setup (capture=1) is not a reader.
+    const capture = new URLSearchParams(location.search).get("capture") === "1" ? "&capture=1" : "";
+    viewSetup = fetch(`${API}/shared?token=${encodeURIComponent(VIEW)}${capture}`,
       { headers: tok ? { Authorization: `Bearer ${tok}` } : {} })
       .then(async (r) => {
         let d = {};

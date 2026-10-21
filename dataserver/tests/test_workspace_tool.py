@@ -226,3 +226,25 @@ def test_sources_come_from_news_tools_only():
     got = server._sources_of("search_news", news)
     assert "https://www.livemint.com/b" in got and "https://www.business-standard.com/a" in got
     assert server._sources_of("get_levels", news) == []
+
+
+def test_open_reuses_the_widget_of_that_kind_already_on_the_desk():
+    _desk([{"id": "notes:a1", "type": "notes", "link": "chart", "symbol": "RELIANCE"},
+           {"id": "news:b2", "type": "news", "link": "chart", "symbol": "RELIANCE"}])
+    server._req.symbol = "RELIANCE"
+    out = server.tool_workspace([{"op": "open", "type": "notes", "content": {"text": "Levels"}},
+                                 {"op": "open", "type": "news"}])
+    a, b = out["results"]
+    assert a["op"] == "write" and a["reused"] == "notes:a1"
+    assert b["op"] == "focus" and b["reused"] == "news:b2"
+    ops = _ops()
+    assert [o["id"] for o in ops] == ["notes:a1", "news:b2"] and ops[0]["content"]["text"] == "Levels"
+
+
+def test_a_different_symbol_or_new_true_opens_another():
+    _desk([{"id": "news:b2", "type": "news", "link": "chart", "symbol": "RELIANCE"}])
+    server._req.symbol = "RELIANCE"
+    out = server.tool_workspace([{"op": "open", "type": "news", "symbol": "TCS"},
+                                 {"op": "open", "type": "news", "new": True}])
+    assert all(r["op"] == "open" and "reused" not in r for r in out["results"])
+
