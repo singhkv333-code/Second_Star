@@ -13999,6 +13999,10 @@ _DISPATCH["search_web"] = tool_search_web
 # only — execution mode and a user's own model keep the v1 surface.
 import chat_v2 as _v2  # noqa: E402
 _v2.bind(sys.modules[__name__])
+# The execution layer (plays.py). Bound now so chat tools can reach it; the
+# alerts stream and the paper book are handed over at boot, once they exist.
+import plays as _plays  # noqa: E402
+_plays.bind(sys.modules[__name__])
 CHAT_V2_DEFAULT = (environ.get("CHARTO_CHAT_V2")
                    or _env_values("CHARTO_CHAT_V2")["CHARTO_CHAT_V2"] or "0") == "1"
 
@@ -20322,6 +20326,11 @@ class Handler(BaseHTTPRequestHandler):
                     if code != 404 or u.path == "/setup":
                         return self._send(code, payload)
                 return self._send(*_layout_shared_get(tok))
+            if u.path == "/plays":
+                me = _auth_user(self.headers)
+                if not me:
+                    return self._send(401, {"error": "sign in to use plays"})
+                return self._send(*_plays.api_list(me[0]))
             if u.path in ("/alerts", "/alerts/stream"):
                 # Alerts are per-user by construction — they run on the server
                 # so they can fire while the browser is shut, which means they
@@ -20878,6 +20887,18 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(413, {"error": "body too large"})
             raw = self.rfile.read(ln) if ln else b""
             return self._send(*self._billing_post(u.path, raw))
+        if u.path.startswith("/plays/"):
+            try:
+                ln = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(ln) or b"{}") if ln <= 65536 else None
+            except (ValueError, TypeError):
+                return self._send(400, {"error": "bad JSON body"})
+            if not isinstance(body, dict):
+                return self._send(400, {"error": "bad JSON body"})
+            me = _auth_user(self.headers)
+            if not me:
+                return self._send(401, {"error": "sign in to use plays"})
+            return self._send(*_plays.api_post(me[0], u.path[len("/plays"):], body))
         if u.path == "/alerts" or u.path.startswith("/alerts/"):
             if _alerts is None:
                 return self._send(501, {"error": "the alert engine is not "
@@ -21097,6 +21118,7 @@ class Handler(BaseHTTPRequestHandler):
             # which chat surface: "v2" / "v1" from the page, else the default
             _h = body.get("harness")
             _req.chat_v2 = True if _h == "v2" else False if _h == "v1" else None
+            _req.plays = body["plays"] if isinstance(body.get("plays"), bool) else None
             # the desk, for the workspace tool — out of the chart envelope, so
             # neither the manifest's contents nor the catalog reach the prompt
             # except through the tool and the short "Workspace now" block
@@ -21318,6 +21340,16 @@ if __name__ == "__main__":
             _plans.init_db()
     except Exception as _exc:                                  # noqa: BLE001
         print(f"charto strategies UNAVAILABLE: {_exc}")
+
+    # Plays after the paper book and the alerts, because a play fires into the
+    # one and announces on the other's stream. Never fatal.
+    try:
+        _plays.bind(sys.modules[__name__], _alerts, _paper)
+        _plays.register_hook()
+        _pboot = _plays.start()
+        print(f"charto plays: {_pboot.get('armed', 0)} armed on {_pboot.get('symbols', 0)} symbol(s)")
+    except Exception as _exc:                                  # noqa: BLE001
+        print(f"charto plays UNAVAILABLE: {_exc}")
 
     # The F&O file is ~1 MB from NSE and a second to parse; fetched now, so
     # the first option chain anyone opens answers from memory.

@@ -442,6 +442,8 @@ const Alerts = (() => {
           let ev = null;
           try { ev = JSON.parse(line.slice(6)); } catch { continue }
           if (ev && ev.type === "fired") onFired(ev);
+          // plays share this stream; plays.js owns what they mean
+          if (ev && ev.type === "play") window.dispatchEvent(new CustomEvent("pivot:play", { detail: ev }));
           if (ev && ev.type === "email_delivery") {
             if (ev.email_delivery) state.emailDelivery = ev.email_delivery;
             state.log = state.log.map((l) => l.id === ev.log_id

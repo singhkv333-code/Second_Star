@@ -694,9 +694,35 @@ def strategy(action=None, condition=None, exit_condition=None, symbol=None, inte
     return {"error": "action is one of build, backtest, compare, plan, list, pause, delete"}
 
 
+# ── 11. play, 12. measure (the execution layer, plays.py) ───────────────
+
+def play(action=None, play=None, play_id=None, arm=None) -> dict:
+    import plays
+    return plays.tool_play(action=action or "", play=play, play_id=int(play_id or 0),
+                           arm=True if arm is None else bool(arm))
+
+
+def measure(action=None, measure=None, symbol=None, interval=None) -> dict:
+    import plays
+    return plays.tool_measure(action=action or "test", measure=measure, symbol=symbol or "",
+                              interval=_iv(interval) if interval else "")
+
+
 DISPATCH = {"read_chart": read_chart, "draw": draw, "workspace": workspace,
             "market_data": market_data, "search": search, "query": query,
-            "screen": screen, "alerts": alerts, "journal": journal, "strategy": strategy}
+            "screen": screen, "alerts": alerts, "journal": journal, "strategy": strategy,
+            "play": play, "measure": measure}
+
+
+def plays_on() -> bool:
+    """The execution layer replaces `alerts` and `strategy` on the v2 surface:
+    an alert is a play that notifies. Per request (`plays` in the /chat body),
+    else CHARTO_PLAYS=1."""
+    want = getattr(ds._req, "plays", None)
+    if want is not None:
+        return bool(want)
+    import os
+    return os.environ.get("CHARTO_PLAYS", "0") == "1"
 
 
 def run(name: str, args: dict) -> dict:
@@ -773,6 +799,69 @@ _PALETTE = ["blue", "teal", "green", "red", "orange", "yellow", "purple", "pink"
 
 
 def tools() -> list[dict]:
+    out = _tools()
+    if plays_on():
+        out = [t for t in out if t["name"] not in ("alerts", "strategy")] + _play_tools()
+    return out
+
+
+_PLAY_DOC = (
+    "Build and run a play: the trader's idea as a rule Pivot checks on every bar close and acts on. "
+    "compile turns their words into a play and arms it; edit changes one (play_id, the whole play "
+    "again); list, pause, resume, delete, explain (what it saw and did). Never ask before building: "
+    "build with sensible choices, then state them. A play is {title (a short name for the idea, with "
+    "no time, level or number the rule does not contain), ask (the trader's words), "
+    "symbol, interval (the bar it is checked on), measures, when, do, manage, contract, mandate}.\n"
+    "measures: any series the rule needs beyond a plain price field. Write it yourself: {name, "
+    "title, formula (the maths in words), inputs: {alias: {bars: {symbol, field}}} or {alias: "
+    "{sql: 'SELECT <when known>, <value> FROM ...'}}, and expr ('a / b') or code ('def compute(data, "
+    "params): return [one value per bar]')}. data holds t, open, high, low, close, volume, hhmm "
+    "(bar close, IST) for the play's symbol, each input, and earlier measures; ta (sma, ema, rsi, "
+    "atr, highest, lowest, stdev, crossover, change, roc, vwma) and math are available. Ratios, "
+    "spreads, z-scores, distance from a high, fundamentals, a basket: define them; if you do not "
+    "know a formula, search for it first. Never type a number the data should supply.\n"
+    "when: {all: [...]} or {any: [...]} of {left, op, right, right2?, bars?, for_bars?}, op one of "
+    "above, below, cross_up, cross_down, between, outside, rises_pct, falls_pct, is_true; operands "
+    "are numbers, measure names, close/open/high/low/volume, or 'SYMBOL.close'. Time: {time: "
+    "{after: '09:20', before: '15:00'}} or {time: {at: '09:20'}} (bar close, IST). for_bars N means "
+    "it must hold N bars in a row ('stays under 3,000 for 15 minutes' on 5m is for_bars 3).\n"
+    "do: {kind: notify} or {kind: buy | sell, symbol, size: {inr} | {qty} | {all: true}}. Size in "
+    "rupees; code works out the quantity. manage: {stop_pct, target_pct, exit_at: '15:15'}.\n"
+    "contract: {lifespan, authority, inferred_from (the trader's deciding words)}. lifespan: now "
+    "(do it once, immediately), once_when (default with a condition), standing ('whenever', 'every "
+    "time', 'each'), policy ('keep it', 'maintain'). authority: notify ('tell me', 'alert'; the "
+    "default when nothing is placed), propose (the default for an order: a ready ticket they "
+    "confirm), act ('go ahead', 'just do it', 'don't ask': places it, though the first fire still "
+    "asks once), manage (act, and runs its exits). When the words are unclear, take the shorter "
+    "lifespan and the lower authority and say what one tap upgrades. mandate: {capital_inr, "
+    "max_fires}; code picks defaults.\n"
+    "Orders go to the paper book: long only, cash equities and crypto. Short selling, options and "
+    "futures orders are not placed yet; for those, build a notify play and say so in one line.")
+
+
+def _play_tools() -> list[dict]:
+    obj = {"type": "object", "additionalProperties": True}
+    return [
+        _fn("play", _PLAY_DOC,
+            {"action": {"type": "string", "enum": ["compile", "edit", "list", "pause", "resume",
+                                                   "delete", "explain"]},
+             "play": {**obj, "description": "the whole play, for compile and edit"},
+             "play_id": {"type": "integer"},
+             "arm": {"type": "boolean", "description": "false keeps it as a draft; default arms it"}},
+            ["action"]),
+        _fn("measure",
+            "Test a measure (the shape is in play's description) on a symbol before a play uses it, "
+            "or save it so later plays can name it. test returns its latest values, its range and "
+            "any problem (a measure that reads the future is refused); define saves it; list shows "
+            "the saved ones. A play can define measures inline, so test only when you are unsure "
+            "the formula is right.",
+            {"action": {"type": "string", "enum": ["test", "define", "list"]},
+             "measure": obj, "symbol": _STR, "interval": _IVS},
+            ["action"]),
+    ]
+
+
+def _tools() -> list[dict]:
     when = _old_prop("set_alert", "when") or {"type": "array", "items": {"type": "object"}}
     feat = _old_prop("screen_universe", "filters") or {"type": "array", "items": {"type": "object"}}
     shape_names = ["hline", "band", "vline", "vband", "segment", "ray", "arrow", "box", "poly",
@@ -1072,7 +1161,21 @@ I marked the two levels, the trendline and a ruler on the last leg.
 (The numbers in the example are placeholders; real answers use tool values only.)"""
 
 
+_PLAYS_LINE = (
+    "manage the trade journal and paper portfolio (journal), and turn any idea into a play that "
+    "watches price, indicators or your own measures on every bar close and tells the trader, "
+    "proposes an order, or places it on paper (play, measure)")
+
+
+def prompt() -> str:
+    if not plays_on():
+        return PROMPT
+    return PROMPT.replace(
+        "manage alerts (alerts), keep the trade journal and paper portfolio (journal), and build, "
+        "backtest and plan strategies (strategy)", _PLAYS_LINE)
+
+
 def system_block(context_block: str) -> str:
     """The fixed prompt first, the per-turn chart context after it, so the
     prompt stays in the cached prefix while the context changes every turn."""
-    return "\n\n".join(x for x in (PROMPT, context_block) if x)
+    return "\n\n".join(x for x in (prompt(), context_block) if x)
