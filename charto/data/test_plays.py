@@ -9,6 +9,7 @@ import pytest
 
 import dataserver as server
 import chat_v2
+import customsec
 import paper
 import plays
 
@@ -25,6 +26,8 @@ def uid(monkeypatch, tmp_path):
     monkeypatch.setattr(server, "_users", con)
     monkeypatch.setattr(plays, "_ready", False)
     monkeypatch.setattr(paper, "_ready", False)
+    monkeypatch.setattr(customsec, "_ready", False)
+    monkeypatch.setattr(customsec, "_cache", {})
     plays.bind(server, None, paper)
     server._req.user = (1, "t@x.in")
     server._req.symbol, server._req.ctx_interval = "RELIANCE", "1d"
@@ -327,3 +330,105 @@ def test_an_intraday_short_trails_and_a_delivery_short_is_refused(book) -> None:
     assert abs(p["stop_px"] - entry * 0.97 * 1.01) < 0.01
     r = daybook.check(p, entry * 0.985, stale=False)                # bounces through the trail
     assert r and r["why"] == "trailing stop" and r["pnl"] > 0
+
+
+# ── custom securities ─────────────────────────────────────────────────────────
+
+def _defence(**over):
+    sec = {"name": "defence", "title": "Defence", "kind": "basket",
+           "members": [{"symbol": "HAL", "weight": 2}, {"symbol": "BEL", "weight": 1}]}
+    sec.update(over)
+    return plays.tool_measure("security", security=sec)
+
+
+def test_a_basket_is_a_symbol_priced_from_its_members(uid) -> None:
+    got = _defence()
+    assert "error" not in got, got
+    assert got["symbol"] == "@DEFENCE" and got["formula"] == "67% HAL + 33% BEL"
+    sec = customsec.get("@DEFENCE")
+    d = server.get_bars("@DEFENCE", "1d", None, 400)["bars"]
+    # base 100 on the anchor day, and the weighted members' moves after it
+    anchor = [b for b in d if b["t"] == sec["anchor"]][0]
+    assert abs(anchor["c"] - 100) < 1e-6
+    hal = {b["t"]: b["c"] for b in server.get_bars("HAL", "1d", None, 400)["bars"]}
+    bel = {b["t"]: b["c"] for b in server.get_bars("BEL", "1d", None, 400)["bars"]}
+    t = d[-1]["t"]
+    m = {x["symbol"]: x for x in sec["members"]}
+    want = 100 * (m["HAL"]["weight"] * hal[t] / m["HAL"]["anchor_px"]
+                  + m["BEL"]["weight"] * bel[t] / m["BEL"]["anchor_px"])
+    assert abs(d[-1]["c"] - want) < 1e-4
+    assert all(b["l"] <= min(b["o"], b["c"]) and b["h"] >= max(b["o"], b["c"]) for b in d)
+    # the same number whatever window was asked for
+    assert server.get_bars("@DEFENCE", "1d", None, 30)["bars"][-1]["c"] == d[-1]["c"]
+    assert server._symbol_ready("@DEFENCE") and server._ensure_symbol("@DEFENCE") is None
+    assert server.get_bars("@DEFENCE", "15m", None, 50)["bars"]
+
+
+def test_a_ratio_and_the_names_it_refuses(uid) -> None:
+    got = plays.tool_measure("security", security={"name": "hdfc icici", "kind": "ratio",
+                                                   "members": ["HDFCBANK", "ICICIBANK"]})
+    assert got["symbol"] == "@HDFC_ICICI" and got["formula"] == "HDFCBANK ÷ ICICIBANK"
+    b = server.get_bars("@HDFC_ICICI", "1d", None, 5)["bars"][-1]
+    h = server.get_bars("HDFCBANK", "1d", None, 5)["bars"][-1]
+    i = server.get_bars("ICICIBANK", "1d", None, 5)["bars"]
+    i = {x["t"]: x["c"] for x in i}
+    if b["t"] == h["t"] and b["t"] in i:
+        assert abs(b["c"] - h["c"] / i[b["t"]]) < 1e-6
+    bad = plays.tool_measure("security", security={"name": "x", "kind": "ratio", "members": ["TCS"]})
+    assert "exactly two members" in bad["error"]
+    bad = plays.tool_measure("security", security={"name": "x", "kind": "basket",
+                                                   "members": ["TCS", "@HDFC_ICICI"]})
+    assert "cannot hold another custom security" in bad["error"]
+    # a name is the platform's: another account cannot overwrite it
+    server._users.execute("INSERT INTO users (id, email) VALUES (2, 'u@x.in')")
+    server._req.user = (2, "u@x.in")
+    taken = plays.tool_measure("security", security={"name": "hdfc_icici", "kind": "ratio",
+                                                     "members": ["HDFCBANK", "TCS"]})
+    assert "is taken" in taken["error"]
+    assert customsec.describe(customsec.get("@HDFC_ICICI")) == "HDFCBANK ÷ ICICIBANK"
+
+
+def test_a_play_watches_a_basket_on_its_members_clock(uid) -> None:
+    _defence()
+    got = plays.tool_play("compile", {
+        "title": "Defence under its 50-DMA", "symbol": "@DEFENCE", "interval": "1d",
+        "measures": [{"name": "dma50", "title": "50-day average", "code":
+                      "def compute(data, params):\n    return ta.sma(data['close'], 50)"}],
+        "when": {"all": [{"left": "close", "op": "cross_down", "right": "dma50"}]},
+        "contract": {"lifespan": "standing", "authority": "notify"}})
+    assert "error" not in got, got
+    assert got["history"]["bars"] > 200 and got["history"]["fires"] >= 1
+    # a bar of HAL (the first member) is what clocks it
+    assert got["play_id"] in plays._INDEX["HAL"]
+    missing = plays.tool_play("compile", {"symbol": "@NOPE", "interval": "1d",
+                                          "when": {"all": [{"left": "close", "op": "above",
+                                                            "right": 1}]}})
+    assert "define it first" in missing["error"]
+
+
+def test_a_basket_is_bought_whole_and_sold_whole(uid, monkeypatch) -> None:
+    _defence()
+    got = plays.tool_play("compile", {"title": "buy defence", "symbol": "@DEFENCE", "interval": "1d",
+                                      "do": {"kind": "buy", "symbol": "@DEFENCE",
+                                             "size": {"inr": 30000}},
+                                      "contract": {"lifespan": "now", "authority": "act"}})
+    ev = got["did_now"]
+    assert ev["kind"] == "filled", ev
+    t = ev["body"]["ticket"]
+    assert [lg["symbol"] for lg in t["legs"]] == ["HAL", "BEL"]
+    assert t["inr"] + t["uninvested_inr"] == pytest.approx(30000)
+    held = {h["symbol"]: h["quantity"] for h in paper.api_holdings(uid)[1]}
+    assert held == {lg["symbol"]: lg["qty"] for lg in t["legs"]}
+    play = plays.get(uid, got["play_id"])
+    assert play["held_legs"] == held
+    # selling the basket sells exactly what this play bought
+    play["spec"]["do"] = {**play["spec"]["do"], "kind": "sell", "size": {"all": True}}
+    tk, why = plays._ticket(play, 0)
+    assert {lg["symbol"]: lg["qty"] for lg in tk["legs"]} == held, why
+    # a ratio is something to watch, not to hold
+    plays.tool_measure("security", security={"name": "pair", "kind": "ratio",
+                                             "members": ["HDFCBANK", "ICICIBANK"]})
+    bad = plays.tool_play("compile", {"symbol": "@PAIR", "interval": "1d",
+                                      "do": {"kind": "buy", "symbol": "@PAIR"},
+                                      "contract": {"lifespan": "now", "authority": "act"}})
+    assert "not something to hold" in bad["error"]

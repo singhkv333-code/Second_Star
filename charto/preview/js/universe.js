@@ -128,6 +128,7 @@ const Universe = (() => {
     if (m) return m[0];
     if (s.endsWith("USDT")) return "BYBIT";
     if (s.endsWith("-USD")) return "COINBASE";
+    if (s.startsWith("@")) return "Custom";       // a trader's basket, ratio or spread
     return MCX.has(s) ? "MCX" : "NSE";
   }
 

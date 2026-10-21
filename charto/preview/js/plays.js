@@ -152,6 +152,42 @@ const PlayUI = (() => {
       `</div>`;
   }
 
+  /* ── custom securities: a basket, ratio or spread as a symbol ─────────── */
+  const pct = (v) => v == null || !Number.isFinite(+v) ? "" :
+    `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(+v).toFixed(2)}%`;
+
+  /** The security card: what it is made of, where it stands, and the chart.
+   *  Every figure is the server's (customsec.card); a basket starts at 100. */
+  function security(c) {
+    const ch = c.change || {};
+    const moves = [["Day", ch["1d"]], ["Month", ch["1m"]], ["Year", ch["1y"]]]
+      .filter(([, v]) => v != null);
+    const basket = c.type === "basket";
+    return `<div class="py-card py-sec-card" data-security="${esc(c.symbol)}">` +
+      `<div class="py-head"><h3 class="py-title">${esc(c.title)}</h3>` +
+      `<span class="py-state">${esc(c.symbol)}</span></div>` +
+      `<p class="py-summary">${esc(basket ? `A basket: ${c.formula}.` : `${cap(c.type)}: ${c.formula}.`)}` +
+      (basket && c.anchor ? ` It was set to ${num(c.base || 100)} on ${esc(day(c.anchor))} and holds those weights.` : "") +
+      `</p>` +
+      `<div class="py-sec"><div class="py-measure"><div class="py-mname">Now` +
+      (c.as_of ? `<span class="py-formula">${esc(day(c.as_of))}</span>` : "") +
+      `</div>${spark(c.spark)}<span class="py-mnow">${esc(num(c.now)) || "no value"}</span></div>` +
+      (moves.length ? `<dl class="py-contract">${moves.map(([k, v]) =>
+        `<div><dt>${k}</dt><dd>${esc(pct(v))}</dd></div>`).join("")}</dl>` : "") +
+      `</div>` +
+      (basket ? `<div class="py-sec"><div class="py-label">Members</div><ul class="py-members">` +
+        (c.members || []).map((m) => `<li><span>${esc(m.symbol)}</span>` +
+          `<span>${esc(+(m.weight * 100).toFixed(1))}%</span></li>`).join("") + `</ul></div>` : "") +
+      `<div class="py-actions"><button type="button" class="py-btn primary" data-py-open="${esc(c.symbol)}">Open chart</button></div>` +
+      `</div>`;
+  }
+
+  // one handler for every security card, in the chat or the widget
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-py-open]");
+    if (b && typeof Dock !== "undefined") Dock.openSymbol(b.dataset.pyOpen);
+  });
+
   function buttons(c) {
     const b = (act, label) => `<button type="button" class="py-btn" data-py="${act}">${label}</button>`;
     if (c.state === "armed") return b("pause", "Pause") + b("delete", "Delete");
@@ -251,7 +287,10 @@ const PlayUI = (() => {
   function eventHTML(ev) {
     const b = ev.body || {};
     const t = b.ticket;
-    const ticket = t ? `<div class="py-ticket"><span>${t.side === "BUY" ? "Buy" : "Sell"} ${esc(num(t.qty))} ` +
+    const ticket = t && t.basket ? `<div class="py-ticket"><span>${t.side === "BUY" ? "Buy" : "Sell"} ${esc(t.basket)}:</span>` +
+      (t.legs || []).map((lg) => `<span>${esc(num(lg.qty))} ${esc(lg.symbol)} at about ${esc(num(lg.price))}</span>`).join("") +
+      (t.uninvested_inr ? `<span>₹${esc(num(t.uninvested_inr))} left in cash</span>` : "") + `</div>`
+      : t ? `<div class="py-ticket"><span>${t.side === "BUY" ? "Buy" : "Sell"} ${esc(num(t.qty))} ` +
       `${esc(t.symbol)}</span><span>at about ${esc(num(t.price))}</span>` +
       (t.stop_loss ? `<span>stop ${esc(num(t.stop_loss))}</span>` : "") +
       (t.take_profit ? `<span>target ${esc(num(t.take_profit))}</span>` : "") + `</div>` : "";
@@ -322,8 +361,9 @@ const PlayUI = (() => {
       }
       if (!data) return;
       if (tab === "plays") {
-        if (!data.plays.length) {
-          body.innerHTML = `<div class="side-empty"><p>No plays yet. Ask the chat for one, for example "tell me when HDFC Bank crosses its 50-day average" or "buy ₹10,000 of TCS if it closes above 4,200".</p></div>`;
+        const secs = data.securities || [];
+        if (!data.plays.length && !secs.length) {
+          body.innerHTML = `<div class="side-empty"><p>No plays yet. Ask the chat for one, for example "tell me when HDFC Bank crosses its 50-day average" or "make a defence basket and tell me when it breaks its 50-day average".</p></div>`;
           return;
         }
         body.innerHTML = "";
@@ -335,6 +375,16 @@ const PlayUI = (() => {
             if (e.target.closest("[data-py-more]")) box.innerHTML = html(c);
           });
           wire(box, c, load);
+          body.appendChild(box);
+        }
+        if (secs.length) {
+          const box = document.createElement("div");
+          box.className = "py-w-item";
+          box.innerHTML = `<div class="py-label py-w-label">Your securities</div>` +
+            secs.map((c) => `<button type="button" class="py-secrow" data-py-open="${esc(c.symbol)}">` +
+              `<span class="py-secname">${esc(c.title)}<span>${esc(c.symbol)} · ${esc(c.formula)}</span></span>` +
+              `<span class="py-secnow">${esc(num(c.now))}<span>${esc(pct((c.change || {})["1d"]))}</span></span>` +
+              `</button>`).join("");
           body.appendChild(box);
         }
       } else if (tab === "positions") {
@@ -376,6 +426,8 @@ const PlayUI = (() => {
     const onChange = () => load();
     window.addEventListener("pivot:plays-changed", onChange);
     window.addEventListener("pivot:play", onChange);
+    // the session can resolve after the widget first paints (a fresh page)
+    if (typeof Auth !== "undefined" && Auth.onChange) Auth.onChange(onChange);
     return { show() { load(); }, hide() {} };
   }
 
@@ -396,5 +448,5 @@ const PlayUI = (() => {
     toast(`${ev.play || ev.title} ${what}`);
   });
 
-  return { html, wire, eventHTML, call };
+  return { html, wire, eventHTML, call, security };
 })();

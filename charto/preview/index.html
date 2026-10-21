@@ -11798,6 +11798,19 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
                           text-decoration-color: var(--border); text-underline-offset: 2px; }
 .py-src { margin-top: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; line-height: 1.45; }
 .py-srcwho { font-size: var(--text-xs); font-weight: 600; }
+.py-members { list-style: none; margin: 0; padding: 0; display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 4px 14px; }
+.py-members li { display: flex; justify-content: space-between; gap: 8px; font-variant-numeric: tabular-nums; }
+.py-members li span:first-child { font-weight: 550; }
+.py-w-label { margin: 2px 2px 6px; }
+.py-secrow { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  padding: 9px 11px; margin-bottom: 6px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--card); color: var(--foreground); font: inherit; text-align: left; cursor: pointer; }
+.py-secrow:hover { background: var(--hover-fill); }
+.py-secname { display: flex; flex-direction: column; gap: 2px; font-weight: 600; min-width: 0; }
+.py-secname span, .py-secnow span { font-weight: 400; font-size: var(--text-xs); }
+.py-secnow { display: flex; flex-direction: column; align-items: flex-end; gap: 2px;
+  font-variant-numeric: tabular-nums; font-weight: 650; }
 .py-src blockquote { margin: 6px 0 0; padding-left: 10px; border-left: 2px solid var(--foreground);
                      font-family: var(--font-serif); font-size: 14px; }
 </style>
@@ -12134,9 +12147,9 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        browsers that cannot filter a backdrop; the tint, rim and sheen stay
        in CSS below. -->
   <script src="./vendor/liquid-glass.js"></script>
-  <script src="./js/store.js?v=25"></script>
+  <script src="./js/store.js?v=26"></script>
   <script src="./js/theme.js?v=16"></script>
-  <script src="./js/universe.js?v=23"></script>
+  <script src="./js/universe.js?v=24"></script>
   <script src="./js/icons.js?v=49"></script>
   <!-- after icons.js (every row is drawn with one) and before main.js, which
        builds the chart's three right-click menus out of it -->
@@ -12179,7 +12192,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/panes.js?v=39"></script>
   <!-- the Footprint chart type: a primitive on the price series, mounted by main.js -->
   <script src="./js/footprint.js?v=9"></script>
-  <script src="./js/main.js?v=191"></script>
+  <script src="./js/main.js?v=192"></script>
   <!-- the floating drawing edit toolbar — listens for charto:draw-select and
        drives js/drawings.js's setStyle/clone/lock/remove. After main.js so
        __charto and ChartSettings exist by the first selection. -->
@@ -12204,7 +12217,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <!-- before chat.js, which asks it to render the panels a tool prints as the
        reply streams in. It reads Sym (store.js) for the instrument's currency
        and grouping, and nothing else — a renderer with no state of its own -->
-  <script src="./js/cards.js?v=74"></script>
+  <script src="./js/cards.js?v=75"></script>
   <script src="./js/layers-panel.js?v=13"></script>
   <script src="./js/model-logos.js?v=2"></script>
   <script src="./js/models.js?v=5"></script>
@@ -12217,7 +12230,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
        uses. Everything it needs from main.js (SYMBOL) and panels.js
        (openWidget) is read inside handlers, so those may come later. -->
   <script src="./js/alerts.js?v=25"></script>
-  <script src="./js/plays.js?v=4"></script>
+  <script src="./js/plays.js?v=6"></script>
   <!-- after chat.js: the widget panels share the phone's one panel slot with
        the conversation, and close it by clicking its real toggle -->
   <script src="./js/panels.js?v=27"></script>

@@ -702,10 +702,10 @@ def play(action=None, play=None, play_id=None, arm=None) -> dict:
                            arm=True if arm is None else bool(arm))
 
 
-def measure(action=None, measure=None, symbol=None, interval=None) -> dict:
+def measure(action=None, measure=None, symbol=None, interval=None, security=None) -> dict:
     import plays
     return plays.tool_measure(action=action or "test", measure=measure, symbol=symbol or "",
-                              interval=_iv(interval) if interval else "")
+                              interval=_iv(interval) if interval else "", security=security)
 
 
 DISPATCH = {"read_chart": read_chart, "draw": draw, "workspace": workspace,
@@ -869,10 +869,19 @@ def _play_tools() -> list[dict]:
             "Test a measure (the shape is in play's description) on a symbol before a play uses it, "
             "or save it so later plays can name it. test returns its latest values, its range and "
             "any problem (a measure that reads the future is refused); define saves it; list shows "
-            "the saved ones. A play can define measures inline, so test only when you are unsure "
-            "the formula is right.",
-            {"action": {"type": "string", "enum": ["test", "define", "list"]},
-             "measure": obj, "symbol": _STR, "interval": _IVS},
+            "the saved measures and securities. A play can define measures inline, so test only "
+            "when you are unsure the formula is right.\n"
+            "security makes the trader's own instrument, a symbol like any other: {name (becomes "
+            "@NAME), title, kind: basket | ratio | spread, members: [{symbol, weight}], k (spread "
+            "only: A - k x B)}. A basket (2 to 30 listed members, weights in any units, equal when "
+            "left out) starts at 100 a year back and holds its weights from there; a ratio is A / B; "
+            "a spread is A - k x B. Pick the members yourself from what you know or can search; "
+            "state who is in it. Then a play can watch it (symbol @NAME, any condition or measure) "
+            "and a basket can be bought or sold whole on paper (do.symbol @NAME, size in rupees). "
+            "Use it when the idea is about a group or a pair moving together, not for one stock.",
+            {"action": {"type": "string", "enum": ["test", "define", "list", "security"]},
+             "measure": obj, "symbol": _STR, "interval": _IVS,
+             "security": {**obj, "description": "the security, for action security"}},
             ["action"]),
     ]
 

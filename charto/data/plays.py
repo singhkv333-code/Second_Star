@@ -36,6 +36,8 @@ import time
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_DOWN
 
+import customsec
+
 log = logging.getLogger("plays")
 
 ds = None            # dataserver, bound by bind()
@@ -72,6 +74,7 @@ CREATE TABLE IF NOT EXISTS plays (
   spent_inr REAL NOT NULL DEFAULT 0,
   held_qty  REAL NOT NULL DEFAULT 0,         -- what THIS play bought and still holds
   held_sym  TEXT NOT NULL DEFAULT '',
+  held_legs TEXT NOT NULL DEFAULT '{}',      -- a basket's members it holds {symbol: qty}
   last_eval_ts INTEGER NOT NULL DEFAULT 0,   -- the last closed bar it read
   needs_confirm INTEGER NOT NULL DEFAULT 0,  -- an edit changed its structure
   history   TEXT NOT NULL DEFAULT '{}');     -- the replay summary shown before arming
@@ -113,6 +116,9 @@ def init_db() -> None:
         return
     with ds._users_lock:
         _db().executescript(_SCHEMA)
+        cols = {r[1] for r in _db().execute("PRAGMA table_info(plays)")}
+        if "held_legs" not in cols:
+            _db().execute("ALTER TABLE plays ADD COLUMN held_legs TEXT NOT NULL DEFAULT '{}'")
         _db().commit()
     _ready = True
 
@@ -295,7 +301,8 @@ def _rows(symbol: str, interval: str, limit: int, closed_only: bool = True) -> l
         ds._ensure_symbol(symbol)
     d = ds.get_bars(symbol, interval, None, limit + 1)
     rows = [(b["t"], b["o"], b["h"], b["l"], b["c"], b["v"]) for b in d.get("bars") or []]
-    if closed_only and rows and ds._live_view(symbol) is not None:
+    clock = customsec.members(symbol)[0] if customsec.is_custom(symbol) else symbol
+    if closed_only and rows and ds._live_view(clock) is not None:
         rows = rows[:-1]           # the bar still forming is not a fact yet
     return rows[-limit:]
 
@@ -634,6 +641,8 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
     sym = ds.canon_symbol(str(raw.get("symbol") or chart_symbol or ""))
     if not sym:
         raise Bad("play needs a symbol (the instrument whose bars it watches)")
+    if customsec.is_custom(sym) and not customsec.get(sym):
+        raise Bad(f"there is no custom security {sym}; define it first (measure, action security)")
     iv = str(raw.get("interval") or chart_interval or "5m")
     iv = {"D": "1d", "1D": "1d", "day": "1d", "daily": "1d", "60m": "1h"}.get(iv, iv)
     if iv not in INTERVALS:
@@ -749,6 +758,16 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
             said.append(f"sized at ₹{DEFAULT_SIZE_INR:,}" if kind in ("buy", "short")
                         else "closes what this play holds")
         do["size"] = size
+        if customsec.is_custom(do["symbol"]):
+            sec = customsec.get(do["symbol"])
+            if not sec:
+                raise Bad(f"there is no custom security {do['symbol']}; define it first")
+            if sec["kind"] != "basket":
+                raise Bad(f"{do['symbol']} is a {sec['kind']}, a number to watch, not something to "
+                          "hold; buy or sell one of its members instead")
+            if kind not in ("buy", "sell") or do["product"] == "MIS" or intraday:
+                raise Bad("a basket is bought or sold whole, for delivery (CNC); intraday, shorts "
+                          "and trailing exits are per instrument")
         if authority == "notify":
             authority = "propose"
             said.append("it proposes the order for you to confirm")
@@ -873,8 +892,8 @@ def replay(spec: dict, check: bool = True) -> dict:
                   for k, s in series.items()},
         "notes": notes + problems, "events": hits,
     }
-    if spec.get("on"):
-        return out, data, series, tr
+    if spec.get("on") or not spec.get("when"):
+        return out, data, series, tr       # nothing to replay: it acts on events or now
     if tr and not pts:
         out["notes"].append("it would not have fired once on the stored history; check the levels")
     elif out["per_month"] > 40 and spec["interval"] != "1m":
@@ -1115,13 +1134,14 @@ def card(row: dict, live: dict | None = None) -> dict:
 
 _COLS = ("id", "user_id", "title", "ask", "spec", "symbol", "interval", "symbols", "state", "why",
          "created", "updated", "expires", "fires", "accepted", "spent_inr", "held_qty",
-         "held_sym", "last_eval_ts", "needs_confirm", "history")
+         "held_sym", "held_legs", "last_eval_ts", "needs_confirm", "history")
 
 
 def _row(t: tuple) -> dict:
     r = dict(zip(_COLS, t))
     r["spec"] = json.loads(r["spec"])
     r["history"] = json.loads(r["history"] or "{}")
+    r["held_legs"] = json.loads(r["held_legs"] or "{}")
     return r
 
 
@@ -1253,6 +1273,8 @@ def _load_index() -> None:
         rows = _db().execute("SELECT id, symbol FROM plays WHERE state='armed'").fetchall()
     idx: dict[str, list[int]] = {}
     for pid, sym in rows:
+        if customsec.is_custom(sym):
+            sym = (customsec.members(sym) or [sym])[0]
         idx.setdefault(sym, []).append(pid)
     with _INDEX_LOCK:
         _INDEX.clear()
@@ -1465,6 +1487,8 @@ def _ticket(play: dict, price: float) -> tuple[dict | None, str]:
     if _day_route(do):
         return _day_ticket(play)
     sym = do["symbol"]
+    if customsec.is_custom(sym):
+        return _basket_ticket(play)
     mark = None
     if _paper is not None:
         try:
@@ -1499,6 +1523,99 @@ def _ticket(play: dict, price: float) -> tuple[dict | None, str]:
     return t, ""
 
 
+def _mark(sym: str) -> float | None:
+    try:
+        v = _paper.mark_price(sym) if _paper is not None else None
+    except Exception:                                       # noqa: BLE001
+        v = None
+    return float(v) if v else None
+
+
+def _basket_ticket(play: dict) -> tuple[dict | None, str]:
+    """A basket order is one order per member: its share of the rupees at
+    the member's weight, in whole shares at the member's own price. What
+    rounds away is said, never spent."""
+    spec, do, m = play["spec"], play["spec"]["do"], play["spec"]["mandate"]
+    sec = customsec.get(do["symbol"])
+    size = do.get("size") or {}
+    if do["kind"] == "sell":
+        held = _held_legs_now(play)
+        if not any(held.values()):
+            return None, f"this play holds none of {do['symbol']} to sell"
+        legs = [{"symbol": s, "side": "SELL", "qty": q, "price": _mark(s)} for s, q in held.items() if q]
+        return {"basket": do["symbol"], "side": "SELL", "legs": legs}, ""
+    inr = float(size.get("inr") or 0)
+    if not inr:
+        return None, "size a basket in rupees (size.inr)"
+    if inr > m["max_order_inr"] + 1e-6:
+        return None, f"₹{inr:,.0f} is above the play's ₹{m['max_order_inr']:,.0f} order limit"
+    if play["spent_inr"] + inr > m["capital_inr"] + 1e-6:
+        return None, (f"₹{inr:,.0f} more would pass the play's ₹{m['capital_inr']:,.0f} limit "
+                      f"(₹{play['spent_inr']:,.0f} already used)")
+    legs, short = [], []
+    for mem in sec["members"]:
+        px = _mark(mem["symbol"])
+        if not px:
+            return None, f"no current price for {mem['symbol']}"
+        q = _paper_qty(mem["symbol"], inr * mem["weight"], px)
+        if q <= 0:
+            short.append(mem["symbol"])
+            continue
+        legs.append({"symbol": mem["symbol"], "side": "BUY", "qty": q, "price": px,
+                     "weight": mem["weight"], "inr": round(q * px, 2)})
+    if short:
+        return None, (f"₹{inr:,.0f} buys less than one share of {', '.join(short)} at its weight; "
+                      f"size the basket larger")
+    used = sum(lg["inr"] for lg in legs)
+    t = {"basket": do["symbol"], "side": "BUY", "legs": legs, "inr": round(used, 2),
+         "uninvested_inr": round(inr - used, 2)}
+    mg = spec.get("manage") or {}
+    for lg in legs:
+        if mg.get("stop_pct"):
+            lg["stop_loss"] = round(lg["price"] * (1 - mg["stop_pct"] / 100), 2)
+        if mg.get("target_pct"):
+            lg["take_profit"] = round(lg["price"] * (1 + mg["target_pct"] / 100), 2)
+    return t, ""
+
+
+def _place_basket(play: dict, ticket: dict, ts: int, body: dict) -> dict:
+    held = dict(play["held_legs"] or {})
+    fills, failed, spent = [], [], 0.0
+    for lg in ticket["legs"]:
+        try:
+            got = _paper.place_order(play["user_id"], lg["symbol"], lg["side"], lg["qty"],
+                                     source="play", origin_kind=f"play:{play['id']}",
+                                     stop_loss=lg.get("stop_loss"), take_profit=lg.get("take_profit"))
+        except Exception as exc:                            # noqa: BLE001
+            failed.append({"symbol": lg["symbol"], "reason": str(exc)})
+            continue
+        px = float(((got or {}).get("fill") or {}).get("price") or lg["price"] or 0)
+        fills.append({"symbol": lg["symbol"], "side": lg["side"], "qty": lg["qty"], "price": px})
+        sign = 1 if lg["side"] == "BUY" else -1
+        held[lg["symbol"]] = max(0.0, held.get(lg["symbol"], 0.0) + sign * lg["qty"])
+        spent += lg["qty"] * px if lg["side"] == "BUY" else 0
+    held = {k: v for k, v in held.items() if v}
+    _set(play["id"], held_legs=json.dumps(held), held_sym=ticket["basket"],
+         held_qty=float(sum(held.values())), spent_inr=play["spent_inr"] + spent)
+    out = {**body, "ticket": ticket, "fills": fills}
+    if failed:
+        out["failed"] = failed
+        out["reason"] = (f"{len(failed)} of {len(ticket['legs'])} members did not fill: "
+                         + "; ".join(f"{f['symbol']} ({f['reason']})" for f in failed))
+    return _event(play, ts, "filled" if fills else "rejected", play["spec"]["title"], out, status="done")
+
+
+def _held_legs_now(play: dict) -> dict:
+    held = dict(play.get("held_legs") or {})
+    if not held or _paper is None:
+        return held
+    try:
+        pos = {p["symbol"]: float(p["quantity"]) for p in _paper.api_holdings(play["user_id"])[1]}
+    except Exception:                                       # noqa: BLE001
+        return held
+    return {s: min(q, pos.get(s, 0.0)) for s, q in held.items()}
+
+
 def _place(play: dict, ticket: dict, ts: int, body: dict) -> dict:
     if ticket.get("book") == "day":
         import daybook
@@ -1517,6 +1634,8 @@ def _place(play: dict, ticket: dict, ts: int, body: dict) -> dict:
     if _paper is None:
         return _event(play, ts, "rejected", play["spec"]["title"],
                       {**body, "reason": "the paper book is not running"}, status="done")
+    if ticket.get("basket"):
+        return _place_basket(play, ticket, ts, body)
     try:
         got = _paper.place_order(play["user_id"], ticket["symbol"], ticket["side"], ticket["qty"],
                                  source="play", origin_kind=f"play:{play['id']}",
@@ -1544,12 +1663,20 @@ def _maybe_time_exit(play: dict, data: dict, i: int) -> dict | None:
     hh, mm = (int(x) for x in mg["exit_at"].split(":"))
     if data["hhmm"][i] < hh * 100 + mm:
         return None
-    held = _held_now(play)
-    if not held:
-        _set(play["id"], held_qty=0)
-        return None
-    ticket = {"symbol": play["held_sym"], "side": "SELL", "qty": held,
-              "price": data["close"][i]}
+    if customsec.is_custom(play["held_sym"]):
+        legs = {s: q for s, q in _held_legs_now(play).items() if q}
+        if not legs:
+            _set(play["id"], held_qty=0, held_legs="{}")
+            return None
+        ticket = {"basket": play["held_sym"], "side": "SELL",
+                  "legs": [{"symbol": s, "side": "SELL", "qty": q, "price": _mark(s)} for s, q in legs.items()]}
+    else:
+        held = _held_now(play)
+        if not held:
+            _set(play["id"], held_qty=0)
+            return None
+        ticket = {"symbol": play["held_sym"], "side": "SELL", "qty": held,
+                  "price": data["close"][i]}
     body = {"reason": f"time exit at {mg['exit_at']}", "symbol": play["held_sym"]}
     if play["spec"]["contract"]["authority"] == "manage":
         ev = _place(play, ticket, data["t"][i], body)
@@ -1713,7 +1840,11 @@ def compile_play(uid: int, raw: dict, *, chart_symbol: str = "", chart_interval:
     feed = None
     if _alerts is not None and state == "armed" and (spec.get("when") or not spec.get("on")):
         try:
-            feed = _alerts.ensure_feed(spec["symbol"])
+            if customsec.is_custom(spec["symbol"]):
+                fs = [_alerts.ensure_feed(s) for s in customsec.members(spec["symbol"])]
+                feed = next((f for f in fs if isinstance(f, dict) and f.get("note")), fs[0] if fs else None)
+            else:
+                feed = _alerts.ensure_feed(spec["symbol"])
         except Exception:                                   # noqa: BLE001
             feed = None
     return {"play": row, "assumed": said, "diff": diff, "feed": feed,
@@ -1843,8 +1974,14 @@ def api_list(uid: int) -> tuple[int, dict]:
     for p in book["positions"]:
         p["play"] = names.get(p["play_id"], "")
     evs = events(uid)
+    try:
+        secs = [customsec.card(x) for x in customsec.list_for(uid)]
+    except Exception:                                       # noqa: BLE001
+        log.warning("plays: securities did not load", exc_info=True)
+        secs = []
     return 200, {"plays": [card(p) for p in plays], "events": evs,
-                 "unseen": sum(1 for e in evs if not e["seen"]), "book": book}
+                 "unseen": sum(1 for e in evs if not e["seen"]), "book": book,
+                 "securities": secs}
 
 
 def api_post(uid: int, tail: str, body: dict) -> tuple[int, dict]:
@@ -1942,7 +2079,7 @@ def tool_play(action: str = "", play: dict | str | None = None, play_id: int = 0
 
 
 def tool_measure(action: str = "test", measure: dict | str | None = None,
-                 symbol: str = "", interval: str = "") -> dict:
+                 symbol: str = "", interval: str = "", security: dict | str | None = None) -> dict:
     uid = _uid()
     if isinstance(measure, str):
         try:
@@ -1952,7 +2089,29 @@ def tool_measure(action: str = "test", measure: dict | str | None = None,
     try:
         if action == "list":
             return {"measures": [{k: m.get(k) for k in ("name", "title", "formula")}
-                                 for m in (list_measures(uid) if uid else [])]}
+                                 for m in (list_measures(uid) if uid else [])],
+                    "securities": [{"symbol": x["symbol"], "title": x["title"],
+                                    "formula": customsec.describe(x)}
+                                   for x in (customsec.list_for(uid) if uid else [])]}
+        if action == "security":
+            if not uid:
+                return {"error": "a custom security needs an account"}
+            try:
+                sec = customsec.define(uid, security if isinstance(security, dict) else
+                                       json.loads(security or "{}"))
+            except (customsec.Bad, ValueError) as exc:
+                return {"error": str(exc), "_note": "Fix the security as the error says and call again."}
+            c = customsec.card(sec)
+            ds._card_add(c)
+            return {**{k: c[k] for k in ("symbol", "title", "formula", "now", "change")},
+                    "anchor_day": sec.get("anchor"), "bars_daily": len(c["spark"]),
+                    "_note": (f"{sec['symbol']} is now a symbol. Its card has an Open chart button; "
+                              "nothing has been opened, so say the button is there, not that the chart "
+                              f"is open. A play can watch it "
+                              f"(symbol {sec['symbol']}) or, for a basket, buy and sell it whole "
+                              f"(do.symbol {sec['symbol']}). A basket starts at {sec.get('base') or 100:g} "
+                              "on its anchor day and holds its weights from there. Quote only these "
+                              "numbers.")}
         m = _norm_measure(measure or {})
         sym = ds.canon_symbol(symbol or getattr(ds._req, "symbol", "") or "")
         iv = interval or getattr(ds._req, "ctx_interval", "") or "1d"

@@ -58,7 +58,8 @@ const Sym = (() => {
     const base = crypto ? S.replace(/USDT$/, "").replace(/-USD$/, "") : "";
     // The venue is not decoration: it rides into the chat context envelope, so
     // a hardcoded "NSE" told the model that BTCUSDT trades on the NSE.
-    const venue = /USDT$/.test(S) ? "BYBIT" : /-USD$/.test(S) ? "COINBASE"
+    // "@NAME" is the trader's own basket, ratio or spread (data/customsec.py)
+    const venue = S.startsWith("@") ? "Custom" : /USDT$/.test(S) ? "BYBIT" : /-USD$/.test(S) ? "COINBASE"
       : MCX.has(S) ? "MCX" : CDS.has(S) ? "NSE CDS" : BSE.has(S) ? "BSE" : "NSE";
     return {
       name: S,

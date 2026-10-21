@@ -3069,7 +3069,8 @@ const Cards = (() => {
                    quant_result: quantResult, plan,
                    custom_indicator: customIndicator,
                    // plays.js owns the play card: the widget draws the same one
-                   play: (c) => (typeof PlayUI !== "undefined" ? PlayUI.html(c) : "") };
+                   play: (c) => (typeof PlayUI !== "undefined" ? PlayUI.html(c) : ""),
+                   custom_security: (c) => (typeof PlayUI !== "undefined" ? PlayUI.security(c) : "") };
 
   return {
     /** The backtest's trades as chart objects, for surfaces other than the

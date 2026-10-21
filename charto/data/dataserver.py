@@ -450,6 +450,8 @@ def _symbols_with_bars() -> set[str]:
 
 
 def _symbol_ready(sym: str) -> bool:
+    if sym.startswith("@"):
+        return _customsec.get(sym) is not None
     return bool(_con.execute(
         "SELECT 1 FROM bars WHERE symbol=? LIMIT 1", (sym,)).fetchone())
 
@@ -14003,6 +14005,8 @@ _v2.bind(sys.modules[__name__])
 # alerts stream and the paper book are handed over at boot, once they exist.
 import plays as _plays  # noqa: E402
 _plays.bind(sys.modules[__name__])
+import customsec as _customsec  # noqa: E402
+_customsec.bind(sys.modules[__name__])
 CHAT_V2_DEFAULT = (environ.get("CHARTO_CHAT_V2")
                    or _env_values("CHARTO_CHAT_V2")["CHARTO_CHAT_V2"] or "0") == "1"
 
@@ -16470,6 +16474,9 @@ def session_for(symbol: str) -> tuple[int, int]:
     is put on a clock shifted so that its open IS midnight — (0, IST - open):
     every day/bucket formula below then cuts its trading day at the open with
     no special case, the way crypto already runs on (0, 0)."""
+    if symbol.startswith("@"):
+        mem = _customsec.members(symbol)
+        return session_for(mem[0]) if mem else NSE_SESSION
     m = _master()[0].get(symbol)
     if m is not None and m["open"] is not None:
         if m["wrap"]:
@@ -18782,6 +18789,13 @@ def _footprint_answer(q: dict) -> dict:
             "first": covered[0]["t"] if covered else None}
 
 def get_bars(symbol: str, interval: str, to: int | None, limit: int) -> dict:
+    if symbol.startswith("@"):
+        # a trader's own basket, ratio or spread, priced from its members
+        out = _customsec.bars(symbol, interval, to, limit)
+        bars = out.get("bars") or []
+        return {"symbol": symbol, "interval": interval, **out,
+                "earliest": bars[0]["t"] if bars else None,
+                "latest": bars[-1]["t"] if bars else None}
     live = _live_view(symbol)
     form, horizon = live if live else (None, None)
     if interval in INTRADAY_MIN:
