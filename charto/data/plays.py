@@ -37,6 +37,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, ROUND_DOWN
 
 import customsec
+import hyperliquid
 import policy
 
 log = logging.getLogger("plays")
@@ -103,6 +104,16 @@ CREATE TABLE IF NOT EXISTS measures (
   created  INTEGER NOT NULL,
   updated  INTEGER NOT NULL,
   UNIQUE(user_id, name));
+
+CREATE TABLE IF NOT EXISTS play_chats (
+  id       TEXT NOT NULL,                    -- the page's conversation id
+  user_id  INTEGER NOT NULL REFERENCES users(id),
+  title    TEXT NOT NULL DEFAULT '',
+  focus    INTEGER,                          -- the play it was opened to change
+  turns    TEXT NOT NULL DEFAULT '[]',       -- [{role, content, steps, meta, cards: [refs]}]
+  created  INTEGER NOT NULL,
+  updated  INTEGER NOT NULL,
+  PRIMARY KEY (user_id, id));
 """
 
 _ready = False
@@ -137,6 +148,7 @@ OPS = ("above", "below", "cross_up", "cross_down", "between", "outside",
 LOOKBACK = {"1m": 1500, "3m": 1500, "5m": 1500, "15m": 1200, "30m": 1000, "1h": 1000, "1d": 750}
 DEFAULT_SIZE_INR = 10_000
 DERIV_CAPITAL = 2_00_000
+PERP_FIELDS = ("funding", "premium", "oi")   # funding is hourly, with history; the others live only
 DO_KINDS = ("notify", "buy", "sell", "short", "cover", "options", "future", "rebalance")
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 _HHMM = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
@@ -202,13 +214,23 @@ def _norm_measure(m: dict) -> dict:
             if field not in FIELDS:
                 raise Bad(f"measure {name}: input {alias} field must be one of {FIELDS}")
             inputs[a] = {"bars": {"symbol": sym, "field": field}}
+        elif "perp" in src:
+            pp = src["perp"] if isinstance(src["perp"], dict) else {"symbol": src["perp"]}
+            psym = str(pp.get("symbol") or pp.get("coin") or "").upper()
+            psym = psym if psym.endswith(hyperliquid.SUFFIX) else psym + hyperliquid.SUFFIX
+            field = str(pp.get("field") or "funding").lower()
+            if field not in PERP_FIELDS:
+                raise Bad(f"measure {name}: input {alias} perp field must be one of {PERP_FIELDS}")
+            if not hyperliquid.known(psym):
+                raise Bad(f"measure {name}: Hyperliquid lists no perpetual {psym}")
+            inputs[a] = {"perp": {"symbol": psym, "field": field}}
         elif "sql" in src:
             s = str(src["sql"]).strip().rstrip(";")
             if ";" in s or not re.match(r"^\s*(select|with)\b", s, re.I) or _BANNED_SQL.search(s):
                 raise Bad(f"measure {name}: input {alias} must be one read-only SELECT")
             inputs[a] = {"sql": s, "refresh": str(src.get("refresh") or "1d")}
         else:
-            raise Bad(f"measure {name}: input {alias} needs bars or sql")
+            raise Bad(f"measure {name}: input {alias} needs bars, perp or sql")
     out = {"name": name, "title": str(m.get("title") or name)[:80],
            "formula": str(m.get("formula") or expr or "")[:240], "inputs": inputs,
            "unit": str(m.get("unit") or "")[:20]}
@@ -306,6 +328,9 @@ def _rows(symbol: str, interval: str, limit: int, closed_only: bool = True) -> l
     clock = customsec.members(symbol)[0] if customsec.is_custom(symbol) else symbol
     if closed_only and rows and ds._live_view(clock) is not None:
         rows = rows[:-1]           # the bar still forming is not a fact yet
+    elif closed_only and rows and hyperliquid.is_perp(clock) and \
+            rows[-1][0] + INTERVALS[interval] * 60 > time.time():
+        rows = rows[:-1]
     return rows[-limit:]
 
 
@@ -390,6 +415,10 @@ def frame(spec: dict, limit: int | None = None) -> tuple[dict, list[str]]:
                 b = src["bars"]
                 data[alias] = (data[b["field"]] if b["symbol"] == sym
                                else members[b["symbol"]][b["field"]])
+            elif "perp" in src:
+                data[alias], note = _perp_series(src["perp"], data["t"], iv)
+                if note:
+                    notes.append(f"{alias}: {note}")
             else:
                 got = _sql_rows(src["sql"], src["refresh"])
                 if got and len(got[0]) >= 2:
@@ -409,6 +438,29 @@ def frame(spec: dict, limit: int | None = None) -> tuple[dict, list[str]]:
                     notes.append(f"{alias} has no time column, so it applies to the latest bar only "
                                  f"and the replay cannot test it")
     return data, notes
+
+
+def _perp_series(src: dict, ts: list[int], iv: str) -> tuple[list, str]:
+    """A perp's funding rate (hourly, each bar reads the last rate set by its
+    close) or its premium or open interest, which Hyperliquid gives only as
+    of now, so they apply to the latest bar and the replay cannot test them."""
+    if src["field"] == "funding" and ts:
+        pts = hyperliquid.funding_history(src["symbol"], ts[0] - 3600)
+        col, j, cur = [], 0, None
+        for t in ts:
+            close = _bar_close(t, iv)
+            while j < len(pts) and pts[j][0] <= close:
+                cur = pts[j][1]
+                j += 1
+            col.append(cur)
+        live = (hyperliquid.ctx(src["symbol"]) or {}).get("funding")
+        if col and live is not None:
+            col[-1] = live
+        return col, ""
+    c = hyperliquid.ctx(src["symbol"]) or {}
+    v = c.get(src["field"])
+    return [None] * (len(ts) - 1) + [v], (f"Hyperliquid gives {src['field']} only as of now, so it "
+                                          f"applies to the latest bar and the replay cannot test it")
 
 
 def run_measures(spec: dict, data: dict, check: bool = False) -> tuple[dict, list[str]]:
@@ -726,10 +778,21 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
     intraday = bool(mg_raw.get("exit_at") or mg_raw.get("trail_pct") or mg_raw.get("on_leg_stop")
                     or mg_raw.get("max_loss_inr") or mg_raw.get("target_inr"))
     product = str(do.get("product") or "").upper()
+    perp = hyperliquid.is_perp(str(do.get("symbol") or sym)) and kind not in ("options", "future", "rebalance")
+    if perp:
+        product = "PERP"
+        # a perp is clocked on its own candles (Hyperliquid, 24 hours), not on
+        # a spot pair of the same coin that may have no live stream here
+        dsym = ds.canon_symbol(str(do.get("symbol") or sym))
+        if sym != dsym and re.sub(r"(USDT|-USD|USD)$", "", sym) == hyperliquid.coin(dsym):
+            said.append(f"checks {dsym}'s own bars rather than {sym}'s")
+            sym = dsym
     if kind == "short" and product == "CNC" and not str(do.get("symbol") or sym).endswith(("USDT", "USD")):
         raise Bad("a short in Indian equities is intraday only (product MIS, squared off at 15:20); "
                   "delivery shorts are not allowed. Say so, and offer the intraday short")
-    if kind in ("short", "cover", "options", "future"):
+    if perp:
+        pass
+    elif kind in ("short", "cover", "options", "future"):
         product = product if product in ("MIS", "NRML") else ("MIS" if intraday or kind in ("short", "cover")
                                                              else "NRML")
     elif kind in ("buy", "sell"):
@@ -764,6 +827,20 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
             said.append(f"sized at ₹{DEFAULT_SIZE_INR:,}" if kind in ("buy", "short")
                         else "closes what this play holds")
         do["size"] = size
+        if perp:
+            c = hyperliquid.ctx(do["symbol"])
+            if not c:
+                raise Bad(f"Hyperliquid lists no perpetual {do['symbol']}; perps are written COIN-PERP "
+                          "(BTC-PERP, ETH-PERP, SOL-PERP)")
+            if kind in ("buy", "short"):
+                lev = do.get("leverage")
+                if lev in (None, ""):
+                    lev = 1
+                    said.append("at 1× leverage (the rupees are the margin)")
+                lev = float(lev)
+                if not 1 <= lev <= c["max_leverage"]:
+                    raise Bad(f"{do['symbol']} allows 1× to {c['max_leverage']}× leverage on Hyperliquid")
+                do["leverage"] = lev
         if customsec.is_custom(do["symbol"]):
             sec = customsec.get(do["symbol"])
             if not sec:
@@ -808,7 +885,7 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
         if mg_raw.get(k):
             manage[k] = abs(float(mg_raw[k]))
     if (manage.get("trail_pct") or manage.get("on_leg_stop") or manage.get("max_loss_inr")
-            or manage.get("target_inr")) and do.get("product") not in ("MIS", "NRML"):
+            or manage.get("target_inr")) and do.get("product") not in ("MIS", "NRML", "PERP"):
         raise Bad("trailing stops, leg rules and profit or loss exits run in the day book: set "
                   "do.product MIS (intraday) or use a short, options or future order")
 
@@ -831,6 +908,7 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
     spec = {
         "title": str(raw.get("title") or "")[:80] or f"{sym} play",
         "ask": str(raw.get("ask") or "")[:600],
+        "thesis": str(raw.get("why") or raw.get("thesis") or "").strip()[:500],
         "symbol": sym, "interval": iv, "measures": measures, "when": when, "on": on,
         "do": do, "manage": manage, "mandate": mandate, "policy": pol,
         "contract": {"lifespan": lifespan, "authority": authority, "discretion": discretion,
@@ -858,6 +936,10 @@ def _norm_rebalance(do: dict, raw: dict, lifespan: str, discretion: str,
     if size.get("inr"):
         out["size"] = {"inr": float(size["inr"])}
     if do.get("targets"):
+        rs = do["targets"] if isinstance(do["targets"], list) else []
+        out["reasons"] = {ds.canon_symbol(str(x.get("symbol"))): str(x["why"]).strip()[:200]
+                          for x in rs if isinstance(x, dict) and x.get("why")} or \
+            {k: v for k, v in (do.get("reasons") or {}).items() if k in do["targets"]}
         cap = float((raw.get("mandate") or {}).get("max_weight") or policy.DEFAULT_MAX_WEIGHT)
         try:
             out["targets"], cut = policy.norm_targets(do["targets"], out["cash_pct"], cap)
@@ -1123,6 +1205,13 @@ def order_words(spec: dict) -> str:
         t = do.get("targets") or {}
         top = ", ".join(f"{k} {v * 100:.0f}%" for k, v in sorted(t.items(), key=lambda x: -x[1])[:4])
         return f"rebalances {book} to {top}{' and more' if len(t) > 4 else ''}"
+    if do.get("product") == "PERP":
+        size = do.get("size") or {}
+        if do["kind"] in ("sell", "cover"):
+            return f"a close of this play's {do['symbol']} position"
+        amt = (f"₹{size['inr']:,.0f} of margin" if size.get("inr") else f"{size.get('qty', 0):g} contracts")
+        side = "long" if do["kind"] == "buy" else "short"
+        return f"a {do.get('leverage', 1):g}× {side} in {do['symbol']} ({amt}, Hyperliquid, on paper)"
     if do["kind"] == "short":
         size = do.get("size") or {}
         amt = f"₹{size['inr']:,.0f} of " if size.get("inr") else f"{size.get('qty', 0):g} "
@@ -1153,7 +1242,7 @@ def summary(spec: dict) -> str:
                 f"holding drifts {pol.get('drift_pct', 5):g} points from its target. On paper.")
     if do["kind"] == "notify":
         act = "tells you"
-    elif do["kind"] in ("options", "future", "short", "cover"):
+    elif do["kind"] in ("options", "future", "short", "cover") or do.get("product") == "PERP":
         verb = "proposes" if c["authority"] == "propose" else "places"
         act = f"{verb} {order_words(spec)}"
     else:
@@ -1200,7 +1289,7 @@ def card(row: dict, live: dict | None = None) -> dict:
     hist = row.get("history") or {}
     do = spec["do"]
     action = None
-    if do["kind"] in ("options", "future", "short", "cover", "rebalance"):
+    if do["kind"] in ("options", "future", "short", "cover", "rebalance") or do.get("product") == "PERP":
         action = {"side": do["kind"], "symbol": do.get("symbol") or do.get("underlying"),
                   "text": order_words(spec)[0].upper() + order_words(spec)[1:]}
     elif do["kind"] != "notify":
@@ -1231,6 +1320,14 @@ def card(row: dict, live: dict | None = None) -> dict:
         exits.append("squared off at 15:20" if not do.get("symbol", "").endswith(("USDT", "USD")) else "")
     exits = [e for e in exits if e]
     when = spec.get("when") or {}
+    perp_sym = next((s for s in (do.get("symbol"), spec["symbol"]) if hyperliquid.is_perp(s or "")), None)
+    perp = None
+    if perp_sym:
+        c = hyperliquid.ctx(perp_sym) or {}
+        perp = {"symbol": perp_sym, "coin": hyperliquid.coin(perp_sym), "icon": hyperliquid.icon(perp_sym),
+                "mark": c.get("mark"), "funding": c.get("funding"), "oi": c.get("oi"),
+                "day_volume_usd": c.get("day_volume_usd"), "max_leverage": c.get("max_leverage"),
+                "leverage": do.get("leverage") if do.get("product") == "PERP" else None}
     return {
         "kind": "play", "id": row["id"], "title": spec["title"], "state": row["state"],
         "why": row.get("why") or "", "symbol": spec["symbol"], "interval": spec["interval"],
@@ -1248,7 +1345,7 @@ def card(row: dict, live: dict | None = None) -> dict:
         "action": action, "exits": exits, "contract": _contract_line(spec),
         "history": {k: hist.get(k) for k in ("fires", "per_month", "last_fire", "bars", "from", "to",
                                              "fire_ts", "price")},
-        "do": do, "manage": mg, "mandate": spec.get("mandate"), "policy": spec.get("policy"),
+        "do": do, "manage": mg, "mandate": spec.get("mandate"), "policy": spec.get("policy"), "perp": perp,
         "lifespan": spec["contract"]["lifespan"], "authority": spec["contract"]["authority"],
         "discretion": spec["contract"]["discretion"], "created": row.get("created"),
         "held": row.get("held_legs") or ({row["held_sym"]: row["held_qty"]}
@@ -1256,7 +1353,9 @@ def card(row: dict, live: dict | None = None) -> dict:
         "spent_inr": row.get("spent_inr") or 0,
         "notes": hist.get("notes") or [], "fires": row.get("fires", 0),
         "expires": row.get("expires"),
-        "targets": ([{"symbol": k, "weight": v} for k, v in sorted((do.get("targets") or {}).items(),
+        "thesis": spec.get("thesis") or "",
+        "targets": ([{"symbol": k, "weight": v, "why": (do.get("reasons") or {}).get(k)}
+                     for k, v in sorted((do.get("targets") or {}).items(),
                                                                     key=lambda x: -x[1])]
                     if do["kind"] == "rebalance" else None),
         # the one-tap upgrade: a rebalance done once, kept that way
@@ -1404,6 +1503,7 @@ def transcribe(ev: dict, spec: dict) -> dict:
         label = ("Filing alert" if src and src.get("source") == "filings" else
                  "News alert" if src else
                  "Basket alert" if sym.startswith("@") else
+                 "Perp alert" if sym.endswith(hyperliquid.SUFFIX) else
                  "Crypto alert" if sym.endswith(("USDT", "-USD")) else
                  "Index alert" if sym.startswith(("NIFTY", "SENSEX", "BANKNIFTY")) else "Stock alert")
     else:
@@ -1435,6 +1535,8 @@ def transcribe(ev: dict, spec: dict) -> dict:
         verb = ("Closed" if t.get("close") else "Opened") if kind == "filled" else "Open"
         say(f"{verb} {lg['side']} {_fmt_num(float(lg['qty']))} {lg['symbol']}{more} at ",
             (_fmt_num(float(lg.get("px") or 0)),))
+        if lg.get("kind") == "perp" and lg.get("leverage"):
+            say(f" USD, {float(lg['leverage']):g}× leverage")
     elif t.get("symbol"):
         verb = {"filled": "Bought" if t["side"] == "BUY" else "Sold",
                 "proposed": "Buy" if t["side"] == "BUY" else "Sell"}.get(kind, "Order:")
@@ -1511,14 +1613,23 @@ def on_bar(symbol: str, form: list, closed: bool) -> None:
         STATS["dropped"] += 1
 
 
-def _due(interval: str, minute_ts: int) -> bool:
+def _due(interval: str, minute_ts: int, utc: bool = False) -> bool:
     """Has this play's bar just closed? Intraday: the closing minute ends on
     the interval's boundary. Daily: checked every 15 minutes, and the closed-
     bar watermark decides."""
     if interval == "1d":
         return (minute_ts // 60) % 15 == 0
     step = INTERVALS[interval] * 60
+    if utc:
+        return (minute_ts + 60) % step == 0
     return ((minute_ts + 60 + ds.IST_OFF - 15 * 60) % step == 0) or step == 60
+
+
+def watched() -> set[str]:
+    """The perps armed plays are clocked on (the Hyperliquid poller reports
+    their minutes; every other symbol has its own stream)."""
+    with _INDEX_LOCK:
+        return {s for s in _INDEX if hyperliquid.is_perp(s)}
 
 
 def _worker() -> None:
@@ -1548,7 +1659,8 @@ def _tick(pid: int, minute_ts: int | None = None, force: bool = False) -> list[d
     if not play or play["state"] != "armed":
         return []
     spec = play["spec"]
-    if minute_ts is not None and not force and not _due(spec["interval"], minute_ts):
+    if minute_ts is not None and not force and not _due(spec["interval"], minute_ts,
+                                                         hyperliquid.is_perp(spec["symbol"])):
         return []
     if play["expires"] and play["expires"] <= time.time():
         _set(pid, state="done", why="expired")
@@ -1685,7 +1797,7 @@ EXITS_ONLY = "entries done; watching its exit"
 
 def _day_route(do: dict) -> bool:
     return do["kind"] in ("short", "cover", "options", "future") or (
-        do["kind"] in ("buy", "sell") and do.get("product") == "MIS")
+        do["kind"] in ("buy", "sell") and do.get("product") in ("MIS", "PERP"))
 
 
 def _day_ticket(play: dict) -> tuple[dict | None, str]:
@@ -1768,7 +1880,7 @@ def _rebalance_ticket(play: dict) -> tuple[dict | None, str]:
         held = set(policy.book(play))
         structural = set(targets) != (set(last) or held)
         return policy.ticket(play, targets, why=why + (f" ({problem})" if problem else ""),
-                             source="planner", structural=structural)
+                             source="planner", structural=structural, reasons=play.get("_reasons"))
     return policy.ticket(play, last, source="fixed")
 
 
@@ -2115,7 +2227,9 @@ def compile_play(uid: int, raw: dict, *, chart_symbol: str = "", chart_interval:
     feed = None
     if _alerts is not None and state == "armed" and (spec.get("when") or not spec.get("on")):
         try:
-            if customsec.is_custom(spec["symbol"]):
+            if hyperliquid.is_perp(spec["symbol"]):
+                feed = None                 # the Hyperliquid poller clocks it (dataserver boot)
+            elif customsec.is_custom(spec["symbol"]):
                 fs = [_alerts.ensure_feed(s) for s in customsec.members(spec["symbol"])]
                 feed = next((f for f in fs if isinstance(f, dict) and f.get("note")), fs[0] if fs else None)
             else:
@@ -2234,6 +2348,117 @@ def act(uid: int, pid: int, action: str) -> dict:
     return {"play": card(get(uid, pid))}
 
 
+EDITABLE = ("title", "size_inr", "leverage", "stop_pct", "target_pct", "trail_pct", "exit_at",
+            "capital_inr", "interval", "policy.every", "policy.drift_pct")
+
+
+def edit_field(uid: int, pid: int, field: str, value) -> dict:
+    """One number or word on a play, changed by the trader on its card. The
+    play is rebuilt through the same checks the chat's edits go through, so a
+    value the chat could not set cannot be set here either; it keeps its state
+    (a paused play stays paused) and the replay is redone on the new value.
+    Fields: EDITABLE, cond.<i>.right, cond.<i>.for_bars, weight.<SYMBOL> (a
+    percent)."""
+    play = get(uid, pid)
+    if not play:
+        raise Bad(f"no play {pid} on this account")
+    spec = json.loads(json.dumps(play["spec"]))
+    if spec["contract"]["lifespan"] == "now" and play.get("fires"):
+        raise Bad("this play has already run; ask for a new one instead")
+    if play["state"] == "done":
+        raise Bad("this play has finished; ask for a new one instead")
+    do, mg, md = spec["do"], spec.setdefault("manage", {}), spec["mandate"]
+    blank = value in (None, "", "off")
+
+    def num(lo=None, hi=None):
+        try:
+            v = float(str(value).replace(",", "").replace("₹", "").replace("%", "").replace("×", "").strip())
+        except ValueError:
+            raise Bad(f"{field} must be a number") from None
+        if (lo is not None and v < lo) or (hi is not None and v > hi):
+            raise Bad(f"{field} must be between {lo:g} and {hi:g}")
+        return v
+    if field == "title":
+        if blank:
+            raise Bad("a play needs a title")
+        spec["title"] = str(value)[:80]
+    elif field == "size_inr":
+        if do["kind"] not in ("buy", "short"):
+            raise Bad("only a buy or a short has a rupee size")
+        do["size"] = {"inr": num(100, 1e9)}
+        if md.get("capital_inr", 0) < do["size"]["inr"] * (5 if spec["contract"]["lifespan"] == "standing" else 1):
+            md["capital_inr"] = do["size"]["inr"] * (5 if spec["contract"]["lifespan"] == "standing" else 1)
+            md["max_order_inr"] = max(md.get("max_order_inr") or 0, do["size"]["inr"])
+    elif field == "leverage":
+        if do.get("product") != "PERP":
+            raise Bad("leverage is for a perpetual")
+        do["leverage"] = num(1, 200)
+    elif field in ("stop_pct", "target_pct", "trail_pct"):
+        if blank:
+            mg.pop(field, None)
+        else:
+            mg[field] = num(0.01, 99.99)
+    elif field == "exit_at":
+        if blank:
+            mg.pop("exit_at", None)
+        else:
+            mg["exit_at"] = str(value).strip()
+    elif field == "capital_inr":
+        md["capital_inr"] = md["max_order_inr"] = num(100, 1e10)
+    elif field == "interval":
+        spec["interval"] = str(value)
+    elif field in ("policy.every", "policy.drift_pct"):
+        if not spec.get("policy"):
+            raise Bad("only a standing rebalance has a schedule")
+        k = field.split(".")[1]
+        spec["policy"][k] = str(value) if k == "every" else num(0.5, 50)
+    elif field.startswith("cond."):
+        _, i, k = (field.split(".") + ["", ""])[:3]
+        when = spec.get("when") or {}
+        rows = when.get("all") or when.get("any") or []
+        if not i.isdigit() or int(i) >= len(rows) or k not in ("right", "right2", "for_bars", "bars"):
+            raise Bad("that condition is not on this play")
+        c = rows[int(i)]
+        if k == "right" and isinstance(c.get("right"), str) and not _is_num(c["right"]):
+            raise Bad(f"this condition compares with {c['right']}, not a number; ask in chat to change it")
+        c[k] = int(num(1, 500)) if k in ("for_bars", "bars") else num()
+    elif field.startswith("weight."):
+        if do["kind"] != "rebalance" or not isinstance(do.get("targets"), dict):
+            raise Bad("weights are for a rebalance with targets")
+        sym = ds.canon_symbol(field.split(".", 1)[1])
+        t = dict(do["targets"])
+        if sym not in t:
+            raise Bad(f"{sym} is not one of its targets")
+        w = num(0, 100) / 100
+        rest = sum(v for k2, v in t.items() if k2 != sym)
+        room = sum(t.values())                          # what the names share (cash stays as it was)
+        if w > room:
+            raise Bad(f"{sym} can take at most {room * 100:.0f}% (the rest is held as cash)")
+        for k2 in t:
+            t[k2] = w if k2 == sym else (t[k2] / rest * (room - w) if rest else (room - w) / (len(t) - 1))
+        do["targets"] = [{"symbol": k2, "weight": v} for k2, v in t.items()]
+        do["cash_pct"] = max(0.0, (1 - sum(t.values())) * 100)
+    else:
+        raise Bad(f"{field} cannot be changed here; ask in chat")
+    raw = {**spec, "why": spec.get("thesis") or ""}
+    state = play["state"]
+    got = compile_play(uid, raw, arm=state == "armed", pid=pid)
+    if state == "paused":
+        _set(pid, state="paused", why=play.get("why") or "paused by you")
+    _load_index()
+    row = get(uid, pid)
+    return {"play": card(row, {"conditions": row["history"].get("conditions")}),
+            "assumed": got["assumed"], "changed": got["diff"]}
+
+
+def _is_num(x) -> bool:
+    try:
+        float(x)
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
 def resolve_event(uid: int, eid: int, action: str) -> dict:
     with ds._users_lock:
         r = _db().execute("SELECT play_id, kind, body, status, ts FROM play_events "
@@ -2301,7 +2526,14 @@ def surface_block(ctx: dict) -> str:
              "screen, so do not draw; read_chart, market_data and the rest still work for any "
              "symbol. Every play you compile or edit appears in this conversation as its card. "
              "When they ask to change a play, edit it (play edit with its id and the whole play) "
-             "rather than making a second one."]
+             "rather than making a second one. The trader can also change numbers on a card "
+             "themselves (size, stop, target, leverage, a condition's value, a weight); the spec below "
+             "is the current one.",
+             "Answer the way the main chat does: when they ask why a play is built a certain way, "
+             "why a stock is in a basket, or whether an idea holds up, reason from data (read it "
+             "with the tools: prices, fundamentals, the play's own history and receipts), give a "
+             "defended view, use sections and tables where they help, and say what would change "
+             "the view. Never a bare restatement of the card."]
     if not uid:
         lines.append("They are signed out: plays need an account, so say they must sign in.")
         return "\n".join(lines)
@@ -2317,7 +2549,11 @@ def surface_block(ctx: dict) -> str:
         secs = []
     if secs:
         lines.append("\n## Their custom securities")
-        lines += [f"- {x['symbol']} · {x['title']} · {customsec.describe(x)}" for x in secs]
+        for x in secs:
+            lines.append(f"- {x['symbol']} · {x['title']} · {customsec.describe(x)}"
+                         + (f" · method: {x['method']['text']}" if x.get("method") else "")
+                         + (f" · why: {x['why']}" if x.get("why") else ""))
+            lines += [f"  - {m['symbol']}: {m['why']}" for m in x["members"] if m.get("why")]
     focus = ctx.get("focus_play")
     if focus:
         p = get(uid, int(focus)) if str(focus).isdigit() else None
@@ -2349,8 +2585,103 @@ def api_list(uid: int) -> tuple[int, dict]:
                  "securities": secs}
 
 
+# ── the Plays page's conversations ─────────────────────────────────────────
+CHAT_KEEP, CHAT_TURNS, CHAT_CHARS = 200, 120, 20_000
+
+
+def _card_ref(c: dict) -> dict | None:
+    """A card is kept as a reference and drawn from the live play or security
+    when the conversation is opened again, so an old thread never shows a
+    play as it was rather than as it is."""
+    if not isinstance(c, dict):
+        return None
+    if c.get("kind") == "play" and c.get("id"):
+        return {"kind": "play", "id": int(c["id"]), "title": str(c.get("title") or "")[:80]}
+    if c.get("kind") == "custom_security" and c.get("symbol"):
+        return {"kind": "custom_security", "symbol": str(c["symbol"])[:30]}
+    return None
+
+
+def chats_list(uid: int) -> list[dict]:
+    init_db()
+    with ds._users_lock:
+        rows = _db().execute("SELECT id, title, focus, updated, turns FROM play_chats WHERE user_id=? "
+                             "ORDER BY updated DESC LIMIT ?", (uid, CHAT_KEEP)).fetchall()
+    out = []
+    for cid, title, focus, updated, turns in rows:
+        t = json.loads(turns or "[]")
+        last = next((x.get("content") or "" for x in reversed(t) if x.get("role") == "assistant"), "")
+        out.append({"id": cid, "title": title, "focus": focus, "updated": updated, "n_turns": len(t),
+                    "last": re.sub(r"\[\[panel[^\]]*\]\]|[*#|`]", "", last)[:160]})
+    return out
+
+
+def chat_get(uid: int, cid: str) -> dict | None:
+    init_db()
+    with ds._users_lock:
+        r = _db().execute("SELECT id, title, focus, turns, created, updated FROM play_chats "
+                          "WHERE user_id=? AND id=?", (uid, cid)).fetchone()
+    if not r:
+        return None
+    return {"id": r[0], "title": r[1], "focus": r[2], "turns": json.loads(r[3] or "[]"),
+            "created": r[4], "updated": r[5]}
+
+
+def chat_save(uid: int, body: dict) -> dict:
+    """Upsert one conversation as the page holds it. Cards are stored as
+    references; the text is also mirrored into the account's conversation
+    archive so the main chat can be asked about it later."""
+    init_db()
+    cid = re.sub(r"[^A-Za-z0-9_-]", "", str(body.get("id") or ""))[:64]
+    if not cid:
+        raise Bad("a conversation needs an id")
+    turns = []
+    for t in (body.get("turns") or [])[-CHAT_TURNS:]:
+        if not isinstance(t, dict) or t.get("role") not in ("user", "assistant"):
+            continue
+        turns.append({"role": t["role"], "content": str(t.get("content") or "")[:CHAT_CHARS],
+                      "steps": [{"name": str(x.get("name") or "")[:40], "hint": str(x.get("hint") or "")[:120]}
+                                for x in (t.get("steps") or [])[:20] if isinstance(x, dict)],
+                      "meta": str(t.get("meta") or "")[:200],
+                      "cards": [r for r in (_card_ref(c) for c in t.get("cards") or []) if r]})
+    if not turns:
+        raise Bad("an empty conversation is not saved")
+    now = int(time.time())
+    focus = body.get("focus")
+    focus = int(focus) if str(focus or "").isdigit() else None
+    with ds._users_lock:
+        _db().execute(
+            "INSERT INTO play_chats (id, user_id, title, focus, turns, created, updated) VALUES (?,?,?,?,?,?,?) "
+            "ON CONFLICT(user_id, id) DO UPDATE SET title=excluded.title, focus=excluded.focus, "
+            "turns=excluded.turns, updated=excluded.updated",
+            (cid, uid, str(body.get("title") or "")[:120], focus, json.dumps(turns), now, now))
+        _db().execute("DELETE FROM play_chats WHERE user_id=? AND id NOT IN (SELECT id FROM play_chats "
+                      "WHERE user_id=? ORDER BY updated DESC LIMIT ?)", (uid, uid, CHAT_KEEP))
+        _db().commit()
+    try:
+        ds._conv_sync(uid, [{"id": f"plays-{cid}", "title": body.get("title") or "",
+                             "turns": [{"role": t["role"], "content": t["content"]} for t in turns]}])
+    except Exception:                                       # noqa: BLE001
+        log.warning("plays: conversation mirror failed", exc_info=True)
+    return {"id": cid, "updated": now, "turns": len(turns)}
+
+
+def chat_delete(uid: int, cid: str) -> dict:
+    init_db()
+    with ds._users_lock:
+        n = _db().execute("DELETE FROM play_chats WHERE user_id=? AND id=?", (uid, cid)).rowcount
+        _db().commit()
+    return {"deleted": bool(n)}
+
+
 def api_get(uid: int, tail: str) -> tuple[int, dict]:
     init_db()
+    parts = tail.strip("/").split("/")
+    if parts == ["chats"]:
+        return 200, {"chats": chats_list(uid)}
+    if len(parts) == 2 and parts[0] == "chats":
+        c = chat_get(uid, parts[1])
+        return (200, {"chat": c}) if c else (404, {"error": "no such conversation"})
     pid = tail.strip("/")
     if not pid.isdigit():
         return 404, {"error": f"no plays route '{tail}'"}
@@ -2365,7 +2696,19 @@ def api_post(uid: int, tail: str, body: dict) -> tuple[int, dict]:
     try:
         parts = tail.strip("/").split("/")
         if len(parts) == 1 and parts[0].isdigit():
+            if body.get("action") == "set":
+                return 200, edit_field(uid, int(parts[0]), str(body.get("field") or ""), body.get("value"))
             return 200, act(uid, int(parts[0]), str(body.get("action") or ""))
+        if parts == ["chats"]:
+            return 200, chat_save(uid, body)
+        if len(parts) == 2 and parts[0] == "chats" and body.get("action") == "delete":
+            return 200, chat_delete(uid, parts[1])
+        if parts == ["securities"]:
+            try:
+                sec = customsec.edit(uid, str(body.get("symbol") or ""), body)
+            except customsec.Bad as exc:
+                return 400, {"error": str(exc)}
+            return 200, {"security": customsec.card(sec)}
         if len(parts) == 2 and parts[0] == "events" and parts[1].isdigit():
             return 200, resolve_event(uid, int(parts[1]), str(body.get("action") or ""))
         if len(parts) == 2 and parts[0] == "positions" and parts[1].isdigit():
@@ -2429,22 +2772,33 @@ def tool_play(action: str = "", play: dict | str | None = None, play_id: int = 0
                                "bar may be old.")
             if row["spec"]["do"]["kind"] == "rebalance":
                 out["targets"] = row["spec"]["do"].get("targets")
-                out["_note"] = ("The play is on the trader's screen as a card. Say the targets and, if it "
-                                "ran now, the trades from did_now (whole shares, cash left over). A "
-                                "rebalance has no historical fire count: do not quote history. For a "
-                                "policy, say when it runs (schedule and drift) and every item in "
-                                "`assumed`. If it ran once, say the card can keep it that way.")
+                out["reasons"] = row["spec"]["do"].get("reasons") or {}
+                out["_note"] = ("The play is on the trader's screen as a card; do not repeat it line by "
+                                "line, explain it. Give the targets as a table with the reason for each "
+                                "weight (from reasons, or the figures you read), then, if it ran now, the "
+                                "trades from did_now (whole shares, cash left over) and what that does to "
+                                "concentration. A rebalance has no historical fire count: do not quote "
+                                "history. For a policy, say when it runs (schedule and drift) and why that "
+                                "cadence suits it. Say every item in `assumed` as a choice they can "
+                                "change. If it ran once, say the card can keep it that way.")
             elif row["spec"].get("on"):
-                out["_note"] = ("The play is on the trader's screen as a card. Say in one or two "
-                                "lines what it reads and what it does; filings and headlines are "
-                                "polled live whatever the symbol's stream. For history, quote the "
-                                "note about how many stored items match its words (not bars). Say "
-                                "every item in `assumed` as a choice they can change.")
+                out["_note"] = ("The play is on the trader's screen as a card; explain it rather than "
+                                "repeat it: what it reads, why those words and that judge question catch "
+                                "the event the trader means (and what they would miss), and what it does "
+                                "when one arrives. Filings and headlines are polled live whatever the "
+                                "symbol's stream. For history, quote the note about how many stored items "
+                                "match its words (not bars). Say every item in `assumed` as a choice they "
+                                "can change.")
             else:
-                out["_note"] = ("The play is on the trader's screen as a card. Say in one or two "
-                                "lines what it watches, how often it would have fired on history "
-                                "(history.fires over history.bars bars), and every item in "
-                                "`assumed` as a choice they can change. Quote only these numbers.")
+                out["_note"] = ("The play is on the trader's screen as a card; explain it rather than "
+                                "repeat it. Say what it watches and why each condition is there (the "
+                                "logic of the setup, and what the values in `now` say about where it "
+                                "stands today), how often it would have fired on history (history.fires "
+                                "over history.bars bars, with the dates it covers) and what that rate "
+                                "means for how often they will hear from it, what it does when it fires "
+                                "and how the exits limit the loss, and every item in `assumed` as a "
+                                "choice they can change. A fire count is not an edge: do not call it "
+                                "one. Quote only numbers from this result or other tools.")
             return out
         if action == "list":
             return {"plays": [{k: c[k] for k in ("id", "title", "state", "symbol", "interval",
@@ -2488,11 +2842,15 @@ def tool_measure(action: str = "test", measure: dict | str | None = None,
                 return {"error": str(exc), "_note": "Fix the security as the error says and call again."}
             c = customsec.card(sec)
             ds._card_add(c)
-            return {**{k: c[k] for k in ("symbol", "title", "formula", "now", "change")},
+            return {**{k: c[k] for k in ("symbol", "title", "formula", "now", "change", "members",
+                                          "method", "why")},
                     "anchor_day": sec.get("anchor"), "bars_daily": len(c["spark"]),
-                    "_note": (f"{sec['symbol']} is now a symbol. Its card has an Open chart button; "
-                              "nothing has been opened, so say the button is there, not that the chart "
-                              f"is open. A play can watch it "
+                    "_note": (f"{sec['symbol']} is now a symbol. Explain how it was built: the method "
+                              "(method.text, when it was picked) and a table of the members with their "
+                              "weights and each one's why, who was left out and why, and what the "
+                              "change figures say about how the group has moved. Its card has an Open "
+                              "chart button; nothing has been opened, so say the button is there, not "
+                              f"that the chart is open. A play can watch it "
                               f"(symbol {sec['symbol']}) or, for a basket, buy and sell it whole "
                               f"(do.symbol {sec['symbol']}). A basket starts at {sec.get('base') or 100:g} "
                               "on its anchor day and holds its weights from there. Quote only these "

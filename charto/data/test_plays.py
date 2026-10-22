@@ -553,3 +553,124 @@ def test_conditions_carry_chip_parts_and_events_are_written_up(uid) -> None:
                                                                  "price": 4100.0}, "fill_price": 4102.5}},
                          {"symbol": "TCS"})
     assert t["label"] == "Placed on paper" and t["line"] == [{"t": "Bought 3 TCS at "}, {"b": "4,102.5"}]
+
+
+# ── perpetuals on Hyperliquid ─────────────────────────────────────────────────
+
+@pytest.fixture
+def perps(book, monkeypatch):
+    import time as _t
+    import hyperliquid
+    st = {"mid": 100_000.0, "funding": 0.0001}
+    uni = lambda max_age=30.0: {"BTC": {"coin": "BTC", "max_leverage": 40, "sz_decimals": 5,  # noqa: E731
+                                        "mark": st["mid"], "mid": st["mid"], "oracle": st["mid"],
+                                        "funding": st["funding"], "premium": 0.0, "oi": 30_000.0,
+                                        "day_volume_usd": 2e9, "prev_day": 99_000.0}}
+    now = int(_t.time()) // 3600 * 3600
+
+    def bars(symbol, interval, to, limit):
+        rows = [{"t": now - 3600 * (300 - i), "o": 90_000 + i * 30, "h": 90_000 + i * 30 + 50,
+                 "l": 90_000 + i * 30 - 50, "c": 90_000 + i * 30 + 10, "v": 1.0} for i in range(300)]
+        return {"bars": rows[-limit:], "venue": "Hyperliquid"}
+    monkeypatch.setattr(hyperliquid, "universe", uni)
+    monkeypatch.setattr(hyperliquid, "mids", lambda max_age=3.0: {"BTC": st["mid"]})
+    monkeypatch.setattr(hyperliquid, "bars", bars)
+    monkeypatch.setattr(hyperliquid, "funding_history",
+                        lambda s, start: [(now - 3600 * k, 0.00002) for k in range(400, 0, -1)])
+    monkeypatch.setattr(paper, "fx_rate", lambda ccy: (85.0, None))
+    yield st
+
+
+def test_a_leveraged_perp_long_pays_funding_and_is_liquidated(perps) -> None:
+    bad = plays.tool_play("compile", {"symbol": "BTC-PERP", "interval": "1h",
+                                      "do": {"kind": "buy", "leverage": 50, "size": {"inr": 85_000}},
+                                      "contract": {"lifespan": "now", "authority": "act"}})
+    assert "1× to 40×" in bad["error"]
+    got = plays.tool_play("compile", {"symbol": "BTC-PERP", "interval": "1h",
+                                      "do": {"kind": "buy", "leverage": 10, "size": {"inr": 85_000}},
+                                      "contract": {"lifespan": "now", "authority": "act"}})
+    assert got["did_now"]["kind"] == "filled", got
+    card = [c for c in server._scene.cards if c.get("kind") == "play"][-1]
+    assert card["action"]["text"].startswith("A 10× long in BTC-PERP") and card["perp"]["max_leverage"] == 40
+    p = daybook.open_positions(1)[0]
+    assert p["kind"] == "perp" and p["side"] == "long" and p["product"] == "PERP"
+    assert p["qty"] == 0.1                          # ₹85,000 × 10 / (100,000 USD × 85)
+    daybook._db().execute("UPDATE day_positions SET funded_ts=funded_ts-7200 WHERE id=?", (p["id"],))
+    daybook._sweep_perps(daybook.open_positions(1), daybook._now_ist())
+    p = daybook.open_positions(1)[0]
+    assert abs(p["funding"] - 0.0001 * 2 * 0.1 * 100_000 * 85) < 0.01      # two hours, long pays
+    perps["mid"] = 90_500.0                         # 9.5% down at 10×: past the margin
+    out = daybook._sweep_perps(daybook.open_positions(1), daybook._now_ist())
+    assert out and out[0]["why"].startswith("liquidated") and not daybook.open_positions(1)
+    alert = plays.transcribe(plays.events(1)[0], plays.get(1, got["play_id"])["spec"])
+    assert alert["label"] in ("Position closed", "Perp alert")
+
+
+def test_a_perp_funding_measure_is_replayed_from_its_history(perps) -> None:
+    got = plays.tool_play("compile", {"symbol": "BTC-PERP", "interval": "1h",
+                                      "measures": [{"name": "fund", "title": "BTC funding", "expr": "f * 100",
+                                                    "inputs": {"f": {"perp": {"coin": "BTC", "field": "funding"}}}}],
+                                      "when": {"all": [{"left": "fund", "op": "above", "right": 0.005}]},
+                                      "do": {"kind": "short", "leverage": 3},
+                                      "manage": {"stop_pct": 2},
+                                      "contract": {"lifespan": "standing", "authority": "propose"}})
+    assert got["state"] == "armed", got
+    assert plays.watched() == {"BTC-PERP"}
+    card = [c for c in server._scene.cards if c.get("kind") == "play"][-1]
+    assert "3× short in BTC-PERP" in card["summary"]
+    assert "square" not in " ".join(card["exits"])
+
+
+# ── rationale and the trader's own edits ─────────────────────────────────────
+
+def test_a_picked_basket_states_its_method_and_each_members_numbers(uid) -> None:
+    got = plays.tool_measure("security", security={
+        "name": "def5", "title": "Defence leaders", "kind": "basket", "why": "orders are rising",
+        "pick": {"industry": "defence", "rank_by": "market_cap", "top": 3, "weight": "market_cap"}})
+    assert "error" not in got, got
+    again, _ = customsec.pick({"industry": "defence", "rank_by": "market_cap", "top": 3,
+                               "weight": "market_cap"})
+    assert [m["symbol"] for m in got["members"]] == [m["symbol"] for m in again]   # same method, same names
+    assert all(m["why"].startswith(f"#{i + 1} of ") for i, m in enumerate(got["members"]))
+    assert max(m["weight"] for m in got["members"]) <= 0.4 + 1e-9
+    assert "Aerospace & Defense" in got["method"]["text"] and got["why"] == "orders are rising"
+    sec = customsec.edit(1, "@DEF5", {"weights": {got["members"][2]["symbol"]: 50}})
+    w = {m["symbol"]: m["weight"] for m in sec["members"]}
+    assert abs(w[got["members"][2]["symbol"]] - 0.5) < 1e-6 and abs(sum(w.values()) - 1) < 1e-6
+    assert sec["method"]["edited"] and all(m.get("why") for m in sec["members"])
+
+
+def test_the_trader_edits_a_number_on_the_card_and_the_play_is_rebuilt(uid) -> None:
+    got = plays.tool_play("compile", {**_rsi_play(), "why": "oversold bounces have held this year",
+                                      "do": {"kind": "buy", "size": {"inr": 20000}},
+                                      "manage": {"stop_pct": 3},
+                                      "contract": {"lifespan": "standing", "authority": "propose"}})
+    pid = got["play_id"]
+    plays.act(1, pid, "pause")
+    out = plays.edit_field(1, pid, "cond.0.right", "25")
+    assert out["play"]["conditions"][0]["text"] == "RSI 14 crosses below 25"
+    assert out["play"]["state"] == "paused" and out["play"]["thesis"].startswith("oversold")
+    out = plays.edit_field(1, pid, "stop_pct", "1.5")
+    assert out["play"]["manage"]["stop_pct"] == 1.5
+    out = plays.edit_field(1, pid, "size_inr", "₹50,000")
+    assert out["play"]["do"]["size"]["inr"] == 50000 and out["play"]["mandate"]["capital_inr"] >= 50000
+    with pytest.raises(plays.Bad):
+        plays.edit_field(1, pid, "leverage", 3)
+    with pytest.raises(plays.Bad):
+        plays.edit_field(1, pid, "stop_pct", 150)
+
+
+def test_a_plays_conversation_is_kept_on_the_server_with_card_references(uid, monkeypatch) -> None:
+    synced = []
+    monkeypatch.setattr(server, "_conv_sync", lambda u, chats: synced.append(chats) or {})
+    pid = plays.tool_play("compile", _rsi_play())["play_id"]
+    card = plays.card(plays.get(1, pid))
+    plays.chat_save(1, {"id": "c1", "title": "RSI idea", "turns": [
+        {"role": "user", "content": "alert me on oversold RELIANCE"},
+        {"role": "assistant", "content": "Built it. [[panel]]", "steps": [{"name": "play", "hint": "compile"}],
+         "cards": [card]}]})
+    got = plays.chat_get(1, "c1")
+    assert got["turns"][1]["cards"] == [{"kind": "play", "id": pid, "title": "RELIANCE RSI"}]
+    assert plays.chats_list(1)[0]["last"] == "Built it. "
+    assert synced and synced[0][0]["id"] == "plays-c1"
+    assert plays.chat_delete(1, "c1")["deleted"] and not plays.chats_list(1)

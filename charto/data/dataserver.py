@@ -452,6 +452,8 @@ def _symbols_with_bars() -> set[str]:
 def _symbol_ready(sym: str) -> bool:
     if sym.startswith("@"):
         return _customsec.get(sym) is not None
+    if sym.endswith("-PERP"):
+        return _hl.known(sym)
     return bool(_con.execute(
         "SELECT 1 FROM bars WHERE symbol=? LIMIT 1", (sym,)).fetchone())
 
@@ -14007,6 +14009,7 @@ import plays as _plays  # noqa: E402
 _plays.bind(sys.modules[__name__])
 import customsec as _customsec  # noqa: E402
 _customsec.bind(sys.modules[__name__])
+import hyperliquid as _hl  # noqa: E402
 CHAT_V2_DEFAULT = (environ.get("CHARTO_CHAT_V2")
                    or _env_values("CHARTO_CHAT_V2")["CHARTO_CHAT_V2"] or "0") == "1"
 
@@ -16493,6 +16496,8 @@ def session_for(symbol: str) -> tuple[int, int]:
     if symbol.startswith("@"):
         mem = _customsec.members(symbol)
         return session_for(mem[0]) if mem else NSE_SESSION
+    if symbol.endswith("-PERP"):
+        return UTC_SESSION
     m = _master()[0].get(symbol)
     if m is not None and m["open"] is not None:
         if m["wrap"]:
@@ -18805,9 +18810,14 @@ def _footprint_answer(q: dict) -> dict:
             "first": covered[0]["t"] if covered else None}
 
 def get_bars(symbol: str, interval: str, to: int | None, limit: int) -> dict:
-    if symbol.startswith("@"):
-        # a trader's own basket, ratio or spread, priced from its members
-        out = _customsec.bars(symbol, interval, to, limit)
+    if symbol.startswith("@") or symbol.endswith("-PERP"):
+        # a trader's own basket, ratio or spread, priced from its members; or
+        # a Hyperliquid perpetual, read from its public candles
+        try:
+            out = (_customsec.bars(symbol, interval, to, limit) if symbol.startswith("@")
+                   else _hl.bars(symbol, interval, to, limit))
+        except Exception as exc:                            # noqa: BLE001
+            out = {"bars": [], "error": f"{symbol}: {type(exc).__name__}"}
         bars = out.get("bars") or []
         return {"symbol": symbol, "interval": interval, **out,
                 "earliest": bars[0]["t"] if bars else None,
@@ -19955,6 +19965,18 @@ class Handler(BaseHTTPRequestHandler):
                 # every listing without a stored logo gets one from what it
                 # is: a future its underlying's, an index its venue + theme
                 logos = _marks.fill(logos, names, master)
+                # Hyperliquid's perpetuals, the most traded first: searchable
+                # as COIN-PERP, with the coin's own mark from Hyperliquid
+                try:
+                    uni = sorted(_hl.universe().values(), key=lambda c: -(c.get("day_volume_usd") or 0))
+                    for c in uni[:60]:
+                        ps = c["coin"].upper() + _hl.SUFFIX
+                        listed.add(ps)
+                        names[ps] = f"{c['coin']} perpetual"
+                        meta[ps] = ["Hyperliquid", "perp", max(2, 6 - c["sz_decimals"]), "USD"]
+                        logos.setdefault(ps, _hl.icon(ps))
+                except Exception:                            # noqa: BLE001
+                    pass
                 return self._send(200, {"symbols": sorted(set(_known_symbols()) | listed),
                                         "meta": meta,
                                         "hydrated": sorted(have),
@@ -20922,7 +20944,8 @@ class Handler(BaseHTTPRequestHandler):
         if u.path.startswith("/plays/"):
             try:
                 ln = int(self.headers.get("Content-Length", 0))
-                body = json.loads(self.rfile.read(ln) or b"{}") if ln <= 65536 else None
+                body = json.loads(self.rfile.read(ln) or b"{}") if ln <= (
+                    1_500_000 if u.path == "/plays/chats" else 65536) else None
             except (ValueError, TypeError):
                 return self._send(400, {"error": "bad JSON body"})
             if not isinstance(body, dict):
@@ -21381,6 +21404,17 @@ if __name__ == "__main__":
         _plays.bind(sys.modules[__name__], _alerts, _paper)
         _plays.register_hook()
         _pboot = _plays.start()
+        # perps have no stream of their own here: a poller reports their
+        # closed minutes to the plays and the day book watching them
+        try:
+            import daybook as _db_mod
+
+            def _perp_bar(sym, form, closed):
+                _plays.on_bar(sym, form, closed)
+                _db_mod.on_tick(sym, form, closed)
+            _hl.start(_perp_bar, lambda: _plays.watched() | _db_mod.watched())
+        except Exception:                                   # noqa: BLE001
+            logging.warning("hyperliquid clock did not start", exc_info=True)
         print(f"charto plays: {_pboot.get('armed', 0)} armed on {_pboot.get('symbols', 0)} symbol(s)")
     except Exception as _exc:                                  # noqa: BLE001
         print(f"charto plays UNAVAILABLE: {_exc}")

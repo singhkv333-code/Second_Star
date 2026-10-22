@@ -101,6 +101,8 @@ def norm_targets(raw, cash_pct: float = 0.0, cap: float | None = None) -> tuple[
     cap is cut to it and the rest share what it gave up; each cut is said."""
     said = []
     t: dict[str, float] = {}
+    if isinstance(raw, dict):           # stored targets come back as {symbol: weight}
+        raw = [{"symbol": k, "weight": v} for k, v in raw.items()]
     for x in raw or []:
         sym = ds.canon_symbol(str(x.get("symbol") if isinstance(x, dict) else x))
         if sym.startswith("@"):
@@ -137,7 +139,7 @@ def norm_targets(raw, cash_pct: float = 0.0, cap: float | None = None) -> tuple[
 # ── the trade list ───────────────────────────────────────────────────────────
 
 def ticket(play: dict, targets: dict[str, float], *, why: str = "", source: str = "fixed",
-           structural: bool = False) -> tuple[dict | None, str]:
+           structural: bool = False, reasons: dict | None = None) -> tuple[dict | None, str]:
     """Whole-share trades from the book to the targets, sells first. Every
     trade under MIN_TRADE_INR (or half a percent of the book) is skipped."""
     q = book(play)
@@ -166,6 +168,10 @@ def ticket(play: dict, targets: dict[str, float], *, why: str = "", source: str 
             continue
         legs.append({"symbol": s, "side": "BUY" if gap > 0 else "SELL", "qty": n, "price": px[s],
                      "inr": round(n * px[s], 2)})
+    reasons = reasons if reasons is not None else (play["spec"]["do"].get("reasons") or {})
+    for lg in legs:
+        if reasons.get(lg["symbol"]):
+            lg["why"] = reasons[lg["symbol"]]
     legs.sort(key=lambda lg: lg["side"] != "SELL")
     before = {s: round(q.get(s, 0) * px[s] / total, 4) for s in names if q.get(s)}
     buys = sum(lg["inr"] for lg in legs if lg["side"] == "BUY")
@@ -180,7 +186,8 @@ def ticket(play: dict, targets: dict[str, float], *, why: str = "", source: str 
                       f"the play's ₹{m['max_order_inr']:,.0f} order limit")
     return {"rebalance": True, "legs": legs, "targets": targets, "before": before,
             "total_inr": round(total, 2), "buys_inr": round(buys, 2), "sells_inr": round(sells, 2),
-            "source": source, "why": why, "structural": structural}, ""
+            "source": source, "why": why, "structural": structural,
+            "reasons": {s: reasons[s] for s in targets if reasons.get(s)}}, ""
 
 
 def place(play: dict, t: dict) -> tuple[list, list, dict]:
@@ -257,8 +264,9 @@ PLANNER_SCHEMA = {
     "required": ["targets", "cash_weight", "why"],
     "properties": {
         "targets": {"type": "array", "items": {
-            "type": "object", "additionalProperties": False, "required": ["symbol", "weight"],
-            "properties": {"symbol": {"type": "string"}, "weight": {"type": "number"}}}},
+            "type": "object", "additionalProperties": False, "required": ["symbol", "weight", "why"],
+            "properties": {"symbol": {"type": "string"}, "weight": {"type": "number"},
+                           "why": {"type": "string"}}}},
         "cash_weight": {"type": "number"},
         "why": {"type": "string"},
     },
@@ -316,6 +324,7 @@ def plan(play: dict) -> tuple[dict | None, str, str]:
         cash_pct = cash_pct / total                     # their proportions, scaled to the whole
     targets, said = norm_targets(rows, cash_pct, cap)
     why = str(got.get("why") or "")[:600]
+    play["_reasons"] = {ds.canon_symbol(x["symbol"]): str(x.get("why") or "")[:200] for x in rows}
     if dropped:
         said.append(f"left out {', '.join(dropped)}: not among its candidates")
     return targets, why, "; ".join(said)

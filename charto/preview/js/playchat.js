@@ -8,8 +8,10 @@
  *
  * The chat is the same /chat the chart uses, told it is on the Plays page
  * (`context.surface = "plays"`), so it knows there is no chart and which
- * plays already exist. Conversations live in this browser; plays live on
- * the server, and each remembers the conversation that built it.
+ * plays already exist. Conversations are kept on the server (/plays/chats)
+ * with their cards as references, so a thread opened on another device, or
+ * days later, draws each play as it is now; this browser keeps a copy so the
+ * page opens before the server answers.
  */
 "use strict";
 
@@ -69,7 +71,8 @@
   const IDEAS = [
     ["bell", "Tell me when HDFC Bank closes below its 50-day average"],
     ["file", "If Reliance files an order win on NSE, propose buying ₹10,000 of it"],
-    ["layers", "Make me a defence basket and alert me when it breaks its 50-DMA"],
+    ["layers", "Build a basket of the five largest defence stocks by market cap and tell me why each made it"],
+    ["bolt", "Go 3× long BTC-PERP with ₹20,000 margin when funding turns negative, stop 3%"],
     ["chart", "Short RELIANCE intraday if it breaks the first 15 minutes' low, trail 0.8%"],
     ["target", "Sell the NIFTY ATM straddle at 9:20 with a 25% stop on each leg"],
     ["scale", "Rebalance my paper portfolio to equal weight and keep it that way"],
@@ -82,8 +85,16 @@
       `<button type="submit" class="send" disabled aria-label="Send">${ic("up")}</button></div></form>`;
   }
 
-  function home(convId) {
+  async function home(convId) {
     cur = convId ? convs.find((c) => c.id === convId) || null : null;
+    if (convId && (!cur || !Array.isArray(cur.turns))) {
+      main.innerHTML = `<div class="page"><div class="muted">Opening the conversation…</div></div>`;
+      try {
+        const d = await call(`/plays/chats/${encodeURIComponent(convId)}`);
+        cur = { ...d.chat, updated: (d.chat.updated || 0) * 1000 };
+        convs = [cur, ...convs.filter((c) => c.id !== cur.id)];
+      } catch { cur = null; }
+    }
     if (convId && !cur) return go("#/");
     if (!cur) {
       const recent = convs.slice(0, 6);
@@ -94,7 +105,7 @@
         showcase() +
         (recent.length ? `<div style="margin:0 0 60px"><div class="panel-h" style="margin-left:0">${ic("list")}<span>Recent conversations</span></div>` +
           `<div class="grid">${recent.map((c) => `<button type="button" class="sc" data-conv="${esc(c.id)}"><div class="top2"><b>${esc(c.title)}</b></div>` +
-          `<div class="desc">${esc(lastReply(c))}</div></button>`).join("")}</div></div>` : "") + `</div>`;
+          `<div class="desc">${esc(Array.isArray(c.turns) ? lastReply(c) : c.last || "")}</div></button>`).join("")}</div></div>` : "") + `</div>`;
       wireComposer(main.querySelector("[data-form]"));
       main.querySelector("[data-input]").focus();
       return;
@@ -126,11 +137,13 @@
       row(Kit.ic("chart", "mark-ic"), "Above its 20-day average", `<span class="pill met">Met</span>`) +
       row(Kit.ic("bell", "mark-ic"), "Alert lands in your Inbox, with the quote") +
       `</div><div class="cap"><b>Agents that work all day.</b> Filings, headlines and charts are read the moment they change.</div></button>` +
-      `<button type="button" class="show b" data-idea="Make me a defence basket of HAL, BEL, BDL and Mazagon Dock and buy ₹50,000 of it">` +
-      `<div class="ask">Make me a defence basket and buy it</div><div class="demo">` +
-      `<div class="alloc" style="height:12px">${["#2563eb", "#f0570f", "#16a34a", "#7c4dff"].map((c) => `<i style="width:25%;background:${c}"></i>`).join("")}</div>` +
-      ["HAL", "BEL", "BDL", "MAZDOCK"].map((s) => row(Kit.logo(s, "sm"), s, `<b>25%</b>`)).join("") +
-      `</div><div class="cap"><b>Your own securities.</b> A basket, a ratio or a spread becomes a symbol you can chart and trade.</div></button>` +
+      `<button type="button" class="show b" data-idea="Build a defence basket: the five largest by market cap, weighted by market cap, trading at least ₹100 crore a day. Explain each pick, then buy ₹50,000 of it">` +
+      `<div class="ask">Build a basket by a rule you can check</div><div class="demo">` +
+      row(Kit.ic("layers", "mark-ic"), "Filter: <b>Aerospace &amp; Defense</b>") +
+      row(Kit.ic("list", "mark-ic"), "Rank by <b>market cap</b>, keep the top 5") +
+      row(Kit.ic("scale", "mark-ic"), "Weight by market cap, <b>40%</b> cap per name") +
+      row(Kit.ic("checkc", "mark-ic"), "Every member shown with the numbers that put it there") +
+      `</div><div class="cap"><b>Your own securities.</b> Same rule, same day, same basket. Chart it, trade it, change a weight yourself.</div></button>` +
       `<button type="button" class="show c" data-idea="Short RELIANCE intraday for ₹50,000 if a 5 minute candle closes below the first 15 minutes' low, trail it 0.8% and get out by 3:10">` +
       `<div class="ask">Short Reliance if it breaks the opening range</div><div class="demo">` +
       row(`<span class="chip sig">${Kit.ic("signal")}5m</span>`, "Close below the 09:15 to 09:30 low") +
@@ -176,12 +189,34 @@
     ul.className = "steps";
     ul.innerHTML = steps.map((s, i) => {
       const live = !done && i === steps.length - 1;
-      return `<li class="${live ? "now" : ""}">${live ? `<span class="spin"></span>` : ic((STEP[s.name] || ["sparkle"])[0])}<span>${esc(stepText(s))}</span></li>`;
+      const sym = Kit.symIn(s.hint);
+      return `<li class="${live ? "now" : ""}">${live ? `<span class="spin"></span>` : ic((STEP[s.name] || ["sparkle"])[0])}<span>${esc(stepText(s))}</span>${sym ? Kit.logo(sym, "xs") : ""}</li>`;
     }).join("");
     return ul;
   }
 
+  /** A stored card (or a reference to one) as it is now: the play or the
+   *  security from the latest /plays read, else a line saying it is gone. */
+  function live(c) {
+    if (!c) return null;
+    if (c.kind === "play") {
+      const p = (data.plays || []).find((x) => x.id === c.id);
+      return p || (c.conditions ? c : { kind: "gone", title: c.title || `Play ${c.id}` });
+    }
+    if (c.kind === "custom_security") {
+      const s = (data.securities || []).find((x) => x.symbol === c.symbol);
+      return s || (c.formula ? c : { kind: "gone", title: c.symbol });
+    }
+    return null;
+  }
+
   function cardEl(c) {
+    if (c.kind === "gone") {
+      const el = document.createElement("div");
+      el.className = "gone";
+      el.innerHTML = `${ic("trash")}<span>${esc(c.title)} was deleted.</span>`;
+      return el;
+    }
     if (c.kind === "play") {
       const el = Kit.strategy(c);
       return el;
@@ -199,12 +234,28 @@
       (basket && c.anchor ? `. Set to 100 on ${esc(Kit.dayY(c.anchor))}, holding those weights.` : ".") + `</p></div>` +
       `<div class="logos">${(c.members || []).slice(0, 5).map((m) => Kit.logo(m.symbol, "lg")).join("")}</div></div>` +
       `<div style="padding:0 12px 4px"><div class="pnl"><div class="ph"></div></div></div>` +
+      (c.why || c.method ? `<div class="sec-why">${c.why ? `<p class="thesis"><b>Why</b>${esc(c.why)}</p>` : ""}` +
+        (c.method ? `<p class="method">${ic("list")}<span><b>How it was picked</b>${esc(c.method.text)}${c.method.as_of ? `, on data to ${esc(Kit.dayY(c.method.as_of))}` : ""}.` +
+          `${c.method.edited ? " Weights since changed by you." : ""}</span></p>` : "") + `</div>` : "") +
       (basket ? `<div style="padding:10px 18px 4px"><div class="alloc">${(c.members || []).map((m, i) => `<i style="width:${m.weight * 100}%;background:${Kit.COLORS[i % Kit.COLORS.length]}"></i>`).join("")}</div>` +
-        `<div class="alloc-legend">${(c.members || []).map((m, i) => `<div><span class="sw" style="background:${Kit.COLORS[i % Kit.COLORS.length]}"></span>${Kit.logo(m.symbol, "sm")}<span>${esc(m.symbol)}</span><b>${esc(Kit.num(m.weight * 100, 1))}%</b></div>`).join("")}</div></div>` : "") +
+        `<div class="members">${(c.members || []).map((m, i) => `<div class="mem"><span class="sw" style="background:${Kit.COLORS[i % Kit.COLORS.length]}"></span>${Kit.logo(m.symbol)}` +
+          `<div class="grow"><div class="nm"><b>${esc(m.symbol)}</b><span>${esc(Kit.name(m.symbol) || m.industry || "")}</span></div>${m.why ? `<div class="why">${esc(m.why)}</div>` : ""}</div>` +
+          `${Kit.ed(m.symbol, (m.weight * 100).toFixed(1), `<b>${esc(Kit.num(m.weight * 100, 1))}%</b>`)}</div>`).join("")}</div></div>` :
+        `<div class="members" style="padding:6px 18px">${(c.members || []).map((m) => `<div class="mem">${Kit.logo(m.symbol)}<div class="grow"><div class="nm"><b>${esc(m.symbol)}</b><span>${esc(Kit.name(m.symbol))}</span></div>${m.why ? `<div class="why">${esc(m.why)}</div>` : ""}</div></div>`).join("")}</div>`) +
       `<div class="strat-foot"><div class="facts">${["1d", "1m", "1y"].filter((k) => (c.change || {})[k] != null).map((k) =>
         `<span>${{ "1d": "Day", "1m": "Month", "1y": "Year" }[k]} <b class="${c.change[k] >= 0 ? "up" : "down"}">${esc(Kit.signed(c.change[k]))}</b></span>`).join("")}</div>` +
       `<a class="btn sm" href="./?symbol=${encodeURIComponent(c.symbol)}&interval=1D" target="pivot-chart">${ic("chart")}Open chart</a></div>`;
     Kit.priceBlock(el.querySelector(".ph"), c.symbol, { tfs: ["1D", "1W", "1M", "1Y", "ALL"], tf: "1Y", height: 120, width: 640, area: true });
+    el.addEventListener("click", (e) => {
+      const f = e.target.closest("[data-field]");
+      if (!f || f.querySelector("input")) return;
+      Kit.editInline(f, async (v) => {
+        const got = await call("/plays/securities", { symbol: c.symbol, weights: { [f.dataset.field]: v } });
+        data.securities = (data.securities || []).map((x) => x.symbol === c.symbol ? got.security : x);
+        el.replaceWith(securityCard(got.security));
+        Kit.toast("Weights changed. The value is recalculated from its anchor day.");
+      });
+    });
     return el;
   }
 
@@ -213,7 +264,7 @@
   function replyEl(text, cards) {
     const el = document.createElement("div");
     el.className = "prose";
-    const shown = (cards || []).filter((c) => c.kind === "play" || c.kind === "custom_security");
+    const shown = (cards || []).map(live).filter(Boolean);
     const parts = String(text || "").split(/\n?\s*\[\[panel(?::[^\]]*)?\]\]\s*\n?/);
     let k = 0;
     const put = () => { const c = cardEl(shown[k++]); if (c) { const s = document.createElement("div"); s.className = "card-slot"; s.appendChild(c); el.appendChild(s); } };
@@ -225,11 +276,35 @@
     return el;
   }
 
+  let saveT = 0;
   function persist() {
     if (!cur) return;
     cur.updated = Date.now();
     convs = [cur, ...convs.filter((c) => c.id !== cur.id)].slice(0, 80);
-    save(KEY, convs);
+    save(KEY, convs.filter((c) => Array.isArray(c.turns)).slice(0, 30));
+    const c = cur;
+    clearTimeout(saveT);
+    saveT = setTimeout(() => upload(c), 400);
+  }
+  async function upload(c) {
+    const turns = (c.turns || []).filter((t) => !t.local);
+    if (!turns.length || !Auth.user) return;
+    try {
+      await call("/plays/chats", { id: c.id, title: c.title, focus: c.focus || null,
+        turns: turns.map((t) => ({ role: t.role, content: t.content, steps: t.steps, meta: t.meta, cards: t.cards })) });
+      c.synced = true;
+    } catch { /* kept in this browser; tried again on the next turn */ }
+  }
+  /** The server's list, with anything only this browser has sent up once. */
+  async function loadConvs() {
+    let list = [];
+    try { list = (await call("/plays/chats")).chats || []; } catch { return; }
+    const have = new Set(list.map((c) => c.id));
+    const mine = convs.filter((c) => Array.isArray(c.turns) && !have.has(c.id));
+    for (const c of mine) await upload(c);
+    const local = new Map(convs.map((c) => [c.id, c]));
+    convs = [...list.map((c) => { const l = local.get(c.id); return l && Array.isArray(l.turns) ? { ...l, last: c.last } : { ...c, updated: c.updated * 1000 }; }),
+             ...mine].sort((a, b) => b.updated - a.updated);
   }
 
   async function send(text) {
@@ -432,7 +507,8 @@
     main.querySelectorAll("[data-ptab]").forEach((b) => b.addEventListener("click", () => { ptab = b.dataset.ptab; paintP(); }));
     paintP();
     wireComposer(main.querySelector('[data-form="ask"]'), (t) => {
-      const conv = where[id] && convs.find((x) => x.id === where[id]);
+      const conv = (where[id] && convs.find((x) => x.id === where[id] && Array.isArray(x.turns))) ||
+        convs.find((x) => x.focus === id && Array.isArray(x.turns));
       cur = conv || { id: `c${Date.now().toString(36)}`, title: c.title, updated: Date.now(), focus: id, turns: [
         { role: "assistant", local: true, content: "Here it is. Tell me what to change.\n\n[[panel]]", cards: [c] }] };
       if (!conv) { where[id] = cur.id; save(MAP, where); }
@@ -639,7 +715,7 @@
     Kit.loadLogos();
     const me = await Auth.resume();
     $("avatar").textContent = me && me.email ? me.email[0].toUpperCase() : "P";
-    if (me) { await Promise.all([refresh(), Kit.loadLogos()]); }
+    if (me) { await Promise.all([refresh(), Kit.loadLogos(), loadConvs()]); }
     render();
   })();
 })();

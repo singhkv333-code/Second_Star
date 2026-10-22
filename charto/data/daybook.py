@@ -31,6 +31,8 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import hyperliquid
+
 log = logging.getLogger("daybook")
 
 ds = None
@@ -100,6 +102,11 @@ def init_db() -> None:
         return
     with ds._users_lock:
         _db().executescript(_SCHEMA)
+        cols = {r[1] for r in _db().execute("PRAGMA table_info(day_positions)")}
+        for col, decl in (("leverage", "REAL NOT NULL DEFAULT 1"), ("funding", "REAL NOT NULL DEFAULT 0"),
+                          ("funded_ts", "INTEGER NOT NULL DEFAULT 0")):
+            if col not in cols:      # perps: leverage, funding paid (rupees), the last hour charged
+                _db().execute(f"ALTER TABLE day_positions ADD COLUMN {col} {decl}")
         _db().commit()
     _ready = True
 
@@ -116,6 +123,7 @@ _RATES = {
     "future": (20.0, 0.0003, 0.0002, 0.0000173, 0.00002),
     "option": (20.0, None, 0.001, 0.0003503, 0.00003),
     "crypto": (0.0, 0.001, 0.0, 0.0, 0.0),      # a flat 0.1% exchange fee, no Indian levies
+    "perp": (0.0, 0.00045, 0.0, 0.0, 0.0),      # Hyperliquid's base taker fee, 0.045%
 }
 
 
@@ -123,6 +131,8 @@ def charges(kind: str, side: str, px: float, qty: float) -> float:
     cap, pct, stt, exch, stamp = _RATES["equity" if kind == "equity" else kind]
     turnover = px * qty
     brokerage = cap if pct is None else min(cap, turnover * pct) if cap else turnover * pct
+    if kind in ("crypto", "perp"):
+        return round(brokerage, 2)          # an exchange fee; no Indian levies or GST
     c = brokerage + turnover * exch + turnover * 10 / 1e7          # SEBI ₹10 a crore
     c += turnover * stt if side == "SELL" else turnover * stamp
     c += 0.18 * (brokerage + turnover * exch + turnover * 10 / 1e7)  # GST
@@ -140,8 +150,11 @@ def margin(leg: dict) -> float:
         return max(notional, 0.12 * und if leg.get("index") else 0.18 * und)
     if leg["kind"] == "future":
         return 0.12 * notional if leg.get("index") else 0.20 * notional
+    if leg["kind"] == "perp":
+        return notional * leg.get("fx", 1.0) / max(1.0, float(leg.get("leverage") or 1))
     if leg["kind"] == "crypto":
-        return notional if leg["side"] == "long" else notional * 0.5
+        n = notional * leg.get("fx", 1.0)
+        return n if leg["side"] == "long" else n * 0.5
     return 0.20 * notional if leg["product"] == "MIS" else notional
 
 
@@ -194,6 +207,8 @@ def resolve(do: dict, product: str) -> list[dict]:
     do.kind future:        {underlying, side: buy|sell, lots, expiry}
     """
     kind = do["kind"]
+    if kind in ("long", "short") and hyperliquid.is_perp(do["symbol"]):
+        return [_perp_leg(do, kind)]
     if kind in ("long", "short"):
         sym = do["symbol"]
         px, stale = _equity_px(sym)
@@ -269,6 +284,40 @@ def resolve(do: dict, product: str) -> list[dict]:
     return legs
 
 
+def _perp_leg(do: dict, side: str) -> dict:
+    """A Hyperliquid perpetual on paper: the rupees are the margin, the
+    leverage sets the notional, and the size is rounded down to the coin's
+    own step."""
+    sym = do["symbol"]
+    c = hyperliquid.ctx(sym)
+    if not c:
+        raise Refused(f"Hyperliquid lists no perpetual {sym}")
+    px = hyperliquid.mark(sym)
+    if not px:
+        raise Refused(f"no Hyperliquid price for {sym} right now")
+    lev = float(do.get("leverage") or 1)
+    if not 1 <= lev <= c["max_leverage"]:
+        raise Refused(f"{sym} allows 1× to {c['max_leverage']}× leverage on Hyperliquid")
+    import paper
+    fx, _ = paper.fx_rate("USD")
+    usd = float(fx or 0)
+    if not usd:
+        raise Refused("no USD/INR rate to size a perp in rupees")
+    size = do.get("size") or {}
+    if size.get("qty"):
+        qty = float(size["qty"])
+    else:
+        inr = float(size.get("inr") or 10_000)
+        qty = inr * lev / (px * usd)
+    step = 10 ** -c["sz_decimals"]
+    qty = math.floor(qty / step) * step
+    qty = round(qty, c["sz_decimals"])
+    if qty <= 0:
+        raise Refused(f"the size buys less than one step ({step:g}) of {sym} at {px:,.2f} USD")
+    return {"symbol": sym, "venue": "HL", "kind": "perp", "side": side, "qty": qty, "px": px, "stale": False,
+            "lot": 1, "product": "PERP", "fx": usd, "leverage": lev, "underlying": hyperliquid.coin(sym)}
+
+
 def _expiry_word(w):
     s = str(w or "").strip().lower()
     return None if s in ("", "weekly", "this week", "current", "nearest") else \
@@ -292,7 +341,7 @@ def _strike(raw, atm: float, step: float) -> float:
 _COLS = ("id", "user_id", "play_id", "grp", "symbol", "venue", "kind", "underlying", "expiry", "strike",
          "opt", "lot", "side", "qty", "product", "entry_px", "entry_ts", "mark_px", "mark_ts", "stale",
          "stop_px", "target_px", "trail_pct", "best_px", "state", "exit_px", "exit_ts", "exit_why",
-         "costs", "pnl", "rules")
+         "costs", "pnl", "rules", "leverage", "funding", "funded_ts")
 
 
 def _pos(t) -> dict:
@@ -324,11 +373,13 @@ def open_group(uid: int, play_id: int | None, legs: list[dict], manage: dict) ->
             cur = _db().execute(
                 "INSERT INTO day_positions (user_id, play_id, grp, symbol, venue, kind, underlying, expiry, "
                 "strike, opt, lot, side, qty, product, entry_px, entry_ts, mark_px, mark_ts, stale, stop_px, "
-                "target_px, trail_pct, best_px, costs, rules) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "target_px, trail_pct, best_px, costs, rules, leverage, funded_ts) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (uid, play_id, grp, lg["symbol"], lg["venue"], lg["kind"], lg.get("underlying", ""),
                  lg.get("expiry", ""), lg.get("strike"), lg.get("opt", ""), lg["lot"], lg["side"], lg["qty"],
                  lg["product"], px, now, px, now, int(bool(lg.get("stale"))), stop, target,
-                 manage.get("trail_pct"), px, cost, json.dumps(rules)))
+                 manage.get("trail_pct"), px, cost, json.dumps(rules), float(lg.get("leverage") or 1),
+                 now // 3600 * 3600))
             out.append({**lg, "id": cur.lastrowid, "stop_px": stop, "target_px": target, "costs": cost})
         _db().commit()
     _reindex()
@@ -336,7 +387,7 @@ def open_group(uid: int, play_id: int | None, legs: list[dict], manage: dict) ->
 
 
 def _fx(p: dict) -> float:
-    if p["kind"] != "crypto":
+    if p["kind"] not in ("crypto", "perp"):
         return 1.0
     try:
         import paper
@@ -354,7 +405,7 @@ def _gross(p: dict, px: float) -> float:
 def close(p: dict, px: float, why: str, *, notify: bool = True) -> dict:
     exit_cost = charges(p["kind"], "SELL" if p["side"] == "long" else "BUY", px * _fx(p), p["qty"])
     costs = round(p["costs"] + exit_cost, 2)
-    pnl = round(_gross(p, px) - costs, 2)
+    pnl = round(_gross(p, px) - costs - float(p.get("funding") or 0), 2)
     now = int(time.time())
     with ds._users_lock:
         n = _db().execute("UPDATE day_positions SET state='closed', exit_px=?, exit_ts=?, exit_why=?, "
@@ -533,6 +584,9 @@ def sweep(now: datetime | None = None) -> list[dict]:
                 with ds._users_lock:
                     _db().execute("UPDATE day_positions SET stale=1 WHERE id=?", (p["id"],))
                     _db().commit()
+    perps = [p for p in open_positions() if p["kind"] == "perp"]
+    if perps:
+        out += _sweep_perps(perps, now)
     groups: dict[str, list[dict]] = {}
     for p in open_positions():
         groups.setdefault(p["grp"], []).append(p)
@@ -559,6 +613,66 @@ def sweep(now: datetime | None = None) -> list[dict]:
             for p in legs:
                 out.append(close(p, p["mark_px"] or p["entry_px"], why))
     return [o for o in out if o]
+
+
+MAINT = 0.5      # Hyperliquid's maintenance margin is half the initial margin at max leverage
+
+
+def liquidation_px(p: dict) -> float | None:
+    """Where an isolated perp's margin is gone, roughly: entry moved by the
+    margin fraction, less the maintenance share. An estimate, labelled one."""
+    lev = float(p.get("leverage") or 1)
+    if lev <= 1 and p["side"] == "long":
+        return None
+    c = hyperliquid.ctx(p["symbol"]) or {}
+    mm = MAINT / max(1, c.get("max_leverage") or 1)
+    f = 1 / lev - mm
+    return round(p["entry_px"] * (1 - f) if p["side"] == "long" else p["entry_px"] * (1 + f), 6)
+
+
+def _sweep_perps(perps: list[dict], now: datetime) -> list[dict]:
+    out = []
+    try:
+        px = hyperliquid.mids()
+    except Exception:                                       # noqa: BLE001
+        px = {}
+    hour = int(time.time()) // 3600 * 3600
+    for p in perps:
+        p = _fresh(p["id"])
+        if not p:
+            continue
+        mid = px.get(hyperliquid.coin(p["symbol"]))
+        if not mid:
+            if not p["stale"]:
+                with ds._users_lock:
+                    _db().execute("UPDATE day_positions SET stale=1 WHERE id=?", (p["id"],))
+                    _db().commit()
+            continue
+        # funding, charged each hour the position is held: a long pays a
+        # positive rate, a short receives it (and the reverse when negative)
+        if hour > (p.get("funded_ts") or 0):
+            c = hyperliquid.ctx(p["symbol"]) or {}
+            rate = c.get("funding") or 0.0
+            hours = max(1, (hour - (p.get("funded_ts") or hour)) // 3600)
+            paid = rate * hours * p["qty"] * mid * _fx(p) * (1 if p["side"] == "long" else -1)
+            with ds._users_lock:
+                _db().execute("UPDATE day_positions SET funding=funding+?, funded_ts=? WHERE id=?",
+                              (round(paid, 4), hour, p["id"]))
+                _db().commit()
+            p = _fresh(p["id"])
+        liq = liquidation_px(p)
+        if liq and (mid <= liq if p["side"] == "long" else mid >= liq):
+            out.append(close(p, mid, "liquidated (estimated: the margin was used up)"))
+            continue
+        r = check(p, mid, stale=False, now=now)
+        if r:
+            out.append(r)
+    return out
+
+
+def watched() -> set[str]:
+    with _LOCK:
+        return {s for s in _BY_SYM if hyperliquid.is_perp(s)}
 
 
 def _sweeper() -> None:
@@ -599,7 +713,10 @@ def api_list(uid: int) -> tuple[int, dict]:
     today = _now_ist().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
     for p in pos:
         if p["state"] == "open":
-            p["open_pnl"] = round(_gross(p, p["mark_px"] or p["entry_px"]) - p["costs"], 2)
+            p["open_pnl"] = round(_gross(p, p["mark_px"] or p["entry_px"]) - p["costs"]
+                                  - float(p.get("funding") or 0), 2)
+            if p["kind"] == "perp":
+                p["liq_px"] = liquidation_px(p)
     day = sum((p["pnl"] or 0) for p in pos if p["state"] == "closed" and (p["exit_ts"] or 0) >= today) + \
         sum(p.get("open_pnl", 0) for p in pos if p["state"] == "open")
     return 200, {"positions": pos, "day_pnl": round(day, 2), "estimates": "costs and margin are estimates"}

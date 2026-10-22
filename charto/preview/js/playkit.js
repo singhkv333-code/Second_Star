@@ -30,6 +30,8 @@ const Kit = (() => {
   const num = (v, dp) => {
     if (v == null || !Number.isFinite(+v)) return "";
     const a = Math.abs(+v);
+    // a funding rate or a ratio's small move: its significant digits, not 0.0000
+    if (dp == null && a > 0 && a < 0.01) return (+v).toPrecision(3).replace(/(\.\d*?)0+(e|$)/, "$1$2").replace(/\.(e|$)/, "$1");
     const d = dp != null ? dp : a >= 1000 ? 2 : a >= 100 ? 2 : a >= 1 ? 2 : 4;
     return (+v).toLocaleString("en-IN", { maximumFractionDigits: d, minimumFractionDigits: a >= 100 && dp == null ? 0 : 0 });
   };
@@ -117,13 +119,25 @@ const Kit = (() => {
   const hue = (s) => HUES[[...String(s)].reduce((a, c) => a + c.charCodeAt(0), 0) % HUES.length];
   function logo(sym, cls = "") {
     const s = String(sym || "").toUpperCase();
-    const base = s.replace(/USDT$|-USD$/, "");
-    const url = LOGOS[s] || LOGOS[base] || LOGOS[`${base}USDT`];
-    if (url) return `<img class="logo ${cls}" src="${esc(url)}" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'logo mono-mark ${cls}',textContent:'${esc(base.replace(/[^A-Z0-9]/g, "").slice(0, 1))}',style:'background:${hue(s)}'}))" />`;
+    const base = s.replace(/USDT$|-USD$|-PERP$/, "");
+    const url = LOGOS[s] || LOGOS[base] || LOGOS[`${base}USDT`] || (s.endsWith("-PERP") ? `https://app.hyperliquid.xyz/coins/${base}.svg` : "");
     const letter = s.startsWith("@") ? s.slice(1, 2) : s.startsWith("NIFTY") ? "N" : base.replace(/[^A-Z0-9]/g, "").slice(0, 1) || "?";
+    // the letter shows until the mark has loaded, so a slow or blocked image
+    // never leaves an empty square
+    if (url) return `<span class="logo mono-mark has-img ${cls}" style="background:${hue(s)}">${esc(letter)}<img src="${esc(url)}" alt="" loading="lazy" onload="this.classList.add('in')" onerror="this.remove()" /></span>`;
     return `<span class="logo mono-mark ${cls}" style="background:${hue(s)}">${esc(letter)}</span>`;
   }
   const name = (sym) => NAMES[String(sym || "").toUpperCase()] || "";
+  /** The first symbol a piece of text names, for the mark beside it: a word
+   *  the store has a logo for ("HDFCBANK close" → HDFCBANK). */
+  function symIn(text) {
+    const words = String(text || "").toUpperCase().match(/@?[A-Z][A-Z0-9&-]{1,20}/g) || [];
+    return words.find((w) => LOGOS[w] || w.startsWith("@") || w.endsWith("-PERP")) || "";
+  }
+  const venueOf = (s) => s.startsWith("@") ? "Your security" : s.endsWith("-PERP") ? "Hyperliquid" :
+    s.endsWith("USDT") ? "Bybit" : s.endsWith("-USD") ? "Coinbase" : "NSE";
+  /** A value the trader can change on the card: tap, type, Enter. */
+  const ed = (field, val, label) => `<span class="edit" data-field="${esc(field)}" data-val="${esc(val == null ? "" : val)}" title="Change">${label}${ic("pencil")}</span>`;
   /** A news outlet's mark: its initials on its own colour. */
   function outlet(who) {
     const w = String(who || "").trim();
@@ -267,17 +281,20 @@ const Kit = (() => {
   const OPS = { above: ">", below: "<", cross_up: "crosses ↑", cross_down: "crosses ↓", between: "between",
                 outside: "outside", rises_pct: "rises", falls_pct: "falls", is_true: "is true" };
 
-  function condRow(p, now) {
+  function condRow(p, now, i) {
     if (!p) return now && now.text ? `<div class="cond"><span>${esc(now.text)}</span></div>` : "";
     if (p.kind === "time") return `<div class="cond"><span class="chip vio">${ic("clock")}${esc(p.text)}</span></div>`;
     if (p.kind === "group") return p.items.map((x) => condRow(x)).join(`<div class="join"><span>${p.join}</span></div>`);
-    const L = esc(p.left), R = p.right != null ? esc(p.right) : "";
+    const ls = symIn(p.left);
+    const L = (ls ? logo(ls, "xs") : "") + esc(p.left), R = p.right != null ? esc(p.right) : "";
     const lnow = now && now.now != null ? `<span class="chip sig">${ic("signal")}${esc(num(now.now))}</span>` : "";
     const rnum = now && now.target != null && p.right_live ? `<span class="chip val">${ic("signal")}${esc(num(now.target))}</span>` : "";
-    const rconst = !p.right_live && R ? `<span class="chip val">${R}</span>` : "";
+    const rconst = !p.right_live && R ? (i != null && /^[−-]?[\d,.]+%?$/.test(String(p.right).trim())
+      ? `<span class="chip val">${ed(`cond.${i}.right`, String(p.right).replace(/[,%]/g, "").replace("−", "-"), R)}</span>`
+      : `<span class="chip val">${R}</span>`) : "";
     return `<div class="cond"><span>If ${L}</span>${lnow}<span class="chip op">${esc(OPS[p.op] || p.op)}</span>` +
       (p.right_live && R ? `<span>${R}</span>${rnum}` : rconst) +
-      (p.for_bars ? `<span class="chip plain">for ${p.for_bars} bars</span>` : "") + `</div>`;
+      (p.for_bars ? `<span class="chip plain">for ${i != null ? ed(`cond.${i}.for_bars`, p.for_bars, esc(p.for_bars)) : esc(p.for_bars)} bars</span>` : "") + `</div>`;
   }
 
   function sliderHTML(vals, now) {
@@ -287,7 +304,7 @@ const Kit = (() => {
     const at = hi === lo ? 50 : (now - lo) / (hi - lo) * 100;
     return `<div class="slider"><i style="left:${Math.max(0, Math.min(100, at))}%"></i></div>` +
       `<div class="slider-lab" style="display:flex;justify-content:space-between;font-size:10.5px;color:var(--ink-3)">` +
-      `<span>${esc(num(lo))}</span><span>${esc(num(now))}</span><span>${esc(num(hi))}</span></div>`;
+      `<span>${esc(num(lo))}</span><span>${esc(num(hi))}</span></div>`;
   }
 
   const TAGS = ["#f7a8cf", "#ffb27d", "#9cc0ff", "#a6e3b5"];
@@ -303,7 +320,7 @@ const Kit = (() => {
     const measures = (c.measures || []).filter((m) => m.title);
     measures.slice(0, 3).forEach((m) => {
       out.push({ title: m.title, cap: m.formula && m.formula !== m.title ? m.formula : "", body:
-        `<div class="src">${ic("sparkle")}` +
+        `<div class="src">${symIn(m.formula || m.title) ? logo(symIn(m.formula || m.title), "sm") : ic("sparkle")}` +
         `<span class="grow"></span><span class="pill live">${ic("grid")}Live</span></div>` +
         `<div class="big">${m.now == null ? "<span class=muted>no value</span>" : bigNum(m.now)}</div>` + sliderHTML(m.spark, m.now) });
     });
@@ -326,7 +343,7 @@ const Kit = (() => {
           `<div class="item" style="align-items:center">${logo(s, "sm")}<span style="flex:1">${esc(s)}</span><b class="num">${esc(num(q, 4))}</b></div>`).join("")}</div>` : "") });
     } else if ((priceCond || (!measures.length && !c.on)) && c.symbol) {
       out.push({ title: `${c.symbol} price`, body:
-        `<div class="src">${logo(c.symbol, "sm")}<span>${esc(c.symbol.startsWith("@") ? "Your security" : c.symbol.endsWith("USDT") ? "Bybit" : "NSE")}</span><span class="grow"></span><span class="pill live">${ic("grid")}Live</span></div>` +
+        `<div class="src">${logo(c.symbol, "sm")}<span>${esc(venueOf(c.symbol))}</span><span class="grow"></span><span class="pill live">${ic("grid")}Live</span></div>` +
         `<div class="big">${c.history && c.history.price != null ? bigNum(c.history.price) : "–"}</div>` +
         `<div class="sig-chart" data-sym="${esc(c.symbol)}"></div>` });
     }
@@ -338,19 +355,20 @@ const Kit = (() => {
     let met = null, body = "", head = "Trigger", icon = "trigger";
     if (c.do && c.do.kind === "rebalance" && c.lifespan === "policy") {
       head = "Schedule"; icon = "calendar";
-      body = `<div class="cond"><span>Every</span><span class="chip val">${esc((c.policy || {}).every || "week")}</span></div>` +
+      const pol = c.policy || {};
+      body = `<div class="cond"><span>Every</span><span class="chip val">${ed("policy.every", pol.every || "week", esc(pol.every || "week"))}</span></div>` +
         `<div class="join"><span>or</span></div><div class="cond"><span>If a holding drifts</span><span class="chip op">&gt;</span>` +
-        `<span class="chip val">${esc(num((c.policy || {}).drift_pct || 5))} pts</span><span>from target</span></div>`;
+        `<span class="chip val">${ed("policy.drift_pct", pol.drift_pct || 5, `${esc(num(pol.drift_pct || 5))} pts`)}</span><span>from target</span></div>`;
     } else if (c.on) {
       met = null;
       const words = (c.on.test || "").match(/“([^”]+)”/g) || [];
       body = `<div class="cond"><span>When an item mentions</span>${words.slice(0, 4).map((w) => `<span class="chip sig2">${esc(w.replace(/[“”]/g, ""))}</span>`).join("")}</div>` +
         (c.on.test && c.on.test.includes("answers yes") ? `<div class="join"><span>and</span></div><div class="cond" style="font-size:13.5px">` +
           `<span class="chip vio">${ic("sparkle")}judge</span><span>${esc((c.on.test.split("answers yes to")[1] || "").replace(/[“”]/g, "").trim())}</span></div>` : "");
-      if (conds.length) body += `<div class="join"><span>and while</span></div>` + conds.map((x) => condRow(x.parts, x)).join(`<div class="join"><span>${c.join === "any" ? "or" : "and"}</span></div>`);
+      if (conds.length) body += `<div class="join"><span>and while</span></div>` + conds.map((x, i) => condRow(x.parts, x, i)).join(`<div class="join"><span>${c.join === "any" ? "or" : "and"}</span></div>`);
     } else if (conds.length) {
       met = c.join === "any" ? conds.some((x) => x.met) : conds.every((x) => x.met);
-      body = conds.map((x) => condRow(x.parts, x)).join(`<div class="join"><span>${c.join === "any" ? "or" : "and"}</span></div>`);
+      body = conds.map((x, i) => condRow(x.parts, x, i)).join(`<div class="join"><span>${c.join === "any" ? "or" : "and"}</span></div>`);
       const away = conds.find((x) => x.away_pct != null && !x.met);
       if (away) body += `<div class="nfoot"><span>${ic("target")} ${esc(num(away.away_pct))}% away</span><span></span></div>`;
     } else {
@@ -370,13 +388,17 @@ const Kit = (() => {
     const d = c.do || {}, mg = c.manage || {}, st = STATE[c.state] || [c.state, ""];
     const pill = `<span class="pill ${st[1]}">${esc(st[0])}</span>`;
     const head = (label, icon = "action") => `<div class="nh">${ic(icon)}<span>${label}</span><span class="grow"></span>${pill}</div>`;
+    const sized = ["buy", "short"].includes(d.kind);
     const takeStop = () => {
       const bits = [];
-      if (d.size && d.size.inr) bits.push(`<span>Allocate</span><span class="edit">${esc(inr(d.size.inr))}${ic("pencil")}</span>`);
-      if (d.size && d.size.qty) bits.push(`<span>Qty</span><span class="edit">${esc(num(d.size.qty))}${ic("pencil")}</span>`);
-      if (mg.target_pct) bits.push(`<span>Take</span><span class="edit">+${esc(num(mg.target_pct))}%${ic("pencil")}</span>`);
-      if (mg.stop_pct) bits.push(`<span class="sep"></span><span>Stop</span><span class="edit">−${esc(num(mg.stop_pct))}%${ic("pencil")}</span>`);
-      if (mg.trail_pct) bits.push(`<span>Trail</span><span class="edit">${esc(num(mg.trail_pct))}%${ic("pencil")}</span>`);
+      const pp = (l, v) => `<span class="pp"><span>${l}</span>${v}</span>`;
+      if (d.size && d.size.inr) bits.push(pp(d.product === "PERP" ? "Margin" : "Allocate", sized ? ed("size_inr", d.size.inr, esc(inr(d.size.inr))) : `<span class="edit">${esc(inr(d.size.inr))}</span>`));
+      if (d.size && d.size.qty) bits.push(pp("Qty", `<span class="edit">${esc(num(d.size.qty))}</span>`));
+      if (d.product === "PERP" && d.leverage) bits.push(pp("Leverage", ed("leverage", d.leverage, `${esc(num(d.leverage))}×`)));
+      const risk = sized || d.kind === "options" || d.kind === "future";
+      if (mg.target_pct || risk) bits.push(pp("Take", ed("target_pct", mg.target_pct || "", mg.target_pct ? `+${esc(num(mg.target_pct))}%` : "add")));
+      if (mg.stop_pct || risk) bits.push(pp("Stop", ed("stop_pct", mg.stop_pct || "", mg.stop_pct ? `−${esc(num(mg.stop_pct))}%` : "add")));
+      if (mg.trail_pct) bits.push(pp("Trail", ed("trail_pct", mg.trail_pct, `${esc(num(mg.trail_pct))}%`)));
       return bits.length ? `<div class="params">${bits.join("")}</div>` : "";
     };
     const actsWord = c.authority === "notify" ? "Tells you" : c.authority === "propose" ? "You confirm each order" :
@@ -397,7 +419,9 @@ const Kit = (() => {
         (d.size && d.size.inr ? `<span class="sep"></span><span>New money</span><span class="edit">${esc(inr(d.size.inr))}</span>` : "") + `</div>` +
         (c.discretion === "plan" ? `<div class="params"><span class="chip vio">${ic("sparkle")}Planner</span><span>${esc(d.objective)}</span></div>` : "") +
         (t.length ? `<div class="inner"><div class="alloc">${bar}</div><div class="alloc-legend">${t.map(([s, w], i) =>
-          `<div><span class="sw" style="background:${COLORS[i % COLORS.length]}"></span>${logo(s, "sm")}<span>${esc(s)}</span><b>${esc(num(w * 100, 1))}%</b></div>`).join("")}` +
+          `<div title="${esc((d.reasons || {})[s] || "")}"><span class="sw" style="background:${COLORS[i % COLORS.length]}"></span>${logo(s, "sm")}<span>${esc(s)}</span>` +
+          `${c.discretion === "plan" ? `<b>${esc(num(w * 100, 1))}%</b>` : ed(`weight.${s}`, (w * 100).toFixed(1), `<b>${esc(num(w * 100, 1))}%</b>`)}</div>` +
+          ((d.reasons || {})[s] ? `<div class="why">${esc(d.reasons[s])}</div>` : "")).join("")}` +
           (cash > 0.005 ? `<div><span class="sw" style="background:#d4d4d4"></span><span>Cash</span><b>${esc(num(cash * 100, 1))}%</b></div>` : "") + `</div></div>`
           : `<div class="inner" style="font-size:13px">The planner sets the weights at each run.</div>`) +
         `<div class="nfoot"><span>${ic("link")} Delivery · whole shares</span><span>${esc(actsWord)}</span></div></div>`;
@@ -416,6 +440,18 @@ const Kit = (() => {
         `<div class="inner"><div class="price-host" data-sym="${esc(d.underlying)}"></div></div>` +
         `<div class="nfoot"><span>${ic("link")} Futures</span><span>${esc(actsWord)}</span></div></div>`;
     }
+    if (d.product === "PERP") {
+      const pc = c.perp || {};
+      const long = d.kind === "buy", close = ["sell", "cover"].includes(d.kind);
+      const fund = pc.funding != null ? `${(pc.funding * 100).toFixed(4)}%/h` : "–";
+      return `<div class="node" data-node="a">${head("Action")}<div class="act-title">` +
+        `<span class="chip ${close ? "plain" : long ? "buy" : "sell"}">${close ? "Close" : long ? "Long" : "Short"}</span>${logo(d.symbol, "sm")}` +
+        `<span class="chip plain">${esc(d.symbol)}</span><span>on</span><span class="chip plain">${ic("shield")}Paper</span></div>` + takeStop() +
+        `<div class="perp-facts"><span>Mark <b>${pc.mark != null ? esc(num(pc.mark)) : "–"}</b> USD</span><span>Funding <b class="${(pc.funding || 0) > 0 ? "down" : "up"}">${esc(fund)}</b></span>` +
+        `<span>Open interest <b>${pc.oi != null ? esc(num(pc.oi, 0)) : "–"}</b></span><span>Max <b>${esc(pc.max_leverage || "–")}×</b></span></div>` +
+        `<div class="inner"><div class="price-host" data-sym="${esc(d.symbol)}"></div></div>` +
+        `<div class="nfoot"><span>${logo("HYPE-PERP", "xs")} Hyperliquid perpetual · 24h</span><span>${esc(actsWord)}</span></div></div>`;
+    }
     const [v, cls] = VERB[d.kind] || ["Buy", "buy"];
     const sym = d.symbol || c.symbol;
     return `<div class="node" data-node="a">${head("Action")}<div class="act-title"><span>${v === "Short" || v === "Cover" ? "" : ""}</span>` +
@@ -429,14 +465,14 @@ const Kit = (() => {
     const ex = (c.exits || []).filter((e) => !/^stop |^target /.test(e) || (c.do && ["options", "short"].includes(c.do.kind)));
     const mg = c.manage || {};
     const lines = [];
-    if (mg.exit_at) lines.push(`Close everything at ${mg.exit_at}`);
+    if (mg.exit_at) lines.push(`Close everything at ${ed("exit_at", mg.exit_at, esc(mg.exit_at))}`);
     if (mg.on_leg_stop) lines.push(mg.on_leg_stop === "exit_all" ? "One leg stopped: exit all" : "One leg stopped: move the others to cost");
     if (mg.max_loss_inr) lines.push(`Exit all at a ${inr(mg.max_loss_inr)} loss`);
     if (mg.target_inr) lines.push(`Exit all at a ${inr(mg.target_inr)} profit`);
     if (!lines.length && !ex.some((e) => e.includes("squared off"))) return "";
     if (!lines.length) lines.push("Squared off at 15:20 if still open");
     return `<div class="node exit" data-node="x"><div class="nh">${ic("action")}<span>Action</span></div>` +
-      `<div class="tt">${ic("exit")}<span>Exit</span></div><div style="font-size:13px;line-height:1.55">${lines.map(esc).join("<br/>")}</div></div>`;
+      `<div class="tt">${ic("exit")}<span>Exit</span></div><div style="font-size:13px;line-height:1.55">${lines.map((l) => l.includes("data-field") ? l : esc(l)).join("<br/>")}</div></div>`;
   }
 
   /** The canvas for one play. Returns an element; wires draw once it is in
@@ -505,7 +541,8 @@ const Kit = (() => {
       ? `Would have fired <b>${esc(h.fires)}×</b> in ${esc(h.bars)} ${c.interval === "1d" ? "days" : `${c.interval} bars`}` +
         (h.last_fire ? `, last on <b>${esc(dayY(h.last_fire))}</b>` : "") : "";
     el.innerHTML = `<div class="strat-head"><div style="flex:1;min-width:0"><div class="row" style="gap:8px;margin-bottom:3px">` +
-      `<h3>${esc(c.title)}</h3><span class="pill ${st[1]}"><i class="dot"></i>${esc(st[0])}</span></div><p>${esc(c.summary || "")}</p></div>` +
+      `<h3>${c.state === "done" ? esc(c.title) : ed("title", c.title, esc(c.title))}</h3><span class="pill ${st[1]}"><i class="dot"></i>${esc(st[0])}</span></div><p>${esc(c.summary || "")}</p>` +
+      (c.thesis ? `<p class="thesis"><b>Why</b>${esc(c.thesis)}</p>` : "") + `</div>` +
       `<div class="logos">${syms.map((s) => logo(s, "lg")).join("")}</div></div>`;
     el.appendChild(canvas(c));
     if (c.offer) {
@@ -531,6 +568,17 @@ const Kit = (() => {
       `<button type="button" class="btn sm ghost danger" data-act="delete">${ic("trash")}Delete</button>` +
       (o.open !== false ? `<button type="button" class="btn sm" data-open="${esc(c.id)}">Open</button>` : "");
     el.appendChild(foot);
+    el.addEventListener("click", (e) => {
+      const f = e.target.closest("[data-field]");
+      if (!f || f.querySelector("input") || c.state === "done") return;
+      e.stopPropagation();
+      editInline(f, async (value) => {
+        const got = await call(`/plays/${c.id}`, { action: "set", field: f.dataset.field, value });
+        el.replaceWith(strategy(got.play, o));
+        toast((got.changed || []).length ? "Changed. The replay was run again on the new value." : "Saved");
+        window.dispatchEvent(new CustomEvent("plays:changed"));
+      });
+    });
     el.addEventListener("click", async (e) => {
       const b = e.target.closest("[data-act]");
       if (!b) return;
@@ -547,11 +595,36 @@ const Kit = (() => {
     return el;
   }
 
+  /** Turn a value into a small input in place; Enter saves through `save`,
+   *  Escape or leaving it puts the value back. */
+  function editInline(f, save) {
+    const before = f.innerHTML;
+    const inp = document.createElement("input");
+    inp.className = "inline-in";
+    inp.value = f.dataset.val || "";
+    inp.size = Math.max(4, Math.min(28, inp.value.length + 2));
+    f.innerHTML = "";
+    f.appendChild(inp);
+    inp.focus(); inp.select();
+    let done = false;
+    const undo = () => { if (!done) { done = true; f.innerHTML = before; } };
+    inp.addEventListener("keydown", async (e) => {
+      if (e.key === "Escape") { undo(); return; }
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      if (inp.value.trim() === String(f.dataset.val || "").trim()) { undo(); return; }
+      inp.disabled = true;
+      try { done = true; await save(inp.value.trim()); }
+      catch (err) { done = false; inp.disabled = false; toast(err.message); inp.focus(); }
+    });
+    inp.addEventListener("blur", () => setTimeout(() => { if (!inp.disabled) undo(); }, 120));
+  }
+
   /** The grid tile: name, the sentence, a small picture of its canvas, two
    *  figures. */
   function tile(c) {
     const st = STATE[c.state] || [c.state, ""];
-    const syms = [...new Set([c.symbol, (c.do || {}).symbol, ...Object.keys((c.do || {}).targets || {})].filter(Boolean))].slice(0, 3);
+    const syms = [...new Set([c.symbol, (c.do || {}).symbol, (c.do || {}).underlying, ...Object.keys((c.do || {}).targets || {})].filter(Boolean))].slice(0, 3);
     const sig = (c.measures || [])[0] ? c.measures[0].title : c.on ? "Filings and news" : `${c.symbol} price`;
     const trig = (c.conditions || [])[0] ? c.conditions[0].text : c.on ? "An item matches" : c.lifespan === "policy" ? "Weekly, or on drift" : "Now";
     const act = c.action ? (c.action.text || `${c.action.side} ${c.action.size || ""} ${c.action.symbol || ""}`) : "Alert you";
@@ -559,10 +632,9 @@ const Kit = (() => {
     return `<button type="button" class="sc" data-open="${esc(c.id)}"><div class="top2"><span class="pill ${st[1]}"><i class="dot"></i>${esc(st[0])}</span>` +
       `<b>${esc(c.title)}</b><span class="logos">${syms.map((s) => logo(s, "sm")).join("")}</span></div>` +
       `<div class="desc">${esc(c.summary || "")}</div>` +
-      `<div class="mini dots"><svg viewBox="0 0 300 120" preserveAspectRatio="none"><path d="M88 40 H110 Q118 40 118 48 V56 Q118 62 126 62 H150"/><path d="M190 62 H205 Q212 62 212 54 V42 Q212 36 220 36 H232"/></svg>` +
-      `<div class="mn" style="left:8px;top:22px"><b>Signal</b>${esc(sig)}</div>` +
-      `<div class="mn" style="left:36%;top:46px"><b>Trigger</b>${esc(trig)}</div>` +
-      `<div class="mn" style="right:8px;top:20px"><b>Action</b>${esc(act)}</div></div>` +
+      `<div class="mini dots"><div class="mn"><b>Signal</b><span>${esc(sig)}</span></div><i class="arr"></i>` +
+      `<div class="mn"><b>Trigger</b><span>${esc(trig)}</span></div><i class="arr"></i>` +
+      `<div class="mn"><b>Action</b><span>${esc(act)}</span></div></div>` +
       `<div class="stats"><div><span>${c.fires ? "Fired" : "On history"}</span><b>${c.fires ? `${esc(c.fires)}×` : h.bars && !c.on && (c.conditions || []).length ? `${esc(h.fires)}×` : "–"}</b></div>` +
       `<div><span>${c.spent_inr ? "Put in" : "Runs"}</span><b>${c.spent_inr ? esc(inr(c.spent_inr)) : esc(c.lifespan === "policy" ? "Policy" : c.lifespan === "now" ? "Once" : c.lifespan === "standing" ? "Every time" : "Once")}</b></div></div></button>`;
   }
@@ -647,6 +719,6 @@ const Kit = (() => {
     toast._t = setTimeout(() => t.classList.remove("show"), 3200);
   }
 
-  return { API, esc, call, num, inr, signed, bigMoney, bigNum, ago, day, dayY, ic, logo, name, outlet, loadLogos,
+  return { API, esc, call, num, inr, signed, bigMoney, bigNum, ago, day, dayY, ic, logo, name, outlet, loadLogos, symIn, venueOf, ed, editInline,
            lineChart, priceBlock, bars, canvas, strategy, tile, alertCard, md, toast, COLORS };
 })();

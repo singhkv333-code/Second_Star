@@ -128,6 +128,7 @@ const Universe = (() => {
     if (m) return m[0];
     if (s.endsWith("USDT")) return "BYBIT";
     if (s.endsWith("-USD")) return "COINBASE";
+    if (s.endsWith("-PERP")) return "Hyperliquid";  // a perpetual, read from Hyperliquid
     if (s.startsWith("@")) return "Custom";       // a trader's basket, ratio or spread
     return MCX.has(s) ? "MCX" : "NSE";
   }
@@ -137,7 +138,7 @@ const Universe = (() => {
     const m = data && data.meta[s];
     const kind = String(m ? m[1] : "equity").toLowerCase();
     const ex = venue(s);
-    if (kind.includes("crypto") || ex === "BYBIT" || ex === "COINBASE" || /(?:USDT|-USD)$/.test(s)) return "Crypto";
+    if (kind.includes("crypto") || ex === "BYBIT" || ex === "COINBASE" || ex === "Hyperliquid" || /(?:USDT|-USD|-PERP)$/.test(s)) return "Crypto";
     if (kind.includes("option") || ex === "NFO") return "Options";
     if (kind.includes("index") || kind.includes("volatility")) return "Indices";
     if (ex === "MCX" || kind.includes("commodity")) return "Commodities";
