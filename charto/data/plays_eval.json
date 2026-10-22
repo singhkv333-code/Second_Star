@@ -1,20 +1,182 @@
 [
- {"prompt": "sell half my hal", "book": {"HAL": 20, "INFY": 4},
-  "expect": {"changes": {"HAL": -10}, "only_changes": true, "kinds": ["sell"]}},
- {"prompt": "rebalance my hal and bel to 60/40", "book": {"HAL": 14, "BEL": 106, "INFY": 4},
-  "expect": {"untouched": ["INFY"], "weights": {"HAL": [0.55, 0.65], "BEL": [0.35, 0.45]}, "kinds": ["rebalance"]}},
- {"prompt": "buy 5k of infy now", "book": {"HAL": 2},
-  "expect": {"changes": {"INFY": [3, 4]}, "only_changes": true, "kinds": ["buy"]}},
- {"prompt": "short reliance for 50k intraday right now with a 1% stop", "book": {"INFY": 4},
-  "expect": {"day": [{"symbol": "RELIANCE", "side": "short", "qty": [30, 40], "stop": true}], "only_changes": true}},
- {"prompt": "cover half of my reliance short", "book": {}, "day": [{"symbol": "RELIANCE", "side": "short", "qty": 40}],
-  "expect": {"day": [{"symbol": "RELIANCE", "side": "short", "qty": 20}], "only_changes": true}},
- {"prompt": "sell all my tcs", "book": {"HAL": 2},
-  "expect": {"only_changes": true, "refused": true}},
- {"prompt": "sell 300 bel", "book": {"BEL": 106, "HAL": 2},
-  "expect": {"changes": {"BEL": [-106, 0]}, "only_changes": true}},
- {"prompt": "put 20k into hal and bel equally", "book": {"INFY": 4},
-  "expect": {"changes": {"HAL": [1, 2], "BEL": [20, 25]}, "only_changes": true}},
- {"prompt": "trim my hal by 25k", "book": {"HAL": 20, "BEL": 10},
-  "expect": {"changes": {"HAL": [-6, -5]}, "only_changes": true}}
+ {
+  "prompt": "sell half my hal",
+  "book": {
+   "HAL": 20,
+   "INFY": 4
+  },
+  "expect": {
+   "changes": {
+    "HAL": -10
+   },
+   "only_changes": true,
+   "kinds": [
+    "sell"
+   ]
+  }
+ },
+ {
+  "prompt": "rebalance my hal and bel to 60/40",
+  "book": {
+   "HAL": 14,
+   "BEL": 106,
+   "INFY": 4
+  },
+  "expect": {
+   "untouched": [
+    "INFY"
+   ],
+   "weights": {
+    "HAL": [
+     0.55,
+     0.65
+    ],
+    "BEL": [
+     0.35,
+     0.45
+    ]
+   },
+   "kinds": [
+    "rebalance"
+   ]
+  }
+ },
+ {
+  "prompt": "buy 5k of infy now",
+  "book": {
+   "HAL": 2
+  },
+  "expect": {
+   "changes": {
+    "INFY": [
+     3,
+     4
+    ]
+   },
+   "only_changes": true,
+   "kinds": [
+    "buy"
+   ]
+  }
+ },
+ {
+  "prompt": "short reliance for 50k intraday right now with a 1% stop",
+  "book": {
+   "INFY": 4
+  },
+  "expect": {
+   "day": [
+    {
+     "symbol": "RELIANCE",
+     "side": "short",
+     "qty": [
+      30,
+      40
+     ],
+     "stop": true
+    }
+   ],
+   "only_changes": true
+  }
+ },
+ {
+  "prompt": "cover half of my reliance short",
+  "book": {},
+  "day": [
+   {
+    "symbol": "RELIANCE",
+    "side": "short",
+    "qty": 40
+   }
+  ],
+  "expect": {
+   "day": [
+    {
+     "symbol": "RELIANCE",
+     "side": "short",
+     "qty": 20
+    }
+   ],
+   "only_changes": true
+  }
+ },
+ {
+  "prompt": "sell all my tcs",
+  "book": {
+   "HAL": 2
+  },
+  "expect": {
+   "only_changes": true,
+   "refused": true
+  }
+ },
+ {
+  "prompt": "sell 300 bel",
+  "book": {
+   "BEL": 106,
+   "HAL": 2
+  },
+  "expect": {
+   "changes": {
+    "BEL": [
+     -106,
+     0
+    ]
+   },
+   "only_changes": true
+  }
+ },
+ {
+  "prompt": "put 20k into hal and bel equally",
+  "book": {
+   "INFY": 4
+  },
+  "expect": {
+   "changes": {
+    "HAL": [
+     1,
+     2
+    ],
+    "BEL": [
+     20,
+     25
+    ]
+   },
+   "only_changes": true
+  }
+ },
+ {
+  "prompt": "trim my hal by 25k",
+  "book": {
+   "HAL": 20,
+   "BEL": 10
+  },
+  "expect": {
+   "changes": {
+    "HAL": [
+     -6,
+     -5
+    ]
+   },
+   "only_changes": true
+  }
+ },
+ {
+  "prompt": "Buy ₹10,000 of INFY now and another ₹5,000 every time it falls 3% in a day.",
+  "book": {
+   "HAL": 2
+  },
+  "expect": {
+   "changes": {
+    "INFY": [
+     8,
+     8
+    ]
+   },
+   "only_changes": true,
+   "kinds": [
+    "buy"
+   ]
+  }
+ }
 ]

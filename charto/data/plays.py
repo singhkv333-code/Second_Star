@@ -857,10 +857,19 @@ def truth(when, data: dict, series: dict) -> list:
     return out
 
 
-def fire_points(tr: list) -> list[int]:
-    """Bars where the whole condition BECOMES true. A condition that stays
-    true is one event, not one per bar."""
-    return [i for i in range(1, len(tr)) if tr[i] is True and tr[i - 1] is not True]
+def fire_points(tr: list, every: bool = False) -> list[int]:
+    """Bars where the whole condition BECOMES true: a condition that stays
+    true is one event, not one per bar. With `every` (when.every_bar), each
+    bar it holds is its own event: two 3% falls on two days are two fires."""
+    return [i for i in range(1, len(tr)) if _fires_at(tr, i, every)]
+
+
+def _fires_at(tr: list, i: int, every: bool = False) -> bool:
+    return bool(tr) and i > 0 and tr[i] is True and (every or tr[i - 1] is not True)
+
+
+def _every(spec: dict) -> bool:
+    return bool((spec.get("when") or {}).get("every_bar"))
 
 
 # ══ compiling a play ════════════════════════════════════════════════════════
@@ -922,6 +931,11 @@ def _norm_when(when) -> dict | None:
         if isinstance(c, dict) and "left" in c and num(c.get("left")) and num(c.get("right", "x")):
             raise Bad(f"'{c.get('left')} {c.get('op')} {c.get('right')}' compares two numbers, so it never "
                       "changes; to act at once leave `when` out (contract.lifespan now)")
+    if when and "every_bar" in when:
+        if when.get("every_bar"):
+            when["every_bar"] = True
+        else:
+            when.pop("every_bar")
     return when
 
 
@@ -1539,7 +1553,7 @@ def round_trips(spec: dict, data: dict, series: dict, tr: list) -> dict | None:
         hs = (5, 20) if spec["interval"] == "1d" else (3, 12)
         fwd = {}
         for hz in hs:
-            pts = [i for i in fire_points(tr) if i + hz < n]
+            pts = [i for i in fire_points(tr, _every(spec)) if i + hz < n]
             base = [i for i in range(n - hz) if data["close"][i]]
             f = lambda ii: [sd * (data["close"][i + hz] / data["close"][i] - 1) * 100 for i in ii]
             fwd[str(hz)] = {"after": _stats(f(pts)), "any_bar": _stats(f(base))}
@@ -1547,7 +1561,7 @@ def round_trips(spec: dict, data: dict, series: dict, tr: list) -> dict | None:
         out["notes"].append("it has no exit, so history shows what followed each fire rather than trades")
         return out
     trades, i = [], 1
-    pts = fire_points(tr)
+    pts = fire_points(tr, _every(spec))
     for p in pts:
         if p < i:
             continue                       # one position at a time
@@ -1627,7 +1641,7 @@ def replay(spec: dict, check: bool = True, keep_raw: bool = False, pre: tuple | 
         pts, more, hits = _event_points(spec, data, tr)
         notes = notes + more
     else:
-        pts = fire_points(tr) if tr else []
+        pts = fire_points(tr, _every(spec)) if tr else []
     n = len(data["t"])
     first, last = data["t"][0], data["t"][-1]
     span_days = max(1.0, (last - first) / 86400)
@@ -1842,8 +1856,8 @@ def _fmt_num(v) -> str:
 
 
 def _op_word(op: str) -> str:
-    return {"above": "above", "below": "below", "cross_up": "crosses above",
-            "cross_down": "crosses below", "between": "between", "outside": "outside",
+    return {"above": "is above", "below": "is below", "cross_up": "crosses above",
+            "cross_down": "crosses below", "between": "is between", "outside": "is outside",
             "rises_pct": "rises by", "falls_pct": "falls by", "is_true": "is true"}.get(op, op)
 
 
@@ -1860,7 +1874,10 @@ def describe(c: dict, spec: dict) -> str:
         if t.get("after") and t.get("before"):
             return f"between {t['after']} and {t['before']}"
         return f"after {t['after']}" if t.get("after") else f"before {t['before']}"
-    name = lambda x: _label(x, spec)    # noqa: E731
+    units = {m["name"]: m.get("unit") or "" for m in spec.get("measures") or []}
+    unit = units.get(_clean_name(c.get("left"))) if isinstance(c.get("left"), str) else ""
+    name = lambda x: _label(x, spec) + (unit if unit == "%" and isinstance(x, (int, float)) else  # noqa: E731
+                                        f" {unit}" if unit and unit != "%" and isinstance(x, (int, float)) else "")
     op = c.get("op")
     s = f"{name(c.get('left'))} {_op_word(op)}"
     if op in ("between", "outside"):
@@ -2006,9 +2023,10 @@ def summary(spec: dict) -> str:
         act = f"{verb} {amt}{do['symbol']}"
     if c["lifespan"] == "now":
         return f"{act[0].upper()}{act[1:]} now, on paper." if do["kind"] != "notify" else "Tells you now."
-    times = "the first time" if c["lifespan"] == "once_when" else "each time"
+    each = "at every close where" if _every(spec) else "each time"
+    times = "the first time" if c["lifespan"] == "once_when" else each
     if c.get("now"):
-        times = "now, and then " + ("once more the first time" if c["lifespan"] == "once_when" else "each time")
+        times = "now, and then " + ("once more the first time" if c["lifespan"] == "once_when" else each)
     on = spec.get("on")
     if on:
         return f"Reads {_on_words(on)} and {act} {times} one {_on_test(on)}" + \
@@ -2170,7 +2188,7 @@ def card(row: dict, live: dict | None = None) -> dict:
                                   (live or {}).get("conditions") or hist.get("conditions") or
                                   [{"text": describe(c, spec)} for c in (when.get("all") or when.get("any") or [])],
                                   spec),
-        "measures": [{"name": m["name"], "title": m["title"], "formula": m["formula"],
+        "measures": [{"name": m["name"], "title": m["title"], "formula": m["formula"], "unit": m.get("unit") or "",
                       "now": (hist.get("now") or {}).get(m["name"]),
                       "spark": (hist.get("spark") or {}).get(m["name"])}
                      for m in spec.get("measures") or [] if not m["name"].endswith(tuple(f"_{f}" for f in FIELDS))
@@ -2191,6 +2209,7 @@ def card(row: dict, live: dict | None = None) -> dict:
         "discretion": spec["contract"]["discretion"], "created": row.get("created"),
         "held": _card_held(row),
         "spent_inr": row.get("spent_inr") or 0,
+        **_freshness(row),
         "notes": hist.get("notes") or [], "fires": row.get("fires", 0),
         "expires": row.get("expires"),
         "thesis": spec.get("thesis") or "",
@@ -2202,6 +2221,26 @@ def card(row: dict, live: dict | None = None) -> dict:
         "offer": ({"action": "policy", "label": "Keep it this way: rebalance again whenever a holding drifts 5 points"}
                   if do["kind"] == "rebalance" and spec["contract"]["lifespan"] == "now" else None),
     }
+
+
+def _freshness(row: dict) -> dict:
+    """{asof, stale}: the close of the last bar the play read, and whether
+    that is older than its clock allows. A listed name trades in the NSE
+    session, so out of it (nights, weekends, holidays) the last session's
+    bar is as fresh as there is; a coin trades all day."""
+    t, iv, sym = row.get("last_eval_ts") or 0, row["spec"]["interval"], row["spec"]["symbol"]
+    if not t:
+        return {"asof": None, "stale": False}
+    asof = _bar_close(t, iv)
+    age, step = time.time() - asof, INTERVALS[iv] * 60
+    if sym.endswith(("USDT", "-USD", "USD")) or hyperliquid.is_perp(sym):
+        limit = 3 * step
+    else:
+        lt = time.gmtime(time.time() + ds.IST_OFF)
+        hhmm = lt.tm_hour * 100 + lt.tm_min
+        in_session = lt.tm_wday < 5 and 915 <= hhmm <= 1530
+        limit = 3 * step if in_session and iv != "1d" else 4 * 86400
+    return {"asof": asof, "stale": age > limit}
 
 
 # ══ persistence ═════════════════════════════════════════════════════════════
@@ -2540,8 +2579,7 @@ def _tick(pid: int, minute_ts: int | None = None, force: bool = False, sym: str 
         if play["why"] == EXITS_ONLY and not _holding(play):
             _entries_over(pid, "fired")
             break
-        if (tr and i > 0 and tr[i] is True and tr[i - 1] is not True
-                and play["why"] not in (EXITS_ONLY, "fired")):
+        if _fires_at(tr, i, _every(spec)) and play["why"] not in (EXITS_ONLY, "fired"):
             out.append(_fire(play, data, series, i, late=late))
             play = _load(pid)
             if play["state"] != "armed":
@@ -2635,7 +2673,7 @@ def _tick_member(play: dict, sym: str, minute_ts: int | None, force: bool) -> li
     out = []
     for i in new:
         late = i != len(t) - 1
-        fresh = tr and i > 0 and tr[i] is True and tr[i - 1] is not True
+        fresh = _fires_at(tr, i, _every(spec))
         if fresh and not mk.get("done") and play["why"] not in (EXITS_ONLY, "fired") and not _holding(mp):
             cap = int(spec["mandate"].get("max_open") or 0)
             busy = _open_names(play)
@@ -2733,6 +2771,8 @@ def _fire(play: dict, data: dict, series: dict, i: int, *, late: bool,
     _set(play["id"], fires=fires)
     body = {"seen": seen, "price": price, "symbol": spec["symbol"], "interval": spec["interval"],
             "late": late}
+    if do.get("size"):
+        body["size"] = do["size"]          # a confirm re-sizes at this size (an act-now order may differ)
     if event:
         body["event"] = event
     title = spec["title"]
@@ -3879,7 +3919,7 @@ def options(uid: int, pid: int) -> dict:
         if cnd.get("op") in ("above", "below", "cross_up", "cross_down"):
             f[f"cond.{i}.op"] = {"label": "Comparison", "value": cnd["op"], "choices": [
                 {"value": o, "label": w, "hint": h} for o, w, h in
-                (("above", "is above", "true on every bar it holds"), ("below", "is below", "true on every bar it holds"),
+                (("above", "is above", "fires when it starts to hold"), ("below", "is below", "fires when it starts to hold"),
                  ("cross_up", "crosses above", "only the bar it crosses"),
                  ("cross_down", "crosses below", "only the bar it crosses"))]}
         if _is_num(cnd.get("right")):
@@ -3929,6 +3969,8 @@ def resolve_event(uid: int, eid: int, action: str) -> dict:
     if h:
         raise Bad(h["text"])
     t = dict(body.get("ticket") or {})
+    if body.get("size"):
+        play = {**play, "spec": {**play["spec"], "do": {**play["spec"]["do"], "size": body["size"]}}}
     if t.get("book") == "day":
         fresh, why = _day_ticket(play)
         if not fresh:

@@ -318,13 +318,18 @@ const Kit = (() => {
       `<div class="tt">${esc(sig.title)}</div>${sig.cap ? `<div class="cap">${esc(sig.cap)}</div>` : ""}<div class="inner">${sig.body}</div></div>`;
   }
 
+  // "Live" only while the play's bars are as fresh as its clock allows
+  const fresh = (c) => c.stale && c.asof
+    ? `<span class="pill wait" title="The last bar this play read closed on ${esc(dayY(c.asof))}; no newer bars have arrived">${ic("clock")}As of ${esc(day(c.asof))}</span>`
+    : `<span class="pill live">${ic("grid")}Live</span>`;
+
   function signals(c) {
     const out = [];
     const measures = (c.measures || []).filter((m) => m.title);
     measures.slice(0, 3).forEach((m) => {
       out.push({ title: m.title, cap: m.formula && m.formula !== m.title ? m.formula : "", body:
         `<div class="src">${symIn(m.formula || m.title) ? logo(symIn(m.formula || m.title), "sm") : ic("sparkle")}` +
-        `<span class="grow"></span><span class="pill live">${ic("grid")}Live</span></div>` +
+        `<span class="grow"></span>${fresh(c)}</div>` +
         `<div class="big">${c.universe ? `<span class=muted style="font-size:15px">read on each name</span>` : m.now == null ? "<span class=muted>no value</span>" : bigNum(m.now)}</div>` +
         (c.universe ? "" : sliderHTML(m.spark, m.now)) });
     });
@@ -352,11 +357,11 @@ const Kit = (() => {
       const u = c.universe;
       out.push({ title: "Each name's price", body:
         `<div class="src">${u.symbols.slice(0, 3).map((s2) => logo(s2, "xs")).join("")}${u.symbols.length > 3 ? `<span class="muted">+${esc(u.symbols.length - 3)}</span>` : ""}` +
-        `<span class="grow"></span><span class="pill live">${ic("grid")}Live</span></div>` +
+        `<span class="grow"></span>${fresh(c)}</div>` +
         `<div style="font-size:12.5px;color:var(--ink-2);margin-top:6px">${esc(u.symbols.length)} names, each read on its own bars</div>` });
     } else if ((priceCond || (!measures.length && !c.on)) && c.symbol) {
       out.push({ title: `${c.symbol} price`, body:
-        `<div class="src">${logo(c.symbol, "sm")}<span>${esc(venueOf(c.symbol))}</span><span class="grow"></span><span class="pill live">${ic("grid")}Live</span></div>` +
+        `<div class="src">${logo(c.symbol, "sm")}<span>${esc(venueOf(c.symbol))}</span><span class="grow"></span>${fresh(c)}</div>` +
         `<div class="big">${c.history && c.history.price != null ? bigNum(c.history.price) : "–"}</div>` +
         `<div class="sig-chart" data-sym="${esc(c.symbol)}"></div>` });
     }

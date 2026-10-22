@@ -840,8 +840,8 @@ def test_an_exit_rule_reads_the_position_and_history_counts_round_trips(uid) -> 
     assert t["per_trade_inr"] is not None and t["cost_pct"] > 0
     card = [c for c in server._scene.cards if c.get("kind") == "play"][-1]
     assert len(card["history"]["trades"]["curve"]) == card["history"]["trades"]["n"]
-    assert card["exits"][0] == ("exits when RELIANCE close below high since entry - 2 × ATR 14 or "
-                                "bars held above 20"), card["exits"]
+    assert card["exits"][0] == ("exits when RELIANCE close is below high since entry - 2 × ATR 14 or "
+                                "bars held is above 20"), card["exits"]
     assert card["exit_rule"][0]["right"] == "high since entry - 2 × ATR 14"
 
 
@@ -876,7 +876,7 @@ def test_the_exit_rule_closes_the_live_position_from_its_entry_bar(uid) -> None:
     assert plays._maybe_rule_exit(plays._load(pid), data, series, n - 3) is None    # 2 bars in
     ex = plays._maybe_rule_exit(plays._load(pid), data, series, n - 2)
     assert ex["kind"] == "filled" and ex["body"]["ticket"]["side"] == "SELL", ex
-    assert "exit rule: bars held above 2" == ex["body"]["reason"]
+    assert "exit rule: bars held is above 2" == ex["body"]["reason"]
     assert plays._load(pid)["held_qty"] == 0
 
 
@@ -1201,3 +1201,30 @@ def test_a_portfolio_rebalance_with_targets_leaves_other_holdings_alone(uid) -> 
     assert any("other holdings stay" in a for a in got["assumed"]), got["assumed"]
     held = {r["symbol"]: r["quantity"] for r in paper.api_holdings(uid)[1]}
     assert held.get("INFY") == 4, held                      # not named, not sold
+
+
+def test_a_rule_about_one_bar_fires_on_every_bar_it_holds(uid) -> None:
+    drop = {"title": "INFY 3% drops", "symbol": "INFY", "interval": "1d",
+            "measures": [{"name": "ret", "title": "Daily return", "unit": "%",
+                          "code": "def compute(data, params):\n    c = data['close']\n"
+                                  "    return [None if i == 0 else (c[i] / c[i-1] - 1) * 100 for i in range(len(c))]"}],
+            "when": {"all": [{"left": "ret", "op": "below", "right": -3}]},
+            "do": {"kind": "buy", "size": {"inr": 5000}},
+            "contract": {"lifespan": "standing", "inferred_from": "every time it falls 3% in a day"}}
+    once = plays.tool_play("compile", drop, arm=False)
+    every = plays.tool_play("compile", {**drop, "when": {**drop["when"], "every_bar": True}}, arm=False)
+    assert every["history"]["fires"] > once["history"]["fires"], (once["history"], every["history"])
+    card = plays.card(plays.get(uid, every["play_id"]))
+    assert "at every close where Daily return is below -3%" in card["summary"], card["summary"]
+
+
+def test_confirming_an_act_now_proposal_keeps_its_own_size(uid) -> None:
+    got = plays.tool_play("compile", {"title": "INFY now and on dips", "symbol": "INFY", "interval": "1d",
+                                      "when": {"all": [{"left": "close", "op": "below", "right": "low"}]},
+                                      "do": {"kind": "buy", "size": {"inr": 5000}},
+                                      "contract": {"lifespan": "standing", "now": {"size": {"inr": 10000}},
+                                                   "inferred_from": "10,000 now and 5,000 every time"}})
+    assert got["did_now"]["kind"] == "proposed", got["did_now"]
+    eid = [e for e in plays.events(uid) if e["kind"] == "proposed"][0]["id"]
+    res = plays.resolve_event(uid, eid, "confirm")
+    assert res["result"]["body"]["ticket"]["qty"] == got["did_now"]["body"]["ticket"]["qty"] == 8, res
