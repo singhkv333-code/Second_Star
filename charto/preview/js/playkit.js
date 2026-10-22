@@ -330,8 +330,11 @@ const Kit = (() => {
     });
     if (c.on) {
       const items = (c.on.recent || []).slice(-3).reverse();
+      const srcs = c.on.sources || [];
+      const every = srcs.length ? Math.min(...srcs.map((x) => x.every || 300)) : 30;
+      const pace = every < 60 ? `every ${every} seconds` : `every ${Math.round(every / 60)} minute${every >= 120 ? "s" : ""}`;
       out.push({ title: c.on.reads ? c.on.reads.charAt(0).toUpperCase() + c.on.reads.slice(1) : "Filings and news", body:
-        `<div class="src">${ic(c.on.reads && c.on.reads.includes("filing") ? "file" : "news")}<span>Read live, every 30 seconds</span>` +
+        `<div class="src">${ic(srcs.length === 1 && srcs[0].kind === "filings" ? "file" : "news")}<span>Read live, ${esc(pace)}</span>` +
         `<span class="grow"></span><span class="pill live">${ic("grid")}Live</span></div>` +
         (items.length ? `<div class="items" style="margin-top:8px">${items.map((r) =>
           `<div class="item">${outlet(r.who)}<div><a href="${esc(r.url)}" target="_blank" rel="noopener" style="text-decoration:none">${esc(r.title)}</a>` +
@@ -376,7 +379,9 @@ const Kit = (() => {
       // the words and the judge come as their own fields: parsing them back out
       // of the sentence took the judge's question for a word
       const words = c.on.match || [], judge = c.on.judge || "";
-      body = (words.length ? `<div class="cond"><span>When an item mentions</span>${words.slice(0, 6).map((w, i) =>
+      const from = (c.on.sources || []).length ? `<div class="cond"><span>Reads</span>${c.on.sources.slice(0, 4).map((x, i) =>
+        `${i ? `<span class="or">and</span>` : ""}<span class="chip">${esc(x.label)}</span>`).join("")}</div><div class="join"><span>and</span></div>` : "";
+      body = from + (words.length ? `<div class="cond"><span>When an item mentions</span>${words.slice(0, 6).map((w, i) =>
         `${i ? `<span class="or">or</span>` : ""}<span class="chip sig2">${esc(w)}</span>`).join("")}</div>` :
         `<div class="cond"><span>When any item arrives</span></div>`) +
         (judge ? `<div class="join"><span>and</span></div><div class="cond judge"><span class="chip vio">${ic("sparkle")}judge</span>` +
@@ -874,8 +879,8 @@ const Kit = (() => {
   function tile(c) {
     const st = STATE[c.state] || [c.state, ""];
     const syms = [...new Set([c.symbol, (c.do || {}).symbol, (c.do || {}).underlying, ...Object.keys((c.do || {}).targets || {})].filter(Boolean))].slice(0, 3);
-    const sig = (c.measures || [])[0] ? c.measures[0].title : c.on ? "Filings and news" : `${c.symbol} price`;
-    const trig = (c.conditions || [])[0] ? c.conditions[0].text : c.on ? "An item matches" : c.lifespan === "policy" ? "Weekly, or on drift" : "Now";
+    const sig = (c.measures || [])[0] ? c.measures[0].title : c.on ? (c.on.reads || "Filings and news") : `${c.symbol} price`;
+    const trig = (c.conditions || [])[0] ? c.conditions[0].text : c.on ? "An item matches" : c.lifespan === "policy" ? "Kept maintained" : "Now";
     const act = c.action ? (c.action.text || `${c.action.side} ${c.action.size || ""} ${c.action.symbol || ""}`) : "Alert you";
     const h = c.history || {};
     return `<button type="button" class="sc" data-open="${esc(c.id)}"><div class="top2"><span class="pill ${st[1]}"><i class="dot"></i>${esc(st[0])}</span>` +
@@ -902,7 +907,7 @@ const Kit = (() => {
       return `<span class="chip ${side}">${w} ${esc(num(lg.qty, 4))} ${esc(lg.symbol)}</span>`;
     }).join("")}</div>` : "";
     const src = a.source ? `<div class="srccard"><div class="who">${a.source.kind === "filings" ? logo(a.symbol, "sm") : outlet(a.source.who)}` +
-      `<span>${esc(a.source.who)}${a.source.kind === "filings" ? " · NSE filing" : ""}</span></div>` +
+      `<span>${esc(a.source.who)}${a.source.kind === "filings" ? " · NSE filing" : a.source.kind && a.source.kind !== "news" ? " · post" : ""}</span></div>` +
       `<div class="hl">${esc(a.source.title)}</div>` + (a.source.quote ? `<q>${esc(a.source.quote)}</q>` : "") +
       (a.source.url ? `<a class="rm" href="${esc(a.source.url)}" target="_blank" rel="noopener">Read more</a>` : "") + `</div>` : "";
     return `<article class="alert${open ? " wait" : ""}" data-ev="${esc(ev.id)}">` +

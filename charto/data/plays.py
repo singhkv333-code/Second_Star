@@ -258,13 +258,22 @@ def _norm_measure(m: dict, uid: int | None = None) -> dict:
                 raise Bad(f"measure {name}: a book input reads the trader's own day book, which needs "
                           f"an account")
             inputs[a] = {"book": {"field": field, "uid": int(uid)}}
+        elif "social" in src:
+            import social
+            sc = src["social"] if isinstance(src["social"], dict) else {"source": src["social"]}
+            try:
+                addr = social.parse(str(sc.get("source") or ""))["address"]
+            except social.Bad as exc:
+                raise Bad(f"measure {name}: input {alias}: {exc}")
+            words = [str(w).strip() for w in sc.get("match") or [] if str(w).strip()][:20]
+            inputs[a] = {"social": {"source": addr, "match": words}}
         elif "sql" in src:
             s = str(src["sql"]).strip().rstrip(";")
             if ";" in s or not re.match(r"^\s*(select|with)\b", s, re.I) or _BANNED_SQL.search(s):
                 raise Bad(f"measure {name}: input {alias} must be one read-only SELECT")
             inputs[a] = {"sql": s, "refresh": str(src.get("refresh") or "1d")}
         else:
-            raise Bad(f"measure {name}: input {alias} needs bars, perp, book or sql")
+            raise Bad(f"measure {name}: input {alias} needs bars, perp, book, social or sql")
     out = {"name": name, "title": str(m.get("title") or name)[:80],
            "formula": str(m.get("formula") or expr or "")[:240], "inputs": inputs,
            "unit": str(m.get("unit") or "")[:20]}
@@ -459,6 +468,10 @@ def frame(spec: dict, limit: int | None = None, ensure: bool = True) -> tuple[di
                     notes.append(f"{alias}: {note}")
             elif "book" in src:
                 data[alias] = _book_series(src["book"]["uid"], src["book"]["field"], data["t"], iv)
+            elif "social" in src:
+                data[alias], note = _social_series(src["social"], data["t"], iv)
+                if note:
+                    notes.append(f"{alias}: {note}")
             else:
                 got = _sql_rows(src["sql"], src["refresh"])
                 if got and len(got[0]) >= 2:
@@ -501,6 +514,41 @@ def _perp_series(src: dict, ts: list[int], iv: str) -> tuple[list, str]:
     v = c.get(src["field"])
     return [None] * (len(ts) - 1) + [v], (f"Hyperliquid gives {src['field']} only as of now, so it "
                                           f"applies to the latest bar and the replay cannot test it")
+
+
+def _social_series(src: dict, ts: list[int], iv: str) -> tuple[list, str]:
+    """Posts at a social address that match the words, counted per bar (by
+    when each was published). A bar that closed before the earliest post
+    Pivot holds for that address is None: it was not being read, which is
+    not the same as nobody posting."""
+    import play_events
+    addr = src["source"]
+    if not ts:
+        return [], ""
+    items = play_events.history([addr], 0, None, limit=100_000)
+    if not items:
+        try:
+            play_events.backfill_social(addr)
+        except Exception as exc:                            # noqa: BLE001
+            return [None] * len(ts), f"{play_events.label(addr)} could not be read ({exc})"
+        items = play_events.history([addr], 0, None, limit=100_000)
+    on = {"sources": [addr], "symbols": [], "match": src.get("match") or []}
+    hits = sorted(it["ts"] for it in items if play_events.matches(it, on))
+    since = min((it["ts"] for it in items), default=None)
+    import bisect
+    out, prev = [], None
+    for t in ts:
+        # each post counts once, on the first bar that closes at or after it
+        # (as an event play would have seen it)
+        close = _bar_close(t, iv)
+        lo = bisect.bisect_right(hits, prev) if prev is not None else 0
+        out.append(None if since is None or close < since else bisect.bisect_right(hits, close) - lo)
+        prev = close
+    note = (f"counts {play_events.label(addr)} from "
+            f"{time.strftime('%d %b %Y %H:%M', time.gmtime(since + ds.IST_OFF))} IST, when Pivot's stored "
+            "posts begin; earlier bars are unknown, not zero" if since else
+            f"{play_events.label(addr)} has no posts stored yet")
+    return out, note
 
 
 def _book_series(uid: int, field: str, ts: list[int], iv: str) -> list:
@@ -826,23 +874,31 @@ def _norm_on(raw, sym: str) -> dict | None:
     if not isinstance(raw, dict):
         raise Bad("on must be {sources, symbols, match, judge}")
     import play_events
-    srcs = [str(x).lower().strip() for x in (raw.get("sources") or ["filings", "news"])]
-    off = sorted({x for x in srcs if x.split(":")[0].lstrip("@") in play_events.UNCONNECTED})
-    if off:
-        raise Bad(f"{', '.join(off)} {'is' if len(off) == 1 else 'are'} not connected yet. The sources "
-                  f"are filings (NSE corporate announcements) and news (Economic Times, Mint, "
-                  f"CNBC-TV18, BusinessLine, BBC, CoinDesk headlines). Use those and say so.")
-    bad = [x for x in srcs if x not in play_events.SOURCES]
-    if bad:
-        raise Bad(f"on.sources must be filings and/or news, not {', '.join(bad)}")
+    import social
+    srcs, busy = [], False
+    for x in raw.get("sources") or ["filings", "news"]:
+        x = str(x).strip()
+        if x.lower() in play_events.SOURCES:
+            srcs.append(x.lower())
+            busy |= x.lower() == "news"
+            continue
+        try:
+            a = social.parse(x)
+        except social.Bad as exc:
+            raise Bad(f"on.sources: {exc}")
+        srcs.append(a["address"])
+        # a stream many people post to fires on everything without words to match
+        busy |= a["kind"] in ("gnews", "rss") or (a["kind"] == "reddit" and not a["target"].startswith("u/"))
+    srcs = list(dict.fromkeys(srcs))
     syms = [ds.canon_symbol(str(x)) for x in raw.get("symbols") or [] if str(x).strip()]
     words = [str(w).strip() for w in raw.get("match") or [] if str(w).strip()][:20]
     question = str(raw.get("judge") or "").strip()[:400]
-    if not (syms or words or question):
+    if busy and not (words or question):
+        raise Bad("news, a subreddit, a search or a feed needs match words or a judge question, or every "
+                  "post fires")
+    if not (syms or words or question) and all(x in play_events.SOURCES for x in srcs):
         raise Bad("on needs symbols (whose filings), match (words an item must contain) or judge "
                   "(the question each item must answer yes to)")
-    if "news" in srcs and not (words or question):
-        raise Bad("a news source needs match words or a judge question, or every headline fires")
     return {"sources": srcs, "symbols": syms, "match": words, "judge": question,
             "min_confidence": float(raw.get("min_confidence") or 0.6)}
 
@@ -1029,9 +1085,9 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
     if kind == "notify" and authority != "notify":
         authority = "notify"
     if kind == "halt":
-        if not when:
-            raise Bad("a halt needs `when`: the condition that stops the day (a book input such as "
-                      "day_pnl or loss_streak, a time, a market move)")
+        if not when and not on:
+            raise Bad("a halt needs `when` (a book input such as day_pnl or loss_streak, a time, a market "
+                      "move) or `on` (an event: a filing, a headline, a post)")
         # stopping trading only ever reduces risk, so it never waits for a tap
         authority = "act"
         if iv == "1d":
@@ -1278,6 +1334,12 @@ def _event_points(spec: dict, data: dict, tr: list) -> tuple[list[int], list[str
         for sym in on["symbols"] or []:
             try:
                 play_events.backfill_filings(sym)
+            except Exception:                               # noqa: BLE001
+                pass
+    for src in on["sources"]:
+        if src not in play_events.SOURCES:
+            try:
+                play_events.backfill_social(src)
             except Exception:                               # noqa: BLE001
                 pass
     t = data["t"]
@@ -1883,6 +1945,9 @@ def summary(spec: dict) -> str:
         return f"{w}: {keep}. On paper."
     if do["kind"] == "halt":
         w = order_words(spec)
+        if spec.get("on"):
+            return (f"{w[0].upper()}{w[1:]} when {_on_words(spec['on'])} {_on_test(spec['on'])}"
+                    + (f", while {cond}" if cond else "") + ".")
         return f"{w[0].upper()}{w[1:]} when {cond}. Checked after every fill and exit, and every {iv}."
     if do["kind"] == "notify":
         act = "tells you"
@@ -1916,12 +1981,65 @@ def summary(spec: dict) -> str:
 
 
 def _on_words(on: dict) -> str:
+    import play_events
     parts = []
-    if "filings" in on["sources"]:
-        parts.append("NSE filings" + (f" from {', '.join(on['symbols'])}" if on["symbols"] else ""))
-    if "news" in on["sources"]:
-        parts.append("market news headlines")
-    return " and ".join(parts)
+    for src in on["sources"]:
+        if src == "filings":
+            parts.append("NSE filings" + (f" from {', '.join(on['symbols'])}" if on["symbols"] else ""))
+        elif src == "news":
+            parts.append("market news headlines")
+        else:
+            parts.append(play_events.label(src))
+    return ", ".join(parts[:-1]) + (" and " if len(parts) > 1 else "") + parts[-1] if parts else ""
+
+
+def _source_card(src: str) -> dict:
+    """One source as the card shows it: its name, its kind and how often it
+    is read."""
+    import play_events
+    import social
+    if src in play_events.SOURCES:
+        return {"label": play_events.SOURCES[src], "kind": src,
+                "every": play_events.FILINGS_EVERY if src == "filings" else play_events.NEWS_EVERY}
+    a = social.parse(src)
+    return {"label": a["label"], "kind": a["kind"], "every": social.EVERY.get(a["kind"], 300)}
+
+
+def _check_sources(spec: dict) -> None:
+    """Every social address a play reads is read once now: a name that does
+    not exist or cannot be read is refused here, not discovered later as a
+    play that never fires. The read is also the address's baseline."""
+    import play_events
+    addrs = [x for x in ((spec.get("on") or {}).get("sources") or []) if x not in play_events.SOURCES]
+    addrs += [src["social"]["source"] for m in spec.get("measures") or []
+              for src in (m.get("inputs") or {}).values() if "social" in src]
+    for a in dict.fromkeys(addrs):
+        name = play_events.label(a)
+        try:
+            n = play_events.backfill_social(a)
+        except Exception as exc:                            # noqa: BLE001
+            raise Bad(f"{name} could not be read ({str(exc)[:120]}). Check the name with search source "
+                      f"social, or say it is unreachable")
+        if not n and not play_events.history([a], 0, None, limit=1):
+            raise Bad(f"{name} has no public posts; check the name with search source social")
+
+
+def social_sources() -> list[str]:
+    """Every social address an armed play reads, as an event or a measure
+    input: the poller reads these and nothing else."""
+    import play_events
+    with ds._users_lock:
+        rows = _db().execute("SELECT spec FROM plays WHERE state='armed' AND spec LIKE '%:%'").fetchall()
+    out = set()
+    for (raw,) in rows:
+        try:
+            spec = json.loads(raw)
+        except ValueError:
+            continue
+        out |= {x for x in ((spec.get("on") or {}).get("sources") or []) if x not in play_events.SOURCES}
+        out |= {src["social"]["source"] for m in spec.get("measures") or []
+                for src in (m.get("inputs") or {}).values() if "social" in src}
+    return sorted(out)
 
 
 def _on_test(on: dict) -> str:
@@ -1988,6 +2106,7 @@ def card(row: dict, live: dict | None = None) -> dict:
         "why": row.get("why") or "", "symbol": spec["symbol"], "interval": spec["interval"],
         "join": "any" if "any" in when else "all", "summary": summary(spec),
         "on": ({"reads": _on_words(spec["on"]), "test": _on_test(spec["on"]),
+                "sources": [_source_card(x) for x in spec["on"]["sources"]],
                 "match": spec["on"].get("match") or [], "judge": spec["on"].get("judge") or "",
                 "recent": hist.get("events") or []} if spec.get("on") else None),
         # a universe's rule is read on each name: no one name's values stand for it
@@ -2169,7 +2288,8 @@ def transcribe(ev: dict, spec: dict) -> dict:
     t = b.get("ticket") or {}
     if kind == "fired":
         label = ("Filing alert" if src and src.get("source") == "filings" else
-                 "News alert" if src else
+                 "News alert" if src and src.get("source") == "news" else
+                 "Post alert" if src else
                  "Basket alert" if sym.startswith("@") else
                  "Perp alert" if sym.endswith(hyperliquid.SUFFIX) else
                  "Crypto alert" if sym.endswith(("USDT", "-USD")) else
@@ -2573,10 +2693,10 @@ def _fire(play: dict, data: dict, series: dict, i: int, *, late: bool,
         authority, reason = "propose", "first fire: confirm it once and it acts on its own after"
     elif authority in ("act", "manage") and play["needs_confirm"]:
         authority, reason = "propose", "the play was edited, so this one needs your confirm"
-    elif (authority in ("act", "manage") and event and event.get("source") == "news"
+    elif (authority in ("act", "manage") and event and event.get("source") != "filings"
           and not spec.get("when")):
-        authority, reason = "propose", ("a headline alone never places an order; a filing or a "
-                                        "price condition has to back it")
+        authority, reason = "propose", ("a headline or a post alone never places an order; a filing "
+                                        "or a price condition has to back it")
     ev = None
     halt = _halted(play["user_id"]) if _halts_entries(do) else None
     if do["kind"] == "halt":
@@ -3100,7 +3220,7 @@ def start() -> dict:
     try:
         import play_events
         play_events.bind(ds)
-        play_events.start(on_items)
+        play_events.start(on_items, social_sources)
     except Exception:                                       # noqa: BLE001
         log.warning("plays: the event poller did not start", exc_info=True)
     if os.environ.get("CHARTO_PLAYS") == "1":
@@ -3141,6 +3261,7 @@ def compile_play(uid: int, raw: dict, *, chart_symbol: str = "", chart_interval:
                  arm: bool = True, pid: int | None = None, heard: str | None = None) -> dict:
     init_db()
     spec, said = normalise(raw, uid, chart_symbol, chart_interval, heard=heard)
+    _check_sources(spec)
     prior = get(uid, pid) if pid else None
     if pid and not prior:
         raise Bad(f"no play {pid} on this account")

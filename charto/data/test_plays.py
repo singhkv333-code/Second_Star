@@ -179,9 +179,9 @@ def _event_play(**over):
     return p
 
 
-def test_unconnected_sources_are_refused_in_one_sentence(uid, events_db) -> None:
-    got = plays.tool_play("compile", _event_play(on={"sources": ["x"], "match": ["Elon"]}))
-    assert "not connected yet" in got["error"] and "filings" in got["error"]
+def test_unconnected_sources_are_refused_with_the_reason_and_the_nearest(uid, events_db) -> None:
+    got = plays.tool_play("compile", _event_play(on={"sources": ["https://x.com/elonmusk"], "match": ["Elon"]}))
+    assert "paid API key" in got["error"] and "Telegram" in got["error"], got
 
 
 def test_an_event_play_reads_filings_and_quotes_its_judge(uid, events_db, monkeypatch) -> None:
@@ -221,8 +221,102 @@ def test_a_headline_alone_never_places_an_order(uid, events_db, monkeypatch) -> 
         "verdict": True, "confidence": 0.9, "value": None, "quote": "Reliance shares jump"})
     plays.on_items([_item(source="news", sym="", title="BREAKING: Reliance shares jump", body="")])
     ev = plays.events(uid)[0]
-    assert ev["kind"] == "proposed" and "headline alone" in ev["body"]["reason"]
+    assert ev["kind"] == "proposed" and "alone never places" in ev["body"]["reason"]
     assert not paper.api_holdings(uid)[1]
+
+
+import social  # noqa: E402
+
+
+def test_social_addresses_are_canonical_and_links_are_read_as_addresses() -> None:
+    p = social.parse
+    assert p("reddit:r/IndianStockMarket")["address"] == "reddit:r/indianstockmarket"
+    assert p("https://www.reddit.com/r/IndianStockMarket/comments/abc")["address"] == "reddit:r/indianstockmarket"
+    assert p("reddit:search:HAL  Order")["address"] == "reddit:search:hal order"
+    assert p("https://t.me/s/MoneyControlCom")["address"] == "telegram:moneycontrolcom"
+    assert p("youtube.com/@ZerodhaOnline")["address"] == "youtube:@zerodhaonline"
+    assert p("bsky:nithin")["address"] == "bsky:nithin.bsky.social"
+    assert p("mastodon:@Gargron@mastodon.social")["address"] == "mastodon:gargron@mastodon.social"
+    for bad, why in (("stocktwits:AAPL", "blocks"), ("instagram:x", "no public"), ("reddit:r/../x", "not a Reddit"),
+                     ("rss:http://127.0.0.1/feed", "public internet"), ("rss:http://169.254.169.254/", "public internet"),
+                     ("myspace:tom", "not a source address")):
+        with pytest.raises(social.Bad, match=why):
+            p(bad)
+
+
+def _post(addr="telegram:deskalerts", title="HAL bags Rs 2,000 crore order from MoD", ts=None, key=None):
+    import time as _t
+    t = int(ts or _t.time())
+    return {"source": addr, "key": key or f"{addr}:{t}:{title}", "ts": t, "seen": t, "symbol": "",
+            "who": "@deskalerts", "title": title, "body": "", "url": "https://t.me/deskalerts/1", "late": False}
+
+
+def test_a_play_reads_a_telegram_channel_and_a_post_alone_only_proposes(uid, events_db, monkeypatch) -> None:
+    import time as _t
+    monkeypatch.setattr(social, "fetch", lambda a: [_post(ts=_t.time() - 86400 * 3, key="old")])
+    got = plays.tool_play("compile", _event_play(
+        title="HAL orders from a desk", symbol="RELIANCE",
+        on={"sources": ["https://t.me/deskalerts"], "match": ["order"]},
+        do={"kind": "buy", "size": {"inr": 5000}}, contract={"lifespan": "standing", "authority": "act"}))
+    assert got.get("state") == "armed", got
+    card = [c for c in server._scene.cards if c.get("kind") == "play"][-1]
+    assert card["on"]["sources"] == [{"label": "Telegram @deskalerts", "kind": "telegram", "every": 60}]
+    assert "Telegram @deskalerts" in card["summary"], card["summary"]
+    assert plays.social_sources() == ["telegram:deskalerts"]
+    pid = got["play_id"]
+    plays._set(pid, accepted=1, fires=1)
+    plays.on_items([_post()])
+    ev = plays.events(uid)[0]
+    assert ev["kind"] == "proposed" and "alone never places" in ev["body"]["reason"], ev
+    assert plays.transcribe({"kind": "fired", "body": {"event": {"source": "telegram:deskalerts"}}},
+                            plays._load(pid)["spec"])["label"] == "Post alert"
+
+
+def test_a_stream_many_people_post_to_needs_words(uid, events_db) -> None:
+    got = plays.tool_play("compile", _event_play(on={"sources": ["reddit:r/IndianStockMarket"]}))
+    assert "match words or a judge" in got["error"], got
+    got = plays.tool_play("compile", _event_play(on={"sources": ["gnews:HAL"]}))
+    assert "match words or a judge" in got["error"], got
+
+
+def test_a_social_measure_counts_posts_per_bar_and_unknown_is_not_zero(uid, events_db, monkeypatch) -> None:
+    data, _ = plays.frame({"symbol": "RELIANCE", "interval": "1d", "measures": []}, limit=30)
+    t = data["t"]
+    close = plays._bar_close(t[-2], "1d")
+    posts = [_post(ts=close - 60, title="HAL order", key="a"), _post(ts=close - 120, title="HAL order again", key="b"),
+             _post(ts=close - 180, title="lunch", key="c"), _post(ts=plays._bar_close(t[-5], "1d") - 60, title="HAL order", key="d")]
+    # each lands on the first bar closing at or after it: two on t[-2], one on t[-5]
+    monkeypatch.setattr(social, "fetch", lambda a: posts)
+    col, note = plays._social_series({"source": "telegram:deskalerts", "match": ["order"]}, t, "1d")
+    assert col[-2] == 2 and col[-5] == 1 and col[-3] == 0, col[-6:]
+    assert col[0] is None and "unknown, not zero" in note, (col[:3], note)
+
+
+def test_the_first_read_of_a_source_is_its_baseline(events_db, monkeypatch) -> None:
+    social._last.clear(); social._primed.clear(); social._backoff.clear()
+    batch = [[_post(key="1", title="one")], [_post(key="1", title="one"), _post(key="2", title="two")]]
+    monkeypatch.setattr(social, "fetch", lambda a: batch[0])
+    assert social.poll(["telegram:deskalerts"], play_events.store) == []        # baseline
+    monkeypatch.setattr(social, "fetch", lambda a: batch[1])
+    social._last["telegram:deskalerts"] = 0
+    assert [x["title"] for x in social.poll(["telegram:deskalerts"], play_events.store)] == ["two"]
+
+
+def test_a_guard_can_stop_the_day_on_an_event(uid, events_db, monkeypatch) -> None:
+    monkeypatch.setattr(social, "fetch", lambda a: [_post(addr=a, key=a + ":g", title="Nifty steady")])
+    got = plays.tool_play("compile", _event_play(on={"sources": ["telegram:nosuchchannel"], "match": ["x"]}))
+    monkeypatch.setattr(social, "fetch", lambda a: [])
+    assert "has no public posts" in plays.tool_play("compile", _event_play(
+        on={"sources": ["telegram:emptychannel"], "match": ["x"]}))["error"]
+    monkeypatch.setattr(social, "fetch", lambda a: [_post(addr=a, key=a + ":g", title="Nifty steady")])
+    got = plays.tool_play("compile", _event_play(
+        title="Circuit breaker stop", on={"sources": ["news", "gnews:nifty circuit"], "match": ["circuit breaker"]},
+        do={"kind": "halt"}, contract={}))
+    assert got.get("state") == "armed", got
+    plays.on_items([_item(source="news", sym="", title="Circuit breaker hit on Nifty", body="")])
+    assert plays._halted(1) is not None
+    assert "Circuit breaker" in plays.card(plays.get(1, got["play_id"]))["summary"] or "circuit breaker" in \
+        plays.card(plays.get(1, got["play_id"]))["summary"]
 
 
 def test_cue_words_are_stripped_before_the_judge_reads(events_db) -> None:

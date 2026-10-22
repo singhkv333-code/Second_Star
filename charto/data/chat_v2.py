@@ -517,6 +517,24 @@ def market_data(kind=None, symbols=None, interval=None, frm=None, to=None, expir
 # ── 5. search ────────────────────────────────────────────────────────────
 
 def search(source=None, query=None, symbol=None, frm=None, to=None) -> dict:
+    if source == "social":
+        import social
+        import play_events
+        try:
+            items = social.fetch(str(query or ""))
+        except social.Bad as exc:
+            return {"error": str(exc)}
+        except Exception as exc:                            # noqa: BLE001
+            return {"error": f"{query} could not be read just now ({exc}); say so"}
+        try:
+            play_events.store(items)          # kept, so a play on this source has history to replay
+        except Exception:                                   # noqa: BLE001
+            pass
+        return {"source": play_events.label(items[0]["source"]) if items else str(query),
+                "posts": [{"when": time.strftime("%d %b %Y %H:%M IST", time.gmtime(it["ts"] + 19800)),
+                           "who": it["who"], "text": (it["title"] + ("\n" + it["body"] if it["body"] else ""))[:500],
+                           "url": it["url"]} for it in items[-20:][::-1]],
+                "_note": "Posts are what people wrote, not facts: attribute each claim to its author."}
     if source == "web":
         return _call("search_web", {"q": query or symbol or ""})
     if source == "conversations":
@@ -833,17 +851,21 @@ _PLAY_DOC = (
     "{alias: {bars: {symbol, field}}} another instrument; {sql: 'SELECT <when known>, <value> ...'} "
     "anything in the market database, F&O history included (query lists the tables; each bar sees "
     "rows known by its close); {perp: {coin, field: funding | premium | oi}}; {book: day_pnl | "
-    "realized_today | trades_today | loss_streak} the trader's own day book. Never type a number the "
+    "realized_today | trades_today | loss_streak} the trader's own day book; {social: {source, match}} "
+    "posts per bar at a social address. Never type a number the "
     "data should supply; if you do not know a formula, search for it.\n"
     "when: {all | any: [{left, op, right, right2?, bars?, for_bars?}]}, op above, below, cross_up, "
     "cross_down, between, outside, rises_pct, falls_pct, is_true. Operands: numbers, measure names, "
     "close/open/high/low/volume, 'SYMBOL.close', or arithmetic over names ('or_high + 0.5 * atr14'). "
     "{time: {after: '09:20', before: '15:00'} | {at: '09:20'}} reads the bar close in IST. for_bars N: "
     "it must hold N bars running.\n"
-    "on (events clock it instead of bars): {sources: [filings, news], symbols (whose NSE filings), "
-    "match: [specific names or terms, never common words], judge: 'a yes/no question each item must "
-    "answer yes to'}. filings are NSE announcements; news is Economic Times, Mint, CNBC-TV18, "
-    "BusinessLine, BBC and CoinDesk headlines; social posts are not connected (say so). With on, "
+    "on (events clock it instead of bars): {sources, symbols (whose NSE filings), match: [specific "
+    "names or terms, never common words], judge: 'a yes/no question each item must answer yes to'}. "
+    "sources: filings (NSE announcements), news (Economic Times, Mint, CNBC-TV18, BusinessLine, BBC, "
+    "CoinDesk), or a social address: reddit:r/<sub> | reddit:u/<user> | reddit:search:<words>, "
+    "telegram:<channel>, youtube:@<handle>, bsky:<handle>, mastodon:<user>@<host>, gnews:<words>, "
+    "rss:<url>, or the pasted link. X, StockTwits, Instagram and the like cannot be read; compile "
+    "says why and what is nearest. With on, "
     "`when` confirms on the latest bar, and a headline alone only proposes.\n"
     "do: {kind: notify}; {kind: buy | sell | short | cover, symbol, size: {inr} | {qty} | {all: "
     "true}, product: CNC | MIS}; {kind: options, underlying, legs: [{opt: CE | PE, strike: ATM | "
@@ -1061,8 +1083,10 @@ def _tools() -> list[dict]:
             ["kind"]),
         _fn("search",
             "Search dated market news and events for an instrument, the open web, or the trader's own "
-            "earlier conversations. Use short keywords; search again only if a fact you need is missing.",
-            {"source": {"type": "string", "enum": ["news", "web", "conversations"]},
+            "earlier conversations. Use short keywords; search again only if a fact you need is missing. "
+            "social reads the latest posts at a social address given as query (the addresses in play's "
+            "description, or a pasted link).",
+            {"source": {"type": "string", "enum": ["news", "web", "conversations", "social"]},
              "query": _STR,
              "symbol": _STR,
              "from": {**_STR, "description": "news window start YYYY-MM-DD; default two weeks back"},

@@ -14114,6 +14114,8 @@ def _tool_event(call: dict, result, secs: float) -> None:
     when that tool armed one. Names and outcomes only, never arguments."""
     name = call.get("name") or ""
     res = result if isinstance(result, dict) else {}
+    if "error" in res and environ.get("CHARTO_LOG_TOOL_ERRORS") == "1":
+        print(f"tool error {name}: {str(res['error'])[:300]}", file=sys.stderr, flush=True)
     uid = _req.user[0] if getattr(_req, "user", None) else None
     _analytics.capture(uid, "chat_tool_call", {
         "tool": name, "namespace": call.get("namespace"),
