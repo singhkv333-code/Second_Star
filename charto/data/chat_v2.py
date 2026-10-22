@@ -907,7 +907,13 @@ _PLAY_DOC = (
     "compile replays the play over stored history: how often it fires and, when it opens a position, "
     "every round trip through its exits against a control (the same exits from entries anywhere in "
     "the same hours). So 'has this worked?' about a play is answered by compiling it (arm: false only "
-    "tests it). Everything is simulated in the paper books; nothing reaches a broker.")
+    "tests it). Everything is simulated in the paper books; nothing reaches a broker.\n"
+    "if_it_fired_now is the order it would place on the latest bar against the trader's book as it "
+    "stands, placed nowhere: orders, holdings before → after, what stays untouched, refused (why it "
+    "could not), ignored (fields of do the order never used). Read it against their words before you "
+    "reply: the names, side and size they meant, and nothing they did not name. If it differs, or "
+    "refuses something they asked for, compile again with the play fixed; if it still cannot, say what "
+    "it would do and why.")
 
 
 def _play_tools() -> list[dict]:

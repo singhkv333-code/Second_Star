@@ -38,6 +38,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, ROUND_DOWN
 
 import customsec
+import effects
 import hyperliquid
 import policy
 
@@ -52,6 +53,7 @@ def bind(module, alerts_mod=None, paper_mod=None) -> None:
     global ds, _alerts, _paper
     ds, _alerts, _paper = module, alerts_mod, paper_mod
     policy.bind(module, paper_mod)
+    effects.bind(module, paper_mod, customsec)
     import scan
     scan.bind(module)
 
@@ -1156,17 +1158,19 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
             size = {"inr": size}
         if size.get("pct") is not None:
             pct = float(size["pct"])
-            if kind != "sell" or not 0 < pct <= 100:
-                raise Bad("size.pct is for a sell: the share of what is held, above 0 and up to 100")
+            if kind not in ("sell", "cover") or not 0 < pct <= 100:
+                raise Bad("size.pct is for a sell or a cover: the share of what is held, above 0 and up "
+                          "to 100")
             size = {"pct": pct}
         if not size.get("inr") and not size.get("qty") and not size.get("all") and not size.get("pct"):
             size = {"inr": DEFAULT_SIZE_INR} if kind in ("buy", "short") else {"all": True}
             said.append(f"sized at ₹{DEFAULT_SIZE_INR:,}" if kind in ("buy", "short")
-                        else "sells all of it")
+                        else "sells all of it" if kind == "sell" else "covers all of it")
         do["size"] = size
-        if kind == "sell" and not perp and not customsec.is_custom(do["symbol"]):
-            # a sell play never buys, so what it sells is the trader's: the
-            # paper portfolio, unless it was told to sell only its own
+        if kind in ("sell", "cover") and not customsec.is_custom(do["symbol"]):
+            # a play that only closes never opened anything, so what it closes
+            # is the trader's (the paper portfolio, or their open intraday and
+            # perp positions), unless it was told to close only its own
             do["of"] = "self" if do.get("of") == "self" else "portfolio"
         if perp:
             c = hyperliquid.ctx(do["symbol"])
@@ -1294,7 +1298,7 @@ def _norm_rebalance(do: dict, raw: dict, lifespan: str, discretion: str,
     if of not in ("self", "portfolio") and not isinstance(of, int):
         raise Bad("do.of is self (what this play holds), portfolio (the whole paper delivery book) "
                   "or the id of the play whose holdings it takes over")
-    out = {"kind": "rebalance", "of": of, "product": "CNC",
+    out = {"kind": "rebalance", "of": of,
            "objective": str(do.get("objective") or "")[:300],
            "universe": sorted({ds.canon_symbol(str(x)) for x in do.get("universe") or []})[:30],
            "cash_pct": float(do.get("cash_pct") or 0)}
@@ -1889,7 +1893,7 @@ def _contract_line(spec: dict) -> dict:
         cap = f"at most {m['max_weight'] * 100:.0f}% in one name" if m.get("max_weight") else ""
         money = f"₹{new:,.0f} of new money" if new else ""
         out["limit"] = ", ".join(x for x in (cap, money) if x) or None
-    elif spec["do"]["kind"] not in ("notify", "sell"):          # a sale spends nothing
+    elif spec["do"]["kind"] not in ("notify", "sell", "cover"):     # a close spends nothing
         out["limit"] = f"₹{m['capital_inr']:,.0f}"
     return out
 
@@ -1934,7 +1938,7 @@ def _order_words(spec: dict) -> str:
     if do.get("product") == "PERP":
         size = do.get("size") or {}
         if do["kind"] in ("sell", "cover"):
-            return f"a close of this play's {do['symbol']} position"
+            return f"a close of {_close_amount(do)}{do['symbol']} position"
         amt = (f"₹{size['inr']:,.0f} of margin" if size.get("inr") else f"{size.get('qty', 0):g} contracts")
         side = "long" if do["kind"] == "buy" else "short"
         return f"a {do.get('leverage', 1):g}× {side} in {do['symbol']} ({amt}, Hyperliquid, on paper)"
@@ -1944,8 +1948,15 @@ def _order_words(spec: dict) -> str:
         return f"a short of {amt}{do['symbol']} (intraday)" if do.get("product") == "MIS" else \
             f"a short of {amt}{do['symbol']}"
     if do["kind"] == "cover":
-        return f"a cover of this play's {do['symbol']} short"
+        return f"a cover of {_close_amount(do)}{do['symbol']} short"
     return do["kind"]
+
+
+def _close_amount(do: dict) -> str:
+    size = do.get("size") or {}
+    yours = "your " if do.get("of") == "portfolio" else "this play's "
+    return (f"{size['pct']:g}% of {yours}" if size.get("pct") else f"{size['qty']:g} of {yours}"
+            if size.get("qty") else f"₹{size['inr']:,.0f} of {yours}" if size.get("inr") else yours)
 
 
 def summary(spec: dict) -> str:
@@ -2750,6 +2761,9 @@ def _fire(play: dict, data: dict, series: dict, i: int, *, late: bool,
         ev = _event(play, ts, "fired", title, {**body, "reason": reason}, status="done")
     else:
         ticket, why = _ticket(play, price)
+        bad = effects.vet(play, ticket) if ticket else ""
+        if bad:
+            ticket, why = None, bad              # a proposal nobody could confirm is no proposal
         if ticket and ticket.get("structural") and authority in ("act", "manage"):
             authority, reason = "propose", "the planner changed which names it holds, so you confirm"
         if ticket and ticket.get("rebalance") and not ticket["legs"]:
@@ -2855,14 +2869,8 @@ def _day_ticket(play: dict) -> tuple[dict | None, str]:
     import daybook
     spec, do, m = play["spec"], play["spec"]["do"], play["spec"]["mandate"]
     if do["kind"] in ("cover", "sell"):
-        opens = daybook.open_positions(play["user_id"], play["id"])
-        if not opens:
-            return None, "this play has no open position to close"
-        return {"book": "day", "close": True, "legs": [
-            {"symbol": p["symbol"], "side": p["side"], "qty": p["qty"], "px": p["mark_px"]} for p in opens]}, ""
-    rd = dict(do)
-    if do["kind"] == "buy":
-        rd["kind"] = "long"
+        return _day_close(play)
+    rd = effects.derive(do, kind="long") if do["kind"] == "buy" else do
     try:
         legs = daybook.resolve(rd, do.get("product") or "MIS")
     except daybook.Refused as exc:
@@ -2874,6 +2882,44 @@ def _day_ticket(play: dict) -> tuple[dict | None, str]:
     stale = [lg["symbol"] for lg in legs if lg.get("stale")]
     return {"book": "day", "legs": legs, "margin_est": round(need, 2),
             "stale": stale, "product": do.get("product")}, ""
+
+
+def _day_close(play: dict) -> tuple[dict | None, str]:
+    """A close in the day book: this play's own positions, or, for a play that
+    only closes, the trader's open positions in the name on that side. Sized
+    like a delivery sell; a part closes from the oldest position first."""
+    import daybook
+    do = play["spec"]["do"]
+    side = "short" if do["kind"] == "cover" else "long"
+    opens = daybook.open_positions(play["user_id"], play["id"])
+    whose = "this play"
+    if not opens and do.get("of") == "portfolio":
+        whose = "your day book"
+        opens = [p for p in daybook.open_positions(play["user_id"])
+                 if p["side"] == side and do["symbol"] in (p["symbol"], p["underlying"])]
+    if not opens:
+        return None, f"{whose} has no open {side} {do.get('symbol') or ''} position to close".replace("  ", " ")
+    opens.sort(key=lambda p: p["entry_ts"] or 0)
+    held = sum(p["qty"] for p in opens)
+    size = do.get("size") or {}
+    px = opens[0]["mark_px"] or opens[0]["entry_px"]
+    step = max(int(opens[0]["lot"] or 1), 1)
+    whole = (lambda x: math.floor(x / step) * step) if opens[0]["kind"] in ("equity", "option", "future")         else (lambda x: math.floor(x * 1e6) / 1e6)
+    want = (min(float(size["qty"]), held) if size.get("qty") else
+            whole(held * size["pct"] / 100) if size.get("pct") else
+            whole(float(size["inr"]) / (px * daybook._fx(opens[0]))) if size.get("inr") and px else held)
+    want = min(want, held)
+    if want <= 0:
+        return None, f"that is less than one unit of the {held:g} {do.get('symbol')} {whose} holds open"
+    legs, left = [], want
+    for p in opens:
+        if left <= 1e-12:
+            break
+        q = min(p["qty"], left)
+        legs.append({"symbol": p["symbol"], "side": p["side"], "qty": q, "px": p["mark_px"],
+                     "position": p["id"], "open": p["qty"], "lot": p["lot"], "underlying": p["underlying"]})
+        left -= q
+    return {"book": "day", "close": True, "legs": legs}, ""
 
 
 def _ticket(play: dict, price: float) -> tuple[dict | None, str]:
@@ -2899,7 +2945,7 @@ def _ticket(play: dict, price: float) -> tuple[dict | None, str]:
     size = do.get("size") or {}
     if do["kind"] == "sell":
         own = play["held_sym"] == sym and play["held_qty"]
-        held = play["held_qty"] if own else _portfolio_qty(play["user_id"], sym) if do.get("of") == "portfolio" else 0
+        held = _held_now(play) if own else _portfolio_qty(play["user_id"], sym) if do.get("of") == "portfolio" else 0
         whose = "this play" if own or do.get("of") != "portfolio" else "your paper portfolio"
         if not held:
             return None, f"{whose} holds no {sym} to sell"
@@ -2990,7 +3036,18 @@ def _basket_ticket(play: dict) -> tuple[dict | None, str]:
         held = _held_legs_now(play)
         if not any(held.values()):
             return None, f"this play holds none of {do['symbol']} to sell"
-        legs = [{"symbol": s, "side": "SELL", "qty": q, "price": _mark(s)} for s, q in held.items() if q]
+        px = {s: _mark(s) for s in held}
+        worth = sum(q * (px[s] or 0) for s, q in held.items())
+        # the same share of every member, so what is left keeps its weights
+        part = (size["pct"] / 100 if size.get("pct") else
+                min(1.0, float(size["inr"]) / worth) if size.get("inr") and worth else 1.0)
+        if size.get("qty"):
+            return None, "a basket sells a share of what is held (size.pct) or rupees (size.inr), not units"
+        legs = [{"symbol": s, "side": "SELL", "qty": q if part >= 1 else math.floor(q * part), "price": px[s]}
+                for s, q in held.items() if q]
+        legs = [lg for lg in legs if lg["qty"] > 0]
+        if not legs:
+            return None, f"that is less than one share of each member of {do['symbol']}"
         return {"basket": do["symbol"], "side": "SELL", "legs": legs}, ""
     inr = float(size.get("inr") or 0)
     if not inr:
@@ -3066,10 +3123,21 @@ def _held_legs_now(play: dict) -> dict:
 
 
 def _place(play: dict, ticket: dict, ts: int, body: dict) -> dict:
+    bad = effects.vet(play, ticket)
+    if bad:
+        return _event(play, ts, "rejected", play["spec"]["title"], {**body, "ticket": ticket, "reason": bad},
+                      status="done")
     if ticket.get("book") == "day":
         import daybook
         if ticket.get("close"):
-            res = daybook.close_play(play["id"], "closed by the play")
+            res = []
+            for lg in ticket["legs"]:
+                p = daybook._fresh(lg["position"]) if lg.get("position") else None
+                if p:
+                    res.append(daybook.close(p, p["mark_px"] or p["entry_px"], "closed by the play",
+                                             qty=lg["qty"]))
+            if not any(lg.get("position") for lg in ticket["legs"]):
+                res = daybook.close_play(play["id"], "closed by the play")
             return _event(play, ts, "exited", play["spec"]["title"], {**body, "closed": res}, status="done")
         got = daybook.open_group(play["user_id"], play["id"], ticket["legs"], play["spec"].get("manage") or {})
         cost = sum(lg["px"] * lg["qty"] * lg.get("fx", 1.0) for lg in ticket["legs"] if lg["side"] == "long")
@@ -3372,6 +3440,7 @@ def compile_play(uid: int, raw: dict, *, chart_symbol: str = "", chart_interval:
         ev = _fire(play, data, series, len(data["t"]) - 1, late=False, opening=True)
         row = get(uid, pid)
         row["_now_event"] = ev
+    effect = _effect(pid, data) if not row.get("_now_event") else None
     feed = None
     if _alerts is not None and state == "armed" and (spec.get("when") or not spec.get("on")):
         try:
@@ -3387,8 +3456,25 @@ def compile_play(uid: int, raw: dict, *, chart_symbol: str = "", chart_interval:
                 feed = _alerts.ensure_feed(spec["symbol"])
         except Exception:                                   # noqa: BLE001
             feed = None
-    return {"play": row, "assumed": said, "diff": diff, "feed": feed,
+    return {"play": row, "assumed": said, "diff": diff, "feed": feed, "effect": effect,
             "card": card(row, {"conditions": status})}
+
+
+def _effect(pid: int, data: dict) -> dict | None:
+    """What the play would place if it fired on the latest bar, worked out
+    against the trader's book now and placed nowhere. A planner's trades are
+    chosen when it runs, so it has none to show yet."""
+    play = _load(pid)
+    spec = play["spec"]
+    if spec["do"]["kind"] in ("notify", "halt") or spec["contract"]["discretion"] == "plan":
+        return None
+    if spec.get("universe"):
+        play = _member(play, spec["universe"]["symbols"][0])
+    price = (data.get("close") or [0])[-1] or 0
+    out = effects.preview(play, _ticket, price)
+    if spec.get("universe"):
+        out["for"] = f"{play['spec']['member']}, as one of the {len(spec['universe']['symbols'])} names"
+    return out
 
 
 def _adoption(uid: int, spec: dict, said: list[str]) -> dict | None:
@@ -3858,6 +3944,15 @@ def resolve_event(uid: int, eid: int, action: str) -> dict:
         if not fresh:
             raise Bad(why)
         t = fresh
+    elif t.get("side") == "SELL":
+        # the book may have moved since it was proposed: sell what is still held
+        held = effects.holdings(uid)
+        legs = [{**lg, "qty": min(float(lg["qty"]), held.get(lg["symbol"], 0.0))}
+                for lg in (t["legs"] if t.get("basket") else [t])]
+        legs = [lg for lg in legs if lg["qty"] > 0]
+        if not legs:
+            raise Bad("none of it is held any more, so there is nothing to sell")
+        t = {**t, "legs": legs} if t.get("basket") else legs[0]
     ev = _place(play, t, ts, {"confirmed": eid, "symbol": t.get("symbol")})
     _event_status(eid, "confirmed")
     _set(pid, accepted=play["accepted"] + 1, needs_confirm=0)
@@ -4268,6 +4363,8 @@ def tool_play(action: str = "", play: dict | str | None = None, play_id: int = 0
                                                          "members", "method", "why")}
             if row.get("_now_event"):
                 out["did_now"] = {k: row["_now_event"].get(k) for k in ("kind", "body")}
+            if got.get("effect"):
+                out["if_it_fired_now"] = got["effect"]
             fs = got.get("feed") if isinstance(got.get("feed"), dict) else {}
             if fs.get("note") and row["spec"]["do"]["kind"] != "halt":
                 out["feed"] = (fs["note"] if not row["spec"].get("on") else
