@@ -73,7 +73,8 @@ import ast  # noqa: E402
 
 # The native engine — trusted, ours, stdlib-only. Loaded from an explicit path
 # because -I keeps this file's directory off sys.path.
-_HERE = __file__.rsplit("/", 1)[0] if "/" in __file__ else "."
+_SEP = max(__file__.rfind("/"), __file__.rfind("\\"))   # "\" on Windows
+_HERE = __file__[:_SEP] if _SEP >= 0 else "."
 sys.path.insert(0, _HERE)
 import indicators as _native  # noqa: E402
 sys.path.pop(0)

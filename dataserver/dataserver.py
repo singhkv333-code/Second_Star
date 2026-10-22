@@ -406,7 +406,11 @@ _SYMBOLS_PATH = Path(__file__).parent / "symbols.json"
 _symbols_cache: list[str] = []
 _HYDRATE_LOCKS: dict[str, threading.Lock] = {}
 _HYDRATE_GUARD = threading.Lock()
-_VENV_PY = Path(__file__).resolve().parents[1] / "api" / ".venv" / "bin" / "python"
+_VENV = Path(__file__).resolve().parents[1] / "api" / ".venv"
+# bin/python on Linux (the VM), Scripts\python.exe on a Windows laptop; with
+# no venv at all, the interpreter running this server.
+_VENV_PY = next((p for p in (_VENV / "bin" / "python", _VENV / "Scripts" / "python.exe")
+                 if p.exists()), Path(sys.executable))
 
 
 def _known_symbols() -> list[str]:

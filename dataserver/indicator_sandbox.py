@@ -80,6 +80,11 @@ def run(code: str, jobs: list[dict], *, timeout: float = 15.0,
     if hasattr(os, "geteuid") and os.geteuid() == 0:
         # never run someone else's code as root
         kw.update(user=65534, group=65534, extra_groups=[])
+    # The child gets an empty environment. Windows will not start a process
+    # with none at all (WinError 87) and its runtime needs SYSTEMROOT, so a
+    # local Windows run passes that one variable and nothing else.
+    env = ({"SYSTEMROOT": os.environ["SYSTEMROOT"]}
+           if os.name == "nt" and os.environ.get("SYSTEMROOT") else {})
     _scratch.mkdir(mode=0o777, exist_ok=True)
     cpu = max(2, int(timeout))
     if not _slots.acquire(timeout=timeout):
@@ -87,7 +92,7 @@ def run(code: str, jobs: list[dict], *, timeout: float = 15.0,
     try:
         proc = subprocess.run(
             _argv(cpu), input=payload.encode(), capture_output=True,
-            timeout=timeout, env={}, cwd=str(_scratch), check=False, **kw)
+            timeout=timeout, env=env, cwd=str(_scratch), check=False, **kw)
     except subprocess.TimeoutExpired as exc:
         raise SandboxError(f"timed out after {timeout:.0f}s") from exc
     finally:
