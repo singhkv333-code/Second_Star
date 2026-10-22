@@ -13697,6 +13697,10 @@ def _tool_paper_portfolio(**_):
     if not who:
         return {"error": "sign in to see your paper portfolio."}
     auth = getattr(_req, "bearer", "") or ""
+    if getattr(_req, "surface", "") == "plays":
+        # the Plays page's book IS the chart's: plays fill into it and its
+        # Portfolio tab shows it
+        return _paper_tool("tool_paper_portfolio")()
     try:
         summary = _pivot_get("/paper/summary", auth)
         holdings = _pivot_get("/paper/holdings", auth) if summary.get("exists") else []
@@ -21178,6 +21182,10 @@ class Handler(BaseHTTPRequestHandler):
             # account from Pivot's API on their behalf (paper_portfolio).
             _req.bearer = self.headers.get("Authorization") or ""
             _req.chat_id = str(body.get("chat_id") or "")[:64]
+            # the trader's own words this conversation: a play's dials above
+            # their defaults must quote them (plays.normalise checks the quote)
+            _req.heard = " \n ".join(str(m.get("content") or "")[:2000] for m in body["messages"][-12:]
+                                      if isinstance(m, dict) and m.get("role") == "user")
             _req.chat_mode = ("execution"
                               if body.get("mode") == "execution" and EXECUTION_ENABLED
                               else "chat")

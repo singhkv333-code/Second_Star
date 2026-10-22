@@ -366,9 +366,11 @@ const Kit = (() => {
     if (c.do && c.do.kind === "rebalance" && c.lifespan === "policy") {
       head = "Schedule"; icon = "calendar";
       const pol = c.policy || {};
-      body = `<div class="cond"><span>Every</span><span class="chip val">${ed("policy.every", pol.every || "week", esc(pol.every || "week"))}</span></div>` +
-        `<div class="join"><span>or</span></div><div class="cond"><span>If a holding drifts</span><span class="chip op">&gt;</span>` +
-        `<span class="chip val">${ed("policy.drift_pct", pol.drift_pct || 5, `${esc(num(pol.drift_pct || 5))} pts`)}</span><span>from target</span></div>`;
+      // only what was set is drawn; each chip opens the full menu, "none" and "off" included
+      const cal = `<div class="cond"><span>${pol.every ? "Every" : "Calendar"}</span><span class="chip val">${ed("policy.every", pol.every || "none", esc(pol.every || "none"))}</span></div>`;
+      const drift = `<div class="cond"><span>If a holding drifts</span><span class="chip op">&gt;</span>` +
+        `<span class="chip val">${ed("policy.drift_pct", pol.drift_pct || "off", pol.drift_pct ? `${esc(num(pol.drift_pct))} pts` : "off")}</span><span>from target</span></div>`;
+      body = (pol.every && pol.drift_pct ? cal + `<div class="join"><span>or</span></div>` + drift : pol.every ? cal + drift : drift + cal);
     } else if (c.on) {
       met = null;
       // the words and the judge come as their own fields: parsing them back out
@@ -436,7 +438,7 @@ const Kit = (() => {
         (cash > 0.005 ? `<i style="width:${cash * 100}%;background:#d4d4d4"></i>` : "");
       return `<div class="node" data-node="a">${head("Action")}<div class="act-title"><span class="chip plain">${ic("scale")}Rebalance</span>` +
         `<span>${d.of === "portfolio" ? "the paper portfolio" : "its holdings"}</span></div>` +
-        `<div class="params"><span>Max</span><span class="edit">${esc(num(((c.mandate || {}).max_weight || 0.4) * 100))}%${ic("pencil")}</span><span>per name</span>` +
+        `<div class="params">${(c.mandate || {}).max_weight ? `<span>Max</span><span class="edit">${esc(num(c.mandate.max_weight * 100))}%${ic("pencil")}</span><span>per name</span>` : `<span>Weights as set, no cap</span>`}` +
         (d.size && d.size.inr ? `<span class="sep"></span><span>New money</span><span class="edit">${esc(inr(d.size.inr))}</span>` : "") + `</div>` +
         (c.discretion === "plan" ? `<div class="params"><span class="chip vio">${ic("sparkle")}Planner</span><span>${esc(d.objective)}</span></div>` : "") +
         (t.length ? `<div class="inner"><div class="alloc">${bar}</div><div class="alloc-legend">${t.map(([s, w], i) =>
@@ -605,7 +607,7 @@ const Kit = (() => {
     foot.className = "strat-foot";
     const k = c.contract || {};
     const live = c.state !== "done";
-    foot.innerHTML = `<div class="facts"><span>${live && ["once_when", "standing"].includes(c.lifespan) ? ed("lifespan", c.lifespan, esc(k.runs || "")) : esc(k.runs || "")}</span>` +
+    foot.innerHTML = `<div class="facts"><span>${live && ["once_when", "standing", "policy"].includes(c.lifespan) ? ed("lifespan", c.lifespan, esc(k.runs || "")) : esc(k.runs || "")}</span>` +
       `<span>${live && c.do && !["notify", "rebalance"].includes(c.do.kind) ? ed("authority", c.authority, esc(k.acts || "")) : esc(k.acts || "")}</span>` +
       (k.limit ? `<span>Limit <b>${esc(k.limit)}</b></span>` : "") + (fires ? `<span>${fires}</span>` : "") +
       (c.fires ? `<span>Fired <b>${esc(c.fires)}×</b></span>` : "") + `</div>` +
@@ -803,7 +805,8 @@ const Kit = (() => {
     m.className = "pmenu";
     const cur = spec.value;
     const typed = spec.unit && spec.unit !== "time" ? "number" : "text";
-    m.innerHTML = `<div class="ph">${esc(spec.label)}${cur != null && cur !== "" ? `<span>now ${esc(show(cur, spec.unit))}</span>` : ""}</div>` +
+    const curLabel = ((spec.choices || []).find((ch) => String(ch.value) === String(cur)) || {}).label;
+    m.innerHTML = `<div class="ph">${esc(spec.label)}${cur != null && cur !== "" ? `<span>now ${esc(curLabel ? curLabel.toLowerCase() : show(cur, spec.unit))}</span>` : ""}</div>` +
       (spec.choices || []).map((ch) => `<button type="button" class="opt${String(ch.value) === String(cur) ? " on" : ""}" data-v="${esc(ch.value)}">` +
         `<b>${esc(ch.label)}</b>${ch.hint ? `<span>${esc(ch.hint)}</span>` : ""}${String(ch.value) === String(cur) ? ic("check") : ""}</button>`).join("") +
       (spec.unit ? `<form class="own"><input type="${typed}" step="any" placeholder="${spec.unit === "time" ? "HH:MM" : `Other value${spec.unit === "₹" ? " in ₹" : spec.unit === "%" ? " in %" : ""}`}" />` +

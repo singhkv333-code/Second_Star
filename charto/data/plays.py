@@ -856,9 +856,35 @@ def _norm_when(when) -> dict | None:
     return when
 
 
-def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str = "") -> tuple[dict, list[str]]:
+def _norm_words(x: str) -> str:
+    return re.sub(r"[^a-z0-9₹%]+", " ", str(x or "").lower()).strip()
+
+
+def _grounded(quote: str, heard: str | None) -> bool:
+    """Is `quote` the trader's own words? Parts split by an ellipsis must each
+    appear in what they said. With no transcript (a card edit is the trader
+    choosing the dial themselves) there is nothing to check."""
+    if heard is None:
+        return True
+    q = str(quote or "")
+    quoted = re.findall(r'[“"‘]([^”"’]{2,})[”"’]', q)
+    parts = [_norm_words(p) for x in (quoted or [q]) for p in re.split(r"\.\.\.|…", x)]
+    parts = [p for p in parts if p]
+    hay = _norm_words(heard)
+    return bool(parts) and all(p in hay for p in parts)
+
+
+def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str = "",
+              heard: str | None = None) -> tuple[dict, list[str]]:
     """The model's play, checked and filled in. Returns (spec, assumptions):
-    every default this function chose is listed, so the reply can say it."""
+    every default this function chose is listed, so the reply can say it.
+
+    The dials (how long it runs, who places it, whether it acts now) start
+    at their lowest. The model may raise one only by quoting the trader's
+    words in contract.inferred_from; code checks the quote against what they
+    actually said, and an ungrounded raise falls back with a sentence saying
+    what one tap would upgrade. A default fills what the action needs; it
+    never adds an action."""
     if not isinstance(raw, dict):
         raise Bad("play must be an object")
     said: list[str] = []
@@ -939,6 +965,29 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
 
     on = _norm_on(raw.get("on"), sym)
     contract = dict(raw.get("contract") or {})
+    quote = str(contract.get("inferred_from") or "")
+    ok = _grounded(quote, heard)
+    if heard:
+        last = heard.rsplit(" \n ", 1)[-1].strip()
+        raw = {**raw, "ask": last or raw.get("ask")}
+    n_said = len(said)
+    if not ok and heard is not None:
+        rb = (raw.get("do") or {}).get("kind") == "rebalance"
+        guard = (raw.get("do") or {}).get("kind") == "halt"      # a guard stands every day by nature
+        if contract.get("lifespan") in ("standing", "policy") and not guard and \
+                (raw.get("when") or raw.get("on") or rb):
+            said.append("runs once" + ("" if rb else " the first time it triggers")
+                        + "; one tap on the card keeps it going"
+                        + (" (your words did not ask to keep it)" if not quote else ""))
+            contract["lifespan"] = "now" if rb else "once_when"
+            raw = {**raw, "policy": None}
+        if contract.get("authority") in ("act", "manage"):
+            said.append("proposes the order for you to confirm; one tap lets it place orders itself")
+            contract["authority"] = "propose"
+        if contract.get("now") and contract.get("lifespan") not in (None, "now"):
+            said.append("waits for its condition rather than acting now")
+            contract["now"] = False
+    fell = said[n_said:]
     rebalance = (raw.get("do") or {}).get("kind") == "rebalance"
     lifespan = contract.get("lifespan") or ("standing" if uni and when else
                                             "once_when" if (when or on) else "now")
@@ -1136,8 +1185,10 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
         said.append(f"watches {len(uni['symbols'])} names ({uni['words']}), each on its own bars"
                     + (f", holding at most {mx} at once" if mx else ""))
     if kind == "rebalance":
-        mandate["max_weight"] = float((raw.get("mandate") or {}).get("max_weight")
-                                      or policy.DEFAULT_MAX_WEIGHT)
+        # the cap bounds what a planner may choose; weights the trader stated
+        # are theirs ("equal weight" of two names is 50/50), capped only if asked
+        mw = (raw.get("mandate") or {}).get("max_weight")
+        mandate["max_weight"] = float(mw) if mw else (policy.DEFAULT_MAX_WEIGHT if discretion == "plan" else None)
         if not (raw.get("mandate") or {}).get("max_order_inr"):
             mandate["max_order_inr"] = 10_00_000
     days = contract.get("expires_in_days")
@@ -1148,9 +1199,15 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
         "symbol": sym, "interval": iv, "measures": measures, "when": when, "on": on, "universe": uni,
         "do": do, "manage": manage, "mandate": mandate, "policy": pol,
         "contract": {"lifespan": lifespan, "authority": authority, "discretion": discretion,
+                     "now": lifespan == "now" or (bool(contract.get("now")) and kind != "notify"),
+                     **({"now_size": {"inr": float(contract["now"]["size"]["inr"])}}
+                        if isinstance(contract.get("now"), dict) and isinstance(contract["now"].get("size"), dict)
+                        and contract["now"]["size"].get("inr") else {}),
                      "inferred_from": str(contract.get("inferred_from") or "")[:200],
                      "expires_in_days": int(days) if days else None},
     }
+    if fell:
+        spec["_fell_back"] = fell
     return spec, said
 
 
@@ -1176,7 +1233,8 @@ def _norm_rebalance(do: dict, raw: dict, lifespan: str, discretion: str,
         out["reasons"] = {ds.canon_symbol(str(x.get("symbol"))): str(x["why"]).strip()[:200]
                           for x in rs if isinstance(x, dict) and x.get("why")} or \
             {k: v for k, v in (do.get("reasons") or {}).items() if k in do["targets"]}
-        cap = float((raw.get("mandate") or {}).get("max_weight") or policy.DEFAULT_MAX_WEIGHT)
+        cap = float((raw.get("mandate") or {}).get("max_weight") or
+                    (policy.DEFAULT_MAX_WEIGHT if discretion == "plan" else 1.0))
         try:
             out["targets"], cut = policy.norm_targets(do["targets"], out["cash_pct"], cap)
         except policy.Bad as exc:
@@ -1191,13 +1249,22 @@ def _norm_rebalance(do: dict, raw: dict, lifespan: str, discretion: str,
         raise Bad("a planned rebalance needs do.universe: the names the planner may choose from")
     pol = None
     if lifespan == "policy":
+        # A default may fill what keeping it needs (how far is drifted); it never
+        # adds what was not asked (a calendar rebalance). The schedule exists only
+        # when the trader named one.
         p = raw.get("policy") or {}
-        every = p.get("every") or "week"
-        if every not in policy.EVERY:
-            raise Bad("policy.every is day, week or month")
-        pol = {"every": every, "drift_pct": float(p.get("drift_pct") or 5)}
-        if not raw.get("policy"):
-            said.append("checks weekly and whenever a holding drifts 5 points from its target")
+        every = p.get("every") or None
+        if every in ("none", "never", ""):
+            every = None
+        if every is not None and every not in policy.EVERY:
+            raise Bad("policy.every is day, week or month, or leave it out to keep it on drift alone")
+        drift = p.get("drift_pct")
+        drift = None if drift in (0, "0", "off", "none") else float(drift) if drift not in (None, "") else None
+        if drift is None and every is None:
+            drift = 5.0
+            said.append("rebalances again whenever a holding drifts 5 points from its target, checked at "
+                        "each daily close; no calendar rebalance")
+        pol = {"every": every, "drift_pct": drift}
     return out, pol
 
 
@@ -1718,6 +1785,8 @@ def _contract_line(spec: dict) -> dict:
     c, m = spec["contract"], spec["mandate"]
     runs = {"now": "Once, now", "once_when": "Once, when it triggers",
             "standing": "Every time it triggers", "policy": "Keeps it maintained"}[c["lifespan"]]
+    if c.get("now") and c["lifespan"] != "now":
+        runs = "Now, then " + runs[0].lower() + runs[1:]
     acts = {"notify": "Tells you", "propose": "Proposes, you confirm",
             "act": "Places it on paper, then tells you",
             "manage": "Places and manages it on paper"}[c["authority"]]
@@ -1728,8 +1797,9 @@ def _contract_line(spec: dict) -> dict:
         pass
     elif spec["do"]["kind"] == "rebalance":
         new = (spec["do"].get("size") or {}).get("inr")
-        out["limit"] = f"at most {m.get('max_weight', policy.DEFAULT_MAX_WEIGHT) * 100:.0f}% in one name" + \
-            (f", ₹{new:,.0f} of new money" if new else "")
+        cap = f"at most {m['max_weight'] * 100:.0f}% in one name" if m.get("max_weight") else ""
+        money = f"₹{new:,.0f} of new money" if new else ""
+        out["limit"] = ", ".join(x for x in (cap, money) if x) or None
     elif spec["do"]["kind"] != "notify":
         out["limit"] = f"₹{m['capital_inr']:,.0f}"
     return out
@@ -1805,8 +1875,13 @@ def summary(spec: dict) -> str:
         if c["lifespan"] == "now":
             return f"{words[0].upper()}{words[1:]}, now, on paper."
         pol = spec.get("policy") or {}
-        return (f"{words[0].upper()}{words[1:]}: every {pol.get('every', 'week')}, and whenever a "
-                f"holding drifts {pol.get('drift_pct', 5):g} points from its target. On paper.")
+        keep = " and ".join(x for x in (
+            f"every {pol['every']}" if pol.get("every") else "",
+            f"whenever a holding drifts {pol['drift_pct']:g} points from its target"
+            if pol.get("drift_pct") else "") if x)
+        lead = "Now, then " if c.get("now") else ""
+        w = f"{lead}{words}" if lead else f"{words[0].upper()}{words[1:]}"
+        return f"{w}: {keep}. On paper."
     if do["kind"] == "halt":
         w = order_words(spec)
         return f"{w[0].upper()}{w[1:]} when {cond}. Checked after every fill and exit, and every {iv}."
@@ -1827,6 +1902,8 @@ def summary(spec: dict) -> str:
     if c["lifespan"] == "now":
         return f"{act[0].upper()}{act[1:]} now, on paper." if do["kind"] != "notify" else "Tells you now."
     times = "the first time" if c["lifespan"] == "once_when" else "each time"
+    if c.get("now"):
+        times = "now, and then " + ("once more the first time" if c["lifespan"] == "once_when" else "each time")
     on = spec.get("on")
     if on:
         return f"Reads {_on_words(on)} and {act} {times} one {_on_test(on)}" + \
@@ -1950,7 +2027,7 @@ def card(row: dict, live: dict | None = None) -> dict:
                                                                     key=lambda x: -x[1])]
                     if do["kind"] == "rebalance" else None),
         # the one-tap upgrade: a rebalance done once, kept that way
-        "offer": ({"action": "policy", "label": "Keep it this way: check weekly and on a 5-point drift"}
+        "offer": ({"action": "policy", "label": "Keep it this way: rebalance again whenever a holding drifts 5 points"}
                   if do["kind"] == "rebalance" and spec["contract"]["lifespan"] == "now" else None),
     }
 
@@ -2472,7 +2549,7 @@ def _seen(spec: dict, data: dict, series: dict, i: int) -> list[dict]:
 
 
 def _fire(play: dict, data: dict, series: dict, i: int, *, late: bool,
-          event: dict | None = None) -> dict:
+          event: dict | None = None, opening: bool = False) -> dict:
     spec, do, c = play["spec"], play["spec"]["do"], play["spec"]["contract"]
     ts, price = data["t"][i], data["close"][i]
     seen = _seen(spec, data, series, i)
@@ -2491,7 +2568,7 @@ def _fire(play: dict, data: dict, series: dict, i: int, *, late: bool,
     if late:
         authority, reason = "notify", "it fired while Pivot was offline, so nothing was placed"
     elif (authority in ("act", "manage") and play["accepted"] == 0 and play["fires"] == 0
-          and c["lifespan"] != "now"):
+          and c["lifespan"] != "now" and not opening):
         # a play told to act NOW was confirmed by the trader in the same breath;
         # the first-fire check is for fires nobody is watching
         authority, reason = "propose", "first fire: confirm it once and it acts on its own after"
@@ -2523,6 +2600,8 @@ def _fire(play: dict, data: dict, series: dict, i: int, *, late: bool,
             ev = _event(play, ts, "proposed", title, {**body, "ticket": ticket, "reason": reason})
         else:
             ev = _place(play, ticket, ts, body)
+    if opening and c["lifespan"] != "now":
+        return ev                      # the act-now fire; the rule it keeps starts from here
     if spec.get("member"):
         if c["lifespan"] in ("once_when", "now"):
             _mark_member(play["id"], spec["member"], done=True)
@@ -3060,9 +3139,10 @@ def stop() -> None:
 # ══ compile, edit, act on a play ════════════════════════════════════════════
 
 def compile_play(uid: int, raw: dict, *, chart_symbol: str = "", chart_interval: str = "",
-                 arm: bool = True, pid: int | None = None) -> dict:
+                 arm: bool = True, pid: int | None = None, heard: str | None = None) -> dict:
     init_db()
-    spec, said = normalise(raw, uid, chart_symbol, chart_interval)
+    spec, said = normalise(raw, uid, chart_symbol, chart_interval, heard=heard)
+    fell = spec.pop("_fell_back", [])
     prior = get(uid, pid) if pid else None
     if pid and not prior:
         raise Bad(f"no play {pid} on this account")
@@ -3093,9 +3173,14 @@ def compile_play(uid: int, raw: dict, *, chart_symbol: str = "", chart_interval:
     if prior and structural:
         _set(pid, accepted=0)
     row = get(uid, pid)
-    if state == "armed" and spec["contract"]["lifespan"] == "now":
+    # "now" is its own dial: act once on the spot, then the lifespan takes over
+    # ("rebalance now and keep it", "buy now and again on each dip"). An edit
+    # of a play that already acted does not act again.
+    if state == "armed" and spec["contract"].get("now") and not (prior and prior.get("fires")):
         play = _load(pid)
-        ev = _fire(play, data, series, len(data["t"]) - 1, late=False)
+        if spec["contract"].get("now_size"):
+            play["spec"] = {**play["spec"], "do": {**play["spec"]["do"], "size": spec["contract"]["now_size"]}}
+        ev = _fire(play, data, series, len(data["t"]) - 1, late=False, opening=True)
         row = get(uid, pid)
         row["_now_event"] = ev
     feed = None
@@ -3113,7 +3198,7 @@ def compile_play(uid: int, raw: dict, *, chart_symbol: str = "", chart_interval:
                 feed = _alerts.ensure_feed(spec["symbol"])
         except Exception:                                   # noqa: BLE001
             feed = None
-    return {"play": row, "assumed": said, "diff": diff, "feed": feed,
+    return {"play": row, "assumed": [x for x in said if x not in fell], "fell_back": fell, "diff": diff, "feed": feed,
             "card": card(row, {"conditions": status})}
 
 
@@ -3203,10 +3288,10 @@ def act(uid: int, pid: int, action: str) -> dict:
         if play["spec"]["do"]["kind"] != "rebalance":
             raise Bad("only a rebalance can become a standing policy")
         spec = dict(play["spec"])
-        spec["contract"] = {**spec["contract"], "lifespan": "policy",
+        spec["contract"] = {**spec["contract"], "lifespan": "policy", "now": False,
                             "discretion": "plan" if spec["do"].get("objective") and
                             (spec["do"].get("universe") or spec["do"].get("targets")) else "none"}
-        spec["policy"] = {"every": "week", "drift_pct": 5.0}
+        spec["policy"] = {"every": None, "drift_pct": 5.0}
         spec["mandate"] = {**spec["mandate"], "max_fires": 10_000}
         data, _ = frame(spec, limit=5)
         with ds._users_lock:
@@ -3301,10 +3386,20 @@ def edit_field(uid: int, pid: int, field: str, value) -> dict:
             raise Bad("authority is propose, act or manage")
         spec["contract"]["authority"] = str(value)
     elif field == "lifespan":
-        if spec["contract"]["lifespan"] in ("now", "policy") or value not in ("once_when", "standing"):
+        cur = spec["contract"]["lifespan"]
+        if cur == "policy" and value == "now":
+            # stop keeping it: one rebalance, which already ran or runs now
+            spec["contract"].update(lifespan="now", now=True)
+            spec["policy"] = None
+            md["max_fires"] = 1
+            if play.get("fires"):
+                _set(pid, state="done", why="kept no longer; it ran once")
+                return {"play": card(get(uid, pid)), "changed": [{"what": "contract", "to": "once"}]}
+        elif cur in ("now", "policy") or value not in ("once_when", "standing"):
             raise Bad("this play's lifespan cannot be changed here")
-        spec["contract"]["lifespan"] = str(value)
-        md["max_fires"] = 1 if value == "once_when" else max(md.get("max_fires") or 0, 20)
+        else:
+            spec["contract"]["lifespan"] = str(value)
+            md["max_fires"] = 1 if value == "once_when" else max(md.get("max_fires") or 0, 20)
     elif field == "on_leg_stop":
         if blank:
             mg.pop("on_leg_stop", None)
@@ -3320,7 +3415,13 @@ def edit_field(uid: int, pid: int, field: str, value) -> dict:
         if not spec.get("policy"):
             raise Bad("only a standing rebalance has a schedule")
         k = field.split(".")[1]
-        spec["policy"][k] = str(value) if k == "every" else num(0.5, 50)
+        off = blank or str(value).lower() in ("none", "off", "0")
+        spec["policy"][k] = None if off else str(value) if k == "every" else num(0.5, 50)
+        if spec["policy"][k] is not None and k == "every" and value not in policy.EVERY:
+            raise Bad("the schedule is day, week, month or none")
+        if not spec["policy"].get("every") and not spec["policy"].get("drift_pct"):
+            raise Bad("with no schedule and no drift it would never run again; choose Once to stop "
+                      "keeping it")
     elif field.startswith("cond."):
         _, i, k = (field.split(".") + ["", ""])[:3]
         when = spec.get("when") or {}
@@ -3486,9 +3587,14 @@ def options(uid: int, pid: int) -> dict:
             {"value": "once_when", "label": "Once", "hint": "the first time it triggers"},
             {"value": "standing", "label": "Every time", "hint": "re-enters after each exit"}]}
     if spec.get("policy"):
-        f["policy.every"] = {"label": "Check", "value": spec["policy"]["every"], "choices": [
+        f["lifespan"] = {"label": "Runs", "value": "policy", "choices": [
+            {"value": "policy", "label": "Keep it maintained", "hint": "on the schedule and drift below"},
+            {"value": "now", "label": "Once, no more checks", "hint": "the rebalance it made stands"}]}
+        f["policy.every"] = {"label": "Calendar", "value": spec["policy"].get("every") or "none", "choices": [
+            {"value": "none", "label": "No calendar", "hint": "only when a holding drifts"}] + [
             {"value": x, "label": f"Every {x}", "hint": ""} for x in ("day", "week", "month")]}
-        f["policy.drift_pct"] = {"label": "Drift", "unit": "pts", "value": spec["policy"]["drift_pct"], "choices": [
+        f["policy.drift_pct"] = {"label": "Drift", "unit": "pts", "value": spec["policy"].get("drift_pct") or "off",
+                                 "choices": [{"value": "off", "label": "Off", "hint": "the calendar alone"}] + [
             {"value": x, "label": f"{x} points", "hint": ""} for x in (2, 5, 10)]}
     when = spec.get("when") or {}
     status = {i: r for i, r in enumerate((play.get("history") or {}).get("conditions") or [])}
@@ -3950,7 +4056,7 @@ def tool_play(action: str = "", play: dict | str | None = None, play_id: int = 0
             got = compile_play(uid, play,
                                chart_symbol="" if no_chart else getattr(ds._req, "symbol", ""),
                                chart_interval="" if no_chart else getattr(ds._req, "ctx_interval", ""),
-                               arm=arm, pid=play_id or None)
+                               arm=arm, pid=play_id or None, heard=getattr(ds._req, "heard", None))
             ds._card_add(got["card"])
             row = got["play"]
             c = got["card"]
@@ -3964,6 +4070,11 @@ def tool_play(action: str = "", play: dict | str | None = None, play_id: int = 0
                    "conditions": c["conditions"], "contract": c["contract"],
                    "history": hist, "now": row["history"].get("now"),
                    "assumed": got["assumed"], "notes": c["notes"]}
+            if got.get("fell_back"):
+                out["fell_back"] = got["fell_back"]
+                out["_fell_back_note"] = ("Code lowered these dials because inferred_from did not quote the "
+                                          "trader's words. Describe the play as it IS (contract), not as you "
+                                          "set it, and offer the one tap that raises it.")
             if c.get("exits"):
                 out["exits"] = c["exits"]
             if got["diff"]:

@@ -222,9 +222,10 @@ def last_run(pid: int) -> int:
 def due(play: dict, bar_t: int) -> str:
     """Why this policy runs on this bar, or "" when it does not."""
     pol = play["spec"].get("policy") or {}
-    every = EVERY.get(pol.get("every") or "week", 7)
-    if bar_t - last_run(play["id"]) >= every * 86400 - 3600:
-        return f"its {pol.get('every') or 'week'}ly check"
+    if pol.get("every"):
+        every = EVERY.get(pol["every"], 7)
+        if bar_t - last_run(play["id"]) >= every * 86400 - 3600:
+            return f"its {pol['every']}ly check"
     targets = play["spec"]["do"].get("targets") or {}
     if targets and pol.get("drift_pct"):
         d = drift(play, targets)

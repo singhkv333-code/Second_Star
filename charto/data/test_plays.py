@@ -465,7 +465,8 @@ def test_a_rebalance_trades_the_book_to_its_targets_and_offers_the_policy(uid) -
     out = plays.act(uid, got["play_id"], "policy")
     play = plays.get(uid, got["play_id"])
     assert play["state"] == "armed" and play["spec"]["contract"]["lifespan"] == "policy"
-    assert out["play"]["offer"] is None and "every week" in out["play"]["summary"]
+    assert out["play"]["offer"] is None and "every week" not in out["play"]["summary"]
+    assert out["play"]["summary"].startswith("Rebalances") and "drifts 5 points" in out["play"]["summary"]
     # inside its band: the policy does nothing on this bar
     plays._set(got["play_id"], last_eval_ts=0)
     assert plays._tick(got["play_id"], force=True) == []
@@ -923,3 +924,99 @@ def test_a_play_over_a_universe_replays_every_name_and_fires_for_the_one_that_tr
     assert got2["play"]["history"]["trades"]["list"][-1]["symbol"] in card["universe"]["symbols"]
     bad = plays.tool_play("compile", {"universe": {"from": "all"}, "when": {"all": [{"left": "close", "op": "above", "right": 1}]}})
     assert "at most 60" in bad["error"]
+
+
+
+# ── act now, then keep it; and nothing added that was not asked ─────────────
+
+def _equal(**over):
+    p = {"title": "Equal weight", "do": {"kind": "rebalance", "of": "portfolio",
+         "targets": [{"symbol": "RELIANCE", "weight": 1}, {"symbol": "TCS", "weight": 1}]},
+         "contract": {"lifespan": "policy", "authority": "act", "now": True}}
+    p.update(over)
+    return p
+
+
+def test_rebalance_now_and_keep_it_acts_now_and_adds_no_calendar(uid) -> None:
+    paper.place_order(uid, "RELIANCE", "BUY", 10, source="test")
+    got = plays.tool_play("compile", _equal())
+    assert "error" not in got, got
+    assert got["did_now"]["kind"] == "filled", got.get("did_now")      # it rebalanced on the spot
+    row = plays.get(uid, got["play_id"])
+    assert row["state"] == "armed" and row["spec"]["policy"] == {"every": None, "drift_pct": 5.0}
+    card = plays.card(row)
+    assert card["contract"]["runs"] == "Now, then keeps it maintained"
+    assert "every" not in card["summary"].split(":")[1]
+    assert any("no calendar rebalance" in a for a in got["assumed"])
+    # a calendar only when they named one
+    got2 = plays.tool_play("compile", _equal(policy={"every": "month"}))
+    assert plays.get(uid, got2["play_id"])["spec"]["policy"] == {"every": "month", "drift_pct": None}
+
+
+def test_a_kept_rebalance_can_be_turned_back_into_one_time_on_the_card(uid) -> None:
+    paper.place_order(uid, "RELIANCE", "BUY", 10, source="test")
+    pid = plays.tool_play("compile", _equal())["play_id"]
+    opts = plays.options(uid, pid)["fields"]
+    assert [c["value"] for c in opts["lifespan"]["choices"]] == ["policy", "now"]
+    assert opts["policy.every"]["choices"][0]["value"] == "none"
+    assert "off" in [c["value"] for c in opts["policy.drift_pct"]["choices"]]
+    with pytest.raises(plays.Bad):
+        plays.edit_field(uid, pid, "policy.drift_pct", "off")             # nothing left to run on
+    out = plays.edit_field(uid, pid, "lifespan", "now")
+    assert out["play"]["state"] == "done" and plays.get(uid, pid)["fires"] == 1
+
+
+def test_buy_now_and_again_on_a_dip_places_now_and_stays_armed(uid) -> None:
+    got = plays.tool_play("compile", {"title": "TCS now and on dips", "symbol": "TCS", "interval": "1d",
+                                      "when": {"all": [{"left": "close", "op": "falls_pct", "right": 3, "bars": 1}]},
+                                      "do": {"kind": "buy", "size": {"inr": 5000}},
+                                      "contract": {"lifespan": "standing", "authority": "act", "now": True}})
+    assert got["did_now"]["kind"] == "filled", got
+    row = plays.get(uid, got["play_id"])
+    assert row["state"] == "armed" and row["fires"] == 1
+    assert "₹5,000 of TCS now, and then each time TCS close falls by 3%" in plays.card(row)["summary"], \
+        plays.card(row)["summary"]
+
+
+def test_a_dial_above_its_default_must_quote_the_trader(uid) -> None:
+    rule = {"title": "RELIANCE above 1,400", "symbol": "RELIANCE", "interval": "1d",
+            "when": {"all": [{"left": "close", "op": "cross_up", "right": 1400}]}}
+    server._req.heard = "Tell me when RELIANCE closes above 1,400."
+    try:
+        got = plays.tool_play("compile", {**rule, "contract": {"lifespan": "standing", "authority": "notify"}})
+        assert got["contract"]["runs"] == "Once, when it triggers", got["contract"]
+        assert any("one tap" in a for a in got["fell_back"]) and "_fell_back_note" in got
+        # a quoted phrase inside an explanation counts when it is theirs
+        server._req.heard = "hdfc rsi oversold buy 5k each time"
+        got = plays.tool_play("compile", {**rule, "symbol": "HDFCBANK", "contract": {
+            "lifespan": "standing", "authority": "notify",
+            "inferred_from": "“each time” means repeat on every fresh cross"}})
+        assert got["contract"]["runs"] == "Every time it triggers" and "fell_back" not in got
+        assert plays.get(uid, got["play_id"])["ask"] == "hdfc rsi oversold buy 5k each time"
+        server._req.heard = "Tell me when RELIANCE closes above 1,400."
+        server._req.heard = "Buy ₹20,000 of TCS."
+        bad = plays.tool_play("compile", {"title": "TCS", "symbol": "TCS", "interval": "1d", "do": {"kind": "buy", "size": {"inr": 20000}},
+                                          "contract": {"lifespan": "now", "authority": "act", "inferred_from": "Explicit buy request"}})
+        assert bad["did_now"]["kind"] == "proposed"
+        ok = plays.tool_play("compile", {"title": "TCS", "symbol": "TCS", "interval": "1d", "do": {"kind": "buy", "size": {"inr": 20000}},
+                                         "contract": {"lifespan": "now", "authority": "act", "inferred_from": "Buy ₹20,000 of TCS"}})
+        assert ok["did_now"]["kind"] == "filled"
+        server._req.heard = "Buy ₹10,000 of INFY now and another ₹5,000 every time it falls 3% in a day."
+        got = plays.tool_play("compile", {"title": "INFY", "symbol": "INFY", "interval": "1d",
+                                          "when": {"all": [{"left": "close", "op": "falls_pct", "right": 3, "bars": 1}]},
+                                          "do": {"kind": "buy", "size": {"inr": 5000}},
+                                          "contract": {"lifespan": "standing", "authority": "act", "now": {"size": {"inr": 10000}},
+                                                       "inferred_from": "now and another ₹5,000 every time it falls 3%"}})
+        t = got["did_now"]["body"]["ticket"]
+        assert got["did_now"]["kind"] == "filled" and 9000 < t["inr"] <= 10000, got["did_now"]
+        assert plays.get(uid, got["play_id"])["state"] == "armed"
+    finally:
+        server._req.heard = None
+
+
+
+def test_equal_weight_of_two_names_is_fifty_fifty_not_capped(uid) -> None:
+    paper.place_order(uid, "RELIANCE", "BUY", 10, source="test")
+    got = plays.tool_play("compile", _equal(contract={"lifespan": "now", "authority": "propose"}))
+    t = plays.get(uid, got["play_id"])["spec"]["do"]["targets"]
+    assert t == {"RELIANCE": 0.5, "TCS": 0.5}, t
