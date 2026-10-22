@@ -275,9 +275,16 @@ def resolve(do: dict, product: str) -> list[dict]:
         if not q:
             raise Refused(f"{und} {k:g} {opt} is not in the {ch['expiry']} chain")
         side = "long" if str(lg.get("side") or "buy").lower() in ("buy", "long") else "short"
+        # a market order crosses the spread: a buy pays the ask, a sell gets the
+        # bid. Without live depth it is the last price, and the leg says so.
+        bid, ask = float(q.get("bid") or 0), float(q.get("ask") or 0)
+        px, at = ((ask, "ask") if side == "long" and ask > 0 else
+                  (bid, "bid") if side == "short" and bid > 0 else
+                  (float(q.get("mid") or q["ltp"]), "mid" if q.get("mid") else "last"))
         legs.append({"symbol": q["sym"], "venue": "NFO", "kind": "option", "underlying": ch["underlying"],
                      "expiry": ch["expiry"], "strike": k, "opt": opt, "side": side,
-                     "qty": int(lg.get("lots") or 1) * lot, "lot": lot, "px": float(q.get("mid") or q["ltp"]),
+                     "qty": int(lg.get("lots") or 1) * lot, "lot": lot, "px": px, "filled_at": at,
+                     "spread": round(ask - bid, 2) if bid > 0 and ask >= bid else None,
                      "stale": not live, "product": product, "spot": spot, "index": index})
     if not legs:
         raise Refused("an options order needs at least one leg")

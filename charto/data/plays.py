@@ -28,6 +28,7 @@ import ast
 import json
 import logging
 import math
+import os
 import queue
 import re
 import sqlite3
@@ -105,6 +106,13 @@ CREATE TABLE IF NOT EXISTS measures (
   updated  INTEGER NOT NULL,
   UNIQUE(user_id, name));
 
+CREATE TABLE IF NOT EXISTS play_halts (
+  user_id  INTEGER PRIMARY KEY REFERENCES users(id),
+  until    INTEGER NOT NULL,                 -- no new entries before this moment
+  why      TEXT NOT NULL,
+  play_id  INTEGER,
+  created  INTEGER NOT NULL);
+
 CREATE TABLE IF NOT EXISTS play_chats (
   id       TEXT NOT NULL,                    -- the page's conversation id
   user_id  INTEGER NOT NULL REFERENCES users(id),
@@ -132,6 +140,8 @@ def init_db() -> None:
         cols = {r[1] for r in _db().execute("PRAGMA table_info(plays)")}
         if "held_legs" not in cols:
             _db().execute("ALTER TABLE plays ADD COLUMN held_legs TEXT NOT NULL DEFAULT '{}'")
+        if "entry_bar" not in cols:      # the bar its open position was entered on
+            _db().execute("ALTER TABLE plays ADD COLUMN entry_bar INTEGER NOT NULL DEFAULT 0")
         _db().commit()
     _ready = True
 
@@ -149,13 +159,23 @@ LOOKBACK = {"1m": 1500, "3m": 1500, "5m": 1500, "15m": 1200, "30m": 1000, "1h": 
 DEFAULT_SIZE_INR = 10_000
 DERIV_CAPITAL = 2_00_000
 PERP_FIELDS = ("funding", "premium", "oi")   # funding is hourly, with history; the others live only
-DO_KINDS = ("notify", "buy", "sell", "short", "cover", "options", "future", "rebalance")
+# the trader's own day book as series, so a guard is a rule like any other:
+# realised P&L so far today, plus what is open on the latest bar; positions
+# opened today; losing trades in a row today
+BOOK_FIELDS = ("day_pnl", "realized_today", "trades_today", "loss_streak")
+DO_KINDS = ("notify", "buy", "sell", "short", "cover", "options", "future", "rebalance", "halt")
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 _HHMM = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
 _SQL_SECONDS = 6.0
 _BANNED_SQL = re.compile(r"\b(attach|detach|pragma|insert|update|delete|replace|create|drop|"
                          r"alter|vacuum|reindex|analyze)\b", re.I)
-_RESERVED = set(FIELDS) | {"t", "hhmm", "data", "params", "ta", "math"}
+# Names an exit rule reads about the position it is closing, on the clock
+# symbol: the close it entered at, bars since, the highest high and lowest low
+# since, and the move in the position's favour in percent. Code fills them per
+# trade, so "back below entry after 6 bars" or "1.5 ATR under the high since
+# entry" are written, not built in.
+POSITION = ("entry", "bars_in", "hi_since", "lo_since", "pnl_pct")
+_RESERVED = set(FIELDS) | {"t", "hhmm", "data", "params", "ta", "math"} | set(POSITION)
 
 
 class Bad(ValueError):
@@ -186,7 +206,7 @@ def _clean_name(raw) -> str:
     return n[:40]
 
 
-def _norm_measure(m: dict) -> dict:
+def _norm_measure(m: dict, uid: int | None = None) -> dict:
     if not isinstance(m, dict):
         raise Bad("each measure is an object {name, title, expr or code, inputs}")
     name = _clean_name(m.get("name"))
@@ -224,13 +244,22 @@ def _norm_measure(m: dict) -> dict:
             if not hyperliquid.known(psym):
                 raise Bad(f"measure {name}: Hyperliquid lists no perpetual {psym}")
             inputs[a] = {"perp": {"symbol": psym, "field": field}}
+        elif "book" in src:
+            b = src["book"] if isinstance(src["book"], dict) else {"field": src["book"]}
+            field = str(b.get("field") or "day_pnl").lower()
+            if field not in BOOK_FIELDS:
+                raise Bad(f"measure {name}: input {alias} book field must be one of {BOOK_FIELDS}")
+            if not uid:
+                raise Bad(f"measure {name}: a book input reads the trader's own day book, which needs "
+                          f"an account")
+            inputs[a] = {"book": {"field": field, "uid": int(uid)}}
         elif "sql" in src:
             s = str(src["sql"]).strip().rstrip(";")
             if ";" in s or not re.match(r"^\s*(select|with)\b", s, re.I) or _BANNED_SQL.search(s):
                 raise Bad(f"measure {name}: input {alias} must be one read-only SELECT")
             inputs[a] = {"sql": s, "refresh": str(src.get("refresh") or "1d")}
         else:
-            raise Bad(f"measure {name}: input {alias} needs bars, perp or sql")
+            raise Bad(f"measure {name}: input {alias} needs bars, perp, book or sql")
     out = {"name": name, "title": str(m.get("title") or name)[:80],
            "formula": str(m.get("formula") or expr or "")[:240], "inputs": inputs,
            "unit": str(m.get("unit") or "")[:20]}
@@ -372,6 +401,8 @@ def _sql_rows(sql: str, refresh: str) -> list:
     if hit and time.monotonic() - hit[0] < ttl:
         return hit[1]
     con = sqlite3.connect(f"file:{ds.DB_PATH}?mode=ro", uri=True, timeout=5)
+    import fo_store
+    fo_store.attach(con)
     deadline = time.monotonic() + _SQL_SECONDS
     con.set_progress_handler(lambda: 1 if time.monotonic() > deadline else 0, 20_000)
     try:
@@ -419,6 +450,8 @@ def frame(spec: dict, limit: int | None = None) -> tuple[dict, list[str]]:
                 data[alias], note = _perp_series(src["perp"], data["t"], iv)
                 if note:
                     notes.append(f"{alias}: {note}")
+            elif "book" in src:
+                data[alias] = _book_series(src["book"]["uid"], src["book"]["field"], data["t"], iv)
             else:
                 got = _sql_rows(src["sql"], src["refresh"])
                 if got and len(got[0]) >= 2:
@@ -461,6 +494,57 @@ def _perp_series(src: dict, ts: list[int], iv: str) -> tuple[list, str]:
     v = c.get(src["field"])
     return [None] * (len(ts) - 1) + [v], (f"Hyperliquid gives {src['field']} only as of now, so it "
                                           f"applies to the latest bar and the replay cannot test it")
+
+
+def _book_series(uid: int, field: str, ts: list[int], iv: str) -> list:
+    """The day book on each bar's close: what was realised that IST day up to
+    then, how many positions were opened, and the losing trades in a row. A
+    trade is a group of legs opened together. The latest bar's day_pnl adds
+    what is open, marked."""
+    import daybook
+    daybook.init_db()
+    with ds._users_lock:
+        rows = _db().execute("SELECT grp, entry_ts, exit_ts, pnl, state, side, entry_px, mark_px, qty, "
+                             "costs, kind FROM day_positions WHERE user_id=? AND entry_ts >= ?",
+                             (uid, (ts[0] if ts else 0) - 86400)).fetchall()
+    groups: dict[str, dict] = {}
+    for grp, ent, ext, pnl, state, *_ in rows:
+        g = groups.setdefault(grp, {"in": ent, "out": 0, "pnl": 0.0, "open": False})
+        g["in"] = min(g["in"], ent)
+        if state == "closed":
+            g["out"] = max(g["out"], ext or 0)
+            g["pnl"] += pnl or 0.0
+        else:
+            g["open"] = True
+    closed = sorted((g for g in groups.values() if not g["open"]), key=lambda g: g["out"])
+    opened = sorted(g["in"] for g in groups.values())
+    out = []
+    for k, t in enumerate(ts):
+        # the latest bar reads the book as it is now: a guard checked after a
+        # fill or an exit must see that fill, whatever bar the clock is on
+        close = max(_bar_close(t, iv), int(time.time())) if k == len(ts) - 1 else _bar_close(t, iv)
+        day0 = _day_of(close) * 86400 - ds.IST_OFF
+        if field == "trades_today":
+            out.append(float(sum(1 for x in opened if day0 <= x <= close)))
+            continue
+        done = [g for g in closed if day0 <= g["out"] <= close]
+        if field == "loss_streak":
+            k = 0
+            for g in reversed(done):
+                if g["pnl"] >= 0:
+                    break
+                k += 1
+            out.append(float(k))
+        else:
+            out.append(round(sum(g["pnl"] for g in done), 2))
+    if field == "day_pnl" and out:
+        live = 0.0
+        for grp, ent, ext, pnl, state, side, epx, mpx, qty, costs, kind in rows:
+            if state == "open":
+                p = {"side": side, "entry_px": epx, "qty": qty, "kind": kind}
+                live += daybook._gross(p, mpx or epx) - (costs or 0)
+        out[-1] = round(out[-1] + live, 2)
+    return out
 
 
 def run_measures(spec: dict, data: dict, check: bool = False) -> tuple[dict, list[str]]:
@@ -532,6 +616,66 @@ def run_measures(spec: dict, data: dict, check: bool = False) -> tuple[dict, lis
 #       | {"time": {"after": "09:20", "before": "15:00"}} | {"time": {"at": "09:20"}}
 # operand := a number | a measure name | close/open/high/low/volume (clock symbol)
 #          | "SYMBOL.close" (another instrument's bar field)
+#          | arithmetic over those names: "hi_since - 1.5 * atr14", "or_high + 0.25 * or_range"
+
+_SYM_FIELD = re.compile(r"^.+\.(open|high|low|close|volume)$", re.I)
+_EXPR_FUNCS = {"abs": abs, "min": min, "max": max}
+
+
+def _is_expr(s: str) -> bool:
+    return (isinstance(s, str) and not _SYM_FIELD.match(s.strip())
+            and bool(re.search(r"[-+*/()]", s)))
+
+
+def _expr_tree(s: str) -> ast.Expression:
+    try:
+        tree = ast.parse(s.strip(), mode="eval")
+    except SyntaxError:
+        raise Bad(f"operand {s!r} is not a name, a number or arithmetic over names") from None
+    ok = (ast.Expression, ast.BinOp, ast.UnaryOp, ast.Add, ast.Sub, ast.Mult, ast.Div, ast.USub,
+          ast.UAdd, ast.Constant, ast.Name, ast.Load, ast.Call)
+    for n in ast.walk(tree):
+        if not isinstance(n, ok) or (isinstance(n, ast.Constant) and not isinstance(n.value, (int, float))) \
+                or (isinstance(n, ast.Call) and not (isinstance(n.func, ast.Name) and n.func.id in _EXPR_FUNCS
+                                                     and not n.keywords)):
+            raise Bad(f"operand {s!r}: only + - * /, parentheses, numbers, names and abs/min/max")
+    return tree
+
+
+def _expr_names(s: str) -> list[str]:
+    return sorted({n.id for n in ast.walk(_expr_tree(s)) if isinstance(n, ast.Name)
+                   and n.id not in _EXPR_FUNCS})
+
+
+def _eval_expr(s: str, data: dict, series: dict, n: int) -> list:
+    tree = _expr_tree(s)
+    cols = {k: _resolve(k, data, series, n) for k in _expr_names(s)}
+
+    def ev(node, i):
+        if isinstance(node, ast.Expression):
+            return ev(node.body, i)
+        if isinstance(node, ast.Constant):
+            return float(node.value)
+        if isinstance(node, ast.Name):
+            return cols[node.id][i]
+        if isinstance(node, ast.UnaryOp):
+            v = ev(node.operand, i)
+            return None if v is None else (-v if isinstance(node.op, ast.USub) else v)
+        if isinstance(node, ast.Call):
+            args = [ev(a, i) for a in node.args]
+            return None if any(a is None for a in args) else _EXPR_FUNCS[node.func.id](*args)
+        a, b = ev(node.left, i), ev(node.right, i)
+        if a is None or b is None:
+            return None
+        if isinstance(node.op, ast.Add):
+            return a + b
+        if isinstance(node.op, ast.Sub):
+            return a - b
+        if isinstance(node.op, ast.Mult):
+            return a * b
+        return a / b if b else None
+    return [ev(tree, i) for i in range(n)]
+
 
 def _operands(when) -> list:
     out = []
@@ -560,6 +704,10 @@ def _resolve(op, data: dict, series: dict, n: int) -> list:
         return series[key]
     if key in data and key not in ("t", "hhmm"):
         return data[key]
+    if _is_expr(s):
+        return _eval_expr(s, data, series, n)
+    if key in POSITION:
+        raise Bad(f"{key} describes an open position, so only manage.exit_when can read it")
     raise Bad(f"condition operand {op!r} is not a number, a field ({', '.join(FIELDS)}) or a "
               f"measure in this play")
 
@@ -692,6 +840,15 @@ def _norm_on(raw, sym: str) -> dict | None:
             "min_confidence": float(raw.get("min_confidence") or 0.6)}
 
 
+def _norm_when(when) -> dict | None:
+    when = when or None
+    if isinstance(when, list):
+        when = {"all": when}
+    if when and ("left" in when or "time" in when):
+        when = {"all": [when]}
+    return when
+
+
 def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str = "") -> tuple[dict, list[str]]:
     """The model's play, checked and filled in. Returns (spec, assumptions):
     every default this function chose is listed, so the reply can say it."""
@@ -709,28 +866,34 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
     iv = {"D": "1d", "1D": "1d", "day": "1d", "daily": "1d", "60m": "1h"}.get(iv, iv)
     if iv not in INTERVALS:
         raise Bad(f"interval must be one of {', '.join(INTERVALS)}")
-    if not raw.get("interval"):
+    if not raw.get("interval") and (raw.get("do") or {}).get("kind") != "halt":
         said.append(f"checks on each {iv} bar close")
 
     measures, seen = [], set()
     lib = {m["name"]: m for m in list_measures(uid)} if uid else {}
     for m in raw.get("measures") or []:
-        nm = _norm_measure(m)
+        nm = _norm_measure(m, uid)
         if nm["name"] in seen:
             raise Bad(f"two measures are named {nm['name']}")
         seen.add(nm["name"])
         measures.append(nm)
 
-    when = raw.get("when") or None
-    if isinstance(when, list):
-        when = {"all": when}
-    if when and "left" in when or (when and "time" in when):
-        when = {"all": [when]}
+    when = _norm_when(raw.get("when"))
+    exit_when = _norm_when((raw.get("manage") or {}).get("exit_when"))
+    names = []
+    for op in _operands(when) + _operands(exit_when):
+        if isinstance(op, str):
+            names += _expr_names(op) if _is_expr(op) else [op]
+    if any(_clean_name(x) in POSITION for x in _operands(when) if isinstance(x, str)) or \
+            any(_clean_name(x) in POSITION for op in _operands(when) if _is_expr(op)
+                for x in _expr_names(op)):
+        raise Bad(f"{', '.join(POSITION)} describe an open position: use them in manage.exit_when, "
+                  f"not in when")
     # operands naming a saved measure pull it in; "SYMBOL.field" becomes an input
-    for op in _operands(when):
-        if not isinstance(op, str):
-            continue
+    for op in names:
         key = _clean_name(op)
+        if key in POSITION:
+            continue
         if key in seen or key in FIELDS:
             continue
         if key in lib:
@@ -780,6 +943,19 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
         raise Bad(f"do.kind must be one of {', '.join(DO_KINDS)}")
     if kind == "notify" and authority != "notify":
         authority = "notify"
+    if kind == "halt":
+        if not when:
+            raise Bad("a halt needs `when`: the condition that stops the day (a book input such as "
+                      "day_pnl or loss_streak, a time, a market move)")
+        # stopping trading only ever reduces risk, so it never waits for a tap
+        authority = "act"
+        if iv == "1d":
+            iv = "5m"
+        said.append("checked after every fill and exit in the day book, and on each 5m bar")
+        if not contract.get("lifespan"):
+            lifespan = "standing"
+        do = {"kind": "halt", "close": bool(do.get("close"))}
+        said[:] = [x for x in said if not x.startswith("it tells you")]
     mg_raw = raw.get("manage") or {}
     intraday = bool(mg_raw.get("exit_at") or mg_raw.get("trail_pct") or mg_raw.get("on_leg_stop")
                     or mg_raw.get("max_loss_inr") or mg_raw.get("target_inr"))
@@ -823,7 +999,7 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
         if authority == "notify":
             authority = "propose"
             said.append("it proposes the order for you to confirm")
-    elif kind not in ("notify",):
+    elif kind not in ("notify", "halt"):
         do["symbol"] = ds.canon_symbol(str(do.get("symbol") or sym))
         size = do.get("size") or {}
         if not isinstance(size, dict):
@@ -890,6 +1066,11 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
     for k in ("max_loss_inr", "target_inr"):
         if mg_raw.get(k):
             manage[k] = abs(float(mg_raw[k]))
+    if exit_when:
+        if kind not in ("buy", "short", "options", "future"):
+            raise Bad("manage.exit_when closes a position, so the play must open one (do.kind buy, "
+                      "short, options or future)")
+        manage["exit_when"] = exit_when
     if (manage.get("trail_pct") or manage.get("on_leg_stop") or manage.get("max_loss_inr")
             or manage.get("target_inr")) and do.get("product") not in ("MIS", "NRML", "PERP"):
         raise Bad("trailing stops, leg rules and profit or loss exits run in the day book: set "
@@ -904,7 +1085,7 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
                "max_order_inr": float((raw.get("mandate") or {}).get("max_order_inr") or cap),
                "max_fires": int((raw.get("mandate") or {}).get("max_fires")
                                 or (1 if lifespan in ("now", "once_when") else
-                                    10_000 if lifespan == "policy" else 20))}
+                                    10_000 if lifespan == "policy" or kind == "halt" else 20))}
     if kind == "rebalance":
         mandate["max_weight"] = float((raw.get("mandate") or {}).get("max_weight")
                                       or policy.DEFAULT_MAX_WEIGHT)
@@ -1009,6 +1190,212 @@ def _event_points(spec: dict, data: dict, tr: list) -> tuple[list[int], list[str
     return pts, notes, hits[-5:]
 
 
+# ── round trips on history ───────────────────────────────────────────────────
+# A fire count says how often; it does not say what happened next. The replay
+# also walks every entry forward through the play's own exits on the clock
+# symbol's bars, and walks the same exits from entries with no condition at
+# all (the same hours of the day) as the control. Measured on the clock
+# symbol's price: for an option play that is the underlying's move, not the
+# premium, and the card says so.
+
+def _direction(spec: dict) -> int:
+    do = spec["do"]
+    if do["kind"] == "short":
+        return -1
+    if do["kind"] == "future":
+        return -1 if str(do.get("side") or "buy").lower() in ("sell", "short") else 1
+    if do["kind"] == "options":
+        v = 0
+        for lg in do.get("legs") or []:
+            bull = (lg["opt"] == "CE") == (lg["side"] == "buy")
+            v += (1 if bull else -1) * int(lg.get("lots") or 1)
+        return (v > 0) - (v < 0)
+    return 1
+
+
+def _position_series(data: dict, i0: int, d: int) -> dict:
+    n, c, h, lo = len(data["t"]), data["close"], data["high"], data["low"]
+    out = {k: [None] * n for k in POSITION}
+    e = c[i0]
+    if e is None:
+        return out
+    hh = ll = e
+    for j in range(i0, n):
+        if j > i0:
+            hh = max(hh, h[j]) if h[j] is not None else hh
+            ll = min(ll, lo[j]) if lo[j] is not None else ll
+        out["entry"][j], out["bars_in"][j], out["hi_since"][j], out["lo_since"][j] = e, float(j - i0), hh, ll
+        out["pnl_pct"][j] = (d or 1) * (c[j] / e - 1) * 100 if c[j] is not None else None
+    return out
+
+
+def _uses_position(when) -> bool:
+    for op in _operands(when):
+        if isinstance(op, str):
+            names = _expr_names(op) if _is_expr(op) else [op]
+            if any(_clean_name(x) in POSITION for x in names):
+                return True
+    return False
+
+
+def _day_of(t: int) -> int:
+    return (t + ds.IST_OFF) // 86400
+
+
+def _walk(spec: dict, data: dict, series: dict, i0: int, d: int, ex_tr: list | None) -> dict:
+    """One position from bar i0's close through the play's exits."""
+    mg, do = spec.get("manage") or {}, spec["do"]
+    t, o, h, lo, c, hm = (data[k] for k in ("t", "open", "high", "low", "close", "hhmm"))
+    n, e = len(t), c[i0]
+    pct = do["kind"] != "options" and d       # an option's percents are of its premium
+    sd = d or 1
+    stop = e * (1 - sd * mg["stop_pct"] / 100) if pct and mg.get("stop_pct") else None
+    target = e * (1 + sd * mg["target_pct"] / 100) if pct and mg.get("target_pct") else None
+    trail = mg.get("trail_pct") / 100 if pct and mg.get("trail_pct") else None
+    if mg.get("exit_when") and ex_tr is None:
+        ex_tr = truth(mg["exit_when"], data, {**series, **_position_series(data, i0, d)})
+    cut = None
+    if spec["interval"] != "1d":
+        if mg.get("exit_at"):
+            hh, mm = (int(x) for x in mg["exit_at"].split(":"))
+            cut = hh * 100 + mm
+        if do.get("product") == "MIS" and not hyperliquid.is_perp(spec["symbol"]):
+            cut = min(cut or 1520, 1520)
+    best = e
+    for j in range(i0 + 1, n):
+        if None in (o[j], h[j], lo[j], c[j]):
+            continue
+        if cut and _day_of(t[j]) != _day_of(t[i0]):
+            return {"i": i0, "j": j - 1, "px": c[j - 1], "why": "square-off"}
+        adverse, favour = (lo[j], h[j]) if sd > 0 else (h[j], lo[j])
+        worse = (lambda a, b: min(a, b)) if sd > 0 else (lambda a, b: max(a, b))
+        better = (lambda a, b: max(a, b)) if sd > 0 else (lambda a, b: min(a, b))
+        lvl = stop
+        if trail:
+            ts = best * (1 - sd * trail)
+            lvl = ts if lvl is None else better(lvl, ts)
+        if lvl is not None and (adverse <= lvl if sd > 0 else adverse >= lvl):
+            return {"i": i0, "j": j, "px": worse(o[j], lvl), "why": "trailing stop" if trail else "stop"}
+        if target is not None and (favour >= target if sd > 0 else favour <= target):
+            return {"i": i0, "j": j, "px": better(o[j], target), "why": "target"}
+        best = better(best, favour)
+        if ex_tr and ex_tr[j] is True:
+            return {"i": i0, "j": j, "px": c[j], "why": "exit rule"}
+        if cut and hm[j] >= cut:
+            return {"i": i0, "j": j, "px": c[j], "why": "time exit"}
+    return {"i": i0, "j": n - 1, "px": c[n - 1], "why": "open"}
+
+
+def _stats(rets: list[float]) -> dict:
+    if not rets:
+        return {"n": 0}
+    wins, losses = [r for r in rets if r > 0], [r for r in rets if r <= 0]
+    srt = sorted(rets)
+    out = {"n": len(rets), "win_rate": round(len(wins) / len(rets), 3),
+           "expectancy": round(sum(rets) / len(rets), 3), "median": round(srt[len(srt) // 2], 3),
+           "avg_win": round(sum(wins) / len(wins), 3) if wins else None,
+           "avg_loss": round(sum(losses) / len(losses), 3) if losses else None,
+           "best": round(srt[-1], 3), "worst": round(srt[0], 3)}
+    if losses and sum(losses):
+        out["profit_factor"] = round(sum(wins) / -sum(losses), 2) if wins else 0.0
+    return out
+
+
+def _time_only(when) -> dict | None:
+    conds = [c for c in (when or {}).get("all") or [] if "time" in c]
+    return {"all": conds} if conds else None
+
+
+def round_trips(spec: dict, data: dict, series: dict, tr: list) -> dict | None:
+    """Every entry on history walked through the exits, one position at a
+    time, against the same exits from unconditioned entries."""
+    do, mg = spec["do"], spec.get("manage") or {}
+    if do["kind"] not in ("buy", "short", "options", "future") or spec.get("on") or not tr:
+        return None
+    d = _direction(spec)
+    pos_aware = bool(mg.get("exit_when")) and _uses_position(mg["exit_when"])
+    ex_once = (truth(mg["exit_when"], data, series)
+               if mg.get("exit_when") and not pos_aware else None)
+    has_exit = bool(mg.get("exit_when") or mg.get("exit_at") or (do.get("product") == "MIS"
+                    and spec["interval"] != "1d") or (do["kind"] != "options" and d and
+                    (mg.get("stop_pct") or mg.get("target_pct") or mg.get("trail_pct"))))
+    n = len(data["t"])
+    sd = d or 1
+    ret = (lambda w: sd * (w["px"] / data["close"][w["i"]] - 1) * 100) if d else \
+        (lambda w: abs(w["px"] / data["close"][w["i"]] - 1) * 100)
+    out = {"basis": (f"{spec['symbol']}'s move" + (", not the option's premium" if do["kind"] == "options"
+                                                    else "")), "direction": d, "notes": []}
+    if not has_exit:
+        # nothing closes it: say what followed instead, at two horizons, against every bar
+        hs = (5, 20) if spec["interval"] == "1d" else (3, 12)
+        fwd = {}
+        for hz in hs:
+            pts = [i for i in fire_points(tr) if i + hz < n]
+            base = [i for i in range(n - hz) if data["close"][i]]
+            f = lambda ii: [sd * (data["close"][i + hz] / data["close"][i] - 1) * 100 for i in ii]
+            fwd[str(hz)] = {"after": _stats(f(pts)), "any_bar": _stats(f(base))}
+        out.update(kind="forward", bars=list(hs), forward=fwd)
+        out["notes"].append("it has no exit, so history shows what followed each fire rather than trades")
+        return out
+    trades, i = [], 1
+    pts = fire_points(tr)
+    for p in pts:
+        if p < i:
+            continue                       # one position at a time
+        w = _walk(spec, data, series, p, d, ex_once)
+        trades.append(w)
+        i = w["j"] + 1
+    window = truth(_time_only(spec.get("when")), data, series) if _time_only(spec.get("when")) else None
+    pool = [k for k in range(n - 1) if (window is None or window[k] is True) and data["close"][k]]
+    step = max(1, len(pool) // (120 if pos_aware else 300))
+    ctrl = [ret(_walk(spec, data, series, k, d, ex_once)) for k in pool[::step]]
+    rets = [ret(w) for w in trades]
+    st = _stats(rets)
+    st["avg_bars"] = round(sum(w["j"] - w["i"] for w in trades) / len(trades), 1) if trades else None
+    whys: dict[str, int] = {}
+    for w in trades:
+        whys[w["why"]] = whys.get(w["why"], 0) + 1
+    out.update(kind="trades", **st, exits=whys, control=_stats(ctrl),
+               list=[{"in": data["t"][w["i"]], "out": data["t"][w["j"]], "entry": data["close"][w["i"]],
+                      "exit": round(w["px"], 4), "ret": round(ret(w), 3), "why": w["why"]}
+                     for w in trades[-12:]],
+               curve=[round(x, 3) for x in _cum(rets)][-120:])
+    ctl = out["control"]
+    if st["n"] and ctl.get("n") and d:
+        edge = st["expectancy"] - ctl["expectancy"]
+        out["edge"] = round(edge, 3)
+        out["verdict"] = ("too_few" if st["n"] < 20 else
+                          "ahead" if edge > 0 and st["win_rate"] >= ctl["win_rate"] else
+                          "behind" if edge < 0 else "mixed")
+    if not d:
+        out["notes"].append("a position with no direction: each trade is the size of the move while it "
+                            "was held, in either direction")
+    if do["kind"] == "options" and (mg.get("stop_pct") or mg.get("target_pct") or mg.get("trail_pct")):
+        out["notes"].append("its stop, target and trail are percents of the option's premium, which "
+                            "stored history does not carry, so they are not replayed")
+    if mg.get("max_loss_inr") or mg.get("target_inr"):
+        out["notes"].append("the rupee limits are not replayed")
+    if st["n"] and st["n"] < 20:
+        out["notes"].append(f"only {st['n']} trades: too few to tell an edge from luck")
+    size = (do.get("size") or {}).get("inr")
+    if size and do["kind"] in ("buy", "short") and do.get("product") != "PERP" and st["n"]:
+        import daybook
+        px = data["close"][-1] or 1
+        q = max(1.0, size / px)
+        cost = daybook.charges("equity", "BUY", px, q) + daybook.charges("equity", "SELL", px, q)
+        out["cost_pct"] = round(cost / size * 100, 3)
+        out["per_trade_inr"] = round((st["expectancy"] - out["cost_pct"]) / 100 * size, 0)
+    return out
+
+
+def _cum(rets: list[float]) -> list[float]:
+    acc, out = 0.0, []
+    for r in rets:
+        acc += r
+        out.append(acc)
+    return out
+
+
 def replay(spec: dict, check: bool = True) -> dict:
     """The play over stored history: the same measures and the same condition
     code the live bar runs. What the trader sees before it is armed."""
@@ -1041,7 +1428,17 @@ def replay(spec: dict, check: bool = True) -> dict:
     }
     if spec.get("on") or not spec.get("when"):
         return out, data, series, tr       # nothing to replay: it acts on events or now
-    if tr and not pts:
+    try:
+        rt = round_trips(spec, data, series, tr)
+    except Bad as exc:
+        raise Bad(f"manage.exit_when: {exc}") from None
+    if rt:
+        out["trades"] = rt
+    reads_book = any("book" in src for m in spec.get("measures") or [] for src in m["inputs"].values())
+    if tr and not pts and reads_book:
+        out["notes"].append("it reads your own day book, and nothing in it would have set it off on the "
+                            "stored history")
+    elif tr and not pts:
         out["notes"].append("it would not have fired once on the stored history; check the levels")
     elif out["per_month"] > 40 and spec["interval"] != "1m":
         out["notes"].append(f"it would have fired about {out['per_month']:.0f} times a month; "
@@ -1083,13 +1480,26 @@ def _with_parts(rows: list[dict], spec: dict) -> list[dict]:
             for i, r in enumerate(rows)]
 
 
+_POSITION_WORDS = {"entry": "entry price", "bars_in": "bars held", "hi_since": "high since entry",
+                   "lo_since": "low since entry", "pnl_pct": "% in favour"}
+
+
 def _label(x, spec: dict) -> str:
     if isinstance(x, (int, float)):
         return _fmt_num(float(x))
     names = {m["name"]: m.get("title") or m["name"] for m in spec.get("measures") or []}
+    if _is_expr(x):
+        try:
+            words = {k: names.get(k) or _POSITION_WORDS.get(k) or k for k in _expr_names(x)}
+        except Bad:
+            return str(x)
+        return re.sub(r"[A-Za-z_][A-Za-z0-9_]*", lambda m: words.get(m.group(0), m.group(0)),
+                      str(x)).replace("*", "×")
     k = _clean_name(x)
     if k in names:
         return names[k]
+    if k in _POSITION_WORDS:
+        return _POSITION_WORDS[k]
     return f"{spec['symbol']} {k}" if k in FIELDS else str(x)
 
 
@@ -1143,15 +1553,7 @@ def describe(c: dict, spec: dict) -> str:
         if t.get("after") and t.get("before"):
             return f"between {t['after']} and {t['before']}"
         return f"after {t['after']}" if t.get("after") else f"before {t['before']}"
-    names = {m["name"]: m.get("title") or m["name"] for m in spec.get("measures") or []}
-
-    def name(x):
-        if isinstance(x, (int, float)):
-            return _fmt_num(float(x))
-        k = _clean_name(x)
-        if k in names:
-            return names[k]
-        return f"{spec['symbol']} {k}" if k in FIELDS else str(x)
+    name = lambda x: _label(x, spec)    # noqa: E731
     op = c.get("op")
     s = f"{name(c.get('left'))} {_op_word(op)}"
     if op in ("between", "outside"):
@@ -1172,8 +1574,12 @@ def _contract_line(spec: dict) -> dict:
     acts = {"notify": "Tells you", "propose": "Proposes, you confirm",
             "act": "Places it on paper, then tells you",
             "manage": "Places and manages it on paper"}[c["authority"]]
+    if spec["do"]["kind"] == "halt":
+        acts = "Halts on its own and tells you; you can lift it"
     out = {"runs": runs, "acts": acts}
-    if spec["do"]["kind"] == "rebalance":
+    if spec["do"]["kind"] == "halt":
+        pass
+    elif spec["do"]["kind"] == "rebalance":
         new = (spec["do"].get("size") or {}).get("inr")
         out["limit"] = f"at most {m.get('max_weight', policy.DEFAULT_MAX_WEIGHT) * 100:.0f}% in one name" + \
             (f", ₹{new:,.0f} of new money" if new else "")
@@ -1196,6 +1602,9 @@ def order_words(spec: dict) -> str:
     """The order in a trader's words, from the tree: "sell NIFTY ATM CE and
     ATM PE, 1 lot each, weekly expiry"."""
     do = spec["do"]
+    if do["kind"] == "halt":
+        return ("stops new intraday, F&O and perp entries for the rest of the day"
+                + (" and closes what is open" if do.get("close") else ""))
     if do["kind"] == "options":
         legs = do.get("legs") or []
         parts = [f"{lg['side']} {lg.get('lots', 1)} lot{'s' if lg.get('lots', 1) != 1 else ''} "
@@ -1246,6 +1655,9 @@ def summary(spec: dict) -> str:
         pol = spec.get("policy") or {}
         return (f"{words[0].upper()}{words[1:]}: every {pol.get('every', 'week')}, and whenever a "
                 f"holding drifts {pol.get('drift_pct', 5):g} points from its target. On paper.")
+    if do["kind"] == "halt":
+        w = order_words(spec)
+        return f"{w[0].upper()}{w[1:]} when {cond}. Checked after every fill and exit, and every {iv}."
     if do["kind"] == "notify":
         act = "tells you"
     elif do["kind"] in ("options", "future", "short", "cover") or do.get("product") == "PERP":
@@ -1295,7 +1707,7 @@ def card(row: dict, live: dict | None = None) -> dict:
     hist = row.get("history") or {}
     do = spec["do"]
     action = None
-    if do["kind"] in ("options", "future", "short", "cover", "rebalance") or do.get("product") == "PERP":
+    if do["kind"] in ("options", "future", "short", "cover", "rebalance", "halt") or do.get("product") == "PERP":
         action = {"side": do["kind"], "symbol": do.get("symbol") or do.get("underlying"),
                   "text": order_words(spec)[0].upper() + order_words(spec)[1:]}
     elif do["kind"] != "notify":
@@ -1322,6 +1734,8 @@ def card(row: dict, live: dict | None = None) -> dict:
         exits.append(f"exit all at ₹{mg['max_loss_inr']:,.0f} loss")
     if mg.get("target_inr"):
         exits.append(f"exit all at ₹{mg['target_inr']:,.0f} profit")
+    if mg.get("exit_when"):
+        exits.insert(0, "exits when " + describe(mg["exit_when"], spec))
     if do.get("product") == "MIS":
         exits.append("squared off at 15:20" if not do.get("symbol", "").endswith(("USDT", "USD")) else "")
     exits = [e for e in exits if e]
@@ -1351,7 +1765,10 @@ def card(row: dict, live: dict | None = None) -> dict:
                      or m.get("code")],
         "action": action, "exits": exits, "contract": _contract_line(spec),
         "history": {k: hist.get(k) for k in ("fires", "per_month", "last_fire", "bars", "from", "to",
-                                             "fire_ts", "price")},
+                                             "fire_ts", "price", "trades")},
+        "exit_rule": ([_parts(c, spec) for c in (mg["exit_when"].get("all") or mg["exit_when"].get("any") or [])]
+                      if mg.get("exit_when") else None),
+        "exit_join": "any" if "any" in (mg.get("exit_when") or {}) else "all",
         "do": do, "manage": mg, "mandate": spec.get("mandate"), "policy": spec.get("policy"), "perp": perp,
         "lifespan": spec["contract"]["lifespan"], "authority": spec["contract"]["authority"],
         "discretion": spec["contract"]["discretion"], "created": row.get("created"),
@@ -1375,7 +1792,7 @@ def card(row: dict, live: dict | None = None) -> dict:
 
 _COLS = ("id", "user_id", "title", "ask", "spec", "symbol", "interval", "symbols", "state", "why",
          "created", "updated", "expires", "fires", "accepted", "spent_inr", "held_qty",
-         "held_sym", "held_legs", "last_eval_ts", "needs_confirm", "history")
+         "held_sym", "held_legs", "last_eval_ts", "needs_confirm", "history", "entry_bar")
 
 
 def _row(t: tuple) -> dict:
@@ -1696,7 +2113,7 @@ def _tick(pid: int, minute_ts: int | None = None, force: bool = False) -> list[d
         return out
     for i in new:
         late = i != len(t) - 1
-        if play["why"] == EXITS_ONLY and not play["held_qty"]:
+        if play["why"] == EXITS_ONLY and not _holding(play):
             _entries_over(pid, "fired")
             break
         if (tr and i > 0 and tr[i] is True and tr[i - 1] is not True
@@ -1710,8 +2127,56 @@ def _tick(pid: int, minute_ts: int | None = None, force: bool = False) -> list[d
             if ex:
                 out.append(ex)
                 play = _load(pid)
+        if not late and (spec.get("manage") or {}).get("exit_when") and _holding(play):
+            ex = _maybe_rule_exit(play, data, series, i)
+            if ex:
+                out.append(ex)
+                play = _load(pid)
     _set(pid, last_eval_ts=t[-1])
     return out
+
+
+def _holding(play: dict) -> bool:
+    if _day_route(play["spec"]["do"]):
+        import daybook
+        return bool(daybook.open_positions(play["user_id"], play["id"]))
+    return bool(play["held_qty"] or any((play.get("held_legs") or {}).values()))
+
+
+def _maybe_rule_exit(play: dict, data: dict, series: dict, i: int) -> dict | None:
+    """manage.exit_when, read on the bar that just closed with the position's
+    own names filled in from the bar it was entered on."""
+    spec = play["spec"]
+    ew = spec["manage"]["exit_when"]
+    t = data["t"]
+    i0 = next((k for k in range(len(t)) if t[k] >= (play.get("entry_bar") or 0)), 0)
+    if i <= i0:
+        return None
+    tr = truth(ew, data, {**series, **_position_series(data, i0, _direction(spec))})
+    if tr[i] is not True:
+        return None
+    why = "exit rule: " + describe(ew, spec)
+    body = {"reason": why, "seen": _seen({"when": ew, "measures": spec.get("measures"),
+                                          "symbol": spec["symbol"]}, data,
+                                         {**series, **_position_series(data, i0, _direction(spec))}, i),
+            "symbol": spec["symbol"], "price": data["close"][i]}
+    if _day_route(spec["do"]):
+        import daybook
+        res = daybook.close_play(play["id"], why)    # an exit never waits for a tap
+        return _event(play, t[i], "exited", spec["title"], {**body, "closed": res}, status="done")
+    if customsec.is_custom(play["held_sym"]):
+        legs = {s: q for s, q in _held_legs_now(play).items() if q}
+        ticket = {"basket": play["held_sym"], "side": "SELL",
+                  "legs": [{"symbol": s, "side": "SELL", "qty": q, "price": _mark(s)} for s, q in legs.items()]}
+    else:
+        held = _held_now(play)
+        if not held:
+            _set(play["id"], held_qty=0)
+            return None
+        ticket = {"symbol": play["held_sym"], "side": "SELL", "qty": held, "price": data["close"][i]}
+    if spec["contract"]["authority"] == "manage":
+        return _place(play, ticket, t[i], body)
+    return _event(play, t[i], "proposed", spec["title"], {**body, "ticket": ticket})
 
 
 def _seen(spec: dict, data: dict, series: dict, i: int) -> list[dict]:
@@ -1764,7 +2229,12 @@ def _fire(play: dict, data: dict, series: dict, i: int, *, late: bool,
         authority, reason = "propose", ("a headline alone never places an order; a filing or a "
                                         "price condition has to back it")
     ev = None
-    if do["kind"] == "notify" or authority == "notify":
+    halt = _halted(play["user_id"]) if _halts_entries(do) else None
+    if do["kind"] == "halt":
+        ev = _halt(play, ts, body)
+    elif halt and authority != "notify":
+        ev = _event(play, ts, "rejected", title, {**body, "reason": halt["text"]}, status="done")
+    elif do["kind"] == "notify" or authority == "notify":
         ev = _event(play, ts, "fired", title, {**body, "reason": reason}, status="done")
     else:
         ticket, why = _ticket(play, price)
@@ -1786,12 +2256,66 @@ def _fire(play: dict, data: dict, series: dict, i: int, *, late: bool,
     return ev
 
 
+def _halts_entries(do: dict) -> bool:
+    """What a halt stops: new trading positions. Exits always run, and a
+    delivery buy or a rebalance is investing, not the day's trading."""
+    return do["kind"] in ("short", "options", "future") or (
+        do["kind"] == "buy" and do.get("product") in ("MIS", "PERP"))
+
+
+def _next_open(now: float) -> int:
+    lt = datetime.fromtimestamp(now, timezone.utc).timestamp() + ds.IST_OFF
+    day = int(lt // 86400) + 1
+    return day * 86400 - ds.IST_OFF + 9 * 3600
+
+
+def _halted(uid: int) -> dict | None:
+    with ds._users_lock:
+        r = _db().execute("SELECT until, why, play_id FROM play_halts WHERE user_id=?", (uid,)).fetchone()
+    if not r or r[0] <= time.time():
+        return None
+    when = time.strftime("%d %b %H:%M", time.gmtime(r[0] + ds.IST_OFF))
+    return {"until": r[0], "why": r[1], "play_id": r[2],
+            "text": f"trading is halted until {when} IST: {r[1]}"}
+
+
+def _halt(play: dict, ts: int, body: dict) -> dict:
+    spec = play["spec"]
+    why = describe(spec["when"], spec) if spec.get("when") else spec["title"]
+    until = _next_open(time.time())
+    with ds._users_lock:
+        _db().execute("INSERT OR REPLACE INTO play_halts (user_id, until, why, play_id, created) "
+                      "VALUES (?,?,?,?,?)", (play["user_id"], until, why, play["id"], int(time.time())))
+        _db().commit()
+    closed = []
+    if spec["do"].get("close"):
+        import daybook
+        for p in daybook.open_positions(play["user_id"]):
+            r = daybook.close(p, p["mark_px"] or p["entry_px"], f"halted: {why}")
+            if r:
+                closed.append(r)
+    return _event(play, ts, "fired", spec["title"],
+                  {**body, "halted_until": until, "closed": closed,
+                   "reason": f"no new intraday, F&O or perp entries until "
+                             f"{time.strftime('%d %b %H:%M', time.gmtime(until + ds.IST_OFF))} IST"},
+                  status="done")
+
+
+def lift_halt(uid: int) -> dict:
+    with ds._users_lock:
+        n = _db().execute("DELETE FROM play_halts WHERE user_id=?", (uid,)).rowcount
+        _db().commit()
+    return {"lifted": bool(n)}
+
+
 def _entries_over(pid: int, why: str, waiting: bool = False) -> None:
     """No more entries. A play that still holds shares and has a time exit
     stays armed to run it (its stop and target already rest in the book); a
     proposal still waiting keeps it open until it is answered."""
     play = _load(pid)
-    exits = bool((play["spec"].get("manage") or {}).get("exit_at")) and play["held_qty"] > 0
+    mg = play["spec"].get("manage") or {}
+    exits = (bool(mg.get("exit_at")) and play["held_qty"] > 0) or \
+        (bool(mg.get("exit_when")) and _holding(play))
     if exits or waiting:
         _set(pid, why=EXITS_ONLY if exits else why)
         return
@@ -1982,7 +2506,8 @@ def _place_basket(play: dict, ticket: dict, ts: int, body: dict) -> dict:
         spent += lg["qty"] * px if lg["side"] == "BUY" else 0
     held = {k: v for k, v in held.items() if v}
     _set(play["id"], held_legs=json.dumps(held), held_sym=ticket["basket"],
-         held_qty=float(sum(held.values())), spent_inr=play["spent_inr"] + spent)
+         held_qty=float(sum(held.values())), spent_inr=play["spent_inr"] + spent,
+         **({"entry_bar": ts} if ticket["side"] == "BUY" and not play["held_qty"] else {}))
     out = {**body, "ticket": ticket, "fills": fills}
     if failed:
         out["failed"] = failed
@@ -2010,13 +2535,15 @@ def _place(play: dict, ticket: dict, ts: int, body: dict) -> dict:
             return _event(play, ts, "exited", play["spec"]["title"], {**body, "closed": res}, status="done")
         got = daybook.open_group(play["user_id"], play["id"], ticket["legs"], play["spec"].get("manage") or {})
         cost = sum(lg["px"] * lg["qty"] * lg.get("fx", 1.0) for lg in ticket["legs"] if lg["side"] == "long")
-        _set(play["id"], spent_inr=play["spent_inr"] + (ticket.get("margin_est") or cost))
+        _set(play["id"], spent_inr=play["spent_inr"] + (ticket.get("margin_est") or cost), entry_bar=ts)
         note = ("priced at the last close because no live quote came back. Quotes are asked for "
                 "every 5 seconds; its stop and target are watched from the first live quote, and "
                 "until then they are not" if ticket.get("stale") else "")
-        return _event(play, ts, "filled", play["spec"]["title"],
-                      {**body, "ticket": ticket, "legs": got["legs"], "group": got["group"],
-                       "estimates": got["estimates"], **({"reason": note} if note else {})}, status="done")
+        ev = _event(play, ts, "filled", play["spec"]["title"],
+                    {**body, "ticket": ticket, "legs": got["legs"], "group": got["group"],
+                     "estimates": got["estimates"], **({"reason": note} if note else {})}, status="done")
+        check_guards(play["user_id"])
+        return ev
     if _paper is None:
         return _event(play, ts, "rejected", play["spec"]["title"],
                       {**body, "reason": "the paper book is not running"}, status="done")
@@ -2036,7 +2563,8 @@ def _place(play: dict, ticket: dict, ts: int, body: dict) -> dict:
     px = float(fill.get("price") or ticket["price"])
     if ticket["side"] == "BUY":
         _set(play["id"], held_qty=play["held_qty"] + ticket["qty"], held_sym=ticket["symbol"],
-             spent_inr=play["spent_inr"] + ticket["qty"] * px)
+             spent_inr=play["spent_inr"] + ticket["qty"] * px,
+             **({} if play["held_qty"] else {"entry_bar": ts}))
     else:
         _set(play["id"], held_qty=max(0.0, play["held_qty"] - ticket["qty"]))
     return _event(play, ts, "filled", play["spec"]["title"],
@@ -2093,6 +2621,32 @@ def _day_event(play_id: int, kind: str, title: str, body: dict) -> None:
     if play:
         _event(play, int(time.time()), kind, play["spec"]["title"], {**body, "detail": title},
                status="done")
+        if kind == "exited":
+            check_guards(play["user_id"])
+
+
+def check_guards(uid: int) -> dict | None:
+    """The trader's armed guards, read against the book as it is now. Run
+    after every fill and exit, so a loss limit stops the day on the exit that
+    breaks it, not at the next bar close. Never raises."""
+    try:
+        if _halted(uid):
+            return None
+        with ds._users_lock:
+            ids = [r[0] for r in _db().execute("SELECT id FROM plays WHERE user_id=? AND state='armed' "
+                                               "AND spec LIKE '%\"kind\": \"halt\"%'", (uid,))]
+        for pid in ids:
+            play = _load(pid)
+            if not play or play["spec"]["do"]["kind"] != "halt":
+                continue
+            data, _ = frame(play["spec"])
+            series, _ = run_measures(play["spec"], data)
+            tr = truth(play["spec"]["when"], data, series)
+            if tr and tr[-1] is True:
+                return _fire(play, data, series, len(data["t"]) - 1, late=False)
+    except Exception:                                       # noqa: BLE001
+        log.warning("plays: guard check failed", exc_info=True)
+    return None
 
 
 JUDGE_PER_DAY = 300
@@ -2178,8 +2732,28 @@ def start() -> dict:
         play_events.start(on_items)
     except Exception:                                       # noqa: BLE001
         log.warning("plays: the event poller did not start", exc_info=True)
+    if os.environ.get("CHARTO_PLAYS") == "1":
+        try:
+            import fo_store
+            fo_store.watch_fn = _option_underlyings
+            fo_store.start()
+        except Exception:                                   # noqa: BLE001
+            log.warning("plays: the F&O history store did not start", exc_info=True)
     with _INDEX_LOCK:
         return {"armed": sum(len(v) for v in _INDEX.values()), "symbols": len(_INDEX)}
+
+
+def _option_underlyings() -> set[str]:
+    """What armed option and future plays trade: the F&O store snapshots
+    their chains through the day."""
+    with ds._users_lock:
+        rows = _db().execute("SELECT spec FROM plays WHERE state='armed'").fetchall()
+    out = set()
+    for (sp,) in rows:
+        do = json.loads(sp).get("do") or {}
+        if do.get("kind") in ("options", "future") and do.get("underlying"):
+            out.add(str(do["underlying"]).upper())
+    return out
 
 
 def register_hook() -> None:
@@ -2671,6 +3245,10 @@ def resolve_event(uid: int, eid: int, action: str) -> dict:
     play = _load(pid)
     if not play:
         raise Bad("the play behind this proposal was deleted")
+    h = _halted(uid) if _halts_entries(play["spec"]["do"]) and not body.get("ticket", {}).get("close") \
+        and (body.get("ticket") or {}).get("side") != "SELL" else None
+    if h:
+        raise Bad(h["text"])
     t = dict(body.get("ticket") or {})
     if t.get("book") == "day":
         fresh, why = _day_ticket(play)
@@ -2782,7 +3360,100 @@ def api_list(uid: int) -> tuple[int, dict]:
         secs = []
     return 200, {"plays": [card(p) for p in plays], "events": evs,
                  "unseen": sum(1 for e in evs if not e["seen"]), "book": book,
-                 "securities": secs}
+                 "securities": secs, "halt": _halted(uid)}
+
+
+# ── the review: what the trader's own trades say ───────────────────────────
+# Numbers only, cut the ways a trading coach would cut them; what they MEAN is
+# the model's to say. A trade is a group of legs opened together.
+
+def _exit_kind(why: str) -> str:
+    w = (why or "").lower()
+    for key, word in (("trailing", "trailing stop"), ("exit rule", "exit rule"), ("halted", "halt"),
+                      ("square-off", "square-off"), ("time exit", "time exit"), ("liquidat", "liquidated"),
+                      ("past its", "loss limit"), ("lost ₹", "loss limit"), ("made ₹", "profit target"),
+                      ("another leg", "leg rule"), ("expired", "expiry"), ("by you", "closed by you"),
+                      ("target", "target"), ("stop", "stop")):
+        if key in w:
+            return word
+    return "closed by the play"
+
+
+def review(uid: int, days: int = 30, play_id: int | None = None) -> dict:
+    import daybook
+    daybook.init_db()
+    since = int(time.time()) - int(days) * 86400
+    q = ("SELECT grp, play_id, symbol, underlying, kind, side, entry_ts, exit_ts, pnl, costs, exit_why "
+         "FROM day_positions WHERE user_id=? AND state='closed' AND exit_ts >= ?")
+    args: list = [uid, since]
+    if play_id:
+        q += " AND play_id=?"
+        args.append(int(play_id))
+    with ds._users_lock:
+        rows = _db().execute(q, args).fetchall()
+        titles = dict(_db().execute("SELECT id, title FROM plays WHERE user_id=?", (uid,)).fetchall())
+    groups: dict[str, dict] = {}
+    for grp, pid, sym, und, kind, side, ent, ext, pnl, costs, why in rows:
+        g = groups.setdefault(grp, {"play_id": pid, "play": titles.get(pid, "") if pid else "",
+                                    "what": und or sym, "kind": kind, "legs": 0, "in": ent, "out": ext,
+                                    "pnl": 0.0, "costs": 0.0, "why": why})
+        g["legs"] += 1
+        g["in"], g["out"] = min(g["in"], ent), max(g["out"], ext)
+        g["pnl"] += pnl or 0.0
+        g["costs"] += costs or 0.0
+        if ext >= g["out"]:
+            g["why"] = why
+    trades = sorted(groups.values(), key=lambda g: g["out"])
+    if not trades:
+        return {"days": days, "trades": 0,
+                "note": "no closed intraday, F&O or perp trades in the day book in this window"}
+    pnls = [round(g["pnl"], 2) for g in trades]
+    st = _stats(pnls)
+    curve, peak, dd = [], 0.0, 0.0
+    for v in _cum(pnls):
+        curve.append(round(v, 2))
+        peak = max(peak, v)
+        dd = min(dd, v - peak)
+
+    def cut(key) -> list[dict]:
+        out: dict = {}
+        for g in trades:
+            k = key(g)
+            b = out.setdefault(k, {"n": 0, "pnl": 0.0, "wins": 0})
+            b["n"] += 1
+            b["pnl"] += g["pnl"]
+            b["wins"] += g["pnl"] > 0
+        return [{"key": k, "n": b["n"], "pnl": round(b["pnl"], 2), "win_rate": round(b["wins"] / b["n"], 2)}
+                for k, b in sorted(out.items(), key=lambda x: str(x[0]))]
+    ist = lambda t: time.gmtime(t + ds.IST_OFF)                                # noqa: E731
+    held = lambda gs: round(sum((g["out"] - g["in"]) / 60 for g in gs) / len(gs), 1) if gs else None  # noqa: E731
+    wins = [g for g in trades if g["pnl"] > 0]
+    losses = [g for g in trades if g["pnl"] <= 0]
+    # a trade opened within 30 minutes of a losing one closing, the same day
+    after = [b for a, b in zip(trades, trades[1:])
+             if a["pnl"] < 0 and 0 <= b["in"] - a["out"] <= 1800]
+    rest = [g for g in trades if g not in after]
+    gross = sum(g["pnl"] + g["costs"] for g in trades)
+    costs = sum(g["costs"] for g in trades)
+    by_day = cut(lambda g: time.strftime("%Y-%m-%d", ist(g["in"])))
+    return {
+        "days": days, "trades": len(trades), **st, "net": round(sum(pnls), 2), "gross": round(gross, 2),
+        "costs": round(costs, 2), "max_drawdown": round(dd, 2), "curve": curve[-200:],
+        "minutes_held": {"wins": held(wins), "losses": held(losses)},
+        "after_a_loss": {"n": len(after), **({k: v for k, v in _stats([g["pnl"] for g in after]).items()
+                                               if k in ("win_rate", "expectancy")} if after else {}),
+                         "others": {k: v for k, v in _stats([g["pnl"] for g in rest]).items()
+                                    if k in ("win_rate", "expectancy")}},
+        "by_hour": cut(lambda g: f"{ist(g['in']).tm_hour:02d}:00"),
+        "by_weekday": cut(lambda g: time.strftime("%a", ist(g["in"]))),
+        "by_play": cut(lambda g: g["play"] or "placed by hand"),
+        "by_exit": cut(lambda g: _exit_kind(g["why"])),
+        "by_instrument": cut(lambda g: g["kind"]),
+        "by_day": by_day[-60:],
+        "green_days": sum(1 for d in by_day if d["pnl"] > 0), "trading_days": len(by_day),
+        "recent": [{"what": g["what"], "play": g["play"], "in": g["in"], "out": g["out"],
+                    "pnl": round(g["pnl"], 2), "exit": _exit_kind(g["why"])} for g in trades[-15:]],
+    }
 
 
 # ── the Plays page's conversations ─────────────────────────────────────────
@@ -2799,6 +3470,8 @@ def _card_ref(c: dict) -> dict | None:
         return {"kind": "play", "id": int(c["id"]), "title": str(c.get("title") or "")[:80]}
     if c.get("kind") == "custom_security" and c.get("symbol"):
         return {"kind": "custom_security", "symbol": str(c["symbol"])[:30]}
+    if c.get("kind") == "review":
+        return dict(c)          # a review is of its moment: kept as it was read
     return None
 
 
@@ -2879,6 +3552,8 @@ def api_get(uid: int, tail: str) -> tuple[int, dict]:
     parts = tail.strip("/").split("/")
     if parts == ["chats"]:
         return 200, {"chats": chats_list(uid)}
+    if parts == ["review"]:
+        return 200, review(uid)
     if len(parts) == 2 and parts[0] == "chats":
         c = chat_get(uid, parts[1])
         return (200, {"chat": c}) if c else (404, {"error": "no such conversation"})
@@ -2906,6 +3581,8 @@ def api_post(uid: int, tail: str, body: dict) -> tuple[int, dict]:
             return 200, act(uid, int(parts[0]), str(body.get("action") or ""))
         if parts == ["chats"]:
             return 200, chat_save(uid, body)
+        if parts == ["halt"] and body.get("action") == "lift":
+            return 200, lift_halt(uid)
         if len(parts) == 2 and parts[0] == "chats" and body.get("action") == "delete":
             return 200, chat_delete(uid, parts[1])
         if parts == ["securities"]:
@@ -2979,10 +3656,18 @@ def tool_play(action: str = "", play: dict | str | None = None, play_id: int = 0
             ds._card_add(got["card"])
             row = got["play"]
             c = got["card"]
+            hist = dict(c["history"])
+            if hist.get("trades"):
+                # the card draws the curve and the list; the model reads the figures
+                tr = {k: v for k, v in hist["trades"].items() if k not in ("curve", "list")}
+                tr["last"] = (hist["trades"].get("list") or [])[-3:]
+                hist["trades"] = tr
             out = {"play_id": row["id"], "state": row["state"], "title": c["title"],
                    "conditions": c["conditions"], "contract": c["contract"],
-                   "history": c["history"], "now": row["history"].get("now"),
+                   "history": hist, "now": row["history"].get("now"),
                    "assumed": got["assumed"], "notes": c["notes"]}
+            if c.get("exits"):
+                out["exits"] = c["exits"]
             if got["diff"]:
                 out["changed"] = got["diff"]
             if built:
@@ -2991,7 +3676,7 @@ def tool_play(action: str = "", play: dict | str | None = None, play_id: int = 0
             if row.get("_now_event"):
                 out["did_now"] = {k: row["_now_event"].get(k) for k in ("kind", "body")}
             fs = got.get("feed") if isinstance(got.get("feed"), dict) else {}
-            if fs.get("note"):
+            if fs.get("note") and row["spec"]["do"]["kind"] != "halt":
                 out["feed"] = (fs["note"] if not row["spec"].get("on") else
                                "Filings and headlines are read live. The price condition reads the "
                                "latest stored bar, and this symbol is not on a live stream, so that "
@@ -3024,12 +3709,37 @@ def tool_play(action: str = "", play: dict | str | None = None, play_id: int = 0
                                 "means for how often they will hear from it, what it does when it fires "
                                 "and how the exits limit the loss, and every item in `assumed` as a "
                                 "choice they can change. A fire count is not an edge: do not call it "
-                                "one. Quote only numbers from this result or other tools.")
+                                "one. When history.trades is there, give its round trips against the "
+                                "control (win rate, average win and loss, expectancy, after costs when "
+                                "given) and say plainly whether the play beat entering anywhere; with "
+                                "few trades, say it proves nothing. For an option play it is the "
+                                "underlying's move, not the premium. Quote only numbers from this "
+                                "result or other tools.")
+                if row["spec"]["do"]["kind"] == "halt":
+                    out["_note"] = ("A guard is on the trader's screen as a card. Say what stops the day, "
+                                    "what it blocks (new intraday, F&O and perp entries; exits always "
+                                    "run), when it resets (the next morning), and that the card can lift "
+                                    "it. Quote only numbers from this result.")
             return out
         if action == "list":
-            return {"plays": [{k: c[k] for k in ("id", "title", "state", "symbol", "interval",
-                                                 "contract", "fires")}
-                              for c in (card(p) for p in list_plays(uid))]}
+            out = {"plays": [{k: c[k] for k in ("id", "title", "state", "symbol", "interval",
+                                                "contract", "fires")}
+                             for c in (card(p) for p in list_plays(uid))]}
+            h = _halted(uid)
+            return {**out, "halt": h} if h else out
+        if action == "review":
+            r = review(uid, int((play or {}).get("days") or 30) if isinstance(play, dict) else 30,
+                       play_id or None)
+            ds._card_add({"kind": "review", **r})
+            r.pop("curve", None)
+            r["_note"] = ("Their own trades, cut several ways; a review card with the curve is on screen. "
+                          "Read it like a coach who has seen the numbers: where the money is made and "
+                          "lost (hours, plays, exits, instruments), whether losers are held longer than "
+                          "winners, how trades opened soon after a loss do against the rest, what costs "
+                          "take out of the gross, and the one or two changes the numbers support, each as "
+                          "a play or guard you can build for them. Quote only these numbers; with few "
+                          "trades, say the sample is small.")
+            return r
         if action in ("pause", "resume", "delete"):
             return act(uid, int(play_id), action)
         if action == "explain":
@@ -3038,7 +3748,7 @@ def tool_play(action: str = "", play: dict | str | None = None, play_id: int = 0
                 return {"error": f"no play {play_id}"}
             evs = [e for e in events(uid, 200) if e["play_id"] == p["id"]][:10]
             return {"play": card(p), "events": evs, "spec": p["spec"]}
-        return {"error": "action is compile, edit, list, pause, resume, delete or explain"}
+        return {"error": "action is compile, edit, list, pause, resume, delete, explain or review"}
     except Bad as exc:
         return {"error": str(exc), "_note": "Fix the play as the error says and call again."}
 
@@ -3084,7 +3794,7 @@ def tool_measure(action: str = "test", measure: dict | str | None = None,
                               f"(do.symbol {sec['symbol']}). A basket starts at {sec.get('base') or 100:g} "
                               "on its anchor day and holds its weights from there. Quote only these "
                               "numbers.")}
-        m = _norm_measure(measure or {})
+        m = _norm_measure(measure or {}, uid)
         sym = ds.canon_symbol(symbol or getattr(ds._req, "symbol", "") or "")
         iv = interval or getattr(ds._req, "ctx_interval", "") or "1d"
         iv = {"D": "1d", "1D": "1d"}.get(iv, iv)

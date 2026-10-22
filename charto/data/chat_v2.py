@@ -548,14 +548,18 @@ _TABLE_NOTES = {
 
 
 def _schema() -> dict:
+    import fo_store
     con = sqlite3.connect(f"file:{ds.DB_PATH}?mode=ro", uri=True, timeout=5)
+    fo = fo_store.attach(con)
+    notes = {**_TABLE_NOTES, **fo_store.TABLES}
     try:
         out = {}
-        for (name,) in con.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"):
-            if name not in _TABLE_NOTES:
-                continue
-            cols = [r[1] for r in con.execute(f'PRAGMA table_info("{name}")')]
-            out[name] = {"columns": cols, "about": _TABLE_NOTES[name]}
+        for db in ("main", "fo") if fo else ("main",):
+            for (name,) in con.execute(f"SELECT name FROM {db}.sqlite_master WHERE type='table' ORDER BY name"):
+                if name not in notes:
+                    continue
+                cols = [r[1] for r in con.execute(f'PRAGMA {db}.table_info("{name}")')]
+                out[name] = {"columns": cols, "about": notes[name]}
         return out
     finally:
         con.close()
@@ -570,6 +574,8 @@ def query(sql=None, python=None, params=None) -> dict:
     if ";" in s or not re.match(r"^\s*(select|with)\b", s, re.I) or _BANNED.search(s):
         return {"error": "only one read-only SELECT (or WITH … SELECT) is allowed"}
     con = sqlite3.connect(f"file:{ds.DB_PATH}?mode=ro", uri=True, timeout=5)
+    import fo_store
+    fo_store.attach(con)
     deadline = time.monotonic() + _SQL_SECONDS
     con.set_progress_handler(lambda: 1 if time.monotonic() > deadline else 0, 20_000)
     try:
@@ -806,75 +812,66 @@ def tools() -> list[dict]:
 
 
 _PLAY_DOC = (
-    "Build and run a play: the trader's idea as a rule Pivot checks on every bar close and acts on. "
-    "compile turns their words into a play and arms it; edit changes one (play_id, the whole play "
-    "again); list, pause, resume, delete, explain (what it saw and did). Never ask before building: "
-    "build with sensible choices, then state them. A play is {title (a short name for the idea, with "
-    "no time, level or number the rule does not contain), ask (the trader's words), "
-    "symbol, interval (the bar it is checked on), why (the reason for the idea in one or two "
-    "sentences, from data you have read: the card shows it), measures, when, do, manage, contract, "
-    "mandate, security}. security: when the play watches or buys a basket, ratio or spread that "
-    "does not exist yet, define it here (the shape measure's security takes, pick included) and "
-    "set symbol or do.symbol to @NAME: one call builds both, so never call measure first for it. "
-    "Calls that do not depend on each other go in the same response.\n"
-    "measures: any series the rule needs beyond a plain price field. Write it yourself: {name, "
-    "title, formula (the maths in words), inputs: {alias: {bars: {symbol, field}}} or {alias: "
-    "{sql: 'SELECT <when known>, <value> FROM ...'}}, and expr ('a / b') or code ('def compute(data, "
-    "params): return [one value per bar]')}. data holds t (bar open, epoch seconds), open, high, low, "
-    "close, volume, hhmm (the bar's close time in IST as an integer: 09:20 is 920, 15:10 is 1510) for "
-    "the play's symbol, each input, and earlier measures; ta (sma, ema, rsi, "
-    "atr, highest, lowest, stdev, crossover, change, roc, vwma) and math are available. Ratios, "
-    "spreads, z-scores, distance from a high, fundamentals, a basket: define them; if you do not "
-    "know a formula, search for it first. Never type a number the data should supply.\n"
-    "when: {all: [...]} or {any: [...]} of {left, op, right, right2?, bars?, for_bars?}, op one of "
-    "above, below, cross_up, cross_down, between, outside, rises_pct, falls_pct, is_true; operands "
-    "are numbers, measure names, close/open/high/low/volume, or 'SYMBOL.close'. Time: {time: "
-    "{after: '09:20', before: '15:00'}} or {time: {at: '09:20'}} (bar close, IST). for_bars N means "
-    "it must hold N bars in a row ('stays under 3,000 for 15 minutes' on 5m is for_bars 3).\n"
-    "on (events instead of bars clock the play): {sources: ['filings', 'news'], symbols: [whose NSE "
-    "filings], match: [specific words, any one of which an item must contain: names and terms, never "
-    "common words like 'cut' or 'up'], judge: 'a yes/no question each matching item must "
-    "answer yes to, e.g. Does this announce a new order worth over 500 crore?'}. filings are NSE "
-    "corporate announcements; news is Economic Times, Mint, CNBC-TV18, BusinessLine, BBC and CoinDesk "
-    "headlines. X, Telegram and other social posts are not connected yet: say so and offer news or "
-    "filings. With on, `when` is optional and is checked on the latest bar when the item arrives "
-    "(a price confirmation). A headline alone never places an order: it proposes.\n"
-    "do: {kind: notify}; {kind: buy | sell | short | cover, symbol, size: {inr} | {qty} | {all: true}, "
-    "product: CNC (delivery) | MIS (intraday, squared off at 15:20)}; {kind: options, underlying: "
-    "NIFTY | BANKNIFTY | a stock, legs: [{opt: CE | PE, strike: ATM | ATM+1 | ATM-2 | 22750, side: buy "
-    "| sell, lots, expiry: weekly | next | monthly | YYYY-MM-DD}]}; {kind: future, underlying, side, "
-    "lots, expiry}. Perpetuals (crypto, Hyperliquid, priced in USD, 24 hours): symbol and do.symbol "
-    "COIN-PERP (BTC-PERP, ETH-PERP, SOL-PERP), kind buy (a long) | short | sell or cover (close it), "
-    "leverage (1 up to the market's maximum, which the card shows), size: {inr} (the margin, in "
-    "rupees); funding is charged hourly and an estimated liquidation closes it. A measure input "
-    "{perp: {coin, field: funding | premium | oi}} reads its funding rate (with history, so the "
-    "replay tests it) or its premium and open interest (as of now only). Size in rupees or lots; code works out quantities, lot sizes and the strike. A "
-    "short in Indian equities is intraday only. manage: {stop_pct and target_pct (per leg; on an "
-    "option, a percent of its premium), trail_pct, exit_at: '15:15', on_leg_stop: exit_all | "
-    "move_others_to_cost, max_loss_inr and target_inr (the whole position's profit or loss)}. "
-    "Re-entry after a stop is mandate.max_fires above 1 with lifespan standing.\n"
-    "rebalance ('rebalance it', 'make it equal weight', 'keep it 60/40', 'go aggressive'): {kind: "
-    "rebalance, of: portfolio (the whole paper delivery book) | self | <play_id> (takes over that "
-    "play's holdings, e.g. a basket it bought), targets: [{symbol, weight}], cash_pct, size: {inr} "
-    "(new money to put in), objective (the trader's instruction), universe: [names the planner may "
-    "choose]}, each target with a why (the figure that earns it the weight). No `when` is needed. Code works out the trades: whole shares, sells first, small "
-    "trades skipped, at most mandate.max_weight (default 0.4) in one name. Done once (lifespan now) "
-    "you write the targets yourself from data you have read, and the card offers to keep it that "
-    "way. To keep it (lifespan policy, policy: {every: day | week | month, drift_pct}) it runs on "
-    "that schedule and whenever a holding drifts that many points; with contract.discretion plan a "
-    "planner re-reads the objective and fresh figures each run and sets the targets, and a plan "
-    "that changes which names are held is always proposed first.\n"
-    "contract: {lifespan, authority, inferred_from (the trader's deciding words)}. lifespan: now "
-    "(do it once, immediately), once_when (default with a condition), standing ('whenever', 'every "
-    "time', 'each'), policy ('keep it', 'maintain'). authority: notify ('tell me', 'alert'; the "
-    "default when nothing is placed), propose (the default for an order: a ready ticket they "
-    "confirm), act ('go ahead', 'just do it', 'don't ask': places it, though the first fire still "
-    "asks once), manage (act, and runs its exits). When the words are unclear, take the shorter "
-    "lifespan and the lower authority and say what one tap upgrades. mandate: {capital_inr, "
-    "max_fires}; code picks defaults.\n"
-    "Every order is simulated in the paper books (delivery, and the day book for intraday, shorts, "
-    "options and futures, with estimated costs and margin); nothing reaches a broker. A stop, target, "
-    "trail or square-off runs on its own once a position is open.")
+    "Build and run a play: the trader's idea as a rule Pivot checks on every bar close and acts on, "
+    "on paper. compile builds and arms it; edit changes one (play_id, the whole play again); list, "
+    "pause, resume, delete; explain (what it saw and did); review (their closed trades cut by hour, "
+    "play, exit, instrument and after-a-loss; play: {days}). Never ask before building: choose "
+    "sensibly, then state the choices.\n"
+    "A play is {title (the idea in a few words, with no number the rule lacks), ask (their words), why "
+    "(the reason, from data you read), symbol (the bars that clock it), interval, measures, when, on, "
+    "do, manage, contract, mandate, security}. security: a basket, ratio or spread that does not exist "
+    "yet (measure's security shape, pick included); use @NAME as symbol or do.symbol and one call "
+    "builds both. Calls that do not depend on each other go in the same response.\n"
+    "measures: any series the rule needs beyond price fields, written by you: {name, title, formula "
+    "(in words), inputs, expr ('a / b') or code ('def compute(data, params): return [one value per "
+    "bar]')}. data has t (bar open, epoch seconds), open, high, low, close, volume, hhmm (the bar's "
+    "close in IST as an integer: 09:20 is 920), each input and earlier measures; ta (sma, ema, rsi, "
+    "atr, highest, lowest, stdev, crossover, change, roc, vwma and more) and math are there. inputs: "
+    "{alias: {bars: {symbol, field}}} another instrument; {sql: 'SELECT <when known>, <value> ...'} "
+    "anything in the market database, F&O history included (query lists the tables; each bar sees "
+    "rows known by its close); {perp: {coin, field: funding | premium | oi}}; {book: day_pnl | "
+    "realized_today | trades_today | loss_streak} the trader's own day book. Never type a number the "
+    "data should supply; if you do not know a formula, search for it.\n"
+    "when: {all | any: [{left, op, right, right2?, bars?, for_bars?}]}, op above, below, cross_up, "
+    "cross_down, between, outside, rises_pct, falls_pct, is_true. Operands: numbers, measure names, "
+    "close/open/high/low/volume, 'SYMBOL.close', or arithmetic over names ('or_high + 0.5 * atr14'). "
+    "{time: {after: '09:20', before: '15:00'} | {at: '09:20'}} reads the bar close in IST. for_bars N: "
+    "it must hold N bars running.\n"
+    "on (events clock it instead of bars): {sources: [filings, news], symbols (whose NSE filings), "
+    "match: [specific names or terms, never common words], judge: 'a yes/no question each item must "
+    "answer yes to'}. filings are NSE announcements; news is Economic Times, Mint, CNBC-TV18, "
+    "BusinessLine, BBC and CoinDesk headlines; social posts are not connected (say so). With on, "
+    "`when` confirms on the latest bar, and a headline alone only proposes.\n"
+    "do: {kind: notify}; {kind: buy | sell | short | cover, symbol, size: {inr} | {qty} | {all: "
+    "true}, product: CNC | MIS}; {kind: options, underlying, legs: [{opt: CE | PE, strike: ATM | "
+    "ATM+1 | ATM-2 | 22750, side: buy | sell, lots, expiry: weekly | next | monthly | YYYY-MM-DD}]}; "
+    "{kind: future, underlying, side, lots, expiry}; perps (Hyperliquid, USD, 24 hours): symbol "
+    "COIN-PERP, kind buy | short | sell | cover, leverage up to the market's maximum, size.inr is the "
+    "margin, funding hourly, an estimated liquidation closes it; {kind: halt, close?: true}: a guard "
+    "that stops new intraday, F&O and perp entries for the rest of the day (and closes what is open), "
+    "never waiting for a tap. Code works out quantities, lots and the strike. Equity shorts are "
+    "intraday only.\n"
+    "{kind: rebalance, of: portfolio | self | <play_id> (takes over that play's holdings), targets: "
+    "[{symbol, weight, why (the figure that earns it)}], cash_pct, size: {inr}, objective (their "
+    "words), universe}: no `when`; code works out whole-share trades within mandate.max_weight (0.4). "
+    "Once (lifespan now) you write the targets from data you read; kept (lifespan policy, policy: "
+    "{every: day | week | month, drift_pct}) it reruns on schedule and on drift, and with "
+    "contract.discretion plan a planner sets the targets each run (a change of names is proposed).\n"
+    "manage: {stop_pct, target_pct (an option's are percents of its premium), trail_pct, exit_at: "
+    "'15:15', on_leg_stop: exit_all | move_others_to_cost, max_loss_inr, target_inr (the whole "
+    "position), exit_when}. exit_when is a `when` that closes the position; it may also read entry, "
+    "bars_in, hi_since, lo_since and pnl_pct (the move in its favour), e.g. {left: close, op: below, "
+    "right: 'hi_since - 2 * atr14'}. An option play clocked on its index exits on the index's levels "
+    "this way.\n"
+    "contract: {lifespan: now | once_when (default with a condition) | standing ('whenever', 'each "
+    "time') | policy ('keep it'), authority: notify ('tell me') | propose (default for an order) | act "
+    "('just do it'; the first unattended fire still asks once) | manage (act, and runs its exits), "
+    "inferred_from (their deciding words)}. When unclear take the shorter lifespan and the lower "
+    "authority and say what one tap upgrades. mandate: {capital_inr, max_fires}.\n"
+    "compile replays the play over stored history: how often it fires and, when it opens a position, "
+    "every round trip through its exits against a control (the same exits from entries anywhere in "
+    "the same hours). So 'has this worked?' about a play is answered by compiling it (arm: false only "
+    "tests it). Everything is simulated in the paper books; nothing reaches a broker.")
 
 
 def _play_tools() -> list[dict]:
@@ -882,7 +879,7 @@ def _play_tools() -> list[dict]:
     return [
         _fn("play", _PLAY_DOC,
             {"action": {"type": "string", "enum": ["compile", "edit", "list", "pause", "resume",
-                                                   "delete", "explain"]},
+                                                   "delete", "explain", "review"]},
              "play": {**obj, "description": "the whole play, for compile and edit"},
              "play_id": {"type": "integer"},
              "arm": {"type": "boolean", "description": "false keeps it as a draft; default arms it"}},
@@ -1067,7 +1064,9 @@ def _tools() -> list[dict]:
             "followed by Python that computes statistics over every row it returns. Use it for anything "
             "the other tools do not answer directly: returns over custom windows, seasonality, "
             "day-of-week or time-of-day behaviour, gap fill rates, opening-range statistics, "
-            "drawdowns, volatility, correlation, rankings across stocks, fundamentals filters. Call with "
+            "drawdowns, volatility, correlation, rankings across stocks, fundamentals filters, and NSE "
+            "F&O history (fo_eod: every option and future by day with OI, volume and premiums; fo_snap: "
+            "the live chain through the day) for OI buildup, PCR, max pain, IV or skew. Call with "
             "no sql to list the tables and columns. Example: sql \"SELECT ts, o, h, l, c FROM bars_1d "
             "WHERE symbol='RELIANCE' AND ts > strftime('%s','2025-01-01')\" with python \"def "
             "compute(data, params):\\n    c = data['c']\\n    r = [c[i]/c[i-1]-1 for i in range(1, "

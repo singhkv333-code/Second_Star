@@ -33,7 +33,7 @@
     const [a, b] = h.split("/");
     if (a === "c" && b) return { page: "home", conv: b };
     if (a === "s" && b) return { page: "strategy", id: +b };
-    if (["strategies", "inbox", "portfolio"].includes(a)) return { page: a };
+    if (["strategies", "inbox", "portfolio", "review"].includes(a)) return { page: a };
     return { page: "home" };
   }
   const go = (hash) => { if (location.hash !== hash) location.hash = hash; else render(); };
@@ -46,6 +46,10 @@
     const n = waiting || (data.events || []).filter((e) => !e.seen && !hidden.has(e.id)).length;
     $("inboxCount").hidden = !n;
     $("inboxCount").textContent = n;
+    const h = data.halt, bar = $("haltbar");
+    bar.hidden = !h;
+    if (h) bar.innerHTML = `${ic("ban")}<span><b>Trading is halted.</b> ${esc(h.text.replace(/^trading is halted /, ""))}. Exits still run.</span>` +
+      `<button type="button" class="btn sm" data-lift>Lift it</button>`;
   }
 
   function render() {
@@ -57,6 +61,24 @@
     if (route.page === "strategy") return strategyPage(route.id);
     if (route.page === "inbox") return inbox();
     if (route.page === "portfolio") return portfolio();
+    if (route.page === "review") return reviewPage();
+  }
+
+  /* ── review: the trader's own trades ──────────────────────────────────── */
+  const ASKS = [
+    ["chart", "What do my trades say I should change?"],
+    ["shield", "Stop my trading for the day after two losses in a row"],
+    ["ban", "Halt new intraday trades once I am down ₹5,000 on the day"],
+    ["clock", "Stop me opening more than four intraday trades a day"],
+  ];
+  async function reviewPage() {
+    main.innerHTML = `<div class="page"><div class="muted">Reading your trades…</div></div>`;
+    let r;
+    try { r = await call("/plays/review"); } catch (err) { main.innerHTML = `<div class="page"><div class="empty">${esc(err.message)}</div></div>`; return; }
+    main.innerHTML = `<div class="page"><h1 class="h1">Review</h1><p class="sub">Your closed trades, cut the ways a coach would cut them. ` +
+      `Ask what they mean, or turn what they show into a guard that stops the day for you.</p><div id="rv"></div>` +
+      `<div class="ideas" style="margin:18px 0 60px">${ASKS.map(([i, t]) => `<button type="button" class="idea" data-ask="${esc(t)}">${ic(i)}${esc(t)}</button>`).join("")}</div></div>`;
+    $("rv").appendChild(Kit.review(r));
   }
 
   async function refresh() {
@@ -210,6 +232,7 @@
    *  security from the latest /plays read, else a line saying it is gone. */
   function live(c) {
     if (!c) return null;
+    if (c.kind === "review") return c;
     if (c.kind === "play") {
       const p = (data.plays || []).find((x) => x.id === c.id);
       return p || (c.conditions ? c : { kind: "gone", title: c.title || `Play ${c.id}` });
@@ -233,6 +256,7 @@
       return el;
     }
     if (c.kind === "custom_security") return securityCard(c);
+    if (c.kind === "review") return Kit.review(c);
     return null;
   }
 
@@ -664,6 +688,13 @@
     if (op && op.dataset.open) { go(`#/s/${op.dataset.open}`); return; }
     const cv = e.target.closest("[data-conv]");
     if (cv) { go(`#/c/${cv.dataset.conv}`); return; }
+    const ask = e.target.closest("[data-ask]");
+    if (ask) { cur = null; history.replaceState(null, "", "#/"); route = parse(); paintTabs(); send(ask.dataset.ask); return; }
+    if (e.target.closest("[data-lift]")) {
+      try { await call("/plays/halt", { action: "lift" }); Kit.toast("Lifted. New entries can open again."); await refresh(); }
+      catch (err) { Kit.toast(err.message); }
+      return;
+    }
     const idea = e.target.closest("[data-idea]");
     if (idea) {
       const inp = main.querySelector("[data-input]");

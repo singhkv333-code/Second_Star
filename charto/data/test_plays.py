@@ -713,3 +713,154 @@ def test_one_play_call_builds_its_basket_and_the_play_on_it(uid) -> None:
     assert got["security"]["symbol"] == "@DEF3" and len(got["security"]["members"]) == 3
     kinds = [c["kind"] for c in server._scene.cards]
     assert kinds[-2:] == ["custom_security", "play"]
+
+
+# ── exits written as rules, and what history says they did ─────────────────────
+
+ATR = "def compute(data, params):\n    return ta.atr(data['high'], data['low'], data['close'], 14)"
+
+
+def _dip(**over):
+    p = {"title": "RELIANCE RSI dip", "symbol": "RELIANCE", "interval": "1d",
+         "measures": [{"name": "rsi14", "title": "RSI 14", "code": RSI},
+                      {"name": "atr14", "title": "ATR 14", "code": ATR}],
+         "when": {"all": [{"left": "rsi14", "op": "cross_up", "right": 35}]},
+         "do": {"kind": "buy", "size": {"inr": 20000}},
+         "manage": {"exit_when": {"any": [{"left": "close", "op": "below", "right": "hi_since - 2 * atr14"},
+                                          {"left": "bars_in", "op": "above", "right": 20}]}},
+         "contract": {"lifespan": "standing", "authority": "manage"}}
+    p.update(over)
+    return p
+
+
+def test_an_exit_rule_reads_the_position_and_history_counts_round_trips(uid) -> None:
+    got = plays.tool_play("compile", _dip())
+    assert "error" not in got, got
+    t = got["history"]["trades"]
+    assert t["kind"] == "trades" and t["n"] >= 2, t
+    assert set(t["exits"]) <= {"exit rule", "open"}
+    assert t["control"]["n"] > 100 and "expectancy" in t["control"]
+    assert "curve" not in t and all(x["out"] > x["in"] for x in t["last"])
+    assert t["per_trade_inr"] is not None and t["cost_pct"] > 0
+    card = [c for c in server._scene.cards if c.get("kind") == "play"][-1]
+    assert len(card["history"]["trades"]["curve"]) == card["history"]["trades"]["n"]
+    assert card["exits"][0] == ("exits when RELIANCE close below high since entry - 2 × ATR 14 or "
+                                "bars held above 20"), card["exits"]
+    assert card["exit_rule"][0]["right"] == "high since entry - 2 × ATR 14"
+
+
+def test_position_names_belong_to_exits_only(uid) -> None:
+    bad = plays.tool_play("compile", _dip(when={"all": [{"left": "close", "op": "above", "right": "entry"}]}))
+    assert "manage.exit_when" in bad["error"]
+    bad = plays.tool_play("compile", _dip(do={"kind": "notify"}, contract={"authority": "notify"}))
+    assert "must open one" in bad["error"]
+    bad = plays.tool_play("compile", _dip(when={"all": [{"left": "close", "op": "above", "right": "__import__('os')"}]}))
+    assert "error" in bad
+
+
+def test_a_play_with_no_exit_shows_what_followed_against_any_bar(uid) -> None:
+    got = plays.tool_play("compile", _dip(manage={}))
+    t = got["history"]["trades"]
+    assert t["kind"] == "forward" and set(t["forward"]) == {"5", "20"}
+    assert t["forward"]["20"]["any_bar"]["n"] > 300
+
+
+def test_the_exit_rule_closes_the_live_position_from_its_entry_bar(uid) -> None:
+    got = plays.tool_play("compile", _dip(manage={"exit_when": {"all": [
+        {"left": "bars_in", "op": "above", "right": 2}]}}))
+    pid = got["play_id"]
+    play = plays._load(pid)
+    data, _ = plays.frame(play["spec"])
+    series, _ = plays.run_measures(play["spec"], data)
+    n = len(data["t"])
+    plays._set(pid, accepted=1, fires=1)
+    ev = plays._fire(plays._load(pid), data, series, n - 5, late=False)
+    assert ev["kind"] == "filled", ev
+    assert plays._load(pid)["entry_bar"] == data["t"][n - 5]
+    assert plays._maybe_rule_exit(plays._load(pid), data, series, n - 3) is None    # 2 bars in
+    ex = plays._maybe_rule_exit(plays._load(pid), data, series, n - 2)
+    assert ex["kind"] == "filled" and ex["body"]["ticket"]["side"] == "SELL", ex
+    assert "exit rule: bars held above 2" == ex["body"]["reason"]
+    assert plays._load(pid)["held_qty"] == 0
+
+
+# ── guards over the trader's own book, and the review ─────────────────────────
+
+def _closed_trade(uid, grp, pnl, ent, ext, why="stop", play_id=None):
+    import daybook
+    daybook.init_db()
+    with server._users_lock:
+        server._users.execute(
+            "INSERT INTO day_positions (user_id, play_id, grp, symbol, venue, kind, side, qty, product, "
+            "entry_px, entry_ts, state, exit_px, exit_ts, exit_why, costs, pnl, lot) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (uid, play_id, grp, "RELIANCE", "NSE", "equity", "long", 10, "MIS", 100, ent, "closed",
+             100, ext, why, 20, pnl, 1))
+        server._users.commit()
+
+
+def test_a_guard_reads_the_book_and_halts_new_entries_but_not_exits(book) -> None:
+    got = plays.tool_play("compile", {
+        "title": "Stop after two losses", "symbol": "RELIANCE", "interval": "5m",
+        "measures": [{"name": "streak", "title": "losses in a row today", "expr": "x",
+                      "inputs": {"x": {"book": "loss_streak"}}}],
+        "when": {"all": [{"left": "streak", "op": "above", "right": 1}]},
+        "do": {"kind": "halt", "close": True}})
+    assert "error" not in got, got
+    assert got["contract"]["acts"].startswith("Halts on its own")
+    pid = got["play_id"]
+    play = plays._load(pid)
+    data, _ = plays.frame(play["spec"])
+    t = data["t"]
+    now = int(plays.time.time())
+    _closed_trade(1, "a", -500, now - 1800, now - 1500)
+    _closed_trade(1, "b", -300, now - 1200, now - 900)
+    # the latest bar reads the book as it is now, whatever day the clock's bars end on
+    assert plays._book_series(1, "loss_streak", [t[-2], t[-1]], "5m")[-1] == 2.0
+    play = plays._load(pid)
+    series, _ = plays.run_measures(play["spec"], data)
+    ev = plays._fire(play, data, series, len(t) - 1, late=False)
+    assert ev["kind"] == "fired" and ev["body"]["halted_until"] > 0
+    assert plays._halted(1)["play_id"] == pid
+    # an intraday short is refused while halted; lifting it lets entries through
+    sp = plays.tool_play("compile", {"symbol": "RELIANCE", "interval": "5m", "do": {"kind": "short"},
+                                     "contract": {"lifespan": "now", "authority": "act"}})
+    assert sp["did_now"]["kind"] == "rejected" and "halted" in sp["did_now"]["body"]["reason"]
+    assert plays.api_post(1, "/halt", {"action": "lift"})[1]["lifted"] is True
+    assert plays._halted(1) is None
+
+
+def test_the_review_cuts_closed_trades_and_flags_trades_after_a_loss(uid) -> None:
+    base = 1_790_000_000
+    _closed_trade(1, "a", -400, base, base + 600, "stop")
+    _closed_trade(1, "b", -250, base + 900, base + 1500, "stop")        # within 30 min of a loss
+    _closed_trade(1, "c", 900, base + 7200, base + 9000, "target")
+    _closed_trade(1, "d", 300, base + 90000, base + 93000, "time exit at 15:15")
+    old = plays.time.time
+    plays.time.time = lambda: base + 100000
+    try:
+        r = plays.tool_play("review")
+    finally:
+        plays.time.time = old
+    assert r["trades"] == 4 and r["net"] == 550 and r["win_rate"] == 0.5
+    assert r["after_a_loss"]["n"] == 1 and r["after_a_loss"]["expectancy"] == -250
+    assert {x["key"] for x in r["by_exit"]} == {"stop", "target", "time exit"}
+    assert r["max_drawdown"] == -650 and r["minutes_held"]["losses"] == 10.0
+    assert [c for c in server._scene.cards if c.get("kind") == "review"]
+
+
+def test_a_guard_stops_the_day_on_the_exit_that_breaks_its_limit(book) -> None:
+    got = plays.tool_play("compile", {
+        "title": "Down 1,000", "symbol": "RELIANCE", "interval": "1d",
+        "measures": [{"name": "pnl", "title": "P&L today", "expr": "x", "inputs": {"x": {"book": "day_pnl"}}}],
+        "when": {"all": [{"left": "pnl", "op": "below", "right": -1000}]},
+        "do": {"kind": "halt"}})
+    assert got["history"] is not None and "every 5m" in [c for c in server._scene.cards if c.get("kind") == "play"][-1]["summary"]
+    assert plays._load(got["play_id"])["spec"]["interval"] == "5m"
+    pid = plays.tool_play("compile", {"symbol": "RELIANCE", "interval": "5m", "do": {"kind": "short", "size": {"inr": 50000}},
+                                      "contract": {"lifespan": "now", "authority": "act"}})["play_id"]
+    assert plays._halted(1) is None
+    p = daybook.open_positions(1)[0]
+    daybook.close(p, p["entry_px"] * 1.05, "stop")          # a 5% loss on ₹50,000 short
+    h = plays._halted(1)
+    assert h and h["play_id"] == got["play_id"], h

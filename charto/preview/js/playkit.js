@@ -282,10 +282,10 @@ const Kit = (() => {
   const OPS = { above: ">", below: "<", cross_up: "crosses ↑", cross_down: "crosses ↓", between: "between",
                 outside: "outside", rises_pct: "rises", falls_pct: "falls", is_true: "is true" };
 
-  function condRow(p, now, i) {
+  function condRow(p, now, i, lead = "If") {
     if (!p) return now && now.text ? `<div class="cond"><span>${esc(now.text)}</span></div>` : "";
     if (p.kind === "time") return `<div class="cond"><span class="chip vio">${ic("clock")}${esc(p.text)}</span></div>`;
-    if (p.kind === "group") return p.items.map((x) => condRow(x)).join(`<div class="join"><span>${p.join}</span></div>`);
+    if (p.kind === "group") return p.items.map((x) => condRow(x, null, null, lead)).join(`<div class="join"><span>${p.join}</span></div>`);
     const ls = symIn(p.left);
     const L = (ls ? logo(ls, "xs") : "") + esc(p.left), R = p.right != null ? esc(p.right) : "";
     const lnow = now && now.now != null ? `<span class="chip sig">${ic("signal")}${esc(num(now.now))}</span>` : "";
@@ -295,7 +295,7 @@ const Kit = (() => {
       : `<span class="chip val">${R}</span>`) : "";
     const opChip = i != null && ["above", "below", "cross_up", "cross_down"].includes(p.op)
       ? `<span class="chip op">${ed(`cond.${i}.op`, p.op, esc(OPS[p.op]))}</span>` : `<span class="chip op">${esc(OPS[p.op] || p.op)}</span>`;
-    return `<div class="cond"><span>If ${L}</span>${lnow}${opChip}` +
+    return `<div class="cond"><span>${lead} ${L}</span>${lnow}${opChip}` +
       (p.right_live && R ? `<span>${R}</span>${rnum}` : rconst) +
       (p.for_bars ? `<span class="chip plain">for ${i != null ? ed(`cond.${i}.for_bars`, p.for_bars, esc(p.for_bars)) : esc(p.for_bars)} bars</span>` : "") + `</div>`;
   }
@@ -411,6 +411,12 @@ const Kit = (() => {
     };
     const actsWord = c.authority === "notify" ? "Tells you" : c.authority === "propose" ? "You confirm each order" :
       c.authority === "manage" ? "Places and manages it" : "Places it on its own";
+    if (d.kind === "halt") {
+      return `<div class="node" data-node="a">${head("Action", "shield")}<div class="act-title"><span class="chip sell">${ic("ban")}Halt</span><span>the day's trading</span></div>` +
+        `<div class="inner" style="font-size:13px;line-height:1.5">No new intraday, F&amp;O or perp entries until the next morning. ` +
+        `${d.close ? "Whatever is open is closed at once." : "Positions already open keep their own exits."} Delivery buys and rebalances are not touched.</div>` +
+        `<div class="nfoot"><span>${ic("shield")} Guard</span><span>Never waits for a tap</span></div></div>`;
+    }
     if (d.kind === "notify") {
       return `<div class="node" data-node="a">${head("Action")}<div class="act-title">${ic("bell", "mark-ic")}<span>Alert you in the Inbox</span></div>` +
         `<div class="inner"><div class="src">${ic("bell")}<span>${esc((c.contract || {}).runs || "")}</span></div>` +
@@ -477,10 +483,13 @@ const Kit = (() => {
     if (mg.on_leg_stop) lines.push(`One leg stopped: ${ed("on_leg_stop", mg.on_leg_stop, mg.on_leg_stop === "exit_all" ? "exit all" : "move the others to cost")}`);
     if (mg.max_loss_inr) lines.push(`Exit all at a ${ed("max_loss_inr", mg.max_loss_inr, esc(inr(mg.max_loss_inr)))} loss`);
     if (mg.target_inr) lines.push(`Exit all at a ${ed("target_inr", mg.target_inr, esc(inr(mg.target_inr)))} profit`);
-    if (!lines.length && !ex.some((e) => e.includes("squared off"))) return "";
-    if (!lines.length) lines.push("Squared off at 15:20 if still open");
+    const rule = (c.exit_rule || []).map((p) => condRow(p, null, null, "Exit if"))
+      .join(`<div class="join"><span>${c.exit_join === "any" ? "or" : "and"}</span></div>`);
+    if (!lines.length && !rule && !ex.some((e) => e.includes("squared off"))) return "";
+    if (!lines.length && !rule) lines.push("Squared off at 15:20 if still open");
     return `<div class="node exit" data-node="x"><div class="nh">${ic("action")}<span>Action</span></div>` +
-      `<div class="tt">${ic("exit")}<span>Exit</span></div><div style="font-size:13px;line-height:1.55">${lines.map((l) => l.includes("data-field") ? l : esc(l)).join("<br/>")}</div></div>`;
+      `<div class="tt">${ic("exit")}<span>Exit</span></div>` + (rule ? `<div class="xr">${rule}</div>` : "") +
+      (lines.length ? `<div style="font-size:13px;line-height:1.55${rule ? ";margin-top:8px" : ""}">${lines.map((l) => l.includes("data-field") ? l : esc(l)).join("<br/>")}</div>` : "") + `</div>`;
   }
 
   /** The canvas for one play. Returns an element; wires draw once it is in
@@ -553,6 +562,8 @@ const Kit = (() => {
       (c.thesis ? `<p class="thesis"><b>Why</b>${esc(c.thesis)}</p>` : "") + `</div>` +
       `<div class="logos">${syms.map((s) => logo(s, "lg")).join("")}</div></div>`;
     el.appendChild(canvas(c));
+    const tp = trips(c);
+    if (tp) el.appendChild(tp);
     if (c.offer) {
       const off = document.createElement("div");
       off.className = "offer";
@@ -613,6 +624,94 @@ const Kit = (() => {
         window.dispatchEvent(new CustomEvent("plays:changed"));
       } catch (err) { b.disabled = false; toast(err.message); }
     });
+    return el;
+  }
+
+  /* ── what history says the play did ──────────────────────────────────── */
+  const pct = (v) => v == null ? "–" : `${Math.round(v * 100)}%`;
+  const upDown = (v) => v == null ? "" : v >= 0 ? "up" : "down";
+  const VERDICT = { ahead: ["up", "Ahead of the control"], behind: ["down", "Behind the control"],
+                    mixed: ["", "Mixed against the control"], too_few: ["wait", "Too few trades to tell"] };
+
+  /** The play's round trips on stored history beside the control: entries
+   *  anywhere in the same hours, through the same exits. */
+  function trips(c) {
+    const t = (c.history || {}).trades;
+    if (!t || (t.kind === "trades" && !t.n)) return null;
+    const el = document.createElement("div");
+    el.className = "trips";
+    const when = (ts) => c.interval === "1d" ? day(ts) : new Date(ts * 1000).toLocaleString("en-IN",
+      { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+    const notes = (t.notes || []).length ? `<ul class="notes">${t.notes.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : "";
+    const head = (pill) => `<div class="trips-h">${ic("refresh")}<b>On history</b><span class="muted">measured on ${esc(t.basis)}</span>` +
+      `<span class="grow"></span>${pill || ""}</div>`;
+    if (t.kind === "forward") {
+      el.innerHTML = head() + `<div class="tgrid">${(t.bars || []).map((hz) => {
+        const f = (t.forward || {})[hz] || {}, a = f.after || {}, b = f.any_bar || {};
+        return `<div class="tcell"><span>Next ${esc(hz)} bars after a fire</span><b class="${upDown(a.expectancy)}">${esc(signed(a.expectancy))}</b>` +
+          `<i>${esc(a.n || 0)} fires · any bar ${esc(signed(b.expectancy))}</i></div>`;
+      }).join("")}</div>` + notes;
+      return el;
+    }
+    const k = t.control || {}, v = VERDICT[t.verdict];
+    const cells = [
+      ["Trades", esc(t.n), t.avg_bars != null ? `held ${esc(num(t.avg_bars, 1))} bars on average` : ""],
+      ["Won", esc(pct(t.win_rate)), `control ${esc(pct(k.win_rate))}`],
+      ["Average win / loss", `<span class="up">${esc(signed(t.avg_win))}</span> / <span class="down">${esc(signed(t.avg_loss))}</span>`,
+        t.profit_factor != null ? `profit factor ${esc(num(t.profit_factor, 2))}` : ""],
+      ["Per trade", `<span class="${upDown(t.expectancy)}">${esc(signed(t.expectancy))}</span>`, `control ${esc(signed(k.expectancy))}`],
+    ];
+    if (t.per_trade_inr != null) cells.push(["After costs", `<span class="${upDown(t.per_trade_inr)}">${esc(inr(t.per_trade_inr))}</span>`,
+      `a trade, costs ${esc(num(t.cost_pct, 2))}%`]);
+    el.innerHTML = head(v ? `<span class="pill ${v[0]}">${esc(v[1])}${t.edge != null ? ` · ${esc(signed(t.edge))}` : ""}</span>` : "") +
+      `<div class="tgrid">${cells.map(([a, b, i]) => `<div class="tcell"><span>${a}</span><b>${b}</b>${i ? `<i>${i}</i>` : ""}</div>`).join("")}</div>` +
+      `<div class="tbody"><div class="tcurve"><div class="lab">Running total, % per trade added up</div><div class="cv"></div></div>` +
+      `<div class="tlist"><div class="lab">Last trades · exits ${Object.entries(t.exits || {}).map(([w, n]) => `${esc(w)} ${esc(n)}`).join(" · ")}</div>` +
+      (t.list || []).slice(-5).reverse().map((x) => `<div class="trow"><span>${esc(when(x.in))} → ${esc(when(x.out))}</span>` +
+        `<span class="why">${esc(x.why)}</span><b class="${upDown(x.ret)}">${esc(signed(x.ret))}</b></div>`).join("") + `</div></div>` + notes;
+    const cv = el.querySelector(".cv");
+    const pts = [{ v: 0 }, ...(t.curve || []).map((x) => ({ v: x }))];
+    const paint = () => lineChart(cv, pts, { height: 74, width: 300, dates: false, zero: true, area: true, dot: false,
+      yfmt: (x) => signed(x, "%").replace(".00", "") });
+    requestAnimationFrame(paint);
+    return el;
+  }
+
+  /* ── the review: the trader's own closed trades ──────────────────────── */
+  function hbars(rows, fmt) {
+    const max = Math.max(1, ...rows.map((r) => Math.abs(r.pnl)));
+    return `<div class="hb">${rows.map((r) => `<div class="hbr"><span class="k">${esc(r.key)}</span>` +
+      `<span class="bar"><i class="${r.pnl >= 0 ? "pos" : "neg"}" style="width:${Math.abs(r.pnl) / max * 50}%"></i></span>` +
+      `<b class="${upDown(r.pnl)}">${esc(fmt(r.pnl))}</b><span class="n">${esc(r.n)} · ${esc(pct(r.win_rate))}</span></div>`).join("")}</div>`;
+  }
+
+  function review(r) {
+    const el = document.createElement("div");
+    el.className = "strat review";
+    if (!r || !r.trades) {
+      el.innerHTML = `<div class="strat-head"><div><h3>Your trading</h3><p>${esc((r || {}).note || "No closed trades yet.")}</p></div></div>`;
+      return el;
+    }
+    const a = r.after_a_loss || {}, o = a.others || {}, held = r.minutes_held || {};
+    const tiles = [["Net", inr(r.net), upDown(r.net)], ["Won", pct(r.win_rate), ""], ["Per trade", inr(r.expectancy), upDown(r.expectancy)],
+      ["Average win / loss", `${inr(r.avg_win)} / ${inr(r.avg_loss)}`, ""], ["Deepest drawdown", inr(r.max_drawdown), r.max_drawdown < 0 ? "down" : ""],
+      ["Costs", inr(r.costs), ""]];
+    el.innerHTML = `<div class="strat-head"><div style="flex:1;min-width:0"><div class="row" style="gap:8px;margin-bottom:3px"><h3>Your last ${esc(r.days)} days</h3>` +
+      `<span class="pill">${esc(r.trades)} trades</span></div><p>${esc(r.trading_days)} trading days, ${esc(r.green_days)} of them green. Intraday, F&amp;O and perp trades from the day book, after estimated costs.</p></div></div>` +
+      `<div class="tgrid rv">${tiles.map(([k, v, c2]) => `<div class="tcell"><span>${k}</span><b class="${c2}">${esc(v)}</b></div>`).join("")}</div>` +
+      `<div class="rv-curve"><div class="lab">Running P&amp;L, trade by trade</div><div class="cv"></div></div>` +
+      `<div class="rv-grid"><div><div class="lab">By hour of entry</div>${hbars(r.by_hour || [], inr)}</div>` +
+      `<div><div class="lab">By how it ended</div>${hbars(r.by_exit || [], inr)}</div>` +
+      `<div><div class="lab">By play</div>${hbars((r.by_play || []).slice(0, 8), inr)}</div>` +
+      `<div><div class="lab">By instrument</div>${hbars(r.by_instrument || [], inr)}</div></div>` +
+      `<div class="rv-notes">` +
+      (a.n ? `<div class="callout">${ic("clock")}<span><b>Opened within 30 minutes of a loss: ${esc(a.n)}</b> won ${esc(pct(a.win_rate))}, ${esc(inr(a.expectancy))} a trade. ` +
+        `The rest won ${esc(pct(o.win_rate))}, ${esc(inr(o.expectancy))} a trade.</span></div>` : "") +
+      (held.wins != null && held.losses != null ? `<div class="callout">${ic("exit")}<span><b>Held</b> winners ${esc(num(held.wins, 1))} minutes, losers ${esc(num(held.losses, 1))} minutes on average.</span></div>` : "") +
+      (r.gross ? `<div class="callout">${ic("wallet")}<span><b>Costs</b> took ${esc(inr(r.costs))} from a gross of ${esc(inr(r.gross))}.</span></div>` : "") + `</div>`;
+    const cv = el.querySelector(".cv");
+    requestAnimationFrame(() => lineChart(cv, [{ v: 0 }, ...(r.curve || []).map((x) => ({ v: x }))],
+      { height: 120, width: 600, dates: false, zero: true, area: true, dot: false, yfmt: (x) => inr(x) }));
     return el;
   }
 
@@ -805,5 +904,5 @@ const Kit = (() => {
   }
 
   return { API, esc, call, num, inr, signed, bigMoney, bigNum, ago, day, dayY, ic, logo, name, outlet, loadLogos, symIn, venueOf, ed, editInline,
-           lineChart, priceBlock, bars, canvas, strategy, tile, alertCard, md, toast, COLORS };
+           lineChart, priceBlock, bars, canvas, strategy, tile, alertCard, md, toast, review, COLORS };
 })();

@@ -506,6 +506,61 @@ h3 .edit svg { opacity: 0; } h3 .edit:hover svg { opacity: 1; }
 .edit.more svg { color: var(--blue); }
 .facts .edit { height: auto; padding: 1px 6px; background: transparent; font-weight: inherit; font-size: inherit; }
 .facts .edit:hover { background: var(--panel-2); }
+
+/* the exit rule, on the Exit node */
+.xr .cond { font-size: 12.5px; }
+.xr .cond > span:first-child { color: var(--ink-2); }
+
+/* on history: the play's round trips beside the control */
+.trips { margin: 0 12px 4px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); padding: 12px 14px 10px; }
+.trips-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.trips-h svg { width: 15px; height: 15px; color: var(--ink-2); }
+.trips-h .muted { font-size: 12px; }
+.trips .pill.wait { background: #fff4d6; color: #8a5a00; }
+.tgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 8px; margin-top: 10px; }
+.tcell { background: var(--panel); border-radius: 10px; padding: 9px 10px; min-width: 0; }
+.tcell span { display: block; font-size: 11.5px; color: var(--ink-2); }
+.tcell b { display: block; font-size: 16px; font-weight: 600; margin-top: 3px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tcell i { display: block; font-style: normal; font-size: 11.5px; color: var(--ink-3); margin-top: 2px; }
+.tcell .up, .trow .up, .hbr .up { color: var(--green-ink); } .tcell .down, .trow .down, .hbr .down { color: var(--red); }
+.tbody { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 14px; margin-top: 12px; }
+.lab { font-size: 11.5px; color: var(--ink-3); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .04em; }
+.tlist .trow { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center; font-size: 12.5px; padding: 5px 0; border-top: 1px solid var(--line); }
+.tlist .trow:first-of-type { border-top: 0; }
+.trow .why { color: var(--ink-3); font-size: 11.5px; }
+.trow b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.trips .notes { margin: 8px 0 0; }
+
+/* the review */
+.review .tgrid.rv { margin: 4px 16px 0; }
+.rv-curve { margin: 14px 16px 0; }
+.rv-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 22px; margin: 16px 16px 0; }
+.hb { display: flex; flex-direction: column; gap: 5px; }
+.hbr { display: grid; grid-template-columns: 92px minmax(0, 1fr) 78px 54px; align-items: center; gap: 8px; font-size: 12.5px; }
+.hbr .k { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2); }
+.hbr .bar { position: relative; height: 10px; background: var(--panel); border-radius: 5px; }
+.hbr .bar::after { content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--line-2); }
+.hbr .bar i { position: absolute; top: 0; bottom: 0; border-radius: 5px; }
+.hbr .bar i.pos { left: 50%; background: #7bc96f; } .hbr .bar i.neg { right: 50%; background: #ef8f8f; }
+.hbr b { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+.hbr .n { color: var(--ink-3); font-size: 11.5px; text-align: right; }
+.rv-notes { display: flex; flex-direction: column; gap: 8px; margin: 16px 16px 16px; }
+.callout { display: flex; gap: 10px; align-items: flex-start; background: var(--panel); border-radius: 12px; padding: 10px 12px; font-size: 13px; line-height: 1.5; }
+.callout svg { width: 16px; height: 16px; flex: none; margin-top: 2px; color: var(--ink-2); }
+.callout b { font-weight: 600; }
+
+/* a halted day */
+.haltbar { display: flex; align-items: center; gap: 10px; margin: 0 auto; max-width: 1180px; padding: 9px 16px; background: var(--red-bg);
+  color: #7a1616; font-size: 13.5px; border-radius: 0 0 12px 12px; }
+.haltbar[hidden] { display: none; }
+.haltbar svg { width: 16px; height: 16px; flex: none; }
+.haltbar span { flex: 1; min-width: 0; }
+
+@media (max-width: 720px) {
+  .tbody, .rv-grid { grid-template-columns: minmax(0, 1fr); }
+  .hbr { grid-template-columns: 70px minmax(0, 1fr) 70px 44px; }
+  .trips { margin: 0 8px 4px; }
+}
 </style>
 </head>
 <body>
@@ -516,6 +571,7 @@ h3 .edit svg { opacity: 0; } h3 .edit:hover svg { opacity: 1; }
     <button type="button" class="tab" data-go="strategies"><span>Strategies</span></button>
     <button type="button" class="tab" data-go="inbox"><span>Inbox</span><span class="count" id="inboxCount" hidden></span></button>
     <button type="button" class="tab" data-go="portfolio"><span>Portfolio</span></button>
+    <button type="button" class="tab" data-go="review"><span>Review</span></button>
   </nav>
   <div class="grow"></div>
   <label class="search" id="search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
@@ -523,10 +579,11 @@ h3 .edit svg { opacity: 0; } h3 .edit:hover svg { opacity: 1; }
   <a class="btn" id="btnChart" href="./" target="pivot-chart">Chart</a>
   <button type="button" class="avatar" id="avatar" aria-label="Account">P</button>
 </header>
+<div class="haltbar" id="haltbar" hidden></div>
 <main id="main"></main>
 <div class="toast" id="toast"></div>
 <script src="./js/auth.js?v=11"></script>
-<script src="./js/playkit.js?v=13"></script>
-<script src="./js/playchat.js?v=9"></script>
+<script src="./js/playkit.js?v=14"></script>
+<script src="./js/playchat.js?v=10"></script>
 </body>
 </html>
