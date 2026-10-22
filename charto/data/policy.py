@@ -177,6 +177,18 @@ def ticket(play: dict, targets: dict[str, float], *, why: str = "", source: str 
     buys = sum(lg["inr"] for lg in legs if lg["side"] == "BUY")
     sells = sum(lg["inr"] for lg in legs if lg["side"] == "SELL")
     m = play["spec"]["mandate"]
+    if buys - sells > cash(play) + floor and sells > 0:
+        # whole shares round the sells down; the buys are cut to what the
+        # sells and any money left actually fund, rather than refusing it all
+        k = (sells + cash(play)) / buys
+        for lg in legs:
+            if lg["side"] == "BUY":
+                n = lg["qty"] * k
+                lg["qty"] = math.floor(n * 1e6) / 1e6 if lg["symbol"].endswith(("USDT", "USD", "BTC")) \
+                    else math.floor(n)
+                lg["inr"] = round(lg["qty"] * lg["price"], 2)
+        legs = [lg for lg in legs if lg["qty"] > 0]
+        buys = sum(lg["inr"] for lg in legs if lg["side"] == "BUY")
     if buys - sells > cash(play) + floor:
         return None, (f"the trades need ₹{buys - sells:,.0f} of new money and the play has "
                       f"₹{cash(play):,.0f} left to put in")

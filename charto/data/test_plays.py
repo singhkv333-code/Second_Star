@@ -12,6 +12,7 @@ import chat_v2
 import customsec
 import paper
 import plays
+import policy
 
 RSI = "def compute(data, params):\n    return ta.rsi(data['close'], 14)"
 
@@ -983,21 +984,23 @@ def test_a_dial_above_its_default_must_quote_the_trader(uid) -> None:
             "when": {"all": [{"left": "close", "op": "cross_up", "right": 1400}]}}
     server._req.heard = "Tell me when RELIANCE closes above 1,400."
     try:
+        # refused, not quietly lowered: the model quotes them or lowers it itself
         got = plays.tool_play("compile", {**rule, "contract": {"lifespan": "standing", "authority": "notify"}})
-        assert got["contract"]["runs"] == "Once, when it triggers", got["contract"]
-        assert any("one tap" in a for a in got["fell_back"]) and "_fell_back_note" in got
+        assert "error" in got and "inferred_from" in got["error"] and "once_when" in got["error"], got
+        got = plays.tool_play("compile", {**rule, "contract": {"authority": "notify"}})
+        assert got["contract"]["runs"] == "Once, when it triggers", got
         # a quoted phrase inside an explanation counts when it is theirs
         server._req.heard = "hdfc rsi oversold buy 5k each time"
         got = plays.tool_play("compile", {**rule, "symbol": "HDFCBANK", "contract": {
             "lifespan": "standing", "authority": "notify",
             "inferred_from": "“each time” means repeat on every fresh cross"}})
-        assert got["contract"]["runs"] == "Every time it triggers" and "fell_back" not in got
+        assert got["contract"]["runs"] == "Every time it triggers" and "error" not in got
         assert plays.get(uid, got["play_id"])["ask"] == "hdfc rsi oversold buy 5k each time"
         server._req.heard = "Tell me when RELIANCE closes above 1,400."
         server._req.heard = "Buy ₹20,000 of TCS."
         bad = plays.tool_play("compile", {"title": "TCS", "symbol": "TCS", "interval": "1d", "do": {"kind": "buy", "size": {"inr": 20000}},
                                           "contract": {"lifespan": "now", "authority": "act", "inferred_from": "Explicit buy request"}})
-        assert bad["did_now"]["kind"] == "proposed"
+        assert "error" in bad and "Explicit buy request" in bad["error"]
         ok = plays.tool_play("compile", {"title": "TCS", "symbol": "TCS", "interval": "1d", "do": {"kind": "buy", "size": {"inr": 20000}},
                                          "contract": {"lifespan": "now", "authority": "act", "inferred_from": "Buy ₹20,000 of TCS"}})
         assert ok["did_now"]["kind"] == "filled"
@@ -1014,9 +1017,51 @@ def test_a_dial_above_its_default_must_quote_the_trader(uid) -> None:
         server._req.heard = None
 
 
+def test_the_gate_checks_only_a_dial_above_the_shapes_own_default(book) -> None:
+    uid = 1
+    server._req.heard = "stop me after two losses in a row"
+    try:
+        # a guard stands every day by its shape: setting that is not a raise
+        g = plays.tool_play("compile", {"title": "Two losses", "symbol": "RELIANCE", "interval": "1d",
+                                        "measures": [{"name": "ls", "title": "Loss streak",
+                                                      "inputs": {"s": {"book": "loss_streak"}}, "expr": "s"}],
+                                        "when": {"all": [{"left": "ls", "op": "above", "right": 1}]},
+                                        "do": {"kind": "halt"},
+                                        "contract": {"lifespan": "standing", "inferred_from": "a guard"}})
+        assert "error" not in g and g["contract"]["runs"] == "Every time it triggers", g
+        # the model's ask is kept when it is the trader's words
+        assert plays.get(uid, g["play_id"])["ask"] == "stop me after two losses in a row"
+        server._req.heard = "watch tcs and infy \n buy if rsi crosses 30"
+        u = plays.tool_play("compile", {"title": "Oversold", "symbol": "TCS", "interval": "1d",
+                                        "ask": "watch tcs and infy … buy if rsi crosses 30",
+                                        "universe": ["TCS", "INFY"],
+                                        "measures": [{"name": "r", "title": "RSI", "code":
+                                                      "def compute(data, params): return ta.rsi(data['close'], 14)"}],
+                                        "when": {"all": [{"left": "r", "op": "cross_up", "right": 30}]},
+                                        "do": {"kind": "buy", "symbol": "*", "size": {"inr": 5000}},
+                                        "contract": {"lifespan": "standing", "authority": "propose"}})
+        assert "error" not in u, u
+        assert plays.get(uid, u["play_id"])["ask"] == "watch tcs and infy … buy if rsi crosses 30"
+    finally:
+        server._req.heard = None
+
+
 
 def test_equal_weight_of_two_names_is_fifty_fifty_not_capped(uid) -> None:
     paper.place_order(uid, "RELIANCE", "BUY", 10, source="test")
     got = plays.tool_play("compile", _equal(contract={"lifespan": "now", "authority": "propose"}))
     t = plays.get(uid, got["play_id"])["spec"]["do"]["targets"]
     assert t == {"RELIANCE": 0.5, "TCS": 0.5}, t
+
+
+def test_a_rebalance_of_what_is_held_funds_its_buys_from_its_sells(monkeypatch) -> None:
+    # HAL 20 at 4,568 and BEL 120 at 408 to 50/50: whole shares sell 4 HAL
+    # (₹18,272) but would buy 51 BEL (₹20,808); the buys are cut to what is funded
+    monkeypatch.setattr(policy, "book", lambda play: {"HAL": 20, "BEL": 120})
+    monkeypatch.setattr(policy, "mark", lambda s: {"HAL": 4568.0, "BEL": 408.0}[s])
+    monkeypatch.setattr(policy, "cash", lambda play: 0.0)
+    play = {"spec": {"do": {}, "mandate": {"max_order_inr": 10_00_000}}}
+    t, why = policy.ticket(play, {"HAL": 0.5, "BEL": 0.5})
+    assert t, why
+    assert t["buys_inr"] <= t["sells_inr"] and {lg["symbol"] for lg in t["legs"]} == {"HAL", "BEL"}, t
+

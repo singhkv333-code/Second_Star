@@ -968,29 +968,32 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
     quote = str(contract.get("inferred_from") or "")
     ok = _grounded(quote, heard)
     if heard:
-        last = heard.rsplit(" \n ", 1)[-1].strip()
-        raw = {**raw, "ask": last or raw.get("ask")}
-    n_said = len(said)
+        # the card shows the trader's words: the model's `ask` when it quotes
+        # them (it may join several messages with …), else their last message
+        ask = str(raw.get("ask") or "")
+        if not (ask and _grounded(ask, heard)):
+            raw = {**raw, "ask": heard.rsplit(" \n ", 1)[-1].strip() or ask}
+    # what the play's shape runs as when nobody says otherwise; only a dial
+    # above it needs the trader's words
+    base = ("standing" if (raw.get("do") or {}).get("kind") == "halt" or (uni and when) else
+            "once_when" if (when or on) else "now")
     if not ok and heard is not None:
-        rb = (raw.get("do") or {}).get("kind") == "rebalance"
-        guard = (raw.get("do") or {}).get("kind") == "halt"      # a guard stands every day by nature
-        if contract.get("lifespan") in ("standing", "policy") and not guard and \
-                (raw.get("when") or raw.get("on") or rb):
-            said.append("runs once" + ("" if rb else " the first time it triggers")
-                        + "; one tap on the card keeps it going"
-                        + (" (your words did not ask to keep it)" if not quote else ""))
-            contract["lifespan"] = "now" if rb else "once_when"
-            raw = {**raw, "policy": None}
-        if contract.get("authority") in ("act", "manage"):
-            said.append("proposes the order for you to confirm; one tap lets it place orders itself")
-            contract["authority"] = "propose"
+        # code checks the evidence, the model decides: quote their words or
+        # leave the dial where the shape puts it
+        up = []
+        if contract.get("lifespan") in ("standing", "policy") and contract["lifespan"] != base:
+            up.append(f"lifespan {contract['lifespan']}")
+        if contract.get("authority") in ("act", "manage") and (raw.get("do") or {}).get("kind") != "halt":
+            up.append(f"authority {contract['authority']}")      # a guard acts by its nature
         if contract.get("now") and contract.get("lifespan") not in (None, "now"):
-            said.append("waits for its condition rather than acting now")
-            contract["now"] = False
-    fell = said[n_said:]
+            up.append("now")
+        if up:
+            raise Bad(f"{', '.join(up)} is above the default, so contract.inferred_from must quote the "
+                      f"trader's own words that ask for it" + (f" ({quote!r} is not what they said)" if quote else "")
+                      + f". Quote them, or leave it out (lifespan {base}, authority propose, no now) and say "
+                      "what one tap on the card raises.")
     rebalance = (raw.get("do") or {}).get("kind") == "rebalance"
-    lifespan = contract.get("lifespan") or ("standing" if uni and when else
-                                            "once_when" if (when or on) else "now")
+    lifespan = contract.get("lifespan") or base
     if uni and (on or (raw.get("do") or {}).get("kind") in ("rebalance", "halt")):
         raise Bad("a universe is for a rule read on each name's own bars; events, rebalances and "
                   "guards take one symbol")
@@ -1032,10 +1035,8 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
         # stopping trading only ever reduces risk, so it never waits for a tap
         authority = "act"
         if iv == "1d":
-            iv = "5m"
-        said.append("checked after every fill and exit in the day book, and on each 5m bar")
-        if not contract.get("lifespan"):
-            lifespan = "standing"
+            iv = "5m"              # a daily bar closes after the day it guards is over
+        said.append(f"checked after every fill and exit in the day book, and on each {iv} bar")
         do = {"kind": "halt", "close": bool(do.get("close"))}
         said[:] = [x for x in said if not x.startswith("it tells you")]
     mg_raw = raw.get("manage") or {}
@@ -1206,8 +1207,6 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
                      "inferred_from": str(contract.get("inferred_from") or "")[:200],
                      "expires_in_days": int(days) if days else None},
     }
-    if fell:
-        spec["_fell_back"] = fell
     return spec, said
 
 
@@ -3142,7 +3141,6 @@ def compile_play(uid: int, raw: dict, *, chart_symbol: str = "", chart_interval:
                  arm: bool = True, pid: int | None = None, heard: str | None = None) -> dict:
     init_db()
     spec, said = normalise(raw, uid, chart_symbol, chart_interval, heard=heard)
-    fell = spec.pop("_fell_back", [])
     prior = get(uid, pid) if pid else None
     if pid and not prior:
         raise Bad(f"no play {pid} on this account")
@@ -3198,7 +3196,7 @@ def compile_play(uid: int, raw: dict, *, chart_symbol: str = "", chart_interval:
                 feed = _alerts.ensure_feed(spec["symbol"])
         except Exception:                                   # noqa: BLE001
             feed = None
-    return {"play": row, "assumed": [x for x in said if x not in fell], "fell_back": fell, "diff": diff, "feed": feed,
+    return {"play": row, "assumed": said, "diff": diff, "feed": feed,
             "card": card(row, {"conditions": status})}
 
 
@@ -4070,11 +4068,6 @@ def tool_play(action: str = "", play: dict | str | None = None, play_id: int = 0
                    "conditions": c["conditions"], "contract": c["contract"],
                    "history": hist, "now": row["history"].get("now"),
                    "assumed": got["assumed"], "notes": c["notes"]}
-            if got.get("fell_back"):
-                out["fell_back"] = got["fell_back"]
-                out["_fell_back_note"] = ("Code lowered these dials because inferred_from did not quote the "
-                                          "trader's words. Describe the play as it IS (contract), not as you "
-                                          "set it, and offer the one tap that raises it.")
             if c.get("exits"):
                 out["exits"] = c["exits"]
             if got["diff"]:
