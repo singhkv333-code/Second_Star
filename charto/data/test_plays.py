@@ -1159,3 +1159,45 @@ def test_a_rebalance_of_what_is_held_funds_its_buys_from_its_sells(monkeypatch) 
     assert t, why
     assert t["buys_inr"] <= t["sells_inr"] and {lg["symbol"] for lg in t["legs"]} == {"HAL", "BEL"}, t
 
+
+
+def test_a_sell_takes_from_the_paper_portfolio_by_share(uid) -> None:
+    paper.place_order(uid, "RELIANCE", "BUY", 10, source="test")
+    got = plays.tool_play("compile", {"title": "Sell half", "symbol": "RELIANCE", "interval": "1d",
+                                      "do": {"kind": "sell", "size": {"pct": 50}},
+                                      "contract": {"lifespan": "now", "authority": "act"}})
+    assert got["did_now"]["kind"] == "filled", got
+    assert got["did_now"]["body"]["ticket"]["qty"] == 5
+    assert "50% of your RELIANCE" in plays.card(plays.get(uid, got["play_id"]))["summary"]
+    held = {r["symbol"]: r["quantity"] for r in paper.api_holdings(uid)[1]}
+    assert held.get("RELIANCE") == 5, held
+    none = plays.tool_play("compile", {"title": "Sell TCS", "symbol": "TCS", "interval": "1d",
+                                       "do": {"kind": "sell", "size": {"all": True}},
+                                       "contract": {"lifespan": "now", "authority": "act"}})
+    assert none["did_now"]["kind"] == "rejected" and "your paper portfolio holds no TCS" in \
+        none["did_now"]["body"]["reason"], none["did_now"]
+
+
+def test_a_condition_between_two_numbers_is_refused(uid) -> None:
+    got = plays.tool_play("compile", {"title": "x", "symbol": "RELIANCE", "interval": "1d",
+                                      "when": {"all": [{"left": 1, "op": "above", "right": 0}]},
+                                      "do": {"kind": "sell", "size": {"all": True}}})
+    assert "never changes" in got["error"], got
+
+
+def test_a_rebalance_lands_as_near_its_targets_as_whole_shares_allow(monkeypatch) -> None:
+    monkeypatch.setattr(policy, "book", lambda play: {"HAL": 20, "BEL": 120})
+    monkeypatch.setattr(policy, "mark", lambda s: {"HAL": 4567.9, "BEL": 408.0}[s])
+    monkeypatch.setattr(policy, "cash", lambda play: 0.0)
+    t, why = policy.ticket({"spec": {"do": {}, "mandate": {"max_order_inr": 10_00_000}}}, {"HAL": 0.6, "BEL": 0.4})
+    q = {lg["symbol"]: (lg["side"], lg["qty"]) for lg in t["legs"]}
+    assert q == {"HAL": ("SELL", 2), "BEL": ("BUY", 17)}, q        # 58.6% / 39.8%, not 62% / 38%
+
+
+def test_a_portfolio_rebalance_with_targets_leaves_other_holdings_alone(uid) -> None:
+    for sym, q in (("RELIANCE", 10), ("TCS", 5), ("INFY", 4)):
+        paper.place_order(uid, sym, "BUY", q, source="test")
+    got = plays.tool_play("compile", _equal(contract={"lifespan": "now", "authority": "act"}))
+    assert any("other holdings stay" in a for a in got["assumed"]), got["assumed"]
+    held = {r["symbol"]: r["quantity"] for r in paper.api_holdings(uid)[1]}
+    assert held.get("INFY") == 4, held                      # not named, not sold

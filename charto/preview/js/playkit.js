@@ -345,7 +345,7 @@ const Kit = (() => {
     if (c.do && c.do.kind === "rebalance") {
       const held = Object.entries(c.held || {}).filter(([, q]) => q);
       out.push({ title: c.do.of === "portfolio" ? "Your paper portfolio" : "What this play holds", body:
-        `<div class="src">${ic("wallet")}<span>${held.length ? `${held.length} holdings` : "Read at each run"}</span><span class="grow"></span><span class="pill live">${ic("grid")}Live</span></div>` +
+        `<div class="src">${ic("wallet")}<span>${held.length ? `${held.length} holding${held.length === 1 ? "" : "s"}` : "Read at each run"}</span><span class="grow"></span><span class="pill live">${ic("grid")}Live</span></div>` +
         (held.length ? `<div class="items" style="margin-top:8px">${held.slice(0, 6).map(([s, q]) =>
           `<div class="item" style="align-items:center">${logo(s, "sm")}<span style="flex:1">${esc(s)}</span><b class="num">${esc(num(q, 4))}</b></div>`).join("")}</div>` : "") });
     } else if (c.universe) {
@@ -415,6 +415,10 @@ const Kit = (() => {
       const pp = (l, v) => `<span class="pp"><span>${l}</span>${v}</span>`;
       if (d.size && d.size.inr) bits.push(pp(d.product === "PERP" ? "Margin" : "Allocate", sized ? ed("size_inr", d.size.inr, esc(inr(d.size.inr))) : `<span class="edit">${esc(inr(d.size.inr))}</span>`));
       if (d.size && d.size.qty) bits.push(pp("Qty", `<span class="edit">${esc(num(d.size.qty))}</span>`));
+      if (d.kind === "sell" && d.size && (d.size.pct || d.size.all)) {
+        const whose = d.of === "portfolio" ? "your holding" : "its holding";
+        bits.push(pp("Sell", `<span class="edit">${d.size.pct ? `${esc(num(d.size.pct))}% of ${whose}` : `all of ${whose}`}</span>`));
+      }
       if (d.product === "PERP" && d.leverage) bits.push(pp("Leverage", ed("leverage", d.leverage, `${esc(num(d.leverage))}×`)));
       const risk = sized || d.kind === "options" || d.kind === "future";
       if (mg.target_pct || risk) bits.push(pp("Take", ed("target_pct", mg.target_pct || "", mg.target_pct ? `+${esc(num(mg.target_pct))}%` : "add")));
@@ -594,8 +598,6 @@ const Kit = (() => {
           `${logo(s, "xs")}${esc(s)}${hold.has(s) ? `<i>held</i>` : met.has(s) ? `<i>meets it now</i>` : ""}</span>`).join("")}</div>`;
       el.appendChild(w);
     }
-    const tp = trips(c);
-    if (tp) el.appendChild(tp);
     if (c.offer) {
       const off = document.createElement("div");
       off.className = "offer";
@@ -664,50 +666,6 @@ const Kit = (() => {
   const upDown = (v) => v == null ? "" : v >= 0 ? "up" : "down";
   const VERDICT = { ahead: ["up", "Ahead of the control"], behind: ["down", "Behind the control"],
                     mixed: ["", "Mixed against the control"], too_few: ["wait", "Too few trades to tell"] };
-
-  /** The play's round trips on stored history beside the control: entries
-   *  anywhere in the same hours, through the same exits. */
-  function trips(c) {
-    const t = (c.history || {}).trades;
-    if (!t || (t.kind === "trades" && !t.n)) return null;
-    const el = document.createElement("div");
-    el.className = "trips";
-    const when = (ts) => c.interval === "1d" ? day(ts) : new Date(ts * 1000).toLocaleString("en-IN",
-      { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
-    const notes = (t.notes || []).length ? `<ul class="notes">${t.notes.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : "";
-    const head = (pill) => `<div class="trips-h">${ic("refresh")}<b>On history</b><span class="muted">measured on ${esc(t.basis)}</span>` +
-      `<span class="grow"></span>${pill || ""}</div>`;
-    if (t.kind === "forward") {
-      el.innerHTML = head() + `<div class="tgrid">${(t.bars || []).map((hz) => {
-        const f = (t.forward || {})[hz] || {}, a = f.after || {}, b = f.any_bar || {};
-        return `<div class="tcell"><span>Next ${esc(hz)} bars after a fire</span><b class="${upDown(a.expectancy)}">${esc(signed(a.expectancy))}</b>` +
-          `<i>${esc(a.n || 0)} fires · any bar ${esc(signed(b.expectancy))}</i></div>`;
-      }).join("")}</div>` + notes;
-      return el;
-    }
-    const k = t.control || {}, v = VERDICT[t.verdict];
-    const cells = [
-      ["Trades", esc(t.n), t.avg_bars != null ? `held ${esc(num(t.avg_bars, 1))} bars on average` : ""],
-      ["Won", esc(pct(t.win_rate)), `control ${esc(pct(k.win_rate))}`],
-      ["Average win / loss", `<em class="up">${esc(signed(t.avg_win))}</em> <em class="dim">/</em> <em class="down">${esc(signed(t.avg_loss))}</em>`,
-        t.profit_factor != null ? `profit factor ${esc(num(t.profit_factor, 2))}` : ""],
-      ["Per trade", `<em class="${upDown(t.expectancy)}">${esc(signed(t.expectancy))}</em>`, `control ${esc(signed(k.expectancy))}`],
-    ];
-    if (t.per_trade_inr != null) cells.push(["After costs", `<em class="${upDown(t.per_trade_inr)}">${esc(inr(t.per_trade_inr))}</em>`,
-      `a trade, costs ${esc(num(t.cost_pct, 2))}%`]);
-    el.innerHTML = head(v ? `<span class="pill ${v[0]}">${esc(v[1])}${t.edge != null ? ` · ${esc(signed(t.edge))}` : ""}</span>` : "") +
-      `<div class="tgrid">${cells.map(([a, b, i]) => `<div class="tcell"><span>${a}</span><b>${b}</b>${i ? `<i>${i}</i>` : ""}</div>`).join("")}</div>` +
-      `<div class="tbody"><div class="tcurve"><div class="lab">Running total, % per trade added up</div><div class="cv"></div></div>` +
-      `<div class="tlist"><div class="lab">Last trades · exits ${Object.entries(t.exits || {}).map(([w, n]) => `${esc(w)} ${esc(n)}`).join(" · ")}</div>` +
-      (t.list || []).slice(-5).reverse().map((x) => `<div class="trow"><span>${x.symbol ? `${logo(x.symbol, "xs")}<b class="sy">${esc(x.symbol)}</b> ` : ""}${esc(when(x.in))} → ${esc(when(x.out))}</span>` +
-        `<span class="why">${esc(x.why)}</span><b class="${upDown(x.ret)}">${esc(signed(x.ret))}</b></div>`).join("") + `</div></div>` + notes;
-    const cv = el.querySelector(".cv");
-    const pts = [{ v: 0 }, ...(t.curve || []).map((x) => ({ v: x }))];
-    const paint = () => lineChart(cv, pts, { height: 74, width: 300, dates: false, zero: true, area: true, dot: false,
-      yfmt: (x) => `${x > 0.5 ? "+" : ""}${Math.round(x)}%` });
-    requestAnimationFrame(paint);
-    return el;
-  }
 
   /* ── a scan: the shortlist, ranked against the rest ───────────────────── */
   function scanCard(r) {

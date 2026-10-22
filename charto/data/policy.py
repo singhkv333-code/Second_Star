@@ -52,6 +52,11 @@ def book(play: dict) -> dict[str, float]:
     except Exception:                                       # noqa: BLE001
         held = {}
     if of == "portfolio":
+        # targets the trader named scope it to those names; a planner (or "keep
+        # the weights it holds") works on the whole book
+        names = set(play["spec"]["do"].get("names") or [])
+        if names and play["spec"]["contract"].get("discretion") != "plan":
+            return {s: q for s, q in held.items() if q > 0 and s in names}
         return {s: q for s, q in held.items() if q > 0}
     mine = play.get("held_legs") or {}
     return {s: min(q, held.get(s, 0.0)) for s, q in mine.items() if min(q, held.get(s, 0.0)) > 0}
@@ -161,7 +166,10 @@ def ticket(play: dict, targets: dict[str, float], *, why: str = "", source: str 
             continue
         crypto = s.endswith(("USDT", "USD", "BTC"))
         n = abs(gap) / px[s]
-        n = math.floor(n * 1e6) / 1e6 if crypto else math.floor(n)
+        # a sell rounds to the nearest whole share (it funds the buys, which
+        # round down), so the book lands as near the targets as shares allow
+        n = (math.floor(n * 1e6) / 1e6 if crypto else
+             min(round(n), q.get(s, 0.0)) if gap < 0 else math.floor(n))
         if targets.get(s, 0.0) == 0:
             n = q.get(s, 0.0)                          # leaving a name sells all of it
         if n <= 0:

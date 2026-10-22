@@ -909,6 +909,17 @@ def _norm_when(when) -> dict | None:
         when = {"all": when}
     if when and ("left" in when or "time" in when):
         when = {"all": [when]}
+
+    def num(x) -> bool:
+        try:
+            float(str(x).replace(",", ""))
+            return True
+        except ValueError:
+            return False
+    for c in (when or {}).get("all") or (when or {}).get("any") or []:
+        if isinstance(c, dict) and "left" in c and num(c.get("left")) and num(c.get("right", "x")):
+            raise Bad(f"'{c.get('left')} {c.get('op')} {c.get('right')}' compares two numbers, so it never "
+                      "changes; to act at once leave `when` out (contract.lifespan now)")
     return when
 
 
@@ -1143,11 +1154,20 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
         size = do.get("size") or {}
         if not isinstance(size, dict):
             size = {"inr": size}
-        if not size.get("inr") and not size.get("qty") and not size.get("all"):
+        if size.get("pct") is not None:
+            pct = float(size["pct"])
+            if kind != "sell" or not 0 < pct <= 100:
+                raise Bad("size.pct is for a sell: the share of what is held, above 0 and up to 100")
+            size = {"pct": pct}
+        if not size.get("inr") and not size.get("qty") and not size.get("all") and not size.get("pct"):
             size = {"inr": DEFAULT_SIZE_INR} if kind in ("buy", "short") else {"all": True}
             said.append(f"sized at ₹{DEFAULT_SIZE_INR:,}" if kind in ("buy", "short")
-                        else "closes what this play holds")
+                        else "sells all of it")
         do["size"] = size
+        if kind == "sell" and not perp and not customsec.is_custom(do["symbol"]):
+            # a sell play never buys, so what it sells is the trader's: the
+            # paper portfolio, unless it was told to sell only its own
+            do["of"] = "self" if do.get("of") == "self" else "portfolio"
         if perp:
             c = hyperliquid.ctx(do["symbol"])
             if not c:
@@ -1290,6 +1310,14 @@ def _norm_rebalance(do: dict, raw: dict, lifespan: str, discretion: str,
             {k: v for k, v in (do.get("reasons") or {}).items() if k in do["targets"]}
         cap = float((raw.get("mandate") or {}).get("max_weight") or
                     (policy.DEFAULT_MAX_WEIGHT if discretion == "plan" else 1.0))
+        # the names the trader set weights for, zeros included: a portfolio
+        # rebalance with targets trades these and leaves every other holding be
+        rs_all = do["targets"] if isinstance(do["targets"], list) else \
+            [{"symbol": k} for k in (do["targets"] or {})] if isinstance(do["targets"], dict) else []
+        out["names"] = sorted({ds.canon_symbol(str(x.get("symbol") if isinstance(x, dict) else x))
+                               for x in rs_all if (x.get("symbol") if isinstance(x, dict) else x)})
+        if of == "portfolio" and discretion != "plan":
+            said.append(f"trades only {', '.join(out['names'][:6])}; your other holdings stay as they are")
         try:
             out["targets"], cut = policy.norm_targets(do["targets"], out["cash_pct"], cap)
         except policy.Bad as exc:
@@ -1861,7 +1889,7 @@ def _contract_line(spec: dict) -> dict:
         cap = f"at most {m['max_weight'] * 100:.0f}% in one name" if m.get("max_weight") else ""
         money = f"₹{new:,.0f} of new money" if new else ""
         out["limit"] = ", ".join(x for x in (cap, money) if x) or None
-    elif spec["do"]["kind"] != "notify":
+    elif spec["do"]["kind"] not in ("notify", "sell"):          # a sale spends nothing
         out["limit"] = f"₹{m['capital_inr']:,.0f}"
     return out
 
@@ -1956,8 +1984,10 @@ def summary(spec: dict) -> str:
         act = f"{verb} {order_words(spec)}"
     else:
         size = do.get("size") or {}
-        amt = (f"₹{size['inr']:,.0f} of " if size.get("inr") else
-               f"{size['qty']:g} " if size.get("qty") else "all of its ")
+        yours = "your " if do.get("of") == "portfolio" else "its "
+        amt = (f"₹{size['inr']:,.0f} of " + (yours if do["kind"] == "sell" else "") if size.get("inr") else
+               f"{size['qty']:g} " + ("of " + yours if do["kind"] == "sell" else "") if size.get("qty") else
+               f"{size['pct']:g}% of {yours}" if size.get("pct") else f"all of {yours}")
         verb = {"propose": "proposes buying", "act": "buys", "manage": "buys"}.get(
             c["authority"], "proposes buying") if do["kind"] == "buy" else \
             {"propose": "proposes selling", "act": "sells", "manage": "sells"}.get(
@@ -2051,6 +2081,20 @@ def _on_test(on: dict) -> str:
     return " and ".join(bits) or "arrives"
 
 
+def _card_held(row: dict) -> dict:
+    """What the card shows as held: for a rebalance of the paper portfolio,
+    the portfolio's own holdings of the names it trades (read now); otherwise
+    what this play bought."""
+    spec = row["spec"]
+    if spec["do"]["kind"] == "rebalance" and spec["do"].get("of") == "portfolio" and _paper is not None:
+        try:
+            return policy.book({"spec": spec, "user_id": row["user_id"], "held_legs": {}})
+        except Exception:                                   # noqa: BLE001
+            pass
+    return row.get("held_legs") or ({row["held_sym"]: row["held_qty"]}
+                                    if row.get("held_qty") and row.get("held_sym") else {})
+
+
 def card(row: dict, live: dict | None = None) -> dict:
     """The play as the reply's panel and the widget's row. Built from the
     stored row only, so a card can never show a play that was not saved."""
@@ -2134,8 +2178,7 @@ def card(row: dict, live: dict | None = None) -> dict:
         "do": do, "manage": mg, "mandate": spec.get("mandate"), "policy": spec.get("policy"), "perp": perp,
         "lifespan": spec["contract"]["lifespan"], "authority": spec["contract"]["authority"],
         "discretion": spec["contract"]["discretion"], "created": row.get("created"),
-        "held": row.get("held_legs") or ({row["held_sym"]: row["held_qty"]}
-                                         if row.get("held_qty") and row.get("held_sym") else {}),
+        "held": _card_held(row),
         "spent_inr": row.get("spent_inr") or 0,
         "notes": hist.get("notes") or [], "fires": row.get("fires", 0),
         "expires": row.get("expires"),
@@ -2855,10 +2898,17 @@ def _ticket(play: dict, price: float) -> tuple[dict | None, str]:
         return None, f"no current price for {sym}"
     size = do.get("size") or {}
     if do["kind"] == "sell":
-        held = play["held_qty"] if play["held_sym"] == sym else 0
-        qty = held if size.get("all") or not size.get("qty") else min(float(size["qty"]), held)
-        if not qty:
-            return None, f"this play holds no {sym} to sell"
+        own = play["held_sym"] == sym and play["held_qty"]
+        held = play["held_qty"] if own else _portfolio_qty(play["user_id"], sym) if do.get("of") == "portfolio" else 0
+        whose = "this play" if own or do.get("of") != "portfolio" else "your paper portfolio"
+        if not held:
+            return None, f"{whose} holds no {sym} to sell"
+        whole = (lambda x: math.floor(x * 1e6) / 1e6) if sym.endswith(("USDT", "USD", "BTC")) else math.floor
+        qty = (min(float(size["qty"]), held) if size.get("qty") else
+               min(whole(held * size["pct"] / 100), held) if size.get("pct") else
+               min(whole(float(size["inr"]) / px), held) if size.get("inr") else held)
+        if qty <= 0:
+            return None, f"that is less than one unit of the {held:g} {sym} {whose} holds"
         return {"symbol": sym, "side": "SELL", "qty": qty, "price": px}, ""
     inr = float(size.get("inr") or 0) or (float(size["qty"]) * px if size.get("qty") else 0)
     if inr > m["max_order_inr"] + 1e-6:
@@ -2908,6 +2958,17 @@ def _place_rebalance(play: dict, t: dict, ts: int, body: dict) -> dict:
                          + "; ".join(f"{f['symbol']} ({f['reason']})" for f in failed))
     return _event(play, ts, "filled" if fills or not t["legs"] else "rejected", play["spec"]["title"],
                   out, status="done")
+
+
+def _portfolio_qty(uid: int, sym: str) -> float:
+    """How much of `sym` the trader's paper portfolio holds now."""
+    if _paper is None:
+        return 0.0
+    try:
+        _, rows = _paper.api_holdings(uid)
+    except Exception:                                       # noqa: BLE001
+        return 0.0
+    return float(sum(float(r.get("quantity") or 0) for r in rows or [] if r.get("symbol") == sym))
 
 
 def _mark(sym: str) -> float | None:
@@ -3262,6 +3323,15 @@ def compile_play(uid: int, raw: dict, *, chart_symbol: str = "", chart_interval:
     init_db()
     spec, said = normalise(raw, uid, chart_symbol, chart_interval, heard=heard)
     _check_sources(spec)
+    dsym = str(spec["do"].get("symbol") or "")
+    if spec["do"].get("product") == "PERP" or dsym.endswith(("USDT", "-USD")):
+        try:
+            rate = _paper.fx_rate("USD")[0] if _paper is not None else None
+        except Exception:                                   # noqa: BLE001
+            rate = None
+        if not rate:
+            said.append("this server has no USD/INR rate right now, so an order would be refused until "
+                        "it has one")
     prior = get(uid, pid) if pid else None
     if pid and not prior:
         raise Bad(f"no play {pid} on this account")
