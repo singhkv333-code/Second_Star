@@ -10,7 +10,11 @@ passes. Expectations are tolerances on the book (which names change, by how
 much, which stay as they were), so the model keeps its freedom in how it
 builds.
 
-    python3.11 plays_eval.py --token <file> [--only 0,3] [--k 2]
+    python3.11 plays_eval.py --token <file> [--only 0,3 | --tag said] [--k 2]
+
+Cases carry tags naming the kind of error they probe ("said": a number the
+trader gave reaches the order), so a fix is checked against its own cases
+rather than by re-running everything.
 
 The server must run with CHARTO_PLAYS=1 on the same CHARTO_USERS_DB and
 CHARTO_EVENTS_DB as this process (they are read from the environment). --k
@@ -84,10 +88,10 @@ class Books:
     def seed(self, case: dict) -> None:
         for p in self.daybook.open_positions(self.uid):
             self.daybook.close(p, p["mark_px"] or p["entry_px"], "eval reset", notify=False)
-        with self.ds._users_lock:
-            self.ds._users.execute("UPDATE plays SET state='done' WHERE user_id=? AND state IN ('armed','paused')",
-                                   (self.uid,))
-            self.ds._users.commit()
+        # each case starts with no plays: the model must build, not edit a
+        # play an earlier case left behind (this is a throwaway eval account)
+        for (pid,) in self.ds._users.execute("SELECT id FROM plays WHERE user_id=?", (self.uid,)).fetchall():
+            self.plays.act(self.uid, pid, "delete")
         want = case.get("book") or {}
         for sym, q in self.held().items():
             d = q - want.get(sym, 0)
@@ -106,9 +110,11 @@ class Books:
         r = self.ds._users.execute("SELECT COALESCE(MAX(id), 0) FROM plays WHERE user_id=?", (self.uid,)).fetchone()
         return int(r[0])
 
-    def fire_new(self, after: int) -> list[dict]:
-        """Fire each play built after `after` on its latest bar, as the run
-        loop would, and confirm what it proposes. Returns what happened."""
+    def fire_new(self, after: int, force: bool = False) -> list[dict]:
+        """What the plays built after `after` did, with their proposals
+        confirmed as the trader's tap would. A play arms from the latest bar,
+        so only what it did at once counts; `force` also fires each
+        conditional play on its latest bar, to test the order it would place."""
         out = []
         rows = self.ds._users.execute("SELECT id FROM plays WHERE user_id=? AND id>? ORDER BY id",
                                       (self.uid, after)).fetchall()
@@ -116,11 +122,13 @@ class Books:
             play = self.plays._load(pid)
             spec = play["spec"]
             seen = [e for e in self.plays.events(self.uid, 200) if e.get("play_id") == pid]
-            if not seen and play["state"] == "armed" and not spec.get("on"):
+            if force and not seen and play["state"] == "armed" and not spec.get("on"):
                 data, _ = self.plays.frame(spec)
                 series, _ = self.plays.run_measures(spec, data)
                 self.plays._fire(play, data, series, len(data["t"]) - 1, late=False)
                 seen = [e for e in self.plays.events(self.uid, 200) if e.get("play_id") == pid]
+            if not seen:
+                out.append({"play": pid, "kind": spec["do"]["kind"], "event": "armed, nothing yet", "why": ""})
             for e in seen:
                 if e["kind"] == "proposed" and e.get("status") == "open":
                     try:
@@ -164,8 +172,9 @@ def judge(case: dict, before: dict, after: dict, day: list[dict], built: list[di
             (want.get("qty", 1e-9), want.get("qty", 1e18))
         if not hit or not lo <= q <= hi:
             bad.append(f"day book holds {q:g} {want['side']} {want['symbol']}, expected {want.get('qty', 'some')}")
-        if want.get("stop") and not all(p["stop"] for p in hit):
-            bad.append(f"the {want['symbol']} {want['side']} has no stop")
+        for k in ("stop", "target"):
+            if want.get(k) and not all(p[k] for p in hit):
+                bad.append(f"the {want['symbol']} {want['side']} has no {k}")
     if exp.get("no_day") and day:
         bad.append(f"opened {len(day)} day position(s)")
     if exp.get("kinds"):
@@ -188,11 +197,13 @@ def main() -> None:
     ap.add_argument("--token", required=True, help="file holding a bearer token for the eval account")
     ap.add_argument("--uid", type=int, required=True)
     ap.add_argument("--only", default="")
+    ap.add_argument("--tag", default="", help="run only the cases with this tag (one kind of error)")
     ap.add_argument("--k", type=int, default=1)
     ap.add_argument("--cases", default=CASES)
     a = ap.parse_args()
     cases = json.load(open(a.cases))
-    pick = [int(x) for x in a.only.split(",") if x] or range(len(cases))
+    pick = [int(x) for x in a.only.split(",") if x] or \
+        [i for i, c in enumerate(cases) if not a.tag or a.tag in (c.get("tags") or [])]
     token = open(a.token).read().strip()
     books = Books(a.uid)
     results = {}
@@ -202,7 +213,7 @@ def main() -> None:
             books.seed(case)
             before, mark = books.held(), books.last_play()
             turn = _chat(a.base, token, case["prompt"], f"{i}-{k}")
-            built = books.fire_new(mark)
+            built = books.fire_new(mark, force=bool(case.get("fire")))
             after, day = books.held(), books.day()
             bad = judge(case, before, after, day, built)
             results.setdefault(i, []).append(not bad)

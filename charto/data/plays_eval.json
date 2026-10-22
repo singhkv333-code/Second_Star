@@ -177,6 +177,90 @@
    "kinds": [
     "buy"
    ]
+  },
+  "tags": [
+   "said"
+  ]
+ },
+ {
+  "prompt": "buy 8k of bel now and 3k more each day it falls 2%",
+  "book": {
+   "HAL": 2
+  },
+  "tags": [
+   "said"
+  ],
+  "expect": {
+   "changes": {
+    "BEL": [
+     19,
+     19
+    ]
+   },
+   "only_changes": true
+  }
+ },
+ {
+  "prompt": "sell 30% of my bel now and the rest if it closes below 380",
+  "book": {
+   "BEL": 100,
+   "HAL": 2
+  },
+  "tags": [
+   "said"
+  ],
+  "expect": {
+   "changes": {
+    "BEL": [
+     -30,
+     -30
+    ]
+   },
+   "only_changes": true
+  }
+ },
+ {
+  "prompt": "short reliance for 20k intraday now with a 1% stop and a 2% target",
+  "book": {
+   "HAL": 2
+  },
+  "tags": [
+   "said"
+  ],
+  "expect": {
+   "day": [
+    {
+     "symbol": "RELIANCE",
+     "side": "short",
+     "qty": [
+      15,
+      15
+     ],
+     "stop": true,
+     "target": true
+    }
+   ],
+   "only_changes": true
+  }
+ },
+ {
+  "prompt": "put 12k in hal and 6k in bel right now",
+  "book": {},
+  "tags": [
+   "said"
+  ],
+  "expect": {
+   "changes": {
+    "HAL": [
+     2,
+     2
+    ],
+    "BEL": [
+     14,
+     14
+    ]
+   },
+   "only_changes": true
   }
  }
 ]

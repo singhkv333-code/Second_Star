@@ -152,11 +152,11 @@ def test_compile_reports_what_it_would_do_and_what_it_leaves_alone(uid) -> None:
                                       "when": {"all": [{"left": "rsi14", "op": "above", "right": 70}]},
                                       "measures": [{"name": "rsi14", "title": "RSI 14", "code": RSI}],
                                       "do": {"kind": "sell", "size": {"pct": 50}}}, arm=False)
-    assert "if_it_fired_now" in got, got
-    eff = got["if_it_fired_now"]
+    assert "when_it_triggers" in got, got
+    eff = got["when_it_triggers"]
     assert eff["changes"] == {"RELIANCE": [10.0, 5.0]} and eff["untouched"] == ["INFY"], eff
     rb = plays.tool_play("compile", _equal(contract={"lifespan": "policy", "authority": "propose"}), arm=False)
-    assert "INFY" in rb["if_it_fired_now"]["untouched"], rb["if_it_fired_now"]
+    assert "INFY" in rb["when_it_triggers"]["untouched"], rb["when_it_triggers"]
 
 
 def test_a_ticket_that_breaks_a_law_is_refused_not_placed(uid) -> None:  # noqa: F811
@@ -200,3 +200,59 @@ def test_a_cover_closes_part_of_the_traders_short_from_another_play(book) -> Non
     open_ = [p for p in daybook.open_positions(1) if p["symbol"] == "RELIANCE"]
     assert [p["qty"] for p in open_] == [20], open_
     assert "50% of your RELIANCE short" in plays.card(plays.get(1, cv["play_id"]))["summary"]
+
+
+# ── a proposal confirmed with the book unchanged places what it proposed ─────
+# The boundary between proposing and confirming is where an act-now size was
+# lost. One table of order kinds, one rule: what the trader saw is what fills.
+
+_PROPOSALS = [
+    ("buy in rupees", {"symbol": "INFY", "do": {"kind": "buy", "size": {"inr": 5000}}}, None),
+    ("buy now at its own size", {"symbol": "INFY", "do": {"kind": "buy", "size": {"inr": 5000}},
+                                 "when": {"all": [{"left": "close", "op": "below", "right": "low"}]},
+                                 "contract": {"lifespan": "standing", "now": {"size": {"inr": 10000}},
+                                              "inferred_from": "10,000 now and 5,000 every time"}}, None),
+    ("sell a share of the portfolio", {"symbol": "RELIANCE", "do": {"kind": "sell", "size": {"pct": 30}}},
+     {"RELIANCE": 10}),
+    ("rebalance named names", {"do": {"kind": "rebalance", "of": "portfolio",
+                                      "targets": [{"symbol": "RELIANCE", "weight": 1}, {"symbol": "TCS", "weight": 1}]}},
+     {"RELIANCE": 10, "INFY": 4}),
+    ("intraday short", {"symbol": "RELIANCE", "interval": "5m", "do": {"kind": "short", "size": {"inr": 20000}},
+                        "manage": {"stop_pct": 1}, "mandate": {"capital_inr": 1_00_000}}, None),
+]
+
+
+def _legs(t: dict) -> list:
+    od = effects.orders(t)
+    return sorted((o["symbol"], o["side"], round(o["qty"], 6)) for o in od)
+
+
+import pytest  # noqa: E402
+
+
+@pytest.mark.parametrize("name,raw,seed", _PROPOSALS, ids=[p[0] for p in _PROPOSALS])
+def test_a_confirmed_proposal_places_what_it_proposed(book, name, raw, seed) -> None:  # noqa: F811
+    for sym, q in (seed or {}).items():
+        paper.place_order(1, sym, "BUY", q, source="test")
+    play = {"title": name, "interval": "1d", **raw,
+            "contract": {"lifespan": "now", "authority": "propose", **(raw.get("contract") or {})}}
+    got = plays.tool_play("compile", play)
+    assert got.get("did_now", {}).get("kind") == "proposed", got
+    proposed = got["did_now"]["body"]["ticket"]
+    eid = [e for e in plays.events(1) if e["kind"] == "proposed" and e["play_id"] == got["play_id"]][0]["id"]
+    placed = plays.resolve_event(1, eid, "confirm")["result"]["body"]["ticket"]
+    assert _legs(placed) == _legs(proposed), (name, _legs(proposed), _legs(placed))
+
+
+
+def test_sell_part_now_and_the_rest_on_a_level_is_one_play(uid) -> None:  # noqa: F811
+    paper.place_order(uid, "BEL", "BUY", 100, source="test")
+    got = plays.tool_play("compile", {"title": "BEL staged exit", "symbol": "BEL", "interval": "1d",
+                                      "when": {"all": [{"left": "close", "op": "below", "right": 380}]},
+                                      "do": {"kind": "sell", "size": {"all": True}},
+                                      "contract": {"lifespan": "once_when", "authority": "act",
+                                                   "now": {"size": {"pct": 30}},
+                                                   "inferred_from": "sell 30% of my bel now and the rest"}})
+    assert got["did_now"]["kind"] == "filled" and got["did_now"]["body"]["ticket"]["qty"] == 30, got["did_now"]
+    held = {r["symbol"]: r["quantity"] for r in paper.api_holdings(uid)[1]}
+    assert held["BEL"] == 70 and plays.get(uid, got["play_id"])["state"] == "armed"

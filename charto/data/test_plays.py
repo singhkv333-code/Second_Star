@@ -1078,9 +1078,9 @@ def test_a_dial_above_its_default_must_quote_the_trader(uid) -> None:
             "when": {"all": [{"left": "close", "op": "cross_up", "right": 1400}]}}
     server._req.heard = "Tell me when RELIANCE closes above 1,400."
     try:
-        # refused, not quietly lowered: the model quotes them or lowers it itself
+        # how long it runs is the model's reading: kept, and said as a choice
         got = plays.tool_play("compile", {**rule, "contract": {"lifespan": "standing", "authority": "notify"}})
-        assert "error" in got and "inferred_from" in got["error"] and "once_when" in got["error"], got
+        assert "error" not in got and any("one tap" in a for a in got["assumed"]), got
         got = plays.tool_play("compile", {**rule, "contract": {"authority": "notify"}})
         assert got["contract"]["runs"] == "Once, when it triggers", got
         # a quoted phrase inside an explanation counts when it is theirs
@@ -1094,7 +1094,8 @@ def test_a_dial_above_its_default_must_quote_the_trader(uid) -> None:
         server._req.heard = "Buy ₹20,000 of TCS."
         bad = plays.tool_play("compile", {"title": "TCS", "symbol": "TCS", "interval": "1d", "do": {"kind": "buy", "size": {"inr": 20000}},
                                           "contract": {"lifespan": "now", "authority": "act", "inferred_from": "Explicit buy request"}})
-        assert "error" in bad and "Explicit buy request" in bad["error"]
+        assert bad["contract"]["acts"] == "Proposes, you confirm" and bad["did_now"]["kind"] == "proposed", bad
+        assert any("one tap on the card lets it place" in a for a in bad["assumed"]), bad["assumed"]
         ok = plays.tool_play("compile", {"title": "TCS", "symbol": "TCS", "interval": "1d", "do": {"kind": "buy", "size": {"inr": 20000}},
                                          "contract": {"lifespan": "now", "authority": "act", "inferred_from": "Buy ₹20,000 of TCS"}})
         assert ok["did_now"]["kind"] == "filled"
@@ -1178,11 +1179,17 @@ def test_a_sell_takes_from_the_paper_portfolio_by_share(uid) -> None:
         none["did_now"]["body"]["reason"], none["did_now"]
 
 
-def test_a_condition_between_two_numbers_is_refused(uid) -> None:
+def test_a_condition_between_two_numbers_goes_or_is_refused(uid) -> None:
+    # always true adds nothing: dropped, and the play acts now
     got = plays.tool_play("compile", {"title": "x", "symbol": "RELIANCE", "interval": "1d",
                                       "when": {"all": [{"left": 1, "op": "above", "right": 0}]},
+                                      "do": {"kind": "notify"}, "contract": {"lifespan": "once_when"}})
+    assert "error" not in got and got["contract"]["runs"] == "Once, now", got
+    # never true would never act
+    got = plays.tool_play("compile", {"title": "x", "symbol": "RELIANCE", "interval": "1d",
+                                      "when": {"all": [{"left": 1, "op": "below", "right": 0}]},
                                       "do": {"kind": "sell", "size": {"all": True}}})
-    assert "never changes" in got["error"], got
+    assert "never true" in got["error"], got
 
 
 def test_a_rebalance_lands_as_near_its_targets_as_whole_shares_allow(monkeypatch) -> None:

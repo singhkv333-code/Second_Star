@@ -927,10 +927,20 @@ def _norm_when(when) -> dict | None:
             return True
         except ValueError:
             return False
-    for c in (when or {}).get("all") or (when or {}).get("any") or []:
+    key = "all" if "all" in (when or {}) else "any"
+    keep = []
+    for c in (when or {}).get(key) or []:
         if isinstance(c, dict) and "left" in c and num(c.get("left")) and num(c.get("right", "x")):
-            raise Bad(f"'{c.get('left')} {c.get('op')} {c.get('right')}' compares two numbers, so it never "
-                      "changes; to act at once leave `when` out (contract.lifespan now)")
+            a, b = float(str(c["left"]).replace(",", "")), float(str(c["right"]).replace(",", ""))
+            if {"above": a > b, "below": a < b}.get(c.get("op")):
+                continue                    # always true: it adds nothing, so it goes
+            raise Bad(f"'{c.get('left')} {c.get('op')} {c.get('right')}' compares two numbers, so it is "
+                      "never true and the play would never act")
+        keep.append(c)
+    if when and not keep and not when.get("time"):
+        return None                         # nothing left to wait for: it acts at once
+    if when:
+        when[key] = keep
     if when and "every_bar" in when:
         if when.get("every_bar"):
             when["every_bar"] = True
@@ -953,8 +963,13 @@ def _grounded(quote: str, heard: str | None) -> bool:
     quoted = re.findall(r'[“"‘]([^”"’]{2,})[”"’]', q)
     parts = [_norm_words(p) for x in (quoted or [q]) for p in re.split(r"\.\.\.|…", x)]
     parts = [p for p in parts if p]
-    hay = _norm_words(heard)
-    return bool(parts) and all(p in hay for p in parts)
+    hay = _norm_words(heard).split()
+
+    def theirs(part: str) -> bool:
+        # their words in their order; words may be left out between them
+        it = iter(hay)
+        return all(w in it for w in part.split())
+    return bool(parts) and all(theirs(p) for p in parts)
 
 
 def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str = "",
@@ -1014,6 +1029,9 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
         measures.append(nm)
 
     when = _norm_when(raw.get("when"))
+    if raw.get("when") and not when and not raw.get("on"):
+        # its only condition was always true: it acts now
+        raw = {**raw, "contract": {**(raw.get("contract") or {}), "lifespan": "now"}}
     exit_when = _norm_when((raw.get("manage") or {}).get("exit_when"))
     names = []
     for op in _operands(when) + _operands(exit_when):
@@ -1061,20 +1079,19 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
     base = ("standing" if (raw.get("do") or {}).get("kind") == "halt" or (uni and when) else
             "once_when" if (when or on) else "now")
     if not ok and heard is not None:
-        # code checks the evidence, the model decides: quote their words or
-        # leave the dial where the shape puts it
-        up = []
-        if contract.get("lifespan") in ("standing", "policy") and contract["lifespan"] != base:
-            up.append(f"lifespan {contract['lifespan']}")
+        # one dial is checked against their words: placing orders without a
+        # confirm. The others (how long it runs, acting now) the model reads
+        # from them; at propose every order still waits for a tap, so a wrong
+        # reading costs nothing and is said, and the card changes it in one tap
         if contract.get("authority") in ("act", "manage") and (raw.get("do") or {}).get("kind") != "halt":
-            up.append(f"authority {contract['authority']}")      # a guard acts by its nature
-        if contract.get("now") and contract.get("lifespan") not in (None, "now"):
-            up.append("now")
-        if up:
-            raise Bad(f"{', '.join(up)} is above the default, so contract.inferred_from must quote the "
-                      f"trader's own words that ask for it" + (f" ({quote!r} is not what they said)" if quote else "")
-                      + f". Quote them, or leave it out (lifespan {base}, authority propose, no now) and say "
-                      "what one tap on the card raises.")
+            # placing without a confirm needs their words; without them the
+            # play is still built, and each order waits for one tap
+            contract = {**contract, "authority": "propose"}
+            said.append("proposes each order for your confirm, as your words did not ask to skip it; one "
+                        "tap on the card lets it place on its own")
+        if contract.get("lifespan") in ("standing", "policy") and contract["lifespan"] != base:
+            said.append(f"runs {'every time it triggers' if contract['lifespan'] == 'standing' else 'as a kept policy'}"
+                        f" (your words did not say; one tap on the card makes it run once)")
     rebalance = (raw.get("do") or {}).get("kind") == "rebalance"
     lifespan = contract.get("lifespan") or base
     if uni and (on or (raw.get("do") or {}).get("kind") in ("rebalance", "halt")):
@@ -1295,13 +1312,29 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
         "do": do, "manage": manage, "mandate": mandate, "policy": pol,
         "contract": {"lifespan": lifespan, "authority": authority, "discretion": discretion,
                      "now": lifespan == "now" or (bool(contract.get("now")) and kind != "notify"),
-                     **({"now_size": {"inr": float(contract["now"]["size"]["inr"])}}
-                        if isinstance(contract.get("now"), dict) and isinstance(contract["now"].get("size"), dict)
-                        and contract["now"]["size"].get("inr") else {}),
+                     **_now_size(contract, kind),
                      "inferred_from": str(contract.get("inferred_from") or "")[:200],
                      "expires_in_days": int(days) if days else None},
     }
     return spec, said
+
+
+def _now_size(contract: dict, kind: str) -> dict:
+    """The first order's own size when it differs from the rule's: any form
+    do.size takes ('₹10k now, ₹5k on each dip'; 'sell 30% now, the rest
+    below 380')."""
+    now = contract.get("now")
+    size = now.get("size") if isinstance(now, dict) else None
+    if not isinstance(size, dict):
+        return {}
+    for k in ("inr", "qty", "pct"):
+        if size.get(k):
+            v = float(size[k])
+            if k == "pct" and (kind not in ("sell", "cover") or not 0 < v <= 100):
+                raise Bad("now.size.pct is for a sell or a cover: the share of what is held, above 0 and "
+                          "up to 100")
+            return {"now_size": {k: v}}
+    return {"now_size": {"all": True}} if size.get("all") else {}
 
 
 def _norm_rebalance(do: dict, raw: dict, lifespan: str, discretion: str,
@@ -3480,7 +3513,7 @@ def compile_play(uid: int, raw: dict, *, chart_symbol: str = "", chart_interval:
         ev = _fire(play, data, series, len(data["t"]) - 1, late=False, opening=True)
         row = get(uid, pid)
         row["_now_event"] = ev
-    effect = _effect(pid, data) if not row.get("_now_event") else None
+    effect = _effect(pid, data) if spec["contract"]["lifespan"] != "now" or not row.get("_now_event") else None
     feed = None
     if _alerts is not None and state == "armed" and (spec.get("when") or not spec.get("on")):
         try:
@@ -3501,8 +3534,8 @@ def compile_play(uid: int, raw: dict, *, chart_symbol: str = "", chart_interval:
 
 
 def _effect(pid: int, data: dict) -> dict | None:
-    """What the play would place if it fired on the latest bar, worked out
-    against the trader's book now and placed nowhere. A planner's trades are
+    """The order the rule places when it triggers, worked out against the
+    trader's book as it stands (after any act-now order) and placed nowhere. A planner's trades are
     chosen when it runs, so it has none to show yet."""
     play = _load(pid)
     spec = play["spec"]
@@ -4406,7 +4439,7 @@ def tool_play(action: str = "", play: dict | str | None = None, play_id: int = 0
             if row.get("_now_event"):
                 out["did_now"] = {k: row["_now_event"].get(k) for k in ("kind", "body")}
             if got.get("effect"):
-                out["if_it_fired_now"] = got["effect"]
+                out["when_it_triggers"] = got["effect"]
             fs = got.get("feed") if isinstance(got.get("feed"), dict) else {}
             if fs.get("note") and row["spec"]["do"]["kind"] != "halt":
                 out["feed"] = (fs["note"] if not row["spec"].get("on") else

@@ -68,10 +68,14 @@ question it must back with a quote.
 | authority | `notify`, `propose` (you confirm), `act`, `manage` | tells you; an order proposes |
 | now | act once immediately, then the lifespan takes over; `{size}` for a different first order | off |
 
-**Build what was asked.** A dial above its default must quote the trader's own
-words in `contract.inferred_from`; code checks the quote against what they
-actually said and refuses the compile otherwise, so the model either quotes
-them or lowers the dial itself. A default fills only what an action needs; it
+**Build what was asked.** The model reads the dials from the trader's words.
+One dial is checked: authority `act` or `manage` (orders placed without a
+confirm) must quote the trader's own words in `contract.inferred_from` (words
+may be left out, never added). Without them nothing is refused: the play is
+built at `propose`, and `assumed` says so. How long a play runs, and whether it acts
+now, are the model's reading. At `propose` every order still waits for a
+tap, so a wrong reading costs nothing; it is said in `assumed`, and the card
+changes it in one tap. A default fills only what an action needs; it
 never adds an action (a kept rebalance runs on drift alone unless a calendar
 was named). Every default code chose comes back in `assumed`, so the reply can
 say it, and every menu on the card reaches its smallest setting (once, no
@@ -122,8 +126,9 @@ names nobody named. No rule about sells or rebalances catches the next bug of
 this kind, so the checks do not know what kind of play they look at.
 
 1. **The effect, read by the model (intent).** Compile works out the order
-   the play would place on the latest bar against the trader's book as it
-   stands, places nothing, and returns it as `if_it_fired_now`: the orders,
+   the rule places when it triggers, against the trader's book as it stands
+   (after any act-now order, which is reported apart as `did_now`), places
+   nothing, and returns it as `when_it_triggers`: the orders,
    each holding before → after, what stays untouched, what refused and why,
    and any field of `do` the order never read (an instruction silently
    dropped). The tool description asks the model to read it against the
@@ -157,6 +162,25 @@ this kind, so the checks do not know what kind of play they look at.
    weights, day positions and their stops). The reply's wording and the route
    the model took are not graded; the books are, which leaves the model free
    in how it builds. `--k` repeats each case and reports pass^k.
+
+### Where a request loses information, and what catches it
+
+Most bugs found so far are one kind: something the trader said did not
+reach the order. It can be lost at four seams, and only the first is the
+model's:
+
+| Seam | Example | Caught by |
+|---|---|---|
+| words → play | "₹10,000 now and ₹5,000 on each fall" built with one size | the model, reading `when_it_triggers` and `did_now`; eval cases tagged `said` |
+| play → engine meaning | "every day it falls 3%" run as once-until-reset; a rebalance trading unnamed names | laws, properties, and a field the model can set (`when.every_bar`) |
+| proposal → confirm | a confirm re-sized an act-now order at the standing size | the property that a confirmed proposal places what it proposed |
+| state → screen | "Live" on bars seven weeks old | the card computes `asof` and `stale`; no status is fixed text |
+
+Code holds hard checks only for the last three seams, where the code is
+what goes wrong. The model gets information (the effect, the options it can
+set), not rules that override its choices; whether that is enough is
+measured on the cases that probe the first seam (`--tag said`), not
+assumed.
 
 ## Events: filings, news and social posts (`play_events.py`, `social.py`)
 
