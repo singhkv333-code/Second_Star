@@ -575,8 +575,10 @@
       + `<span class="sep">·</span>${state.interval === "1d" ? "1D" : state.interval}`
       + `<span class="sep">·</span><span class="ex">${Sym.venue}</span>`
       // Buy / Sell into the paper book (js/order-ticket.js), beside the venue.
-      + `<span class="ot-btns"><button type="button" class="ot-b buy" data-ot="BUY">Buy</button>`
-      + `<button type="button" class="ot-b sell" data-ot="SELL">Sell</button></span>`;
+      // A custom security is bought whole through a play, not this ticket.
+      + (SYMBOL.startsWith("@") ? "" :
+        `<span class="ot-btns"><button type="button" class="ot-b buy" data-ot="BUY">Buy</button>`
+        + `<button type="button" class="ot-b sell" data-ot="SELL">Sell</button></span>`);
   }
   // Delegated once: paintTitle rewrites its own children on every interval
   // change, and a listener per repaint leaks one per switch.
@@ -4662,6 +4664,7 @@
 
   // The label is its own element so a narrow bar (the Pivot shell's) can
   // show the glyph alone; the name stays reachable through aria-label.
+  el("playsTab").innerHTML = Icons.svg("radio", "sm") + "<span>Plays</span>";
   el("chatToggle").innerHTML = Icons.svg("chat", "sm") + "<span>Chat</span>";
   el("chatToggle").setAttribute("aria-label", "Chat");
   el("chatToggle").title = "Chat";

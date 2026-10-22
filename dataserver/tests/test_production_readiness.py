@@ -534,6 +534,22 @@ def test_results_aggregates_declare_their_sample(monkeypatch) -> None:
         assert str(out["aggregate_sample_n"]) in out["_sample_note"]
 
 
+def test_results_reaction_measures_dates_the_caller_found(monkeypatch) -> None:
+    """A company with no stored results dates is not a dead end: the model finds
+    the dates and the code measures them on the real bars, flagged as supplied."""
+    monkeypatch.setattr(server._req, "symbol", "RELIANCE", raising=False)
+    monkeypatch.setattr(server, "_results", lambda limit=200: [])
+    out = server.tool_evaluate_results(horizon_bars=5)
+    assert out["error"] and "result_dates" in out["_note"]      # says how to carry on
+    got = server.tool_evaluate_results(
+        horizon_bars=5, dates=["2025-01-16", {"date": "2025-04-25", "label": "Q4 FY25"}, "junk"])
+    assert not got.get("error"), got
+    assert got["dates_from"] == "supplied by the caller"
+    assert got["events_evaluated"] == 2                           # the unreadable date is skipped
+    assert got["recent"][0]["quarter"] == "Q4 FY25"
+    assert "timing" in got["provenance"]
+
+
 def test_hand_picked_levels_are_checked_against_the_nearest(monkeypatch) -> None:
     """`draw_ids` skipped the ranker, the cap and proximity, unchecked.
 

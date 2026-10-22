@@ -3067,7 +3067,10 @@ const Cards = (() => {
                    option_strategy: optionStrategy,
                    option_chain: optionChain,
                    quant_result: quantResult, plan,
-                   custom_indicator: customIndicator };
+                   custom_indicator: customIndicator,
+                   // plays.js owns the play card: the widget draws the same one
+                   play: (c) => (typeof PlayUI !== "undefined" ? PlayUI.html(c) : ""),
+                   custom_security: (c) => (typeof PlayUI !== "undefined" ? PlayUI.security(c) : "") };
 
   return {
     /** The backtest's trades as chart objects, for surfaces other than the
@@ -3147,6 +3150,7 @@ const Cards = (() => {
       if (box.querySelector("[data-wf]")) wireDraft(box, card);
       if (box.querySelector("[data-plan]")) wirePlan(box, card);
       if (box.querySelector("[data-cx-act]")) wireCustom(box, card);
+      if (card.kind === "play" && typeof PlayUI !== "undefined") PlayUI.wire(box, card);
       // The on-chart control belongs to whichever payload owns the TRADES. A
       // standalone backtest card is its own payload; a draft repainted with a
       // stored result has that read-out nested in its slot, and the payload

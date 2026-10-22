@@ -51,20 +51,21 @@ const Sym = (() => {
    * folds its daily candles on a 05:30 open. One function, four callers. */
   function of(name) {
     const S = String(name || "RELIANCE").toUpperCase();
-    const crypto = /(USDT|-USD)$/.test(S);
+    const crypto = /(USDT|-USD|-PERP)$/.test(S);
     // The BASE asset of a crypto pair — what a volume figure on it counts.
     // BTC-USD and BTCUSDT both trade BTC; the suffix is the money, not the
     // thing bought.
-    const base = crypto ? S.replace(/USDT$/, "").replace(/-USD$/, "") : "";
+    const base = crypto ? S.replace(/USDT$/, "").replace(/-USD$/, "").replace(/-PERP$/, "") : "";
     // The venue is not decoration: it rides into the chat context envelope, so
     // a hardcoded "NSE" told the model that BTCUSDT trades on the NSE.
-    const venue = /USDT$/.test(S) ? "BYBIT" : /-USD$/.test(S) ? "COINBASE"
+    // "@NAME" is the trader's own basket, ratio or spread (data/customsec.py)
+    const venue = S.startsWith("@") ? "Custom" : /-PERP$/.test(S) ? "Hyperliquid" : /USDT$/.test(S) ? "BYBIT" : /-USD$/.test(S) ? "COINBASE"
       : MCX.has(S) ? "MCX" : CDS.has(S) ? "NSE CDS" : BSE.has(S) ? "BSE" : "NSE";
     return {
       name: S,
       isCrypto: crypto,
       venue,
-      feed: /USDT$/.test(S) ? "bybit 1-min" : /-USD$/.test(S) ? "coinbase 1-min"
+      feed: /-PERP$/.test(S) ? "hyperliquid 1-min" : /USDT$/.test(S) ? "bybit 1-min" : /-USD$/.test(S) ? "coinbase 1-min"
         : "kite 1-min",
       tz: crypto ? 0 : 19800,            // seconds added so the axis reads local
       cur: crypto ? "$" : "₹",

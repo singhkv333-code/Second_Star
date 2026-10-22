@@ -166,7 +166,7 @@ def _drawing_job(ref: str, iv: str, lookback) -> tuple[str, dict]:
 
 def read_chart(read=None, symbol=None, intervals=None, studies=None, patterns=None,
                direction=None, drawing_ids=None, frm=None, to=None,
-               lookback_bars=None, draw=False, detail=None) -> dict:
+               lookback_bars=None, draw=False, detail=None, result_dates=None) -> dict:
     read = [r for r in (read or []) if r in READS] or ["trend", "levels", "indicators"]
     ivs = [_iv(i) for i in (intervals or []) if _iv(i) in _INTERVALS] or [_chart_iv()]
     note = []
@@ -236,7 +236,8 @@ def read_chart(read=None, symbol=None, intervals=None, studies=None, patterns=No
         jobs.append(("move", "explain_move", {"frm": frm, "to": to, **sym}))
     if "results_reaction" in read:
         jobs.append(("results_reaction", "evaluate_results",
-                     {"interval": "1w" if ivs[0] == "1w" else "1d", **sym}))
+                     {"interval": "1w" if ivs[0] == "1w" else "1d",
+                      **({"dates": result_dates} if result_dates else {}), **sym}))
 
     if not jobs:
         return {"error": "nothing to read", "_note": f"read takes any of: {', '.join(READS)}"}
@@ -516,6 +517,24 @@ def market_data(kind=None, symbols=None, interval=None, frm=None, to=None, expir
 # ── 5. search ────────────────────────────────────────────────────────────
 
 def search(source=None, query=None, symbol=None, frm=None, to=None) -> dict:
+    if source == "social":
+        import social
+        import play_events
+        try:
+            items = social.fetch(str(query or ""))
+        except social.Bad as exc:
+            return {"error": str(exc)}
+        except Exception as exc:                            # noqa: BLE001
+            return {"error": f"{query} could not be read just now ({exc}); say so"}
+        try:
+            play_events.store(items)          # kept, so a play on this source has history to replay
+        except Exception:                                   # noqa: BLE001
+            pass
+        return {"source": play_events.label(items[0]["source"]) if items else str(query),
+                "posts": [{"when": time.strftime("%d %b %Y %H:%M IST", time.gmtime(it["ts"] + 19800)),
+                           "who": it["who"], "text": (it["title"] + ("\n" + it["body"] if it["body"] else ""))[:500],
+                           "url": it["url"]} for it in items[-20:][::-1]],
+                "_note": "Posts are what people wrote, not facts: attribute each claim to its author."}
     if source == "web":
         return _call("search_web", {"q": query or symbol or ""})
     if source == "conversations":
@@ -547,14 +566,18 @@ _TABLE_NOTES = {
 
 
 def _schema() -> dict:
+    import fo_store
     con = sqlite3.connect(f"file:{ds.DB_PATH}?mode=ro", uri=True, timeout=5)
+    fo = fo_store.attach(con)
+    notes = {**_TABLE_NOTES, **fo_store.TABLES}
     try:
         out = {}
-        for (name,) in con.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"):
-            if name not in _TABLE_NOTES:
-                continue
-            cols = [r[1] for r in con.execute(f'PRAGMA table_info("{name}")')]
-            out[name] = {"columns": cols, "about": _TABLE_NOTES[name]}
+        for db in ("main", "fo") if fo else ("main",):
+            for (name,) in con.execute(f"SELECT name FROM {db}.sqlite_master WHERE type='table' ORDER BY name"):
+                if name not in notes:
+                    continue
+                cols = [r[1] for r in con.execute(f'PRAGMA {db}.table_info("{name}")')]
+                out[name] = {"columns": cols, "about": notes[name]}
         return out
     finally:
         con.close()
@@ -569,6 +592,8 @@ def query(sql=None, python=None, params=None) -> dict:
     if ";" in s or not re.match(r"^\s*(select|with)\b", s, re.I) or _BANNED.search(s):
         return {"error": "only one read-only SELECT (or WITH … SELECT) is allowed"}
     con = sqlite3.connect(f"file:{ds.DB_PATH}?mode=ro", uri=True, timeout=5)
+    import fo_store
+    fo_store.attach(con)
     deadline = time.monotonic() + _SQL_SECONDS
     con.set_progress_handler(lambda: 1 if time.monotonic() > deadline else 0, 20_000)
     try:
@@ -693,9 +718,35 @@ def strategy(action=None, condition=None, exit_condition=None, symbol=None, inte
     return {"error": "action is one of build, backtest, compare, plan, list, pause, delete"}
 
 
+# ── 11. play, 12. measure (the execution layer, plays.py) ───────────────
+
+def play(action=None, play=None, play_id=None, arm=None) -> dict:
+    import plays
+    return plays.tool_play(action=action or "", play=play, play_id=int(play_id or 0),
+                           arm=True if arm is None else bool(arm))
+
+
+def measure(action=None, measure=None, symbol=None, interval=None, security=None, scan=None) -> dict:
+    import plays
+    return plays.tool_measure(action=action or "test", measure=measure, symbol=symbol or "",
+                              interval=_iv(interval) if interval else "", security=security, scan=scan)
+
+
 DISPATCH = {"read_chart": read_chart, "draw": draw, "workspace": workspace,
             "market_data": market_data, "search": search, "query": query,
-            "screen": screen, "alerts": alerts, "journal": journal, "strategy": strategy}
+            "screen": screen, "alerts": alerts, "journal": journal, "strategy": strategy,
+            "play": play, "measure": measure}
+
+
+def plays_on() -> bool:
+    """The execution layer replaces `alerts` and `strategy` on the v2 surface:
+    an alert is a play that notifies. Per request (`plays` in the /chat body),
+    else PIVOT_PLAYS=1."""
+    want = getattr(ds._req, "plays", None)
+    if want is not None:
+        return bool(want)
+    import os
+    return os.environ.get("PIVOT_PLAYS", "0") == "1"
 
 
 def run(name: str, args: dict) -> dict:
@@ -772,6 +823,132 @@ _PALETTE = ["blue", "teal", "green", "red", "orange", "yellow", "purple", "pink"
 
 
 def tools() -> list[dict]:
+    out = _tools()
+    if plays_on():
+        out = [t for t in out if t["name"] not in ("alerts", "strategy")] + _play_tools()
+    return out
+
+
+_PLAY_DOC = (
+    "Build and run a play: the trader's idea as a rule Pivot checks on every bar close and acts on, "
+    "on paper. compile builds and arms it; edit changes one (play_id, the whole play again); list, "
+    "pause, resume, delete; explain (what it saw and did); review (their closed trades cut by hour, "
+    "play, exit, instrument and after-a-loss; play: {days}). Never ask before building: choose "
+    "sensibly, then state the choices.\n"
+    "A play is {title (the idea in a few words, with no number the rule lacks), ask (their words "
+    "verbatim, messages joined with …), why "
+    "(the reason, from data you read), symbol (the bars that clock it), interval, measures, when, on, "
+    "do, manage, contract, mandate, security, universe}. universe: up to 60 names (a scan's symbols, a "
+    "list, or the universe shape measure's scan takes), each checked on its own bars and traded as "
+    "itself (mandate.max_open names at once, default 5). security: a basket, ratio or spread that does not exist "
+    "yet (measure's security shape, pick included); use @NAME as symbol or do.symbol and one call "
+    "builds both. Calls that do not depend on each other go in the same response.\n"
+    "measures: any series the rule needs beyond price fields, written by you: {name, title, formula "
+    "(in words), inputs, expr ('a / b') or code ('def compute(data, params): return [one value per "
+    "bar]')}. data has t (bar open, epoch seconds), open, high, low, close, volume, hhmm (the bar's "
+    "close in IST as an integer: 09:20 is 920), each input and earlier measures; ta (sma, ema, rsi, "
+    "atr, highest, lowest, stdev, crossover, change, roc, vwma and more) and math are there. inputs: "
+    "{alias: {bars: {symbol, field}}} another instrument; {sql: 'SELECT <when known>, <value> ...'} "
+    "anything in the market database, F&O history included (query lists the tables; each bar sees "
+    "rows known by its close); {perp: {coin, field: funding | premium | oi}}; {book: day_pnl | "
+    "realized_today | trades_today | loss_streak} the trader's own day book; {social: {source, match}} "
+    "posts per bar at a social address. Never type a number the "
+    "data should supply; if you do not know a formula, search for it.\n"
+    "when: {all | any: [{left, op, right, right2?, bars?, for_bars?}]}, op above, below, cross_up, "
+    "cross_down, between, outside, rises_pct, falls_pct, is_true. Operands: numbers, measure names, "
+    "close/open/high/low/volume, 'SYMBOL.close', or arithmetic over names ('or_high + 0.5 * atr14'). "
+    "{time: {after: '09:20', before: '15:00'} | {at: '09:20'}} reads the bar close in IST. for_bars N: "
+    "it must hold N bars running.\n"
+    "on (events clock it instead of bars): {sources, symbols (whose NSE filings), match: [specific "
+    "names or terms, never common words], judge: 'a yes/no question each item must answer yes to'}. "
+    "sources: filings (NSE announcements), news (Economic Times, Mint, CNBC-TV18, BusinessLine, BBC, "
+    "CoinDesk), or a social address: reddit:r/<sub> | reddit:u/<user> | reddit:search:<words>, "
+    "telegram:<channel>, youtube:@<handle>, bsky:<handle>, mastodon:<user>@<host>, gnews:<words>, "
+    "rss:<url>, or the pasted link. X, StockTwits, Instagram and the like cannot be read; compile "
+    "says why and what is nearest. With on, "
+    "`when` confirms on the latest bar, and a headline alone only proposes.\n"
+    "do: {kind: notify}; {kind: buy | sell | short | cover, symbol, size: {inr} | {qty} | {all: "
+    "true}, product: CNC | MIS}; {kind: options, underlying, legs: [{opt: CE | PE, strike: ATM | "
+    "ATM+1 | ATM-2 | 22750, side: buy | sell, lots, expiry: weekly | next | monthly | YYYY-MM-DD}]}; "
+    "{kind: future, underlying, side, lots, expiry}; perps (Hyperliquid, USD, 24 hours): symbol "
+    "COIN-PERP, kind buy | short | sell | cover, leverage up to the market's maximum, size.inr is the "
+    "margin, funding hourly, an estimated liquidation closes it; {kind: halt, close?: true}: a guard "
+    "that stops new intraday, F&O and perp entries for the rest of the day (and closes what is open), "
+    "never waiting for a tap. Code works out quantities, lots and the strike. Equity shorts are "
+    "intraday only.\n"
+    "{kind: rebalance, of: portfolio | self | <play_id> (takes over that play's holdings), targets: "
+    "[{symbol, weight, why (the figure that earns it)}], cash_pct, size: {inr} (only new money they "
+    "add; leave it out to rebalance what is held), objective (their "
+    "words), universe}: no `when`; code works out whole-share trades (a planner stays within "
+    "mandate.max_weight, 0.4; weights they state are kept). "
+    "Once (lifespan now) you write the targets from data you read; kept (lifespan policy, policy: "
+    "{drift_pct, every: day | week | month only if they named a cadence}) it reruns on drift or that "
+    "calendar, and with contract.discretion plan a planner sets the targets each run (a change of "
+    "names is proposed).\n"
+    "manage: {stop_pct, target_pct (an option's are percents of its premium), trail_pct, exit_at: "
+    "'15:15', on_leg_stop: exit_all | move_others_to_cost, max_loss_inr, target_inr (the whole "
+    "position), exit_when}. exit_when is a `when` that closes the position; it may also read entry, "
+    "bars_in, hi_since, lo_since and pnl_pct (the move in its favour), e.g. {left: close, op: below, "
+    "right: 'hi_since - 2 * atr14'}. An option play clocked on its index exits on the index's levels "
+    "this way.\n"
+    "contract: {lifespan: now | once_when (default with a condition) | standing ('whenever', 'each "
+    "time') | policy ('keep it'), authority: notify ('tell me') | propose (default for an order) | act "
+    "('just do it'; the first unattended fire still asks once) | manage (act, and runs its exits), "
+    "inferred_from (their exact words that set the dials, quoted; a dial above the default without "
+    "them is refused), expires_in_days (a window they named), now: true or {size} when the first order differs (also act once immediately, "
+    "then the lifespan takes over: 'rebalance now and keep it', 'buy 10k now and 5k on each dip')}. "
+    "mandate: {capital_inr, max_fires}.\n"
+    "Build exactly what was asked: keep their verb (a buy stays an order, an alert an alert), add no "
+    "condition, exit, close, schedule, size, window or order they did not ask for (nor drop "
+    "one they did); for vague words take the plainest reading, the shorter lifespan and the lower "
+    "authority, and say it and what one tap upgrades. Code fills "
+    "only what is required and says so; a useful extra is one sentence offering it.\n"
+    "compile replays the play over stored history: how often it fires and, when it opens a position, "
+    "every round trip through its exits against a control (the same exits from entries anywhere in "
+    "the same hours). So 'has this worked?' about a play is answered by compiling it (arm: false only "
+    "tests it). Everything is simulated in the paper books; nothing reaches a broker.")
+
+
+def _play_tools() -> list[dict]:
+    obj = {"type": "object", "additionalProperties": True}
+    return [
+        _fn("play", _PLAY_DOC,
+            {"action": {"type": "string", "enum": ["compile", "edit", "list", "pause", "resume",
+                                                   "delete", "explain", "review"]},
+             "play": {**obj, "description": "the whole play, for compile and edit"},
+             "play_id": {"type": "integer"},
+             "arm": {"type": "boolean", "description": "false keeps it as a draft; default arms it"}},
+            ["action"]),
+        _fn("measure",
+            "test a measure (the shape is in play's description) on a symbol, or define it so later plays "
+            "can name it; list shows saved measures and securities. A play defines measures inline, so "
+            "test only when unsure a formula is right.\n"
+            "security makes the trader's own instrument, a symbol like any other: {name (becomes @NAME), "
+            "title, kind: basket | ratio | spread, why, and pick or members, k (spread: A - k x B)}. A basket "
+            "(2 to 30 names) starts at 100 a year back and holds its weights; a ratio is A / B. pick chooses "
+            "members by a method you state, run by code: {industry (their words, a list is fine) or sector, "
+            "rank_by: market_cap | turnover | return_1y | roe | low_volatility, top, min_turnover_cr, weight: "
+            "equal | market_cap | inverse_vol}; each member comes back with the numbers that put it there. "
+            "Prefer pick when they name a theme; members: [{symbol, weight, why (a fact)}] when they name "
+            "stocks. Say the method, who made it and who was left out. When a play will use it in this "
+            "request, put it in the play's `security` instead (one call).\n"
+            "scan runs your measures and condition across many symbols and ranks what passes: {universe: "
+            "all | fno | perps | @BASKET | [symbols] | {from, industry or sector, sql ('SELECT symbol "
+            "...'), min_turnover_cr, top_by: market_cap | turnover, n}, interval, measures, when (the "
+            "clause, as in a play), fresh (only names where it turned true within N bars), rank_by (a "
+            "measure or field), order: desc | asc, top}. Use it to find what to watch or choose from: "
+            "anything a measure computes (indicators, distance from highs, volume against average, "
+            "strength against an index input, F&O data by SQL) can be scanned, and a play's universe "
+            "can then watch the shortlist.",
+            {"action": {"type": "string", "enum": ["test", "define", "list", "security", "scan"]},
+             "measure": obj, "symbol": _STR, "interval": _IVS,
+             "security": {**obj, "description": "the security, for action security"},
+             "scan": {**obj, "description": "for action scan"}},
+            ["action"]),
+    ]
+
+
+def _tools() -> list[dict]:
     when = _old_prop("set_alert", "when") or {"type": "array", "items": {"type": "object"}}
     feat = _old_prop("screen_universe", "filters") or {"type": "array", "items": {"type": "object"}}
     shape_names = ["hline", "band", "vline", "vband", "segment", "ray", "arrow", "box", "poly",
@@ -791,7 +968,8 @@ def tools() -> list[dict]:
             "(POC, value area), patterns (34 candlestick, 22 chart patterns, market structure), "
             "pattern_stats (how a named pattern has played out on this stock), divergences (RSI and "
             "MACD), reversal (what would confirm a turn), results_reaction (how price reacted to past "
-            "results), move (why it moved over a window: anatomy, index share, news; pass from and to, "
+            "results; stored dates exist for few companies, so for the rest find the announcement dates "
+            "yourself and pass result_dates), move (why it moved over a window: anatomy, index share, news; pass from and to, "
             "or only the last session is explained), bars (raw "
             "OHLCV), drawings (score the trader's own drawings by id). Defaults to the chart in focus "
             "and the window on screen. draw=true marks what was found on the chart.",
@@ -814,7 +992,11 @@ def tools() -> list[dict]:
              "panel": {"type": "boolean", "description": "also show one compact panel of these readings in the "
                        "reply; only when a grid of numbers says more than the prose would, such as a "
                        "timeframe-by-timeframe comparison the trader asked for"},
-             "detail": {"type": "string", "enum": ["brief", "full"]}},
+             "detail": {"type": "string", "enum": ["brief", "full"]},
+             "result_dates": {"type": "array", "items": {"type": "string"},
+                              "description": "for results_reaction when the company has no stored "
+                              "results dates: past announcement dates you found (YYYY-MM-DD, "
+                              "oldest to newest in any order); reactions are measured on the real bars"}},
             ["read"]),
         _fn("draw",
             "Mark up the chart the way a trader would: levels, zones, trendlines, rays, arrows, boxes, "
@@ -901,8 +1083,10 @@ def tools() -> list[dict]:
             ["kind"]),
         _fn("search",
             "Search dated market news and events for an instrument, the open web, or the trader's own "
-            "earlier conversations. Use short keywords; search again only if a fact you need is missing.",
-            {"source": {"type": "string", "enum": ["news", "web", "conversations"]},
+            "earlier conversations. Use short keywords; search again only if a fact you need is missing. "
+            "social reads the latest posts at a social address given as query (the addresses in play's "
+            "description, or a pasted link).",
+            {"source": {"type": "string", "enum": ["news", "web", "conversations", "social"]},
              "query": _STR,
              "symbol": _STR,
              "from": {**_STR, "description": "news window start YYYY-MM-DD; default two weeks back"},
@@ -913,7 +1097,9 @@ def tools() -> list[dict]:
             "followed by Python that computes statistics over every row it returns. Use it for anything "
             "the other tools do not answer directly: returns over custom windows, seasonality, "
             "day-of-week or time-of-day behaviour, gap fill rates, opening-range statistics, "
-            "drawdowns, volatility, correlation, rankings across stocks, fundamentals filters. Call with "
+            "drawdowns, volatility, correlation, rankings across stocks, fundamentals filters, and NSE "
+            "F&O history (fo_eod: every option and future by day with OI, volume and premiums; fo_snap: "
+            "the live chain through the day) for OI buildup, PCR, max pain, IV or skew. Call with "
             "no sql to list the tables and columns. Example: sql \"SELECT ts, o, h, l, c FROM bars_1d "
             "WHERE symbol='RELIANCE' AND ts > strftime('%s','2025-01-01')\" with python \"def "
             "compute(data, params):\\n    c = data['c']\\n    r = [c[i]/c[i-1]-1 for i in range(1, "
@@ -1002,6 +1188,7 @@ You read charts with computed evidence (read_chart), mark them up (draw), arrang
 ## How to work
 - Gather what the question needs in as few rounds as possible. read_chart takes several reads and several timeframes in one call, and independent calls in the same round run in parallel. A full read is usually one read_chart call plus one draw call.
 - When no tool answers a question directly (seasonality, how often a gap fills, average move after an event, a custom ranking), write it yourself with query: SQL to fetch, Python to compute. First pin down the event and the outcome in the trader's own words ("the day after a gap down" is the NEXT session, measured against the gap day's close), compute exactly that, and state the definition and the sample size with the result.
+- Questions about how a stock behaves around events (results, gaps, ex-dates) are answered from the real bars. If the stored dates are missing for that company, find them: search the news and exchange announcements for the past results dates, then hand them to read_chart results_reaction as result_dates, or compute from them with query. A first empty answer is where the work starts; keep going until you have a measured number with its sample size, and say where the dates came from.
 - Pass only the parameters a request needs and leave the optional ones out. An expiry, a direction or a lookback the trader did not ask for changes the result.
 - For a why-did-it-move question, read move with from and to set to the window being asked about.
 - "The last swing leg" is the most recent completed move: from the last confirmed swing point to the one before it, or to the latest bar if price has moved on since.
@@ -1024,7 +1211,7 @@ When the trader asks for a read, a setup, a plan or "what do you see", the chart
 - the trendline or channel that defines the move;
 - the active pattern, a ruler (measure) on the last leg or the room to the next level;
 - arrows for the expected path or a breakout direction, and short text notes at the decisive bar ("Close above confirms").
-Use colour for meaning and keep it consistent: green for support and targets, red for resistance and stops, blue for trendlines and paths, orange for the zone being watched, grey for context. Solid lines for confirmed structure, dashed for projections and conditional levels. Use read_chart draw=true when the detected levels or patterns themselves are what you want on the chart. Do not draw for a quick factual question or when asked not to. Say in one line what you drew.
+Use colour for meaning and keep it consistent: green for support and targets, red for resistance and stops, blue for trendlines and paths, orange for the zone being watched, grey for context. Solid lines for confirmed structure, dashed for projections and conditional levels. Use read_chart draw=true when the detected levels or patterns themselves are what you want on the chart. Whatever your answer names by price or date and the trader would want to see, such as a breakout level, a support zone, a projected line, or the dates of past results with the move after each, goes on the chart in the same turn with its caption, so the prose and the drawing say the same thing (results dates become a vline each, captioned with the quarter and the move). Do not draw for a quick factual question or when asked not to. Say in one line what you drew.
 
 ## The workspace
 Open or fill widgets when the work produces something the trader will come back to: notes from a read (short lines, levels and a checklist of triggers), a sheet for a table worth keeping, a screener for a scan they may refine, a watchlist for names to follow, a second chart for the index or a peer. A widget you open for a purpose starts useful: write the notes, the table or the screen into it in the same call (a notes widget for results day gets the dates, levels and what to watch). When 'Workspace now' already has that kind for the same symbol, use it rather than adding a copy (open does this unless new is set). A quick answer opens nothing. Workspace changes can go in the same round as the reads. Say which symbol each opened widget follows.
@@ -1065,7 +1252,21 @@ I marked the two levels, the trendline and a ruler on the last leg.
 (The numbers in the example are placeholders; real answers use tool values only.)"""
 
 
+_PLAYS_LINE = (
+    "manage the trade journal and paper portfolio (journal), and turn any idea into a play that "
+    "watches price, indicators, your own measures, NSE filings or news headlines and tells the trader, "
+    "proposes an order, or places it on paper (play, measure)")
+
+
+def prompt() -> str:
+    if not plays_on():
+        return PROMPT
+    return PROMPT.replace(
+        "manage alerts (alerts), keep the trade journal and paper portfolio (journal), and build, "
+        "backtest and plan strategies (strategy)", _PLAYS_LINE)
+
+
 def system_block(context_block: str) -> str:
     """The fixed prompt first, the per-turn chart context after it, so the
     prompt stays in the cached prefix while the context changes every turn."""
-    return "\n\n".join(x for x in (PROMPT, context_block) if x)
+    return "\n\n".join(x for x in (prompt(), context_block) if x)

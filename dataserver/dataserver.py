@@ -226,6 +226,12 @@ LLM_DEPLOYMENT = _env_values("PIVOT_LLM_MODEL")["PIVOT_LLM_MODEL"] or LLM_DEPLOY
 LLM_EFFORT = (environ.get("PIVOT_LLM_EFFORT")
               or _env_values("PIVOT_LLM_EFFORT")["PIVOT_LLM_EFFORT"]
               or LLM_EFFORT_DEFAULT)
+# The effort for a round that follows tool results. The first round plans
+# the work; a later one mostly reads what came back and writes it up, and at
+# the first round's effort it re-thinks the whole request on every round.
+LLM_EFFORT_FOLLOW = (environ.get("PIVOT_LLM_EFFORT_FOLLOW")
+                     or _env_values("PIVOT_LLM_EFFORT_FOLLOW")["PIVOT_LLM_EFFORT_FOLLOW"]
+                     or "low")
 LLM_SERVICE_TIER = (environ.get("PIVOT_LLM_SERVICE_TIER")
                     or _env_values("PIVOT_LLM_SERVICE_TIER")["PIVOT_LLM_SERVICE_TIER"]
                     or LLM_SERVICE_TIER_DEFAULT)
@@ -458,6 +464,10 @@ def _symbols_with_bars() -> set[str]:
 
 
 def _symbol_ready(sym: str) -> bool:
+    if sym.startswith("@"):
+        return _customsec.get(sym) is not None
+    if sym.endswith("-PERP"):
+        return _hl.known(sym)
     return bool(_con.execute(
         "SELECT 1 FROM bars WHERE symbol=? LIMIT 1", (sym,)).fetchone())
 
@@ -9237,8 +9247,28 @@ def tool_get_results(limit: int = 8, interval: str = "1d",
     return out
 
 
+def _supplied_results(dates) -> list[dict]:
+    """Announcement dates the CALLER found (a news search, an exchange filing,
+    a table it queried), shaped like `_results()` rows so the same reaction
+    arithmetic runs on them. Each is an ISO date, or {date, label?,
+    after_market?}; a date that does not parse is skipped, never guessed."""
+    out = []
+    for d in dates or []:
+        raw = d.get("date") if isinstance(d, dict) else d
+        iso = str(raw or "")[:10]
+        if not _parse_ist(iso):
+            continue
+        label = (d.get("label") or d.get("quarter")) if isinstance(d, dict) else None
+        am = d.get("after_market") if isinstance(d, dict) else None
+        out.append({"quarter": label or iso, "period_end": None, "trade_date": iso,
+                    "broadcast_at": None, "after_market": bool(am), "filings": 0,
+                    "timing_known": am is not None})
+    out.sort(key=lambda e: e["trade_date"], reverse=True)
+    return out
+
+
 def tool_evaluate_results(horizon_bars: int = 5, interval: str = "1d",
-                          lookback_bars: int = 3000) -> dict:
+                          lookback_bars: int = 3000, dates=None) -> dict:
     """What price actually does around this company's results.
 
     Reaction size, direction, run-up and drift — each against the
@@ -9251,9 +9281,17 @@ def tool_evaluate_results(horizon_bars: int = 5, interval: str = "1d",
     rows = _rows(interval, max(300, min(int(lookback_bars or 3000), 4000)))
     if not rows:
         return {"error": f"no bars for interval {interval}"}
-    ev = _results()
+    supplied = bool(dates)
+    ev = _supplied_results(dates) if supplied else _results()
     if not ev:
-        return {"error": "no result dates stored"}
+        return {"error": ("none of the dates given could be read" if supplied
+                          else "no result dates stored for this symbol"),
+                "_note": ("Stored announcement dates exist for only some companies. "
+                          "Find this company's past results dates yourself (search the "
+                          "news or the exchange filings, or query a table you know "
+                          "holds them) and call again with result_dates; the reactions "
+                          "are then measured on the real bars here. Say how you got "
+                          "the dates.")}
     n = len(rows)
     closes = [r[4] for r in rows]
     opens = [r[1] for r in rows]
@@ -9261,6 +9299,8 @@ def tool_evaluate_results(horizon_bars: int = 5, interval: str = "1d",
     studied, too_early, too_recent = [], 0, 0
     for e in ev:
         i = _result_bar_index(rows, e["trade_date"])
+        if i is not None and e.get("after_market") and supplied and i + 1 < n:
+            i += 1                      # announced after the close: the next session reacts
         if i is None or i == 0:
             too_early += 1
             continue
@@ -9278,6 +9318,7 @@ def tool_evaluate_results(horizon_bars: int = 5, interval: str = "1d",
                       if i - h - 1 >= 0 else None),
         })
     res: dict = {"events_evaluated": len(studied),
+                 "dates_from": ("supplied by the caller" if supplied else "stored results table"),
                  "outside_scanned_window": too_early, "too_recent": too_recent,
                  "events_stored": len(ev),
                  "horizon_bars": h, "interval": interval}
@@ -9333,7 +9374,7 @@ def tool_evaluate_results(horizon_bars: int = 5, interval: str = "1d",
     res["recent"] = [{"quarter": s["quarter"], "date": s["date"],
                       "gap_pct": round(s["gap"], 2), "day_pct": round(s["day"], 2),
                       f"next_{h}_bars_pct": round(s["after"], 2)}
-                     for s in studied[:6]]
+                     for s in studied[:12 if supplied else 6]]
     res["recent_shown"] = len(res["recent"])
     res["aggregate_sample_n"] = len(studied)
     res["_sample_note"] = (
@@ -9351,12 +9392,24 @@ def tool_evaluate_results(horizon_bars: int = 5, interval: str = "1d",
         "method": ("each event is the first session able to react to the "
                    "filing (after-market announcements roll to the next day); "
                    "one event per quarter, first filing wins")}
+    if supplied:
+        unknown = sum(1 for e in ev if not e.get("timing_known"))
+        if unknown:
+            res["provenance"]["timing"] = (
+                f"{unknown} of {len(ev)} dates came without a before/after-market flag, "
+                "so the announcement day itself is treated as the reacting session; an "
+                "after-close announcement really reacts the next session, which the "
+                "next_N_bars figure partly covers. Say so in a clause.")
+        res["provenance"]["method"] = "reaction on the session of each supplied date; one event per date"
     res["_note"] = (
         "Lead with the reaction size AGAINST the control — 'results days move "
         "X% versus Y% on an ordinary day' — because the absolute move is the "
         "reliable finding and the direction usually is not. Never present the "
         "up-rate as a way to predict the next one, and obey the withheld "
-        "message when the rate is null.")
+        "message when the rate is null. These dates and moves belong on the "
+        "chart too: draw a vline at each date in `recent` captioned with the "
+        "quarter and its day move (e.g. 'Q2 FY25 +3.2%'), so the reader can "
+        "check the count against the bars.")
     return res
 
 
@@ -10670,6 +10723,62 @@ def _browser_ticket(me, ip: str) -> tuple[int, dict]:
                                    .digest()).decode().rstrip("=")
     return 200, {"ok": True, "ticket": f"{raw}.{sig}",
                  "ws": environ.get("PIVOT_BROWSER_WS") or "/rb/ws"}
+
+
+def _rb_ticket(label: str, secret: str) -> str:
+    """A one-minute, single-use HMAC pass for the remote browser (browser/)."""
+    import base64
+    body = json.dumps({"u": label, "exp": int(time.time()) + 60,
+                       "n": secrets.token_urlsafe(9)}, separators=(",", ":")).encode()
+    raw = base64.urlsafe_b64encode(body).decode().rstrip("=")
+    sig = base64.urlsafe_b64encode(hmac.new(secret.encode(), raw.encode(), hashlib.sha256)
+                                   .digest()).decode().rstrip("=")
+    return f"{raw}.{sig}"
+
+
+# Where the server reaches the remote browser itself (not the /rb/ path the
+# page uses): PIVOT_BROWSER_HTTP, else the container SearXNG runs in, which
+# is the same one (deploy/provision_browser.sh).
+def _rb_http() -> str:
+    url = environ.get("PIVOT_BROWSER_HTTP", "").rstrip("/")
+    if url:
+        return url
+    host = urlparse(environ.get("SEARXNG_URL", "")).hostname
+    return f"http://{host}:5177" if host else ""
+
+
+PUBLIC_ORIGIN = (environ.get("PIVOT_PUBLIC_ORIGIN") or "https://app.pivotnow.in").rstrip("/")
+
+
+def _setup_screenshot(token: str, symbol: str, shot: dict) -> dict | None:
+    """The shared setup as the remote browser sees it: the public link opened
+    in capture mode (the workspace without the reader's chrome) at the
+    author's window size and theme. None when the browser is not set up or
+    the page did not load in time; the author's page then makes its own card."""
+    secret, base = environ.get("PIVOT_BROWSER_SECRET", ""), _rb_http()
+    if not secret or not base or not re.fullmatch(r"[\w-]{16,64}", token or ""):
+        return None
+    def num(k, lo, hi, d):
+        try:
+            return max(lo, min(hi, float(shot.get(k, d))))
+        except (TypeError, ValueError):
+            return d
+    page = f"{PUBLIC_ORIGIN}/?" + urlencode(
+        {**({"symbol": symbol.upper()} if re.fullmatch(r"[\w:&. -]{1,40}", symbol or "") else {}),
+         "view": token, "capture": "1"})
+    query = urlencode({"ticket": _rb_ticket("shot", secret), "url": page,
+                       "w": int(num("w", 800, 2560, 1512)), "h": int(num("h", 500, 1600, 860)),
+                       "dpr": num("dpr", 1, 2, 2),
+                       "scheme": "light" if shot.get("scheme") == "light" else "dark"})
+    t0 = time.time()
+    try:
+        with urllib.request.urlopen(f"{base}/shot?{query}", timeout=50) as r:
+            out = json.loads(r.read())
+    except Exception as exc:                                   # noqa: BLE001
+        logging.warning("setup screenshot failed: %s", exc)
+        return None
+    logging.info("setup screenshot %s in %.1fs", token[:6], time.time() - t0)
+    return out if out.get("og") else None
 
 
 def _rb_ticket(label: str, secret: str) -> str:
@@ -13652,6 +13761,10 @@ def _tool_paper_portfolio(**_):
     if not who:
         return {"error": "sign in to see your paper portfolio."}
     auth = getattr(_req, "bearer", "") or ""
+    if getattr(_req, "surface", "") == "plays":
+        # the Plays page's book IS the chart's: plays fill into it and its
+        # Portfolio tab shows it
+        return _paper_tool("tool_paper_portfolio")()
     try:
         summary = _pivot_get("/paper/summary", auth)
         holdings = _pivot_get("/paper/holdings", auth) if summary.get("exists") else []
@@ -13964,6 +14077,13 @@ _DISPATCH["search_web"] = tool_search_web
 # only — execution mode and a user's own model keep the v1 surface.
 import chat_v2 as _v2  # noqa: E402
 _v2.bind(sys.modules[__name__])
+# The execution layer (plays.py). Bound now so chat tools can reach it; the
+# alerts stream and the paper book are handed over at boot, once they exist.
+import plays as _plays  # noqa: E402
+_plays.bind(sys.modules[__name__])
+import customsec as _customsec  # noqa: E402
+_customsec.bind(sys.modules[__name__])
+import hyperliquid as _hl  # noqa: E402
 CHAT_V2_DEFAULT = (environ.get("PIVOT_CHAT_V2")
                    or _env_values("PIVOT_CHAT_V2")["PIVOT_CHAT_V2"] or "0") == "1"
 
@@ -14058,6 +14178,8 @@ def _tool_event(call: dict, result, secs: float) -> None:
     when that tool armed one. Names and outcomes only, never arguments."""
     name = call.get("name") or ""
     res = result if isinstance(result, dict) else {}
+    if "error" in res and environ.get("PIVOT_LOG_TOOL_ERRORS") == "1":
+        print(f"tool error {name}: {str(res['error'])[:300]}", file=sys.stderr, flush=True)
     uid = _req.user[0] if getattr(_req, "user", None) else None
     _analytics.capture(uid, "chat_tool_call", {
         "tool": name, "namespace": call.get("namespace"),
@@ -14687,6 +14809,9 @@ def build_context_block(ctx: dict | None) -> str:
     """
     if not ctx:
         return ""
+    if isinstance(ctx, dict) and ctx.get("surface") == "plays":
+        # the Plays page: a conversation about plays, with no chart on screen
+        return _plays.surface_block(ctx)
     journal_ctx = ctx.get("journal") if isinstance(ctx, dict) else None
     journal_block = ""
     if isinstance(journal_ctx, dict):
@@ -15424,7 +15549,7 @@ def _post_responses(wire: list[dict], allow_tools: bool = True) -> dict:
             "tool_choice": "auto" if allow_tools else "none",
             "parallel_tool_calls": True,
             "max_output_tokens": _LLM_MAX_OUTPUT,
-            "reasoning": {"effort": LLM_EFFORT},
+            "reasoning": {"effort": getattr(_req, "effort", None) or LLM_EFFORT},
             "service_tier": LLM_SERVICE_TIER,
         }
         req = urllib.request.Request(
@@ -15689,7 +15814,7 @@ def _stream_once(wire: list[dict], allow_tools: bool, model: str):
         # it reasons (measured on gpt-6-luna: first text ~3s before the first
         # output token). The reader sees what is being worked out instead of
         # a timer; the answer's own tokens and latency are unchanged.
-        "reasoning": {"effort": LLM_EFFORT, "summary": "auto"},
+        "reasoning": {"effort": getattr(_req, "effort", None) or LLM_EFFORT, "summary": "auto"},
         "service_tier": LLM_SERVICE_TIER,
         "stream": True,
     }
@@ -15946,6 +16071,7 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
     tok_in = tok_out = 0
     _rounds = _max_tool_rounds()
     for _round in range(_rounds):
+        _req.effort = LLM_EFFORT if _round == 0 else LLM_EFFORT_FOLLOW
         # On the final round the tools are withdrawn, so the model must answer
         # from what it already fetched. Running out of rounds used to surface a
         # dead-end apology on top of perfectly good tool results.
@@ -16083,6 +16209,7 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
 
     _rounds = _max_tool_rounds()
     for _round in range(_rounds):
+        _req.effort = LLM_EFFORT if _round == 0 else LLM_EFFORT_FOLLOW
         calls: list[dict] = []
         text_parts: list[str] = []
         by_id: dict = {}
@@ -16337,6 +16464,19 @@ def _tool_hint(name: str, args: dict) -> str:
         return f"{n} candidates" + (f" on {sym}" if sym else "")
     if name == "custom_indicator":
         return str(args.get("action") or "")
+    if name in ("play", "measure"):
+        # the execution layer's tools carry their subject one level down
+        obj = args.get("play") or args.get("security") or args.get("measure")
+        if isinstance(obj, str):
+            try:
+                obj = json.loads(obj)
+            except ValueError:
+                obj = {}
+        obj = obj if isinstance(obj, dict) else {}
+        what = obj.get("title") or obj.get("name") or obj.get("symbol") or ""
+        return " ".join(x for x in (str(args.get("action") or ""), str(what)) if x)[:80]
+    if name == "search":
+        return str(args.get("query") or args.get("q") or "")[:80]
     if name == "workspace":
         # which widgets the desk change is about — "notes", "sheet, screener"
         kinds = []
@@ -16428,6 +16568,11 @@ def session_for(symbol: str) -> tuple[int, int]:
     is put on a clock shifted so that its open IS midnight — (0, IST - open):
     every day/bucket formula below then cuts its trading day at the open with
     no special case, the way crypto already runs on (0, 0)."""
+    if symbol.startswith("@"):
+        mem = _customsec.members(symbol)
+        return session_for(mem[0]) if mem else NSE_SESSION
+    if symbol.endswith("-PERP"):
+        return UTC_SESSION
     m = _master()[0].get(symbol)
     if m is not None and m["open"] is not None:
         if m["wrap"]:
@@ -18800,6 +18945,18 @@ def _footprint_answer(q: dict) -> dict:
             "first": covered[0]["t"] if covered else None}
 
 def get_bars(symbol: str, interval: str, to: int | None, limit: int) -> dict:
+    if symbol.startswith("@") or symbol.endswith("-PERP"):
+        # a trader's own basket, ratio or spread, priced from its members; or
+        # a Hyperliquid perpetual, read from its public candles
+        try:
+            out = (_customsec.bars(symbol, interval, to, limit) if symbol.startswith("@")
+                   else _hl.bars(symbol, interval, to, limit))
+        except Exception as exc:                            # noqa: BLE001
+            out = {"bars": [], "error": f"{symbol}: {type(exc).__name__}"}
+        bars = out.get("bars") or []
+        return {"symbol": symbol, "interval": interval, **out,
+                "earliest": bars[0]["t"] if bars else None,
+                "latest": bars[-1]["t"] if bars else None}
     live = _live_view(symbol)
     form, horizon = live if live else (None, None)
     if interval in INTRADAY_MIN:
@@ -19968,6 +20125,18 @@ class Handler(BaseHTTPRequestHandler):
                 # every listing without a stored logo gets one from what it
                 # is: a future its underlying's, an index its venue + theme
                 logos = _marks.fill(logos, names, master)
+                # Hyperliquid's perpetuals, the most traded first: searchable
+                # as COIN-PERP, with the coin's own mark from Hyperliquid
+                try:
+                    uni = sorted(_hl.universe().values(), key=lambda c: -(c.get("day_volume_usd") or 0))
+                    for c in uni[:60]:
+                        ps = c["coin"].upper() + _hl.SUFFIX
+                        listed.add(ps)
+                        names[ps] = f"{c['coin']} perpetual"
+                        meta[ps] = ["Hyperliquid", "perp", max(2, 6 - c["sz_decimals"]), "USD"]
+                        logos.setdefault(ps, _hl.icon(ps))
+                except Exception:                            # noqa: BLE001
+                    pass
                 return self._send(200, {"symbols": sorted(set(_known_symbols()) | listed),
                                         "meta": meta,
                                         "hydrated": sorted(have),
@@ -20369,6 +20538,13 @@ class Handler(BaseHTTPRequestHandler):
                     if code != 404 or u.path == "/setup":
                         return self._send(code, payload)
                 return self._send(*_layout_shared_get(tok))
+            if u.path == "/plays" or u.path.startswith("/plays/"):
+                me = _auth_user(self.headers)
+                if not me:
+                    return self._send(401, {"error": "sign in to use plays"})
+                if u.path != "/plays":
+                    return self._send(*_plays.api_get(me[0], u.path[len("/plays"):]))
+                return self._send(*_plays.api_list(me[0]))
             if u.path in ("/alerts", "/alerts/stream"):
                 # Alerts are per-user by construction — they run on the server
                 # so they can fire while the browser is shut, which means they
@@ -20927,6 +21103,19 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(413, {"error": "body too large"})
             raw = self.rfile.read(ln) if ln else b""
             return self._send(*self._billing_post(u.path, raw))
+        if u.path.startswith("/plays/"):
+            try:
+                ln = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(ln) or b"{}") if ln <= (
+                    1_500_000 if u.path == "/plays/chats" else 65536) else None
+            except (ValueError, TypeError):
+                return self._send(400, {"error": "bad JSON body"})
+            if not isinstance(body, dict):
+                return self._send(400, {"error": "bad JSON body"})
+            me = _auth_user(self.headers)
+            if not me:
+                return self._send(401, {"error": "sign in to use plays"})
+            return self._send(*_plays.api_post(me[0], u.path[len("/plays"):], body))
         if u.path == "/alerts" or u.path.startswith("/alerts/"):
             if _alerts is None:
                 return self._send(501, {"error": "the alert engine is not "
@@ -21114,6 +21303,9 @@ class Handler(BaseHTTPRequestHandler):
             ctx = body.get("context") or {}
             sym = canon_symbol(ctx.get("symbol") or "RELIANCE")
             _req.symbol = sym
+            # the Plays page has no chart: a play there names its own symbol
+            _req.surface = str(ctx.get("surface") or "")
+            _req.effort = None          # set per round by the chat loop
             # HOW MANY BARS THE USER CAN ACTUALLY SEE.
             #
             # The scan detectors defaulted to a fixed 300 and the model was
@@ -21140,12 +21332,17 @@ class Handler(BaseHTTPRequestHandler):
             # account from Pivot's API on their behalf (paper_portfolio).
             _req.bearer = self.headers.get("Authorization") or ""
             _req.chat_id = str(body.get("chat_id") or "")[:64]
+            # the trader's own words this conversation: a play's dials above
+            # their defaults must quote them (plays.normalise checks the quote)
+            _req.heard = " \n ".join(str(m.get("content") or "")[:2000] for m in body["messages"][-12:]
+                                      if isinstance(m, dict) and m.get("role") == "user")
             _req.chat_mode = ("execution"
                               if body.get("mode") == "execution" and EXECUTION_ENABLED
                               else "chat")
             # which chat surface: "v2" / "v1" from the page, else the default
             _h = body.get("harness")
             _req.chat_v2 = True if _h == "v2" else False if _h == "v1" else None
+            _req.plays = body["plays"] if isinstance(body.get("plays"), bool) else None
             # the desk, for the workspace tool — out of the chart envelope, so
             # neither the manifest's contents nor the catalog reach the prompt
             # except through the tool and the short "Workspace now" block
@@ -21367,6 +21564,27 @@ if __name__ == "__main__":
             _plans.init_db()
     except Exception as _exc:                                  # noqa: BLE001
         print(f"dataserver strategies UNAVAILABLE: {_exc}")
+
+    # Plays after the paper book and the alerts, because a play fires into the
+    # one and announces on the other's stream. Never fatal.
+    try:
+        _plays.bind(sys.modules[__name__], _alerts, _paper)
+        _plays.register_hook()
+        _pboot = _plays.start()
+        # perps have no stream of their own here: a poller reports their
+        # closed minutes to the plays and the day book watching them
+        try:
+            import daybook as _db_mod
+
+            def _perp_bar(sym, form, closed):
+                _plays.on_bar(sym, form, closed)
+                _db_mod.on_tick(sym, form, closed)
+            _hl.start(_perp_bar, lambda: _plays.watched() | _db_mod.watched())
+        except Exception:                                   # noqa: BLE001
+            logging.warning("hyperliquid clock did not start", exc_info=True)
+        print(f"charto plays: {_pboot.get('armed', 0)} armed on {_pboot.get('symbols', 0)} symbol(s)")
+    except Exception as _exc:                                  # noqa: BLE001
+        print(f"charto plays UNAVAILABLE: {_exc}")
 
     # The F&O file is ~1 MB from NSE and a second to parse; fetched now, so
     # the first option chain anyone opens answers from memory.
