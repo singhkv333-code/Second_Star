@@ -674,3 +674,27 @@ def test_a_plays_conversation_is_kept_on_the_server_with_card_references(uid, mo
     assert plays.chats_list(1)[0]["last"] == "Built it. "
     assert synced and synced[0][0]["id"] == "plays-c1"
     assert plays.chat_delete(1, "c1")["deleted"] and not plays.chats_list(1)
+
+
+def test_the_card_offers_choices_from_the_plays_own_data(book) -> None:
+    got = plays.tool_play("compile", {"symbol": "RELIANCE", "interval": "5m",
+                                      "when": {"all": [{"left": "close", "op": "below", "right": 1000}]},
+                                      "do": {"kind": "short", "size": {"inr": 50000}},
+                                      "manage": {"stop_pct": 1, "trail_pct": 0.8},
+                                      "contract": {"lifespan": "once_when", "authority": "propose"}})
+    pid = got["play_id"]
+    o = plays.options(1, pid)
+    f = o["fields"]
+    assert o["atr_pct"] and "× ATR" in f["stop_pct"]["choices"][1]["hint"]
+    assert f["size_inr"]["choices"][1] == {"value": 100000.0, "label": "₹1,00,000",
+                                           "hint": "risks ₹1,000 at your 1% stop"}
+    assert {"max_loss_inr", "target_inr", "exit_at", "target_pct"} <= set(o["more"])
+    assert [c["value"] for c in f["cond.0.op"]["choices"]][:2] == ["above", "below"]
+    out = plays.edit_field(1, pid, "exit_at", "15:10")
+    assert out["play"]["manage"]["exit_at"] == "15:10"
+    out = plays.edit_field(1, pid, "cond.0.op", "cross_down")
+    assert "crosses below" in out["play"]["conditions"][0]["text"]
+    out = plays.edit_field(1, pid, "authority", "manage")
+    assert out["play"]["authority"] == "manage"
+    out = plays.edit_field(1, pid, "max_loss_inr", "1500")
+    assert out["play"]["manage"]["max_loss_inr"] == 1500

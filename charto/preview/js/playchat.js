@@ -577,28 +577,30 @@
       main.querySelectorAll("[data-pf]").forEach((b) => b.classList.toggle("on", b.dataset.pf === pftab));
       const box = $("pft");
       if (pftab === "holdings") {
-        box.innerHTML = holds.length ? `<table class="table"><thead><tr><th>Name</th><th class="r">Qty</th><th class="r">Avg</th><th class="r">Last</th><th class="r">Value</th><th class="r">P&amp;L</th></tr></thead><tbody>` +
+        box.innerHTML = holds.length ? `<table class="table"><thead><tr><th>Name</th><th class="r">Qty</th><th class="r wide">Avg</th><th class="r wide">Last</th><th class="r">Value</th><th class="r">P&amp;L</th></tr></thead><tbody>` +
           holds.map((h) => `<tr><td><span class="row">${Kit.logo(h.symbol)}<span>${esc(h.symbol)}</span></span></td><td class="r">${esc(Kit.num(h.quantity, 4))}</td>` +
-            `<td class="r">${esc(Kit.num(h.avg_cost))}</td><td class="r">${esc(Kit.num(h.last_price))}</td><td class="r">${esc(Kit.inr(h.market_value))}</td>` +
-            `<td class="r ${h.unrealized_pnl >= 0 ? "up" : "down"}">${esc(Kit.inr(h.unrealized_pnl))} <span class="muted">${esc(Kit.signed(h.unrealized_pct))}</span></td></tr>`).join("") + `</tbody></table>`
+            `<td class="r wide">${esc(Kit.num(h.avg_cost))}</td><td class="r wide">${esc(Kit.num(h.last_price))}</td><td class="r">${esc(Kit.inr(h.market_value))}</td>` +
+            `<td class="r ${h.unrealized_pnl >= 0 ? "up" : "down"}">${esc(Kit.inr(h.unrealized_pnl))} <span class="muted pct">${esc(Kit.signed(h.unrealized_pct))}</span></td></tr>`).join("") + `</tbody></table>`
           : `<div class="muted" style="padding:12px 4px">No delivery holdings.</div>`;
       } else if (pftab === "day") {
         const pos = (data.book || {}).positions || [];
-        box.innerHTML = pos.length ? `<table class="table"><thead><tr><th>Position</th><th class="r">Qty</th><th class="r">Entry</th><th class="r">Now / out</th><th>Stops</th><th class="r">P&amp;L</th><th></th></tr></thead><tbody>` +
+        box.innerHTML = pos.length ? `<table class="table"><thead><tr><th>Position</th><th class="r">Qty</th><th class="r wide">Entry</th><th class="r">Now / out</th><th class="wide">Stops</th><th class="r">P&amp;L</th><th></th></tr></thead><tbody>` +
           pos.map((p) => {
-            const nm = p.kind === "option" ? `${p.underlying} ${Kit.num(p.strike)} ${p.opt}` : p.kind === "future" ? `${p.underlying} future` : p.symbol;
+            const nm = p.kind === "option" ? `${p.underlying} ${Kit.num(p.strike)} ${p.opt}` : p.kind === "future" ? `${p.underlying} future` :
+              p.kind === "perp" ? `${p.symbol} ${Kit.num(p.leverage)}×` : p.symbol;
             const open = p.state === "open", pnl = open ? p.open_pnl : p.pnl;
             return `<tr><td><span class="row">${Kit.logo(p.underlying || p.symbol)}<span><span class="chip ${p.side === "short" ? "sell" : "buy"}">${p.side === "short" ? "Short" : "Long"}</span> ${esc(nm)}</span></span>` +
-              `<div class="muted" style="font-size:12px;margin-top:2px">${esc(p.play || "")}${p.product === "MIS" ? " · intraday" : ""}</div></td>` +
-              `<td class="r">${esc(Kit.num(p.qty))}</td><td class="r">${esc(Kit.num(p.entry_px))}</td><td class="r">${esc(Kit.num(open ? p.mark_px : p.exit_px))}${open && p.stale ? ' <span class="pill wait">last close</span>' : ""}</td>` +
-              `<td>${[p.stop_px != null ? `stop ${Kit.num(p.stop_px)}` : "", p.target_px != null ? `target ${Kit.num(p.target_px)}` : ""].filter(Boolean).map(esc).join(" · ") || (open ? "" : esc(p.exit_why || ""))}</td>` +
+              `<div class="muted" style="font-size:12px;margin-top:2px">${esc(p.play || "")}${p.product === "MIS" ? " · intraday" : p.product === "PERP" ? " · Hyperliquid perp, USD" : ""}</div></td>` +
+              `<td class="r">${esc(Kit.num(p.qty))}</td><td class="r wide">${esc(Kit.num(p.entry_px))}</td><td class="r">${esc(Kit.num(open ? p.mark_px : p.exit_px))}${open && p.stale ? ' <span class="pill wait">last close</span>' : ""}</td>` +
+              `<td class="wide">${[p.stop_px != null ? `stop ${Kit.num(p.stop_px)}` : "", p.target_px != null ? `target ${Kit.num(p.target_px)}` : "",
+                p.liq_px != null ? `liquidation about ${Kit.num(p.liq_px)}` : "", p.funding ? `funding ${Kit.inr(p.funding)}` : ""].filter(Boolean).map(esc).join(" · ") || (open ? "" : esc(p.exit_why || ""))}</td>` +
               `<td class="r ${pnl >= 0 ? "up" : "down"}">${esc(Kit.inr(pnl))}</td><td class="r">${open ? `<button type="button" class="btn sm" data-close="${esc(p.id)}">Close</button>` : ""}</td></tr>`;
           }).join("") + `</tbody></table>` : `<div class="muted" style="padding:12px 4px">No intraday, short or derivative positions.</div>`;
       } else {
-        box.innerHTML = fills.length ? `<table class="table"><thead><tr><th>When</th><th>Name</th><th>Side</th><th class="r">Qty</th><th class="r">Price</th><th class="r">Value</th></tr></thead><tbody>` +
+        box.innerHTML = fills.length ? `<table class="table"><thead><tr><th>When</th><th>Name</th><th>Side</th><th class="r">Qty</th><th class="r wide">Price</th><th class="r">Value</th></tr></thead><tbody>` +
           fills.map((f) => `<tr><td class="muted">${esc(new Date(f.filled_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false }))}</td>` +
             `<td><span class="row">${Kit.logo(f.symbol, "sm")}${esc(f.symbol)}</span></td><td><span class="chip ${f.side === "BUY" ? "buy" : "sell"}">${f.side === "BUY" ? "Buy" : "Sell"}</span></td>` +
-            `<td class="r">${esc(Kit.num(f.quantity, 4))}</td><td class="r">${esc(Kit.num(f.fill_price))}</td><td class="r">${esc(Kit.inr(f.gross_value))}</td></tr>`).join("") + `</tbody></table>`
+            `<td class="r">${esc(Kit.num(f.quantity, 4))}</td><td class="r wide">${esc(Kit.num(f.fill_price))}</td><td class="r">${esc(Kit.inr(f.gross_value))}</td></tr>`).join("") + `</tbody></table>`
           : `<div class="muted" style="padding:12px 4px">No trades yet.</div>`;
       }
     };

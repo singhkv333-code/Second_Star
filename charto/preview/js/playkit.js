@@ -90,6 +90,7 @@ const Kit = (() => {
     play: '<path d="M7 5l12 7-12 7z"/>',
     trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
     up: '<path d="M12 19V5M5 12l7-7 7 7"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
     mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
     wallet: '<rect x="3" y="6" width="18" height="14" rx="2"/><path d="M3 10h18M16 15h2"/>',
     pie: '<path d="M12 3a9 9 0 1 0 9 9h-9z"/><path d="M15 3.5A9 9 0 0 1 20.5 9H15z"/>',
@@ -292,7 +293,9 @@ const Kit = (() => {
     const rconst = !p.right_live && R ? (i != null && /^[−-]?[\d,.]+%?$/.test(String(p.right).trim())
       ? `<span class="chip val">${ed(`cond.${i}.right`, String(p.right).replace(/[,%]/g, "").replace("−", "-"), R)}</span>`
       : `<span class="chip val">${R}</span>`) : "";
-    return `<div class="cond"><span>If ${L}</span>${lnow}<span class="chip op">${esc(OPS[p.op] || p.op)}</span>` +
+    const opChip = i != null && ["above", "below", "cross_up", "cross_down"].includes(p.op)
+      ? `<span class="chip op">${ed(`cond.${i}.op`, p.op, esc(OPS[p.op]))}</span>` : `<span class="chip op">${esc(OPS[p.op] || p.op)}</span>`;
+    return `<div class="cond"><span>If ${L}</span>${lnow}${opChip}` +
       (p.right_live && R ? `<span>${R}</span>${rnum}` : rconst) +
       (p.for_bars ? `<span class="chip plain">for ${i != null ? ed(`cond.${i}.for_bars`, p.for_bars, esc(p.for_bars)) : esc(p.for_bars)} bars</span>` : "") + `</div>`;
   }
@@ -403,6 +406,7 @@ const Kit = (() => {
       if (mg.target_pct || risk) bits.push(pp("Take", ed("target_pct", mg.target_pct || "", mg.target_pct ? `+${esc(num(mg.target_pct))}%` : "add")));
       if (mg.stop_pct || risk) bits.push(pp("Stop", ed("stop_pct", mg.stop_pct || "", mg.stop_pct ? `−${esc(num(mg.stop_pct))}%` : "add")));
       if (mg.trail_pct) bits.push(pp("Trail", ed("trail_pct", mg.trail_pct, `${esc(num(mg.trail_pct))}%`)));
+      if (c.state !== "done") bits.push(`<span class="edit more" data-more="1" title="Every setting this play can take">${ic("plus")}More</span>`);
       return bits.length ? `<div class="params">${bits.join("")}</div>` : "";
     };
     const actsWord = c.authority === "notify" ? "Tells you" : c.authority === "propose" ? "You confirm each order" :
@@ -470,9 +474,9 @@ const Kit = (() => {
     const mg = c.manage || {};
     const lines = [];
     if (mg.exit_at) lines.push(`Close everything at ${ed("exit_at", mg.exit_at, esc(mg.exit_at))}`);
-    if (mg.on_leg_stop) lines.push(mg.on_leg_stop === "exit_all" ? "One leg stopped: exit all" : "One leg stopped: move the others to cost");
-    if (mg.max_loss_inr) lines.push(`Exit all at a ${inr(mg.max_loss_inr)} loss`);
-    if (mg.target_inr) lines.push(`Exit all at a ${inr(mg.target_inr)} profit`);
+    if (mg.on_leg_stop) lines.push(`One leg stopped: ${ed("on_leg_stop", mg.on_leg_stop, mg.on_leg_stop === "exit_all" ? "exit all" : "move the others to cost")}`);
+    if (mg.max_loss_inr) lines.push(`Exit all at a ${ed("max_loss_inr", mg.max_loss_inr, esc(inr(mg.max_loss_inr)))} loss`);
+    if (mg.target_inr) lines.push(`Exit all at a ${ed("target_inr", mg.target_inr, esc(inr(mg.target_inr)))} profit`);
     if (!lines.length && !ex.some((e) => e.includes("squared off"))) return "";
     if (!lines.length) lines.push("Squared off at 15:20 if still open");
     return `<div class="node exit" data-node="x"><div class="nh">${ic("action")}<span>Action</span></div>` +
@@ -564,7 +568,9 @@ const Kit = (() => {
     const foot = document.createElement("div");
     foot.className = "strat-foot";
     const k = c.contract || {};
-    foot.innerHTML = `<div class="facts"><span>${esc(k.runs || "")}</span><span>${esc(k.acts || "")}</span>` +
+    const live = c.state !== "done";
+    foot.innerHTML = `<div class="facts"><span>${live && ["once_when", "standing"].includes(c.lifespan) ? ed("lifespan", c.lifespan, esc(k.runs || "")) : esc(k.runs || "")}</span>` +
+      `<span>${live && c.do && !["notify", "rebalance"].includes(c.do.kind) ? ed("authority", c.authority, esc(k.acts || "")) : esc(k.acts || "")}</span>` +
       (k.limit ? `<span>Limit <b>${esc(k.limit)}</b></span>` : "") + (fires ? `<span>${fires}</span>` : "") +
       (c.fires ? `<span>Fired <b>${esc(c.fires)}×</b></span>` : "") + `</div>` +
       (c.state === "armed" ? `<button type="button" class="btn sm" data-act="pause">${ic("pause")}Pause</button>` : "") +
@@ -573,14 +579,25 @@ const Kit = (() => {
       (o.open !== false ? `<button type="button" class="btn sm" data-open="${esc(c.id)}">Open</button>` : "");
     el.appendChild(foot);
     el.addEventListener("click", (e) => {
-      const f = e.target.closest("[data-field]");
+      const f = e.target.closest("[data-field], [data-more]");
       if (!f || f.querySelector("input") || c.state === "done") return;
       e.stopPropagation();
-      editInline(f, async (value) => {
-        const got = await call(`/plays/${c.id}`, { action: "set", field: f.dataset.field, value });
+      const save = async (field, value) => {
+        const got = await call(`/plays/${c.id}`, { action: "set", field, value });
         el.replaceWith(strategy(got.play, o));
         toast((got.changed || []).length ? "Changed. The replay was run again on the new value." : "Saved");
         window.dispatchEvent(new CustomEvent("plays:changed"));
+      };
+      if (f.dataset.field === "title" || /^weight\./.test(f.dataset.field || "")) {
+        editInline(f, (v) => save(f.dataset.field, v));
+        return;
+      }
+      const opts = el._opts || (el._opts = call(`/plays/${c.id}/options`).catch(() => ({ fields: {}, more: [] })));
+      opts.then((d) => {
+        if (f.dataset.more) return moreMenu(f, d, (field) => fieldMenu(f, field, d.fields[field], save));
+        const spec = d.fields[f.dataset.field];
+        if (!spec) return editInline(f, (v) => save(f.dataset.field, v));
+        fieldMenu(f, f.dataset.field, spec, save);
       });
     });
     el.addEventListener("click", async (e) => {
@@ -597,6 +614,70 @@ const Kit = (() => {
       } catch (err) { b.disabled = false; toast(err.message); }
     });
     return el;
+  }
+
+  /* ── the choice menu ──────────────────────────────────────────────────── */
+  let openMenu = null;
+  function closeMenu() { if (openMenu) { openMenu.remove(); openMenu = null; } }
+  document.addEventListener("click", (e) => { if (openMenu && !e.target.closest(".pmenu")) closeMenu(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenu(); });
+  window.addEventListener("scroll", (e) => { if (!(e.target.closest && e.target.closest(".pmenu"))) closeMenu(); }, true);
+  window.addEventListener("resize", closeMenu);
+  function place(menu, anchor) {
+    document.body.appendChild(menu);
+    const r = anchor.getBoundingClientRect(), m = menu.getBoundingClientRect();
+    const left = Math.max(8, Math.min(r.left, innerWidth - m.width - 8));
+    const below = r.bottom + 6 + m.height < innerHeight;
+    menu.style.left = `${left}px`;
+    menu.style.top = `${below ? r.bottom + 6 : Math.max(8, r.top - m.height - 6)}px`;
+    openMenu = menu;
+  }
+  const show = (v, unit) => v == null || v === "" ? "" : unit === "₹" ? inr(v) : unit === "%" ? `${num(v)}%` :
+    unit === "×" ? `${num(v)}×` : unit && unit !== "time" ? `${num(v)} ${unit}` : String(v);
+  /** One setting's menu: the choices the server worked out for this play,
+   *  each with what it means, a box for any other value, and Remove. */
+  function fieldMenu(anchor, field, spec, save) {
+    closeMenu();
+    const m = document.createElement("div");
+    m.className = "pmenu";
+    const cur = spec.value;
+    const typed = spec.unit && spec.unit !== "time" ? "number" : "text";
+    m.innerHTML = `<div class="ph">${esc(spec.label)}${cur != null && cur !== "" ? `<span>now ${esc(show(cur, spec.unit))}</span>` : ""}</div>` +
+      (spec.choices || []).map((ch) => `<button type="button" class="opt${String(ch.value) === String(cur) ? " on" : ""}" data-v="${esc(ch.value)}">` +
+        `<b>${esc(ch.label)}</b>${ch.hint ? `<span>${esc(ch.hint)}</span>` : ""}${String(ch.value) === String(cur) ? ic("check") : ""}</button>`).join("") +
+      (spec.unit ? `<form class="own"><input type="${typed}" step="any" placeholder="${spec.unit === "time" ? "HH:MM" : `Other value${spec.unit === "₹" ? " in ₹" : spec.unit === "%" ? " in %" : ""}`}" />` +
+        `<button type="submit" class="btn sm">Set</button></form>` : "") +
+      (spec.removable && cur != null && cur !== "" ? `<button type="button" class="opt rm" data-v="">${ic("x")}<b>Remove</b></button>` : "");
+    const go = async (v, btn) => {
+      if (btn) btn.disabled = true;
+      try { await save(field, v); closeMenu(); } catch (err) { if (btn) btn.disabled = false; toast(err.message); }
+    };
+    m.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const b = e.target.closest("[data-v]");
+      if (b) go(b.dataset.v, b);
+    });
+    const own = m.querySelector(".own");
+    if (own) own.addEventListener("submit", (e) => { e.preventDefault(); const v = own.querySelector("input").value.trim(); if (v) go(v, own.querySelector("button")); });
+    place(m, anchor);
+  }
+  /** Every setting the play does not use yet, to add one. */
+  function moreMenu(anchor, d, pick) {
+    closeMenu();
+    const m = document.createElement("div");
+    m.className = "pmenu";
+    const add = d.more || [];
+    const all = Object.entries(d.fields || {}).filter(([k]) => !add.includes(k) && !/^cond\./.test(k));
+    m.innerHTML = `<div class="ph">Add to this play</div>` +
+      (add.length ? add.map((k) => `<button type="button" class="opt" data-f="${esc(k)}"><b>${esc(d.fields[k].label)}</b>${ic("plus")}</button>`).join("")
+        : `<div class="none">Everything this play can take is already set.</div>`) +
+      (all.length ? `<div class="ph ph2">Change</div>` + all.map(([k, v]) => {
+        const hit = (v.choices || []).find((x) => String(x.value) === String(v.value));
+        return `<button type="button" class="opt" data-f="${esc(k)}"><b>${esc(v.label)}</b>` +
+          `<span>${esc(v.unit ? show(v.value, v.unit) : hit ? hit.label : String(v.value || ""))}</span></button>`;
+      }).join("") : "");
+    m.addEventListener("click", (e) => { e.stopPropagation(); const b = e.target.closest("[data-f]"); if (b) pick(b.dataset.f); });
+    place(m, anchor);
   }
 
   /** Turn a value into a small input in place; Enter saves through `save`,

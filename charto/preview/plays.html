@@ -107,7 +107,11 @@ select.field { padding-right: 28px; appearance: none; background-image: url("dat
 .pill svg { width: 12px; height: 12px; }
 .chip { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 7px; border-radius: 6px;
   font-weight: 600; font-size: 13px; white-space: nowrap; font-variant-numeric: tabular-nums; vertical-align: middle;
-  max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  max-width: 100%; }
+.chip.vio, .chip.sig2, .chip.plain, .chip.val { white-space: normal; height: auto; min-height: 24px; padding-top: 2px;
+  padding-bottom: 2px; line-height: 1.35; overflow-wrap: anywhere; }
+.panel:has(.table) { overflow-x: auto; }
+.detail > *, .pf > * { min-width: 0; }
 .cond .or { font-size: 12px; color: var(--ink-3); }
 .cond.judge { font-size: 13.5px; line-height: 1.45; align-items: flex-start; }
 .cond.judge > span:last-child { min-width: 0; }
@@ -368,7 +372,8 @@ h3 .edit svg { opacity: 0; } h3 .edit:hover svg { opacity: 1; }
 .alert .srccard .hl { font-size: 15px; line-height: 1.45; }
 .alert .srccard q { display: block; margin-top: 6px; font-size: 13.5px; color: var(--ink-2); quotes: "“" "”"; }
 .alert .srccard a.rm { display: inline-block; margin-top: 6px; color: var(--blue); text-decoration: none; font-size: 14px; }
-.alert .af { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.alert .af { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.alert .af time { white-space: nowrap; }
 .alert .af .grow { flex: 1; }
 .alert .see { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 8px; border: 0;
   background: #e6e6e6; cursor: pointer; font-size: 14px; }
@@ -424,7 +429,8 @@ h3 .edit svg { opacity: 0; } h3 .edit:hover svg { opacity: 1; }
 
 /* ── portfolio ───────────────────────────────────────────────────────── */
 .pf { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 16px; align-items: start; }
-.donut-wrap { display: flex; align-items: center; gap: 18px; }
+.donut-wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; }
+.donut-wrap > :last-child { flex: 1 1 180px; min-width: 0; }
 .donut { position: relative; width: 168px; height: 168px; flex: none; }
 .donut .c { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; font-size: 12px; color: var(--ink-2); }
 .donut .c b { display: block; font-size: 20px; color: var(--ink); font-weight: 500; }
@@ -450,9 +456,9 @@ h3 .edit svg { opacity: 0; } h3 .edit:hover svg { opacity: 1; }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 
 @media (max-width: 980px) {
-  .grid { grid-template-columns: 1fr 1fr; }
-  .detail, .pf { grid-template-columns: 1fr; }
-  .showcase { grid-template-columns: 1fr; }
+  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .detail, .pf { grid-template-columns: minmax(0, 1fr); }
+  .showcase { grid-template-columns: minmax(0, 1fr); }
   .search { display: none; }
 }
 @media (max-width: 760px) {
@@ -463,18 +469,43 @@ h3 .edit svg { opacity: 0; } h3 .edit:hover svg { opacity: 1; }
   .top > .grow { display: none; }
   .avatar { width: 30px; height: 30px; flex: none; }
   .tab .lbl-long { display: none; }
-  .canvas { grid-template-columns: 1fr; gap: 26px; padding: 20px 14px; }
+  .canvas { grid-template-columns: minmax(0, 1fr); gap: 26px; padding: 20px 14px; }
   .canvas svg.wires { display: none; }
   .canvas .col + .col::before { content: ""; position: absolute; left: 50%; top: -26px; height: 26px; width: 1.5px; background: #c4c4c4; }
-  .grid { grid-template-columns: 1fr; }
+  .grid { grid-template-columns: minmax(0, 1fr); }
   .hero h1 { font-size: 34px; }
   .page { padding: 22px 14px 70px; }
   .home { padding: 0 14px; }
   .msg-u div { max-width: 90%; }
   #btnChart { display: none; }
+  .table th.wide, .table td.wide { display: none; }
+  .table .pct { display: block; }
+  .table th, .table td { padding-left: 6px; padding-right: 6px; }
 }
 .prose table { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .slider-lab span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pmenu { position: fixed; z-index: 70; width: 300px; max-width: calc(100vw - 16px); max-height: min(420px, 70vh); overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--line-2); border-radius: 12px; box-shadow: 0 16px 40px rgba(0,0,0,.14);
+  padding: 6px; animation: rise .14s both; }
+.pmenu .ph { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; font-weight: 600; color: var(--ink-3);
+  text-transform: uppercase; letter-spacing: .04em; padding: 6px 8px 4px; }
+.pmenu .ph span { text-transform: none; letter-spacing: 0; font-weight: 500; }
+.pmenu .ph.ph2 { margin-top: 4px; border-top: 1px solid var(--line); padding-top: 8px; }
+.pmenu .opt { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 1px 8px; width: 100%; text-align: left;
+  border: 0; background: none; border-radius: 8px; padding: 7px 8px; cursor: pointer; font: inherit; color: var(--ink); }
+.pmenu .opt:hover { background: var(--panel); }
+.pmenu .opt.on { background: var(--blue-bg); }
+.pmenu .opt b { font-size: 13.5px; font-weight: 600; grid-column: 1; grid-row: 1; }
+.pmenu .opt span { grid-column: 1; grid-row: 2; font-size: 12px; color: var(--ink-2); line-height: 1.35; }
+.pmenu .opt svg { grid-column: 2; grid-row: 1 / span 2; width: 14px; height: 14px; color: var(--blue); }
+.pmenu .opt.rm { color: var(--red); display: flex; gap: 8px; } .pmenu .opt.rm svg { color: var(--red); }
+.pmenu .own { display: flex; gap: 6px; padding: 6px 4px 4px; border-top: 1px solid var(--line); margin-top: 4px; }
+.pmenu .own input { flex: 1; min-width: 0; font: inherit; font-size: 13px; border: 1px solid var(--line-2); border-radius: 8px; padding: 6px 8px; }
+.pmenu .none { font-size: 12.5px; color: var(--ink-2); padding: 4px 8px 8px; }
+.edit.more { color: var(--blue); background: var(--blue-bg); }
+.edit.more svg { color: var(--blue); }
+.facts .edit { height: auto; padding: 1px 6px; background: transparent; font-weight: inherit; font-size: inherit; }
+.facts .edit:hover { background: var(--panel-2); }
 </style>
 </head>
 <body>
@@ -495,7 +526,7 @@ h3 .edit svg { opacity: 0; } h3 .edit:hover svg { opacity: 1; }
 <main id="main"></main>
 <div class="toast" id="toast"></div>
 <script src="./js/auth.js?v=11"></script>
-<script src="./js/playkit.js?v=10"></script>
-<script src="./js/playchat.js?v=7"></script>
+<script src="./js/playkit.js?v=13"></script>
+<script src="./js/playchat.js?v=9"></script>
 </body>
 </html>

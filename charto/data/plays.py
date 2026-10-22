@@ -501,6 +501,12 @@ def run_measures(spec: dict, data: dict, check: bool = False) -> tuple[dict, lis
         out[m["name"]] = [(1.0 if x is True else 0.0 if x is False else
                            float(x) if isinstance(x, (int, float)) and math.isfinite(x) else None)
                           for x in v]
+        if n > 20 and all(x is None for x in out[m["name"]]):
+            # a series that is empty on every bar is a broken formula, not a
+            # quiet market; arming it would wait for a fire that cannot come
+            raise Bad(f"measure {m['name']} has no value on any of the {n} bars, so the play could "
+                      f"never fire; check its code (hhmm is an integer, 09:20 is 920; t is epoch "
+                      f"seconds) and test it again")
         if all(x is None for x in out[m["name"]][-5:]):
             problems.append(f"{m['name']} has no value on the latest bars")
     for c in cuts:
@@ -2404,6 +2410,38 @@ def edit_field(uid: int, pid: int, field: str, value) -> dict:
             mg.pop("exit_at", None)
         else:
             mg["exit_at"] = str(value).strip()
+    elif field in ("max_loss_inr", "target_inr"):
+        if blank:
+            mg.pop(field, None)
+        else:
+            mg[field] = num(100, 1e9)
+    elif field == "product":
+        if do["kind"] not in ("buy", "sell") or do.get("product") == "PERP" or customsec.is_custom(do.get("symbol", "")):
+            raise Bad("only a stock buy or sell can switch between delivery and intraday")
+        if str(value) not in ("CNC", "MIS"):
+            raise Bad("product is CNC (delivery) or MIS (intraday)")
+        do["product"] = str(value)
+        if value == "CNC":
+            for k in ("trail_pct", "exit_at", "max_loss_inr", "target_inr", "on_leg_stop"):
+                mg.pop(k, None)
+    elif field == "authority":
+        if do["kind"] == "notify":
+            raise Bad("this play only tells you; ask in chat to make it trade")
+        if value not in ("propose", "act", "manage"):
+            raise Bad("authority is propose, act or manage")
+        spec["contract"]["authority"] = str(value)
+    elif field == "lifespan":
+        if spec["contract"]["lifespan"] in ("now", "policy") or value not in ("once_when", "standing"):
+            raise Bad("this play's lifespan cannot be changed here")
+        spec["contract"]["lifespan"] = str(value)
+        md["max_fires"] = 1 if value == "once_when" else max(md.get("max_fires") or 0, 20)
+    elif field == "on_leg_stop":
+        if blank:
+            mg.pop("on_leg_stop", None)
+        elif value in ("exit_all", "move_others_to_cost"):
+            mg["on_leg_stop"] = str(value)
+        else:
+            raise Bad("on_leg_stop is exit_all or move_others_to_cost")
     elif field == "capital_inr":
         md["capital_inr"] = md["max_order_inr"] = num(100, 1e10)
     elif field == "interval":
@@ -2417,12 +2455,17 @@ def edit_field(uid: int, pid: int, field: str, value) -> dict:
         _, i, k = (field.split(".") + ["", ""])[:3]
         when = spec.get("when") or {}
         rows = when.get("all") or when.get("any") or []
-        if not i.isdigit() or int(i) >= len(rows) or k not in ("right", "right2", "for_bars", "bars"):
+        if not i.isdigit() or int(i) >= len(rows) or k not in ("right", "right2", "for_bars", "bars", "op"):
             raise Bad("that condition is not on this play")
         c = rows[int(i)]
         if k == "right" and isinstance(c.get("right"), str) and not _is_num(c["right"]):
             raise Bad(f"this condition compares with {c['right']}, not a number; ask in chat to change it")
-        c[k] = int(num(1, 500)) if k in ("for_bars", "bars") else num()
+        if k == "op":
+            if value not in ("above", "below", "cross_up", "cross_down"):
+                raise Bad("op is above, below, cross_up or cross_down")
+            c["op"] = str(value)
+        else:
+            c[k] = int(num(1, 500)) if k in ("for_bars", "bars") else num()
     elif field.startswith("weight."):
         if do["kind"] != "rebalance" or not isinstance(do.get("targets"), dict):
             raise Bad("weights are for a rebalance with targets")
@@ -2450,6 +2493,156 @@ def edit_field(uid: int, pid: int, field: str, value) -> dict:
     row = get(uid, pid)
     return {"play": card(row, {"conditions": row["history"].get("conditions")}),
             "assumed": got["assumed"], "changed": got["diff"]}
+
+
+def _atr_pct(symbol: str, interval: str, n: int = 14) -> float | None:
+    """The symbol's average true range on the play's own bar, as a percent of
+    price: the yardstick the stop and trail choices are measured in."""
+    try:
+        rows = _rows(symbol, interval, n * 4 + 1)
+    except Exception:                                       # noqa: BLE001
+        return None
+    if len(rows) < n + 1:
+        return None
+    trs = [max(r[2] - r[3], abs(r[2] - p[4]), abs(r[3] - p[4])) for p, r in zip(rows, rows[1:])][-n:]
+    px = rows[-1][4]
+    return sum(trs) / len(trs) / px * 100 if px else None
+
+
+def _inr(v: float) -> str:
+    """₹1,00,000: Indian grouping, as the page writes money."""
+    n = f"{abs(v):.0f}"
+    head, tail = n[:-3], n[-3:]
+    while len(head) > 2:
+        tail = head[-2:] + "," + tail
+        head = head[:-2]
+    return ("−" if v < 0 else "") + "₹" + (head + "," + tail if head else tail)
+
+
+def _pct_label(v: float) -> str:
+    return f"{v:.2f}".rstrip("0").rstrip(".")
+
+
+def options(uid: int, pid: int) -> dict:
+    """What can be changed on a play's card and the choices worth offering,
+    from its own data: stops and trails in multiples of the symbol's ATR on
+    the play's bar, sizes that risk a round number of rupees at its stop,
+    leverage steps with their liquidation distance. `more` is every setting
+    the play does not use yet, so the card can offer it."""
+    play = get(uid, pid)
+    if not play:
+        raise Bad(f"no play {pid} on this account")
+    spec = play["spec"]
+    do, mg, c = spec["do"], spec.get("manage") or {}, spec["contract"]
+    kind, product = do["kind"], do.get("product")
+    day = product in ("MIS", "NRML", "PERP")
+    orders = kind not in ("notify", "rebalance")
+    sym = do.get("symbol") or do.get("underlying") or spec["symbol"]
+    atr = _atr_pct(sym if not customsec.is_custom(sym) else spec["symbol"], spec["interval"]) \
+        if kind not in ("options",) else None
+    size = (do.get("size") or {}).get("inr")
+    lev = float(do.get("leverage") or 1)
+    f: dict[str, dict] = {}
+
+    def risk(pct):
+        if not size:
+            return ""
+        return f"₹{size * lev * pct / 100:,.0f} at risk on this size"
+    if orders:
+        if kind == "options":
+            stops = [(x, f"{x}% of the premium") for x in (20, 25, 30, 40, 50)]
+            targets = [(x, f"{x}% of the premium") for x in (25, 50, 75, 100)]
+        elif atr:
+            stops = [(round(atr * m, 2), f"{m:g}× ATR ({spec['interval']}) · {risk(atr * m)}".rstrip(" ·"))
+                     for m in (1, 1.5, 2, 3, 4)]
+            targets = [(round(atr * m, 2), f"{m:g}× ATR · {m / 1.5:.1f}R against a 1.5× ATR stop")
+                       for m in (1.5, 3, 4.5, 6)]
+        else:
+            stops = [(x, risk(x)) for x in (0.5, 1, 2, 3, 5)]
+            targets = [(x, "") for x in (1, 2, 4, 6, 10)]
+        f["stop_pct"] = {"label": "Stop", "unit": "%", "value": mg.get("stop_pct"), "removable": True,
+                         "choices": [{"value": v, "label": f"{_pct_label(v)}%", "hint": h} for v, h in stops]}
+        f["target_pct"] = {"label": "Take profit", "unit": "%", "value": mg.get("target_pct"), "removable": True,
+                           "choices": [{"value": v, "label": f"{_pct_label(v)}%", "hint": h} for v, h in targets]}
+        if day and kind != "options":
+            f["trail_pct"] = {"label": "Trailing stop", "unit": "%", "value": mg.get("trail_pct"), "removable": True,
+                              "choices": [{"value": round(atr * m, 2), "label": f"{_pct_label(round(atr * m, 2))}%",
+                                           "hint": f"{m:g}× ATR ({spec['interval']}): follows the best price by this much"}
+                                          for m in (1, 1.5, 2, 3)] if atr else
+                              [{"value": v, "label": f"{v}%", "hint": ""} for v in (0.5, 0.8, 1, 1.5, 2)]}
+        if kind in ("buy", "short"):
+            ch = [{"value": v, "label": _inr(v), "hint": ""} for v in (10_000, 25_000, 50_000, 1_00_000)]
+            if mg.get("stop_pct"):
+                ch = [{"value": round(r / (mg["stop_pct"] / 100) / lev, -2), "label":
+                       _inr(round(r / (mg['stop_pct'] / 100) / lev, -2)),
+                       "hint": f"risks {_inr(r)} at your {_pct_label(mg['stop_pct'])}% stop"} for r in (500, 1000, 2000, 5000)] + ch
+            f["size_inr"] = {"label": "Margin" if product == "PERP" else "Allocate", "unit": "₹", "value": size,
+                             "choices": ch}
+        if day:
+            cap = (size or 0) * lev
+            f["max_loss_inr"] = {"label": "Loss limit (whole position)", "unit": "₹", "value": mg.get("max_loss_inr"),
+                                 "removable": True, "choices": [{"value": round(cap * x / 100), "label": _inr(cap * x / 100),
+                                                                 "hint": f"{x}% of the position"} for x in (0.5, 1, 2)] if cap else []}
+            f["target_inr"] = {"label": "Profit target (whole position)", "unit": "₹", "value": mg.get("target_inr"),
+                               "removable": True, "choices": [{"value": round(cap * x / 100), "label": _inr(cap * x / 100),
+                                                               "hint": f"{x}% of the position"} for x in (1, 2, 4)] if cap else []}
+        if day and product != "PERP":
+            f["exit_at"] = {"label": "Exit by", "unit": "time", "value": mg.get("exit_at"), "removable": True,
+                            "choices": [{"value": t, "label": t, "hint": h} for t, h in
+                                        (("14:30", ""), ("15:00", ""), ("15:10", ""),
+                                         ("15:15", "five minutes before the 15:20 square-off"))]}
+        if kind == "options":
+            f["on_leg_stop"] = {"label": "When one leg is stopped", "value": mg.get("on_leg_stop"), "removable": True,
+                                "choices": [{"value": "exit_all", "label": "Exit every leg", "hint": ""},
+                                            {"value": "move_others_to_cost", "label": "Move the others to cost",
+                                             "hint": "the rest can no longer lose"}]}
+        if product == "PERP":
+            cx = hyperliquid.ctx(do["symbol"]) or {}
+            mx = cx.get("max_leverage") or 1
+            mm = 0.5 / mx
+            f["leverage"] = {"label": "Leverage", "unit": "×", "value": lev, "choices": [
+                {"value": x, "label": f"{x}×", "hint": f"liquidated about {(1 / x - mm) * 100:.1f}% against you"}
+                for x in (1, 2, 3, 5, 10, 20, 25, 40, 50) if x <= mx]}
+        if kind in ("buy", "sell") and product in ("CNC", "MIS") and not customsec.is_custom(do.get("symbol", "")):
+            f["product"] = {"label": "Holding", "value": product, "choices": [
+                {"value": "CNC", "label": "Delivery", "hint": "held overnight"},
+                {"value": "MIS", "label": "Intraday", "hint": "squared off at 15:20; stops, trails and limits run in the day book"}]}
+        f["authority"] = {"label": "Who places it", "value": c["authority"], "choices": [
+            {"value": "propose", "label": "Ask me first", "hint": "a ticket you confirm"},
+            {"value": "act", "label": "Place it", "hint": "the first fire still asks once"},
+            {"value": "manage", "label": "Place and manage it", "hint": "and runs its exits"}]}
+    if c["lifespan"] in ("once_when", "standing"):
+        f["lifespan"] = {"label": "Runs", "value": c["lifespan"], "choices": [
+            {"value": "once_when", "label": "Once", "hint": "the first time it triggers"},
+            {"value": "standing", "label": "Every time", "hint": "re-enters after each exit"}]}
+    if spec.get("policy"):
+        f["policy.every"] = {"label": "Check", "value": spec["policy"]["every"], "choices": [
+            {"value": x, "label": f"Every {x}", "hint": ""} for x in ("day", "week", "month")]}
+        f["policy.drift_pct"] = {"label": "Drift", "unit": "pts", "value": spec["policy"]["drift_pct"], "choices": [
+            {"value": x, "label": f"{x} points", "hint": ""} for x in (2, 5, 10)]}
+    when = spec.get("when") or {}
+    status = {i: r for i, r in enumerate((play.get("history") or {}).get("conditions") or [])}
+    for i, cnd in enumerate(when.get("all") or when.get("any") or []):
+        if "left" not in cnd:
+            continue
+        if cnd.get("op") in ("above", "below", "cross_up", "cross_down"):
+            f[f"cond.{i}.op"] = {"label": "Comparison", "value": cnd["op"], "choices": [
+                {"value": o, "label": w, "hint": h} for o, w, h in
+                (("above", "is above", "true on every bar it holds"), ("below", "is below", "true on every bar it holds"),
+                 ("cross_up", "crosses above", "only the bar it crosses"),
+                 ("cross_down", "crosses below", "only the bar it crosses"))]}
+        if _is_num(cnd.get("right")):
+            now = (status.get(i) or {}).get("now")
+            ch = []
+            if isinstance(now, (int, float)):
+                ch = [{"value": round(now * (1 + x / 100), 2), "label": _fmt_num(now * (1 + x / 100)),
+                       "hint": "now" if not x else f"{x:+g}% from now"} for x in (-2, -1, 0, 1, 2)]
+            f[f"cond.{i}.right"] = {"label": "Level", "value": float(cnd["right"]), "choices": ch}
+        if cnd.get("for_bars"):
+            f[f"cond.{i}.for_bars"] = {"label": "Must hold for", "unit": "bars", "value": cnd["for_bars"],
+                                       "choices": [{"value": x, "label": f"{x} bars", "hint": ""} for x in (1, 2, 3, 5)]}
+    more = [k for k, v in f.items() if v.get("value") in (None, "") and v.get("removable")]
+    return {"fields": f, "more": more, "atr_pct": round(atr, 3) if atr else None, "interval": spec["interval"]}
 
 
 def _is_num(x) -> bool:
@@ -2686,6 +2879,11 @@ def api_get(uid: int, tail: str) -> tuple[int, dict]:
     if len(parts) == 2 and parts[0] == "chats":
         c = chat_get(uid, parts[1])
         return (200, {"chat": c}) if c else (404, {"error": "no such conversation"})
+    if len(parts) == 2 and parts[0].isdigit() and parts[1] == "options":
+        try:
+            return 200, options(uid, int(parts[0]))
+        except Bad as exc:
+            return 404, {"error": str(exc)}
     pid = tail.strip("/")
     if not pid.isdigit():
         return 404, {"error": f"no plays route '{tail}'"}
