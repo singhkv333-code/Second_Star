@@ -109,23 +109,44 @@ def _norm(x) -> str:
     return re.sub(r"[^a-z0-9]", "", str(x or "").lower())
 
 
-def _matches(query: str, names) -> bool:
-    """Every word of the query appears in one of the names, as a substring of
-    the run-together name or as a near spelling of one of its words (defence,
-    defense), so the trader's words find the classification's."""
+def _match_score(query: str, names) -> float:
+    """How well the trader's words name an industry, 0 when they do not.
+    3: the same name; 2: the words run together inside the name (pharma in
+    pharmaceuticals); 1.5: every word appears in the name, as a word, a near
+    spelling (defence, defense) or the initials of words in it (IT for
+    Information Technology). A word left unmatched scores 0, so "IT services"
+    never means every industry that has "services" in it."""
     import difflib
-    joined = " ".join(_norm(n) for n in names if n)
-    words = re.findall(r"[a-z0-9]+", " ".join(str(n or "").lower() for n in names))
-    for q in re.findall(r"[a-z0-9]+", query.lower()):
-        if len(q) < 3 or q in ("and", "the"):
+    q = _norm(query)
+    if not q:
+        return 0.0
+    best = 0.0
+    for n in names:
+        if not n:
             continue
-        if q in joined:
+        nn = _norm(n)
+        if q == nn:
+            return 3.0
+        one_word = len(re.findall(r"[a-z0-9]+", query.lower())) == 1
+        if one_word and len(q) >= 4 and q in nn:
+            best = max(best, 2.0)
             continue
-        if not any(difflib.SequenceMatcher(None, q, w).ratio() >= 0.85 for w in words + joined.split()):
-            if not any(difflib.SequenceMatcher(None, q, joined[i:i + len(q)]).ratio() >= 0.85
-                       for i in range(0, max(1, len(joined) - len(q) + 1))):
-                return False
-    return True
+        words = re.findall(r"[a-z0-9]+", str(n).lower())
+        initials = "".join(w[0] for w in words)
+        ok = True
+        for w in re.findall(r"[a-z0-9]+", query.lower()):
+            if w in ("and", "the", "of", "stocks", "stock", "companies", "sector", "basket"):
+                continue
+            hit = (w in words or (len(w) >= 4 and any(x.startswith(w) or w.startswith(x) for x in words if len(x) >= 4))
+                   or any(difflib.SequenceMatcher(None, w, x).ratio() >= 0.85 for x in words if len(x) >= 4)
+                   or (2 <= len(w) <= 4 and w in initials)
+                   or (len(w) >= 5 and w in nn))
+            if not hit:
+                ok = False
+                break
+        if ok:
+            best = max(best, 1.5)
+    return best
 
 
 def _daily_stats(sym: str) -> dict:
@@ -177,8 +198,23 @@ def pick(raw: dict) -> tuple[list[dict], dict]:
         "p.market_cap, p.roe, COALESCE(p.long_name, c.name) FROM classification c "
         "LEFT JOIN company_profile p USING(symbol)").fetchall()
     pool = []
+    # The industry label is the classification; the secondary tag (industry_mc)
+    # is noisy (a few are company names, one finance house is tagged
+    # chemicals), so a match on the tag alone counts only when the company is
+    # in the sector most of the matches are in
+    by_label, by_tag = set(), set()
+    if ind:
+        for sym, label, slug, mc, sector, cap, roe, nm in rows:
+            if max(_match_score(q, (label, slug)) for q in ind) >= 1.5:
+                by_label.add(sym)
+            elif max(_match_score(q, (mc,)) for q in ind) >= 1.5:
+                by_tag.add(sym)
+        from collections import Counter
+        sectors = Counter(r[4] for r in rows if r[0] in (by_label or by_tag) and r[4])
+        main = sectors.most_common(1)[0][0] if sectors else None
+        by_tag = {r[0] for r in rows if r[0] in by_tag and (main is None or r[4] == main)}
     for sym, label, slug, mc, sector, cap, roe, nm in rows:
-        if ind and not any(_matches(q, (label, slug, mc)) for q in ind):
+        if ind and sym not in by_label and sym not in by_tag:
             continue
         if sec and sec != _norm(sector):
             continue

@@ -2735,23 +2735,26 @@ def surface_block(ctx: dict) -> str:
         lines.append("They are signed out: plays need an account, so say they must sign in.")
         return "\n".join(lines)
     init_db()
-    rows = list_plays(uid, ("armed", "paused", "draft", "done"))[:20]
+    rows = list_plays(uid, ("armed", "paused", "draft", "done"))
+    focus = ctx.get("focus_play")
+    # the latest few, each in a line; the rest by count. This block is sent
+    # again on every round of a turn, so it stays short as plays accumulate
+    shown = rows[:8]
     if rows:
-        lines.append("\n## Their plays (id · state · title · what it does)")
-        for p in rows:
+        lines.append("\n## Their latest plays (id · state · title · what it does)")
+        for p in shown:
             lines.append(f"- {p['id']} · {p['state']} · {p['spec']['title']} · {summary(p['spec'])}")
+        if len(rows) > len(shown):
+            lines.append(f"- and {len(rows) - len(shown)} older ones: play list shows them all")
     try:
-        secs = customsec.list_for(uid)[:10]
+        secs = customsec.list_for(uid)[:5]
     except Exception:                                       # noqa: BLE001
         secs = []
     if secs:
         lines.append("\n## Their custom securities")
         for x in secs:
-            lines.append(f"- {x['symbol']} · {x['title']} · {customsec.describe(x)}"
-                         + (f" · method: {x['method']['text']}" if x.get("method") else "")
-                         + (f" · why: {x['why']}" if x.get("why") else ""))
-            lines += [f"  - {m['symbol']}: {m['why']}" for m in x["members"] if m.get("why")]
-    focus = ctx.get("focus_play")
+            lines.append(f"- {x['symbol']} · {x['title']} · {customsec.describe(x)}")
+        lines.append("(measure list gives each one's method and why every member is in it)")
     if focus:
         p = get(uid, int(focus)) if str(focus).isdigit() else None
         if p:
@@ -2951,7 +2954,25 @@ def tool_play(action: str = "", play: dict | str | None = None, play_id: int = 0
             if action == "edit" and not play_id:
                 return {"error": "edit needs play_id"}
             no_chart = getattr(ds._req, "surface", "") == "plays"
-            got = compile_play(uid, play or {},
+            play = dict(play or {})
+            built = None
+            if isinstance(play.get("security"), dict):
+                # one call builds the trader's security and the play on it: the
+                # play needs the security's symbol, so as two tools they could
+                # only run one after the other, a model round apart
+                try:
+                    sec = customsec.define(uid, play.pop("security"))
+                except customsec.Bad as exc:
+                    return {"error": f"security: {exc}", "_note": "Fix the security as the error says and call again."}
+                built = customsec.card(sec)
+                ds._card_add(built)
+                for k in ("symbol",):
+                    if not play.get(k) or str(play[k]).upper().lstrip("@") == sec["symbol"].lstrip("@"):
+                        play[k] = sec["symbol"]
+                if play.get("do") and str((play["do"] or {}).get("symbol") or "").upper().lstrip("@") == \
+                        sec["symbol"].lstrip("@"):
+                    play["do"] = {**play["do"], "symbol": sec["symbol"]}
+            got = compile_play(uid, play,
                                chart_symbol="" if no_chart else getattr(ds._req, "symbol", ""),
                                chart_interval="" if no_chart else getattr(ds._req, "ctx_interval", ""),
                                arm=arm, pid=play_id or None)
@@ -2964,6 +2985,9 @@ def tool_play(action: str = "", play: dict | str | None = None, play_id: int = 0
                    "assumed": got["assumed"], "notes": c["notes"]}
             if got["diff"]:
                 out["changed"] = got["diff"]
+            if built:
+                out["security"] = {k: built[k] for k in ("symbol", "title", "formula", "now", "change",
+                                                         "members", "method", "why")}
             if row.get("_now_event"):
                 out["did_now"] = {k: row["_now_event"].get(k) for k in ("kind", "body")}
             fs = got.get("feed") if isinstance(got.get("feed"), dict) else {}
@@ -3032,7 +3056,10 @@ def tool_measure(action: str = "test", measure: dict | str | None = None,
             return {"measures": [{k: m.get(k) for k in ("name", "title", "formula")}
                                  for m in (list_measures(uid) if uid else [])],
                     "securities": [{"symbol": x["symbol"], "title": x["title"],
-                                    "formula": customsec.describe(x)}
+                                    "formula": customsec.describe(x), "why": x.get("why") or "",
+                                    "method": (x.get("method") or {}).get("text"),
+                                    "members": [{"symbol": m["symbol"], "weight": round(m["weight"], 4),
+                                                 "why": m.get("why")} for m in x["members"]]}
                                    for x in (customsec.list_for(uid) if uid else [])]}
         if action == "security":
             if not uid:

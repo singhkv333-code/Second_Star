@@ -698,3 +698,18 @@ def test_the_card_offers_choices_from_the_plays_own_data(book) -> None:
     assert out["play"]["authority"] == "manage"
     out = plays.edit_field(1, pid, "max_loss_inr", "1500")
     assert out["play"]["manage"]["max_loss_inr"] == 1500
+
+
+def test_one_play_call_builds_its_basket_and_the_play_on_it(uid) -> None:
+    got = plays.tool_play("compile", {
+        "title": "Defence below its 50-day", "symbol": "@DEF3",
+        "security": {"name": "def3", "kind": "basket", "why": "orders",
+                     "pick": {"industry": "defence", "top": 3, "rank_by": "market_cap"}},
+        "measures": [{"name": "sma50", "title": "50-day average", "code":
+                      "def compute(data, params):\n    return ta.sma(data['close'], 50)"}],
+        "when": {"all": [{"left": "close", "op": "cross_down", "right": "sma50"}]},
+        "contract": {"lifespan": "standing", "authority": "notify"}})
+    assert got["state"] == "armed", got
+    assert got["security"]["symbol"] == "@DEF3" and len(got["security"]["members"]) == 3
+    kinds = [c["kind"] for c in server._scene.cards]
+    assert kinds[-2:] == ["custom_security", "play"]

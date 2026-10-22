@@ -218,6 +218,12 @@ LLM_DEPLOYMENT = _env_values("CHARTO_LLM_MODEL")["CHARTO_LLM_MODEL"] or LLM_DEPL
 LLM_EFFORT = (environ.get("CHARTO_LLM_EFFORT")
               or _env_values("CHARTO_LLM_EFFORT")["CHARTO_LLM_EFFORT"]
               or LLM_EFFORT_DEFAULT)
+# The effort for a round that follows tool results. The first round plans
+# the work; a later one mostly reads what came back and writes it up, and at
+# the first round's effort it re-thinks the whole request on every round.
+LLM_EFFORT_FOLLOW = (environ.get("CHARTO_LLM_EFFORT_FOLLOW")
+                     or _env_values("CHARTO_LLM_EFFORT_FOLLOW")["CHARTO_LLM_EFFORT_FOLLOW"]
+                     or "low")
 LLM_SERVICE_TIER = (environ.get("CHARTO_LLM_SERVICE_TIER")
                     or _env_values("CHARTO_LLM_SERVICE_TIER")["CHARTO_LLM_SERVICE_TIER"]
                     or LLM_SERVICE_TIER_DEFAULT)
@@ -15473,7 +15479,7 @@ def _post_responses(wire: list[dict], allow_tools: bool = True) -> dict:
             "tool_choice": "auto" if allow_tools else "none",
             "parallel_tool_calls": True,
             "max_output_tokens": _LLM_MAX_OUTPUT,
-            "reasoning": {"effort": LLM_EFFORT},
+            "reasoning": {"effort": getattr(_req, "effort", None) or LLM_EFFORT},
             "service_tier": LLM_SERVICE_TIER,
         }
         req = urllib.request.Request(
@@ -15738,7 +15744,7 @@ def _stream_once(wire: list[dict], allow_tools: bool, model: str):
         # it reasons (measured on gpt-6-luna: first text ~3s before the first
         # output token). The reader sees what is being worked out instead of
         # a timer; the answer's own tokens and latency are unchanged.
-        "reasoning": {"effort": LLM_EFFORT, "summary": "auto"},
+        "reasoning": {"effort": getattr(_req, "effort", None) or LLM_EFFORT, "summary": "auto"},
         "service_tier": LLM_SERVICE_TIER,
         "stream": True,
     }
@@ -15998,6 +16004,7 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
     tok_in = tok_out = 0
     _rounds = _max_tool_rounds()
     for _round in range(_rounds):
+        _req.effort = LLM_EFFORT if _round == 0 else LLM_EFFORT_FOLLOW
         # On the final round the tools are withdrawn, so the model must answer
         # from what it already fetched. Running out of rounds used to surface a
         # dead-end apology on top of perfectly good tool results.
@@ -16135,6 +16142,7 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
 
     _rounds = _max_tool_rounds()
     for _round in range(_rounds):
+        _req.effort = LLM_EFFORT if _round == 0 else LLM_EFFORT_FOLLOW
         calls: list[dict] = []
         text_parts: list[str] = []
         by_id: dict = {}
@@ -21143,6 +21151,7 @@ class Handler(BaseHTTPRequestHandler):
             _req.symbol = sym
             # the Plays page has no chart: a play there names its own symbol
             _req.surface = str(ctx.get("surface") or "")
+            _req.effort = None          # set per round by the chat loop
             # HOW MANY BARS THE USER CAN ACTUALLY SEE.
             #
             # The scan detectors defaulted to a fixed 300 and the model was
