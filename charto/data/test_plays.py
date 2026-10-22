@@ -864,3 +864,62 @@ def test_a_guard_stops_the_day_on_the_exit_that_breaks_its_limit(book) -> None:
     daybook.close(p, p["entry_px"] * 1.05, "stop")          # a 5% loss on ₹50,000 short
     h = plays._halted(1)
     assert h and h["play_id"] == got["play_id"], h
+
+
+# ── scans, and a play over the shortlist ──────────────────────────────────────
+
+def test_a_scan_runs_the_models_measures_across_a_universe_and_ranks_them(uid) -> None:
+    got = plays.tool_measure("scan", scan={
+        "universe": {"from": "all", "top_by": "market_cap", "n": 40},
+        "measures": [{"name": "rsi14", "title": "RSI 14", "code": RSI},
+                     {"name": "ret20", "title": "20-bar return %",
+                      "code": "def compute(data, params):\n    c = data['close']\n    return [(c[i] / c[i-20] - 1) * 100 if i >= 20 else None for i in range(len(c))]"}],
+        "when": {"all": [{"left": "rsi14", "op": "above", "right": 0}]},
+        "rank_by": "ret20", "top": 5})
+    assert "error" not in got, got
+    assert got["scanned"] == 40 and got["with_data"] >= 30 and got["shown"] == 5
+    r = got["rows"]
+    assert r[0]["pct"] == 100.0 and r[0]["ret20"] >= r[-1]["ret20"]
+    assert got["symbols"] == [x["symbol"] for x in r] and "rsi14" in got["summary"]
+    assert [c for c in server._scene.cards if c.get("kind") == "scan"]
+    bad = plays.tool_measure("scan", scan={"universe": {"from": "all", "industry": "zzzz"}})
+    assert "no stored company" in bad["error"]
+
+
+def test_a_play_over_a_universe_replays_every_name_and_fires_for_the_one_that_triggered(uid) -> None:
+    got = plays.tool_play("compile", {
+        "title": "RSI dips across five", "interval": "1d",
+        "universe": ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK"],
+        "measures": [{"name": "rsi14", "title": "RSI 14", "code": RSI}],
+        "when": {"all": [{"left": "rsi14", "op": "cross_up", "right": 35}]},
+        "do": {"kind": "buy", "size": {"inr": 10000}},
+        "manage": {"exit_when": {"all": [{"left": "bars_in", "op": "above", "right": 10}]}},
+        "contract": {"authority": "manage"}})
+    assert "error" not in got, got
+    card = [c for c in server._scene.cards if c.get("kind") == "play"][-1]
+    assert card["universe"]["symbols"][:2] == ["RELIANCE", "TCS"] and card["universe"]["max_open"] == 5
+    assert card["summary"].startswith("Checks each of 5 names")
+    t = got["history"]["trades"]
+    assert t["n"] > 20 and t["control"]["n"] > 100, t
+    assert "watches 5 names" in " ".join(got["assumed"])
+    pid = got["play_id"]
+    plays._load_index()
+    assert pid in plays._INDEX["TCS"] and pid in plays._INDEX["INFY"]
+    # fire for TCS: it is bought and held as TCS, the rest untouched
+    play = plays._load(pid)
+    plays._set(pid, accepted=1, fires=1)
+    mp = plays._member(plays._load(pid), "TCS")
+    data, _ = plays.frame(mp["spec"])
+    series, _ = plays.run_measures(mp["spec"], data)
+    ev = plays._fire(mp, data, series, len(data["t"]) - 3, late=False)
+    assert ev["kind"] == "filled" and ev["body"]["ticket"]["symbol"] == "TCS", ev
+    play = plays._load(pid)
+    assert set(play["held_legs"]) == {"TCS"} and play["marks"]["TCS"]["entry"] == data["t"][-3]
+    mp = plays._member(play, "TCS")
+    assert plays._holding(mp) and not plays._holding(plays._member(play, "INFY"))
+    # an edit on the card rebuilds it with the same names
+    got2 = plays.edit_field(1, pid, "size_inr", 12000)
+    assert got2["play"]["universe"]["symbols"] == card["universe"]["symbols"], got2
+    assert got2["play"]["history"]["trades"]["list"][-1]["symbol"] in card["universe"]["symbols"]
+    bad = plays.tool_play("compile", {"universe": {"from": "all"}, "when": {"all": [{"left": "close", "op": "above", "right": 1}]}})
+    assert "at most 60" in bad["error"]

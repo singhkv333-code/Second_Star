@@ -55,7 +55,8 @@ TABLES = {
               "RELIANCE); inst OPT or FUT; expiry; strike and opt (CE/PE, empty for futures); open, high, "
               "low, close, settle (premium or future price); und_close; oi, oi_chg, volume in contracts "
               "(lots); value_cr traded value in crore; lot; symbol (the NFO tradingsymbol). Options are "
-              "kept within 15% of the underlying when they had OI or trades.",
+              "kept within 15% of the underlying when they had OI or trades. In expiry week OI rolls from "
+              "the near month to the next, so sum oi and oi_chg across expiries for an underlying's buildup.",
     "fo_snap": "The live option chain read every few minutes in market hours (only while a Kite session "
                "is up) for watched underlyings: ts epoch seconds; und; expiry; strike; opt; ltp, bid, ask, "
                "iv (percent); oi, oi_chg (since the previous day's close), volume in contracts; und_px.",

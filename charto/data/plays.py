@@ -52,6 +52,8 @@ def bind(module, alerts_mod=None, paper_mod=None) -> None:
     global ds, _alerts, _paper
     ds, _alerts, _paper = module, alerts_mod, paper_mod
     policy.bind(module, paper_mod)
+    import scan
+    scan.bind(module)
 
 
 # ══ storage ═════════════════════════════════════════════════════════════════
@@ -142,6 +144,8 @@ def init_db() -> None:
             _db().execute("ALTER TABLE plays ADD COLUMN held_legs TEXT NOT NULL DEFAULT '{}'")
         if "entry_bar" not in cols:      # the bar its open position was entered on
             _db().execute("ALTER TABLE plays ADD COLUMN entry_bar INTEGER NOT NULL DEFAULT 0")
+        if "marks" not in cols:          # a universe play's per-symbol clock: {sym: {eval, entry, done}}
+            _db().execute("ALTER TABLE plays ADD COLUMN marks TEXT NOT NULL DEFAULT '{}'")
         _db().commit()
     _ready = True
 
@@ -158,6 +162,7 @@ OPS = ("above", "below", "cross_up", "cross_down", "between", "outside",
 LOOKBACK = {"1m": 1500, "3m": 1500, "5m": 1500, "15m": 1200, "30m": 1000, "1h": 1000, "1d": 750}
 DEFAULT_SIZE_INR = 10_000
 DERIV_CAPITAL = 2_00_000
+UNIVERSE_MAX = 60
 PERP_FIELDS = ("funding", "premium", "oi")   # funding is hourly, with history; the others live only
 # the trader's own day book as series, so a guard is a rule like any other:
 # realised P&L so far today, plus what is open on the latest bar; positions
@@ -349,8 +354,9 @@ def _program(measures: list[dict], base: set) -> str:
 
 # ── the data a play reads ───────────────────────────────────────────────────
 
-def _rows(symbol: str, interval: str, limit: int, closed_only: bool = True) -> list[tuple]:
-    if hasattr(ds, "_symbol_ready") and not ds._symbol_ready(symbol):
+def _rows(symbol: str, interval: str, limit: int, closed_only: bool = True,
+          ensure: bool = True) -> list[tuple]:
+    if ensure and hasattr(ds, "_symbol_ready") and not ds._symbol_ready(symbol):
         ds._ensure_symbol(symbol)
     d = ds.get_bars(symbol, interval, None, limit + 1)
     rows = [(b["t"], b["o"], b["h"], b["l"], b["c"], b["v"]) for b in d.get("bars") or []]
@@ -415,11 +421,12 @@ def _sql_rows(sql: str, refresh: str) -> list:
     return rows
 
 
-def frame(spec: dict, limit: int | None = None) -> tuple[dict, list[str]]:
+def frame(spec: dict, limit: int | None = None, ensure: bool = True) -> tuple[dict, list[str]]:
     """Everything a play's measures read, on the clock symbol's closed bars.
-    Returns (data, notes). Every series has one value per clock bar."""
+    Returns (data, notes). Every series has one value per clock bar. A scan
+    passes ensure=False: reading 500 names must never start 500 downloads."""
     sym, iv = spec["symbol"], spec["interval"]
-    rows = _rows(sym, iv, limit or LOOKBACK[iv])
+    rows = _rows(sym, iv, limit or LOOKBACK[iv], ensure=ensure)
     if not rows:
         raise Bad(f"no bars stored for {sym} at {iv}; pick a symbol Pivot has data for")
     data = {"t": [r[0] for r in rows], "hhmm": [_hhmm(r[0], iv) for r in rows]}
@@ -855,6 +862,25 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
     if not isinstance(raw, dict):
         raise Bad("play must be an object")
     said: list[str] = []
+    uni = None
+    if raw.get("universe"):
+        import scan
+        u = raw["universe"]
+        try:
+            if isinstance(u, dict) and isinstance(u.get("symbols"), list):
+                # a resolved universe (an edit of a stored play) keeps its names
+                syms = [ds.canon_symbol(str(x)) for x in u["symbols"] if str(x or "").strip()]
+                words, more = str(u.get("words") or f"the {len(syms)} symbols named"), []
+            else:
+                words, syms, more = scan.resolve(u, uid)
+        except scan.Bad as exc:
+            raise Bad(f"universe: {exc}") from None
+        if len(syms) > UNIVERSE_MAX:
+            raise Bad(f"the universe has {len(syms)} names and a play watches at most {UNIVERSE_MAX}: scan "
+                      f"first (measure action scan) and give the play the shortlist, or narrow it")
+        uni = {"words": words, "symbols": syms}
+        said += more
+        raw = {**raw, "symbol": syms[0]}
     sym = ds.canon_symbol(str(raw.get("symbol") or chart_symbol or ""))
     if not sym and (raw.get("do") or {}).get("kind") == "rebalance":
         sym = "NIFTY 50" if ds._symbol_ready("NIFTY 50") else "RELIANCE"   # only its daily clock
@@ -914,7 +940,14 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
     on = _norm_on(raw.get("on"), sym)
     contract = dict(raw.get("contract") or {})
     rebalance = (raw.get("do") or {}).get("kind") == "rebalance"
-    lifespan = contract.get("lifespan") or ("once_when" if (when or on) else "now")
+    lifespan = contract.get("lifespan") or ("standing" if uni and when else
+                                            "once_when" if (when or on) else "now")
+    if uni and (on or (raw.get("do") or {}).get("kind") in ("rebalance", "halt")):
+        raise Bad("a universe is for a rule read on each name's own bars; events, rebalances and "
+                  "guards take one symbol")
+    if uni and (not when or lifespan == "now"):
+        raise Bad("a play over a universe needs `when`: the rule each name is checked against, on its "
+                  "own bars")
     if lifespan not in LIFESPANS:
         raise Bad(f"contract.lifespan must be one of {', '.join(LIFESPANS)}")
     if lifespan != "now" and not when and not on and not (rebalance and lifespan == "policy"):
@@ -1076,6 +1109,13 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
         raise Bad("trailing stops, leg rules and profit or loss exits run in the day book: set "
                   "do.product MIS (intraday) or use a short, options or future order")
 
+    if uni:
+        if kind in ("buy", "sell", "short", "cover"):
+            if customsec.is_custom(do.get("symbol") or ""):
+                raise Bad("a universe play trades each name itself, not a basket")
+            do["symbol"] = "*"
+        if kind in ("options", "future"):
+            do["underlying"] = "*"
     cap = float((raw.get("mandate") or {}).get("capital_inr")
                 or ((do.get("size") or {}).get("inr") or 0) * (1 if lifespan != "standing" else 5)
                 or (DERIV_CAPITAL if kind in ("options", "future") else DEFAULT_SIZE_INR))
@@ -1086,6 +1126,15 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
                "max_fires": int((raw.get("mandate") or {}).get("max_fires")
                                 or (1 if lifespan in ("now", "once_when") else
                                     10_000 if lifespan == "policy" or kind == "halt" else 20))}
+    if uni:
+        mx = int((raw.get("mandate") or {}).get("max_open") or (0 if kind == "notify" else 5))
+        mandate["max_open"] = mx
+        if not (raw.get("mandate") or {}).get("max_fires"):
+            mandate["max_fires"] = 500
+        if mx and not (raw.get("mandate") or {}).get("capital_inr") and (do.get("size") or {}).get("inr"):
+            mandate["capital_inr"] = float(do["size"]["inr"]) * mx
+        said.append(f"watches {len(uni['symbols'])} names ({uni['words']}), each on its own bars"
+                    + (f", holding at most {mx} at once" if mx else ""))
     if kind == "rebalance":
         mandate["max_weight"] = float((raw.get("mandate") or {}).get("max_weight")
                                       or policy.DEFAULT_MAX_WEIGHT)
@@ -1096,7 +1145,7 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
         "title": str(raw.get("title") or "")[:80] or f"{sym} play",
         "ask": str(raw.get("ask") or "")[:600],
         "thesis": str(raw.get("why") or raw.get("thesis") or "").strip()[:500],
-        "symbol": sym, "interval": iv, "measures": measures, "when": when, "on": on,
+        "symbol": sym, "interval": iv, "measures": measures, "when": when, "on": on, "universe": uni,
         "do": do, "manage": manage, "mandate": mandate, "policy": pol,
         "contract": {"lifespan": lifespan, "authority": authority, "discretion": discretion,
                      "inferred_from": str(contract.get("inferred_from") or "")[:200],
@@ -1355,18 +1404,14 @@ def round_trips(spec: dict, data: dict, series: dict, tr: list) -> dict | None:
     whys: dict[str, int] = {}
     for w in trades:
         whys[w["why"]] = whys.get(w["why"], 0) + 1
+    out["_rets"], out["_ctrl"] = rets, ctrl
+    out["_ins"] = [data["t"][w["i"]] for w in trades]
     out.update(kind="trades", **st, exits=whys, control=_stats(ctrl),
                list=[{"in": data["t"][w["i"]], "out": data["t"][w["j"]], "entry": data["close"][w["i"]],
                       "exit": round(w["px"], 4), "ret": round(ret(w), 3), "why": w["why"]}
                      for w in trades[-12:]],
                curve=[round(x, 3) for x in _cum(rets)][-120:])
-    ctl = out["control"]
-    if st["n"] and ctl.get("n") and d:
-        edge = st["expectancy"] - ctl["expectancy"]
-        out["edge"] = round(edge, 3)
-        out["verdict"] = ("too_few" if st["n"] < 20 else
-                          "ahead" if edge > 0 and st["win_rate"] >= ctl["win_rate"] else
-                          "behind" if edge < 0 else "mixed")
+    out.update(_verdict(st, out["control"], d))
     if not d:
         out["notes"].append("a position with no direction: each trade is the size of the move while it "
                             "was held, in either direction")
@@ -1388,6 +1433,16 @@ def round_trips(spec: dict, data: dict, series: dict, tr: list) -> dict | None:
     return out
 
 
+def _verdict(st: dict, ctl: dict, d: int) -> dict:
+    if not (st.get("n") and ctl.get("n") and d):
+        return {}
+    edge = st["expectancy"] - ctl["expectancy"]
+    return {"edge": round(edge, 3),
+            "verdict": ("too_few" if st["n"] < 20 else
+                        "ahead" if edge > 0 and st["win_rate"] >= ctl["win_rate"] else
+                        "behind" if edge < 0 else "mixed")}
+
+
 def _cum(rets: list[float]) -> list[float]:
     acc, out = 0.0, []
     for r in rets:
@@ -1396,11 +1451,16 @@ def _cum(rets: list[float]) -> list[float]:
     return out
 
 
-def replay(spec: dict, check: bool = True) -> dict:
+def replay(spec: dict, check: bool = True, keep_raw: bool = False, pre: tuple | None = None) -> dict:
     """The play over stored history: the same measures and the same condition
     code the live bar runs. What the trader sees before it is armed."""
-    data, notes = frame(spec)
-    series, problems = run_measures(spec, data, check=check)
+    if spec.get("universe") and not spec.get("member"):
+        return replay_universe(spec)
+    if pre:
+        (data, notes), (series, problems) = pre
+    else:
+        data, notes = frame(spec)
+        series, problems = run_measures(spec, data, check=check)
     tr = truth(spec["when"], data, series) if spec.get("when") else []
     hits = []
     if spec.get("on"):
@@ -1433,7 +1493,7 @@ def replay(spec: dict, check: bool = True) -> dict:
     except Bad as exc:
         raise Bad(f"manage.exit_when: {exc}") from None
     if rt:
-        out["trades"] = rt
+        out["trades"] = rt if keep_raw else {k: v for k, v in rt.items() if not k.startswith("_")}
     reads_book = any("book" in src for m in spec.get("measures") or [] for src in m["inputs"].values())
     if tr and not pts and reads_book:
         out["notes"].append("it reads your own day book, and nothing in it would have set it off on the "
@@ -1444,6 +1504,91 @@ def replay(spec: dict, check: bool = True) -> dict:
         out["notes"].append(f"it would have fired about {out['per_month']:.0f} times a month; "
                             f"that is close to every day")
     return out, data, series, tr
+
+
+def replay_universe(spec: dict) -> tuple:
+    """Every member replayed on its own bars, the measures for all of them in
+    one sandbox run; fires and round trips pooled, so the sample is the whole
+    universe's and the control is too."""
+    import indicator_sandbox
+    syms = spec["universe"]["symbols"]
+    frames, skipped = {}, []
+    for s in syms:
+        try:
+            # stored bars only: 60 names must not start 60 downloads
+            frames[s] = frame(_member_spec(spec, s), ensure=False)
+        except Bad:
+            skipped.append(s)
+    if not frames:
+        raise Bad(f"none of the universe's {len(syms)} names has stored {spec['interval']} bars")
+    first = next(iter(frames))
+    run_measures(_member_spec(spec, first), frames[first][0], check=True)   # refuse a look-ahead once
+    series_of = {s: {} for s in frames}
+    if spec.get("measures"):
+        code = _program(spec["measures"], set(frames[first][0]) | {"t"})
+        reply = indicator_sandbox.run(code, [{"id": s, "free": True, "bars": d} for s, (d, _) in frames.items()],
+                                      timeout=min(120, 20 + len(frames) / 4))
+        if not reply.get("ok"):
+            raise Bad(f"measure code refused: {reply.get('error')}")
+        for r in reply["results"]:
+            if r.get("ok"):
+                n = len(frames[r["id"]][0]["t"])
+                series_of[r["id"]] = {m["name"]: [float(x) if isinstance(x, (int, float)) and not isinstance(x, bool)
+                                                  and math.isfinite(x) else None
+                                                  for x in ((r.get("value") or {}).get(m["name"]) or [None] * n)]
+                                      for m in spec["measures"]}
+    fires, per_month, fire_ts, met, rets, ctrl, exits, members, notes = 0, 0.0, [], [], [], [], {}, [], []
+    last: list[dict] = []
+    timed: list[tuple] = []
+    keep = None
+    for s, (data, nts) in frames.items():
+        sr = series_of.get(s) or {}
+        if spec.get("measures") and not sr:
+            skipped.append(s)
+            continue
+        h, data, sr, tr = replay(_member_spec(spec, s), keep_raw=True, pre=((data, nts), (sr, [])))
+        keep = keep or (data, sr, tr)
+        fires += h["fires"]
+        per_month += h["per_month"]
+        fire_ts += h.get("fire_ts") or []
+        if h.get("true_now"):
+            met.append(s)
+        t = h.get("trades") or {}
+        last += [{**x, "symbol": s} for x in t.get("list") or []]
+        rets += t.get("_rets") or []
+        timed += list(zip(t.get("_ins") or [], t.get("_rets") or []))
+        ctrl += t.get("_ctrl") or []
+        for k, v in (t.get("exits") or {}).items():
+            exits[k] = exits.get(k, 0) + v
+        members.append({"symbol": s, "fires": h["fires"], "trades": t.get("n"),
+                        "expectancy": t.get("expectancy"), "now": h.get("true_now")})
+        for x in t.get("notes") or []:
+            if x not in notes and not x.startswith("only "):
+                notes.append(x)
+    d0 = next(iter(frames.values()))[0]
+    out = {"bars": len(d0["t"]), "from": d0["t"][0], "to": d0["t"][-1], "fires": fires,
+           "per_month": round(per_month, 2), "fire_ts": sorted(fire_ts)[-12:],
+           "last_fire": max(fire_ts) if fire_ts else None, "met_now": met,
+           "members": sorted(members, key=lambda m: -(m["fires"] or 0)),
+           "notes": ([f"{len(skipped)} of {len(syms)} names have no stored {spec['interval']} bars and are "
+                      f"not watched: {', '.join(skipped[:8])}"] if skipped else []), "now": {}, "spark": {},
+           "price": None}
+    if rets or ctrl:
+        st = _stats(rets)
+        tr0 = {"kind": "trades", "basis": "each name's own move" + (", not the option's premium"
+                                                                    if spec["do"]["kind"] == "options" else ""),
+               "direction": _direction(spec), **st, "exits": exits, "control": _stats(ctrl), "notes": notes,
+               "curve": [round(x, 3) for x in _cum([r for _, r in sorted(timed)])][-120:],
+               "list": sorted(last, key=lambda x: x["out"])[-12:],
+               **_verdict(st, _stats(ctrl), _direction(spec))}
+        if st.get("n") and st["n"] < 20:
+            tr0["notes"] = tr0["notes"] + [f"only {st['n']} trades across the universe: too few to tell an "
+                                           f"edge from luck"]
+        out["trades"] = tr0
+    if fires == 0:
+        out["notes"].append("no name in it would have fired on the stored history; check the levels")
+    data, sr, tr = keep or (d0, {}, [])
+    return out, data, sr, tr
 
 
 def _status(spec: dict, data: dict, series: dict) -> list[dict]:
@@ -1500,6 +1645,8 @@ def _label(x, spec: dict) -> str:
         return names[k]
     if k in _POSITION_WORDS:
         return _POSITION_WORDS[k]
+    if k in FIELDS and spec.get("universe") and not spec.get("member"):
+        return f"its {k}"
     return f"{spec['symbol']} {k}" if k in FIELDS else str(x)
 
 
@@ -1599,6 +1746,11 @@ def _paper_qty(symbol: str, inr: float, price: float) -> float:
 
 
 def order_words(spec: dict) -> str:
+    w = _order_words(spec)
+    return w.replace("*", "the name that triggered") if spec.get("universe") and not spec.get("member") else w
+
+
+def _order_words(spec: dict) -> str:
     """The order in a trader's words, from the tree: "sell NIFTY ATM CE and
     ATM PE, 1 lot each, weekly expiry"."""
     do = spec["do"]
@@ -1679,6 +1831,11 @@ def summary(spec: dict) -> str:
     if on:
         return f"Reads {_on_words(on)} and {act} {times} one {_on_test(on)}" + \
             (f", while {cond}" if cond else "") + "."
+    if spec.get("universe") and not spec.get("member"):
+        u = spec["universe"]
+        act = act.replace("*", "that name")
+        return (f"Checks each of {len(u['symbols'])} names ({u['words']}) at {every} and {act} "
+                f"{'the first time' if c['lifespan'] == 'once_when' else 'each time'} {cond}.")
     return f"Checks {spec['symbol']} at {every} and {act} {times} {cond}."
 
 
@@ -1715,6 +1872,8 @@ def card(row: dict, live: dict | None = None) -> dict:
         action = {"side": do["kind"], "symbol": do["symbol"],
                   "size": (f"₹{size['inr']:,.0f}" if size.get("inr") else
                            f"{size['qty']:g} qty" if size.get("qty") else "what it holds")}
+    if action and action.get("symbol") == "*":
+        action["symbol"] = None
     exits = []
     mg = spec.get("manage") or {}
     if mg.get("stop_pct"):
@@ -1755,7 +1914,10 @@ def card(row: dict, live: dict | None = None) -> dict:
         "on": ({"reads": _on_words(spec["on"]), "test": _on_test(spec["on"]),
                 "match": spec["on"].get("match") or [], "judge": spec["on"].get("judge") or "",
                 "recent": hist.get("events") or []} if spec.get("on") else None),
-        "conditions": _with_parts((live or {}).get("conditions") or hist.get("conditions") or
+        # a universe's rule is read on each name: no one name's values stand for it
+        "conditions": _with_parts([{"text": describe(c, spec)} for c in (when.get("all") or when.get("any") or [])]
+                                  if spec.get("universe") else
+                                  (live or {}).get("conditions") or hist.get("conditions") or
                                   [{"text": describe(c, spec)} for c in (when.get("all") or when.get("any") or [])],
                                   spec),
         "measures": [{"name": m["name"], "title": m["title"], "formula": m["formula"],
@@ -1763,6 +1925,11 @@ def card(row: dict, live: dict | None = None) -> dict:
                       "spark": (hist.get("spark") or {}).get(m["name"])}
                      for m in spec.get("measures") or [] if not m["name"].endswith(tuple(f"_{f}" for f in FIELDS))
                      or m.get("code")],
+        "universe": ({"words": spec["universe"]["words"], "symbols": spec["universe"]["symbols"],
+                      "met_now": hist.get("met_now") or [], "members": (hist.get("members") or [])[:12],
+                      "max_open": (spec.get("mandate") or {}).get("max_open"),
+                      "holding": sorted(k for k, v in (row.get("held_legs") or {}).items() if v)}
+                     if spec.get("universe") else None),
         "action": action, "exits": exits, "contract": _contract_line(spec),
         "history": {k: hist.get(k) for k in ("fires", "per_month", "last_fire", "bars", "from", "to",
                                              "fire_ts", "price", "trades")},
@@ -1792,7 +1959,7 @@ def card(row: dict, live: dict | None = None) -> dict:
 
 _COLS = ("id", "user_id", "title", "ask", "spec", "symbol", "interval", "symbols", "state", "why",
          "created", "updated", "expires", "fires", "accepted", "spent_inr", "held_qty",
-         "held_sym", "held_legs", "last_eval_ts", "needs_confirm", "history", "entry_bar")
+         "held_sym", "held_legs", "last_eval_ts", "needs_confirm", "history", "entry_bar", "marks")
 
 
 def _row(t: tuple) -> dict:
@@ -1800,6 +1967,7 @@ def _row(t: tuple) -> dict:
     r["spec"] = json.loads(r["spec"])
     r["history"] = json.loads(r["history"] or "{}")
     r["held_legs"] = json.loads(r["held_legs"] or "{}")
+    r["marks"] = json.loads(r.get("marks") or "{}")
     return r
 
 
@@ -1820,12 +1988,12 @@ def list_plays(uid: int, states=("armed", "paused", "done", "draft")) -> list[di
 
 
 def _symbols_of(spec: dict) -> list[str]:
-    out = {spec["symbol"]}
+    out = {spec["symbol"], *((spec.get("universe") or {}).get("symbols") or [])}
     for m in spec.get("measures") or []:
         for src in m["inputs"].values():
             if "bars" in src:
                 out.add(src["bars"]["symbol"])
-    if spec["do"].get("symbol"):
+    if spec["do"].get("symbol") and spec["do"]["symbol"] != "*":
         out.add(spec["do"]["symbol"])
     return sorted(out)
 
@@ -2013,12 +2181,14 @@ STATS = {"evals": 0, "fires": 0, "errors": 0, "dropped": 0}
 
 def _load_index() -> None:
     with ds._users_lock:
-        rows = _db().execute("SELECT id, symbol FROM plays WHERE state='armed'").fetchall()
+        rows = _db().execute("SELECT id, symbol, spec FROM plays WHERE state='armed'").fetchall()
     idx: dict[str, list[int]] = {}
-    for pid, sym in rows:
-        if customsec.is_custom(sym):
-            sym = (customsec.members(sym) or [sym])[0]
-        idx.setdefault(sym, []).append(pid)
+    for pid, sym, sp in rows:
+        uni = (json.loads(sp).get("universe") or {}).get("symbols") if '"universe"' in sp else None
+        for s in uni or [sym]:
+            if customsec.is_custom(s):
+                s = (customsec.members(s) or [s])[0]
+            idx.setdefault(s, []).append(pid)
     with _INDEX_LOCK:
         _INDEX.clear()
         _INDEX.update(idx)
@@ -2066,7 +2236,7 @@ def _worker() -> None:
             pids = list(_INDEX.get(sym) or [])
         for pid in pids:
             try:
-                _tick(pid, ts)
+                _tick(pid, ts, sym=sym)
             except Exception:                               # noqa: BLE001
                 STATS["errors"] += 1
                 log.warning("plays: play %s failed", pid, exc_info=True)
@@ -2078,11 +2248,15 @@ def _load(pid: int) -> dict | None:
     return _row(t) if t else None
 
 
-def _tick(pid: int, minute_ts: int | None = None, force: bool = False) -> list[dict]:
+def _tick(pid: int, minute_ts: int | None = None, force: bool = False, sym: str = "") -> list[dict]:
     play = _load(pid)
     if not play or play["state"] != "armed":
         return []
     spec = play["spec"]
+    if spec.get("universe"):
+        if not sym:
+            return [e for s in spec["universe"]["symbols"] for e in _tick(pid, minute_ts, force, s)]
+        return _tick_member(play, sym, minute_ts, force)
     if minute_ts is not None and not force and not _due(spec["interval"], minute_ts,
                                                          hyperliquid.is_perp(spec["symbol"])):
         return []
@@ -2137,10 +2311,104 @@ def _tick(pid: int, minute_ts: int | None = None, force: bool = False) -> list[d
 
 
 def _holding(play: dict) -> bool:
+    member = play["spec"].get("member")
     if _day_route(play["spec"]["do"]):
         import daybook
-        return bool(daybook.open_positions(play["user_id"], play["id"]))
+        opens = daybook.open_positions(play["user_id"], play["id"])
+        return bool([p for p in opens if not member or member in (p["symbol"], p["underlying"])])
+    if member:
+        return bool((play.get("held_legs") or {}).get(member))
     return bool(play["held_qty"] or any((play.get("held_legs") or {}).values()))
+
+
+# ── a play over a universe ───────────────────────────────────────────────────
+# Each symbol in play.universe is its own clock: the same measures and rule
+# read on its bars, entries in it sized and placed for it, its own exit. The
+# play holds at most mandate.max_open names at once; once_when means once
+# per name.
+
+def _member_spec(spec: dict, sym: str) -> dict:
+    do = dict(spec["do"])
+    if do.get("symbol") == "*":
+        do["symbol"] = sym
+    if do.get("underlying") == "*":
+        do["underlying"] = sym
+    return {**spec, "symbol": sym, "do": do, "member": sym}
+
+
+def _member(play: dict, sym: str) -> dict:
+    mk = (play.get("marks") or {}).get(sym) or {}
+    held = (play.get("held_legs") or {}).get(sym, 0.0)
+    return {**play, "spec": _member_spec(play["spec"], sym), "held_qty": held,
+            "held_sym": sym if held else "", "entry_bar": mk.get("entry", 0)}
+
+
+def _mark_member(pid: int, sym: str, **kv) -> None:
+    with ds._users_lock:
+        r = _db().execute("SELECT marks FROM plays WHERE id=?", (pid,)).fetchone()
+        marks = json.loads((r or ["{}"])[0] or "{}")
+        marks[sym] = {**(marks.get(sym) or {}), **kv}
+        _db().execute("UPDATE plays SET marks=? WHERE id=?", (json.dumps(marks), pid))
+        _db().commit()
+
+
+def _open_names(play: dict) -> set[str]:
+    if _day_route(play["spec"]["do"]):
+        import daybook
+        return {p["underlying"] or p["symbol"] for p in daybook.open_positions(play["user_id"], play["id"])}
+    return {k for k, v in (play.get("held_legs") or {}).items() if v}
+
+
+def _tick_member(play: dict, sym: str, minute_ts: int | None, force: bool) -> list[dict]:
+    spec = play["spec"]
+    if minute_ts is not None and not force and not _due(spec["interval"], minute_ts,
+                                                         hyperliquid.is_perp(sym)):
+        return []
+    if play["expires"] and play["expires"] <= time.time():
+        _set(play["id"], state="done", why="expired")
+        _load_index()
+        return []
+    mp = _member(play, sym)
+    try:
+        data, _ = frame(mp["spec"], ensure=False)
+        series, _ = run_measures(mp["spec"], data)
+    except Bad:
+        return []
+    STATS["evals"] += 1
+    t = data["t"]
+    mk = (play.get("marks") or {}).get(sym) or {}
+    since = mk.get("eval") or play["last_eval_ts"]
+    new = [i for i in range(len(t)) if t[i] > since]
+    if not new:
+        return []
+    tr = truth(spec["when"], data, series) if spec.get("when") else []
+    out = []
+    for i in new:
+        late = i != len(t) - 1
+        fresh = tr and i > 0 and tr[i] is True and tr[i - 1] is not True
+        if fresh and not mk.get("done") and play["why"] not in (EXITS_ONLY, "fired") and not _holding(mp):
+            cap = int(spec["mandate"].get("max_open") or 0)
+            busy = _open_names(play)
+            if spec["do"]["kind"] != "notify" and cap and len(busy) >= cap:
+                out.append(_event(mp, t[i], "rejected", spec["title"],
+                                  {"symbol": sym, "price": data["close"][i], "seen": _seen(mp["spec"], data, series, i),
+                                   "reason": f"it already holds {len(busy)} of its names ({', '.join(sorted(busy))}), "
+                                             f"its limit of {cap} at once"}, status="done"))
+            else:
+                out.append(_fire(mp, data, series, i, late=late))
+            play = _load(play["id"])
+            if play["state"] != "armed":
+                break
+            mp = _member(play, sym)
+            mk = (play.get("marks") or {}).get(sym) or {}
+        if not late and (spec.get("manage") or {}).get("exit_when") and _holding(mp):
+            ex = _maybe_rule_exit(mp, data, series, i)
+            if ex:
+                out.append(ex)
+                play = _load(play["id"])
+                mp = _member(play, sym)
+    _mark_member(play["id"], sym, eval=t[-1])
+    return out
 
 
 def _maybe_rule_exit(play: dict, data: dict, series: dict, i: int) -> dict | None:
@@ -2162,7 +2430,12 @@ def _maybe_rule_exit(play: dict, data: dict, series: dict, i: int) -> dict | Non
             "symbol": spec["symbol"], "price": data["close"][i]}
     if _day_route(spec["do"]):
         import daybook
-        res = daybook.close_play(play["id"], why)    # an exit never waits for a tap
+        if spec.get("member"):
+            res = [daybook.close(p, p["mark_px"] or p["entry_px"], why)
+                   for p in daybook.open_positions(play["user_id"], play["id"])
+                   if spec["member"] in (p["symbol"], p["underlying"])]
+        else:
+            res = daybook.close_play(play["id"], why)    # an exit never waits for a tap
         return _event(play, t[i], "exited", spec["title"], {**body, "closed": res}, status="done")
     if customsec.is_custom(play["held_sym"]):
         legs = {s: q for s, q in _held_legs_now(play).items() if q}
@@ -2250,6 +2523,12 @@ def _fire(play: dict, data: dict, series: dict, i: int, *, late: bool,
             ev = _event(play, ts, "proposed", title, {**body, "ticket": ticket, "reason": reason})
         else:
             ev = _place(play, ticket, ts, body)
+    if spec.get("member"):
+        if c["lifespan"] in ("once_when", "now"):
+            _mark_member(play["id"], spec["member"], done=True)
+        if fires >= spec["mandate"]["max_fires"]:
+            _entries_over(play["id"], "reached its fire limit")
+        return ev
     if c["lifespan"] in ("once_when", "now") or fires >= spec["mandate"]["max_fires"]:
         _entries_over(play["id"], "fired" if c["lifespan"] in ("once_when", "now")
                       else "reached its fire limit", waiting=bool(ev and ev["kind"] == "proposed"))
@@ -2535,7 +2814,11 @@ def _place(play: dict, ticket: dict, ts: int, body: dict) -> dict:
             return _event(play, ts, "exited", play["spec"]["title"], {**body, "closed": res}, status="done")
         got = daybook.open_group(play["user_id"], play["id"], ticket["legs"], play["spec"].get("manage") or {})
         cost = sum(lg["px"] * lg["qty"] * lg.get("fx", 1.0) for lg in ticket["legs"] if lg["side"] == "long")
-        _set(play["id"], spent_inr=play["spent_inr"] + (ticket.get("margin_est") or cost), entry_bar=ts)
+        if play["spec"].get("member"):
+            _set(play["id"], spent_inr=play["spent_inr"] + (ticket.get("margin_est") or cost))
+            _mark_member(play["id"], play["spec"]["member"], entry=ts)
+        else:
+            _set(play["id"], spent_inr=play["spent_inr"] + (ticket.get("margin_est") or cost), entry_bar=ts)
         note = ("priced at the last close because no live quote came back. Quotes are asked for "
                 "every 5 seconds; its stop and target are watched from the first live quote, and "
                 "until then they are not" if ticket.get("stale") else "")
@@ -2561,7 +2844,17 @@ def _place(play: dict, ticket: dict, ts: int, body: dict) -> dict:
                       {**body, "ticket": ticket, "reason": str(exc)}, status="done")
     fill = (got or {}).get("fill") or {}
     px = float(fill.get("price") or ticket["price"])
-    if ticket["side"] == "BUY":
+    member = play["spec"].get("member")
+    if member:
+        legs = dict((_load(play["id"]) or play).get("held_legs") or {})
+        was = legs.get(member, 0.0)
+        legs[member] = max(0.0, was + (ticket["qty"] if ticket["side"] == "BUY" else -ticket["qty"]))
+        legs = {k: v for k, v in legs.items() if v}
+        _set(play["id"], held_legs=json.dumps(legs), held_sym="*", held_qty=float(sum(legs.values())),
+             spent_inr=play["spent_inr"] + (ticket["qty"] * px if ticket["side"] == "BUY" else 0))
+        if ticket["side"] == "BUY" and not was:
+            _mark_member(play["id"], member, entry=ts)
+    elif ticket["side"] == "BUY":
         _set(play["id"], held_qty=play["held_qty"] + ticket["qty"], held_sym=ticket["symbol"],
              spent_inr=play["spent_inr"] + ticket["qty"] * px,
              **({} if play["held_qty"] else {"entry_bar": ts}))
@@ -2810,6 +3103,9 @@ def compile_play(uid: int, raw: dict, *, chart_symbol: str = "", chart_interval:
         try:
             if hyperliquid.is_perp(spec["symbol"]):
                 feed = None                 # the Hyperliquid poller clocks it (dataserver boot)
+            elif spec.get("universe"):
+                fs = [_alerts.ensure_feed(s) for s in spec["universe"]["symbols"]]
+                feed = next((f for f in fs if isinstance(f, dict) and f.get("note")), None)
             elif customsec.is_custom(spec["symbol"]):
                 fs = [_alerts.ensure_feed(s) for s in customsec.members(spec["symbol"])]
                 feed = next((f for f in fs if isinstance(f, dict) and f.get("note")), fs[0] if fs else None)
@@ -3245,6 +3541,8 @@ def resolve_event(uid: int, eid: int, action: str) -> dict:
     play = _load(pid)
     if not play:
         raise Bad("the play behind this proposal was deleted")
+    if play["spec"].get("universe"):
+        play = _member(play, body.get("symbol") or (body.get("ticket") or {}).get("symbol") or "")
     h = _halted(uid) if _halts_entries(play["spec"]["do"]) and not body.get("ticket", {}).get("close") \
         and (body.get("ticket") or {}).get("side") != "SELL" else None
     if h:
@@ -3754,13 +4052,30 @@ def tool_play(action: str = "", play: dict | str | None = None, play_id: int = 0
 
 
 def tool_measure(action: str = "test", measure: dict | str | None = None,
-                 symbol: str = "", interval: str = "", security: dict | str | None = None) -> dict:
+                 symbol: str = "", interval: str = "", security: dict | str | None = None,
+                 scan: dict | str | None = None) -> dict:
     uid = _uid()
     if isinstance(measure, str):
         try:
             measure = json.loads(measure)
         except ValueError:
             return {"error": "measure must be a JSON object"}
+    if action == "scan":
+        import scan as scanner
+        try:
+            raw = json.loads(scan) if isinstance(scan, str) else dict(scan or {})
+            r = scanner.run(raw, uid)
+        except (scanner.Bad, Bad, ValueError) as exc:
+            return {"error": str(exc), "_note": "Fix the scan as the error says and call again."}
+        ds._card_add({"kind": "scan", **r})
+        return {**r, "_note": ("The shortlist is on screen as a table. If the summary shows a measure "
+                               "off by a sign or a unit, or `passes` shows one clause leaving almost "
+                               "nothing, fix the measure and scan again before answering. Say what was "
+                               "scanned (universe, "
+                               "with_data, left_out), the clause and the ranking in words, then the names "
+                               "that stand out and why, from their own values, and how they sit against "
+                               "the summary. A scan is a list to look at, not a call to buy. To watch "
+                               "them, a play takes universe: the symbols.")}
     try:
         if action == "list":
             return {"measures": [{k: m.get(k) for k in ("name", "title", "formula")}

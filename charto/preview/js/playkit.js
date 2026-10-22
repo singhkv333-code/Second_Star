@@ -325,7 +325,8 @@ const Kit = (() => {
       out.push({ title: m.title, cap: m.formula && m.formula !== m.title ? m.formula : "", body:
         `<div class="src">${symIn(m.formula || m.title) ? logo(symIn(m.formula || m.title), "sm") : ic("sparkle")}` +
         `<span class="grow"></span><span class="pill live">${ic("grid")}Live</span></div>` +
-        `<div class="big">${m.now == null ? "<span class=muted>no value</span>" : bigNum(m.now)}</div>` + sliderHTML(m.spark, m.now) });
+        `<div class="big">${c.universe ? `<span class=muted style="font-size:15px">read on each name</span>` : m.now == null ? "<span class=muted>no value</span>" : bigNum(m.now)}</div>` +
+        (c.universe ? "" : sliderHTML(m.spark, m.now)) });
     });
     if (c.on) {
       const items = (c.on.recent || []).slice(-3).reverse();
@@ -344,6 +345,12 @@ const Kit = (() => {
         `<div class="src">${ic("wallet")}<span>${held.length ? `${held.length} holdings` : "Read at each run"}</span><span class="grow"></span><span class="pill live">${ic("grid")}Live</span></div>` +
         (held.length ? `<div class="items" style="margin-top:8px">${held.slice(0, 6).map(([s, q]) =>
           `<div class="item" style="align-items:center">${logo(s, "sm")}<span style="flex:1">${esc(s)}</span><b class="num">${esc(num(q, 4))}</b></div>`).join("")}</div>` : "") });
+    } else if (c.universe) {
+      const u = c.universe;
+      out.push({ title: "Each name's price", body:
+        `<div class="src">${u.symbols.slice(0, 3).map((s2) => logo(s2, "xs")).join("")}${u.symbols.length > 3 ? `<span class="muted">+${esc(u.symbols.length - 3)}</span>` : ""}` +
+        `<span class="grow"></span><span class="pill live">${ic("grid")}Live</span></div>` +
+        `<div style="font-size:12.5px;color:var(--ink-2);margin-top:6px">${esc(u.symbols.length)} names, each read on its own bars</div>` });
     } else if ((priceCond || (!measures.length && !c.on)) && c.symbol) {
       out.push({ title: `${c.symbol} price`, body:
         `<div class="src">${logo(c.symbol, "sm")}<span>${esc(venueOf(c.symbol))}</span><span class="grow"></span><span class="pill live">${ic("grid")}Live</span></div>` +
@@ -467,6 +474,13 @@ const Kit = (() => {
         `<div class="nfoot"><span>${logo("HYPE-PERP", "xs")} Hyperliquid perpetual · 24h</span><span>${esc(actsWord)}</span></div></div>`;
     }
     const [v, cls] = VERB[d.kind] || ["Buy", "buy"];
+    if (d.symbol === "*") {
+      return `<div class="node" data-node="a">${head("Action")}<div class="act-title"><span class="chip ${cls}">${v}</span>` +
+        `<span>the name that triggered, on</span><span class="chip plain">${ic("shield")}Paper</span></div>` + takeStop() +
+        `<div class="inner" style="font-size:13px;line-height:1.5">Each name is sized and placed on its own` +
+        `${(c.universe || {}).max_open ? `, at most ${esc(c.universe.max_open)} held at once` : ""}.</div>` +
+        `<div class="nfoot"><span>${ic("link")} ${d.product === "MIS" ? "Intraday · squared off 15:20" : "Delivery"}</span><span>${esc(actsWord)}</span></div></div>`;
+    }
     const sym = d.symbol || c.symbol;
     return `<div class="node" data-node="a">${head("Action")}<div class="act-title"><span>${v === "Short" || v === "Cover" ? "" : ""}</span>` +
       `<span class="chip ${cls}">${v}</span><span>${d.size && d.size.all ? "all of" : ""}</span>${logo(sym, "sm")}<span class="chip plain">${esc(sym)}</span><span>on</span>` +
@@ -552,7 +566,8 @@ const Kit = (() => {
     el.className = "strat";
     el.dataset.play = c.id;
     const st = STATE[c.state] || [c.state, ""];
-    const syms = [...new Set([c.symbol, (c.do || {}).symbol, (c.do || {}).underlying, ...Object.keys((c.do || {}).targets || {})].filter(Boolean))].slice(0, 4);
+    const syms = c.universe ? c.universe.symbols.slice(0, 4) :
+      [...new Set([c.symbol, (c.do || {}).symbol, (c.do || {}).underlying, ...Object.keys((c.do || {}).targets || {})].filter((x) => x && x !== "*"))].slice(0, 4);
     const h = c.history || {};
     const fires = h.bars && (c.conditions || []).length && !c.on
       ? `Would have fired <b>${esc(h.fires)}×</b> in ${esc(h.bars)} ${c.interval === "1d" ? "days" : `${c.interval} bars`}` +
@@ -562,6 +577,16 @@ const Kit = (() => {
       (c.thesis ? `<p class="thesis"><b>Why</b>${esc(c.thesis)}</p>` : "") + `</div>` +
       `<div class="logos">${syms.map((s) => logo(s, "lg")).join("")}</div></div>`;
     el.appendChild(canvas(c));
+    if (c.universe) {
+      const u = c.universe, met = new Set(u.met_now || []), hold = new Set(u.holding || []);
+      const w = document.createElement("div");
+      w.className = "uni";
+      w.innerHTML = `<div class="trips-h">${ic("layers")}<b>Watching ${esc(u.symbols.length)} names</b><span class="muted">${esc(u.words)}` +
+        `${u.max_open ? ` · at most ${esc(u.max_open)} held at once` : ""}</span></div>` +
+        `<div class="uni-chips">${u.symbols.map((s) => `<span class="uchip${met.has(s) ? " met" : ""}${hold.has(s) ? " held" : ""}" title="${esc(name(s) || s)}">` +
+          `${logo(s, "xs")}${esc(s)}${hold.has(s) ? `<i>held</i>` : met.has(s) ? `<i>meets it now</i>` : ""}</span>`).join("")}</div>`;
+      el.appendChild(w);
+    }
     const tp = trips(c);
     if (tp) el.appendChild(tp);
     if (c.offer) {
@@ -657,23 +682,60 @@ const Kit = (() => {
     const cells = [
       ["Trades", esc(t.n), t.avg_bars != null ? `held ${esc(num(t.avg_bars, 1))} bars on average` : ""],
       ["Won", esc(pct(t.win_rate)), `control ${esc(pct(k.win_rate))}`],
-      ["Average win / loss", `<span class="up">${esc(signed(t.avg_win))}</span> / <span class="down">${esc(signed(t.avg_loss))}</span>`,
+      ["Average win / loss", `<em class="up">${esc(signed(t.avg_win))}</em> <em class="dim">/</em> <em class="down">${esc(signed(t.avg_loss))}</em>`,
         t.profit_factor != null ? `profit factor ${esc(num(t.profit_factor, 2))}` : ""],
-      ["Per trade", `<span class="${upDown(t.expectancy)}">${esc(signed(t.expectancy))}</span>`, `control ${esc(signed(k.expectancy))}`],
+      ["Per trade", `<em class="${upDown(t.expectancy)}">${esc(signed(t.expectancy))}</em>`, `control ${esc(signed(k.expectancy))}`],
     ];
-    if (t.per_trade_inr != null) cells.push(["After costs", `<span class="${upDown(t.per_trade_inr)}">${esc(inr(t.per_trade_inr))}</span>`,
+    if (t.per_trade_inr != null) cells.push(["After costs", `<em class="${upDown(t.per_trade_inr)}">${esc(inr(t.per_trade_inr))}</em>`,
       `a trade, costs ${esc(num(t.cost_pct, 2))}%`]);
     el.innerHTML = head(v ? `<span class="pill ${v[0]}">${esc(v[1])}${t.edge != null ? ` · ${esc(signed(t.edge))}` : ""}</span>` : "") +
       `<div class="tgrid">${cells.map(([a, b, i]) => `<div class="tcell"><span>${a}</span><b>${b}</b>${i ? `<i>${i}</i>` : ""}</div>`).join("")}</div>` +
       `<div class="tbody"><div class="tcurve"><div class="lab">Running total, % per trade added up</div><div class="cv"></div></div>` +
       `<div class="tlist"><div class="lab">Last trades · exits ${Object.entries(t.exits || {}).map(([w, n]) => `${esc(w)} ${esc(n)}`).join(" · ")}</div>` +
-      (t.list || []).slice(-5).reverse().map((x) => `<div class="trow"><span>${esc(when(x.in))} → ${esc(when(x.out))}</span>` +
+      (t.list || []).slice(-5).reverse().map((x) => `<div class="trow"><span>${x.symbol ? `${logo(x.symbol, "xs")}<b class="sy">${esc(x.symbol)}</b> ` : ""}${esc(when(x.in))} → ${esc(when(x.out))}</span>` +
         `<span class="why">${esc(x.why)}</span><b class="${upDown(x.ret)}">${esc(signed(x.ret))}</b></div>`).join("") + `</div></div>` + notes;
     const cv = el.querySelector(".cv");
     const pts = [{ v: 0 }, ...(t.curve || []).map((x) => ({ v: x }))];
     const paint = () => lineChart(cv, pts, { height: 74, width: 300, dates: false, zero: true, area: true, dot: false,
-      yfmt: (x) => signed(x, "%").replace(".00", "") });
+      yfmt: (x) => `${x > 0.5 ? "+" : ""}${Math.round(x)}%` });
     requestAnimationFrame(paint);
+    return el;
+  }
+
+  /* ── a scan: the shortlist, ranked against the rest ───────────────────── */
+  function scanCard(r) {
+    const el = document.createElement("div");
+    el.className = "strat scan";
+    const ms = (r.measures || []).slice(0, 4);
+    const rk = r.rank_by && !ms.some((m) => m.name === r.rank_by) ? [{ name: r.rank_by, title: r.rank_by }] : [];
+    const cols = [...ms, ...rk];
+    const val = (v) => v == null ? "–" : typeof v === "number" ? num(v, Math.abs(v) < 10 ? 2 : 1) : esc(v);
+    const when = (ts) => r.interval === "1d" ? dayY(ts) : new Date(ts * 1000).toLocaleString("en-IN",
+      { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+    const left = r.left_out || {};
+    el.innerHTML = `<div class="strat-head"><div style="flex:1;min-width:0"><div class="row" style="gap:8px;margin-bottom:3px">` +
+      `<h3>${esc(r.when ? `Scan: ${r.when}` : "Scan")}</h3><span class="pill">${esc(r.matched)} of ${esc(r.with_data)}</span></div>` +
+      `<p>${esc(r.universe)}, on ${esc(r.interval)} bars to ${esc(when(r.as_of))}` +
+      `${r.rank_by ? `, ranked by ${esc((cols.find((c2) => c2.name === r.rank_by) || {}).title || r.rank_by)} ${r.order === "asc" ? "low to high" : "high to low"}` : ""}.</p></div>` +
+      `<div class="logos">${(r.symbols || []).slice(0, 4).map((s2) => logo(s2, "lg")).join("")}</div></div>`;
+    const table = (r.rows || []).length ? `<div class="scan-wrap"><table class="table scan-t"><thead><tr><th>#</th><th>Name</th><th class="r">Last</th><th class="r wide">Day</th>` +
+      cols.map((c2, i) => `<th class="r${i > 1 ? " wide" : ""}" title="${esc(c2.title)}">${esc(c2.title)}</th>`).join("") +
+      (r.rank_by ? `<th class="r">Rank</th>` : `<th class="r">Since</th>`) + `</tr></thead><tbody>` +
+      r.rows.map((x, i) => `<tr><td class="muted">${i + 1}</td><td><span class="row">${logo(x.symbol, "sm")}<span><b>${esc(x.symbol)}</b>` +
+        `<span class="muted nm">${esc(x.name || name(x.symbol) || "")}</span></span></span></td>` +
+        `<td class="r">${esc(num(x.close))}</td><td class="r wide ${upDown(x.chg_pct)}">${esc(signed(x.chg_pct))}</td>` +
+        cols.map((c2, j) => `<td class="r${j > 1 ? " wide" : ""}${c2.name === r.rank_by ? " key" : ""}">${val(x[c2.name])}</td>`).join("") +
+        (r.rank_by ? `<td class="r"><span class="rk"><i style="width:${Math.max(4, x.pct || 0)}%"></i></span><span class="muted">${esc(num(x.pct, 0))}</span></td>`
+          : `<td class="r muted">${x.since_bars != null ? `${esc(x.since_bars)} bar${x.since_bars === 1 ? "" : "s"}` : ""}</td>`) + `</tr>`).join("") +
+      `</tbody></table></div>` : `<div class="scan-none"><div class="muted">Nothing passed the clause.</div>` +
+        ((r.passes || []).length ? `<div class="lab" style="margin-top:10px">How many names each part leaves</div>` +
+          r.passes.map((p2) => `<div class="pass"><span>${esc(p2.text)}</span><b>${esc(p2.n)}</b></div>`).join("") : "") +
+        ((r.near || []).length ? `<div class="lab" style="margin-top:10px">Missed by one part</div><div class="near">${r.near.map((x) =>
+          `<span class="uchip" title="fails: ${esc(x.fails)}">${logo(x.symbol, "xs")}${esc(x.symbol)}<i>${esc(x.fails)}</i></span>`).join("")}</div>` : "") + `</div>`;
+    el.insertAdjacentHTML("beforeend", table);
+    const foot = [`${r.scanned} in the universe`, left.no_data ? `${left.no_data} with no stored bars` : "",
+      left.stale ? `${left.stale} with old bars` : "", ...(r.notes || [])].filter(Boolean);
+    el.insertAdjacentHTML("beforeend", `<div class="strat-foot"><div class="facts">${foot.map((f) => `<span>${esc(f)}</span>`).join("")}</div></div>`);
     return el;
   }
 
@@ -904,5 +966,5 @@ const Kit = (() => {
   }
 
   return { API, esc, call, num, inr, signed, bigMoney, bigNum, ago, day, dayY, ic, logo, name, outlet, loadLogos, symIn, venueOf, ed, editInline,
-           lineChart, priceBlock, bars, canvas, strategy, tile, alertCard, md, toast, review, COLORS };
+           lineChart, priceBlock, bars, canvas, strategy, tile, alertCard, md, toast, review, scanCard, COLORS };
 })();

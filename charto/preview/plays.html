@@ -519,7 +519,8 @@ h3 .edit svg { opacity: 0; } h3 .edit:hover svg { opacity: 1; }
 .trips .pill.wait { background: #fff4d6; color: #8a5a00; }
 .tgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 8px; margin-top: 10px; }
 .tcell { background: var(--panel); border-radius: 10px; padding: 9px 10px; min-width: 0; }
-.tcell span { display: block; font-size: 11.5px; color: var(--ink-2); }
+.tcell > span { display: block; font-size: 11.5px; color: var(--ink-2); }
+.tcell em { font-style: normal; } .tcell em.dim { color: var(--ink-3); font-weight: 400; }
 .tcell b { display: block; font-size: 16px; font-weight: 600; margin-top: 3px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tcell i { display: block; font-style: normal; font-size: 11.5px; color: var(--ink-3); margin-top: 2px; }
 .tcell .up, .trow .up, .hbr .up { color: var(--green-ink); } .tcell .down, .trow .down, .hbr .down { color: var(--red); }
@@ -528,6 +529,12 @@ h3 .edit svg { opacity: 0; } h3 .edit:hover svg { opacity: 1; }
 .tlist .trow { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center; font-size: 12.5px; padding: 5px 0; border-top: 1px solid var(--line); }
 .tlist .trow:first-of-type { border-top: 0; }
 .trow .why { color: var(--ink-3); font-size: 11.5px; }
+.trow .sy { font-weight: 600; margin: 0 4px 0 2px; }
+.trow > span:first-child { display: flex; align-items: center; gap: 2px; min-width: 0; white-space: nowrap; overflow: hidden; }
+.scan-none { padding: 4px 18px 12px; font-size: 13px; }
+.pass { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; border-top: 1px solid var(--line); font-size: 12.5px; }
+.pass b { font-variant-numeric: tabular-nums; }
+.near { display: flex; flex-wrap: wrap; gap: 6px; }
 .trow b { font-weight: 600; font-variant-numeric: tabular-nums; }
 .trips .notes { margin: 8px 0 0; }
 
@@ -548,6 +555,23 @@ h3 .edit svg { opacity: 0; } h3 .edit:hover svg { opacity: 1; }
 .callout { display: flex; gap: 10px; align-items: flex-start; background: var(--panel); border-radius: 12px; padding: 10px 12px; font-size: 13px; line-height: 1.5; }
 .callout svg { width: 16px; height: 16px; flex: none; margin-top: 2px; color: var(--ink-2); }
 .callout b { font-weight: 600; }
+
+/* a universe play's names */
+.uni { margin: 0 12px 10px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); padding: 12px 14px; }
+.uni-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.uchip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px 0 4px; border-radius: 999px;
+  background: var(--panel); font-size: 12.5px; font-weight: 500; }
+.uchip i { font-style: normal; font-size: 11px; color: var(--ink-3); font-weight: 400; }
+.uchip.met { background: var(--green-bg); } .uchip.met i { color: var(--green); }
+.uchip.held { background: var(--blue-bg); } .uchip.held i { color: var(--blue); }
+
+/* a scan */
+.scan-wrap { padding: 0 12px 4px; overflow-x: auto; }
+.scan-t td .nm { display: block; font-size: 11.5px; margin-top: 1px; max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.scan-t td.key { font-weight: 600; }
+.scan-t .up { color: var(--green-ink); } .scan-t .down { color: var(--red); }
+.rk { display: inline-block; vertical-align: middle; width: 54px; height: 6px; border-radius: 3px; background: var(--panel-2); margin-right: 6px; overflow: hidden; }
+.rk i { display: block; height: 100%; background: var(--blue); border-radius: 3px; }
 
 /* a halted day */
 .haltbar { display: flex; align-items: center; gap: 10px; margin: 0 auto; max-width: 1180px; padding: 9px 16px; background: var(--red-bg);
@@ -583,7 +607,7 @@ h3 .edit svg { opacity: 0; } h3 .edit:hover svg { opacity: 1; }
 <main id="main"></main>
 <div class="toast" id="toast"></div>
 <script src="./js/auth.js?v=11"></script>
-<script src="./js/playkit.js?v=14"></script>
-<script src="./js/playchat.js?v=10"></script>
+<script src="./js/playkit.js?v=17"></script>
+<script src="./js/playchat.js?v=12"></script>
 </body>
 </html>

@@ -708,10 +708,10 @@ def play(action=None, play=None, play_id=None, arm=None) -> dict:
                            arm=True if arm is None else bool(arm))
 
 
-def measure(action=None, measure=None, symbol=None, interval=None, security=None) -> dict:
+def measure(action=None, measure=None, symbol=None, interval=None, security=None, scan=None) -> dict:
     import plays
     return plays.tool_measure(action=action or "test", measure=measure, symbol=symbol or "",
-                              interval=_iv(interval) if interval else "", security=security)
+                              interval=_iv(interval) if interval else "", security=security, scan=scan)
 
 
 DISPATCH = {"read_chart": read_chart, "draw": draw, "workspace": workspace,
@@ -819,7 +819,9 @@ _PLAY_DOC = (
     "sensibly, then state the choices.\n"
     "A play is {title (the idea in a few words, with no number the rule lacks), ask (their words), why "
     "(the reason, from data you read), symbol (the bars that clock it), interval, measures, when, on, "
-    "do, manage, contract, mandate, security}. security: a basket, ratio or spread that does not exist "
+    "do, manage, contract, mandate, security, universe}. universe: up to 60 names (a scan's symbols, a "
+    "list, or the universe shape measure's scan takes), each checked on its own bars and traded as "
+    "itself (mandate.max_open names at once, default 5). security: a basket, ratio or spread that does not exist "
     "yet (measure's security shape, pick included); use @NAME as symbol or do.symbol and one call "
     "builds both. Calls that do not depend on each other go in the same response.\n"
     "measures: any series the rule needs beyond price fields, written by you: {name, title, formula "
@@ -885,34 +887,30 @@ def _play_tools() -> list[dict]:
              "arm": {"type": "boolean", "description": "false keeps it as a draft; default arms it"}},
             ["action"]),
         _fn("measure",
-            "Test a measure (the shape is in play's description) on a symbol before a play uses it, "
-            "or save it so later plays can name it. test returns its latest values, its range and "
-            "any problem (a measure that reads the future is refused); define saves it; list shows "
-            "the saved measures and securities. A play can define measures inline, so test only "
-            "when you are unsure the formula is right.\n"
-            "security makes the trader's own instrument, a symbol like any other: {name (becomes "
-            "@NAME), title, kind: basket | ratio | spread, why (the idea behind it, in a sentence), "
-            "and either pick or members, k (spread only: A - k x B)}. A basket (2 to 30 listed "
-            "members) starts at 100 a year back and holds its weights from there; a ratio is A / B; "
-            "a spread is A - k x B.\n"
-            "pick chooses a basket's members by a method you state, run by code on the stored data: "
-            "{industry (the trader's words: 'defence', 'private banks', 'cement'; a list is fine) or "
-            "sector (Technology, Healthcare, Financial Services, ...), rank_by: market_cap | turnover "
-            "| return_1y | roe | low_volatility, top: N, min_turnover_cr (leave out thinly traded "
-            "names), weight: equal | market_cap | inverse_vol}. The same method on the same day "
-            "gives the same basket, and every member comes back with the numbers that put it there "
-            "(its rank, market cap, turnover, 1-year return). Prefer pick whenever the trader names "
-            "a theme rather than the stocks. members: [{symbol, weight, why}] when they name the "
-            "stocks, or for a pair; each why is a fact you read, not an adjective. In the reply, "
-            "say the method, who made it in and why, and who was left out. "
-            "When a play will watch or buy it in this same request, do not call this: put the "
-            "definition in the play's `security` and one play call builds both. "
-            "Then a play can watch it (symbol @NAME, any condition or measure) "
-            "and a basket can be bought or sold whole on paper (do.symbol @NAME, size in rupees). "
-            "Use it when the idea is about a group or a pair moving together, not for one stock.",
-            {"action": {"type": "string", "enum": ["test", "define", "list", "security"]},
+            "test a measure (the shape is in play's description) on a symbol, or define it so later plays "
+            "can name it; list shows saved measures and securities. A play defines measures inline, so "
+            "test only when unsure a formula is right.\n"
+            "security makes the trader's own instrument, a symbol like any other: {name (becomes @NAME), "
+            "title, kind: basket | ratio | spread, why, and pick or members, k (spread: A - k x B)}. A basket "
+            "(2 to 30 names) starts at 100 a year back and holds its weights; a ratio is A / B. pick chooses "
+            "members by a method you state, run by code: {industry (their words, a list is fine) or sector, "
+            "rank_by: market_cap | turnover | return_1y | roe | low_volatility, top, min_turnover_cr, weight: "
+            "equal | market_cap | inverse_vol}; each member comes back with the numbers that put it there. "
+            "Prefer pick when they name a theme; members: [{symbol, weight, why (a fact)}] when they name "
+            "stocks. Say the method, who made it and who was left out. When a play will use it in this "
+            "request, put it in the play's `security` instead (one call).\n"
+            "scan runs your measures and condition across many symbols and ranks what passes: {universe: "
+            "all | fno | perps | @BASKET | [symbols] | {from, industry or sector, sql ('SELECT symbol "
+            "...'), min_turnover_cr, top_by: market_cap | turnover, n}, interval, measures, when (the "
+            "clause, as in a play), fresh (only names where it turned true within N bars), rank_by (a "
+            "measure or field), order: desc | asc, top}. Use it to find what to watch or choose from: "
+            "anything a measure computes (indicators, distance from highs, volume against average, "
+            "strength against an index input, F&O data by SQL) can be scanned, and a play's universe "
+            "can then watch the shortlist.",
+            {"action": {"type": "string", "enum": ["test", "define", "list", "security", "scan"]},
              "measure": obj, "symbol": _STR, "interval": _IVS,
-             "security": {**obj, "description": "the security, for action security"}},
+             "security": {**obj, "description": "the security, for action security"},
+             "scan": {**obj, "description": "for action scan"}},
             ["action"]),
     ]
 

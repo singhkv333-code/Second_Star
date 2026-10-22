@@ -232,7 +232,7 @@
    *  security from the latest /plays read, else a line saying it is gone. */
   function live(c) {
     if (!c) return null;
-    if (c.kind === "review") return c;
+    if (c.kind === "review" || c.kind === "scan") return c;
     if (c.kind === "play") {
       const p = (data.plays || []).find((x) => x.id === c.id);
       return p || (c.conditions ? c : { kind: "gone", title: c.title || `Play ${c.id}` });
@@ -257,6 +257,7 @@
     }
     if (c.kind === "custom_security") return securityCard(c);
     if (c.kind === "review") return Kit.review(c);
+    if (c.kind === "scan") return Kit.scanCard(c);
     return null;
   }
 
@@ -506,7 +507,9 @@
       main.innerHTML = `<div class="page"><div class="empty">${esc(err.message)}</div></div>`; return;
     }
     const c = d.play;
-    const chartSym = (c.do || {}).symbol || (c.do || {}).underlying || c.symbol;
+    const pick = (x) => x && x !== "*" ? x : null;
+    const chartSym = c.universe ? (c.universe.holding[0] || c.universe.met_now[0] || c.symbol)
+      : pick((c.do || {}).symbol) || pick((c.do || {}).underlying) || c.symbol;
     main.innerHTML = `<div class="page"><div class="crumbs"><button type="button" data-go="strategies">Strategies</button><span>/</span><span>${esc(c.title)}</span></div>` +
       `<div class="detail"><div><div class="panel"><div class="panel-h">${ic("flow")}<span>Workflow</span><span class="grow"></span>` +
       `<a class="btn sm ghost" href="./?symbol=${encodeURIComponent(chartSym)}&interval=1D" target="pivot-chart">${ic("chart")}Chart</a></div><div id="wf"></div></div>` +
