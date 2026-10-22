@@ -195,6 +195,17 @@
     return ul;
   }
 
+  /** A card the server just built is the newest copy of its play or
+   *  security: it replaces the one from the last /plays read, so a play
+   *  edited this turn is never drawn as it was before the edit. */
+  function fresh(c) {
+    if (c.kind === "play" && c.id && c.conditions) {
+      data.plays = [c, ...(data.plays || []).filter((x) => x.id !== c.id)];
+    } else if (c.kind === "custom_security" && c.symbol && c.formula) {
+      data.securities = [c, ...(data.securities || []).filter((x) => x.symbol !== c.symbol)];
+    }
+  }
+
   /** A stored card (or a reference to one) as it is now: the play or the
    *  security from the latest /plays read, else a line saying it is gone. */
   function live(c) {
@@ -374,7 +385,7 @@
             if (!started) { started = true; if (steps.length) paintSteps(true); else { stepsBox.remove(); } }
             text2 += ev.text || ""; later();
           } else if (ev.type === "retract") { text2 = ev.text || ""; later(); }
-          else if (ev.type === "card" && ev.card) { cards.push(ev.card); later(); }
+          else if (ev.type === "card" && ev.card) { fresh(ev.card); cards.push(ev.card); later(); }
           else if (ev.type === "done") done = ev;
         }
         if (done) break;

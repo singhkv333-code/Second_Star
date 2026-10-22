@@ -1333,6 +1333,7 @@ def card(row: dict, live: dict | None = None) -> dict:
         "why": row.get("why") or "", "symbol": spec["symbol"], "interval": spec["interval"],
         "join": "any" if "any" in when else "all", "summary": summary(spec),
         "on": ({"reads": _on_words(spec["on"]), "test": _on_test(spec["on"]),
+                "match": spec["on"].get("match") or [], "judge": spec["on"].get("judge") or "",
                 "recent": hist.get("events") or []} if spec.get("on") else None),
         "conditions": _with_parts((live or {}).get("conditions") or hist.get("conditions") or
                                   [{"text": describe(c, spec)} for c in (when.get("all") or when.get("any") or [])],
@@ -2525,8 +2526,11 @@ def surface_block(ctx: dict) -> str:
              "The Plays page: a conversation for building and adjusting plays. No chart is on "
              "screen, so do not draw; read_chart, market_data and the rest still work for any "
              "symbol. Every play you compile or edit appears in this conversation as its card. "
-             "When they ask to change a play, edit it (play edit with its id and the whole play) "
-             "rather than making a second one. The trader can also change numbers on a card "
+             "When they ask to change a play (in this conversation, or by naming it), edit it (play "
+             "edit with its id and the whole play) rather than making a second one. A new request that "
+             "only resembles one of their plays is a new play: build it as asked, and mention the "
+             "similar one in a line so they can delete it; never strip or rewrite an existing play "
+             "they did not point at. The trader can also change numbers on a card "
              "themselves (size, stop, target, leverage, a condition's value, a weight); the spec below "
              "is the current one.",
              "Answer the way the main chat does: when they ask why a play is built a certain way, "

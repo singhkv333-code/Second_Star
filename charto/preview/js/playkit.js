@@ -361,10 +361,14 @@ const Kit = (() => {
         `<span class="chip val">${ed("policy.drift_pct", pol.drift_pct || 5, `${esc(num(pol.drift_pct || 5))} pts`)}</span><span>from target</span></div>`;
     } else if (c.on) {
       met = null;
-      const words = (c.on.test || "").match(/“([^”]+)”/g) || [];
-      body = `<div class="cond"><span>When an item mentions</span>${words.slice(0, 4).map((w) => `<span class="chip sig2">${esc(w.replace(/[“”]/g, ""))}</span>`).join("")}</div>` +
-        (c.on.test && c.on.test.includes("answers yes") ? `<div class="join"><span>and</span></div><div class="cond" style="font-size:13.5px">` +
-          `<span class="chip vio">${ic("sparkle")}judge</span><span>${esc((c.on.test.split("answers yes to")[1] || "").replace(/[“”]/g, "").trim())}</span></div>` : "");
+      // the words and the judge come as their own fields: parsing them back out
+      // of the sentence took the judge's question for a word
+      const words = c.on.match || [], judge = c.on.judge || "";
+      body = (words.length ? `<div class="cond"><span>When an item mentions</span>${words.slice(0, 6).map((w, i) =>
+        `${i ? `<span class="or">or</span>` : ""}<span class="chip sig2">${esc(w)}</span>`).join("")}</div>` :
+        `<div class="cond"><span>When any item arrives</span></div>`) +
+        (judge ? `<div class="join"><span>and</span></div><div class="cond judge"><span class="chip vio">${ic("sparkle")}judge</span>` +
+          `<span>${esc(judge)}</span></div>` : "");
       if (conds.length) body += `<div class="join"><span>and while</span></div>` + conds.map((x, i) => condRow(x.parts, x, i)).join(`<div class="join"><span>${c.join === "any" ? "or" : "and"}</span></div>`);
     } else if (conds.length) {
       met = c.join === "any" ? conds.some((x) => x.met) : conds.every((x) => x.met);
