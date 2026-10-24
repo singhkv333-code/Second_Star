@@ -82,11 +82,13 @@
     }
 
     host.addEventListener("click", (e) => {
-      // a headline can open in the Browser widget's reading view instead
+      // a headline used to be able to open in the Browser widget; that widget
+      // is off, so a saved "reader" choice opens a new tab like the default
       const link = e.target.closest("a.nw-item");
       if (link && !e.target.closest("[data-ask]") && ctx.cfg.openIn === "reader" && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
-        return ctx.send("browser", { url: link.href, reader: true });
+        if (!ctx.send("browser", { url: link.href, reader: true })) window.open(link.href, "_blank", "noopener,noreferrer");
+        return;
       }
       const askB = e.target.closest("[data-ask]");
       if (askB) {
@@ -150,8 +152,6 @@
       { key: "images", label: "Pictures", kind: "toggle", def: true },
       { key: "summaries", label: "Summaries", kind: "toggle", def: true },
       { key: "density", label: "Rows", def: "comfortable", options: [{ v: "comfortable", label: "Comfortable" }, { v: "compact", label: "Compact" }] },
-      { key: "openIn", label: "Open a headline in", def: "tab", hint: "The reading view needs no other tab",
-        options: [{ v: "tab", label: "New tab" }, { v: "reader", label: "Browser widget" }] },
     ],
   });
 })();

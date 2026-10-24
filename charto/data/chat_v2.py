@@ -352,8 +352,10 @@ def _anchors_as_addresses(shapes: list, iv: str, symbol, lookback) -> tuple[list
 
 _CHART_OPS = {"show_chart", "add_chart", "add_study", "remove_study",
               "build_indicator", "edit_indicator", "list_indicators"}
+# The Browser widget is off and the Strategy widget is locked (js/w-strategy.js),
+# so neither is offered to the model.
 _WIDGETS = ["watch", "screener", "notes", "sheet", "financials", "news", "options", "calendar",
-            "alerts", "journal", "portfolio", "strategy", "browser", "docs", "code", "depth", "tv"]
+            "alerts", "journal", "portfolio", "docs", "code", "depth", "tv"]
 _FOLLOWS_CHART = {"news", "financials", "options", "depth", "notes"}
 
 
@@ -862,7 +864,7 @@ def tools() -> list[dict]:
             "already on the desk for the same symbol, and new=true adds a second one. What write takes: watch {add: [symbols], "
             "remove: [symbols]}; notes {text: light markdown with ### headings, bullets and - [ ] "
             "checklists, section: a name}; sheet {table: {title, columns, rows}}; screener {name, "
-            "filters, industry, pattern}; browser {url or q}; strategy {name, steps}. News, financials, "
+            "filters, industry, pattern}. News, financials, "
             "options and notes follow the chart in focus unless given a symbol. describe returns a "
             "widget's settings, for configure. Ops run in order. Widgets on screen are listed under "
             "'Workspace now'.",

@@ -852,6 +852,8 @@ const Dock = (() => {
   function open(type, where, opts = {}) {
     const spec = TYPES.get(type);
     if (!spec) return null;
+    // a locked kind stays in the catalogue, says why, and never opens
+    if (spec.locked) { toast(spec.locked); return null; }
     if (S.focus) S.focus = false;
     let id = !opts.fresh ? placedOf(type)[0] : null;
     if (id && !where) {
@@ -2067,11 +2069,12 @@ const Dock = (() => {
     specs.sort((x, y) => order(x) - order(y));
     // a picture and a name; the one-line description is the tooltip
     const card = (s) =>
-      `<div class="hub-card" data-type="${s.type}" data-group="${esc(s.group || "Tools")}" role="button" tabindex="0" ` +
-        `title="${esc(s.desc || s.title)}" aria-label="Add ${esc(s.title)}">` +
+      `<div class="hub-card${s.locked ? " locked" : ""}" data-type="${s.type}" data-group="${esc(s.group || "Tools")}" role="button" tabindex="0" ` +
+        `title="${esc(s.locked || s.desc || s.title)}" aria-label="${s.locked ? `${esc(s.title)}, locked` : `Add ${esc(s.title)}`}"${s.locked ? ' aria-disabled="true"' : ""}>` +
         `<div class="hub-pic">${typeof HubArt !== "undefined" ? HubArt.svg(s.type) : ""}` +
+          (s.locked ? `<span class="hub-lock" aria-hidden="true">${icon("lock")}</span>` :
           `<button type="button" class="hub-add" data-add="${s.type}" title="Add another" ` +
-            `aria-label="Add ${esc(s.title.toLowerCase())}">${icon("plus")}</button></div>` +
+            `aria-label="Add ${esc(s.title.toLowerCase())}">${icon("plus")}</button>`) + `</div>` +
         `<b class="hub-t">${icon(s.icon, "xs")}<span>${esc(s.title)}</span><i class="hub-n" hidden></i></b>` +
       `</div>`;
     hubEl.innerHTML =
@@ -2322,7 +2325,7 @@ const Dock = (() => {
   }
 
   function agentCatalog() {
-    return [...TYPES.values()].filter((t) => t.type !== CHART && t.catalog !== false).map((t) => ({
+    return [...TYPES.values()].filter((t) => t.type !== CHART && t.catalog !== false && !t.locked).map((t) => ({
       type: t.type, title: t.title, desc: t.desc || "", single: !!t.single, linkable: !!t.linkable,
       settings: agentSettings(t), writes: (t.agent && t.agent.writes) || null,
     }));
@@ -2412,6 +2415,7 @@ const Dock = (() => {
       if (o.op === "open") {
         const spec = TYPES.get(o.type);
         if (!spec || o.type === CHART) return { ok: false, error: `no widget kind '${o.type}'` };
+        if (spec.locked) return { ok: false, error: `${spec.title} is locked: ${spec.locked}` };
         const errs = agentCheck(o.type, o.settings);
         if (errs.length) return { ok: false, error: errs.join("; ") };
         const where = agentWhere(o.where);

@@ -762,9 +762,18 @@
     };
   }
 
+  // Locked for now: listed in the widget picker with a lock, never opened, and
+  // a copy already on someone's desk shows this line instead of running.
+  const LOCKED = "The Strategy widget is locked for now.";
+  const lockedMount = (host) => {
+    host.innerHTML = empty("lock", esc(LOCKED));
+    return {};
+  };
+
   Dock.register({
     type: "strategy", title: "Strategy", icon: "sigma", hue: "violet", group: "Trade",
-    desc: "Test a rule on real bars, read the verdict, arm it into paper", zone: "right", minW: 340, mount,
+    desc: "Test a rule on real bars, read the verdict, arm it into paper", zone: "right", minW: 340,
+    locked: LOCKED, mount: LOCKED ? lockedMount : mount,
     agent: { writes: { name: "strategy name", steps: "the typed DSL steps of a draft (from a strategy tool's result) — runs in the lab" } },
     linkable: true,
     settings: [
