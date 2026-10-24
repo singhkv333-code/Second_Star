@@ -22,6 +22,18 @@
   const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) || d; } catch { return d; } };
   const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* full */ } };
 
+  // Framed in the Pivot shell (its Execution tab), a chart link switches the
+  // shell to its Chart tab rather than opening a second window
+  if (window.parent !== window) {
+    document.addEventListener("click", (e) => {
+      const a = e.target.closest && e.target.closest('a[target="pivot-chart"]');
+      if (!a) return;
+      e.preventDefault();
+      const sym = new URL(a.href, location.href).searchParams.get("symbol") || "";
+      window.parent.postMessage({ type: "plays:open-chart", symbol: sym }, location.origin);
+    });
+  }
+
   let convs = load(KEY, []), where = load(MAP, {}), hidden = new Set(load(HIDE, []));
   let data = { plays: [], events: [], securities: [], book: { positions: [] } };
   let cur = null, busy = false, route = { page: "home" };

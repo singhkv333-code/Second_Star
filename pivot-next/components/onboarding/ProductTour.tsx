@@ -33,7 +33,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-type TabKey = "home" | "markets" | "chat" | "portfolio" | "agents" | "screener" | "brokers" | "chart";
+type TabKey = "home" | "markets" | "chat" | "portfolio" | "agents" | "screener" | "brokers" | "chart" | "plays";
 
 /** Bump when the flow changes enough that people should see it again. */
 const DONE_KEY = "pivot-tour-v2";
@@ -43,7 +43,7 @@ export const START_TOUR_EVENT = "pivot:start-tour";
 export const START_WELCOME_EVENT = "pivot:start-welcome";
 /** Below this width the rail and the workspace are laid out for phones. */
 const MIN_VIEWPORT = 1024;
-const FRAME = 'iframe[src*="/chart-app/"]';
+const FRAME = 'iframe[src*="/chart-app/index.html"]';   // the chart, not the plays page
 let running = false;
 
 /** A target: a selector in this page, or one inside the chart frame. */
