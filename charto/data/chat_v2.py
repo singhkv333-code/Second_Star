@@ -927,7 +927,9 @@ def tools() -> list[dict]:
             "Find stocks across the 500-stock universe by conditions on returns, momentum, trend, "
             "volatility, volume, 52-week distance, opening range and volume profile, optionally within "
             "an industry or with a recent daily pattern; or pass like=<symbol> to find the stocks whose "
-            "chart looks most like that one now.",
+            "chart looks most like that one now. It runs once per answer, so put every condition the "
+            "trader named into this one call: filters combine with AND, and industry takes an "
+            "industry or sector word (pharma, banks, healthcare).",
             {"filters": feat,
              "industry": _STR,
              "pattern": {**_STR, "description": "a recent daily pattern, e.g. bull_flag"},
