@@ -842,17 +842,14 @@ const Kit = (() => {
   }
 
   /** A play as a file folder: its tab, the play's own canvas drawn small on
-   *  a sheet sticking out, the sheets behind it, a sticky note with its two
-   *  figures, and the front pocket with its name and sentence. `toggle`
+   *  a sheet sticking out, the sheets behind it, and the front pocket with
+   *  its name and sentence. `toggle`
    *  adds the "Open the play" row the chat uses to unfold it. */
   const FOLDER = { armed: "blue", paused: "grey", done: "green", draft: "grey" };
   const THUMB_W = 780;
   function folder(c, o = {}) {
     const st = STATE[c.state] || [c.state, ""];
     const syms = [...new Set([c.symbol, (c.do || {}).symbol, (c.do || {}).underlying, ...Object.keys((c.do || {}).targets || {})].filter((x) => x && x !== "*"))].slice(0, 3);
-    const h = c.history || {};
-    const n = c.fires ? [`${c.fires}×`, "fired"] : h.bars && !c.on && (c.conditions || []).length ? [`${h.fires}×`, "on history"] : null;
-    const runs = c.spent_inr ? `${inr(c.spent_inr)} in` : c.lifespan === "policy" ? "Kept to policy" : c.lifespan === "standing" ? "Every time" : "Once";
     const el = document.createElement("div");
     el.className = `folder f-${FOLDER[c.state] || "grey"}`;
     el.tabIndex = 0;
@@ -861,7 +858,7 @@ const Kit = (() => {
     if (!o.toggle) el.dataset.open = c.id;
     el.innerHTML = `<div class="fd-tab"><i class="dot"></i>${esc(st[0])}</div><div class="fd-back"></div>` +
       `<div class="fd-papers"><div class="fd-paper p3"></div><div class="fd-paper p2"></div><div class="fd-paper p1"><div class="thumb-in"></div></div></div>` +
-      `<div class="fd-front"><div class="fd-note">${n ? `<b>${esc(n[0])}</b><span>${esc(n[1])}</span>` : ""}<span>${esc(runs)}</span></div>` +
+      `<div class="fd-front">` +
       `<div class="fd-title">${syms.length ? `<span class="logos">${syms.map((s) => logo(s, "sm")).join("")}</span>` : ""}<b>${esc(c.title)}</b></div>` +
       `<p class="fd-desc">${esc(c.summary || "")}</p>` +
       (o.toggle ? `<span class="fd-more">${ic("chevron")}Open the play</span>` : "") + `</div>`;

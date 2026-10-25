@@ -7,7 +7,7 @@
 <link rel="icon" href="./assets/pivot-mark.png" type="image/png" sizes="128x128" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Caveat:wght@500;700&display=swap" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" />
 <style>
 /* Plays, light. The shapes follow Catalyst's canvas (signal, trigger and
    action cards on a dotted grid, value chips, Met pills) and Instinct's
@@ -583,7 +583,7 @@ h3 .edit svg { opacity: 0; } h3 .edit:hover svg { opacity: 1; }
 /* ── a play as a file folder ─────────────────────────────────────────────
    The Strategies grid and a play in the chat. A macOS folder: the back with
    its tab, sheets sticking out (the front one is the play's own canvas,
-   drawn small), a sticky note with its figures, and the front pocket. The
+   drawn small), and the front pocket. The
    colour is the play's state: blue active, grey paused, green completed. */
 .grid.folders { gap: 30px 20px; padding-top: 4px; }
 .folder { --fb: #5aa5ea; --fb2: #4893de; --ff: #b4dbfd; --ff2: #8ec7f8; --fi: #0c2c4f; --fi2: #2a5277;
@@ -620,7 +620,7 @@ h3 .edit svg { opacity: 0; } h3 .edit:hover svg { opacity: 1; }
 .fd-front { position: relative; z-index: 2; margin-top: -60px; min-height: 124px; padding: 16px 16px 15px;
   border-radius: 14px 14px 16px 16px; color: var(--fi); background: linear-gradient(180deg, var(--ff), var(--ff2));
   box-shadow: inset 0 1px 0 rgba(255,255,255,.75), 0 -6px 14px -4px rgba(0,0,0,.12); }
-.fd-title { display: flex; align-items: flex-start; gap: 8px; padding-right: 76px; }
+.fd-title { display: flex; align-items: flex-start; gap: 8px; }
 .fd-title .logos { flex: none; margin-top: 1px; }
 .fd-title .logos .logo { box-shadow: 0 0 0 2px var(--ff); }
 .fd-title b { flex: 1; min-width: 0; font-size: 15px; font-weight: 600; letter-spacing: -.01em; line-height: 1.3;
@@ -631,17 +631,6 @@ h3 .edit svg { opacity: 0; } h3 .edit:hover svg { opacity: 1; }
   border-radius: 9px; background: rgba(255,255,255,.6); font-size: 13px; font-weight: 600; color: var(--fi); }
 .fd-more svg { width: 14px; height: 14px; transform: rotate(180deg); }
 .folder:hover .fd-more { background: rgba(255,255,255,.85); }
-/* the sticky note, stuck across the pocket's top edge */
-.fd-note { position: absolute; z-index: 3; top: -40px; right: -7px; width: 88px; min-height: 74px; padding: 13px 8px 8px 10px;
-  background: linear-gradient(172deg, #fff7bd, #ffe680); color: #4d3d00; font-family: 'Caveat', var(--font);
-  line-height: 1.02; transform: rotate(4deg); border-radius: 2px 2px 3px 16px / 2px 2px 3px 10px;
-  box-shadow: 0 1px 1px rgba(0,0,0,.06), 0 8px 14px -6px rgba(80,60,0,.35); transition: transform .4s cubic-bezier(.2,.8,.2,1); }
-.fd-note::before { content: ""; position: absolute; top: -7px; left: 50%; width: 38px; height: 14px;
-  transform: translateX(-50%) rotate(-4deg); background: rgba(255,255,255,.6); box-shadow: 0 0 0 .5px rgba(0,0,0,.05); }
-.fd-note b { display: block; font-size: 25px; font-weight: 700; }
-.fd-note span { display: block; font-size: 16px; font-weight: 500; }
-.fd-note span + span { margin-top: 3px; }
-.folder:hover .fd-note { transform: rotate(1.5deg) translateY(-2px); }
 
 /* a play in the chat: the folder, unfolded on a tap */
 .pfold .folder { max-width: 470px; }
@@ -773,7 +762,7 @@ h3 .edit svg { opacity: 0; } h3 .edit:hover svg { opacity: 1; }
 <main id="main"></main>
 <div class="toast" id="toast"></div>
 <script src="./js/auth.js?v=11"></script>
-<script src="./js/playkit.js?v=25"></script>
+<script src="./js/playkit.js?v=26"></script>
 <script src="./js/playchat.js?v=14"></script>
 </body>
 </html>
