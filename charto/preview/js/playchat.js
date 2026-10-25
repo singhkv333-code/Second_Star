@@ -272,12 +272,15 @@
     return null;
   }
 
-  /** A play in the thread arrives as its folder; tapping it unfolds the full
-   *  card (its sentences, canvas and settings), and "Fold" puts it back. Which
-   *  plays are open is kept here, so a repaint while the reply streams in
-   *  does not close one. */
+  /** A play in the thread is drawn whole. On a phone it arrives as its
+   *  folder instead: tapping it unfolds the full card, and "Fold" puts it
+   *  back. Which plays are open is kept here, so a repaint while the reply
+   *  streams in does not close one. */
+  const phone = window.matchMedia("(max-width: 760px)");
+  phone.addEventListener("change", () => { if (route.page === "home" && cur) home(cur.id); });
   const unfolded = new Set();
   function playFolder(c) {
+    if (!phone.matches) return Kit.strategy(c);
     const box = document.createElement("div");
     box.className = "pfold";
     const paint = () => {
