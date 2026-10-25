@@ -409,7 +409,26 @@ def _gross(p: dict, px: float) -> float:
     return d * p["qty"] * _fx(p)
 
 
-def close(p: dict, px: float, why: str, *, notify: bool = True) -> dict:
+def _split(p: dict, qty: float) -> dict:
+    """Part of an open position as its own open row, so closing it leaves the
+    rest open: the quantity, the costs paid and the funding move with it."""
+    k = qty / p["qty"]
+    part = {**p, "qty": qty, "costs": round(p["costs"] * k, 2),
+            "funding": float(p.get("funding") or 0) * k, "rules": json.dumps(p["rules"])}
+    cols = [c for c in _COLS if c != "id"]
+    with ds._users_lock:
+        cur = _db().execute(f"INSERT INTO day_positions ({', '.join(cols)}) VALUES "
+                            f"({', '.join('?' * len(cols))})", [part[c] for c in cols])
+        _db().execute("UPDATE day_positions SET qty=?, costs=?, funding=? WHERE id=?",
+                      (p["qty"] - qty, round(p["costs"] - part["costs"], 2),
+                       float(p.get("funding") or 0) - part["funding"], p["id"]))
+        _db().commit()
+    return {**part, "id": cur.lastrowid, "rules": p["rules"]}
+
+
+def close(p: dict, px: float, why: str, *, notify: bool = True, qty: float | None = None) -> dict:
+    if qty is not None and qty < p["qty"] - 1e-9:
+        p = _split(p, qty)
     exit_cost = charges(p["kind"], "SELL" if p["side"] == "long" else "BUY", px * _fx(p), p["qty"])
     costs = round(p["costs"] + exit_cost, 2)
     pnl = round(_gross(p, px) - costs - float(p.get("funding") or 0), 2)

@@ -52,6 +52,7 @@ import {
   WalletCards,
   Workflow as WorkflowIcon,
   X,
+  Zap,
 } from "lucide-react";
 import { CommandPalette } from "@/components/CommandPalette";
 import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
@@ -73,6 +74,7 @@ import { BrokerConnectDialog } from "@/components/brokers/BrokerConnectDialog";
 import { AgentsTab } from "@/components/agent-panel/AgentsTab";
 import { PortfolioTab } from "@/components/agent-panel/PortfolioTab";
 import { ChartFrame } from "@/components/chart/ChartFrame";
+import { PlaysFrame } from "@/components/plays/PlaysFrame";
 import { QuickAsk } from "@/components/copilot/QuickAsk";
 import { AssistantPanel } from "@/components/copilot/AssistantPanel";
 import { warmAssist, type AssistPage } from "@/lib/assist";
@@ -129,7 +131,8 @@ type TabKey =
   | "agents"
   | "screener"
   | "brokers"
-  | "chart";
+  | "chart"
+  | "plays";
 
 const ALL_NAV_ITEMS: {
   key: TabKey;
@@ -142,6 +145,7 @@ const ALL_NAV_ITEMS: {
   { key: "chat", label: "Chat", Icon: MessagesSquare },
   { key: "portfolio", label: "Portfolio", Icon: WalletCards },
   { key: "agents", label: "Strategy", Icon: WorkflowIcon },
+  { key: "plays", label: "Execution", Icon: Zap },
   { key: "screener", label: "Screener", Icon: ListFilter },
   // Brokers left the nav: whether a broker is linked is state you glance at,
   // not a page you sit on. It now sits at the sidebar foot as
@@ -1045,7 +1049,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     // question: hand it over once the frame is up (it is hidden until then).
     const started = Date.now();
     const handOver = (): void => {
-      const frame = document.querySelector<HTMLIFrameElement>('iframe[src*="/chart-app/"]');
+      const frame = document.querySelector<HTMLIFrameElement>('iframe[src*="/chart-app/index.html"]');
       if (frame && getComputedStyle(frame).visibility === "visible") {
         window.setTimeout(() => window.dispatchEvent(
           new CustomEvent("pivot:chart-ask", { detail: { text: question } })), 400);
@@ -1485,7 +1489,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
             old scrollable wrapper. */}
         <main
           className={`copilot-main flex flex-1 min-w-0 min-h-0 flex-col${
-            copilotPanelOpen && (Boolean(children) || active !== "chat") && active !== "chart"
+            copilotPanelOpen && (Boolean(children) || active !== "chat") && active !== "chart" && active !== "plays"
               ? " copilot-main-with-panel"
               : ""
           }`}
@@ -1568,7 +1572,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
             </div>
           {/* The page assistant: the prompt bar's answers, beside any page
               but Chat (the full workspace) and Chart (Pivot's own chat). */}
-          {(Boolean(children) || (active !== "chat" && active !== "chart")) && (
+          {(Boolean(children) || (active !== "chat" && active !== "chart" && active !== "plays")) && (
             <aside
               className={`copilot-side-panel ${copilotPanelOpen ? "copilot-side-panel--open" : "copilot-side-panel--closed"}`}
               role={copilotPanelOpen ? "complementary" : undefined}
@@ -1689,6 +1693,20 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
               />
             </div>
           )}
+          {visitedTabs.has("plays") && (
+            // The execution system (chart/plays.html), framed whole so
+            // it keeps its own design; kept mounted once visited, like the
+            // chart, so a half-written play survives a glance at Portfolio.
+            <div
+              className={
+                !children && active === "plays"
+                  ? "relative flex-1 min-h-0 flex flex-col overflow-hidden"
+                  : "hidden"
+              }
+            >
+              <PlaysFrame onOpenChart={(symbol) => openChart(symbol)} />
+            </div>
+          )}
           {visitedTabs.has("screener") && (
             // Screener owns its own height (filter rail + results grid take
             // the full pane); horizontal clipped so the wide table scrolls
@@ -1748,7 +1766,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
 
       </div>
 
-      {(Boolean(children) || active !== "chat") && (
+      {(Boolean(children) || (active !== "chat" && active !== "plays")) && (
         <QuickAsk
           placeholder={quickAskPlaceholder}
           contextLabel={quickAskContextLabel}

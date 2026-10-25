@@ -840,8 +840,8 @@ def test_an_exit_rule_reads_the_position_and_history_counts_round_trips(uid) -> 
     assert t["per_trade_inr"] is not None and t["cost_pct"] > 0
     card = [c for c in server._scene.cards if c.get("kind") == "play"][-1]
     assert len(card["history"]["trades"]["curve"]) == card["history"]["trades"]["n"]
-    assert card["exits"][0] == ("exits when RELIANCE close below high since entry - 2 × ATR 14 or "
-                                "bars held above 20"), card["exits"]
+    assert card["exits"][0] == ("exits when RELIANCE close is below high since entry - 2 × ATR 14 or "
+                                "bars held is above 20"), card["exits"]
     assert card["exit_rule"][0]["right"] == "high since entry - 2 × ATR 14"
 
 
@@ -876,7 +876,7 @@ def test_the_exit_rule_closes_the_live_position_from_its_entry_bar(uid) -> None:
     assert plays._maybe_rule_exit(plays._load(pid), data, series, n - 3) is None    # 2 bars in
     ex = plays._maybe_rule_exit(plays._load(pid), data, series, n - 2)
     assert ex["kind"] == "filled" and ex["body"]["ticket"]["side"] == "SELL", ex
-    assert "exit rule: bars held above 2" == ex["body"]["reason"]
+    assert "exit rule: bars held is above 2" == ex["body"]["reason"]
     assert plays._load(pid)["held_qty"] == 0
 
 
@@ -1078,9 +1078,9 @@ def test_a_dial_above_its_default_must_quote_the_trader(uid) -> None:
             "when": {"all": [{"left": "close", "op": "cross_up", "right": 1400}]}}
     server._req.heard = "Tell me when RELIANCE closes above 1,400."
     try:
-        # refused, not quietly lowered: the model quotes them or lowers it itself
+        # how long it runs is the model's reading: kept, and said as a choice
         got = plays.tool_play("compile", {**rule, "contract": {"lifespan": "standing", "authority": "notify"}})
-        assert "error" in got and "inferred_from" in got["error"] and "once_when" in got["error"], got
+        assert "error" not in got and any("one tap" in a for a in got["assumed"]), got
         got = plays.tool_play("compile", {**rule, "contract": {"authority": "notify"}})
         assert got["contract"]["runs"] == "Once, when it triggers", got
         # a quoted phrase inside an explanation counts when it is theirs
@@ -1094,7 +1094,8 @@ def test_a_dial_above_its_default_must_quote_the_trader(uid) -> None:
         server._req.heard = "Buy ₹20,000 of TCS."
         bad = plays.tool_play("compile", {"title": "TCS", "symbol": "TCS", "interval": "1d", "do": {"kind": "buy", "size": {"inr": 20000}},
                                           "contract": {"lifespan": "now", "authority": "act", "inferred_from": "Explicit buy request"}})
-        assert "error" in bad and "Explicit buy request" in bad["error"]
+        assert bad["contract"]["acts"] == "Proposes, you confirm" and bad["did_now"]["kind"] == "proposed", bad
+        assert any("one tap on the card lets it place" in a for a in bad["assumed"]), bad["assumed"]
         ok = plays.tool_play("compile", {"title": "TCS", "symbol": "TCS", "interval": "1d", "do": {"kind": "buy", "size": {"inr": 20000}},
                                          "contract": {"lifespan": "now", "authority": "act", "inferred_from": "Buy ₹20,000 of TCS"}})
         assert ok["did_now"]["kind"] == "filled"
@@ -1159,3 +1160,78 @@ def test_a_rebalance_of_what_is_held_funds_its_buys_from_its_sells(monkeypatch) 
     assert t, why
     assert t["buys_inr"] <= t["sells_inr"] and {lg["symbol"] for lg in t["legs"]} == {"HAL", "BEL"}, t
 
+
+
+def test_a_sell_takes_from_the_paper_portfolio_by_share(uid) -> None:
+    paper.place_order(uid, "RELIANCE", "BUY", 10, source="test")
+    got = plays.tool_play("compile", {"title": "Sell half", "symbol": "RELIANCE", "interval": "1d",
+                                      "do": {"kind": "sell", "size": {"pct": 50}},
+                                      "contract": {"lifespan": "now", "authority": "act"}})
+    assert got["did_now"]["kind"] == "filled", got
+    assert got["did_now"]["body"]["ticket"]["qty"] == 5
+    assert "50% of your RELIANCE" in plays.card(plays.get(uid, got["play_id"]))["summary"]
+    held = {r["symbol"]: r["quantity"] for r in paper.api_holdings(uid)[1]}
+    assert held.get("RELIANCE") == 5, held
+    none = plays.tool_play("compile", {"title": "Sell TCS", "symbol": "TCS", "interval": "1d",
+                                       "do": {"kind": "sell", "size": {"all": True}},
+                                       "contract": {"lifespan": "now", "authority": "act"}})
+    assert none["did_now"]["kind"] == "rejected" and "your paper portfolio holds no TCS" in \
+        none["did_now"]["body"]["reason"], none["did_now"]
+
+
+def test_a_condition_between_two_numbers_goes_or_is_refused(uid) -> None:
+    # always true adds nothing: dropped, and the play acts now
+    got = plays.tool_play("compile", {"title": "x", "symbol": "RELIANCE", "interval": "1d",
+                                      "when": {"all": [{"left": 1, "op": "above", "right": 0}]},
+                                      "do": {"kind": "notify"}, "contract": {"lifespan": "once_when"}})
+    assert "error" not in got and got["contract"]["runs"] == "Once, now", got
+    # never true would never act
+    got = plays.tool_play("compile", {"title": "x", "symbol": "RELIANCE", "interval": "1d",
+                                      "when": {"all": [{"left": 1, "op": "below", "right": 0}]},
+                                      "do": {"kind": "sell", "size": {"all": True}}})
+    assert "never true" in got["error"], got
+
+
+def test_a_rebalance_lands_as_near_its_targets_as_whole_shares_allow(monkeypatch) -> None:
+    monkeypatch.setattr(policy, "book", lambda play: {"HAL": 20, "BEL": 120})
+    monkeypatch.setattr(policy, "mark", lambda s: {"HAL": 4567.9, "BEL": 408.0}[s])
+    monkeypatch.setattr(policy, "cash", lambda play: 0.0)
+    t, why = policy.ticket({"spec": {"do": {}, "mandate": {"max_order_inr": 10_00_000}}}, {"HAL": 0.6, "BEL": 0.4})
+    q = {lg["symbol"]: (lg["side"], lg["qty"]) for lg in t["legs"]}
+    assert q == {"HAL": ("SELL", 2), "BEL": ("BUY", 17)}, q        # 58.6% / 39.8%, not 62% / 38%
+
+
+def test_a_portfolio_rebalance_with_targets_leaves_other_holdings_alone(uid) -> None:
+    for sym, q in (("RELIANCE", 10), ("TCS", 5), ("INFY", 4)):
+        paper.place_order(uid, sym, "BUY", q, source="test")
+    got = plays.tool_play("compile", _equal(contract={"lifespan": "now", "authority": "act"}))
+    assert any("other holdings stay" in a for a in got["assumed"]), got["assumed"]
+    held = {r["symbol"]: r["quantity"] for r in paper.api_holdings(uid)[1]}
+    assert held.get("INFY") == 4, held                      # not named, not sold
+
+
+def test_a_rule_about_one_bar_fires_on_every_bar_it_holds(uid) -> None:
+    drop = {"title": "INFY 3% drops", "symbol": "INFY", "interval": "1d",
+            "measures": [{"name": "ret", "title": "Daily return", "unit": "%",
+                          "code": "def compute(data, params):\n    c = data['close']\n"
+                                  "    return [None if i == 0 else (c[i] / c[i-1] - 1) * 100 for i in range(len(c))]"}],
+            "when": {"all": [{"left": "ret", "op": "below", "right": -3}]},
+            "do": {"kind": "buy", "size": {"inr": 5000}},
+            "contract": {"lifespan": "standing", "inferred_from": "every time it falls 3% in a day"}}
+    once = plays.tool_play("compile", drop, arm=False)
+    every = plays.tool_play("compile", {**drop, "when": {**drop["when"], "every_bar": True}}, arm=False)
+    assert every["history"]["fires"] > once["history"]["fires"], (once["history"], every["history"])
+    card = plays.card(plays.get(uid, every["play_id"]))
+    assert "at every close where Daily return is below -3%" in card["summary"], card["summary"]
+
+
+def test_confirming_an_act_now_proposal_keeps_its_own_size(uid) -> None:
+    got = plays.tool_play("compile", {"title": "INFY now and on dips", "symbol": "INFY", "interval": "1d",
+                                      "when": {"all": [{"left": "close", "op": "below", "right": "low"}]},
+                                      "do": {"kind": "buy", "size": {"inr": 5000}},
+                                      "contract": {"lifespan": "standing", "now": {"size": {"inr": 10000}},
+                                                   "inferred_from": "10,000 now and 5,000 every time"}})
+    assert got["did_now"]["kind"] == "proposed", got["did_now"]
+    eid = [e for e in plays.events(uid) if e["kind"] == "proposed"][0]["id"]
+    res = plays.resolve_event(uid, eid, "confirm")
+    assert res["result"]["body"]["ticket"]["qty"] == got["did_now"]["body"]["ticket"]["qty"] == 8, res

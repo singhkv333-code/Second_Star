@@ -38,6 +38,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, ROUND_DOWN
 
 import customsec
+import effects
 import hyperliquid
 import policy
 
@@ -52,6 +53,7 @@ def bind(module, alerts_mod=None, paper_mod=None) -> None:
     global ds, _alerts, _paper
     ds, _alerts, _paper = module, alerts_mod, paper_mod
     policy.bind(module, paper_mod)
+    effects.bind(module, paper_mod, customsec)
     import scan
     scan.bind(module)
 
@@ -855,10 +857,19 @@ def truth(when, data: dict, series: dict) -> list:
     return out
 
 
-def fire_points(tr: list) -> list[int]:
-    """Bars where the whole condition BECOMES true. A condition that stays
-    true is one event, not one per bar."""
-    return [i for i in range(1, len(tr)) if tr[i] is True and tr[i - 1] is not True]
+def fire_points(tr: list, every: bool = False) -> list[int]:
+    """Bars where the whole condition BECOMES true: a condition that stays
+    true is one event, not one per bar. With `every` (when.every_bar), each
+    bar it holds is its own event: two 3% falls on two days are two fires."""
+    return [i for i in range(1, len(tr)) if _fires_at(tr, i, every)]
+
+
+def _fires_at(tr: list, i: int, every: bool = False) -> bool:
+    return bool(tr) and i > 0 and tr[i] is True and (every or tr[i - 1] is not True)
+
+
+def _every(spec: dict) -> bool:
+    return bool((spec.get("when") or {}).get("every_bar"))
 
 
 # ══ compiling a play ════════════════════════════════════════════════════════
@@ -909,6 +920,32 @@ def _norm_when(when) -> dict | None:
         when = {"all": when}
     if when and ("left" in when or "time" in when):
         when = {"all": [when]}
+
+    def num(x) -> bool:
+        try:
+            float(str(x).replace(",", ""))
+            return True
+        except ValueError:
+            return False
+    key = "all" if "all" in (when or {}) else "any"
+    keep = []
+    for c in (when or {}).get(key) or []:
+        if isinstance(c, dict) and "left" in c and num(c.get("left")) and num(c.get("right", "x")):
+            a, b = float(str(c["left"]).replace(",", "")), float(str(c["right"]).replace(",", ""))
+            if {"above": a > b, "below": a < b}.get(c.get("op")):
+                continue                    # always true: it adds nothing, so it goes
+            raise Bad(f"'{c.get('left')} {c.get('op')} {c.get('right')}' compares two numbers, so it is "
+                      "never true and the play would never act")
+        keep.append(c)
+    if when and not keep and not when.get("time"):
+        return None                         # nothing left to wait for: it acts at once
+    if when:
+        when[key] = keep
+    if when and "every_bar" in when:
+        if when.get("every_bar"):
+            when["every_bar"] = True
+        else:
+            when.pop("every_bar")
     return when
 
 
@@ -926,8 +963,13 @@ def _grounded(quote: str, heard: str | None) -> bool:
     quoted = re.findall(r'[“"‘]([^”"’]{2,})[”"’]', q)
     parts = [_norm_words(p) for x in (quoted or [q]) for p in re.split(r"\.\.\.|…", x)]
     parts = [p for p in parts if p]
-    hay = _norm_words(heard)
-    return bool(parts) and all(p in hay for p in parts)
+    hay = _norm_words(heard).split()
+
+    def theirs(part: str) -> bool:
+        # their words in their order; words may be left out between them
+        it = iter(hay)
+        return all(w in it for w in part.split())
+    return bool(parts) and all(theirs(p) for p in parts)
 
 
 def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str = "",
@@ -987,6 +1029,9 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
         measures.append(nm)
 
     when = _norm_when(raw.get("when"))
+    if raw.get("when") and not when and not raw.get("on"):
+        # its only condition was always true: it acts now
+        raw = {**raw, "contract": {**(raw.get("contract") or {}), "lifespan": "now"}}
     exit_when = _norm_when((raw.get("manage") or {}).get("exit_when"))
     names = []
     for op in _operands(when) + _operands(exit_when):
@@ -1034,20 +1079,19 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
     base = ("standing" if (raw.get("do") or {}).get("kind") == "halt" or (uni and when) else
             "once_when" if (when or on) else "now")
     if not ok and heard is not None:
-        # code checks the evidence, the model decides: quote their words or
-        # leave the dial where the shape puts it
-        up = []
-        if contract.get("lifespan") in ("standing", "policy") and contract["lifespan"] != base:
-            up.append(f"lifespan {contract['lifespan']}")
+        # one dial is checked against their words: placing orders without a
+        # confirm. The others (how long it runs, acting now) the model reads
+        # from them; at propose every order still waits for a tap, so a wrong
+        # reading costs nothing and is said, and the card changes it in one tap
         if contract.get("authority") in ("act", "manage") and (raw.get("do") or {}).get("kind") != "halt":
-            up.append(f"authority {contract['authority']}")      # a guard acts by its nature
-        if contract.get("now") and contract.get("lifespan") not in (None, "now"):
-            up.append("now")
-        if up:
-            raise Bad(f"{', '.join(up)} is above the default, so contract.inferred_from must quote the "
-                      f"trader's own words that ask for it" + (f" ({quote!r} is not what they said)" if quote else "")
-                      + f". Quote them, or leave it out (lifespan {base}, authority propose, no now) and say "
-                      "what one tap on the card raises.")
+            # placing without a confirm needs their words; without them the
+            # play is still built, and each order waits for one tap
+            contract = {**contract, "authority": "propose"}
+            said.append("proposes each order for your confirm, as your words did not ask to skip it; one "
+                        "tap on the card lets it place on its own")
+        if contract.get("lifespan") in ("standing", "policy") and contract["lifespan"] != base:
+            said.append(f"runs {'every time it triggers' if contract['lifespan'] == 'standing' else 'as a kept policy'}"
+                        f" (your words did not say; one tap on the card makes it run once)")
     rebalance = (raw.get("do") or {}).get("kind") == "rebalance"
     lifespan = contract.get("lifespan") or base
     if uni and (on or (raw.get("do") or {}).get("kind") in ("rebalance", "halt")):
@@ -1143,11 +1187,22 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
         size = do.get("size") or {}
         if not isinstance(size, dict):
             size = {"inr": size}
-        if not size.get("inr") and not size.get("qty") and not size.get("all"):
+        if size.get("pct") is not None:
+            pct = float(size["pct"])
+            if kind not in ("sell", "cover") or not 0 < pct <= 100:
+                raise Bad("size.pct is for a sell or a cover: the share of what is held, above 0 and up "
+                          "to 100")
+            size = {"pct": pct}
+        if not size.get("inr") and not size.get("qty") and not size.get("all") and not size.get("pct"):
             size = {"inr": DEFAULT_SIZE_INR} if kind in ("buy", "short") else {"all": True}
             said.append(f"sized at ₹{DEFAULT_SIZE_INR:,}" if kind in ("buy", "short")
-                        else "closes what this play holds")
+                        else "sells all of it" if kind == "sell" else "covers all of it")
         do["size"] = size
+        if kind in ("sell", "cover") and not customsec.is_custom(do["symbol"]):
+            # a play that only closes never opened anything, so what it closes
+            # is the trader's (the paper portfolio, or their open intraday and
+            # perp positions), unless it was told to close only its own
+            do["of"] = "self" if do.get("of") == "self" else "portfolio"
         if perp:
             c = hyperliquid.ctx(do["symbol"])
             if not c:
@@ -1257,13 +1312,29 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
         "do": do, "manage": manage, "mandate": mandate, "policy": pol,
         "contract": {"lifespan": lifespan, "authority": authority, "discretion": discretion,
                      "now": lifespan == "now" or (bool(contract.get("now")) and kind != "notify"),
-                     **({"now_size": {"inr": float(contract["now"]["size"]["inr"])}}
-                        if isinstance(contract.get("now"), dict) and isinstance(contract["now"].get("size"), dict)
-                        and contract["now"]["size"].get("inr") else {}),
+                     **_now_size(contract, kind),
                      "inferred_from": str(contract.get("inferred_from") or "")[:200],
                      "expires_in_days": int(days) if days else None},
     }
     return spec, said
+
+
+def _now_size(contract: dict, kind: str) -> dict:
+    """The first order's own size when it differs from the rule's: any form
+    do.size takes ('₹10k now, ₹5k on each dip'; 'sell 30% now, the rest
+    below 380')."""
+    now = contract.get("now")
+    size = now.get("size") if isinstance(now, dict) else None
+    if not isinstance(size, dict):
+        return {}
+    for k in ("inr", "qty", "pct"):
+        if size.get(k):
+            v = float(size[k])
+            if k == "pct" and (kind not in ("sell", "cover") or not 0 < v <= 100):
+                raise Bad("now.size.pct is for a sell or a cover: the share of what is held, above 0 and "
+                          "up to 100")
+            return {"now_size": {k: v}}
+    return {"now_size": {"all": True}} if size.get("all") else {}
 
 
 def _norm_rebalance(do: dict, raw: dict, lifespan: str, discretion: str,
@@ -1274,7 +1345,7 @@ def _norm_rebalance(do: dict, raw: dict, lifespan: str, discretion: str,
     if of not in ("self", "portfolio") and not isinstance(of, int):
         raise Bad("do.of is self (what this play holds), portfolio (the whole paper delivery book) "
                   "or the id of the play whose holdings it takes over")
-    out = {"kind": "rebalance", "of": of, "product": "CNC",
+    out = {"kind": "rebalance", "of": of,
            "objective": str(do.get("objective") or "")[:300],
            "universe": sorted({ds.canon_symbol(str(x)) for x in do.get("universe") or []})[:30],
            "cash_pct": float(do.get("cash_pct") or 0)}
@@ -1290,6 +1361,14 @@ def _norm_rebalance(do: dict, raw: dict, lifespan: str, discretion: str,
             {k: v for k, v in (do.get("reasons") or {}).items() if k in do["targets"]}
         cap = float((raw.get("mandate") or {}).get("max_weight") or
                     (policy.DEFAULT_MAX_WEIGHT if discretion == "plan" else 1.0))
+        # the names the trader set weights for, zeros included: a portfolio
+        # rebalance with targets trades these and leaves every other holding be
+        rs_all = do["targets"] if isinstance(do["targets"], list) else \
+            [{"symbol": k} for k in (do["targets"] or {})] if isinstance(do["targets"], dict) else []
+        out["names"] = sorted({ds.canon_symbol(str(x.get("symbol") if isinstance(x, dict) else x))
+                               for x in rs_all if (x.get("symbol") if isinstance(x, dict) else x)})
+        if of == "portfolio" and discretion != "plan":
+            said.append(f"trades only {', '.join(out['names'][:6])}; your other holdings stay as they are")
         try:
             out["targets"], cut = policy.norm_targets(do["targets"], out["cash_pct"], cap)
         except policy.Bad as exc:
@@ -1507,7 +1586,7 @@ def round_trips(spec: dict, data: dict, series: dict, tr: list) -> dict | None:
         hs = (5, 20) if spec["interval"] == "1d" else (3, 12)
         fwd = {}
         for hz in hs:
-            pts = [i for i in fire_points(tr) if i + hz < n]
+            pts = [i for i in fire_points(tr, _every(spec)) if i + hz < n]
             base = [i for i in range(n - hz) if data["close"][i]]
             f = lambda ii: [sd * (data["close"][i + hz] / data["close"][i] - 1) * 100 for i in ii]
             fwd[str(hz)] = {"after": _stats(f(pts)), "any_bar": _stats(f(base))}
@@ -1515,7 +1594,7 @@ def round_trips(spec: dict, data: dict, series: dict, tr: list) -> dict | None:
         out["notes"].append("it has no exit, so history shows what followed each fire rather than trades")
         return out
     trades, i = [], 1
-    pts = fire_points(tr)
+    pts = fire_points(tr, _every(spec))
     for p in pts:
         if p < i:
             continue                       # one position at a time
@@ -1595,7 +1674,7 @@ def replay(spec: dict, check: bool = True, keep_raw: bool = False, pre: tuple | 
         pts, more, hits = _event_points(spec, data, tr)
         notes = notes + more
     else:
-        pts = fire_points(tr) if tr else []
+        pts = fire_points(tr, _every(spec)) if tr else []
     n = len(data["t"])
     first, last = data["t"][0], data["t"][-1]
     span_days = max(1.0, (last - first) / 86400)
@@ -1810,8 +1889,8 @@ def _fmt_num(v) -> str:
 
 
 def _op_word(op: str) -> str:
-    return {"above": "above", "below": "below", "cross_up": "crosses above",
-            "cross_down": "crosses below", "between": "between", "outside": "outside",
+    return {"above": "is above", "below": "is below", "cross_up": "crosses above",
+            "cross_down": "crosses below", "between": "is between", "outside": "is outside",
             "rises_pct": "rises by", "falls_pct": "falls by", "is_true": "is true"}.get(op, op)
 
 
@@ -1828,7 +1907,10 @@ def describe(c: dict, spec: dict) -> str:
         if t.get("after") and t.get("before"):
             return f"between {t['after']} and {t['before']}"
         return f"after {t['after']}" if t.get("after") else f"before {t['before']}"
-    name = lambda x: _label(x, spec)    # noqa: E731
+    units = {m["name"]: m.get("unit") or "" for m in spec.get("measures") or []}
+    unit = units.get(_clean_name(c.get("left"))) if isinstance(c.get("left"), str) else ""
+    name = lambda x: _label(x, spec) + (unit if unit == "%" and isinstance(x, (int, float)) else  # noqa: E731
+                                        f" {unit}" if unit and unit != "%" and isinstance(x, (int, float)) else "")
     op = c.get("op")
     s = f"{name(c.get('left'))} {_op_word(op)}"
     if op in ("between", "outside"):
@@ -1861,7 +1943,7 @@ def _contract_line(spec: dict) -> dict:
         cap = f"at most {m['max_weight'] * 100:.0f}% in one name" if m.get("max_weight") else ""
         money = f"₹{new:,.0f} of new money" if new else ""
         out["limit"] = ", ".join(x for x in (cap, money) if x) or None
-    elif spec["do"]["kind"] != "notify":
+    elif spec["do"]["kind"] not in ("notify", "sell", "cover"):     # a close spends nothing
         out["limit"] = f"₹{m['capital_inr']:,.0f}"
     return out
 
@@ -1906,7 +1988,7 @@ def _order_words(spec: dict) -> str:
     if do.get("product") == "PERP":
         size = do.get("size") or {}
         if do["kind"] in ("sell", "cover"):
-            return f"a close of this play's {do['symbol']} position"
+            return f"a close of {_close_amount(do)}{do['symbol']} position"
         amt = (f"₹{size['inr']:,.0f} of margin" if size.get("inr") else f"{size.get('qty', 0):g} contracts")
         side = "long" if do["kind"] == "buy" else "short"
         return f"a {do.get('leverage', 1):g}× {side} in {do['symbol']} ({amt}, Hyperliquid, on paper)"
@@ -1916,8 +1998,15 @@ def _order_words(spec: dict) -> str:
         return f"a short of {amt}{do['symbol']} (intraday)" if do.get("product") == "MIS" else \
             f"a short of {amt}{do['symbol']}"
     if do["kind"] == "cover":
-        return f"a cover of this play's {do['symbol']} short"
+        return f"a cover of {_close_amount(do)}{do['symbol']} short"
     return do["kind"]
+
+
+def _close_amount(do: dict) -> str:
+    size = do.get("size") or {}
+    yours = "your " if do.get("of") == "portfolio" else "this play's "
+    return (f"{size['pct']:g}% of {yours}" if size.get("pct") else f"{size['qty']:g} of {yours}"
+            if size.get("qty") else f"₹{size['inr']:,.0f} of {yours}" if size.get("inr") else yours)
 
 
 def summary(spec: dict) -> str:
@@ -1956,8 +2045,10 @@ def summary(spec: dict) -> str:
         act = f"{verb} {order_words(spec)}"
     else:
         size = do.get("size") or {}
-        amt = (f"₹{size['inr']:,.0f} of " if size.get("inr") else
-               f"{size['qty']:g} " if size.get("qty") else "all of its ")
+        yours = "your " if do.get("of") == "portfolio" else "its "
+        amt = (f"₹{size['inr']:,.0f} of " + (yours if do["kind"] == "sell" else "") if size.get("inr") else
+               f"{size['qty']:g} " + ("of " + yours if do["kind"] == "sell" else "") if size.get("qty") else
+               f"{size['pct']:g}% of {yours}" if size.get("pct") else f"all of {yours}")
         verb = {"propose": "proposes buying", "act": "buys", "manage": "buys"}.get(
             c["authority"], "proposes buying") if do["kind"] == "buy" else \
             {"propose": "proposes selling", "act": "sells", "manage": "sells"}.get(
@@ -1965,9 +2056,10 @@ def summary(spec: dict) -> str:
         act = f"{verb} {amt}{do['symbol']}"
     if c["lifespan"] == "now":
         return f"{act[0].upper()}{act[1:]} now, on paper." if do["kind"] != "notify" else "Tells you now."
-    times = "the first time" if c["lifespan"] == "once_when" else "each time"
+    each = "at every close where" if _every(spec) else "each time"
+    times = "the first time" if c["lifespan"] == "once_when" else each
     if c.get("now"):
-        times = "now, and then " + ("once more the first time" if c["lifespan"] == "once_when" else "each time")
+        times = "now, and then " + ("once more the first time" if c["lifespan"] == "once_when" else each)
     on = spec.get("on")
     if on:
         return f"Reads {_on_words(on)} and {act} {times} one {_on_test(on)}" + \
@@ -2051,6 +2143,20 @@ def _on_test(on: dict) -> str:
     return " and ".join(bits) or "arrives"
 
 
+def _card_held(row: dict) -> dict:
+    """What the card shows as held: for a rebalance of the paper portfolio,
+    the portfolio's own holdings of the names it trades (read now); otherwise
+    what this play bought."""
+    spec = row["spec"]
+    if spec["do"]["kind"] == "rebalance" and spec["do"].get("of") == "portfolio" and _paper is not None:
+        try:
+            return policy.book({"spec": spec, "user_id": row["user_id"], "held_legs": {}})
+        except Exception:                                   # noqa: BLE001
+            pass
+    return row.get("held_legs") or ({row["held_sym"]: row["held_qty"]}
+                                    if row.get("held_qty") and row.get("held_sym") else {})
+
+
 def card(row: dict, live: dict | None = None) -> dict:
     """The play as the reply's panel and the widget's row. Built from the
     stored row only, so a card can never show a play that was not saved."""
@@ -2115,7 +2221,7 @@ def card(row: dict, live: dict | None = None) -> dict:
                                   (live or {}).get("conditions") or hist.get("conditions") or
                                   [{"text": describe(c, spec)} for c in (when.get("all") or when.get("any") or [])],
                                   spec),
-        "measures": [{"name": m["name"], "title": m["title"], "formula": m["formula"],
+        "measures": [{"name": m["name"], "title": m["title"], "formula": m["formula"], "unit": m.get("unit") or "",
                       "now": (hist.get("now") or {}).get(m["name"]),
                       "spark": (hist.get("spark") or {}).get(m["name"])}
                      for m in spec.get("measures") or [] if not m["name"].endswith(tuple(f"_{f}" for f in FIELDS))
@@ -2134,9 +2240,9 @@ def card(row: dict, live: dict | None = None) -> dict:
         "do": do, "manage": mg, "mandate": spec.get("mandate"), "policy": spec.get("policy"), "perp": perp,
         "lifespan": spec["contract"]["lifespan"], "authority": spec["contract"]["authority"],
         "discretion": spec["contract"]["discretion"], "created": row.get("created"),
-        "held": row.get("held_legs") or ({row["held_sym"]: row["held_qty"]}
-                                         if row.get("held_qty") and row.get("held_sym") else {}),
+        "held": _card_held(row),
         "spent_inr": row.get("spent_inr") or 0,
+        **_freshness(row),
         "notes": hist.get("notes") or [], "fires": row.get("fires", 0),
         "expires": row.get("expires"),
         "thesis": spec.get("thesis") or "",
@@ -2148,6 +2254,26 @@ def card(row: dict, live: dict | None = None) -> dict:
         "offer": ({"action": "policy", "label": "Keep it this way: rebalance again whenever a holding drifts 5 points"}
                   if do["kind"] == "rebalance" and spec["contract"]["lifespan"] == "now" else None),
     }
+
+
+def _freshness(row: dict) -> dict:
+    """{asof, stale}: the close of the last bar the play read, and whether
+    that is older than its clock allows. A listed name trades in the NSE
+    session, so out of it (nights, weekends, holidays) the last session's
+    bar is as fresh as there is; a coin trades all day."""
+    t, iv, sym = row.get("last_eval_ts") or 0, row["spec"]["interval"], row["spec"]["symbol"]
+    if not t:
+        return {"asof": None, "stale": False}
+    asof = _bar_close(t, iv)
+    age, step = time.time() - asof, INTERVALS[iv] * 60
+    if sym.endswith(("USDT", "-USD", "USD")) or hyperliquid.is_perp(sym):
+        limit = 3 * step
+    else:
+        lt = time.gmtime(time.time() + ds.IST_OFF)
+        hhmm = lt.tm_hour * 100 + lt.tm_min
+        in_session = lt.tm_wday < 5 and 915 <= hhmm <= 1530
+        limit = 3 * step if in_session and iv != "1d" else 4 * 86400
+    return {"asof": asof, "stale": age > limit}
 
 
 # ══ persistence ═════════════════════════════════════════════════════════════
@@ -2486,8 +2612,7 @@ def _tick(pid: int, minute_ts: int | None = None, force: bool = False, sym: str 
         if play["why"] == EXITS_ONLY and not _holding(play):
             _entries_over(pid, "fired")
             break
-        if (tr and i > 0 and tr[i] is True and tr[i - 1] is not True
-                and play["why"] not in (EXITS_ONLY, "fired")):
+        if _fires_at(tr, i, _every(spec)) and play["why"] not in (EXITS_ONLY, "fired"):
             out.append(_fire(play, data, series, i, late=late))
             play = _load(pid)
             if play["state"] != "armed":
@@ -2581,7 +2706,7 @@ def _tick_member(play: dict, sym: str, minute_ts: int | None, force: bool) -> li
     out = []
     for i in new:
         late = i != len(t) - 1
-        fresh = tr and i > 0 and tr[i] is True and tr[i - 1] is not True
+        fresh = _fires_at(tr, i, _every(spec))
         if fresh and not mk.get("done") and play["why"] not in (EXITS_ONLY, "fired") and not _holding(mp):
             cap = int(spec["mandate"].get("max_open") or 0)
             busy = _open_names(play)
@@ -2679,6 +2804,8 @@ def _fire(play: dict, data: dict, series: dict, i: int, *, late: bool,
     _set(play["id"], fires=fires)
     body = {"seen": seen, "price": price, "symbol": spec["symbol"], "interval": spec["interval"],
             "late": late}
+    if do.get("size"):
+        body["size"] = do["size"]          # a confirm re-sizes at this size (an act-now order may differ)
     if event:
         body["event"] = event
     title = spec["title"]
@@ -2707,6 +2834,9 @@ def _fire(play: dict, data: dict, series: dict, i: int, *, late: bool,
         ev = _event(play, ts, "fired", title, {**body, "reason": reason}, status="done")
     else:
         ticket, why = _ticket(play, price)
+        bad = effects.vet(play, ticket) if ticket else ""
+        if bad:
+            ticket, why = None, bad              # a proposal nobody could confirm is no proposal
         if ticket and ticket.get("structural") and authority in ("act", "manage"):
             authority, reason = "propose", "the planner changed which names it holds, so you confirm"
         if ticket and ticket.get("rebalance") and not ticket["legs"]:
@@ -2812,14 +2942,8 @@ def _day_ticket(play: dict) -> tuple[dict | None, str]:
     import daybook
     spec, do, m = play["spec"], play["spec"]["do"], play["spec"]["mandate"]
     if do["kind"] in ("cover", "sell"):
-        opens = daybook.open_positions(play["user_id"], play["id"])
-        if not opens:
-            return None, "this play has no open position to close"
-        return {"book": "day", "close": True, "legs": [
-            {"symbol": p["symbol"], "side": p["side"], "qty": p["qty"], "px": p["mark_px"]} for p in opens]}, ""
-    rd = dict(do)
-    if do["kind"] == "buy":
-        rd["kind"] = "long"
+        return _day_close(play)
+    rd = effects.derive(do, kind="long") if do["kind"] == "buy" else do
     try:
         legs = daybook.resolve(rd, do.get("product") or "MIS")
     except daybook.Refused as exc:
@@ -2831,6 +2955,44 @@ def _day_ticket(play: dict) -> tuple[dict | None, str]:
     stale = [lg["symbol"] for lg in legs if lg.get("stale")]
     return {"book": "day", "legs": legs, "margin_est": round(need, 2),
             "stale": stale, "product": do.get("product")}, ""
+
+
+def _day_close(play: dict) -> tuple[dict | None, str]:
+    """A close in the day book: this play's own positions, or, for a play that
+    only closes, the trader's open positions in the name on that side. Sized
+    like a delivery sell; a part closes from the oldest position first."""
+    import daybook
+    do = play["spec"]["do"]
+    side = "short" if do["kind"] == "cover" else "long"
+    opens = daybook.open_positions(play["user_id"], play["id"])
+    whose = "this play"
+    if not opens and do.get("of") == "portfolio":
+        whose = "your day book"
+        opens = [p for p in daybook.open_positions(play["user_id"])
+                 if p["side"] == side and do["symbol"] in (p["symbol"], p["underlying"])]
+    if not opens:
+        return None, f"{whose} has no open {side} {do.get('symbol') or ''} position to close".replace("  ", " ")
+    opens.sort(key=lambda p: p["entry_ts"] or 0)
+    held = sum(p["qty"] for p in opens)
+    size = do.get("size") or {}
+    px = opens[0]["mark_px"] or opens[0]["entry_px"]
+    step = max(int(opens[0]["lot"] or 1), 1)
+    whole = (lambda x: math.floor(x / step) * step) if opens[0]["kind"] in ("equity", "option", "future")         else (lambda x: math.floor(x * 1e6) / 1e6)
+    want = (min(float(size["qty"]), held) if size.get("qty") else
+            whole(held * size["pct"] / 100) if size.get("pct") else
+            whole(float(size["inr"]) / (px * daybook._fx(opens[0]))) if size.get("inr") and px else held)
+    want = min(want, held)
+    if want <= 0:
+        return None, f"that is less than one unit of the {held:g} {do.get('symbol')} {whose} holds open"
+    legs, left = [], want
+    for p in opens:
+        if left <= 1e-12:
+            break
+        q = min(p["qty"], left)
+        legs.append({"symbol": p["symbol"], "side": p["side"], "qty": q, "px": p["mark_px"],
+                     "position": p["id"], "open": p["qty"], "lot": p["lot"], "underlying": p["underlying"]})
+        left -= q
+    return {"book": "day", "close": True, "legs": legs}, ""
 
 
 def _ticket(play: dict, price: float) -> tuple[dict | None, str]:
@@ -2855,10 +3017,17 @@ def _ticket(play: dict, price: float) -> tuple[dict | None, str]:
         return None, f"no current price for {sym}"
     size = do.get("size") or {}
     if do["kind"] == "sell":
-        held = play["held_qty"] if play["held_sym"] == sym else 0
-        qty = held if size.get("all") or not size.get("qty") else min(float(size["qty"]), held)
-        if not qty:
-            return None, f"this play holds no {sym} to sell"
+        own = play["held_sym"] == sym and play["held_qty"]
+        held = _held_now(play) if own else _portfolio_qty(play["user_id"], sym) if do.get("of") == "portfolio" else 0
+        whose = "this play" if own or do.get("of") != "portfolio" else "your paper portfolio"
+        if not held:
+            return None, f"{whose} holds no {sym} to sell"
+        whole = (lambda x: math.floor(x * 1e6) / 1e6) if sym.endswith(("USDT", "USD", "BTC")) else math.floor
+        qty = (min(float(size["qty"]), held) if size.get("qty") else
+               min(whole(held * size["pct"] / 100), held) if size.get("pct") else
+               min(whole(float(size["inr"]) / px), held) if size.get("inr") else held)
+        if qty <= 0:
+            return None, f"that is less than one unit of the {held:g} {sym} {whose} holds"
         return {"symbol": sym, "side": "SELL", "qty": qty, "price": px}, ""
     inr = float(size.get("inr") or 0) or (float(size["qty"]) * px if size.get("qty") else 0)
     if inr > m["max_order_inr"] + 1e-6:
@@ -2910,6 +3079,17 @@ def _place_rebalance(play: dict, t: dict, ts: int, body: dict) -> dict:
                   out, status="done")
 
 
+def _portfolio_qty(uid: int, sym: str) -> float:
+    """How much of `sym` the trader's paper portfolio holds now."""
+    if _paper is None:
+        return 0.0
+    try:
+        _, rows = _paper.api_holdings(uid)
+    except Exception:                                       # noqa: BLE001
+        return 0.0
+    return float(sum(float(r.get("quantity") or 0) for r in rows or [] if r.get("symbol") == sym))
+
+
 def _mark(sym: str) -> float | None:
     try:
         v = _paper.mark_price(sym) if _paper is not None else None
@@ -2929,7 +3109,18 @@ def _basket_ticket(play: dict) -> tuple[dict | None, str]:
         held = _held_legs_now(play)
         if not any(held.values()):
             return None, f"this play holds none of {do['symbol']} to sell"
-        legs = [{"symbol": s, "side": "SELL", "qty": q, "price": _mark(s)} for s, q in held.items() if q]
+        px = {s: _mark(s) for s in held}
+        worth = sum(q * (px[s] or 0) for s, q in held.items())
+        # the same share of every member, so what is left keeps its weights
+        part = (size["pct"] / 100 if size.get("pct") else
+                min(1.0, float(size["inr"]) / worth) if size.get("inr") and worth else 1.0)
+        if size.get("qty"):
+            return None, "a basket sells a share of what is held (size.pct) or rupees (size.inr), not units"
+        legs = [{"symbol": s, "side": "SELL", "qty": q if part >= 1 else math.floor(q * part), "price": px[s]}
+                for s, q in held.items() if q]
+        legs = [lg for lg in legs if lg["qty"] > 0]
+        if not legs:
+            return None, f"that is less than one share of each member of {do['symbol']}"
         return {"basket": do["symbol"], "side": "SELL", "legs": legs}, ""
     inr = float(size.get("inr") or 0)
     if not inr:
@@ -3005,10 +3196,21 @@ def _held_legs_now(play: dict) -> dict:
 
 
 def _place(play: dict, ticket: dict, ts: int, body: dict) -> dict:
+    bad = effects.vet(play, ticket)
+    if bad:
+        return _event(play, ts, "rejected", play["spec"]["title"], {**body, "ticket": ticket, "reason": bad},
+                      status="done")
     if ticket.get("book") == "day":
         import daybook
         if ticket.get("close"):
-            res = daybook.close_play(play["id"], "closed by the play")
+            res = []
+            for lg in ticket["legs"]:
+                p = daybook._fresh(lg["position"]) if lg.get("position") else None
+                if p:
+                    res.append(daybook.close(p, p["mark_px"] or p["entry_px"], "closed by the play",
+                                             qty=lg["qty"]))
+            if not any(lg.get("position") for lg in ticket["legs"]):
+                res = daybook.close_play(play["id"], "closed by the play")
             return _event(play, ts, "exited", play["spec"]["title"], {**body, "closed": res}, status="done")
         got = daybook.open_group(play["user_id"], play["id"], ticket["legs"], play["spec"].get("manage") or {})
         cost = sum(lg["px"] * lg["qty"] * lg.get("fx", 1.0) for lg in ticket["legs"] if lg["side"] == "long")
@@ -3262,6 +3464,15 @@ def compile_play(uid: int, raw: dict, *, chart_symbol: str = "", chart_interval:
     init_db()
     spec, said = normalise(raw, uid, chart_symbol, chart_interval, heard=heard)
     _check_sources(spec)
+    dsym = str(spec["do"].get("symbol") or "")
+    if spec["do"].get("product") == "PERP" or dsym.endswith(("USDT", "-USD")):
+        try:
+            rate = _paper.fx_rate("USD")[0] if _paper is not None else None
+        except Exception:                                   # noqa: BLE001
+            rate = None
+        if not rate:
+            said.append("this server has no USD/INR rate right now, so an order would be refused until "
+                        "it has one")
     prior = get(uid, pid) if pid else None
     if pid and not prior:
         raise Bad(f"no play {pid} on this account")
@@ -3302,6 +3513,7 @@ def compile_play(uid: int, raw: dict, *, chart_symbol: str = "", chart_interval:
         ev = _fire(play, data, series, len(data["t"]) - 1, late=False, opening=True)
         row = get(uid, pid)
         row["_now_event"] = ev
+    effect = _effect(pid, data) if spec["contract"]["lifespan"] != "now" or not row.get("_now_event") else None
     feed = None
     if _alerts is not None and state == "armed" and (spec.get("when") or not spec.get("on")):
         try:
@@ -3317,8 +3529,25 @@ def compile_play(uid: int, raw: dict, *, chart_symbol: str = "", chart_interval:
                 feed = _alerts.ensure_feed(spec["symbol"])
         except Exception:                                   # noqa: BLE001
             feed = None
-    return {"play": row, "assumed": said, "diff": diff, "feed": feed,
+    return {"play": row, "assumed": said, "diff": diff, "feed": feed, "effect": effect,
             "card": card(row, {"conditions": status})}
+
+
+def _effect(pid: int, data: dict) -> dict | None:
+    """The order the rule places when it triggers, worked out against the
+    trader's book as it stands (after any act-now order) and placed nowhere. A planner's trades are
+    chosen when it runs, so it has none to show yet."""
+    play = _load(pid)
+    spec = play["spec"]
+    if spec["do"]["kind"] in ("notify", "halt") or spec["contract"]["discretion"] == "plan":
+        return None
+    if spec.get("universe"):
+        play = _member(play, spec["universe"]["symbols"][0])
+    price = (data.get("close") or [0])[-1] or 0
+    out = effects.preview(play, _ticket, price)
+    if spec.get("universe"):
+        out["for"] = f"{play['spec']['member']}, as one of the {len(spec['universe']['symbols'])} names"
+    return out
 
 
 def _adoption(uid: int, spec: dict, said: list[str]) -> dict | None:
@@ -3723,7 +3952,7 @@ def options(uid: int, pid: int) -> dict:
         if cnd.get("op") in ("above", "below", "cross_up", "cross_down"):
             f[f"cond.{i}.op"] = {"label": "Comparison", "value": cnd["op"], "choices": [
                 {"value": o, "label": w, "hint": h} for o, w, h in
-                (("above", "is above", "true on every bar it holds"), ("below", "is below", "true on every bar it holds"),
+                (("above", "is above", "fires when it starts to hold"), ("below", "is below", "fires when it starts to hold"),
                  ("cross_up", "crosses above", "only the bar it crosses"),
                  ("cross_down", "crosses below", "only the bar it crosses"))]}
         if _is_num(cnd.get("right")):
@@ -3773,6 +4002,8 @@ def resolve_event(uid: int, eid: int, action: str) -> dict:
     if h:
         raise Bad(h["text"])
     t = dict(body.get("ticket") or {})
+    if body.get("size"):
+        play = {**play, "spec": {**play["spec"], "do": {**play["spec"]["do"], "size": body["size"]}}}
     if t.get("book") == "day":
         fresh, why = _day_ticket(play)
         if not fresh:
@@ -3788,6 +4019,15 @@ def resolve_event(uid: int, eid: int, action: str) -> dict:
         if not fresh:
             raise Bad(why)
         t = fresh
+    elif t.get("side") == "SELL":
+        # the book may have moved since it was proposed: sell what is still held
+        held = effects.holdings(uid)
+        legs = [{**lg, "qty": min(float(lg["qty"]), held.get(lg["symbol"], 0.0))}
+                for lg in (t["legs"] if t.get("basket") else [t])]
+        legs = [lg for lg in legs if lg["qty"] > 0]
+        if not legs:
+            raise Bad("none of it is held any more, so there is nothing to sell")
+        t = {**t, "legs": legs} if t.get("basket") else legs[0]
     ev = _place(play, t, ts, {"confirmed": eid, "symbol": t.get("symbol")})
     _event_status(eid, "confirmed")
     _set(pid, accepted=play["accepted"] + 1, needs_confirm=0)
@@ -4198,6 +4438,8 @@ def tool_play(action: str = "", play: dict | str | None = None, play_id: int = 0
                                                          "members", "method", "why")}
             if row.get("_now_event"):
                 out["did_now"] = {k: row["_now_event"].get(k) for k in ("kind", "body")}
+            if got.get("effect"):
+                out["when_it_triggers"] = got["effect"]
             fs = got.get("feed") if isinstance(got.get("feed"), dict) else {}
             if fs.get("note") and row["spec"]["do"]["kind"] != "halt":
                 out["feed"] = (fs["note"] if not row["spec"].get("on") else

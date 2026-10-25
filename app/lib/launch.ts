@@ -11,6 +11,9 @@
  *   execution   switching to live trading. The account stays on the paper
  *               book; the chart chat's Execution mode is off separately, by
  *               the chart's own PIVOT_CHART_EXECUTION.
+ *   plays       the Execution tab: plays built in chat, run on the paper books
+ *               (chart/plays.html, framed). Local only for now; it
+ *               also needs the data server started with PIVOT_PLAYS=1.
  *
  * Each turns back on with its NEXT_PUBLIC_PIVOT_* variable set to "1" at
  * build time.
@@ -22,6 +25,7 @@ export const LAUNCH = {
   mainChat: on(process.env.NEXT_PUBLIC_PIVOT_MAIN_CHAT),
   strategies: on(process.env.NEXT_PUBLIC_PIVOT_STRATEGIES),
   execution: on(process.env.NEXT_PUBLIC_PIVOT_EXECUTION),
+  plays: on(process.env.NEXT_PUBLIC_PIVOT_PLAYS),
 } as const;
 
 /** Whether a shell tab is reachable in this build. */
@@ -29,6 +33,7 @@ export function tabEnabled(tab: string): boolean {
   if (tab === "chat") return LAUNCH.mainChat;
   if (tab === "agents") return LAUNCH.strategies;
   if (tab === "brokers") return LAUNCH.execution;   // linking a broker is for live orders
+  if (tab === "plays") return LAUNCH.plays;
   return true;
 }
 

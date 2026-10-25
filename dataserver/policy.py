@@ -52,6 +52,11 @@ def book(play: dict) -> dict[str, float]:
     except Exception:                                       # noqa: BLE001
         held = {}
     if of == "portfolio":
+        # targets the trader named scope it to those names; a planner (or "keep
+        # the weights it holds") works on the whole book
+        names = set(play["spec"]["do"].get("names") or [])
+        if names and play["spec"]["contract"].get("discretion") != "plan":
+            return {s: q for s, q in held.items() if q > 0 and s in names}
         return {s: q for s, q in held.items() if q > 0}
     mine = play.get("held_legs") or {}
     return {s: min(q, held.get(s, 0.0)) for s, q in mine.items() if min(q, held.get(s, 0.0)) > 0}
@@ -161,7 +166,15 @@ def ticket(play: dict, targets: dict[str, float], *, why: str = "", source: str 
             continue
         crypto = s.endswith(("USDT", "USD", "BTC"))
         n = abs(gap) / px[s]
-        n = math.floor(n * 1e6) / 1e6 if crypto else math.floor(n)
+        # a sell rounds to the nearest whole share (it funds the buys, which
+        # round down), so the book lands as near the targets as shares allow;
+        # it trades only when that brings the name at least `floor` rupees
+        # nearer, so a name half a share from its target is not sold now and
+        # bought back next time
+        n = (math.floor(n * 1e6) / 1e6 if crypto else
+             min(math.floor(n + 0.5), q.get(s, 0.0)) if gap < 0 else math.floor(n + 1e-9))
+        if gap < 0 and not crypto and abs(gap) - abs(abs(gap) - n * px[s]) < floor:
+            n -= 1
         if targets.get(s, 0.0) == 0:
             n = q.get(s, 0.0)                          # leaving a name sells all of it
         if n <= 0:
@@ -174,21 +187,31 @@ def ticket(play: dict, targets: dict[str, float], *, why: str = "", source: str 
             lg["why"] = reasons[lg["symbol"]]
     legs.sort(key=lambda lg: lg["side"] != "SELL")
     before = {s: round(q.get(s, 0) * px[s] / total, 4) for s in names if q.get(s)}
-    buys = sum(lg["inr"] for lg in legs if lg["side"] == "BUY")
-    sells = sum(lg["inr"] for lg in legs if lg["side"] == "SELL")
+    buys = sum(lg["qty"] * lg["price"] for lg in legs if lg["side"] == "BUY")
+    sells = sum(lg["qty"] * lg["price"] for lg in legs if lg["side"] == "SELL")
     m = play["spec"]["mandate"]
-    if buys - sells > cash(play) + floor and sells > 0:
-        # whole shares round the sells down; the buys are cut to what the
-        # sells and any money left actually fund, rather than refusing it all
-        k = (sells + cash(play)) / buys
+    funds = sells + cash(play)
+    if buys > funds + 1e-6 and funds > 0:
+        # every buy is paid for by the sells and the money it was given, to
+        # the rupee: when whole shares make the buys come to more, cut them to
+        # what is funded, then spend what the cut leaves on the names furthest
+        # under target, so one run lands where the next has nothing to do
+        k = funds / buys
         for lg in legs:
             if lg["side"] == "BUY":
-                n = lg["qty"] * k
-                lg["qty"] = math.floor(n * 1e6) / 1e6 if lg["symbol"].endswith(("USDT", "USD", "BTC")) \
-                    else math.floor(n)
-                lg["inr"] = round(lg["qty"] * lg["price"], 2)
+                lg["qty"] = _units(lg["symbol"], lg["qty"] * k)
+        left = funds - sum(lg["qty"] * lg["price"] for lg in legs if lg["side"] == "BUY")
+        room = {s: total * targets.get(s, 0.0) - q.get(s, 0.0) * px[s] for s in names}
+        for lg in sorted((lg for lg in legs if lg["side"] == "BUY"),
+                         key=lambda lg: -(room[lg["symbol"]] - lg["qty"] * lg["price"])):
+            n = _units(lg["symbol"], min(room[lg["symbol"]] - lg["qty"] * lg["price"], left) / lg["price"])
+            if n > 0:
+                lg["qty"] += n
+                left -= n * lg["price"]
+        for lg in legs:
+            lg["inr"] = round(lg["qty"] * lg["price"], 2)
         legs = [lg for lg in legs if lg["qty"] > 0]
-        buys = sum(lg["inr"] for lg in legs if lg["side"] == "BUY")
+        buys = sum(lg["qty"] * lg["price"] for lg in legs if lg["side"] == "BUY")
     if buys - sells > cash(play) + floor:
         return None, (f"the trades need ₹{buys - sells:,.0f} of new money and the play has "
                       f"₹{cash(play):,.0f} left to put in")
@@ -200,6 +223,12 @@ def ticket(play: dict, targets: dict[str, float], *, why: str = "", source: str 
             "total_inr": round(total, 2), "buys_inr": round(buys, 2), "sells_inr": round(sells, 2),
             "source": source, "why": why, "structural": structural,
             "reasons": {s: reasons[s] for s in targets if reasons.get(s)}}, ""
+
+
+def _units(sym: str, n: float) -> float:
+    """Whole shares, or a crypto amount to six places, never rounded up."""
+    n = max(0.0, n)
+    return math.floor(n * 1e6) / 1e6 if sym.endswith(("USDT", "USD", "BTC")) else math.floor(n + 1e-9)
 
 
 def place(play: dict, t: dict) -> tuple[list, list, dict]:

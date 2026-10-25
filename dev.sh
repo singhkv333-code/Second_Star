@@ -64,13 +64,13 @@ echo "Pivot — starting the platform"
 # CERTIFICATE_VERIFY_FAILED. certifi ships in the venv; point the runtime at it.
 CA="$("$PY" -c 'import certifi; print(certifi.where())' 2>/dev/null || true)"
 start 5174 "dataserver"    /tmp/pivot_dev_dataserver.log \
-      env -C "$ROOT/dataserver" ${CA:+SSL_CERT_FILE="$CA"} "$PY" -u dataserver.py
+      env -C "$ROOT/dataserver" ${CA:+SSL_CERT_FILE="$CA"} PIVOT_PLAYS=1 PIVOT_CHAT_V2=1 "$PY" -u dataserver.py
 start 8000 "api"           /tmp/pivot_dev_api.log \
       env -C "$ROOT/api" "$PY" -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
 # Process env beats .env.local in Next, so these pin the one-origin bases even
 # where an older .env.local still points the browser at :8000 directly.
 start 3000 "app"           /tmp/pivot_dev_next.log \
-      env -C "$ROOT/app" NEXT_PUBLIC_PIVOT_API_BASE=/pv/api \
+      env -C "$ROOT/app" NEXT_PUBLIC_PIVOT_API_BASE=/pv/api NEXT_PUBLIC_PIVOT_PLAYS=1 \
       PIVOT_CHART_DIR="$ROOT/chart" npm run dev
 
 echo
