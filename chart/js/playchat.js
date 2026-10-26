@@ -54,6 +54,8 @@
   function paintTabs() {
     const p = route.page === "strategy" ? "strategies" : route.page;
     document.querySelectorAll("#tabs [data-go]").forEach((t) => t.classList.toggle("on", t.dataset.go === p));
+    const on = document.querySelector(`#tabs [data-go="${p}"]`);
+    $("topTitle").textContent = on ? on.textContent.replace(/\d+$/, "").trim() : "";
     const waiting = (data.events || []).filter((e) => e.kind === "proposed" && e.status === "open").length;
     const n = waiting || (data.events || []).filter((e) => !e.seen && !hidden.has(e.id)).length;
     $("inboxCount").hidden = !n;
@@ -263,14 +265,39 @@
       el.innerHTML = `${ic("trash")}<span>${esc(c.title)} was deleted.</span>`;
       return el;
     }
-    if (c.kind === "play") {
-      const el = Kit.strategy(c);
-      return el;
-    }
+    if (c.kind === "play") return playFolder(c);
     if (c.kind === "custom_security") return securityCard(c);
     if (c.kind === "review") return Kit.review(c);
     if (c.kind === "scan") return Kit.scanCard(c);
     return null;
+  }
+
+  /** A play in the thread is drawn whole. On a phone it arrives as its
+   *  folder instead: tapping it unfolds the full card, and "Fold" puts it
+   *  back. Which plays are open is kept here, so a repaint while the reply
+   *  streams in does not close one. */
+  const phone = window.matchMedia("(max-width: 760px)");
+  phone.addEventListener("change", () => { if (route.page === "home" && cur) home(cur.id); });
+  const unfolded = new Set();
+  function playFolder(c) {
+    if (!phone.matches) return Kit.strategy(c);
+    const box = document.createElement("div");
+    box.className = "pfold";
+    const paint = () => {
+      if (unfolded.has(c.id)) {
+        box.innerHTML = `<button type="button" class="fold-bar" data-fold>${ic("chevron")}<span>Fold</span></button>`;
+        box.appendChild(Kit.strategy(c));
+      } else box.replaceChildren(Kit.folder(c, { toggle: true }));
+    };
+    box.addEventListener("click", (e) => {
+      const hit = unfolded.has(c.id) ? e.target.closest("[data-fold]") : e.target.closest(".folder");
+      if (!hit) return;
+      if (unfolded.has(c.id)) unfolded.delete(c.id); else unfolded.add(c.id);
+      paint();
+      if (!unfolded.has(c.id)) box.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
+    paint();
+    return box;
   }
 
   function securityCard(c) {
@@ -489,10 +516,10 @@
   function strategies(keep) {
     if (!keep || !main.querySelector("#sgrid")) {
       main.innerHTML = `<div class="page"><h1 class="h1">Strategies.</h1><p class="sub">Every play: what it watches, what it would have done, and what it did.</p>` +
-        `<div class="toolbar"><input class="field" id="sq" placeholder="Search strategies" style="width:260px" value="${esc(sQuery)}" />` +
-        `<select class="field" id="ss"><option value="all">All statuses</option><option value="armed">Armed</option><option value="paused">Paused</option><option value="done">Completed</option></select>` +
+        `<div class="toolbar"><input class="field q" id="sq" type="search" placeholder="Search strategies" value="${esc(sQuery)}" />` +
+        `<select class="field" id="ss"><option value="all">All statuses</option><option value="armed">Active</option><option value="paused">Paused</option><option value="done">Completed</option></select>` +
         `<select class="field" id="so"><option value="new">Newest first</option><option value="fired">Most fired</option><option value="az">A to Z</option></select>` +
-        `<span class="grow"></span><button type="button" class="btn dark" data-go="home">${ic("sparkle")}New play</button></div><div id="sgrid"></div></div>`;
+        `<span class="grow"></span><button type="button" class="btn dark" data-go="home" aria-label="New play">${ic("plus")}<span class="lbl">New play</span></button></div><div id="sgrid"></div></div>`;
       $("ss").value = sState; $("so").value = sSort;
       $("sq").addEventListener("input", (e) => { sQuery = e.target.value; paintGrid(); });
       $("ss").addEventListener("change", (e) => { sState = e.target.value; paintGrid(); });
@@ -506,8 +533,14 @@
       (!q || `${p.title} ${p.summary} ${p.symbol}`.toLowerCase().includes(q)));
     rows = rows.slice().sort(sSort === "fired" ? (a, b) => (b.fires || 0) - (a.fires || 0) :
       sSort === "az" ? (a, b) => a.title.localeCompare(b.title) : (a, b) => (b.created || b.id) - (a.created || a.id));
-    $("sgrid").innerHTML = rows.length ? `<div class="grid">${rows.map(Kit.tile).join("")}</div>`
-      : `<div class="empty">${(data.plays || []).length ? "Nothing matches that." : "No plays yet. Say one on Home and it appears here."}</div>`;
+    if (!rows.length) {
+      $("sgrid").innerHTML = `<div class="empty">${(data.plays || []).length ? "Nothing matches that." : "No plays yet. Say one on Home and it appears here."}</div>`;
+      return;
+    }
+    const g = document.createElement("div");
+    g.className = "grid folders";
+    rows.forEach((p) => g.appendChild(Kit.folder(p)));
+    $("sgrid").replaceChildren(g);
   }
 
   /* ── one strategy ─────────────────────────────────────────────────────── */
@@ -603,7 +636,7 @@
       `<div class="row" style="align-items:baseline;gap:10px"><span class="bignum">${Kit.bigMoney(sum.nav)}</span>` +
       `<span class="pill ${sum.total_pnl >= 0 ? "up" : "down"}">${esc(Kit.signed(sum.total_pnl_pct))}</span></div>` +
       `<div id="navc" style="margin-top:8px"></div></div>` +
-      `<div class="grid" style="grid-template-columns:repeat(4,1fr);margin-top:12px;gap:10px">${[["Cash", sum.cash_available], ["Invested", sum.invested], ["Today", sum.day_pnl], ["All time", sum.total_pnl]].map(([k, v]) =>
+      `<div class="kpis">${[["Cash", sum.cash_available], ["Invested", sum.invested], ["Today", sum.day_pnl], ["All time", sum.total_pnl]].map(([k, v]) =>
         `<div style="background:var(--panel);border-radius:10px;padding:10px"><div class="muted" style="font-size:12px">${k}</div><div class="num ${k === "Today" || k === "All time" ? (v >= 0 ? "up" : "down") : ""}" style="font-size:16px;font-weight:500;margin-top:2px">${esc(Kit.inr(v))}</div></div>`).join("")}</div></div>` +
       `<div class="panel"><div class="panel-h">${ic("pie")}<span>Allocation</span></div><div class="donut-wrap" id="donut"></div></div></div>` +
       `<div class="panel" style="margin-top:16px"><div class="subtabs">${[["holdings", "Holdings", "pie"], ["day", "Day book", "bolt"], ["tx", "Transactions", "list"]].map(([k, l, i]) =>
@@ -767,8 +800,15 @@
     setTimeout(() => send(q), 30);
   });
 
+  const scrolled = () => document.body.classList.toggle("past-title", window.scrollY > 56);
+  window.addEventListener("scroll", scrolled, { passive: true });
+  window.addEventListener("hashchange", scrolled);
+
   setInterval(() => { if (!document.hidden) refresh(); }, 60_000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
+
+  const TAB_IC = { home: "home", strategies: "folder", inbox: "bell", portfolio: "pie", review: "chart" };
+  document.querySelectorAll("#tabs [data-go]").forEach((t) => t.insertAdjacentHTML("afterbegin", ic(TAB_IC[t.dataset.go] || "grid")));
 
   (async () => {
     Kit.loadLogos();

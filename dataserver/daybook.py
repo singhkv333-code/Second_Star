@@ -179,6 +179,33 @@ def _now_ist() -> datetime:
     return datetime.now(IST)
 
 
+# When a new position may open, in IST. NSE cash and F&O trade 09:15-15:30;
+# an intraday (MIS) position must open before the 15:20 square-off, or the
+# sweep closes it seconds later for nothing but its charges. Crypto and perps
+# trade around the clock. Exchange holidays are not known here.
+SESSION = {"NSE": (915, 1530), "NFO": (915, 1530), "MCX": (900, 2330)}
+
+
+def session_refusal(legs: list[dict], now: datetime | None = None) -> str:
+    """'' when every leg's market is open for a new position now, else the
+    sentence that says why not."""
+    now = now or _now_ist()
+    hm = now.hour * 100 + now.minute
+    for lg in legs:
+        venue = lg.get("venue")
+        if venue not in SESSION:
+            continue
+        lo, hi = SESSION[venue]
+        if lg.get("product") == "MIS" and venue in SQUARE_OFF:
+            hi = min(hi, SQUARE_OFF[venue][0] * 100 + SQUARE_OFF[venue][1])
+        if now.weekday() >= 5 or not lo <= hm < hi:
+            what = "an intraday position" if lg.get("product") == "MIS" else "a position"
+            return (f"the {venue} market is closed for {what} now ({now:%a %H:%M} IST; it opens "
+                    f"{lo // 100:02d}:{lo % 100:02d}-{hi // 100:02d}:{hi % 100:02d} on weekdays), so "
+                    f"nothing was opened")
+    return ""
+
+
 def _equity_px(symbol: str) -> tuple[float | None, bool]:
     """(price, stale). The live tick when a feed is on, else the last close."""
     live = ds._live_view(symbol) if hasattr(ds, "_live_view") else None
@@ -218,17 +245,19 @@ def resolve(do: dict, product: str) -> list[dict]:
         if kind == "short" and not crypto and product != "MIS":
             raise Refused("a short in Indian equities is intraday only: product MIS, squared off at 15:20")
         size = do.get("size") or {}
+        usd = 1.0
+        if crypto:
+            # the rate is read whatever the size: a crypto leg is booked in
+            # rupees, so one sized in coins needs it too
+            import paper
+            fx, _ = paper.fx_rate("USD")
+            usd = float(fx or 0) or 0
+            if not usd:
+                raise Refused("no USD/INR rate to book a crypto position in rupees")
         if size.get("qty"):
             qty = float(size["qty"])
         else:
             inr = float(size.get("inr") or 10_000)
-            usd = 1.0
-            if crypto:
-                import paper
-                fx, _ = paper.fx_rate("USD")
-                usd = float(fx or 0) or 0
-                if not usd:
-                    raise Refused("no USD/INR rate to size a crypto position in rupees")
             qty = inr / (px * usd)
             qty = math.floor(qty * 1e6) / 1e6 if crypto else math.floor(qty)
         if qty <= 0:

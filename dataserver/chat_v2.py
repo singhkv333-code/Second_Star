@@ -677,7 +677,9 @@ def journal(action=None, **args) -> dict:
                                                   "changes": args["changes"]})
         return _call("update_trade", args)
     if action == "log":
-        return _call("log_trade", args)
+        keep = ("symbol", "side", "quantity", "entry_price", "entry_at", "exit_price", "exit_at", "stop",
+                "fees", "tags", "thesis", "plan")
+        return _call("log_trade", {k: v for k, v in args.items() if k in keep})
     return {"error": "action is one of log, update, list, portfolio"}
 
 
@@ -864,11 +866,10 @@ _PLAY_DOC = (
     "it must hold N bars running.\n"
     "on (events clock it instead of bars): {sources, symbols (whose NSE filings), match: [specific "
     "names or terms, never common words], judge: 'a yes/no question each item must answer yes to'}. "
-    "sources: filings (NSE announcements), news (Economic Times, Mint, CNBC-TV18, BusinessLine, BBC, "
-    "CoinDesk), or a social address: reddit:r/<sub> | reddit:u/<user> | reddit:search:<words>, "
-    "telegram:<channel>, youtube:@<handle>, bsky:<handle>, mastodon:<user>@<host>, gnews:<words>, "
-    "rss:<url>, or the pasted link. X, StockTwits, Instagram and the like cannot be read; compile "
-    "says why and what is nearest. With on, "
+    "sources: filings (NSE announcements), news (ET, Mint, CNBC-TV18, BusinessLine, BBC, CoinDesk), or "
+    "a social address (reddit:r/<sub> | reddit:u/<user> | reddit:search:<words>, telegram:<channel>, "
+    "youtube:@<handle>, bsky:<handle>, mastodon:<user>@<host>, gnews:<words>, rss:<url>, a pasted link); "
+    "X and Instagram cannot be read. With on, "
     "`when` confirms on the latest bar, and a headline alone only proposes.\n"
     "do: {kind: notify}; {kind: buy | sell | short | cover, symbol, size: {inr} | {qty} | {all: "
     "true} | {pct} (a sell's share of what is held; a sell takes from the paper portfolio), product: "
@@ -885,10 +886,17 @@ _PLAY_DOC = (
     "add; leave it out to rebalance what is held), objective (their "
     "words), universe}: no `when`; code works out whole-share trades (a planner stays within "
     "mandate.max_weight, 0.4; weights they state are kept). "
-    "Once (lifespan now) you write the targets from data you read; kept (lifespan policy, policy: "
-    "{drift_pct, every: day | week | month only if they named a cadence}) it reruns on drift or that "
+    "Once (lifespan now) you write the targets from data you read; kept (contract.lifespan policy, with "
+    "play.policy {drift_pct, every: day | week | month when they name a cadence}) it reruns on drift or that "
     "calendar, and with contract.discretion plan a planner sets the targets each run (a change of "
     "names is proposed).\n"
+    "Common asks: a stop or trail on shares they hold is do {kind: sell, symbol} with manage {stop_pct | "
+    "trail_pct} and no `when` (it rests as a stop order and sells only if the price gets there); \"square "
+    "off\" or \"close my intraday\" is do {kind: sell, symbol: '*', of: 'day'} (every open intraday "
+    "position, never a delivery holding); an exact share count (\"trim 30\") is a sell with size.qty, never a "
+    "rebalance (whose weight 0 sells all of a name); a swap (\"trim 30 BEL into HAL\") is two plays in one "
+    "response, that sell and a buy sized at its value; \"buy btc\" is spot BTCUSDT, a perp only when they say perp, leverage or futures; \"get me "
+    "some X\" is a buy; \"cancel that\" about a play just built is delete.\n"
     "manage: {stop_pct, target_pct (an option's are percents of its premium), trail_pct, exit_at: "
     "'15:15', on_leg_stop: exit_all | move_others_to_cost, max_loss_inr, target_inr (the whole "
     "position), exit_when}. exit_when is a `when` that closes the position; it may also read entry, "
@@ -906,19 +914,42 @@ _PLAY_DOC = (
     "Build exactly what was asked: keep their verb (a buy stays an order, an alert an alert), add no "
     "condition, exit, close, schedule, size, window or order they did not ask for (nor drop "
     "one they did); for vague words take the plainest reading, the shorter lifespan and the lower "
-    "authority, and say it and what one tap upgrades. Code fills "
+    "authority, and say it and what one tap upgrades. A missing number gets a default you state: ₹10,000 "
+    "a buy, 5% a stop or trail, 'every X% fall' a standing buy on falls_pct X, a cadence they name in "
+    "play.policy.every. Code fills "
     "only what is required and says so; a useful extra is one sentence offering it.\n"
-    "compile replays the play over stored history: how often it fires and, when it opens a position, "
-    "every round trip through its exits against a control (the same exits from entries anywhere in "
-    "the same hours). So 'has this worked?' about a play is answered by compiling it (arm: false only "
-    "tests it). Everything is simulated in the paper books; nothing reaches a broker.\n"
-    "when_it_triggers is the order the rule places each time it triggers, worked out against the "
-    "trader's book as it stands (after any act-now order, which is did_now) and placed nowhere: orders, "
-    "holdings before → after, what stays untouched, refused (why it could not), ignored (fields of do "
-    "the order never used). Read it and did_now against their words before you reply: the names, side "
-    "and size they meant, and nothing they did not name. If it differs, or "
-    "refuses something they asked for, compile again with the play fixed; if it still cannot, say what "
-    "it would do and why.")
+    "compile replays the play over stored history (how often it fires; for a position, its round trips "
+    "against a control of the same exits from anywhere), so 'has this worked?' is answered by compiling "
+    "(arm: false only tests). Everything is on paper; nothing reaches a broker.\n"
+    "did_now is what it did at once; when_it_triggers is the order each trigger would place against their "
+    "book (before → after, untouched, refused, ignored fields). Check both against their words: the names, "
+    "side and size they meant and nothing else. If they differ, compile again fixed; if it still cannot, "
+    "say what it would do and why.")
+
+
+def _keys(*names: str) -> dict:
+    return {"type": "object", "additionalProperties": True, "properties": {n: {} for n in names}}
+
+
+# Where each field of a play lives. The meaning is in _PLAY_DOC; this is the
+# map, so nesting is not guessed from prose.
+_PLAY_SCHEMA = {
+    "type": "object", "additionalProperties": True,
+    "description": "the whole play, for compile and edit",
+    "properties": {
+        "title": _STR, "ask": _STR, "why": _STR, "symbol": _STR, "interval": _STR,
+        "measures": {"type": "array", "items": {"type": "object"}},
+        "when": {"type": "object"}, "on": {"type": "object"},
+        "do": _keys("kind", "symbol", "size", "product", "of", "legs", "underlying", "side", "lots", "expiry",
+                    "leverage", "close", "targets", "cash_pct", "objective", "universe"),
+        "manage": _keys("stop_pct", "target_pct", "trail_pct", "exit_at", "on_leg_stop", "max_loss_inr",
+                        "target_inr", "exit_when"),
+        "contract": _keys("lifespan", "authority", "inferred_from", "expires_in_days", "now", "discretion"),
+        "policy": _keys("every", "drift_pct"),
+        "mandate": _keys("capital_inr", "max_fires", "max_open", "max_weight"),
+        "security": {"type": "object"}, "universe": {},
+    },
+}
 
 
 def _play_tools() -> list[dict]:
@@ -927,7 +958,7 @@ def _play_tools() -> list[dict]:
         _fn("play", _PLAY_DOC,
             {"action": {"type": "string", "enum": ["compile", "edit", "list", "pause", "resume",
                                                    "delete", "explain", "review"]},
-             "play": {**obj, "description": "the whole play, for compile and edit"},
+             "play": _PLAY_SCHEMA,
              "play_id": {"type": "integer"},
              "arm": {"type": "boolean", "description": "false keeps it as a draft; default arms it"}},
             ["action"]),
@@ -1270,12 +1301,24 @@ _PLAYS_LINE = (
     "proposes an order, or places it on paper (play, measure)")
 
 
+# Measured 2026-10-26 (one factor at a time, the real harness): with this rule
+# only in the play tool's description, "cut my IT exposure" and "rebalance
+# monthly" were met with a question every time, and higher reasoning effort
+# did not change it; here, beside the prompt's "ask only when..." and its
+# no-advice rule, it built them.
+_PLAYS_WORK = (
+    "- When the trader wants something done (buy, sell, exit, protect, rebalance, alert), build the play "
+    "now with sensible defaults and say what you chose; do not ask for a size, a level or a cadence first. "
+    "Placing the paper order they asked for is following their instruction, not giving advice. Say when "
+    "the market is closed and what that means for the order.\n")
+
+
 def prompt() -> str:
     if not plays_on():
         return PROMPT
     return PROMPT.replace(
         "manage alerts (alerts), keep the trade journal and paper portfolio (journal), and build, "
-        "backtest and plan strategies (strategy)", _PLAYS_LINE)
+        "backtest and plan strategies (strategy)", _PLAYS_LINE).replace("\n## Evidence", _PLAYS_WORK + "\n## Evidence", 1)
 
 
 def system_block(context_block: str) -> str:

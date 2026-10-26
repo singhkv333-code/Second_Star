@@ -851,6 +851,29 @@ def place_order(uid: int, symbol: str, side: str, quantity, *,
     return {"order_id": oid, "status": "filled", **fill}
 
 
+def order_status(uid: int, order_id: str) -> Optional[str]:
+    """The order's status (resting, filled, cancelled, rejected), or None."""
+    init_db()
+    with ds._users_lock:
+        r = _db().execute("SELECT status FROM paper_orders WHERE id=? AND user_id=?",
+                          (order_id, uid)).fetchone()
+    return r[0] if r else None
+
+
+def move_trigger(uid: int, order_id: str, trigger) -> bool:
+    """A resting stop's trigger moved (a trailing stop being raised). Only a
+    resting order moves; True when it did."""
+    if to_money(trigger) <= 0:
+        return False
+    with ds._users_lock:
+        n = _db().execute(
+            "UPDATE paper_orders SET trigger_price=?, updated=? WHERE id=? AND user_id=? "
+            "AND status='resting' AND order_type IN ('SL', 'SL-M')",
+            (f(to_money(trigger)), int(time.time()), order_id, uid)).rowcount
+        _db().commit()
+    return bool(n)
+
+
 def cancel_order(uid: int, order_id: str) -> dict:
     init_db()
     now = int(time.time())
@@ -982,8 +1005,18 @@ def on_price(symbol: str, price: float) -> None:
                     (row[1],)).fetchone()
                 if acct is None:
                     continue
+                qty = row[6]
+                if row[4] == "SELL":
+                    # the holding may have shrunk since the order was placed (a
+                    # part sold by hand, another play's exit): a stop sells
+                    # what is still there instead of failing whole
+                    have = _db().execute(
+                        "SELECT quantity FROM paper_positions WHERE account_id=? AND symbol=?",
+                        (row[1], sym)).fetchone()
+                    if have and 0 < float(have[0]) < float(qty):
+                        qty = have[0]
                 order = {"id": row[0], "user_id": row[2], "symbol": row[3],
-                         "side": row[4], "quantity": row[6],
+                         "side": row[4], "quantity": qty,
                          "reserved_cash": row[9], "strategy_id": row[10],
                          "stop_loss": row[11], "take_profit": row[12],
                          "oco_id": row[13]}

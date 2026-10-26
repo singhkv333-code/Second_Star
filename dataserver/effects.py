@@ -131,6 +131,13 @@ def scope(play: dict, held: dict[str, float] | None = None) -> set[str]:
     if do.get("kind") == "rebalance" and do.get("of") == "portfolio" and \
             spec["contract"].get("discretion") == "plan":
         names |= set(held or {})
+    if do.get("of") == "day" and do.get("symbol") == "*":
+        # closing the whole day book trades every name open in it
+        try:
+            import daybook
+            names |= {x for p in daybook.open_positions(play["user_id"]) for x in (p["symbol"], p["underlying"])}
+        except Exception:                                   # noqa: BLE001
+            pass
     names = {str(s) for s in names if s and s not in ("*", "rebalance")}
     for s in list(names):
         if customsec is not None and customsec.is_custom(s):
@@ -189,9 +196,10 @@ def vet(play: dict, t: dict) -> str:
     law is logged as the bug it is."""
     try:
         bad = laws(play, t)
-    except Exception:                                       # noqa: BLE001
+    except Exception as exc:                                # noqa: BLE001
+        # a check that could not run has not passed: nothing is placed on it
         log.exception("effects: could not check play %s", play.get("id"))
-        return ""
+        return f"a safety check could not run ({type(exc).__name__}), so nothing was placed"
     if bad:
         log.error("effects: play %s ticket broke a law: %s", play.get("id"), "; ".join(bad))
         return "a safety check refused it: " + "; ".join(bad)

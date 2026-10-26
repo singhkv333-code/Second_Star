@@ -107,7 +107,12 @@ class Books:
             self.daybook.open_group(self.uid, None, legs, {})
 
     def last_play(self) -> int:
-        r = self.ds._users.execute("SELECT COALESCE(MAX(id), 0) FROM plays WHERE user_id=?", (self.uid,)).fetchone()
+        # play ids are reused after a delete (no AUTOINCREMENT), so the mark is
+        # past every id an event still names, or a deleted play's events would
+        # be read as the new case's
+        r = self.ds._users.execute(
+            "SELECT MAX(COALESCE((SELECT MAX(id) FROM plays WHERE user_id=?), 0), "
+            "COALESCE((SELECT MAX(play_id) FROM play_events WHERE user_id=?), 0))", (self.uid, self.uid)).fetchone()
         return int(r[0])
 
     def fire_new(self, after: int, force: bool = False) -> list[dict]:

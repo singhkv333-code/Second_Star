@@ -102,6 +102,8 @@ const Kit = (() => {
     chevron: '<path d="M6 15l6-6 6 6"/>',
     target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
     shield: '<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/>',
+    home: '<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>',
+    folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
   };
   const ic = (n, cls = "") => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n] || ""}</svg>`;
 
@@ -406,7 +408,7 @@ const Kit = (() => {
     return `<div class="node" data-node="t"><div class="nh">${ic(icon)}<span>${head}</span><span class="grow"></span>${pill}</div>${body}</div>`;
   }
 
-  const STATE = { armed: ["Armed", "armed"], paused: ["Paused", ""], done: ["Completed", "done"], draft: ["Draft", ""] };
+  const STATE = { armed: ["Active", "armed"], paused: ["Paused", ""], done: ["Completed", "done"], draft: ["Draft", ""] };
   const VERB = { buy: ["Buy", "buy"], sell: ["Sell", "sell"], short: ["Short", "sell"], cover: ["Cover", "buy"] };
   const COLORS = ["#2563eb", "#f0570f", "#16a34a", "#7c4dff", "#d63d8f", "#0a86c4", "#b26b00", "#64748b"];
 
@@ -589,9 +591,11 @@ const Kit = (() => {
       ? `Would have fired <b>${esc(h.fires)}×</b> in ${esc(h.bars)} ${c.interval === "1d" ? "days" : `${c.interval} bars`}` +
         (h.last_fire ? `, last on <b>${esc(dayY(h.last_fire))}</b>` : "") : "";
     el.innerHTML = `<div class="strat-head"><div style="flex:1;min-width:0"><div class="row" style="gap:8px;margin-bottom:3px">` +
-      `<h3>${c.state === "done" ? esc(c.title) : ed("title", c.title, esc(c.title))}</h3><span class="pill ${st[1]}"><i class="dot"></i>${esc(st[0])}</span></div><p>${esc(c.summary || "")}</p>` +
-      (c.thesis ? `<p class="thesis"><b>Why</b>${esc(c.thesis)}</p>` : "") + `</div>` +
-      `<div class="logos">${syms.map((s) => logo(s, "lg")).join("")}</div></div>`;
+      `<h3>${c.state === "done" ? esc(c.title) : ed("title", c.title, esc(c.title))}</h3><span class="pill ${st[1]}"><i class="dot"></i>${esc(st[0])}</span></div></div>` +
+      `<div class="logos">${syms.map((s) => logo(s, "lg")).join("")}</div>` +
+      // on a phone the two paragraphs become cards you swipe across
+      `<div class="strat-lede">${c.summary ? `<p>${esc(c.summary)}</p>` : ""}` +
+      (c.thesis ? `<p class="thesis"><b>Why</b>${esc(c.thesis)}</p>` : "") + `</div></div>`;
     el.appendChild(canvas(c));
     if (c.universe) {
       const u = c.universe, met = new Set(u.met_now || []), hold = new Set(u.holding || []);
@@ -837,23 +841,36 @@ const Kit = (() => {
     inp.addEventListener("blur", () => setTimeout(() => { if (!inp.disabled) undo(); }, 120));
   }
 
-  /** The grid tile: name, the sentence, a small picture of its canvas, two
-   *  figures. */
-  function tile(c) {
+  /** A play as a file folder: its tab, the play's own canvas drawn small on
+   *  a sheet sticking out, the sheets behind it, and the front pocket with
+   *  its name and sentence. `toggle`
+   *  adds the "Open the play" row the chat uses to unfold it. */
+  const FOLDER = { armed: "blue", paused: "grey", done: "green", draft: "grey" };
+  const THUMB_W = 780;
+  function folder(c, o = {}) {
     const st = STATE[c.state] || [c.state, ""];
-    const syms = [...new Set([c.symbol, (c.do || {}).symbol, (c.do || {}).underlying, ...Object.keys((c.do || {}).targets || {})].filter(Boolean))].slice(0, 3);
-    const sig = (c.measures || [])[0] ? c.measures[0].title : c.on ? (c.on.reads || "Filings and news") : `${c.symbol} price`;
-    const trig = (c.conditions || [])[0] ? c.conditions[0].text : c.on ? "An item matches" : c.lifespan === "policy" ? "Kept maintained" : "Now";
-    const act = c.action ? (c.action.text || `${c.action.side} ${c.action.size || ""} ${c.action.symbol || ""}`) : "Alert you";
-    const h = c.history || {};
-    return `<button type="button" class="sc" data-open="${esc(c.id)}"><div class="top2"><span class="pill ${st[1]}"><i class="dot"></i>${esc(st[0])}</span>` +
-      `<b>${esc(c.title)}</b><span class="logos">${syms.map((s) => logo(s, "sm")).join("")}</span></div>` +
-      `<div class="desc">${esc(c.summary || "")}</div>` +
-      `<div class="mini dots"><div class="mn"><b>Signal</b><span>${esc(sig)}</span></div><i class="arr"></i>` +
-      `<div class="mn"><b>Trigger</b><span>${esc(trig)}</span></div><i class="arr"></i>` +
-      `<div class="mn"><b>Action</b><span>${esc(act)}</span></div></div>` +
-      `<div class="stats"><div><span>${c.fires ? "Fired" : "On history"}</span><b>${c.fires ? `${esc(c.fires)}×` : h.bars && !c.on && (c.conditions || []).length ? `${esc(h.fires)}×` : "–"}</b></div>` +
-      `<div><span>${c.spent_inr ? "Put in" : "Runs"}</span><b>${c.spent_inr ? esc(inr(c.spent_inr)) : esc(c.lifespan === "policy" ? "Policy" : c.lifespan === "now" ? "Once" : c.lifespan === "standing" ? "Every time" : "Once")}</b></div></div></button>`;
+    const syms = [...new Set([c.symbol, (c.do || {}).symbol, (c.do || {}).underlying, ...Object.keys((c.do || {}).targets || {})].filter((x) => x && x !== "*"))].slice(0, 3);
+    const el = document.createElement("div");
+    el.className = `folder f-${FOLDER[c.state] || "grey"}`;
+    el.tabIndex = 0;
+    el.setAttribute("role", o.toggle ? "button" : "link");
+    el.setAttribute("aria-label", `${c.title}, ${st[0]}`);
+    if (!o.toggle) el.dataset.open = c.id;
+    el.innerHTML = `<div class="fd-tab"><i class="dot"></i>${esc(st[0])}</div><div class="fd-back"></div>` +
+      `<div class="fd-papers"><div class="fd-paper p3"></div><div class="fd-paper p2"></div><div class="fd-paper p1"><div class="thumb-in"></div></div></div>` +
+      `<div class="fd-front">` +
+      `<div class="fd-title">${syms.length ? `<span class="logos">${syms.map((s) => logo(s, "sm")).join("")}</span>` : ""}<b>${esc(c.title)}</b></div>` +
+      `<p class="fd-desc">${esc(c.summary || "")}</p>` +
+      (o.toggle ? `<span class="fd-more">${ic("chevron")}Open the play</span>` : "") + `</div>`;
+    const paper = el.querySelector(".p1"), inner = el.querySelector(".thumb-in");
+    const cv = canvas(c);
+    cv.classList.add("thumb-c");
+    inner.appendChild(cv);
+    const fit = () => { if (paper.clientWidth) inner.style.transform = `scale(${paper.clientWidth / THUMB_W})`; };
+    new ResizeObserver(fit).observe(paper);
+    fit();
+    el.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); el.click(); } });
+    return el;
   }
 
   /* ── the inbox: Catalyst's alert ─────────────────────────────────────── */
@@ -937,5 +954,5 @@ const Kit = (() => {
   }
 
   return { API, esc, call, num, inr, signed, bigMoney, bigNum, ago, day, dayY, ic, logo, name, outlet, loadLogos, symIn, venueOf, ed, editInline,
-           lineChart, priceBlock, bars, canvas, strategy, tile, alertCard, md, toast, review, scanCard, COLORS };
+           lineChart, priceBlock, bars, canvas, strategy, folder, alertCard, md, toast, review, scanCard, COLORS };
 })();

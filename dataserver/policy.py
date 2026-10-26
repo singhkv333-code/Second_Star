@@ -119,7 +119,9 @@ def norm_targets(raw, cash_pct: float = 0.0, cap: float | None = None) -> tuple[
     if not t:
         raise Bad("a rebalance needs targets: [{symbol, weight}]")
     if sum(t.values()) == 0:
-        t = {s: 1.0 for s in t}
+        # every name at 0 is "sell all of these", never "hold them equally":
+        # equal weights here once turned "square off everything" into buys
+        return {s: 0.0 for s in t}, [f"every target is 0%: it sells all of {', '.join(sorted(t))}"]
     room = 1.0 - max(0.0, min(0.9, cash_pct / 100))
     tot = sum(t.values())
     t = {s: w / tot * room for s, w in t.items()}
@@ -243,7 +245,7 @@ def place(play: dict, t: dict) -> tuple[list, list, dict]:
         except Exception as exc:                            # noqa: BLE001
             failed.append({"symbol": lg["symbol"], "reason": str(exc)})
             continue
-        p = float(((got or {}).get("fill") or {}).get("price") or lg["price"])
+        p = float((got or {}).get("fill_price") or lg["price"])
         fills.append({"symbol": lg["symbol"], "side": lg["side"], "qty": lg["qty"], "price": p})
         sign = 1 if lg["side"] == "BUY" else -1
         held[lg["symbol"]] = max(0.0, held.get(lg["symbol"], 0.0) + sign * lg["qty"])
