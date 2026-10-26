@@ -75,11 +75,13 @@ def test_an_any_with_a_branch_that_always_holds_acts_now() -> None:
     assert kept == {"any": [{"left": "close", "op": "above", "right": 5000}]}
 
 
-def test_a_size_the_trader_never_named_is_the_default(uid) -> None:
+def test_a_size_the_trader_never_named_is_flagged_not_replaced(uid) -> None:
+    """The model's size stands (a correction from the book is right); when
+    their words carry no such number it is told so, with the default."""
     got = _compile(uid, heard="buy reliance", do={"kind": "buy", "symbol": "RELIANCE", "size": {"qty": 1}},
                    contract={"lifespan": "now", "authority": "propose"})
-    assert got["play"]["spec"]["do"]["size"] == {"inr": plays.DEFAULT_SIZE_INR}
-    assert any("sized at ₹10,000" in a for a in got["assumed"])
+    assert got["play"]["spec"]["do"]["size"] == {"qty": 1.0}
+    assert any("is not in their words" in a for a in got["assumed"])
     kept = _compile(uid, heard="buy 5 reliance", do={"kind": "buy", "symbol": "RELIANCE", "size": {"qty": 5}},
                     contract={"lifespan": "now", "authority": "propose"})
     assert kept["play"]["spec"]["do"]["size"] == {"qty": 5.0}
@@ -262,13 +264,14 @@ def test_a_play_with_a_condition_never_acts_now(uid) -> None:
 def test_a_size_must_be_the_trader_s_own_number(uid) -> None:
     """A percent in the words ('2% below') is a level, not a size: the
     model's 1 share is its own guess."""
-    def size(heard, sz):
-        return _compile(uid, heard=heard, do={"kind": "buy", "symbol": "RELIANCE", "size": sz},
-                        contract={"lifespan": "now", "authority": "propose"})["play"]["spec"]["do"]["size"]
-    assert size("buy reliance 2% below current", {"qty": 1}) == {"inr": plays.DEFAULT_SIZE_INR}
-    assert size("put 5k in reliance", {"qty": 3}) == {"qty": 3.0}         # ₹5,000 as whole shares
-    assert size("buy 10 reliance", {"inr": 13090}) == {"inr": 13090.0}   # 10 shares as rupees
-    assert size("buy reliance with half my cash", {"inr": 250000}) == {"inr": 250000.0}
+    def flagged(heard, sz):
+        got = _compile(uid, heard=heard, do={"kind": "buy", "symbol": "RELIANCE", "size": sz},
+                       contract={"lifespan": "now", "authority": "propose"})
+        return any("is not in their words" in a for a in got["assumed"])
+    assert flagged("buy reliance 2% below current", {"qty": 1})
+    assert not flagged("put 5k in reliance", {"qty": 3})          # ₹5,000 as whole shares
+    assert not flagged("buy 10 reliance", {"inr": 13090})         # 10 shares as rupees
+    assert not flagged("buy reliance with half my cash", {"inr": 250000})
 
 
 def test_squaring_off_the_day_book_leaves_delivery_alone(uid, book, monkeypatch) -> None:
@@ -286,3 +289,27 @@ def test_a_spot_order_carries_no_leverage(uid) -> None:
     got = _compile(uid, do={"kind": "buy", "symbol": "RELIANCE", "size": {"inr": 10000}, "leverage": 3},
                    contract={"lifespan": "now", "authority": "propose"})
     assert "leverage" not in got["play"]["spec"]["do"]
+
+
+# ── what the model is told, and what it is told back ────────────────────────
+
+def test_a_field_in_the_wrong_object_is_refused_with_where_it_goes(uid) -> None:
+    """A stop written inside `do` was dropped, and the sell then sold the
+    holding; a schedule inside `contract` was dropped, and the rebalance ran
+    on drift alone."""
+    paper.place_order(uid, "RELIANCE", "BUY", 10, source="eval")
+    with pytest.raises(plays.Bad, match="manage goes beside do, contract and the rest|manage is not a field"):
+        _compile(uid, do={"kind": "sell", "symbol": "RELIANCE", "manage": {"stop_pct": 5}}, contract=NOW)
+    with pytest.raises(plays.Bad, match=r"policy goes beside do, contract and the rest \(play.policy\)"):
+        _compile(uid, do={"kind": "rebalance", "of": "portfolio", "targets": [{"symbol": "RELIANCE", "weight": 1}]},
+                 contract={"lifespan": "policy", "policy": {"every": "month"}})
+    assert _held(uid) == {"RELIANCE": 10.0}
+
+
+def test_the_plays_page_says_the_time_and_the_book(uid, book, monkeypatch) -> None:
+    paper.place_order(uid, "RELIANCE", "BUY", 10, source="eval")
+    _at(monkeypatch, 18, 5)
+    block = plays.surface_block({"surface": "plays"})
+    assert "NSE is closed" in block and "Paper delivery book: RELIANCE 10" in block
+    _at(monkeypatch, 11, 0)
+    assert "NSE is open" in plays.surface_block({"surface": "plays"})

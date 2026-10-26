@@ -15964,6 +15964,10 @@ def _call_args(call: dict) -> dict:
     return args if isinstance(args, dict) else {}
 
 
+_EMPTY_NUDGE = ("Your last response had no text for the trader. Write the reply now, from the tool "
+                "results above: what was done or not done, and why.")
+
+
 def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
     """Responses-API call with the tool loop.
 
@@ -16009,12 +16013,13 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
     cards: list[dict] = []
     tok_in = tok_out = 0
     _rounds = _max_tool_rounds()
+    nudged = False
     for _round in range(_rounds):
         _req.effort = LLM_EFFORT if _round == 0 else LLM_EFFORT_FOLLOW
         # On the final round the tools are withdrawn, so the model must answer
         # from what it already fetched. Running out of rounds used to surface a
         # dead-end apology on top of perfectly good tool results.
-        data = _post_responses(wire, allow_tools=_round < _rounds - 1)
+        data = _post_responses(wire, allow_tools=_round < _rounds - 1 and not nudged)
         u = data.get("usage", {})
         tok_in += u.get("input_tokens") or 0
         tok_out += u.get("output_tokens") or 0
@@ -16030,6 +16035,13 @@ def llm_chat(messages: list[dict], context: dict | None = None) -> dict:
                     if c.get("type") == "output_text":
                         text_parts.append(c.get("text", ""))
 
+        if not calls and not "".join(text_parts).strip() and not nudged and _round < _rounds - 1 \
+                and tool_trace:
+            # the model ended a turn that did things without a word for the
+            # trader: one more round, tools withdrawn, asks it to write the reply
+            nudged = True
+            wire.append({"role": "system", "content": _EMPTY_NUDGE})
+            continue
         if not calls:
             return {
                 "text": "".join(text_parts) or "(empty reply)",
@@ -16147,6 +16159,7 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
     turn_sources: list[str] = []
 
     _rounds = _max_tool_rounds()
+    nudged = False
     for _round in range(_rounds):
         _req.effort = LLM_EFFORT if _round == 0 else LLM_EFFORT_FOLLOW
         calls: list[dict] = []
@@ -16161,8 +16174,8 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
         phase_of: dict = {}
         said_parts: dict = {}
         try:
-            source = (eng.stream(wire, tools_now, _round < _rounds - 1) if eng
-                      else _post_responses_stream(wire, allow_tools=_round < _rounds - 1))
+            source = (eng.stream(wire, tools_now, _round < _rounds - 1 and not nudged) if eng
+                      else _post_responses_stream(wire, allow_tools=_round < _rounds - 1 and not nudged))
             for ev in source:
                 t = ev.get("type", "")
                 if t == "response.output_item.added":
@@ -16239,6 +16252,14 @@ def llm_chat_stream(messages: list[dict], context: dict | None = None):
             # (already shown as a step, so it is sent as text here once)
             text_parts = ["\n\n".join("".join(v).strip() for v in said_parts.values())]
             yield {"type": "delta", "text": text_parts[0]}
+        if not calls and not "".join(text_parts).strip() and not nudged and _round < _rounds - 1 \
+                and tool_trace:
+            # a turn that did things ended without a word for the trader (seen
+            # after "square off everything" sold the book): one more round,
+            # tools withdrawn, asks the model to write the reply itself
+            nudged = True
+            wire.append({"role": "system", "content": _EMPTY_NUDGE})
+            continue
         if not calls:
             answer = "".join(text_parts) or "(empty reply)"
             # Which arm wrote this. A reader on the fallback is getting
@@ -21195,6 +21216,12 @@ class Handler(BaseHTTPRequestHandler):
             _h = body.get("harness")
             _req.chat_v2 = True if _h == "v2" else False if _h == "v1" else None
             _req.plays = body["plays"] if isinstance(body.get("plays"), bool) else None
+            # which page asked. The Plays page's portfolio is the book plays
+            # fill into (journal reads it locally), and a play built there
+            # takes no symbol from a chart that is not on screen. Never set,
+            # every portfolio read went to the API first and waited on its
+            # timeout, and could answer with a book plays do not trade in.
+            _req.surface = str(ctx.get("surface") or "") if isinstance(ctx, dict) else ""
             # the desk, for the workspace tool — out of the chart envelope, so
             # neither the manifest's contents nor the catalog reach the prompt
             # except through the tool and the short "Workspace now" block

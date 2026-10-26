@@ -1083,6 +1083,39 @@ def _said_size(heard: str | None, size: dict, px: float | None) -> bool:
     return False
 
 
+# Where each field of a play lives. A field written inside the wrong object
+# (a stop inside `do`, a schedule inside `contract`) used to be dropped in
+# silence, and the play then did something else: a sell with its stop lost
+# sold the holding. It is now an error that says where the field goes.
+FIELDS_OF = {
+    "do": {"kind", "symbol", "size", "product", "legs", "underlying", "side", "lots", "expiry", "leverage",
+           "close", "of", "targets", "cash_pct", "objective", "universe", "reasons", "names", "protect"},
+    "manage": {"stop_pct", "target_pct", "trail_pct", "exit_at", "on_leg_stop", "max_loss_inr", "target_inr",
+               "exit_when"},
+    "contract": {"lifespan", "authority", "discretion", "now", "now_size", "inferred_from", "expires_in_days"},
+}
+TOP = {"title", "ask", "why", "thesis", "symbol", "interval", "measures", "when", "on", "do", "manage",
+       "contract", "mandate", "policy", "security", "universe"}
+
+
+def _check_fields(raw: dict) -> None:
+    for part, known in FIELDS_OF.items():
+        sub = raw.get(part)
+        if not isinstance(sub, dict):
+            continue
+        stray = sorted(set(sub) - known)
+        if not stray:
+            continue
+        k = stray[0]
+        home = next((o for o, ks in FIELDS_OF.items() if k in ks), "play" if k in TOP else "")
+        if home:
+            where = "beside do, contract and the rest (play." + k + ")" if home == "play" else f"in {home}"
+            raise Bad(f"{part}.{k} is not a field of {part}: {k} goes {where}. Nothing was built; "
+                      "move it and compile again")
+        raise Bad(f"{part}.{k} is not a field of {part} (its fields: {', '.join(sorted(known))}). Nothing "
+                  "was built")
+
+
 def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str = "",
               heard: str | None = None) -> tuple[dict, list[str]]:
     """The model's play, checked and filled in. Returns (spec, assumptions):
@@ -1096,6 +1129,7 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
     never adds an action."""
     if not isinstance(raw, dict):
         raise Bad("play must be an object")
+    _check_fields(raw)
     said: list[str] = []
     uni = None
     if raw.get("universe"):
@@ -1325,9 +1359,13 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
                       "in rupees (size.inr) or units (size.qty)")
         if (size.get("inr") or size.get("qty")) and kind in ("buy", "short") and \
                 not _said_size(heard, size, _mark(do["symbol"]) if not customsec.is_custom(do["symbol"]) else None):
-            # the trader named no amount, so the number is the model's own: the
-            # stated default stands in for it, and the reply says so
-            size = {}
+            # a size their words do not carry is the model's to justify, not
+            # code's to replace: a correction it worked out from the book
+            # ("buy back 70") is right, a guess ("buy wipro" as 1 share) is not,
+            # and only the model can tell which. It is told, and says so
+            said.append(f"the size ({'₹' + format(size['inr'], ',.0f') if size.get('inr') else format(size['qty'], 'g') + ' units'}) "
+                        f"is not in their words; the default for an unsized buy is ₹{DEFAULT_SIZE_INR:,}. Say "
+                        "where this size came from, or compile again at the default")
         if not size.get("inr") and not size.get("qty") and not size.get("all") and not size.get("pct"):
             size = {"inr": DEFAULT_SIZE_INR} if kind in ("buy", "short") else {"all": True}
             said.append(f"sized at ₹{DEFAULT_SIZE_INR:,}" if kind in ("buy", "short")
@@ -4457,6 +4495,35 @@ def _after_proposal(pid: int) -> None:
 
 # ══ the Plays page ══════════════════════════════════════════════════════════
 
+def _now_lines(uid: int) -> list[str]:
+    """The clock and the books, as facts: when NSE is shut, what they hold, and
+    what is open intraday. Without them the model asked what was held, read a
+    shut market as open, and took "square off" for the delivery book."""
+    import daybook
+    now = daybook._now_ist()
+    hm = now.hour * 100 + now.minute
+    open_ = now.weekday() < 5 and 915 <= hm < 1530
+    out = [f"\n## Now\n{now:%a %d %b %H:%M} IST: NSE is {'open' if open_ else 'closed'} (09:15-15:30, "
+           "intraday entries until 15:20); crypto trades around the clock."]
+    try:
+        held = [h for h in (_paper.api_holdings(uid)[1] or []) if float(h.get("quantity") or 0)] if _paper else []
+        cash = (_paper.api_summary(uid)[1] or {}).get("cash_available") if _paper else None
+    except Exception:                                       # noqa: BLE001
+        held, cash = [], None
+    book = ", ".join(f"{h['symbol']} {float(h['quantity']):g}" for h in held[:15])
+    if len(held) > 15:
+        book += f" and {len(held) - 15} more"
+    out.append(f"Paper delivery book: {book or 'nothing held'}"
+               + (f"; cash ₹{float(cash):,.0f}" if cash is not None else "") + ".")
+    try:
+        day = daybook.open_positions(uid)
+    except Exception:                                       # noqa: BLE001
+        day = []
+    if day:
+        out.append("Open intraday: " + ", ".join(f"{p['symbol']} {p['side']} {p['qty']:g}" for p in day[:10]) + ".")
+    return out
+
+
 def surface_block(ctx: dict) -> str:
     """The context block for the Plays page: no chart, and what the trader
     already has, so "make it 25" can find the play it means."""
@@ -4481,6 +4548,7 @@ def surface_block(ctx: dict) -> str:
         lines.append("They are signed out: plays need an account, so say they must sign in.")
         return "\n".join(lines)
     init_db()
+    lines += _now_lines(uid)
     rows = list_plays(uid, ("armed", "paused", "draft", "done"))
     focus = ctx.get("focus_play")
     # the latest few, each in a line; the rest by count. This block is sent
