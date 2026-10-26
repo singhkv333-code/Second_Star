@@ -131,6 +131,13 @@ def scope(play: dict, held: dict[str, float] | None = None) -> set[str]:
     if do.get("kind") == "rebalance" and do.get("of") == "portfolio" and \
             spec["contract"].get("discretion") == "plan":
         names |= set(held or {})
+    if do.get("of") == "day" and do.get("symbol") == "*":
+        # closing the whole day book trades every name open in it
+        try:
+            import daybook
+            names |= {x for p in daybook.open_positions(play["user_id"]) for x in (p["symbol"], p["underlying"])}
+        except Exception:                                   # noqa: BLE001
+            pass
     names = {str(s) for s in names if s and s not in ("*", "rebalance")}
     for s in list(names):
         if customsec is not None and customsec.is_custom(s):

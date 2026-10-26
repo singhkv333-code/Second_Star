@@ -1043,15 +1043,44 @@ def _norm_size(raw, kind: str, what: str) -> dict:
     return out
 
 
-_AMOUNT = re.compile(r"\d|\b(lakh|lac|crore|thousand|hundred|all|half|quarter|everything|entire|whole|"
-                     r"cash|percent)\b", re.I)
+_WHOLE = re.compile(r"\b(all|half|quarter|everything|entire|whole|cash|portfolio|percent)\b", re.I)
+_AMT = re.compile(r"(\d+(?:,\d+)*(?:\.\d+)?)\s*(k|thousand|lakhs?|lacs?|l|crores?|cr)?(?![a-z0-9])\s*(%)?", re.I)
 
 
-def _sized_in(heard: str | None) -> bool:
-    """Whether the trader's words carry an amount at all. With no number and
-    no amount word, a size the model wrote is its own guess. Without the
-    trader's words (a card edit, a replay) the size is taken as given."""
-    return heard is None or bool(_AMOUNT.search(heard))
+def _amounts(heard: str) -> list[float]:
+    """Every amount in the trader's words, units applied ('5k', '1.5 lakh',
+    '₹20,000', '10'). A percent is a level or a share, never a size."""
+    out = []
+    for m in _AMT.finditer(heard or ""):
+        if m.group(3):
+            continue
+        u = (m.group(2) or "").lower()
+        mult = 1e3 if u in ("k", "thousand") else 1e5 if u.startswith(("l", "lac", "lakh")) else \
+            1e7 if u.startswith("cr") else 1.0
+        out.append(float(m.group(1).replace(",", "")) * mult)
+    return out
+
+
+def _said_size(heard: str | None, size: dict, px: float | None) -> bool:
+    """Whether a size the model wrote is one the trader gave: the number is
+    in their words, in rupees or in units (a rupee amount the model turned
+    into whole shares counts, within one share, and the reverse). Words for
+    the whole or a share of something ("all my cash", "half") leave the
+    arithmetic to the model. Without the trader's words (a card edit, a
+    replay) the size is taken as given."""
+    if heard is None or _WHOLE.search(heard):
+        return True
+    inr, qty = size.get("inr"), size.get("qty")
+    for n in _amounts(heard):
+        if inr and abs(inr - n) <= max(1.0, 0.005 * n):
+            return True
+        if qty and abs(qty - n) < 1e-9:
+            return True
+        if px and inr and abs(inr - n * px) <= px:
+            return True
+        if px and qty and abs(qty * px - n) <= px:
+            return True
+    return False
 
 
 def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str = "",
@@ -1184,6 +1213,13 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
                   "own bars")
     if lifespan not in LIFESPANS:
         raise Bad(f"contract.lifespan must be one of {', '.join(LIFESPANS)}")
+    if lifespan == "now" and (when or on) and not (rebalance or (raw.get("do") or {}).get("kind") == "halt"):
+        # "at 9:20 tomorrow", "if it dips below 1400": a condition is what it
+        # waits for, so it cannot also act now. An order now beside the rule
+        # is contract.now
+        lifespan = "once_when"
+        said.append("waits for its condition and acts once when it holds (it was marked to act now, which "
+                    "would ignore the condition)")
     if lifespan != "now" and not when and not on and not (rebalance and lifespan == "policy"):
         raise Bad("this play has no `when` and no `on`; give conditions or events, or set "
                   "contract.lifespan to now")
@@ -1228,7 +1264,9 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
                     or mg_raw.get("max_loss_inr") or mg_raw.get("target_inr")
                     # a trail on a delivery buy is read on bar closes (below); on
                     # anything else it is the day book's tick-by-tick trail
-                    or (mg_raw.get("trail_pct") and kind not in ("buy", "sell")))
+                    or (mg_raw.get("trail_pct") and kind not in ("buy", "sell"))
+                    # closing the day book ("square off everything") is intraday by definition
+                    or (kind in ("sell", "cover") and do.get("of") == "day"))
     product = str(do.get("product") or "").upper()
     perp = hyperliquid.is_perp(str(do.get("symbol") or sym)) and kind not in ("options", "future", "rebalance")
     if perp:
@@ -1242,6 +1280,8 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
     if kind == "short" and product == "CNC" and not str(do.get("symbol") or sym).endswith(("USDT", "USD")):
         raise Bad("a short in Indian equities is intraday only (product MIS, squared off at 15:20); "
                   "delivery shorts are not allowed. Say so, and offer the intraday short")
+    if not perp:
+        do.pop("leverage", None)          # leverage is a perp's; a spot order has none
     if perp:
         pass
     elif kind in ("short", "cover", "options", "future"):
@@ -1283,7 +1323,8 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
         if size.get("all") and kind in ("buy", "short"):
             raise Bad("size.all is for a sell or a cover (all of what is held); a buy or a short is sized "
                       "in rupees (size.inr) or units (size.qty)")
-        if (size.get("inr") or size.get("qty")) and kind in ("buy", "short") and not _sized_in(heard):
+        if (size.get("inr") or size.get("qty")) and kind in ("buy", "short") and \
+                not _said_size(heard, size, _mark(do["symbol"]) if not customsec.is_custom(do["symbol"]) else None):
             # the trader named no amount, so the number is the model's own: the
             # stated default stands in for it, and the reply says so
             size = {}
@@ -1296,7 +1337,12 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
             # a play that only closes never opened anything, so what it closes
             # is the trader's (the paper portfolio, or their open intraday and
             # perp positions), unless it was told to close only its own
-            do["of"] = "self" if do.get("of") == "self" else "portfolio"
+            do["of"] = do["of"] if do.get("of") in ("self", "day") else "portfolio"
+            if do["of"] == "day" or do["symbol"] == "*":
+                # the whole day book, long and short: every open intraday, F&O
+                # and perp position, and never a delivery holding
+                do.update(of="day", symbol="*", size={"all": True},
+                          product=do["product"] if do.get("product") in ("MIS", "NRML") else "MIS")
         if perp:
             c = hyperliquid.ctx(do["symbol"])
             if not c:
@@ -3127,9 +3173,17 @@ def _day_close(play: dict) -> tuple[dict | None, str]:
     import daybook
     do = play["spec"]["do"]
     side = "short" if do["kind"] == "cover" else "long"
+    if do.get("symbol") == "*":
+        opens = daybook.open_positions(play["user_id"])
+        if not opens:
+            return None, "your day book has no open position to close"
+        return {"book": "day", "close": True,
+                "legs": [{"symbol": p["symbol"], "side": p["side"], "qty": p["qty"], "px": p["mark_px"],
+                          "position": p["id"], "open": p["qty"], "lot": p["lot"], "underlying": p["underlying"]}
+                         for p in opens]}, ""
     opens = daybook.open_positions(play["user_id"], play["id"])
     whose = "this play"
-    if not opens and do.get("of") == "portfolio":
+    if not opens and do.get("of") in ("portfolio", "day"):
         whose = "your day book"
         opens = [p for p in daybook.open_positions(play["user_id"])
                  if p["side"] == side and do["symbol"] in (p["symbol"], p["underlying"])]
@@ -3242,6 +3296,10 @@ def _place_rebalance(play: dict, t: dict, ts: int, body: dict) -> dict:
         if f_["side"] == "SELL":
             _reconcile(play["user_id"], f_["symbol"])
     out = {**body, "ticket": t, "fills": fills}
+    shut = _closed_note(fills[0]["symbol"], fills[0]["price"]) if fills else ""
+    if shut:
+        out.update(after_hours=True, reason=shut.replace(f"this at the last price, ₹{fills[0]['price']:,.2f}",
+                                                         "these at the last prices"))
     if failed:
         out["failed"] = failed
         out["reason"] = (f"{len(failed)} of {len(t['legs'])} trades did not fill: "
@@ -3351,6 +3409,10 @@ def _place_basket(play: dict, ticket: dict, ts: int, body: dict) -> dict:
         if f_["side"] == "SELL":
             _reconcile(play["user_id"], f_["symbol"])
     out = {**body, "ticket": ticket, "fills": fills}
+    shut = _closed_note(fills[0]["symbol"], fills[0]["price"]) if fills else ""
+    if shut:
+        out.update(after_hours=True, reason=shut.replace(f"this at the last price, ₹{fills[0]['price']:,.2f}",
+                                                         "these at the last prices"))
     if failed:
         out["failed"] = failed
         out["reason"] = (f"{len(failed)} of {len(ticket['legs'])} members did not fill: "

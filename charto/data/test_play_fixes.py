@@ -247,3 +247,42 @@ def test_pausing_a_once_play_that_fired_does_not_let_it_fire_again(uid) -> None:
     eid = [e for e in plays.events(uid) if e["kind"] == "proposed"][0]["id"]
     plays.resolve_event(uid, eid, "confirm")
     assert _held(uid) == {"RELIANCE": 3.0}
+
+
+# ── the 2026-10-26 retest ───────────────────────────────────────────────────
+
+def test_a_play_with_a_condition_never_acts_now(uid) -> None:
+    """'buy tcs at 9:20 tomorrow', marked lifespan now, bought at once."""
+    got = _compile(uid, symbol="TCS", interval="5m", do={"kind": "buy", "symbol": "TCS", "size": {"inr": 10000}},
+                   when={"time": {"at": "09:20"}}, contract={"lifespan": "now", "authority": "act"})
+    assert got["play"]["spec"]["contract"]["lifespan"] == "once_when"
+    assert not got["play"].get("_now_event") and not _held(uid)
+
+
+def test_a_size_must_be_the_trader_s_own_number(uid) -> None:
+    """A percent in the words ('2% below') is a level, not a size: the
+    model's 1 share is its own guess."""
+    def size(heard, sz):
+        return _compile(uid, heard=heard, do={"kind": "buy", "symbol": "RELIANCE", "size": sz},
+                        contract={"lifespan": "now", "authority": "propose"})["play"]["spec"]["do"]["size"]
+    assert size("buy reliance 2% below current", {"qty": 1}) == {"inr": plays.DEFAULT_SIZE_INR}
+    assert size("put 5k in reliance", {"qty": 3}) == {"qty": 3.0}         # ₹5,000 as whole shares
+    assert size("buy 10 reliance", {"inr": 13090}) == {"inr": 13090.0}   # 10 shares as rupees
+    assert size("buy reliance with half my cash", {"inr": 250000}) == {"inr": 250000.0}
+
+
+def test_squaring_off_the_day_book_leaves_delivery_alone(uid, book, monkeypatch) -> None:
+    paper.place_order(uid, "TCS", "BUY", 5, source="eval")
+    for kind in ("long", "short"):
+        legs = daybook.resolve({"kind": kind, "symbol": "RELIANCE", "size": {"qty": 4}}, "MIS")
+        daybook.open_group(uid, None, legs, {})
+    got = _compile(uid, do={"kind": "sell", "symbol": "*", "of": "day"}, contract=NOW)
+    assert got["play"]["_now_event"]["kind"] == "exited"
+    assert not daybook.open_positions(uid)
+    assert _held(uid) == {"TCS": 5.0}
+
+
+def test_a_spot_order_carries_no_leverage(uid) -> None:
+    got = _compile(uid, do={"kind": "buy", "symbol": "RELIANCE", "size": {"inr": 10000}, "leverage": 3},
+                   contract={"lifespan": "now", "authority": "propose"})
+    assert "leverage" not in got["play"]["spec"]["do"]
