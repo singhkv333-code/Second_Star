@@ -190,6 +190,37 @@ class Bad(ValueError):
     what to change, because the model reads it and fixes the call."""
 
 
+_UNITS = {"k": 1e3, "thousand": 1e3, "l": 1e5, "lac": 1e5, "lacs": 1e5, "lakh": 1e5, "lakhs": 1e5,
+          "cr": 1e7, "crore": 1e7, "crores": 1e7}
+
+
+def _number(x, what: str, *, lo: float | None = None, integer: bool = False) -> float | int | None:
+    """A number the model sent. Free-form JSON arrives as text often enough
+    ('15000', '₹10,000', '10k', '1.5 lakh', '5%'), so text that is plainly a
+    number is read as one; anything else is refused with the field's name,
+    never left for a later format call to trip over. None and "" are "not
+    given"."""
+    if x is None or x == "":
+        return None
+    if isinstance(x, bool):
+        raise Bad(f"{what} must be a number, not {x!r}")
+    if isinstance(x, (int, float)):
+        v = float(x)
+    elif isinstance(x, str):
+        s = re.sub(r"^(rs\.?|inr)\s*", "", x.strip().lower().replace(",", "").replace("₹", "")).rstrip("%").strip()
+        m = re.fullmatch(r"([0-9]*\.?[0-9]+)\s*([a-z]*)", s)
+        if not m or (m.group(2) and m.group(2) not in _UNITS):
+            raise Bad(f"{what} must be a number, not {x!r}")
+        v = float(m.group(1)) * _UNITS.get(m.group(2), 1.0)
+    else:
+        raise Bad(f"{what} must be a number, not {type(x).__name__}")
+    if not math.isfinite(v):
+        raise Bad(f"{what} must be a finite number")
+    if lo is not None and v < lo:
+        raise Bad(f"{what} must be at least {lo:g}, not {v:g}")
+    return int(v) if integer else v
+
+
 # ══ measures: the model's own series ════════════════════════════════════════
 #
 # A measure is {name, title, formula, inputs?, expr | code}.
@@ -868,6 +899,15 @@ def _fires_at(tr: list, i: int, every: bool = False) -> bool:
     return bool(tr) and i > 0 and tr[i] is True and (every or tr[i - 1] is not True)
 
 
+def _level(spec: dict) -> bool:
+    """A once-only close reads its condition as a level: "sell if it closes
+    below the 200-day average", with the price already below, sells at the
+    next close rather than waiting for a rise and a fresh fall. An entry
+    keeps the crossing (it fires when the condition turns true)."""
+    return (spec["do"]["kind"] in ("sell", "cover") and spec["contract"]["lifespan"] == "once_when"
+            and bool(spec.get("when")) and not spec.get("on") and not spec.get("universe"))
+
+
 def _every(spec: dict) -> bool:
     return bool((spec.get("when") or {}).get("every_bar"))
 
@@ -930,9 +970,17 @@ def _norm_when(when) -> dict | None:
     key = "all" if "all" in (when or {}) else "any"
     keep = []
     for c in (when or {}).get(key) or []:
+        if isinstance(c, dict) and c.get("op") in ("between", "outside") and c.get("right2") in (None, ""):
+            raise Bad(f"'{c.get('op')}' needs right2, the other edge of the band: "
+                      f"{{left, op: {c.get('op')}, right: low, right2: high}}")
         if isinstance(c, dict) and "left" in c and num(c.get("left")) and num(c.get("right", "x")):
             a, b = float(str(c["left"]).replace(",", "")), float(str(c["right"]).replace(",", ""))
-            if {"above": a > b, "below": a < b}.get(c.get("op")):
+            always = bool({"above": a > b, "below": a < b}.get(c.get("op")))
+            if key == "any":
+                if always:
+                    return None             # one branch always holds: the rule is always true
+                continue                    # a branch that never holds adds nothing to an `any`
+            if always:
                 continue                    # always true: it adds nothing, so it goes
             raise Bad(f"'{c.get('left')} {c.get('op')} {c.get('right')}' compares two numbers, so it is "
                       "never true and the play would never act")
@@ -970,6 +1018,40 @@ def _grounded(quote: str, heard: str | None) -> bool:
         it = iter(hay)
         return all(w in it for w in part.split())
     return bool(parts) and all(theirs(p) for p in parts)
+
+
+def _norm_size(raw, kind: str, what: str) -> dict:
+    """A size in any form do.size takes, its numbers read as numbers. A bare
+    number is rupees; zero or nothing is "not given" (the default fills it);
+    a negative size is refused."""
+    if raw in (None, "", {}):
+        return {}
+    if not isinstance(raw, dict):
+        raw = {"inr": raw}
+    out = {}
+    for k in ("inr", "qty", "pct"):
+        v = _number(raw.get(k), f"{what}.{k}")
+        if v is None:
+            continue
+        if v < 0:
+            raise Bad(f"{what}.{k} cannot be negative; a {'sell' if kind in ('buy', 'sell') else 'cover'} "
+                      "is its own kind")
+        if v > 0:
+            out[k] = v
+    if raw.get("all") and not out:
+        out["all"] = True
+    return out
+
+
+_AMOUNT = re.compile(r"\d|\b(lakh|lac|crore|thousand|hundred|all|half|quarter|everything|entire|whole|"
+                     r"cash|percent)\b", re.I)
+
+
+def _sized_in(heard: str | None) -> bool:
+    """Whether the trader's words carry an amount at all. With no number and
+    no amount word, a size the model wrote is its own guess. Without the
+    trader's words (a card edit, a replay) the size is taken as given."""
+    return heard is None or bool(_AMOUNT.search(heard))
 
 
 def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str = "",
@@ -1140,8 +1222,13 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
         do = {"kind": "halt", "close": bool(do.get("close"))}
         said[:] = [x for x in said if not x.startswith("it tells you")]
     mg_raw = raw.get("manage") or {}
-    intraday = bool(mg_raw.get("exit_at") or mg_raw.get("trail_pct") or mg_raw.get("on_leg_stop")
-                    or mg_raw.get("max_loss_inr") or mg_raw.get("target_inr"))
+    if not isinstance(mg_raw, dict):
+        raise Bad("manage is an object: {stop_pct, target_pct, trail_pct, exit_at, ...}")
+    intraday = bool(mg_raw.get("exit_at") or mg_raw.get("on_leg_stop")
+                    or mg_raw.get("max_loss_inr") or mg_raw.get("target_inr")
+                    # a trail on a delivery buy is read on bar closes (below); on
+                    # anything else it is the day book's tick-by-tick trail
+                    or (mg_raw.get("trail_pct") and kind not in ("buy", "sell")))
     product = str(do.get("product") or "").upper()
     perp = hyperliquid.is_perp(str(do.get("symbol") or sym)) and kind not in ("options", "future", "rebalance")
     if perp:
@@ -1178,21 +1265,28 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
                     raise Bad("each option leg needs side buy or sell")
                 lg["opt"], lg["side"] = lg["opt"].upper(), lg["side"].lower()
                 lg["strike"] = str(lg.get("strike") or "ATM")
-                lg["lots"] = int(lg.get("lots") or 1)
+                lg["lots"] = _number(lg.get("lots"), "an option leg's lots", lo=1, integer=True) or 1
+        else:
+            do["lots"] = _number(do.get("lots"), "do.lots", lo=1, integer=True) or 1
         if authority == "notify":
             authority = "propose"
             said.append("it proposes the order for you to confirm")
     elif kind not in ("notify", "halt"):
         do["symbol"] = ds.canon_symbol(str(do.get("symbol") or sym))
-        size = do.get("size") or {}
-        if not isinstance(size, dict):
-            size = {"inr": size}
+        size = _norm_size(do.get("size"), kind, "do.size")
         if size.get("pct") is not None:
-            pct = float(size["pct"])
+            pct = size["pct"]
             if kind not in ("sell", "cover") or not 0 < pct <= 100:
                 raise Bad("size.pct is for a sell or a cover: the share of what is held, above 0 and up "
                           "to 100")
             size = {"pct": pct}
+        if size.get("all") and kind in ("buy", "short"):
+            raise Bad("size.all is for a sell or a cover (all of what is held); a buy or a short is sized "
+                      "in rupees (size.inr) or units (size.qty)")
+        if (size.get("inr") or size.get("qty")) and kind in ("buy", "short") and not _sized_in(heard):
+            # the trader named no amount, so the number is the model's own: the
+            # stated default stands in for it, and the reply says so
+            size = {}
         if not size.get("inr") and not size.get("qty") and not size.get("all") and not size.get("pct"):
             size = {"inr": DEFAULT_SIZE_INR} if kind in ("buy", "short") else {"all": True}
             said.append(f"sized at ₹{DEFAULT_SIZE_INR:,}" if kind in ("buy", "short")
@@ -1213,7 +1307,7 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
                 if lev in (None, ""):
                     lev = 1
                     said.append("at 1× leverage (the rupees are the margin)")
-                lev = float(lev)
+                lev = _number(lev, "do.leverage")
                 if not 1 <= lev <= c["max_leverage"]:
                     raise Bad(f"{do['symbol']} allows 1× to {c['max_leverage']}× leverage on Hyperliquid")
                 do["leverage"] = lev
@@ -1237,36 +1331,60 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
         iv = "1d"
 
     manage = {}
-    for k in ("stop_pct", "target_pct"):
-        if (raw.get("manage") or {}).get(k) is not None:
-            v = float(raw["manage"][k])
+    for k in ("stop_pct", "target_pct", "trail_pct"):
+        v = _number(mg_raw.get(k), f"manage.{k}")
+        if v is not None:
             if not 0 < v < 100:
                 raise Bad(f"manage.{k} is a percent between 0 and 100")
             manage[k] = v
-    ex = (raw.get("manage") or {}).get("exit_at")
+    ex = mg_raw.get("exit_at")
     if ex:
         if not _HHMM.match(str(ex)):
             raise Bad("manage.exit_at must be HH:MM (IST)")
         manage["exit_at"] = str(ex)
-    if mg_raw.get("trail_pct") is not None:
-        v = float(mg_raw["trail_pct"])
-        if not 0 < v < 100:
-            raise Bad("manage.trail_pct is a percent between 0 and 100")
-        manage["trail_pct"] = v
     if mg_raw.get("on_leg_stop"):
         if mg_raw["on_leg_stop"] not in ("exit_all", "move_others_to_cost"):
             raise Bad("manage.on_leg_stop is exit_all or move_others_to_cost")
         manage["on_leg_stop"] = mg_raw["on_leg_stop"]
     for k in ("max_loss_inr", "target_inr"):
-        if mg_raw.get(k):
-            manage[k] = abs(float(mg_raw[k]))
+        v = _number(mg_raw.get(k), f"manage.{k}")
+        if v:
+            manage[k] = abs(v)
+    # a stop or a trail on a sell with nothing to wait for protects what is
+    # held: it rests in the book as a stop order and sells only if the price
+    # gets there. Selling now with a stop attached would sell what the trader
+    # asked to keep
+    protect = (kind == "sell" and not when and not on and do.get("product") == "CNC"
+               and (manage.get("stop_pct") or manage.get("trail_pct"))
+               and not customsec.is_custom(do.get("symbol") or ""))
+    if protect:
+        if manage.get("target_pct"):
+            raise Bad("a stop on a holding is one resting order; a profit target on it is its own sell play "
+                      "with a `when` (close above the level)")
+        do["protect"] = True
+        if lifespan != "now":
+            lifespan = "now"
+        said.append(("a trailing stop " if manage.get("trail_pct") else "a stop ") +
+                    "rests in the paper book below the price and sells only if the price gets there; it is "
+                    "a stop order, not a sale now" + (", moved up at each bar close as the price rises"
+                                                     if manage.get("trail_pct") else ""))
+    elif manage.get("trail_pct") and kind == "buy" and do.get("product") == "CNC":
+        # a delivery buy keeps its product: the trail is read on bar closes
+        # against the highest price since it bought, as an exit rule
+        if exit_when:
+            raise Bad("give a delivery buy either manage.trail_pct or manage.exit_when, not both: write the "
+                      "trail into exit_when as {left: close, op: below, right: 'hi_since * 0.97'}")
+        t = manage.pop("trail_pct")
+        exit_when = {"all": [{"left": "close", "op": "below", "right": f"hi_since * {1 - t / 100:.6g}"}]}
+        said.append(f"the {t:g}% trail is checked at each {iv} bar close against the highest price since it "
+                    "bought (a delivery buy; a tick-by-tick trail needs an intraday order)")
     if exit_when:
         if kind not in ("buy", "short", "options", "future"):
             raise Bad("manage.exit_when closes a position, so the play must open one (do.kind buy, "
                       "short, options or future)")
         manage["exit_when"] = exit_when
     if (manage.get("trail_pct") or manage.get("on_leg_stop") or manage.get("max_loss_inr")
-            or manage.get("target_inr")) and do.get("product") not in ("MIS", "NRML", "PERP"):
+            or manage.get("target_inr")) and do.get("product") not in ("MIS", "NRML", "PERP") and not protect:
         raise Bad("trailing stops, leg rules and profit or loss exits run in the day book: set "
                   "do.product MIS (intraday) or use a short, options or future order")
 
@@ -1277,33 +1395,47 @@ def normalise(raw: dict, uid: int, chart_symbol: str = "", chart_interval: str =
             do["symbol"] = "*"
         if kind in ("options", "future"):
             do["underlying"] = "*"
-    cap = float((raw.get("mandate") or {}).get("capital_inr")
-                or ((do.get("size") or {}).get("inr") or 0) * (1 if lifespan != "standing" else 5)
-                or (DERIV_CAPITAL if kind in ("options", "future") else DEFAULT_SIZE_INR))
-    if kind in ("options", "future") and not (raw.get("mandate") or {}).get("capital_inr"):
+    md_raw = raw.get("mandate") or {}
+    if not isinstance(md_raw, dict):
+        raise Bad("mandate is an object: {capital_inr, max_fires}")
+    md = {k: _number(md_raw.get(k), f"mandate.{k}", lo=0, integer=k in ("max_fires", "max_open"))
+          for k in ("capital_inr", "max_order_inr", "max_fires", "max_open", "max_weight")}
+    # a notify or a halt places nothing, so a size it carries is no limit
+    sz = do.get("size") if isinstance(do.get("size"), dict) and kind not in ("notify", "halt") else {}
+    if md["capital_inr"]:
+        cap = md["capital_inr"]
+    elif sz.get("inr"):
+        cap = float(sz["inr"]) * (1 if lifespan != "standing" else 5)
+    elif sz.get("qty") and kind in ("buy", "short"):
+        # the trader set the size in units: that is the limit, and a rupee cap
+        # they never set must not refuse it (100 shares are worth what they are)
+        cap = None
+    else:
+        cap = DERIV_CAPITAL if kind in ("options", "future") else DEFAULT_SIZE_INR
+    if kind in ("options", "future") and not md["capital_inr"]:
         said.append(f"margin limit ₹{DERIV_CAPITAL:,} (estimated at fire)")
     mandate = {"capital_inr": cap,
-               "max_order_inr": float((raw.get("mandate") or {}).get("max_order_inr") or cap),
-               "max_fires": int((raw.get("mandate") or {}).get("max_fires")
-                                or (1 if lifespan in ("now", "once_when") else
-                                    10_000 if lifespan == "policy" or kind == "halt" else 20))}
+               "max_order_inr": md["max_order_inr"] or cap,
+               "max_fires": md["max_fires"] or (1 if lifespan in ("now", "once_when") else
+                                                10_000 if lifespan == "policy" or kind == "halt" else 20)}
     if uni:
-        mx = int((raw.get("mandate") or {}).get("max_open") or (0 if kind == "notify" else 5))
+        mx = md["max_open"] if md["max_open"] is not None else (0 if kind == "notify" else 5)
         mandate["max_open"] = mx
-        if not (raw.get("mandate") or {}).get("max_fires"):
+        if not md["max_fires"]:
             mandate["max_fires"] = 500
-        if mx and not (raw.get("mandate") or {}).get("capital_inr") and (do.get("size") or {}).get("inr"):
-            mandate["capital_inr"] = float(do["size"]["inr"]) * mx
+        if mx and not md["capital_inr"] and sz.get("inr"):
+            mandate["capital_inr"] = float(sz["inr"]) * mx
         said.append(f"watches {len(uni['symbols'])} names ({uni['words']}), each on its own bars"
                     + (f", holding at most {mx} at once" if mx else ""))
     if kind == "rebalance":
         # the cap bounds what a planner may choose; weights the trader stated
         # are theirs ("equal weight" of two names is 50/50), capped only if asked
-        mw = (raw.get("mandate") or {}).get("max_weight")
-        mandate["max_weight"] = float(mw) if mw else (policy.DEFAULT_MAX_WEIGHT if discretion == "plan" else None)
-        if not (raw.get("mandate") or {}).get("max_order_inr"):
+        mw = md["max_weight"]
+        mandate["max_weight"] = mw if mw else (policy.DEFAULT_MAX_WEIGHT if discretion == "plan" else None)
+        if not md["max_order_inr"]:
             mandate["max_order_inr"] = 10_00_000
-    days = contract.get("expires_in_days")
+    days = _number(contract.get("expires_in_days"), "contract.expires_in_days (a number of days)", lo=0,
+                   integer=True)
     spec = {
         "title": str(raw.get("title") or "")[:80] or f"{sym} play",
         "ask": str(raw.get("ask") or "")[:600],
@@ -1328,8 +1460,8 @@ def _now_size(contract: dict, kind: str) -> dict:
     if not isinstance(size, dict):
         return {}
     for k in ("inr", "qty", "pct"):
-        if size.get(k):
-            v = float(size[k])
+        v = _number(size.get(k), f"contract.now.size.{k}", lo=0)
+        if v:
             if k == "pct" and (kind not in ("sell", "cover") or not 0 < v <= 100):
                 raise Bad("now.size.pct is for a sell or a cover: the share of what is held, above 0 and "
                           "up to 100")
@@ -1348,12 +1480,10 @@ def _norm_rebalance(do: dict, raw: dict, lifespan: str, discretion: str,
     out = {"kind": "rebalance", "of": of,
            "objective": str(do.get("objective") or "")[:300],
            "universe": sorted({ds.canon_symbol(str(x)) for x in do.get("universe") or []})[:30],
-           "cash_pct": float(do.get("cash_pct") or 0)}
-    size = do.get("size") or {}
-    if not isinstance(size, dict):
-        size = {"inr": size}
+           "cash_pct": _number(do.get("cash_pct"), "do.cash_pct", lo=0) or 0.0}
+    size = _norm_size(do.get("size"), "buy", "do.size")
     if size.get("inr"):
-        out["size"] = {"inr": float(size["inr"])}
+        out["size"] = {"inr": size["inr"]}
     if do.get("targets"):
         rs = do["targets"] if isinstance(do["targets"], list) else []
         out["reasons"] = {ds.canon_symbol(str(x.get("symbol"))): str(x["why"]).strip()[:200]
@@ -1944,7 +2074,9 @@ def _contract_line(spec: dict) -> dict:
         money = f"₹{new:,.0f} of new money" if new else ""
         out["limit"] = ", ".join(x for x in (cap, money) if x) or None
     elif spec["do"]["kind"] not in ("notify", "sell", "cover"):     # a close spends nothing
-        out["limit"] = f"₹{m['capital_inr']:,.0f}"
+        q = (spec["do"].get("size") or {}).get("qty")
+        out["limit"] = f"₹{m['capital_inr']:,.0f}" if m.get("capital_inr") else \
+            (f"{q:g} per order" if q else None)
     return out
 
 
@@ -2451,6 +2583,10 @@ def transcribe(ev: dict, spec: dict) -> dict:
             (_fmt_num(float(lg.get("px") or 0)),))
         if lg.get("kind") == "perp" and lg.get("leverage"):
             say(f" USD, {float(lg['leverage']):g}× leverage")
+    elif t.get("symbol") and t.get("stop"):
+        say(f"{'Stop set' if kind == 'filled' else 'Set a stop'}: sell {_fmt_num(float(t['qty']))} {t['symbol']} "
+            "if it falls to ", (_fmt_num(float(t['stop'])),))
+        sym = t["symbol"]
     elif t.get("symbol"):
         verb = {"filled": "Bought" if t["side"] == "BUY" else "Sold",
                 "proposed": "Buy" if t["side"] == "BUY" else "Sell"}.get(kind, "Order:")
@@ -2593,6 +2729,10 @@ def _tick(pid: int, minute_ts: int | None = None, force: bool = False, sym: str 
     new = [i for i in range(len(t)) if t[i] > play["last_eval_ts"]]
     if not new:
         return []
+    if play["held_sym"] and not spec["do"].get("protect") and play["held_sym"] not in ("*", "rebalance") \
+            and not customsec.is_custom(play["held_sym"]):
+        _reconcile(play["user_id"], play["held_sym"])
+        play = _load(pid)
     tr = truth(spec["when"], data, series) if spec.get("when") else []
     if spec.get("on"):
         tr = []                       # its entries are clocked by events (on_items)
@@ -2609,10 +2749,20 @@ def _tick(pid: int, minute_ts: int | None = None, force: bool = False, sym: str 
         return out
     for i in new:
         late = i != len(t) - 1
+        if spec["do"].get("protect"):
+            if not late:
+                ev = _ratchet(play, data, i)
+                if ev:
+                    out.append(ev)
+                play = _load(pid)
+            if play["state"] != "armed":
+                break
+            continue
         if play["why"] == EXITS_ONLY and not _holding(play):
             _entries_over(pid, "fired")
             break
-        if _fires_at(tr, i, _every(spec)) and play["why"] not in (EXITS_ONLY, "fired"):
+        fire = _fires_at(tr, i, _every(spec)) or (not late and _level(spec) and tr and tr[i] is True)
+        if fire and play["why"] not in (EXITS_ONLY, "fired"):
             out.append(_fire(play, data, series, i, late=late))
             play = _load(pid)
             if play["state"] != "armed":
@@ -2922,7 +3072,9 @@ def _entries_over(pid: int, why: str, waiting: bool = False) -> None:
     play = _load(pid)
     mg = play["spec"].get("manage") or {}
     exits = (bool(mg.get("exit_at")) and play["held_qty"] > 0) or \
-        (bool(mg.get("exit_when")) and _holding(play))
+        (bool(mg.get("exit_when")) and _holding(play)) or \
+        (bool(play["spec"]["do"].get("protect") and mg.get("trail_pct")) and
+         bool(((play.get("marks") or {}).get("_stop") or {}).get("order")))
     if exits or waiting:
         _set(pid, why=EXITS_ONLY if exits else why)
         return
@@ -2944,12 +3096,23 @@ def _day_ticket(play: dict) -> tuple[dict | None, str]:
     if do["kind"] in ("cover", "sell"):
         return _day_close(play)
     rd = effects.derive(do, kind="long") if do["kind"] == "buy" else do
+    # a closed market is said before any price is looked for: after hours the
+    # price is often missing too, and "no price" would hide the reason
+    venue = ("NFO" if do["kind"] in ("options", "future") else
+             None if do.get("product") == "PERP" or str(do.get("symbol") or "").endswith(("USDT", "USD"))
+             else "NSE")
+    shut = daybook.session_refusal([{"venue": venue, "product": do.get("product") or "MIS"}]) if venue else ""
+    if shut:
+        return None, shut
     try:
         legs = daybook.resolve(rd, do.get("product") or "MIS")
     except daybook.Refused as exc:
         return None, str(exc)
+    shut = daybook.session_refusal(legs)
+    if shut:
+        return None, shut
     need = daybook.group_margin(legs)
-    if need > m["capital_inr"] + 1e-6:
+    if m.get("capital_inr") and need > m["capital_inr"] + 1e-6:
         return None, (f"it needs about ₹{need:,.0f} of margin, above the play's ₹{m['capital_inr']:,.0f} "
                       f"limit")
     stale = [lg["symbol"] for lg in legs if lg.get("stale")]
@@ -3028,11 +3191,16 @@ def _ticket(play: dict, price: float) -> tuple[dict | None, str]:
                min(whole(float(size["inr"]) / px), held) if size.get("inr") else held)
         if qty <= 0:
             return None, f"that is less than one unit of the {held:g} {sym} {whose} holds"
+        if do.get("protect"):
+            mg = spec.get("manage") or {}
+            pct = mg.get("trail_pct") or mg.get("stop_pct")
+            return {"symbol": sym, "side": "SELL", "qty": qty, "price": px,
+                    "stop": round(px * (1 - pct / 100), 2), "trail_pct": mg.get("trail_pct")}, ""
         return {"symbol": sym, "side": "SELL", "qty": qty, "price": px}, ""
     inr = float(size.get("inr") or 0) or (float(size["qty"]) * px if size.get("qty") else 0)
-    if inr > m["max_order_inr"] + 1e-6:
+    if m.get("max_order_inr") and inr > m["max_order_inr"] + 1e-6:
         return None, f"₹{inr:,.0f} is above the play's ₹{m['max_order_inr']:,.0f} order limit"
-    if play["spent_inr"] + inr > m["capital_inr"] + 1e-6:
+    if m.get("capital_inr") and play["spent_inr"] + inr > m["capital_inr"] + 1e-6:
         return None, (f"₹{inr:,.0f} more would pass the play's ₹{m['capital_inr']:,.0f} limit "
                       f"(₹{play['spent_inr']:,.0f} already used)")
     qty = float(size["qty"]) if size.get("qty") else _paper_qty(sym, inr, px)
@@ -3070,6 +3238,9 @@ def _place_rebalance(play: dict, t: dict, ts: int, body: dict) -> dict:
         _db().commit()
     _set(play["id"], held_legs=json.dumps(got["held"]), held_sym="rebalance",
          held_qty=float(sum(got["held"].values())), spent_inr=play["spent_inr"] + got["net"])
+    for f_ in fills:
+        if f_["side"] == "SELL":
+            _reconcile(play["user_id"], f_["symbol"])
     out = {**body, "ticket": t, "fills": fills}
     if failed:
         out["failed"] = failed
@@ -3167,7 +3338,7 @@ def _place_basket(play: dict, ticket: dict, ts: int, body: dict) -> dict:
         except Exception as exc:                            # noqa: BLE001
             failed.append({"symbol": lg["symbol"], "reason": str(exc)})
             continue
-        px = float(((got or {}).get("fill") or {}).get("price") or lg["price"] or 0)
+        px = float((got or {}).get("fill_price") or lg["price"] or 0)
         fills.append({"symbol": lg["symbol"], "side": lg["side"], "qty": lg["qty"], "price": px})
         sign = 1 if lg["side"] == "BUY" else -1
         held[lg["symbol"]] = max(0.0, held.get(lg["symbol"], 0.0) + sign * lg["qty"])
@@ -3176,6 +3347,9 @@ def _place_basket(play: dict, ticket: dict, ts: int, body: dict) -> dict:
     _set(play["id"], held_legs=json.dumps(held), held_sym=ticket["basket"],
          held_qty=float(sum(held.values())), spent_inr=play["spent_inr"] + spent,
          **({"entry_bar": ts} if ticket["side"] == "BUY" and not play["held_qty"] else {}))
+    for f_ in fills:
+        if f_["side"] == "SELL":
+            _reconcile(play["user_id"], f_["symbol"])
     out = {**body, "ticket": ticket, "fills": fills}
     if failed:
         out["failed"] = failed
@@ -3234,6 +3408,8 @@ def _place(play: dict, ticket: dict, ts: int, body: dict) -> dict:
         return _place_basket(play, ticket, ts, body)
     if ticket.get("rebalance"):
         return _place_rebalance(play, ticket, ts, body)
+    if ticket.get("stop"):
+        return _place_stop(play, ticket, ts, body)
     try:
         got = _paper.place_order(play["user_id"], ticket["symbol"], ticket["side"], ticket["qty"],
                                  source="play", origin_kind=f"play:{play['id']}",
@@ -3243,7 +3419,10 @@ def _place(play: dict, ticket: dict, ts: int, body: dict) -> dict:
         return _event(play, ts, "rejected", play["spec"]["title"],
                       {**body, "ticket": ticket, "reason": str(exc)}, status="done")
     fill = (got or {}).get("fill") or {}
-    px = float(fill.get("price") or ticket["price"])
+    px = float(fill.get("price") or (got or {}).get("fill_price") or ticket["price"])
+    shut = _closed_note(ticket["symbol"], px)
+    if shut:
+        body = {**body, "reason": shut, "after_hours": True}
     member = play["spec"].get("member")
     if member:
         legs = dict((_load(play["id"]) or play).get("held_legs") or {})
@@ -3260,9 +3439,65 @@ def _place(play: dict, ticket: dict, ts: int, body: dict) -> dict:
              **({} if play["held_qty"] else {"entry_bar": ts}))
     else:
         _set(play["id"], held_qty=max(0.0, play["held_qty"] - ticket["qty"]))
+    if ticket["side"] == "SELL":
+        _reconcile(play["user_id"], ticket["symbol"])
     return _event(play, ts, "filled", play["spec"]["title"],
                   {**body, "ticket": ticket, "fill_price": px,
                    "order_id": (got or {}).get("order_id") or (got or {}).get("id")}, status="done")
+
+
+def _place_stop(play: dict, ticket: dict, ts: int, body: dict) -> dict:
+    """A stop on a holding: an SL-M sell resting in the paper book, which the
+    book's own price hook fills when the price touches it. Nothing is sold
+    now. A trailing stop is the same order, its trigger raised at each bar
+    close as the price makes new highs (_ratchet)."""
+    try:
+        got = _paper.place_order(play["user_id"], ticket["symbol"], "SELL", ticket["qty"], order_type="SL-M",
+                                 trigger_price=ticket["stop"], source="play",
+                                 origin_kind=f"play:{play['id']}")
+    except Exception as exc:                                # noqa: BLE001
+        return _event(play, ts, "rejected", play["spec"]["title"],
+                      {**body, "ticket": ticket, "reason": str(exc)}, status="done")
+    oid = (got or {}).get("order_id")
+    _set(play["id"], held_sym=ticket["symbol"], held_qty=float(ticket["qty"]))
+    _mark_member(play["id"], "_stop", order=oid, trigger=ticket["stop"], best=ticket["price"])
+    words = (f"a trailing stop {ticket['trail_pct']:g}% under the highest close, now at "
+             if ticket.get("trail_pct") else "a stop at ")
+    return _event(play, ts, "filled", play["spec"]["title"],
+                  {**body, "ticket": ticket, "order_id": oid, "resting": True,
+                   "reason": f"{words}₹{ticket['stop']:,.2f} rests in the paper book: it sells "
+                             f"{_fmt_num(float(ticket['qty']))} {ticket['symbol']} only if the price falls to it"},
+                  status="done")
+
+
+def _ratchet(play: dict, data: dict, i: int) -> dict | None:
+    """A trailing stop on a holding, at a bar close: raise the resting order's
+    trigger under the highest close since it was set; once the order has gone
+    (filled by the book, or the shares sold) the play is over."""
+    st = (play.get("marks") or {}).get("_stop") or {}
+    if not st.get("order"):
+        return None
+    status = _paper.order_status(play["user_id"], st["order"]) if _paper is not None else None
+    if status != "resting":
+        _set(play["id"], held_qty=0, why="")
+        _mark_member(play["id"], "_stop", order=None)
+        _entries_over(play["id"], "its stop " + ("filled" if status == "filled" else "is no longer resting"))
+        if status == "filled":
+            return _event(play, data["t"][i], "exited", play["spec"]["title"],
+                          {"reason": f"the stop at ₹{st['trigger']:,.2f} filled", "symbol": play["held_sym"]},
+                          status="done")
+        return None
+    px = data["close"][i]
+    t = (play["spec"].get("manage") or {}).get("trail_pct")
+    if not px or not t:
+        return None
+    best = max(float(st.get("best") or 0), px)
+    trig = round(best * (1 - t / 100), 2)
+    if trig > float(st.get("trigger") or 0) + 0.004 and _paper.move_trigger(play["user_id"], st["order"], trig):
+        _mark_member(play["id"], "_stop", best=best, trigger=trig)
+    elif best > float(st.get("best") or 0):
+        _mark_member(play["id"], "_stop", best=best)
+    return None
 
 
 def _maybe_time_exit(play: dict, data: dict, i: int) -> dict | None:
@@ -3293,6 +3528,60 @@ def _maybe_time_exit(play: dict, data: dict, i: int) -> dict | None:
         ev = _event(play, data["t"][i], "proposed", play["spec"]["title"],
                     {**body, "ticket": ticket})
     return ev
+
+
+def _reconcile(uid: int, sym: str) -> None:
+    """Every play's claim on `sym` held to what the delivery book holds. A
+    sell from the portfolio, another play's exit, a stop the book filled or a
+    trade by hand takes shares a play bought; the play's own count must fall
+    with them, or its exit and its spend read shares that are gone. The
+    oldest claims keep their shares and the newest give them up first. A
+    stop protecting a holding claims nothing."""
+    if _paper is None or not sym:
+        return
+    try:
+        book = _portfolio_qty(uid, sym)
+        with ds._users_lock:
+            rows = _db().execute("SELECT id, held_sym, held_qty, held_legs, spec FROM plays WHERE user_id=? AND "
+                                 "(held_sym=? OR held_legs LIKE ?) ORDER BY id",
+                                 (uid, sym, f'%"{sym}"%')).fetchall()
+        claims = []
+        for pid, hs, hq, hl, sp in rows:
+            if (json.loads(sp or "{}").get("do") or {}).get("protect"):
+                continue
+            legs = json.loads(hl or "{}")
+            q = float(legs.get(sym) or 0) if legs else (float(hq or 0) if hs == sym else 0.0)
+            if q > 0:
+                claims.append((pid, legs, q))
+        if sum(q for _, _, q in claims) <= book + 1e-9:
+            return
+        left = book
+        for pid, legs, q in claims:
+            keep = max(0.0, min(q, left))
+            left -= keep
+            if keep >= q - 1e-9:
+                continue
+            if legs:
+                legs = {k: (keep if k == sym else v) for k, v in legs.items()}
+                legs = {k: v for k, v in legs.items() if v}
+                _set(pid, held_legs=json.dumps(legs), held_qty=float(sum(legs.values())))
+            else:
+                _set(pid, held_qty=keep)
+    except Exception:                                       # noqa: BLE001
+        log.warning("plays: reconcile %s failed", sym, exc_info=True)
+
+
+def _closed_note(sym: str, px: float) -> str:
+    """For a delivery order filled while the exchange is shut: the paper book
+    fills at the last price at once, and the trader is told that is not what
+    a broker would do."""
+    if customsec.is_custom(sym) or sym.endswith(("USDT", "USD", "BTC")) or hyperliquid.is_perp(sym):
+        return ""
+    import daybook
+    if not daybook.session_refusal([{"venue": "NSE", "product": "CNC"}]):
+        return ""
+    return (f"the market is closed now, so the paper book filled this at the last price, ₹{px:,.2f}; a "
+            "broker would hold the order until the next open at 09:15")
 
 
 def _held_now(play: dict) -> float:
@@ -3489,6 +3778,12 @@ def compile_play(uid: int, raw: dict, *, chart_symbol: str = "", chart_interval:
         hist = {"bars": 0, "fires": 0, "per_month": 0, "notes": [], "now": {}}
     status = _status(spec, data, series)
     hist["conditions"] = status
+    if tr and tr[-1] is True and spec["do"]["kind"] != "halt" and not spec.get("on") and not _every(spec):
+        hist["true_now"] = True
+        said.append("its condition already holds on the latest bar, so it acts at the next bar close"
+                    if _level(spec) else
+                    "its condition already holds on the latest bar; it fires when the condition next turns "
+                    "true after being false, not on this bar")
     diff = _diff(prior["spec"], spec) if prior else None
     structural = bool(diff and any(d["what"] != "limits" for d in diff))
     state = "armed" if arm else "draft"
@@ -3502,6 +3797,8 @@ def compile_play(uid: int, raw: dict, *, chart_symbol: str = "", chart_interval:
         _set(adopt["from"], held_legs="{}", held_qty=0, held_sym="")
     if prior and structural:
         _set(pid, accepted=0)
+    if prior and prior.get("fires"):
+        said.extend(_exits_on_held(pid, prior["spec"].get("manage") or {}, spec.get("manage") or {}))
     row = get(uid, pid)
     # "now" is its own dial: act once on the spot, then the lifespan takes over
     # ("rebalance now and keep it", "buy now and again on each dip"). An edit
@@ -3531,6 +3828,43 @@ def compile_play(uid: int, raw: dict, *, chart_symbol: str = "", chart_interval:
             feed = None
     return {"play": row, "assumed": said, "diff": diff, "feed": feed, "effect": effect,
             "card": card(row, {"conditions": status})}
+
+
+def _exits_on_held(pid: int, old: dict, new: dict) -> list[str]:
+    """An edit that adds a stop or a target to a play that has already bought
+    puts them in the book against what it holds: stored on the play alone
+    they would guard nothing, since a delivery buy's exits rest as orders
+    placed with the buy. Returns what was done, in words."""
+    play = _load(pid)
+    sym = play["held_sym"]
+    if not sym or sym in ("*", "rebalance") or customsec.is_custom(sym) or _day_route(play["spec"]["do"]) \
+            or _paper is None:
+        return []
+    qty = _held_now(play)
+    px = _mark(sym)
+    if not qty or not px:
+        return []
+    out = []
+    for k, otype, side in (("stop_pct", "SL-M", -1), ("target_pct", "LIMIT", 1)):
+        if not new.get(k) or new.get(k) == old.get(k):
+            continue
+        if old.get(k):
+            out.append(f"the {k.split('_')[0]} placed with the buy still rests at its first price; the new "
+                       f"{new[k]:g}% applies to its next buy")
+            continue
+        lvl = round(px * (1 + side * new[k] / 100), 2)
+        try:
+            got = _paper.place_order(play["user_id"], sym, "SELL", qty, order_type=otype, source="play",
+                                     origin_kind=f"play:{pid}",
+                                     **({"trigger_price": lvl} if otype == "SL-M" else {"limit_price": lvl}))
+        except Exception as exc:                            # noqa: BLE001
+            out.append(f"the {k.split('_')[0]} could not be placed: {exc}")
+            continue
+        if otype == "SL-M":
+            _mark_member(pid, "_stop", order=(got or {}).get("order_id"), trigger=lvl, best=px)
+        out.append(f"{'a stop' if otype == 'SL-M' else 'a target'} at ₹{lvl:,.2f} ({new[k]:g}% from ₹{px:,.2f}) "
+                   f"now rests in the paper book for the {_fmt_num(float(qty))} {sym} it holds")
+    return out
 
 
 def _effect(pid: int, data: dict) -> dict | None:
@@ -3625,13 +3959,22 @@ def act(uid: int, pid: int, action: str) -> dict:
     if not play:
         raise Bad(f"no play {pid} on this account")
     if action == "pause":
-        _set(pid, state="paused", why="paused by you")
+        # the marker a once-only play carries after it fired ("fired", or
+        # watching its exit) survives the pause: clearing it would let the
+        # play fire again on resume, beside a proposal still waiting
+        if play["state"] == "armed":
+            _set(pid, state="paused", why=play["why"] or "paused by you")
     elif action == "resume":
         if play["state"] == "done":
             raise Bad("this play has finished; compile it again to run it again")
+        if play["state"] == "armed":
+            return {"play": card(play)}
         # resuming never replays the bars it was paused through
         data, _ = frame(play["spec"], limit=5)
-        _set(pid, state="armed", why="", last_eval_ts=data["t"][-1])
+        _set(pid, state="armed", why="" if play["why"] == "paused by you" else play["why"],
+             last_eval_ts=data["t"][-1])
+        if play["held_sym"] and play["held_sym"] not in ("*", "rebalance"):
+            _reconcile(uid, play["held_sym"])
     elif action == "policy":
         if play["spec"]["do"]["kind"] != "rebalance":
             raise Bad("only a rebalance can become a standing policy")
@@ -3696,7 +4039,7 @@ def edit_field(uid: int, pid: int, field: str, value) -> dict:
         if do["kind"] not in ("buy", "short"):
             raise Bad("only a buy or a short has a rupee size")
         do["size"] = {"inr": num(100, 1e9)}
-        if md.get("capital_inr", 0) < do["size"]["inr"] * (5 if spec["contract"]["lifespan"] == "standing" else 1):
+        if (md.get("capital_inr") or 0) < do["size"]["inr"] * (5 if spec["contract"]["lifespan"] == "standing" else 1):
             md["capital_inr"] = do["size"]["inr"] * (5 if spec["contract"]["lifespan"] == "standing" else 1)
             md["max_order_inr"] = max(md.get("max_order_inr") or 0, do["size"]["inr"])
     elif field == "leverage":

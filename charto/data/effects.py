@@ -189,9 +189,10 @@ def vet(play: dict, t: dict) -> str:
     law is logged as the bug it is."""
     try:
         bad = laws(play, t)
-    except Exception:                                       # noqa: BLE001
+    except Exception as exc:                                # noqa: BLE001
+        # a check that could not run has not passed: nothing is placed on it
         log.exception("effects: could not check play %s", play.get("id"))
-        return ""
+        return f"a safety check could not run ({type(exc).__name__}), so nothing was placed"
     if bad:
         log.error("effects: play %s ticket broke a law: %s", play.get("id"), "; ".join(bad))
         return "a safety check refused it: " + "; ".join(bad)

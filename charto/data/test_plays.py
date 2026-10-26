@@ -10,6 +10,7 @@ import pytest
 import dataserver as server
 import chat_v2
 import customsec
+import daybook
 import paper
 import plays
 import policy
@@ -29,6 +30,10 @@ def uid(monkeypatch, tmp_path):
     monkeypatch.setattr(paper, "_ready", False)
     monkeypatch.setattr(customsec, "_ready", False)
     monkeypatch.setattr(customsec, "_cache", {})
+    # a weekday morning: positions open only while their market is open, and
+    # these tests are about what opens, not about when they are run
+    monkeypatch.setattr(daybook, "_now_ist", lambda: __import__("datetime").datetime(2026, 10, 22, 10, 30,
+                                                                                    tzinfo=daybook.IST))
     plays.bind(server, None, paper)
     server._req.user = (1, "t@x.in")
     server._req.symbol, server._req.ctx_interval = "RELIANCE", "1d"

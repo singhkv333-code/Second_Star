@@ -452,13 +452,16 @@ def bars(symbol: str, interval: str, to: int | None, limit: int) -> dict:
             if not b["close"][i] or not b["open"][i]:
                 continue
             o, c = a["open"][i] / b["open"][i], a["close"][i] / b["close"][i]
-            h = max(o, c, a["high"][i] / (b["high"][i] or b["close"][i]))
-            l = min(o, c, a["low"][i] / (b["low"][i] or b["close"][i]))
+            # bounds: the ratio is highest with A at its high over B at its low
+            h = max(o, c, a["high"][i] / (b["low"][i] or b["close"][i]))
+            l = min(o, c, a["low"][i] / (b["high"][i] or b["close"][i]))
         else:
             a, b = vals
             k = sec["k"]
             o, c = a["open"][i] - k * b["open"][i], a["close"][i] - k * b["close"][i]
-            h, l = max(o, c, a["high"][i] - k * b["high"][i]), min(o, c, a["low"][i] - k * b["low"][i])
+            # bounds: A at its high less k·B at its low, and the reverse (k may be negative)
+            bh, bl = (b["low"][i], b["high"][i]) if k >= 0 else (b["high"][i], b["low"][i])
+            h, l = max(o, c, a["high"][i] - k * bh), min(o, c, a["low"][i] - k * bl)
         out.append({"t": r[0], "o": round(o, 6), "h": round(max(h, o, c), 6), "l": round(min(l, o, c), 6),
                     "c": round(c, 6), "v": 0})
     return {"bars": out[-limit:], "has_more": len(out) > limit, "custom": True,
