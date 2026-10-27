@@ -15,7 +15,9 @@
  *      no fabricated benchmark; honest loading / error / empty states. The
  *      footer strip below it is per-user (real total return + concentration).
  *   3. Holdings table (sortable, ticker tag with sector subtext).
- *   4. Asset Allocation — donut + legend across Sectors / Stocks.
+ *   4. Day book — the intraday, short and derivative positions plays open,
+ *      when the plays build flag is on (this page is the plays' Portfolio too).
+ *   5. Asset Allocation — donut + legend across Sectors / Stocks.
  *
  * Theme tokens are pulled from globals.css so light + dark both work.
  */
@@ -49,11 +51,16 @@ import {
   getOrderHistory,
   getOpenOrders,
   cancelOrder,
+  getDayBook,
+  closeDayPosition,
   type Holding,
   type PortfolioSummary,
   type OpenOrder,
+  type DayBook,
+  type DayPosition,
 } from "@/lib/api";
 import { toast } from "sonner";
+import { LAUNCH } from "@/lib/launch";
 import { isError } from "@/lib/types";
 import {
   getPortfolioPerformance,
@@ -263,6 +270,8 @@ export function PortfolioTab(): React.ReactElement {
     getOpenOrders().then((r) => {
       if (!alive) return;
       setOpenOrderCount(isError(r) ? 0 : r.data.length);
+    }).catch(() => {
+      if (alive) setOpenOrderCount(0);
     });
     return () => {
       alive = false;
@@ -473,6 +482,8 @@ export function PortfolioTab(): React.ReactElement {
               )}
             </Card>
           </Section>
+
+          {LAUNCH.plays && <DayBookSection />}
 
           <AssetAllocation holdings={state.holdings} />
         </>
@@ -2322,9 +2333,11 @@ function TxnSymbolCell({
   );
 }
 
-// Buy/Sell pill shared by the Orders + History tables.
+// Buy/Sell pill shared by the Orders + History tables; the Day book passes
+// long/short and gets Long/Short in the same colours.
 function TxnSideBadge({ side }: { side: string }): React.ReactElement {
-  const isBuy = side.toUpperCase() !== "SELL";
+  const s = side.toUpperCase();
+  const isBuy = s !== "SELL" && s !== "SHORT";
   return (
     <span
       style={{
@@ -2336,7 +2349,7 @@ function TxnSideBadge({ side }: { side: string }): React.ReactElement {
         color: isBuy ? "#10b981" : "#ef4444",
       }}
     >
-      {isBuy ? "BUY" : "SELL"}
+      {s === "LONG" || s === "SHORT" ? s : isBuy ? "BUY" : "SELL"}
     </span>
   );
 }
@@ -2353,9 +2366,13 @@ function TxnSideBadge({ side }: { side: string }): React.ReactElement {
 // once and the page scrolls only downward, like the portfolio overview.
 // ---------------------------------------------------------------------------
 
-/** Shared card chrome for both phone lists. */
+/** Shared card chrome for the phone lists. `label` and `href` default to the
+ *  symbol and its stock page; the Day book names derivatives its own way and
+ *  passes `href={null}` where there is no stock page to open. */
 function TxnCardMobile({
   symbol,
+  label = symbol,
+  href = `/stock/${encodeURIComponent(symbol)}`,
   logoUrl,
   last,
   topLeft,
@@ -2366,6 +2383,8 @@ function TxnCardMobile({
   trailing,
 }: {
   symbol: string;
+  label?: string;
+  href?: string | null;
   logoUrl?: string | null;
   last: boolean;
   topLeft: React.ReactNode;
@@ -2376,6 +2395,16 @@ function TxnCardMobile({
   trailing?: React.ReactNode;
 }): React.ReactElement {
   const muted: React.CSSProperties = { fontSize: 11.5, color: "var(--text-tertiary)" };
+  const name: React.CSSProperties = {
+    fontSize: 15,
+    fontWeight: 600,
+    color: "var(--text-primary)",
+    letterSpacing: "-0.015em",
+    textDecoration: "none",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  };
   return (
     <div
       style={{
@@ -2395,21 +2424,13 @@ function TxnCardMobile({
           </div>
           {/* Row 2 — symbol  |  headline figure */}
           <div className="flex items-center justify-between" style={{ gap: 10, marginBottom: 7 }}>
-            <Link
-              href={`/stock/${encodeURIComponent(symbol)}`}
-              style={{
-                fontSize: 15,
-                fontWeight: 600,
-                color: "var(--text-primary)",
-                letterSpacing: "-0.015em",
-                textDecoration: "none",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {symbol}
-            </Link>
+            {href ? (
+              <Link href={href} style={name}>
+                {label}
+              </Link>
+            ) : (
+              <span style={name}>{label}</span>
+            )}
             {headline}
           </div>
           {/* Row 3 — the remaining meta, split left/right */}
@@ -3118,5 +3139,430 @@ function TradeHistory(): React.ReactElement {
           : `All ${rows?.length ?? 0} ${mode === "paper" ? "simulated fills" : "orders"} loaded`}
       </p>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// DayBookSection — what plays hold outside the delivery book: intraday and
+// short trades, futures, options, crypto and perps (GET /plays/book). Open
+// rows can be closed at their last mark. Shows what is open plus what closed
+// today; earlier closed trades are in the plays' Review. Prices are in the
+// instrument's currency (USD for crypto and perps); P&L is rupees, as the
+// server books it.
+// ---------------------------------------------------------------------------
+
+const IST_OFFSET_MS = 5.5 * 3_600_000;
+
+/** Unix seconds at the start of today in IST — the day the day book counts. */
+function startOfTodayIst(): number {
+  const dayMs = 86_400_000;
+  return (Math.floor((Date.now() + IST_OFFSET_MS) / dayMs) * dayMs - IST_OFFSET_MS) / 1000;
+}
+
+const inUsd = (p: DayPosition): boolean => p.kind === "crypto" || p.kind === "perp";
+
+/** A price in the position's own currency; small crypto prices keep their digits. */
+function fmtDayPx(p: DayPosition, n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return "—";
+  const digits = Math.abs(n) < 1 ? 6 : 2;
+  return `${inUsd(p) ? "$" : "₹"}${n.toLocaleString("en-IN", { maximumFractionDigits: digits })}`;
+}
+
+function fmtDayQty(q: number): string {
+  return q.toLocaleString("en-IN", { maximumFractionDigits: 4 });
+}
+
+function dayName(p: DayPosition): string {
+  if (p.kind === "option") {
+    return [p.underlying, p.strike != null ? p.strike.toLocaleString("en-IN") : "", p.opt]
+      .filter(Boolean).join(" ");
+  }
+  if (p.kind === "future") return `${p.underlying} future`;
+  if (p.kind === "perp") return `${p.symbol} ${p.leverage}×`;
+  return p.symbol;
+}
+
+/** The play that opened it, and how it trades. */
+function dayMeta(p: DayPosition): string {
+  return [
+    p.play,
+    p.product === "MIS" ? "intraday" : "",
+    p.kind === "perp" ? "Hyperliquid perp" : "",
+  ].filter(Boolean).join(" · ");
+}
+
+/** Its exits while open; why it closed once closed. */
+function dayLevels(p: DayPosition): string {
+  if (p.state !== "open") return p.exit_why;
+  return [
+    p.stop_px != null ? `stop ${fmtDayPx(p, p.stop_px)}` : "",
+    p.target_px != null ? `target ${fmtDayPx(p, p.target_px)}` : "",
+    p.liq_px != null ? `liquidation about ${fmtDayPx(p, p.liq_px)}` : "",
+    p.funding ? `funding ${fmtRupee(p.funding, { max: 2 })}` : "",
+  ].filter(Boolean).join(" · ");
+}
+
+const dayPnl = (p: DayPosition): number | null =>
+  p.state === "open" ? (p.open_pnl ?? null) : p.pnl;
+
+/** The name the logo is looked up by: the stock itself, else what underlies it. */
+const dayGlyphSymbol = (p: DayPosition): string =>
+  p.kind === "equity" ? p.symbol : p.underlying || p.symbol;
+
+function DayPnl({ value, size = 12.5 }: { value: number | null; size?: number }): React.ReactElement {
+  if (value == null) return <span style={{ color: "var(--text-tertiary)" }}>—</span>;
+  return (
+    <span
+      style={{
+        fontFamily: "var(--font-mono)",
+        fontSize: size,
+        fontWeight: 600,
+        fontVariantNumeric: "tabular-nums",
+        whiteSpace: "nowrap",
+        color: value >= 0 ? "var(--color-profit)" : "var(--color-loss)",
+      }}
+    >
+      {fmtRupee(value, { sign: true, max: 2 })}
+    </span>
+  );
+}
+
+function StaleTag(): React.ReactElement {
+  return (
+    <span
+      title="No live price: this is the last close"
+      style={{
+        marginLeft: 6,
+        padding: "1px 6px",
+        borderRadius: 999,
+        fontSize: 10,
+        fontWeight: 600,
+        fontFamily: "var(--font-ui)",
+        background: "rgba(245,158,11,0.12)",
+        color: "#b45309",
+      }}
+    >
+      last close
+    </span>
+  );
+}
+
+function CloseButton({
+  p,
+  busy,
+  onClose,
+  wide = false,
+}: {
+  p: DayPosition;
+  busy: boolean;
+  onClose: (p: DayPosition) => Promise<void>;
+  wide?: boolean;
+}): React.ReactElement {
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={() => void onClose(p)}
+      disabled={busy}
+      data-testid={`close-day-${p.id}`}
+      aria-label={`Close ${p.side} ${dayName(p)}`}
+      className={`${wide ? "h-8 w-full" : "h-7 px-2.5"} gap-1.5 rounded-md border-border/70 text-xs font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:ring-destructive/40 [&_svg]:size-3.5`}
+    >
+      {busy ? (
+        <>
+          <Loader2 className="animate-spin" aria-hidden="true" />
+          Closing
+        </>
+      ) : (
+        <>
+          <X aria-hidden="true" />
+          Close
+        </>
+      )}
+    </Button>
+  );
+}
+
+function DayBookSection(): React.ReactElement {
+  const [book, setBook] = useState<DayBook | null>(null);
+  const [errored, setErrored] = useState(false);
+  const [closing, setClosing] = useState<Set<number>>(new Set());
+  // Bumped by Retry and after a close; the rows already shown stay up while
+  // the refetch runs.
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    let alive = true;
+    setErrored(false);
+    getDayBook()
+      .then((r) => {
+        if (!alive) return;
+        if (isError(r)) {
+          setErrored(true);
+          return;
+        }
+        setBook(r.data);
+      })
+      .catch(() => {
+        if (alive) setErrored(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [reloadKey]);
+
+  const rows = useMemo(() => {
+    const since = startOfTodayIst();
+    const kept = (book?.positions ?? []).filter(
+      (p) => p.state === "open" || (p.exit_ts ?? 0) >= since,
+    );
+    // Open first; the server already orders each by entry, newest first.
+    return [...kept.filter((p) => p.state === "open"), ...kept.filter((p) => p.state !== "open")];
+  }, [book]);
+
+  const logos = useCompanyLogos(rows.map(dayGlyphSymbol));
+
+  const handleClose = async (p: DayPosition): Promise<void> => {
+    setClosing((prev) => new Set(prev).add(p.id));
+    const res = await closeDayPosition(p.id);
+    setClosing((prev) => {
+      const next = new Set(prev);
+      next.delete(p.id);
+      return next;
+    });
+    if (isError(res)) {
+      toast.error(`Couldn't close ${dayName(p)}`, { description: res.error.message });
+      return;
+    }
+    toast.success(`Closed ${dayName(p)}`);
+    setReloadKey((k) => k + 1);
+  };
+
+  let body: React.ReactNode;
+  if (book === null && errored) {
+    body = (
+      <div
+        role="alert"
+        className="flex flex-col items-center justify-center text-center"
+        style={{ gap: 6, padding: "32px 16px" }}
+      >
+        <p style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>
+          Couldn&apos;t load the day book
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setReloadKey((k) => k + 1)}
+          className="mt-2 h-7 gap-1.5 px-2.5 text-xs [&_svg]:size-3.5"
+        >
+          <RefreshCw aria-hidden="true" />
+          Retry
+        </Button>
+      </div>
+    );
+  } else if (book === null) {
+    body = (
+      <div aria-busy="true">
+        {[0, 1].map((i) => (
+          <div
+            key={i}
+            className="flex items-center justify-between"
+            style={{ gap: 16, padding: "16px 18px", borderTop: i === 0 ? "none" : "1px solid var(--glass-border)" }}
+          >
+            <Bar w={i === 0 ? 140 : 110} h={12} />
+            <div className="flex items-center" style={{ gap: 22 }}>
+              <Bar w={40} h={10} />
+              <Bar w={56} h={10} />
+              <Bar w={64} h={10} />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  } else if (rows.length === 0) {
+    body = (
+      <p
+        data-testid="day-book-empty"
+        style={{ fontSize: 12.5, color: "var(--text-tertiary)", textAlign: "center", padding: "32px 16px" }}
+      >
+        No intraday, short or derivative positions today. When a play opens one, it shows here.
+      </p>
+    );
+  } else {
+    body = (
+      <>
+        {/* Phones: stacked cards, the same idiom as orders and history. */}
+        <div className="lg:hidden" style={{ padding: "0 14px" }} data-testid="day-book-list-mobile">
+          {rows.map((p, i) => {
+            const open = p.state === "open";
+            const sym = dayGlyphSymbol(p);
+            const levels = dayLevels(p);
+            return (
+              <div key={p.id} style={{ opacity: closing.has(p.id) ? 0.5 : 1 }}>
+                <TxnCardMobile
+                  symbol={sym}
+                  label={dayName(p)}
+                  href={p.kind === "equity" ? undefined : null}
+                  logoUrl={logos[sym.toUpperCase()]}
+                  last={i === rows.length - 1}
+                  topLeft={
+                    <>
+                      <TxnSideBadge side={p.side} />
+                      <span
+                        style={{
+                          fontSize: 11.5,
+                          color: "var(--text-tertiary)",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {dayMeta(p)}
+                      </span>
+                    </>
+                  }
+                  topRight={
+                    <span style={{ fontSize: 11.5, color: "var(--text-tertiary)", whiteSpace: "nowrap" }}>
+                      {open ? "Open" : "Closed"}
+                    </span>
+                  }
+                  headline={<DayPnl value={dayPnl(p)} size={14.5} />}
+                  bottomLeft={`Qty. ${fmtDayQty(p.qty)} · Entry ${fmtDayPx(p, p.entry_px)}`}
+                  bottomRight={
+                    <>
+                      {open ? "Now" : "Out"} {fmtDayPx(p, open ? p.mark_px : p.exit_px)}
+                      {open && p.stale ? <StaleTag /> : null}
+                    </>
+                  }
+                  trailing={
+                    levels || open ? (
+                      <div className="flex flex-col" style={{ gap: 10 }}>
+                        {levels ? (
+                          <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{levels}</span>
+                        ) : null}
+                        {open ? (
+                          <CloseButton p={p} busy={closing.has(p.id)} onClose={handleClose} wide />
+                        ) : null}
+                      </div>
+                    ) : undefined
+                  }
+                />
+              </div>
+            );
+          })}
+        </div>
+        <div className="hidden overflow-x-auto lg:block" style={{ WebkitOverflowScrolling: "touch" }}>
+          <table
+            className="w-full"
+            style={{ borderCollapse: "collapse", fontFamily: "var(--font-ui)", minWidth: 860 }}
+            data-testid="day-book-table"
+          >
+            <thead>
+              <tr>
+                <TxnHeadCell label="Position" />
+                <TxnHeadCell label="Side" />
+                <TxnHeadCell label="Qty" align="right" />
+                <TxnHeadCell label="Entry" align="right" />
+                <TxnHeadCell label="Now / out" align="right" />
+                <TxnHeadCell label="Exits" />
+                <TxnHeadCell label="P&L (₹)" align="right" />
+                <TxnHeadCell label="" align="right" />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((p) => {
+                const open = p.state === "open";
+                const sym = dayGlyphSymbol(p);
+                const meta = dayMeta(p);
+                const nameStyle: React.CSSProperties = {
+                  fontSize: 13,
+                  fontWeight: 500,
+                  color: "var(--text-primary)",
+                  textDecoration: "none",
+                };
+                return (
+                  <tr
+                    key={p.id}
+                    style={{ opacity: closing.has(p.id) ? 0.5 : 1, transition: "background 150ms" }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = "var(--bg-secondary)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = "transparent";
+                    }}
+                  >
+                    <td style={HIST_TD}>
+                      <div className="inline-flex items-center" style={{ gap: 12 }}>
+                        <HoldingGlyph symbol={sym} hueKey={SECTOR_MAP[sym]} logoUrl={logos[sym.toUpperCase()]} />
+                        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                          {p.kind === "equity" ? (
+                            <Link href={`/stock/${encodeURIComponent(p.symbol)}`} style={nameStyle}>
+                              {dayName(p)}
+                            </Link>
+                          ) : (
+                            <span style={nameStyle}>{dayName(p)}</span>
+                          )}
+                          {meta ? <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{meta}</span> : null}
+                        </div>
+                      </div>
+                    </td>
+                    <td style={HIST_TD}>
+                      <TxnSideBadge side={p.side} />
+                    </td>
+                    <td style={HIST_TD_NUM}>{fmtDayQty(p.qty)}</td>
+                    <td style={HIST_TD_NUM}>{fmtDayPx(p, p.entry_px)}</td>
+                    <td style={HIST_TD_NUM}>
+                      {fmtDayPx(p, open ? p.mark_px : p.exit_px)}
+                      {open && p.stale ? <StaleTag /> : null}
+                    </td>
+                    <td style={{ ...HIST_TD, color: "var(--text-tertiary)", whiteSpace: "normal", maxWidth: 240 }}>
+                      {dayLevels(p) || "—"}
+                    </td>
+                    <td style={{ ...HIST_TD, textAlign: "right" }}>
+                      <DayPnl value={dayPnl(p)} />
+                    </td>
+                    <td style={{ ...HIST_TD, textAlign: "right" }}>
+                      {open ? <CloseButton p={p} busy={closing.has(p.id)} onClose={handleClose} /> : null}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <Section label="Day book">
+      <Card padding={0} style={{ overflow: "hidden", background: "var(--bg-base)" }}>
+        <div data-testid="day-book">
+          {book ? (
+            <div
+              className="flex flex-wrap items-center justify-between"
+              style={{
+                gap: "6px 12px",
+                padding: "12px 18px",
+                fontSize: 12,
+                color: "var(--text-tertiary)",
+                borderBottom: "1px solid var(--glass-border)",
+              }}
+            >
+              <span>Intraday, short and derivative positions your plays opened</span>
+              <span className="inline-flex items-center" style={{ gap: 6, whiteSpace: "nowrap" }}>
+                Today <DayPnl value={book.day_pnl} />
+              </span>
+            </div>
+          ) : null}
+          {body}
+        </div>
+      </Card>
+      {book && rows.length > 0 ? (
+        <p style={{ fontSize: 11, color: "var(--text-tertiary)", textAlign: "center", marginTop: 10 }}>
+          Simulated. Costs and margin are estimates. Crypto and perp prices are in USD; P&amp;L is in rupees.
+        </p>
+      ) : null}
+    </Section>
   );
 }

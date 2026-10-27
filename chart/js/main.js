@@ -4664,7 +4664,6 @@
 
   // The label is its own element so a narrow bar (the Pivot shell's) can
   // show the glyph alone; the name stays reachable through aria-label.
-  el("playsTab").innerHTML = Icons.svg("radio", "sm") + "<span>Plays</span>";
   el("chatToggle").innerHTML = Icons.svg("chat", "sm") + "<span>Chat</span>";
   el("chatToggle").setAttribute("aria-label", "Chat");
   el("chatToggle").title = "Chat";

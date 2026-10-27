@@ -32,6 +32,7 @@ const Auth = (() => {
   // a slow server). The token may be perfectly good; the boot screen must
   // not ask for a sign-in on the strength of a request that failed.
   let unsure = false;
+  let resuming = null;
   try { token = localStorage.getItem(KEY); } catch { token = null; }
 
   const listeners = [];
@@ -64,36 +65,43 @@ const Auth = (() => {
     emit();
   }
 
+  async function check() {
+    // The browser dropped the stored token (Safari's seven-day storage cap,
+    // cleared site data) while the session lives on: its HttpOnly cookie
+    // hands it back. Asked only when the readable hint cookie is there.
+    if (!token && /(?:^|;\s*)pivot_signed_in=1(?:;|$)/.test(document.cookie)) {
+      try {
+        const d = await call("/auth/resume", {});
+        if (d.token) setSession(d.token, d.user || null);
+      } catch {}
+    }
+    if (!token) return null;
+    try {
+      const d = await call("/auth/me");
+      unsure = false;
+      user = d.user || null;
+      if (!user) setSession(null, null);   // token expired or was revoked
+      else emit();
+    } catch {
+      user = null;
+      unsure = true;
+    }
+    return user;
+  }
+
   return {
     get user() { return user; },
     get token() { return token; },
+    KEY,
     headers,
     onChange(fn) { listeners.push(fn); if (user !== null) fn(user); },
 
     /** Boot: who is this? A failure here is answered as "nobody", because the
      *  app is fully usable signed out and a network blip must not gate it. */
-    async resume() {
-      // The browser dropped the stored token (Safari's seven-day storage cap,
-      // cleared site data) while the session lives on: its HttpOnly cookie
-      // hands it back. Asked only when the readable hint cookie is there.
-      if (!token && /(?:^|;\s*)pivot_signed_in=1(?:;|$)/.test(document.cookie)) {
-        try {
-          const d = await call("/auth/resume", {});
-          if (d.token) setSession(d.token, d.user || null);
-        } catch {}
-      }
-      if (!token) return null;
-      try {
-        const d = await call("/auth/me");
-        unsure = false;
-        user = d.user || null;
-        if (!user) setSession(null, null);   // token expired or was revoked
-        else emit();
-      } catch {
-        user = null;
-        unsure = true;
-      }
-      return user;
+    resume() {
+      // auth.js's own boot check and the page's run at the same moment; they
+      // share one answer rather than racing two.
+      return resuming || (resuming = check().finally(() => { resuming = null; }));
     },
 
     /** The last resume() got no answer, so a token is held but unconfirmed. */

@@ -387,6 +387,19 @@ def test_a_straddle_opens_two_short_legs_with_premium_stops(book) -> None:
     assert legs["CE"]["stop_px"] == 150.0 and legs["PE"]["stop_px"] == 137.5
 
 
+def test_the_day_book_route_names_each_leg_for_its_play(book, monkeypatch) -> None:
+    monkeypatch.setattr(plays, "list_plays", lambda uid: [{"id": 7, "spec": {"title": "NIFTY 9:20 straddle"}}])
+    legs = [{"symbol": f"NIFTY26OCT22750{o}", "venue": "NFO", "kind": "option", "underlying": "NIFTY",
+             "strike": 22750.0, "opt": o, "lot": 65, "side": "short", "qty": 65, "product": "MIS", "px": 100.0}
+            for o in ("CE", "PE")]
+    daybook.open_group(1, 7, legs, {"stop_pct": 25})
+    code, got = plays.api_get(1, "/book")
+    assert code == 200
+    assert sorted(p["opt"] for p in got["positions"]) == ["CE", "PE"]
+    assert {p["play"] for p in got["positions"]} == {"NIFTY 9:20 straddle"}
+    assert all("open_pnl" in p for p in got["positions"])
+
+
 def test_one_leg_stopped_moves_the_other_to_cost(book) -> None:
     pid = plays.tool_play("compile", _straddle(do={**_straddle()["do"], "product": "MIS"}))["play_id"]
     _fire_now(pid)

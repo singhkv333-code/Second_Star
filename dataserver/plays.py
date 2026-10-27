@@ -4580,14 +4580,22 @@ def surface_block(ctx: dict) -> str:
 
 # ══ HTTP ════════════════════════════════════════════════════════════════════
 
+def day_book(uid: int, plays: list[dict] | None = None) -> dict:
+    """The day book (intraday, short and derivative positions), each named
+    for the play that opened it. The plays page and the app's Portfolio both
+    read it here."""
+    import daybook
+    _, book = daybook.api_list(uid)
+    names = {p["id"]: p["spec"]["title"] for p in (list_plays(uid) if plays is None else plays)}
+    for p in book["positions"]:
+        p["play"] = names.get(p["play_id"], "")
+    return book
+
+
 def api_list(uid: int) -> tuple[int, dict]:
     init_db()
     plays = list_plays(uid)
-    import daybook
-    _, book = daybook.api_list(uid)
-    names = {p["id"]: p["spec"]["title"] for p in plays}
-    for p in book["positions"]:
-        p["play"] = names.get(p["play_id"], "")
+    book = day_book(uid, plays)
     evs = events(uid)
     try:
         secs = [customsec.card(x) for x in customsec.list_for(uid)]
@@ -4790,6 +4798,8 @@ def api_get(uid: int, tail: str) -> tuple[int, dict]:
         return 200, {"chats": chats_list(uid)}
     if parts == ["review"]:
         return 200, review(uid)
+    if parts == ["book"]:
+        return 200, day_book(uid)
     if len(parts) == 2 and parts[0] == "chats":
         c = chat_get(uid, parts[1])
         return (200, {"chat": c}) if c else (404, {"error": "no such conversation"})

@@ -13,6 +13,9 @@ const Kit = (() => {
   const API = location.port === "5173" ? "http://127.0.0.1:5174" : "";
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g,
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  /** A colour token of the page's palette, resolved (for SVG attributes). */
+  const cssColor = (name, fallback) =>
+    getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
 
   async function call(path, body) {
     const res = await fetch(API + path, {
@@ -22,6 +25,8 @@ const Kit = (() => {
     });
     let d = {};
     try { d = await res.json(); } catch { /* not json */ }
+    // a refused request: the page confirms the session before it says so
+    if (res.status === 401) window.dispatchEvent(new Event("plays:unauthorized"));
     if (!res.ok) throw new Error(d.error || `request failed (${res.status})`);
     return d;
   }
@@ -65,8 +70,8 @@ const Kit = (() => {
   /* ── icons (stroke, 24 grid) ──────────────────────────────────────────── */
   const P = {
     signal: '<circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4M7.8 16.2a6 6 0 0 1 0-8.4M19.1 4.9a10 10 0 0 1 0 14.2M4.9 19.1a10 10 0 0 1 0-14.2"/>',
-    trigger: '<path d="M6 2h12M6 22h12M7 2v4a5 5 0 0 0 10 0V2M7 22v-4a5 5 0 0 1 10 0v4"/>',
-    action: '<path d="M4 6h6M4 12h4M4 18h6"/><path d="M15 3l-3 9h5l-3 9 7-11h-5l3-7z"/>',
+    trigger: '<circle cx="12" cy="12" r="7"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>',
+    action: '<path d="M21 3L10 14"/><path d="M21 3l-6.5 18-4.5-7-7-4.5z"/>',
     exit: '<path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4"/><path d="M9 8l-4 4 4 4M5 12h11"/>',
     bell: '<path d="M6 16V11a6 6 0 1 1 12 0v5l2 2H4l2-2z"/><path d="M10 21h4"/>',
     eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
@@ -172,7 +177,9 @@ const Kit = (() => {
       d += `${pen ? "L" : "M"}${x(i).toFixed(1)} ${y(p.v).toFixed(1)}`; pen = true;
     });
     const up = v[v.length - 1] >= v[0];
-    const color = o.color || (o.area ? (up ? "#5aa62b" : "#d42a2a") : "#2563eb");
+    // the workspace's rising and falling colours (plays.html's --green/--red),
+    // read now because an SVG attribute cannot hold var()
+    const color = o.color || (o.area ? (up ? cssColor("--green", "#089981") : cssColor("--red", "#f23645")) : cssColor("--blue", "#2563eb"));
     const id = `g${++gid}`;
     const ticks = 3, fmt = o.yfmt || ((t) => num(t, Math.abs(hi) < 10 ? 2 : 0));
     let axis = "";
@@ -312,11 +319,8 @@ const Kit = (() => {
       `<span>${esc(num(lo))}</span><span>${esc(num(hi))}</span></div>`;
   }
 
-  const TAGS = ["#f7a8cf", "#ffb27d", "#9cc0ff", "#a6e3b5"];
-
   function signalNode(sig, i) {
-    return `<div class="node signal" data-node="s${i}"><div class="tabhead">${ic("signal")}Signal</div>` +
-      `<span class="tag" style="background:${TAGS[i % TAGS.length]}"></span>` +
+    return `<div class="node signal" data-node="s${i}">` +
       `<div class="tt">${esc(sig.title)}</div>${sig.cap ? `<div class="cap">${esc(sig.cap)}</div>` : ""}<div class="inner">${sig.body}</div></div>`;
   }
 
@@ -398,7 +402,13 @@ const Kit = (() => {
       met = c.join === "any" ? conds.some((x) => x.met) : conds.every((x) => x.met);
       body = conds.map((x, i) => condRow(x.parts, x, i)).join(`<div class="join"><span>${c.join === "any" ? "or" : "and"}</span></div>`);
       const away = conds.find((x) => x.away_pct != null && !x.met);
-      if (away) body += `<div class="nfoot"><span>${ic("target")} ${esc(num(away.away_pct))}% away</span><span></span></div>`;
+      const foot = away ? `<div class="nfoot"><span>${ic("target")} ${esc(num(away.away_pct))}% away</span><span></span></div>` : "";
+      // the condition drawn: the session's closes against the level, the gap
+      // shaded; the text foot stays until bars arrive, and if they never do
+      const lv = away || conds.find((x) => x.now != null && x.target != null && x.parts && x.parts.left);
+      const sym = lv && Number.isFinite(+lv.target) && (symIn((lv.parts || {}).left) || c.symbol);
+      body += sym ? `<div class="lvl-host" data-sym="${esc(sym)}" data-level="${esc(lv.target)}" data-now="${esc(lv.now)}"` +
+        ` data-met="${lv.met ? 1 : ""}" data-away="${esc(lv.away_pct == null ? "" : lv.away_pct)}">${foot}</div>` : foot;
     } else {
       head = "Now"; icon = "bolt"; met = true;
       body = `<div class="cond"><span>Runs once, as soon as you asked</span></div>`;
@@ -451,7 +461,7 @@ const Kit = (() => {
       const t = Object.entries(d.targets || {}).sort((a, b) => b[1] - a[1]);
       const cash = Math.max(0, 1 - t.reduce((a, [, w]) => a + w, 0));
       const bar = t.map(([s, w], i) => `<i style="width:${w * 100}%;background:${COLORS[i % COLORS.length]}" title="${esc(s)}"></i>`).join("") +
-        (cash > 0.005 ? `<i style="width:${cash * 100}%;background:#d4d4d4"></i>` : "");
+        (cash > 0.005 ? `<i style="width:${cash * 100}%;background:var(--rule)"></i>` : "");
       return `<div class="node" data-node="a">${head("Action")}<div class="act-title"><span class="chip plain">${ic("scale")}Rebalance</span>` +
         `<span>${d.of === "portfolio" ? "the paper portfolio" : "its holdings"}</span></div>` +
         `<div class="params">${(c.mandate || {}).max_weight ? `<span>Max</span><span class="edit">${esc(num(c.mandate.max_weight * 100))}%${ic("pencil")}</span><span>per name</span>` : `<span>Weights as set, no cap</span>`}` +
@@ -461,7 +471,7 @@ const Kit = (() => {
           `<div title="${esc((d.reasons || {})[s] || "")}"><span class="sw" style="background:${COLORS[i % COLORS.length]}"></span>${logo(s, "sm")}<span>${esc(s)}</span>` +
           `${c.discretion === "plan" ? `<b>${esc(num(w * 100, 1))}%</b>` : ed(`weight.${s}`, (w * 100).toFixed(1), `<b>${esc(num(w * 100, 1))}%</b>`)}</div>` +
           ((d.reasons || {})[s] ? `<div class="why">${esc(d.reasons[s])}</div>` : "")).join("")}` +
-          (cash > 0.005 ? `<div><span class="sw" style="background:#d4d4d4"></span><span>Cash</span><b>${esc(num(cash * 100, 1))}%</b></div>` : "") + `</div></div>`
+          (cash > 0.005 ? `<div><span class="sw" style="background:var(--rule)"></span><span>Cash</span><b>${esc(num(cash * 100, 1))}%</b></div>` : "") + `</div></div>`
           : `<div class="inner" style="font-size:13px">The planner sets the weights at each run.</div>`) +
         `<div class="nfoot"><span>${ic("link")} Delivery · whole shares</span><span>${esc(actsWord)}</span></div></div>`;
     }
@@ -528,7 +538,7 @@ const Kit = (() => {
    *  the page and redraw when it changes size. */
   function canvas(c) {
     const el = document.createElement("div");
-    el.className = "canvas dots";
+    el.className = "canvas ruled";
     const sigs = signals(c);
     el.innerHTML = `<svg class="wires"></svg>` +
       `<div class="col">${sigs.map(signalNode).join("")}</div>` +
@@ -546,7 +556,41 @@ const Kit = (() => {
         markers: (c.history || {}).fire_ts });
       setTimeout(draw, 50);
     });
+    el.querySelectorAll(".lvl-host").forEach(async (h) => {
+      const b = await bars(h.dataset.sym, "1D");
+      if (b.length < 2) return;
+      levelStrip(h, b.map((x) => ({ t: x.t, v: x.c })), { level: +h.dataset.level, now: +h.dataset.now,
+        met: !!h.dataset.met, away: h.dataset.away === "" ? null : +h.dataset.away });
+      setTimeout(draw, 50);
+    });
     return el;
+  }
+
+  /** A trigger's level as a picture: the latest session's closes, the level
+   *  dashed across, and the gap from the price to it shaded and labelled. */
+  function levelStrip(host, pts, o) {
+    const W = Math.max(180, host.clientWidth || 300), H = 58, padR = 80, padT = 8, padB = 8;
+    const v = pts.map((p) => p.v).filter(Number.isFinite);
+    let lo = Math.min(...v, o.level), hi = Math.max(...v, o.level);
+    if (hi === lo) { hi += 1; lo -= 1; }
+    const pad = (hi - lo) * 0.12; lo -= pad; hi += pad;
+    const x = (i) => (i / (pts.length - 1)) * (W - padR);
+    const y = (val) => padT + (1 - (val - lo) / (hi - lo)) * (H - padT - padB);
+    const line = pts.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)} ${y(p.v).toFixed(1)}`).join("");
+    const ly = y(o.level), lastX = x(pts.length - 1), lastY = y(pts[pts.length - 1].v);
+    const fill = `${line}L${lastX.toFixed(1)} ${ly.toFixed(1)}L0 ${ly.toFixed(1)}Z`;
+    const nowY = Number.isFinite(o.now) ? y(o.now) : lastY;
+    const gap = o.met ? "" :
+      `<line class="lv-gap" x1="${lastX + 10}" x2="${lastX + 10}" y1="${Math.min(nowY, ly)}" y2="${Math.max(nowY, ly)}"/>` +
+      `<line class="lv-gap" x1="${lastX + 7}" x2="${lastX + 13}" y1="${nowY}" y2="${nowY}"/>`;
+    const tag = o.met ? "Met" : o.away != null ? `${num(o.away)}% away` : "";
+    const tagY = Math.max(padT + 6, Math.min(H - padB - 2, (nowY + ly) / 2 + 3.5));
+    host.innerHTML = `<div class="lvl-strip${o.met ? " met" : ""}"><svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="none">` +
+      `<path class="lv-fill" d="${fill}"/>` +
+      `<line class="lv-level" x1="0" x2="${W - padR + 4}" y1="${ly}" y2="${ly}"/>` +
+      `<path class="lv-line" d="${line}"/><circle class="lv-dot" cx="${lastX}" cy="${lastY}" r="2.6"/>` + gap +
+      (tag ? `<text class="lv-tag" x="${lastX + 18}" y="${tagY}">${esc(tag)}</text>` : "") +
+      `</svg><div class="lvl-cap"><span>${esc(day(pts[0].t))} · 5-minute closes</span><span>level ${esc(num(o.level))}</span></div></div>`;
   }
 
   function wires(el, c) {
@@ -820,13 +864,20 @@ const Kit = (() => {
    *  Escape or leaving it puts the value back. */
   function editInline(f, save) {
     const before = f.innerHTML;
+    const wide = f.getBoundingClientRect().width;
     const inp = document.createElement("input");
     inp.className = "inline-in";
     inp.value = f.dataset.val || "";
     inp.size = Math.max(4, Math.min(28, inp.value.length + 2));
+    // Text (a title) keeps the width it had, so it does not jump or scroll;
+    // a number is short and selected whole, ready to retype.
+    const text = !/^[-+\d.,%\s]*$/.test(inp.value);
+    if (text) inp.style.width = `${Math.ceil(wide) + 8}px`;
     f.innerHTML = "";
     f.appendChild(inp);
-    inp.focus(); inp.select();
+    inp.focus();
+    if (text) inp.setSelectionRange(inp.value.length, inp.value.length);
+    else inp.select();
     let done = false;
     const undo = () => { if (!done) { done = true; f.innerHTML = before; } };
     inp.addEventListener("keydown", async (e) => {

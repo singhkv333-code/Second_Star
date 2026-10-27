@@ -4,7 +4,8 @@
  * (Catalyst's research list), and get the play back as its canvas, then keep
  * talking to change it. Strategies is every play as a tile and each play's
  * own page (its canvas beside its price and activity). Inbox is every fire
- * written up as one alert. Portfolio is the paper book.
+ * written up as one alert. The paper book and the day book are not drawn
+ * here: they are the app's Portfolio page.
  *
  * The chat is the same /chat the chart uses, told it is on the Plays page
  * (`context.surface = "plays"`), so it knows there is no chart and which
@@ -23,8 +24,18 @@
   const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* full */ } };
 
   // Framed in the Pivot shell (its Execution tab), a chart link switches the
-  // shell to its Chart tab rather than opening a second window
-  if (window.parent !== window) {
+  // shell to its Chart tab rather than opening a second window, and the Inbox
+  // is the shell's bell (beside the avatar), not a tab here
+  const framed = window.parent !== window;
+  // Plays live only inside Pivot: its Execution tab frames this page. Opened
+  // on its own, the page sends the person there rather than running a second
+  // copy with its own chrome; off the app's origin it says where to go.
+  if (!framed) {
+    if (location.pathname.startsWith("/chart-app/")) { location.replace("/#plays"); return; }
+    $("main").innerHTML = `<div class="signin"><h2>Plays open inside Pivot</h2><p>Use the Execution tab in the Pivot app.</p></div>`;
+    return;
+  }
+  if (framed) {
     document.addEventListener("click", (e) => {
       const a = e.target.closest && e.target.closest('a[target="pivot-chart"]');
       if (!a) return;
@@ -35,7 +46,7 @@
   }
 
   let convs = load(KEY, []), where = load(MAP, {}), hidden = new Set(load(HIDE, []));
-  let data = { plays: [], events: [], securities: [], book: { positions: [] } };
+  let data = { plays: [], events: [], securities: [] };
   let cur = null, busy = false, route = { page: "home" };
   const main = $("main");
 
@@ -45,21 +56,17 @@
     const [a, b] = h.split("/");
     if (a === "c" && b) return { page: "home", conv: b };
     if (a === "s" && b) return { page: "strategy", id: +b };
-    if (["strategies", "inbox", "portfolio", "review"].includes(a)) return { page: a };
+    if (["strategies", "inbox"].includes(a)) return { page: a };
     return { page: "home" };
   }
   const go = (hash) => { if (location.hash !== hash) location.hash = hash; else render(); };
   window.addEventListener("hashchange", render);
 
-  function paintTabs() {
-    const p = route.page === "strategy" ? "strategies" : route.page;
-    document.querySelectorAll("#tabs [data-go]").forEach((t) => t.classList.toggle("on", t.dataset.go === p));
-    const on = document.querySelector(`#tabs [data-go="${p}"]`);
-    $("topTitle").textContent = on ? on.textContent.replace(/\d+$/, "").trim() : "";
+  function paintStatus() {
     const waiting = (data.events || []).filter((e) => e.kind === "proposed" && e.status === "open").length;
     const n = waiting || (data.events || []).filter((e) => !e.seen && !hidden.has(e.id)).length;
-    $("inboxCount").hidden = !n;
-    $("inboxCount").textContent = n;
+    // framed, the shell's bell carries the count
+    if (framed) window.parent.postMessage({ type: "plays:inbox-count", count: n }, location.origin);
     const h = data.halt, bar = $("haltbar");
     bar.hidden = !h;
     if (h) bar.innerHTML = `${ic("ban")}<span><b>Trading is halted.</b> ${esc(h.text.replace(/^trading is halted /, ""))}. Exits still run.</span>` +
@@ -68,14 +75,12 @@
 
   function render() {
     route = parse();
-    paintTabs();
+    paintStatus();
     if (!Auth.user) return signIn();
     if (route.page === "home") return home(route.conv);
     if (route.page === "strategies") return strategies();
     if (route.page === "strategy") return strategyPage(route.id);
     if (route.page === "inbox") return inbox();
-    if (route.page === "portfolio") return portfolio();
-    if (route.page === "review") return reviewPage();
   }
 
   /* ── review: the trader's own trades ──────────────────────────────────── */
@@ -85,20 +90,23 @@
     ["ban", "Halt new intraday trades once I am down ₹5,000 on the day"],
     ["clock", "Stop me opening more than four intraday trades a day"],
   ];
-  async function reviewPage() {
-    main.innerHTML = `<div class="page"><div class="muted">Reading your trades…</div></div>`;
-    let r;
-    try { r = await call("/plays/review"); } catch (err) { main.innerHTML = `<div class="page"><div class="empty">${esc(err.message)}</div></div>`; return; }
-    main.innerHTML = `<div class="page"><h1 class="h1">Review</h1><p class="sub">Your closed trades, cut the ways a coach would cut them. ` +
-      `Ask what they mean, or turn what they show into a guard that stops the day for you.</p><div id="rv"></div>` +
-      `<div class="ideas" style="margin:18px 0 60px">${ASKS.map(([i, t]) => `<button type="button" class="idea" data-ask="${esc(t)}">${ic(i)}${esc(t)}</button>`).join("")}</div></div>`;
-    $("rv").appendChild(Kit.review(r));
+  async function loadHomeReview() {
+    const section = $("homeReview");
+    if (!section) return;
+    const content = section.querySelector("[data-review-content]");
+    try {
+      const r = await call("/plays/review");
+      if (!section.isConnected) return;
+      content.replaceChildren(Kit.review(r));
+    } catch (err) {
+      if (section.isConnected) content.innerHTML = `<div class="empty">${esc(err.message)}</div>`;
+    }
   }
 
   async function refresh() {
     if (!Auth.user) return;
     try { data = await call("/plays"); } catch { return; }
-    paintTabs();
+    paintStatus();
     if (route.page === "strategies" && !document.querySelector(".field:focus")) strategies(true);
     if (route.page === "inbox") inbox(true);
   }
@@ -121,10 +129,42 @@
       `<button type="submit" class="send" disabled aria-label="Send">${ic("up")}</button></div></form>`;
   }
 
+  function recentHTML() {
+    const recent = convs.slice(0, 6);
+    return recent.length ? `<div style="margin:0 0 60px"><div class="panel-h" style="margin-left:0">${ic("list")}<span>Recent conversations</span></div>` +
+      `<div class="grid">${recent.map((c) => `<button type="button" class="sc" data-conv="${esc(c.id)}"><div class="top2"><b>${esc(c.title)}</b></div>` +
+      `<div class="desc">${esc(Array.isArray(c.turns) ? lastReply(c) : c.last || "")}</div></button>`).join("")}</div></div>` : "";
+  }
+
+  // The home is drawn before the server answers; what the answers change (the
+  // logos in the showcase, the recent list) is patched in place, so a draft
+  // already in the composer is never wiped.
+  function repaintHome() {
+    if (cur || !main.querySelector(".hero h1")) return;
+    const sc = main.querySelector(".showcase");
+    if (sc) sc.outerHTML = showcase();
+    const rc = $("homeRecent");
+    if (rc) rc.innerHTML = recentHTML();
+  }
+
+  const homeActions = (showBack = false) => '<div class="home-actions">' +
+    (showBack ? '<button type="button" class="btn" data-go="home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m12 5-7 7 7 7M5 12h14"/></svg>Back to Plays</button><span class="grow"></span>' : '') +
+    '<button type="button" class="btn" data-go="strategies">Strategies</button></div>';
+
+  // Placeholders in the shape of what is coming; styles are .sk in plays.html.
+  const SKEL = {
+    page: `<div class="page" aria-busy="true" role="status" aria-label="Loading"><div class="sk sk-title"></div><div class="sk sk-sub"></div>` +
+      `${'<div class="sk sk-row"></div>'.repeat(4)}</div>`,
+    thread: `<div class="home" aria-busy="true"><div class="sk-thread" role="status" aria-label="Opening the conversation"><div class="sk sk-bubble"></div>` +
+      `<div class="sk sk-line" style="width:92%"></div><div class="sk sk-line" style="width:86%"></div><div class="sk sk-line" style="width:64%"></div>` +
+      `<div class="sk sk-curve"></div></div></div>`,
+    review: `<div role="status" aria-label="Reading your trades"><div class="sk-tiles">${'<div class="sk"></div>'.repeat(6)}</div><div class="sk sk-curve"></div></div>`,
+  };
+
   async function home(convId) {
     cur = convId ? convs.find((c) => c.id === convId) || null : null;
     if (convId && (!cur || !Array.isArray(cur.turns))) {
-      main.innerHTML = `<div class="page"><div class="muted">Opening the conversation…</div></div>`;
+      main.innerHTML = SKEL.thread;
       try {
         const d = await call(`/plays/chats/${encodeURIComponent(convId)}`);
         cur = { ...d.chat, updated: (d.chat.updated || 0) * 1000 };
@@ -133,20 +173,21 @@
     }
     if (convId && !cur) return go("#/");
     if (!cur) {
-      const recent = convs.slice(0, 6);
-      main.innerHTML = `<div class="home"><div class="hero"><h1>Turn ideas into <mark>plays</mark><br/>that watch the market.</h1>` +
+      main.innerHTML = `<div class="home">${homeActions()}<div class="hero"><h1>Turn ideas into <mark>plays</mark><br/>that watch the market.</h1>` +
         `<p>Say a trade the way you would to a friend. Pivot reads the market, builds the rule, shows how often it would have fired, and runs it on paper.</p>` +
         composerHTML("new", "Describe a trade, a watch or a rule") +
         `<div class="ideas">${IDEAS.map(([i, t]) => `<button type="button" class="idea" data-idea="${esc(t)}">${ic(i)}${esc(t)}</button>`).join("")}</div></div>` +
         showcase() +
-        (recent.length ? `<div style="margin:0 0 60px"><div class="panel-h" style="margin-left:0">${ic("list")}<span>Recent conversations</span></div>` +
-          `<div class="grid">${recent.map((c) => `<button type="button" class="sc" data-conv="${esc(c.id)}"><div class="top2"><b>${esc(c.title)}</b></div>` +
-          `<div class="desc">${esc(Array.isArray(c.turns) ? lastReply(c) : c.last || "")}</div></button>`).join("")}</div></div>` : "") + `</div>`;
+        `<div id="homeRecent">${recentHTML()}</div>` +
+        `<section id="homeReview" aria-labelledby="homeReviewTitle"><h2 class="h1" id="homeReviewTitle">Review</h2>` +
+        `<div data-review-content>${SKEL.review}</div>` +
+        `<div class="ideas" style="margin:18px 0 60px">${ASKS.map(([i, t]) => `<button type="button" class="idea" data-ask="${esc(t)}">${ic(i)}${esc(t)}</button>`).join("")}</div></section></div>`;
       wireComposer(main.querySelector("[data-form]"));
       main.querySelector("[data-input]").focus();
+      void loadHomeReview();
       return;
     }
-    main.innerHTML = `<div class="home"><div class="thread" id="thread"></div><div class="dock">` +
+    main.innerHTML = `<div class="home">${homeActions(true)}<div class="thread" id="thread"></div><div class="dock">` +
       composerHTML("conv", cur.focus ? "Ask for a change to this play" : "Ask for a change, or describe another play", focusChip()) +
       `<div class="fine">Every order is simulated on paper. Nothing is sent to a broker. This is analysis, not financial advice.</div></div></div>`;
     const th = $("thread");
@@ -376,7 +417,7 @@
     try { list = (await call("/plays/chats")).chats || []; } catch { return; }
     const have = new Set(list.map((c) => c.id));
     const mine = convs.filter((c) => Array.isArray(c.turns) && !have.has(c.id));
-    for (const c of mine) await upload(c);
+    await Promise.all(mine.map(upload));
     const local = new Map(convs.map((c) => [c.id, c]));
     convs = [...list.map((c) => { const l = local.get(c.id); return l && Array.isArray(l.turns) ? { ...l, last: c.last } : { ...c, updated: c.updated * 1000 }; }),
              ...mine].sort((a, b) => b.updated - a.updated);
@@ -427,6 +468,7 @@
                                context: { surface: "plays", ...(cur.focus ? { focus_play: cur.focus } : {}) } }),
       });
       if (!res.ok) {
+        if (res.status === 401) window.dispatchEvent(new Event("plays:unauthorized"));
         let m = `request failed (${res.status})`;
         try { const e = await res.json(); if (e.error) m = e.error; } catch { /* not json */ }
         throw new Error(m);
@@ -513,9 +555,65 @@
 
   /* ── strategies ───────────────────────────────────────────────────────── */
   let sQuery = "", sState = "all", sSort = "new";
+  function strategyFilter(select, label) {
+    const wrap = document.createElement("div");
+    wrap.className = "strategy-filter";
+    select.before(wrap);
+    wrap.append(select);
+    const trigger = document.createElement("button");
+    trigger.type = "button";
+    trigger.className = "field strategy-filter-trigger";
+    trigger.setAttribute("aria-label", label);
+    trigger.setAttribute("aria-haspopup", "menu");
+    const menu = document.createElement("div");
+    menu.className = "strategy-filter-menu";
+    menu.id = select.id + "-menu";
+    menu.setAttribute("role", "menu");
+    menu.setAttribute("aria-label", label);
+    trigger.setAttribute("aria-controls", menu.id);
+    const close = () => { menu.hidden = true; trigger.setAttribute("aria-expanded", "false"); };
+    const paint = () => {
+      trigger.innerHTML = esc(select.selectedOptions[0].text) + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
+      menu.replaceChildren();
+      for (const option of select.options) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.setAttribute("role", "menuitemradio");
+        button.setAttribute("aria-checked", String(option.selected));
+        button.innerHTML = '<span>' + esc(option.text) + '</span>' + (option.selected ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>' : '');
+        button.onclick = () => { select.value = option.value; select.dispatchEvent(new Event("change", { bubbles: true })); paint(); close(); trigger.focus(); };
+        menu.append(button);
+      }
+    };
+    const open = () => { closeStrategyFilters(); menu.hidden = false; trigger.setAttribute("aria-expanded", "true"); };
+    trigger.onclick = () => menu.hidden ? open() : close();
+    wrap.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") { close(); trigger.focus(); }
+      if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+        event.preventDefault();
+        if (menu.hidden) open();
+        const items = [...menu.querySelectorAll("button")];
+        const index = items.indexOf(document.activeElement);
+        const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (index + (event.key === "ArrowUp" ? -1 : 1) + items.length) % items.length;
+        items[next].focus();
+      }
+    });
+    wrap.addEventListener("focusout", (event) => { if (!wrap.contains(event.relatedTarget)) close(); });
+    wrap.append(trigger, menu);
+    paint(); close();
+  }
+  function closeStrategyFilters(target) {
+    document.querySelectorAll(".strategy-filter").forEach((wrap) => {
+      if (target && wrap.contains(target)) return;
+      wrap.querySelector(".strategy-filter-menu").hidden = true;
+      wrap.querySelector(".strategy-filter-trigger").setAttribute("aria-expanded", "false");
+    });
+  }
+  document.addEventListener("click", (event) => closeStrategyFilters(event.target));
+
   function strategies(keep) {
     if (!keep || !main.querySelector("#sgrid")) {
-      main.innerHTML = `<div class="page"><h1 class="h1">Strategies.</h1><p class="sub">Every play: what it watches, what it would have done, and what it did.</p>` +
+      main.innerHTML = `<div class="page"><div class="page-title"><button type="button" class="btn ghost back-button" data-go="home" aria-label="Back to Plays"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m12 5-7 7 7 7M5 12h14"/></svg></button><h1 class="h1">Strategies.</h1></div><p class="sub">Every play: what it watches, what it would have done, and what it did.</p>` +
         `<div class="toolbar"><input class="field q" id="sq" type="search" placeholder="Search strategies" value="${esc(sQuery)}" />` +
         `<select class="field" id="ss"><option value="all">All statuses</option><option value="armed">Active</option><option value="paused">Paused</option><option value="done">Completed</option></select>` +
         `<select class="field" id="so"><option value="new">Newest first</option><option value="fired">Most fired</option><option value="az">A to Z</option></select>` +
@@ -524,6 +622,8 @@
       $("sq").addEventListener("input", (e) => { sQuery = e.target.value; paintGrid(); });
       $("ss").addEventListener("change", (e) => { sState = e.target.value; paintGrid(); });
       $("so").addEventListener("change", (e) => { sSort = e.target.value; paintGrid(); });
+      strategyFilter($("ss"), "Filter by status");
+      strategyFilter($("so"), "Sort strategies");
     }
     paintGrid();
   }
@@ -546,7 +646,7 @@
   /* ── one strategy ─────────────────────────────────────────────────────── */
   let ptab = "activity";
   async function strategyPage(id) {
-    main.innerHTML = `<div class="page"><div class="muted">Loading…</div></div>`;
+    main.innerHTML = SKEL.page;
     let d;
     try { d = await call(`/plays/${id}`); } catch (err) {
       main.innerHTML = `<div class="page"><div class="empty">${esc(err.message)}</div></div>`; return;
@@ -618,115 +718,81 @@
       ifilter === "all" ? true : ifilter === "wait" ? e.kind === "proposed" && e.status === "open" :
       ifilter === "orders" ? ["filled", "proposed", "rejected", "exited"].includes(e.kind) : e.kind === "fired" || e.kind === "note");
     $("ilist").innerHTML = evs.length ? evs.map(Kit.alertCard).join("") : `<div class="empty">Nothing here. When a play triggers, it lands in this list.</div>`;
-    if ((data.events || []).some((e) => !e.seen)) setTimeout(() => call("/plays/seen", {}).then(() => { data.events.forEach((e) => { e.seen = true; }); paintTabs(); }).catch(() => {}), 1500);
-  }
-
-  /* ── portfolio ────────────────────────────────────────────────────────── */
-  let pftab = "holdings";
-  async function portfolio() {
-    main.innerHTML = `<div class="page"><div class="muted">Loading…</div></div>`;
-    let sum = {}, holds = [], nav = [], fills = [];
-    try {
-      [sum, holds, nav, fills] = await Promise.all([call("/paper/summary"), call("/paper/holdings"), call("/paper/nav").catch(() => []),
-        call("/paper/fills?limit=40").catch(() => [])]);
-    } catch (err) { main.innerHTML = `<div class="page"><div class="empty">${esc(err.message)}</div></div>`; return; }
-    const total = (holds || []).reduce((a, h) => a + (+h.market_value || 0), 0);
-    main.innerHTML = `<div class="page"><h1 class="h1">Portfolio</h1><p class="sub">The paper book your plays trade in. Simulated, with estimated costs.</p><div class="pf">` +
-      `<div class="panel"><div class="panel-h">${ic("wallet")}<span>Value</span></div><div class="pnl">` +
-      `<div class="row" style="align-items:baseline;gap:10px"><span class="bignum">${Kit.bigMoney(sum.nav)}</span>` +
-      `<span class="pill ${sum.total_pnl >= 0 ? "up" : "down"}">${esc(Kit.signed(sum.total_pnl_pct))}</span></div>` +
-      `<div id="navc" style="margin-top:8px"></div></div>` +
-      `<div class="kpis">${[["Cash", sum.cash_available], ["Invested", sum.invested], ["Today", sum.day_pnl], ["All time", sum.total_pnl]].map(([k, v]) =>
-        `<div style="background:var(--panel);border-radius:10px;padding:10px"><div class="muted" style="font-size:12px">${k}</div><div class="num ${k === "Today" || k === "All time" ? (v >= 0 ? "up" : "down") : ""}" style="font-size:16px;font-weight:500;margin-top:2px">${esc(Kit.inr(v))}</div></div>`).join("")}</div></div>` +
-      `<div class="panel"><div class="panel-h">${ic("pie")}<span>Allocation</span></div><div class="donut-wrap" id="donut"></div></div></div>` +
-      `<div class="panel" style="margin-top:16px"><div class="subtabs">${[["holdings", "Holdings", "pie"], ["day", "Day book", "bolt"], ["tx", "Transactions", "list"]].map(([k, l, i]) =>
-        `<button type="button" data-pf="${k}" class="${pftab === k ? "on" : ""}">${ic(i)}${l}</button>`).join("")}</div><div id="pft"></div></div></div>`;
-    const pts = (nav || []).map((n) => ({ t: Date.parse(n.as_of_date) / 1000, v: +n.nav }));
-    if (pts.length >= 2) Kit.lineChart($("navc"), pts, { height: 150, width: 620, area: true, yfmt: (v) => Kit.inr(v) });
-    else $("navc").innerHTML = `<div class="muted" style="font-size:13px;padding:24px 0">The value line starts after the first day of trading.</div>`;
-    donut($("donut"), holds, total, sum.cash_available);
-    const paint = () => {
-      main.querySelectorAll("[data-pf]").forEach((b) => b.classList.toggle("on", b.dataset.pf === pftab));
-      const box = $("pft");
-      if (pftab === "holdings") {
-        box.innerHTML = holds.length ? `<table class="table"><thead><tr><th>Name</th><th class="r">Qty</th><th class="r wide">Avg</th><th class="r wide">Last</th><th class="r">Value</th><th class="r">P&amp;L</th></tr></thead><tbody>` +
-          holds.map((h) => `<tr><td><span class="row">${Kit.logo(h.symbol)}<span>${esc(h.symbol)}</span></span></td><td class="r">${esc(Kit.num(h.quantity, 4))}</td>` +
-            `<td class="r wide">${esc(Kit.num(h.avg_cost))}</td><td class="r wide">${esc(Kit.num(h.last_price))}</td><td class="r">${esc(Kit.inr(h.market_value))}</td>` +
-            `<td class="r ${h.unrealized_pnl >= 0 ? "up" : "down"}">${esc(Kit.inr(h.unrealized_pnl))} <span class="muted pct">${esc(Kit.signed(h.unrealized_pct))}</span></td></tr>`).join("") + `</tbody></table>`
-          : `<div class="muted" style="padding:12px 4px">No delivery holdings.</div>`;
-      } else if (pftab === "day") {
-        const pos = (data.book || {}).positions || [];
-        box.innerHTML = pos.length ? `<table class="table"><thead><tr><th>Position</th><th class="r">Qty</th><th class="r wide">Entry</th><th class="r">Now / out</th><th class="wide">Stops</th><th class="r">P&amp;L</th><th></th></tr></thead><tbody>` +
-          pos.map((p) => {
-            const nm = p.kind === "option" ? `${p.underlying} ${Kit.num(p.strike)} ${p.opt}` : p.kind === "future" ? `${p.underlying} future` :
-              p.kind === "perp" ? `${p.symbol} ${Kit.num(p.leverage)}×` : p.symbol;
-            const open = p.state === "open", pnl = open ? p.open_pnl : p.pnl;
-            return `<tr><td><span class="row">${Kit.logo(p.underlying || p.symbol)}<span><span class="chip ${p.side === "short" ? "sell" : "buy"}">${p.side === "short" ? "Short" : "Long"}</span> ${esc(nm)}</span></span>` +
-              `<div class="muted" style="font-size:12px;margin-top:2px">${esc(p.play || "")}${p.product === "MIS" ? " · intraday" : p.product === "PERP" ? " · Hyperliquid perp, USD" : ""}</div></td>` +
-              `<td class="r">${esc(Kit.num(p.qty))}</td><td class="r wide">${esc(Kit.num(p.entry_px))}</td><td class="r">${esc(Kit.num(open ? p.mark_px : p.exit_px))}${open && p.stale ? ' <span class="pill wait">last close</span>' : ""}</td>` +
-              `<td class="wide">${[p.stop_px != null ? `stop ${Kit.num(p.stop_px)}` : "", p.target_px != null ? `target ${Kit.num(p.target_px)}` : "",
-                p.liq_px != null ? `liquidation about ${Kit.num(p.liq_px)}` : "", p.funding ? `funding ${Kit.inr(p.funding)}` : ""].filter(Boolean).map(esc).join(" · ") || (open ? "" : esc(p.exit_why || ""))}</td>` +
-              `<td class="r ${pnl >= 0 ? "up" : "down"}">${esc(Kit.inr(pnl))}</td><td class="r">${open ? `<button type="button" class="btn sm" data-close="${esc(p.id)}">Close</button>` : ""}</td></tr>`;
-          }).join("") + `</tbody></table>` : `<div class="muted" style="padding:12px 4px">No intraday, short or derivative positions.</div>`;
-      } else {
-        box.innerHTML = fills.length ? `<table class="table"><thead><tr><th>When</th><th>Name</th><th>Side</th><th class="r">Qty</th><th class="r wide">Price</th><th class="r">Value</th></tr></thead><tbody>` +
-          fills.map((f) => `<tr><td class="muted">${esc(new Date(f.filled_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false }))}</td>` +
-            `<td><span class="row">${Kit.logo(f.symbol, "sm")}${esc(f.symbol)}</span></td><td><span class="chip ${f.side === "BUY" ? "buy" : "sell"}">${f.side === "BUY" ? "Buy" : "Sell"}</span></td>` +
-            `<td class="r">${esc(Kit.num(f.quantity, 4))}</td><td class="r wide">${esc(Kit.num(f.fill_price))}</td><td class="r">${esc(Kit.inr(f.gross_value))}</td></tr>`).join("") + `</tbody></table>`
-          : `<div class="muted" style="padding:12px 4px">No trades yet.</div>`;
-      }
-    };
-    main.querySelectorAll("[data-pf]").forEach((b) => b.addEventListener("click", () => { pftab = b.dataset.pf; paint(); }));
-    main.addEventListener("click", async (e) => {
-      const x = e.target.closest("[data-close]");
-      if (!x) return;
-      x.disabled = true;
-      try { await call(`/plays/positions/${x.dataset.close}`, {}); await refresh(); paint(); } catch (err) { x.disabled = false; Kit.toast(err.message); }
-    });
-    paint();
-  }
-
-  function donut(host, holds, total, cash) {
-    const rows = (holds || []).filter((h) => +h.market_value > 0).sort((a, b) => b.market_value - a.market_value);
-    const all = total + Math.max(0, +cash || 0);
-    if (!all) { host.innerHTML = `<div class="muted">Nothing held yet.</div>`; return; }
-    const segs = [...rows.map((h, i) => ({ s: h.symbol, v: +h.market_value, c: Kit.COLORS[i % Kit.COLORS.length] })),
-      ...(cash > 0 ? [{ s: "Cash", v: +cash, c: "#e2e2e2" }] : [])];
-    const R = 64, C = 2 * Math.PI * R;
-    let off = 0;
-    const arcs = segs.map((g) => {
-      const len = g.v / all * C;
-      const a = `<circle r="${R}" cx="84" cy="84" fill="none" stroke="${g.c}" stroke-width="20" stroke-dasharray="${Math.max(0, len - 2)} ${C}" stroke-dashoffset="${-off}" transform="rotate(-90 84 84)"/>`;
-      off += len;
-      return a;
-    }).join("");
-    const top = segs[0];
-    host.innerHTML = `<div class="donut"><svg viewBox="0 0 168 168" width="168" height="168">${arcs}</svg>` +
-      `<div class="c"><div><b>${esc(Kit.num(top.v / all * 100, 1))}%</b>${esc(top.s)}</div></div></div>` +
-      `<div style="flex:1;display:flex;flex-direction:column;gap:7px;font-size:13px">${segs.slice(0, 7).map((g) =>
-        `<div class="row" style="gap:8px"><span style="width:9px;height:9px;border-radius:3px;background:${g.c}"></span>${g.s === "Cash" ? "" : Kit.logo(g.s, "sm")}<span style="flex:1">${esc(g.s)}</span>` +
-        `<b class="num" style="font-weight:500">${esc(Kit.inr(g.v))}</b></div>`).join("")}</div>`;
+    if ((data.events || []).some((e) => !e.seen)) setTimeout(() => call("/plays/seen", {}).then(() => { data.events.forEach((e) => { e.seen = true; }); paintStatus(); }).catch(() => {}), 1500);
   }
 
   /* ── sign in ──────────────────────────────────────────────────────────── */
+  // No form of its own: Pivot has one sign-in (the app's /login, Google
+  // included) and the shell around this frame holds its session, the same
+  // token auth.js reads. Signed out here is signed out of Pivot, so the way
+  // in is the app's page, which brings the person back to this tab. A held
+  // token whose check got no answer is not a sign-out and is not shown one.
+  //
+  // The prompt itself is the shell's (its sign-in panel, raised through
+  // PIVOT_SIGNIN), the same one every other tab shows; this page draws no
+  // sign-in of its own, only a line saying why it is empty. It is raised once
+  // per sign-out, not on every redraw; the button raises it again.
+  let asked = false;
   function signIn() {
-    main.innerHTML = `<form class="signin" id="sf"><h2>Sign in to Pivot</h2><p>Plays run on the server, so they keep watching with this tab closed.</p>` +
-      `<input class="field" type="email" name="email" placeholder="Email" autocomplete="username" required />` +
-      `<input class="field" type="password" name="password" placeholder="Password" autocomplete="current-password" required />` +
-      `<button class="btn dark" type="submit">Sign in</button><div class="e" id="se"></div></form>`;
-    $("sf").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const f = new FormData(e.target);
-      try {
-        const res = await fetch(`${Kit.API}/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: f.get("email"), password: f.get("password") }) });
-        const d = await res.json().catch(() => ({}));
-        if (!res.ok || !d.token) throw new Error(d.error || "That email and password did not match.");
-        localStorage.setItem("charto:auth:token", d.token);
-        location.reload();
-      } catch (err) { $("se").textContent = err.message; }
-    });
+    if (Auth.unsure) {
+      main.innerHTML = `<div class="signin"><h2>Reaching your account</h2><p>Pivot did not answer just now. Your plays are safe on the server.</p>` +
+        `<button type="button" class="btn dark" data-reauth>Try again</button></div>`;
+      return;
+    }
+    main.innerHTML = `<div class="page"><div class="empty">You are signed out of Pivot. Your plays keep running on the server.` +
+      `<div style="margin-top:14px"><button type="button" class="btn dark" data-signin>Sign in</button></div></div></div>`;
+    if (!asked) { asked = true; window.PIVOT_SIGNIN("tab:plays"); }
   }
+
+  // Ask the server who this is, the way auth.js does at boot: an unanswered
+  // check is asked again (1 s, 3 s, 7 s) before anything is decided.
+  async function whoami() {
+    let me = await Auth.resume();
+    for (const wait of [1000, 3000, 7000]) {
+      if (me || !Auth.unsure) break;
+      await new Promise((r) => setTimeout(r, wait));
+      me = await Auth.resume();
+    }
+    return me;
+  }
+
+  async function boot() {
+    // The plain home is static plus this browser's own chats: with a session
+    // held, it is drawn at once rather than after four round trips.
+    const plain = () => { const r = parse(); return r.page === "home" && !r.conv; };
+    if (Auth.token && plain()) home();
+    const me = await whoami();
+    if (!me) return render();
+    const ready = Promise.all([refresh(), loadConvs()]);
+    const logos = Kit.loadLogos();
+    if (plain()) {
+      if (!main.querySelector(".hero h1")) render();
+      logos.then(repaintHome);
+      ready.then(repaintHome);
+      return;
+    }
+    main.innerHTML = parse().conv ? SKEL.thread : SKEL.page;
+    await Promise.all([ready, logos]);
+    render();
+  }
+
+  // The session is the shell's. Signing in, out, or as someone else there (or
+  // in another tab) changes the shared token, and this page starts over on
+  // the new one rather than showing one account's plays under another's.
+  window.addEventListener("storage", (e) => {
+    if (e.key !== null && e.key !== Auth.KEY) return;
+    let now = null;
+    try { now = localStorage.getItem(Auth.KEY); } catch { /* denied */ }
+    if (now !== Auth.token) location.reload();
+  });
+
+  // A refused request means the session ended on the server (expired, signed
+  // out elsewhere). Confirm it before showing the sign-in, never on a guess.
+  let rechecking = null;
+  window.addEventListener("plays:unauthorized", () => {
+    if (rechecking || !Auth.user) return;
+    rechecking = whoami().then((me) => { if (!me) render(); }).finally(() => { rechecking = null; });
+  });
 
   /* ── global clicks ────────────────────────────────────────────────────── */
   document.addEventListener("click", async (e) => {
@@ -737,7 +803,7 @@
     const cv = e.target.closest("[data-conv]");
     if (cv) { go(`#/c/${cv.dataset.conv}`); return; }
     const ask = e.target.closest("[data-ask]");
-    if (ask) { cur = null; history.replaceState(null, "", "#/"); route = parse(); paintTabs(); send(ask.dataset.ask); return; }
+    if (ask) { cur = null; history.replaceState(null, "", "#/"); route = parse(); paintStatus(); send(ask.dataset.ask); return; }
     if (e.target.closest("[data-lift]")) {
       try { await call("/plays/halt", { action: "lift" }); Kit.toast("Lifted. New entries can open again."); await refresh(); }
       catch (err) { Kit.toast(err.message); }
@@ -769,52 +835,15 @@
       refresh();
       return;
     }
-    const av = e.target.closest("#avatar");
-    const menu = document.querySelector(".menu");
-    if (menu && !e.target.closest(".menu")) menu.remove();
-    if (av && !menu) {
-      const m = document.createElement("div");
-      m.className = "menu";
-      m.innerHTML = `<div class="who">${esc((Auth.user || {}).email || "Signed out")}</div><a href="./" target="pivot-chart">Open the chart</a>` +
-        (Auth.user ? `<button type="button" id="so2">Sign out</button>` : "");
-      document.body.appendChild(m);
-      const so = m.querySelector("#so2");
-      if (so) so.addEventListener("click", async () => { await Auth.logout(); location.reload(); });
-    }
+    if (e.target.closest("[data-signin]")) { window.PIVOT_SIGNIN("tab:plays"); return; }
+    const ra = e.target.closest("[data-reauth]");
+    if (ra) { ra.disabled = true; main.innerHTML = `<div class="page"><div class="muted">Reaching your account…</div></div>`; boot(); }
   });
   window.addEventListener("plays:changed", () => refresh());
-
-  /* the search: "/" to focus; a play's name opens it, anything else is asked */
-  const sIn = $("searchInput");
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "/" && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) { e.preventDefault(); sIn.focus(); }
-  });
-  sIn.addEventListener("keydown", (e) => {
-    if (e.key !== "Enter") return;
-    const q = sIn.value.trim();
-    if (!q) return;
-    const hit = (data.plays || []).find((p) => p.title.toLowerCase().includes(q.toLowerCase()));
-    sIn.value = ""; sIn.blur();
-    if (hit) { go(`#/s/${hit.id}`); return; }
-    cur = null; go("#/");
-    setTimeout(() => send(q), 30);
-  });
-
-  const scrolled = () => document.body.classList.toggle("past-title", window.scrollY > 56);
-  window.addEventListener("scroll", scrolled, { passive: true });
-  window.addEventListener("hashchange", scrolled);
 
   setInterval(() => { if (!document.hidden) refresh(); }, 60_000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 
-  const TAB_IC = { home: "home", strategies: "folder", inbox: "bell", portfolio: "pie", review: "chart" };
-  document.querySelectorAll("#tabs [data-go]").forEach((t) => t.insertAdjacentHTML("afterbegin", ic(TAB_IC[t.dataset.go] || "grid")));
-
-  (async () => {
-    Kit.loadLogos();
-    const me = await Auth.resume();
-    $("avatar").textContent = me && me.email ? me.email[0].toUpperCase() : "P";
-    if (me) { await Promise.all([refresh(), Kit.loadLogos(), loadConvs()]); }
-    render();
-  })();
+  Kit.loadLogos();
+  boot();
 })();

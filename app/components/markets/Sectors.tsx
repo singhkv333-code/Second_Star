@@ -141,11 +141,27 @@ export function Heatmap({
 }
 
 function HeatTip({ tip, width, height, period, sectors }: { tip: Tip; width: number; height: number; period: Period; sectors: MarketSector[] }): React.ReactElement {
-  const left = Math.min(tip.x + 14, width - 230);
-  const top = tip.y + 120 > height ? tip.y - 110 : tip.y + 14;
+  // Measure the card and flip it to the cursor's other side when it would run
+  // past the map's edge; the map clips overflow, so a guessed size gets cut.
+  const box = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ w: 240, h: 150 });
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (el && (el.offsetWidth !== size.w || el.offsetHeight !== size.h)) setSize({ w: el.offsetWidth, h: el.offsetHeight });
+  });
+  const GAP = 14, EDGE = 4;
+  const left = tip.x + GAP + size.w > width - EDGE ? tip.x - GAP - size.w : tip.x + GAP;
+  const top = tip.y + GAP + size.h > height - EDGE ? tip.y - GAP - size.h : tip.y + GAP;
   const x = tip.stock;
   return (
-    <div className={s.tip} style={{ left: Math.max(4, left), top }}>
+    <div
+      ref={box}
+      className={s.tip}
+      style={{
+        left: Math.max(EDGE, Math.min(left, width - size.w - EDGE)),
+        top: Math.max(EDGE, Math.min(top, height - size.h - EDGE)),
+      }}
+    >
       <div className="flex items-center gap-2">
         <Mark src={x.logo} label={x.name} size={22} />
         <div className="min-w-0">

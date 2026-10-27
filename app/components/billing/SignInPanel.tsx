@@ -24,7 +24,7 @@ import { PanelDesc, PanelTitle } from "./modal";
 
 const TABS: Record<string, string> = {
   home: "Home", markets: "Markets", chat: "Chat", portfolio: "Portfolio",
-  agents: "Strategy", screener: "Screener", brokers: "Brokers",
+  agents: "Strategy", screener: "Screener", brokers: "Brokers", plays: "Execution",
 };
 
 /** What the visitor was doing, in their words: the heading and one line. */

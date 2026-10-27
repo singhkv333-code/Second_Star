@@ -53,6 +53,7 @@ import {
   Workflow as WorkflowIcon,
   X,
   Zap,
+  Bell,
 } from "lucide-react";
 import { CommandPalette } from "@/components/CommandPalette";
 import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
@@ -105,6 +106,7 @@ import {
   listConversations,
   listWorkflows,
   logoutUser,
+  requestDataserver,
   setAccountMode,
   type PortfolioSummary,
 } from "@/lib/api";
@@ -132,7 +134,8 @@ type TabKey =
   | "screener"
   | "brokers"
   | "chart"
-  | "plays";
+  | "plays"
+  | "inbox";
 
 const ALL_NAV_ITEMS: {
   key: TabKey;
@@ -221,6 +224,7 @@ function readHashTab(): TabKey {
   if (typeof window === "undefined") return DEFAULT_TAB;
   const raw = window.location.hash.replace(/^#/, "");
   const valid: TabKey[] = NAV_ITEMS.map((t) => t.key);
+  if (tabEnabled("plays")) valid.push("inbox");
   return valid.includes(raw as TabKey) ? (raw as TabKey) : DEFAULT_TAB;
 }
 
@@ -360,6 +364,9 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   const [accountInitial, setAccountInitial] = useState<string>("U");
   const [accountName, setAccountName] = useState<string>("Account");
   const [accountEmail, setAccountEmail] = useState<string>("");
+  // Inbox has its own shell view; opening it never navigates the Execution frame.
+  const [inboxCount, setInboxCount] = useState(0);
+  const inboxReturnTab = useRef<TabKey>(DEFAULT_TAB);
   // True once the user has sent ≥1 message in the chat tab. Active
   // conversations use a slightly wider reading column than the empty state.
   const [chatActive, setChatActive] = useState(false);
@@ -935,6 +942,28 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
     goTabRef.current?.("screener");
   }, []);
 
+  // Until the Execution frame is mounted, the bell reads the count itself:
+  // what is waiting for the user, else what is unread (the frame's own rule,
+  // chart/js/playchat.js paintStatus, minus alerts dismissed there).
+  const playsMounted = visitedTabs.has("plays") || visitedTabs.has("inbox");
+  useEffect(() => {
+    if (guest || playsMounted || !tabEnabled("plays") || !sessionToken()) return;
+    let cancelled = false;
+    const read = async (): Promise<void> => {
+      if (document.hidden) return;
+      const r = await requestDataserver<{ events?: { id: number; kind?: string; status?: string; seen?: boolean }[] }>("/plays");
+      if (cancelled || isError(r)) return;
+      let hidden = new Set<number>();
+      try { hidden = new Set(JSON.parse(localStorage.getItem("pivot:plays:hidden") || "[]")); } catch { /* storage unavailable */ }
+      const events = r.data.events ?? [];
+      const waiting = events.filter((e) => e.kind === "proposed" && e.status === "open").length;
+      setInboxCount(waiting || events.filter((e) => !e.seen && !hidden.has(e.id)).length);
+    };
+    void read();
+    const t = setInterval(() => void read(), 60_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [guest, playsMounted]);
+
   const goTab = useCallback((target: TabKey): void => {
     // A guest has the chart; any other tab reads an account.
     if (guestRef.current && target !== "chart") {
@@ -1442,6 +1471,12 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
           }}
           onOpenShortcuts={() => setShortcutsOpen(true)}
           onReportBug={() => setReportBugOpen(true)}
+          inboxCount={inboxCount}
+          onOpenInbox={tabEnabled("plays") ? () => {
+            if (active === "inbox") { goTab(inboxReturnTab.current); return; }
+            inboxReturnTab.current = active;
+            goTab("inbox");
+          } : undefined}
         />
 
       {/* The global header sits above this row on every route. The sidebar
@@ -1704,7 +1739,25 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
                   : "hidden"
               }
             >
-              <PlaysFrame onOpenChart={(symbol) => openChart(symbol)} />
+              <PlaysFrame
+                onOpenChart={(symbol) => openChart(symbol)}
+                onInboxCount={setInboxCount}
+              />
+            </div>
+          )}
+          {visitedTabs.has("inbox") && (
+            <div
+              className={
+                !children && active === "inbox"
+                  ? "relative flex-1 min-h-0 flex flex-col overflow-hidden"
+                  : "hidden"
+              }
+            >
+              <PlaysFrame
+                page="inbox"
+                onOpenChart={(symbol) => openChart(symbol)}
+                onInboxCount={setInboxCount}
+              />
             </div>
           )}
           {visitedTabs.has("screener") && (
@@ -1889,8 +1942,12 @@ function TopHeader({
   onLogout,
   onOpenShortcuts,
   onReportBug,
+  inboxCount = 0,
+  onOpenInbox,
   guest = false,
 }: {
+  inboxCount?: number;
+  onOpenInbox?: () => void;
   guest?: boolean;
   variant?: "default" | "chart";
   theme: Theme;
@@ -2022,7 +2079,33 @@ function TopHeader({
               Create free account
             </button>
           </div>
-        ) : <AccountMenu
+        ) : <>
+        {onOpenInbox && (
+          <button
+            type="button"
+            onClick={onOpenInbox}
+            aria-label={inboxCount ? `Inbox, ${inboxCount} new` : "Inbox"}
+            title="Inbox"
+            data-testid="inbox-bell"
+            className="relative inline-flex shrink-0 items-center justify-center rounded-md hover:bg-[var(--bg-elevated)]"
+            style={{ width: 28, height: 28, color: "var(--text-secondary)", border: "none", background: "transparent", cursor: "pointer" }}
+          >
+            <Bell size={16} strokeWidth={1.8} aria-hidden={true} />
+            {inboxCount > 0 && (
+              <span
+                className="absolute inline-flex items-center justify-center"
+                style={{
+                  top: -2, right: -3, minWidth: 15, height: 15, padding: "0 4px",
+                  borderRadius: "var(--radius-pill)", background: "#f15a24", color: "#ffffff",
+                  fontFamily: "var(--font-ui)", fontSize: 10, fontWeight: 600, lineHeight: 1,
+                }}
+              >
+                {inboxCount > 99 ? "99+" : inboxCount}
+              </span>
+            )}
+          </button>
+        )}
+        <AccountMenu
           theme={theme}
           onChooseTheme={onChooseTheme}
           tradingMode={tradingMode}
@@ -2038,7 +2121,8 @@ function TopHeader({
           sidebarCollapsed={sidebarCollapsed}
           isDesktop={isDesktop}
           onToggleSidebar={onToggleSidebar}
-        />}
+        />
+        </>}
       </div>
     </header>
   );

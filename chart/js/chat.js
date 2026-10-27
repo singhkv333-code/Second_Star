@@ -2043,7 +2043,10 @@
       + ` role="tab" aria-selected="${g === open}" data-group="${attr(g.id)}">${attr(g.label)}</button>`).join("");
     return `<div class="tpl-head">${tplMode() === "execution"
         ? `Build a strategy on ${attr(Sym.name)}` : `What Pivot can do with ${attr(Sym.name)}`}</div>`
-      + `<div class="tpl-tabs" role="tablist">${tabs}</div>`
+      + `<div class="tpl-tabbar">`
+      + `<button type="button" class="tpl-scroll" data-tpl-scroll="-1" aria-label="Earlier categories" disabled>${Icons.svg("chevronLeft")}</button>`
+      + `<div class="tpl-tabs" role="tablist" aria-label="Chart prompt categories">${tabs}</div>`
+      + `<button type="button" class="tpl-scroll" data-tpl-scroll="1" aria-label="More categories">${Icons.svg("chevronRight")}</button></div>`
       + `<div class="tpl-list" role="tabpanel">${tplRows(open)}</div>`;
   }
 
@@ -2142,6 +2145,15 @@
 
   const trayEl = el("tplTray");
   const groupEl = el("askGroup");
+  function syncTemplateTabs() {
+    const track = trayEl.querySelector(".tpl-tabs");
+    if (!track) return;
+    const end = track.scrollWidth - track.clientWidth;
+    trayEl.querySelector('[data-tpl-scroll="-1"]').disabled = track.scrollLeft <= 1;
+    trayEl.querySelector('[data-tpl-scroll="1"]').disabled = track.scrollLeft >= end - 1;
+  }
+  trayEl.addEventListener("scroll", syncTemplateTabs, true);
+  new ResizeObserver(syncTemplateTabs).observe(trayEl);
   let trayBuilt = null;   // which mode and symbol the mounted tray was built for
   /* The refraction is attached only while the tray is up, and torn down
    * after. It costs a live SVG filter and a ResizeObserver, and with the
@@ -2163,6 +2175,7 @@
       trayBuilt = key;
     }
     trayEl.hidden = !on;
+    if (on) requestAnimationFrame(syncTemplateTabs);
     groupEl.classList.toggle("has-tray", !!on);
     if (on && !glass && window.liquidGlass) {
       // gentler than the module's defaults: this is a panel you read tiles
@@ -2182,6 +2195,13 @@
    * rebuilt from scratch on every clear, and per-card handlers would have to
    * be re-bound each time or silently stop working on the second new chat. */
   trayEl.addEventListener("click", (e) => {
+    const scroll = e.target.closest && e.target.closest("[data-tpl-scroll]");
+    if (scroll) {
+      const track = trayEl.querySelector(".tpl-tabs");
+      track.scrollBy({ left: Number(scroll.dataset.tplScroll) * track.clientWidth * .6,
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+      return;
+    }
     const tab = e.target.closest && e.target.closest(".tpl-tab");
     if (tab) {
       // Only the list is swapped. Rebuilding the whole tray reset the tab

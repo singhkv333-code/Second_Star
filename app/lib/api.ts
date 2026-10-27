@@ -17,6 +17,7 @@
  */
 
 import { MOCK_CATALOG } from "@/lib/mock-catalog";
+import { getApiBaseUrl } from "@/lib/api-base";
 import type {
   AgentPositions,
   ApiResult,
@@ -64,18 +65,12 @@ import { clearSession, handleUnauthorized, saveSession, sessionToken } from "@/l
 
 // Pivot's API lives under /pv on the one origin, in development and production
 // alike (next.config.ts locally, nginx on the VM).
-const DEFAULT_BASE = "/pv/api";
-
 function getBaseUrl(): string {
   // Read at call time so tests / SSR can override.
   // NEXT_PUBLIC_PIVOT_API_BASE (e.g. http://127.0.0.1:8000/api) is set in
   // .env.local for the dev environment; falls back to the relative path so
   // the app still works behind a reverse proxy in production.
-  return (
-    (typeof process !== "undefined" &&
-      process.env.NEXT_PUBLIC_PIVOT_API_BASE) ||
-    DEFAULT_BASE
-  );
+  return getApiBaseUrl();
 }
 
 type AuthTokenProvider = () => string | null | Promise<string | null>;
@@ -175,6 +170,14 @@ export async function requestLegacy<T>(
   options: RequestOptions = {},
 ): Promise<ApiResult<T>> {
   return _doRequest<T>(getLegacyBase(), path, options);
+}
+
+/** User paper state belongs to the dataserver on this origin (users.db). */
+export function requestDataserver<T>(
+  path: string,
+  options: RequestOptions = {},
+): Promise<ApiResult<T>> {
+  return _doRequest<T>("", path, options);
 }
 
 // In-flight GET de-duplication. Identical concurrent GETs (duplicate effect
@@ -1302,8 +1305,10 @@ export type CancelOrderResponse = {
 export function cancelOrder(
   id: string,
 ): Promise<ApiResult<CancelOrderResponse>> {
-  const base = getTradingMode() === "paper" ? "/paper/orders" : "/orders";
-  return requestLegacy<CancelOrderResponse>(
+  const paper = getTradingMode() === "paper";
+  const base = paper ? "/paper/orders" : "/orders";
+  const send = paper ? requestDataserver : requestLegacy;
+  return send<CancelOrderResponse>(
     `${base}/${encodeURIComponent(id)}/cancel`,
     { method: "POST" },
   );
@@ -1317,7 +1322,7 @@ export type AccountMode = { mode: BackendMode };
 
 /** `GET /paper/account/mode` — the backend's current trading mode. */
 export function getAccountMode(): Promise<ApiResult<AccountMode>> {
-  return requestLegacy<AccountMode>("/paper/account/mode");
+  return requestDataserver<AccountMode>("/paper/account/mode");
 }
 
 /** `POST /paper/account/mode` — set the backend trading mode. Isolates
@@ -1325,6 +1330,9 @@ export function getAccountMode(): Promise<ApiResult<AccountMode>> {
 export function setAccountMode(
   mode: BackendMode,
 ): Promise<ApiResult<AccountMode>> {
+  // The dataserver's book is always paper and exposes a read-only mode.
+  // Bootstrapping paper mode must not POST to the API's separate account.
+  if (mode === "paper") return getAccountMode();
   return requestLegacy<AccountMode>("/paper/account/mode", {
     method: "POST",
     body: { mode },
@@ -2197,7 +2205,9 @@ export type PortfolioPerformanceResponse = {
 export function getPortfolioPerformance(
   period: PortfolioPerformancePeriod = "1Y",
 ): Promise<ApiResult<PortfolioPerformanceResponse>> {
-  return request<PortfolioPerformanceResponse>("/portfolio/performance", {
+  const read = getTradingMode() === "paper" ? requestDataserver : request;
+  const path = getTradingMode() === "paper" ? "/api/portfolio/performance" : "/portfolio/performance";
+  return read<PortfolioPerformanceResponse>(path, {
     query: { period },
   });
 }
@@ -2356,23 +2366,22 @@ export type PaperNavPoint = {
   nifty_close: number | null;
 };
 
-// The paper router mounts at `/paper` (no `/api` alias), like the other
-// legacy surfaces (/portfolio, /orders). Use requestLegacy so the trailing
-// `/api` is stripped from the base — request() would 404 on `/api/paper/*`.
+// The user's paper book is served at /paper/* by the dataserver. Never send
+// these reads to /pv/paper/*: that API has a separate set of paper tables.
 
 /** `GET /paper/summary` */
 export function getPaperSummary(): Promise<ApiResult<PaperSummary>> {
-  return requestLegacy<PaperSummary>("/paper/summary");
+  return requestDataserver<PaperSummary>("/paper/summary");
 }
 
 /** `GET /paper/holdings` — open positions, sorted by market value. */
 export function getPaperHoldings(): Promise<ApiResult<PaperHolding[]>> {
-  return requestLegacy<PaperHolding[]>("/paper/holdings");
+  return requestDataserver<PaperHolding[]>("/paper/holdings");
 }
 
 /** `GET /paper/orders` — the resting-order blotter. */
 export function getPaperOpenOrders(): Promise<ApiResult<PaperOpenOrder[]>> {
-  return requestLegacy<PaperOpenOrder[]>("/paper/orders");
+  return requestDataserver<PaperOpenOrder[]>("/paper/orders");
 }
 
 /** `GET /paper/fills` — the trade journal (newest first). */
@@ -2380,7 +2389,7 @@ export function getPaperFills(
   limit = 50,
   offset = 0,
 ): Promise<ApiResult<PaperFillRow[]>> {
-  return requestLegacy<PaperFillRow[]>("/paper/fills", {
+  return requestDataserver<PaperFillRow[]>("/paper/fills", {
     query: { limit, offset },
   });
 }
@@ -2390,7 +2399,65 @@ export function getPaperNavCurve(
   start?: string,
   end?: string,
 ): Promise<ApiResult<PaperNavPoint[]>> {
-  return requestLegacy<PaperNavPoint[]>("/paper/nav", { query: { start, end } });
+  return requestDataserver<PaperNavPoint[]>("/paper/nav", { query: { start, end } });
+}
+
+// ── The day book ──────────────────────────────────────────────────────────
+// What plays open outside the delivery book: intraday and short trades,
+// futures, options, crypto and perps. Its own table on the dataserver, so
+// none of it is in /paper/holdings or /paper/summary. Prices are in the
+// instrument's currency (USD for crypto and perps); P&L is in rupees.
+
+export type DayPosition = {
+  id: number;
+  play_id: number | null;
+  /** The title of the play that opened it ("" once that play is deleted). */
+  play: string;
+  symbol: string;
+  venue: string;
+  kind: "equity" | "crypto" | "future" | "option" | "perp";
+  underlying: string;
+  strike: number | null;
+  opt: string;
+  side: "long" | "short";
+  qty: number;
+  /** MIS is squared off the same day; NRML carries; PERP is a Hyperliquid perp. */
+  product: string;
+  entry_px: number;
+  entry_ts: number;
+  mark_px: number | null;
+  /** 1 when the mark is the last close rather than a live price. */
+  stale: number;
+  stop_px: number | null;
+  target_px: number | null;
+  state: "open" | "closed";
+  exit_px: number | null;
+  exit_ts: number | null;
+  exit_why: string;
+  /** After estimated costs, once closed. */
+  pnl: number | null;
+  /** Marked to the latest price, while open. */
+  open_pnl?: number;
+  leverage: number;
+  funding: number | null;
+  liq_px?: number | null;
+};
+
+export type DayBook = {
+  positions: DayPosition[];
+  /** Today's realised plus open P&L, rupees. */
+  day_pnl: number;
+  estimates: string;
+};
+
+/** `GET /plays/book` — the day book, newest first, each row named for its play. */
+export function getDayBook(): Promise<ApiResult<DayBook>> {
+  return requestDataserver<DayBook>("/plays/book");
+}
+
+/** `POST /plays/positions/{id}` — close an open day-book position at its mark. */
+export function closeDayPosition(id: number): Promise<ApiResult<unknown>> {
+  return requestDataserver<unknown>(`/plays/positions/${id}`, { method: "POST", body: {} });
 }
 
 // ── Forward-test scorecards (P6) ──────────────────────────────────────────

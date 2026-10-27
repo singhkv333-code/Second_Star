@@ -73,7 +73,7 @@ export function BriefCard({ data }: { data: MarketExplore | null }): React.React
   return (
     <section className={cx(s.card, s.cardPad, s.briefCard, "flex flex-col")} aria-label="Market brief">
       <CardHead Icon={Sparkle} title="Brief" right={
-        <button type="button" className={s.ghostBtn} aria-label="Refresh market brief" disabled={refreshing} onClick={() => void refresh()}>
+        <button type="button" className={s.iconBtn} aria-label="Refresh market brief" disabled={refreshing} onClick={() => void refresh()}>
           <ArrowsClockwise size={14} className={refreshing ? "animate-spin" : undefined} />
         </button>
       } />

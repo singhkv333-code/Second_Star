@@ -214,7 +214,8 @@
   cursor: pointer;
   transition: color 150ms var(--ease-quartr), background 150ms var(--ease-quartr);
 }
-.iconBtn:hover { background: var(--mk-active); }
+.iconBtn:hover:not(:disabled) { background: var(--mk-active); }
+.iconBtn:disabled { opacity: 0.4; cursor: default; }
 
 /* ── rows ───────────────────────────────────────────────────────────── */
 

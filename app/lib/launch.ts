@@ -33,7 +33,7 @@ export function tabEnabled(tab: string): boolean {
   if (tab === "chat") return LAUNCH.mainChat;
   if (tab === "agents") return LAUNCH.strategies;
   if (tab === "brokers") return LAUNCH.execution;   // linking a broker is for live orders
-  if (tab === "plays") return LAUNCH.plays;
+  if (tab === "plays" || tab === "inbox") return LAUNCH.plays;
   return true;
 }
 

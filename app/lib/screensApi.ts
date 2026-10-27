@@ -28,6 +28,7 @@ import type {
 import { isError } from "@/lib/types";
 import type { ApiResult } from "@/lib/types";
 import { sessionToken } from "@/lib/session";
+import { getApiBaseUrl } from "@/lib/api-base";
 
 export type ScreenKind = "symbols" | "filters";
 export type ScreenSource = "chat" | "screener";
@@ -71,7 +72,7 @@ export type PendingScreen = {
   universe: number;
 };
 
-const BASE = process.env.NEXT_PUBLIC_PIVOT_API_BASE || "/pv/api";
+const BASE = getApiBaseUrl();
 function authHeaders(): Record<string, string> {
   const token = sessionToken();
   return token ? { Authorization: `Bearer ${token}` } : {};

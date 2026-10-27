@@ -26,6 +26,7 @@
 
 import type { ApiResult, ErrorBody } from "@/lib/types";
 import { getAccessToken } from "@/lib/authToken";
+import { getApiBaseUrl } from "@/lib/api-base";
 
 // ---------------------------------------------------------------------------
 // Response shapes (from the backend contract)
@@ -163,22 +164,12 @@ export type ScreenerStocksParams = {
 // Minimal fetch (/api base + bearer token), additive — no shared client edits
 // ---------------------------------------------------------------------------
 
-const DEFAULT_BASE = "/pv/api";   // Pivot's API on the one origin (see lib/api.ts)
-
-/** `/api` base — screener routes are mounted under it; do NOT strip. */
-function getApiBase(): string {
-  const base =
-    (typeof process !== "undefined" &&
-      process.env.NEXT_PUBLIC_PIVOT_API_BASE) ||
-    DEFAULT_BASE;
-  return base;
-}
 
 function buildUrl(
   path: string,
   query?: Record<string, string | number | undefined>,
 ): string {
-  const base = getApiBase();
+  const base = getApiBaseUrl();
   const sep = base.endsWith("/") || path.startsWith("/") ? "" : "/";
   let url = `${base}${sep}${path}`;
   if (query) {
