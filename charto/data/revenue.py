@@ -39,6 +39,7 @@ other modules that share charto_users.db.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sqlite3
@@ -100,6 +101,16 @@ class Limit(ValueError):
     """A refusal the trader can act on; its text says what to do."""
 
 
+def track(uid, event: str, props: dict | None = None) -> None:
+    """One PostHog event (analytics.py: counts and enums, never PII). Never
+    raises: a down PostHog costs nothing here."""
+    try:
+        import analytics
+        analytics.capture(uid, event, props or {})
+    except Exception:                                       # noqa: BLE001
+        log.debug("revenue: track %s failed", event, exc_info=True)
+
+
 # ══ money ════════════════════════════════════════════════════════════════════
 
 def month_of(ts: float | None = None) -> str:
@@ -127,6 +138,12 @@ def segment_of(do: dict) -> str:
     if kind in _DERIV_KINDS or product in ("MIS", "PERP", "NRML") or sym.endswith(_CRYPTO):
         return FNO
     return DELIVERY
+
+
+def is_exit(kind: str, body: dict, do: dict) -> bool:
+    """A play event that reduced a position: an exit, or a fill that sold."""
+    return (kind == "exited" or do.get("kind") in ("sell", "cover")
+            or (body.get("ticket") or {}).get("side") == "SELL")
 
 
 def filled_paise(body: dict) -> int:
@@ -370,10 +387,10 @@ def topup_verify(uid: int, body: dict) -> tuple[int, dict]:
     sig = str(body.get("razorpay_signature") or "")
     if not b.verify_payment_signature(oid, pay, sig, b._env("RAZORPAY_KEY_SECRET")):
         return 400, {"error": "the payment could not be verified"}
-    return _settle(oid, pay, uid)
+    return _settle(oid, pay, uid, "checkout")
 
 
-def _settle(oid: str, pay: str, uid: int | None) -> tuple[int, dict]:
+def _settle(oid: str, pay: str, uid: int | None, via: str) -> tuple[int, dict]:
     con = _db()
     with ds._users_lock:
         row = con.execute("SELECT user_id, amount_paise FROM rev_orders WHERE order_id=?", (oid,)).fetchone()
@@ -382,6 +399,8 @@ def _settle(oid: str, pay: str, uid: int | None) -> tuple[int, dict]:
         bal = _wallet_move(con, row[0], row[1], "TOPUP", pay or oid)
         con.execute("UPDATE rev_orders SET status='paid' WHERE order_id=?", (oid,))
         con.commit()
+    if bal is not None:
+        track(row[0], "wallet_topup", {"amount_paise": row[1], "balance_paise": bal, "via": via})
     return 200, {"credited_paise": row[1] if bal is not None else 0, "duplicate": bal is None,
                  "billing": summary(row[0])}
 
@@ -392,7 +411,7 @@ def on_payment_captured(ev: dict) -> str | None:
     ent = ((ev.get("payload") or {}).get("payment") or {}).get("entity") or {}
     if (ent.get("notes") or {}).get("kind") != "wallet" or not ent.get("order_id"):
         return None
-    code, out = _settle(str(ent["order_id"]), str(ent.get("id") or ""), None)
+    code, out = _settle(str(ent["order_id"]), str(ent.get("id") or ""), None, "webhook")
     return f"wallet {code} {'duplicate' if out.get('duplicate') else 'credited'}"
 
 
@@ -412,6 +431,7 @@ def can_build(uid: int) -> None:
     b = builds(uid)
     if b["starter_left"] or b["month_left"]:
         return
+    track(uid, "play_build_refused", {"unlocked": b["unlocked"]})
     raise Limit("You have used your free play builds. Arm any play on paper to unlock "
                 f"{FREE_LIMITS['PAPER_ARM_UNLOCK_BUILDS']} more this month."
                 if not b["unlocked"] else
@@ -427,13 +447,15 @@ def use_build(uid: int) -> None:
     month = month_of()
     with ds._users_lock:
         m = _month(con, uid, month)
-        if m["unlocked"] and m["builds_used"] < FREE_LIMITS["PAPER_ARM_UNLOCK_BUILDS"]:
+        monthly = bool(m["unlocked"] and m["builds_used"] < FREE_LIMITS["PAPER_ARM_UNLOCK_BUILDS"])
+        if monthly:
             con.execute("UPDATE rev_months SET builds_used=builds_used+1 WHERE user_id=? AND month=?", (uid, month))
         else:
             _account(con, uid)
             con.execute("UPDATE rev_accounts SET starter_used=starter_used+1, updated=? WHERE user_id=?",
                         (int(time.time()), uid))
         con.commit()
+    track(uid, "play_build_used", {"from": "month" if monthly else "starter"})
 
 
 def paper_armed(uid: int) -> bool:
@@ -448,6 +470,7 @@ def paper_armed(uid: int) -> bool:
             return False
         con.execute("UPDATE rev_months SET unlocked=1 WHERE user_id=? AND month=?", (uid, month))
         con.commit()
+    track(uid, "play_builds_unlocked", {"builds": FREE_LIMITS["PAPER_ARM_UNLOCK_BUILDS"], "month": month})
     return True
 
 
@@ -502,6 +525,123 @@ def summary(uid: int) -> dict:
             "builds": builds(uid), "topups_paise": list(PRICING["WALLET_TOPUPS_PAISE"]),
             "topup_open": topup_available(), "max_live_plays": FREE_LIMITS["MAX_ARMED_LIVE_PLAYS"],
             "statement": statement(uid)}
+
+
+# ══ what the owner sees ══════════════════════════════════════════════════════
+# Read by the owner console through the signed /ops/trading route. Trades are
+# the plays' own fills (play_events filled | exited), paper and live alike;
+# an event is live when the ledger charged it, which stays true after the
+# play itself moves back to paper.
+
+def _day(ts: int) -> str:
+    return datetime.fromtimestamp(ts, IST).strftime("%Y-%m-%d")
+
+
+def metrics(days: int = 30, now: float | None = None) -> dict:
+    con = _db()
+    now = int(now if now is not None else time.time())
+    days = max(1, min(int(days), 366))
+    since = now - days * 86400
+    month = month_of(now)
+    if not _has_plays(con):
+        return {"available": False, "reason": "plays are not on this server"}
+    with ds._users_lock:
+        evs = con.execute(
+            "SELECT e.id, e.user_id, e.play_id, e.kind, e.body, e.created, p.spec FROM play_events e "
+            "LEFT JOIN plays p ON p.id=e.play_id WHERE e.kind IN ('filled','exited') AND e.created>=?",
+            (since,)).fetchall()
+        billed = {int(k.split(":", 1)[1]): (c, f) for k, c, f in con.execute(
+            "SELECT action_key, charge_paise, fee_paise FROM rev_trades WHERE created>=? "
+            "AND action_key LIKE 'play_event:%'", (since,))}
+        skipped = con.execute("SELECT COUNT(*) FROM play_events WHERE kind='rejected' AND created>=? "
+                              "AND body LIKE '%Pivot wallet%'", (since,)).fetchone()[0]
+        plays_now = dict(con.execute("SELECT state || ':' || venue, COUNT(*) FROM plays GROUP BY state, venue"))
+        new_plays = con.execute("SELECT COUNT(*) FROM plays WHERE created>=?", (since,)).fetchone()[0]
+        mon = con.execute("SELECT COUNT(DISTINCT user_id), COALESCE(SUM(charged_paise),0), "
+                          "COALESCE(SUM(fee_paise),0), COALESCE(SUM(trades),0), "
+                          "COALESCE(SUM(charged_paise>=?),0), COALESCE(SUM(builds_used),0), "
+                          "COALESCE(SUM(unlocked),0) FROM rev_months WHERE month=?",
+                          (PRICING["MONTHLY_CAP_PAISE"], month)).fetchone()
+        live_traders = con.execute("SELECT COUNT(DISTINCT user_id) FROM rev_trades WHERE month=?",
+                                   (month,)).fetchone()[0]
+        win = con.execute("SELECT COUNT(*), COALESCE(SUM(charge_paise),0), COALESCE(SUM(waived_paise),0) "
+                          "FROM rev_trades WHERE created>=?", (since,)).fetchone()
+        accts = con.execute("SELECT user_id, wallet_paise, topped_up, starter_used FROM rev_accounts").fetchall()
+        tops = con.execute("SELECT COUNT(*), COALESCE(SUM(delta_paise),0), COUNT(DISTINCT user_id) FROM rev_wallet "
+                           "WHERE reason='TOPUP' AND created>=?", (since,)).fetchone()
+        emails = dict(con.execute("SELECT id, email FROM users"))
+    by_day = {_day(now - i * 86400): {"trades": 0, "volume_paise": 0, "revenue_paise": 0}
+              for i in range(days - 1, -1, -1)}
+    seg = {FNO: {"trades": 0, "volume_paise": 0}, DELIVERY: {"trades": 0, "volume_paise": 0}}
+    venue = {"paper": {"trades": 0, "volume_paise": 0}, "live": {"trades": 0, "volume_paise": 0}}
+    kinds: dict[str, int] = {}
+    per_user: dict[int, dict] = {}
+    entries = exits = 0
+    for eid, uid, pid, kind, body, created, spec in evs:
+        try:
+            b = json.loads(body or "{}")
+            do = (json.loads(spec) if spec else {}).get("do") or {}
+        except ValueError:
+            continue
+        if b.get("resting"):
+            continue                          # a stop placed, nothing traded yet
+        v = filled_paise(b)
+        sg = segment_of(do)
+        vn = "live" if eid in billed else "paper"
+        out = is_exit(kind, b, do)
+        entries += not out
+        exits += out
+        for bucket in (seg[sg], venue[vn]):
+            bucket["trades"] += 1
+            bucket["volume_paise"] += v
+        k = do.get("kind") or "unknown"
+        kinds[k] = kinds.get(k, 0) + 1
+        d = by_day.get(_day(created))
+        if d is not None:
+            d["trades"] += 1
+            d["volume_paise"] += v
+            d["revenue_paise"] += billed.get(eid, (0, 0))[0]
+        u = per_user.setdefault(uid, {"user_id": uid, "email": emails.get(uid, ""), "trades": 0,
+                                      "volume_paise": 0, "charged_paise": 0, "plays": set()})
+        u["trades"] += 1
+        u["volume_paise"] += v
+        u["charged_paise"] += billed.get(eid, (0, 0))[0]
+        u["plays"].add(pid)
+    trades = entries + exits
+    volume = sum(x["volume_paise"] for x in venue.values())
+    top = sorted(per_user.values(), key=lambda u: (-u["trades"], -u["volume_paise"]))[:15]
+    for u in top:
+        u["plays"] = len(u["plays"])
+    restricted = sum(1 for uid, w, t, _ in accts if t and not may_open(uid, FNO)[0])
+    charged = mon[1]
+    return {
+        "available": True, "now": now, "days": days, "month": month,
+        "trades": {"total": trades, "entries": entries, "exits": exits, "traders": len(per_user),
+                   "volume_paise": volume, "avg_paise": volume // trades if trades else 0,
+                   "per_trader": round(trades / len(per_user), 1) if per_user else 0,
+                   "by_venue": venue, "by_segment": seg,
+                   "by_kind": dict(sorted(kinds.items(), key=lambda x: -x[1])),
+                   "skipped_for_money": skipped},
+        "series": [{"day": d, **v} for d, v in by_day.items()],
+        "revenue": {"month": {"charged_paise": charged, "fee_paise": mon[2], "waived_paise": mon[2] - charged,
+                              "trades": mon[3], "live_traders": live_traders, "at_cap": mon[4],
+                              "per_live_trader_paise": charged // live_traders if live_traders else 0,
+                              "trades_per_live_trader": round(mon[3] / live_traders, 1) if live_traders else 0,
+                              **{k: v for k, v in gst_split(charged).items() if k != "total_paise"}},
+                    "window": {"billed_trades": win[0], "charged_paise": win[1], "waived_paise": win[2]}},
+        "wallet": {"accounts": len(accts), "funded": sum(1 for a in accts if a[1] > 0),
+                   "balance_paise": sum(a[1] for a in accts),
+                   "negative": sum(1 for a in accts if a[1] < 0), "restricted": restricted,
+                   "topups": tops[0], "topped_up_paise": tops[1], "topup_accounts": tops[2]},
+        "plays": {"armed": sum(v for k, v in plays_now.items() if k.startswith("armed:")),
+                  "armed_live": plays_now.get("armed:live", 0),
+                  "paused": sum(v for k, v in plays_now.items() if k.startswith("paused:")),
+                  "created": new_plays, "builds_used_month": mon[5],
+                  "starter_builds_used": sum(a[3] for a in accts), "unlocked_month": mon[6]},
+        "top_traders": top,
+        "pricing": {"fno_paise": PRICING["FNO_FEE_PAISE"], "delivery_max_paise": PRICING["DELIVERY_FEE_MAX_PAISE"],
+                    "cap_paise": PRICING["MONTHLY_CAP_PAISE"], "enforced": enforced(), "live_open": live_open()},
+    }
 
 
 def api_get(uid: int, parts: list[str]) -> tuple[int, dict]:

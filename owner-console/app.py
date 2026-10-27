@@ -72,8 +72,9 @@ ALLOW = [
     ("POST", r"/users/\d{1,9}/grant"), ("POST", r"/users/\d{1,9}/signout"),
     ("GET", r"/grants"), ("POST", r"/grants/\d{1,9}/revoke"),
     ("GET", r"/subscriptions"), ("GET", r"/events"), ("GET", r"/audit"),
+    ("GET", r"/trading"),
 ]
-QUERY_KEYS = {"q", "status", "batch", "all"}
+QUERY_KEYS = {"q", "status", "batch", "all", "days"}
 
 HEADERS = [
     ("Content-Security-Policy",
@@ -329,7 +330,7 @@ def _page(title: str, body: str, csrf: str = "") -> bytes:
 <meta name="robots" content="noindex, nofollow">
 <title>{title}</title>{meta}
 <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="/static/console.css?v=1">
+<link rel="stylesheet" href="/static/console.css?v=2">
 </head><body>{body}</body></html>""".encode()
 
 
@@ -353,7 +354,7 @@ def _login_page(start, error: str = "", status: str = "200 OK"):
 
 def _shell(start, s: dict):
     body = ('<div id="app"></div><noscript>The console needs JavaScript.</noscript>'
-            '<script src="/static/console.js?v=1" defer></script>')
+            '<script src="/static/console.js?v=2" defer></script>')
     return _respond(start, "200 OK", _page("Pivot owner console", body, s["csrf"]), "text/html; charset=utf-8")
 
 

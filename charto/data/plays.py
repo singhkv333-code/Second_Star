@@ -2588,8 +2588,17 @@ def _event(play: dict, ts: int, kind: str, title: str, body: dict, status: str =
         eid = cur.lastrowid
     ev = {"id": eid, "play_id": play["id"], "play": play["spec"]["title"], "ts": ts,
           "created": now, "kind": kind, "title": title, "body": body, "status": status}
-    if play.get("venue") == "live" and kind in ("filled", "exited") and not body.get("resting"):
-        _bill(play, ev)
+    if kind in ("filled", "exited") and not body.get("resting"):
+        got = _bill(play, ev) if play.get("venue") == "live" else None
+        do = play["spec"]["do"]
+        legs = (body.get("ticket") or {}).get("legs") or body.get("legs") or []
+        revenue.track(play["user_id"], "play_trade", {
+            "venue": play.get("venue") or "paper", "side": "exit" if revenue.is_exit(kind, body, do) else "entry",
+            "do_kind": do.get("kind"), "segment": revenue.segment_of(do), "play_id": play["id"],
+            "value_inr": round(revenue.filled_paise(body) / 100, 2), "legs": len(legs) or 1,
+            "authority": play["spec"]["contract"].get("authority"),
+            **({"charge_paise": got["charge_paise"], "fee_paise": got["fee_paise"],
+                "waived_paise": got["waived_paise"]} if got else {})})
     if _alerts is not None:
         try:
             _alerts.push(play["user_id"], {"type": "play", "event": ev})
@@ -2598,7 +2607,7 @@ def _event(play: dict, ts: int, kind: str, title: str, body: dict, status: str =
     return ev
 
 
-def _bill(play: dict, ev: dict) -> None:
+def _bill(play: dict, ev: dict) -> dict | None:
     """A live play's action filled: one charge, keyed on its event so a
     replay is free. Billing never fails a fill, and an exit is charged like
     any action but was never asked whether it could pay."""
@@ -2607,11 +2616,14 @@ def _bill(play: dict, ev: dict) -> None:
                              revenue.segment_of(play["spec"]["do"]), revenue.filled_paise(ev["body"]))
         ev["body"]["pivot_charge_paise"] = got["charge_paise"]
         if got["cap_reached"]:
+            revenue.track(play["user_id"], "billing_cap_reached", {"month": got["month"]})
             _event(play, ev["ts"], "note", play["spec"]["title"],
                    {"reason": "You have reached ₹499 of Pivot charges this month. Live trades are free "
                               "for the rest of the month."}, status="done")
+        return got
     except Exception:                                       # noqa: BLE001
         log.exception("plays: billing failed for event %s", ev.get("id"))
+        return None
 
 
 def events(uid: int, limit: int = 60) -> list[dict]:
@@ -3090,6 +3102,8 @@ def _fire(play: dict, data: dict, series: dict, i: int, *, late: bool,
     elif (play.get("venue") == "live" and authority != "notify" and do["kind"] in revenue.ENTRY_KINDS
           and not revenue.may_open(play["user_id"], revenue.segment_of(do))[0]):
         # only entries ask whether the account can pay; exits never do
+        revenue.track(play["user_id"], "live_entry_skipped", {"state": revenue.state(play["user_id"]),
+                                                              "do_kind": do["kind"], "play_id": play["id"]})
         ev = _event(play, ts, "rejected", title,
                     {**body, "reason": revenue.may_open(play["user_id"], revenue.segment_of(do))[1]},
                     status="done")
@@ -4132,7 +4146,11 @@ def act(uid: int, pid: int, action: str) -> dict:
         _set(pid, state="armed", why="", last_eval_ts=data["t"][-1])
     elif action == "live":
         _go_live(uid, play)
+        revenue.track(uid, "play_venue_changed", {"venue": "live", "play_id": pid,
+                                                  "segment": revenue.segment_of(play["spec"]["do"])})
     elif action == "paper":
+        if play.get("venue") == "live":
+            revenue.track(uid, "play_venue_changed", {"venue": "paper", "play_id": pid})
         _set(pid, venue="paper")
     elif action == "delete":
         with ds._users_lock:

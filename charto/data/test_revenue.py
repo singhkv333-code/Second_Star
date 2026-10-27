@@ -181,3 +181,98 @@ def test_builds_start_at_three_and_a_paper_arm_unlocks_ten_once_a_month(uid, mon
     assert revenue.builds(uid)["month_left"] == 9
     plays.compile_play(uid, draft, chart_symbol="RELIANCE", chart_interval="1d", pid=pid)   # an edit is free
     assert revenue.builds(uid)["month_left"] == 9
+
+
+# ── the routes, the wallet's payment paths ─────────────────────────────────
+
+def test_the_trader_routes_answer(live) -> None:
+    revenue.credit(live, 10000, "TOPUP", "pay_r")
+    pid = _live_play(live, {**RIL, "do": {"kind": "buy", "symbol": "RELIANCE", "size": {"inr": 5000}},
+                            "when": {"all": [{"left": "close", "op": "above", "right": 0}]},
+                            "contract": {"lifespan": "standing", "authority": "act"}})
+    code, b = plays.api_get(live, "/billing")
+    assert code == 200 and b["state"] == "ACTIVE" and b["live_open"] is True
+    code, est = plays.api_get(live, f"/billing/estimate/{pid}")
+    assert code == 200 and est["segment"] == "DELIVERY" and est["pivot_paise"] == 500
+    assert plays.api_get(live, "/billing/2026-10")[1]["month"] == "2026-10"
+    assert plays.api_post(live, "/billing/topup", {"amount_paise": 999})[0] == 400
+
+
+@pytest.fixture
+def razorpay(monkeypatch):
+    import billing
+    monkeypatch.setenv("RAZORPAY_KEY_ID", "rzp_test_x")
+    monkeypatch.setenv("RAZORPAY_KEY_SECRET", "secret_k")
+    monkeypatch.setenv("RAZORPAY_WEBHOOK_SECRET", "secret_w")
+    made = []
+
+    def fake(method, path, body=None):
+        made.append((method, path, body))
+        return {"id": f"order_{len(made)}", "amount": body["amount"]}
+    monkeypatch.setattr(billing, "http", fake)
+    return billing
+
+
+def test_a_topup_credits_once_and_only_its_owner(uid, razorpay) -> None:
+    code, o = plays.api_post(uid, "/billing/topup", {"amount_paise": 25000})
+    assert code == 200 and o["order_id"] == "order_1" and o["key_id"] == "rzp_test_x"
+    sig = razorpay._hmac_hex("secret_k", b"order_1|pay_9")
+    good = {"razorpay_order_id": "order_1", "razorpay_payment_id": "pay_9", "razorpay_signature": sig}
+    assert plays.api_post(uid, "/billing/topup/verify", {**good, "razorpay_signature": "0" * 64})[0] == 400
+    assert plays.api_post(2, "/billing/topup/verify", good)[0] == 404              # another account
+    code, out = plays.api_post(uid, "/billing/topup/verify", good)
+    assert code == 200 and out["credited_paise"] == 25000
+    assert plays.api_post(uid, "/billing/topup/verify", good)[1]["duplicate"] is True
+    assert revenue.summary(uid)["wallet_paise"] == 25000
+
+
+def test_the_webhook_credits_a_topup_whose_browser_closed(uid, razorpay) -> None:
+    import json as _json
+    import entitlements as ent
+    ent.bind(server._users, server._users_lock)
+    plays.api_post(uid, "/billing/topup", {"amount_paise": 10000})
+    raw = _json.dumps({"event": "payment.captured", "payload": {"payment": {"entity": {
+        "id": "pay_w", "order_id": "order_1", "amount": 10000, "notes": {"kind": "wallet"}}}}}).encode()
+    hdr = {"X-Razorpay-Signature": razorpay._hmac_hex("secret_w", raw), "x-razorpay-event-id": "evt_1"}
+    assert razorpay.api_webhook(raw, hdr)[1]["result"].startswith("wallet 200")
+    assert razorpay.api_webhook(raw, hdr)[1].get("duplicate") is True             # redelivered
+    assert revenue.summary(uid)["wallet_paise"] == 10000
+
+
+# ── what is measured, and what PostHog hears ───────────────────────────────
+
+def test_trades_are_counted_by_venue_and_sent_to_posthog(live, monkeypatch) -> None:
+    import ops_api
+    heard = []
+    monkeypatch.setattr(revenue, "track", lambda uid, ev, props=None: heard.append((ev, props or {})))
+    revenue.credit(live, 10000, "TOPUP", "pay_1")
+    buy = {**RIL, "do": {"kind": "buy", "symbol": "RELIANCE", "size": {"inr": 5000}},
+           "when": {"all": [{"left": "close", "op": "above", "right": 0}]},
+           "contract": {"lifespan": "standing", "authority": "act"}}
+    paper_pid = plays.compile_play(live, buy, chart_symbol="RELIANCE", chart_interval="1d")["play"]["id"]
+    live_pid = _live_play(live, buy)
+    for pid in (paper_pid, live_pid):
+        plays._set(pid, accepted=1, fires=1)
+        play = plays._load(pid)
+        data, _ = plays.frame(play["spec"])
+        assert plays._fire(play, data, {}, len(data["t"]) - 1, late=False)["kind"] == "filled"
+    trades = [p for e, p in heard if e == "play_trade"]
+    assert [t["venue"] for t in trades] == ["paper", "live"]
+    assert trades[1]["charge_paise"] == revenue.fee_paise(revenue.DELIVERY, round(trades[1]["value_inr"] * 100))
+    assert ("play_venue_changed", {"venue": "live", "play_id": live_pid, "segment": "DELIVERY"}) in heard
+    m = revenue.metrics(7)
+    assert m["trades"]["total"] == 2 and m["trades"]["traders"] == 1
+    assert m["trades"]["by_venue"]["live"]["trades"] == 1 and m["trades"]["by_venue"]["paper"]["trades"] == 1
+    assert m["trades"]["by_segment"]["DELIVERY"]["volume_paise"] == m["trades"]["volume_paise"] > 0
+    assert m["revenue"]["month"]["live_traders"] == 1 and m["revenue"]["month"]["charged_paise"] == trades[1]["charge_paise"]
+    assert m["series"][-1]["trades"] == 2 and m["top_traders"][0]["email"] == "t@x.in"
+    assert m["plays"]["armed_live"] == 1 and m["wallet"]["topups"] == 1
+    code, out = ops_api._get(["trading"], {"days": "7"})
+    assert code == 200 and out["trades"]["total"] == 2
+    assert ops_api._get(["trading"], {"days": "a week"})[0] == 400
+
+
+def test_a_sell_is_counted_as_an_exit() -> None:
+    assert revenue.is_exit("filled", {"ticket": {"side": "SELL"}}, {"kind": "buy"})
+    assert revenue.is_exit("exited", {}, {"kind": "options"})
+    assert not revenue.is_exit("filled", {"ticket": {"side": "BUY"}}, {"kind": "buy"})

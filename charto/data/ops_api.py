@@ -423,6 +423,16 @@ def _get(parts: list[str], q: dict) -> tuple[int, dict]:
         return 200, {"events": events()}
     if parts == ["audit"]:
         return 200, {"audit": audit_log()}
+    if parts == ["trading"]:
+        # plays, their trades and what live ones paid (revenue.py); a server
+        # without the execution layer says so rather than showing zeros
+        try:
+            import revenue                              # noqa: PLC0415 — bound with plays
+            days = int(q.get("days") or 30)
+            return 200, revenue.metrics(days) if revenue.ds is not None else \
+                {"available": False, "reason": "plays are not on this server"}
+        except ValueError:
+            return 400, {"error": "days must be a whole number"}
     return 404, {"error": "not found"}
 
 

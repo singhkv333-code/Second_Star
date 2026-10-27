@@ -10,6 +10,7 @@ The private desk for whoever runs Pivot. You use it to make codes, look up an ac
 | Section | What you can do |
 |---|---|
 | Overview | See accounts and sign-ups (30-day chart), weekly actives, paying subscribers, monthly recurring revenue, money collected in the last 30 days, grants in force, code use, and webhooks that need a look. |
+| Trading | Plays' trades over 7, 30 or 90 days: count, volume, traders, paper against live, delivery against intraday/F&O, trades a day, Pivot's per-trade revenue this month with GST split out and what the ₹499 cap waived, wallets and top-ups, entries skipped for money, builds, and the most active traders. Read from `GET /ops/trading` (charto/data/revenue.py `metrics`). A server without the execution layer says so. |
 | Codes | Make one code or a batch of up to 1,000. You can set limits, change them, disable or archive a code, disable a whole batch, export a CSV, copy a checkout link, see who used a code, and revoke free time. |
 | Accounts | Search by email, name or account number. You can see an account's plan, subscription, sessions, grants, codes and usage. You can also grant a plan or a single limit (for example 500 AI credits for 30 days) and sign the account out everywhere. |
 | Grants | Every comp, code and deal in force. You can revoke any of them. |

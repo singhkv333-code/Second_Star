@@ -31,7 +31,7 @@
   const clear = (el) => { while (el.firstChild) el.removeChild(el.firstChild); return el; };
 
   // ── format ────────────────────────────────────────────────────────────
-  const inr = (p) => p == null ? "—" : "₹" + (p / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+  const inr = (p) => p == null ? "—" : (p < 0 ? "−₹" : "₹") + (Math.abs(p) / 100).toLocaleString("en-IN", { maximumFractionDigits: 2, minimumFractionDigits: p % 100 ? 2 : 0 });
   const when = (t) => t ? new Date(t * 1000).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
   const day = (t) => t ? new Date(t * 1000).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", year: "numeric" }) : "—";
   const n = (x) => x == null ? "—" : Number(x).toLocaleString("en-IN");
@@ -120,7 +120,7 @@
 
   // ── frame ─────────────────────────────────────────────────────────────
   const VIEWS = [
-    ["overview", "Overview"], ["codes", "Codes"], ["accounts", "Accounts"], ["grants", "Grants"],
+    ["overview", "Overview"], ["trading", "Trading"], ["codes", "Codes"], ["accounts", "Accounts"], ["grants", "Grants"],
     ["subscriptions", "Subscriptions"], ["events", "Webhooks"], ["audit", "Audit log"], ["system", "System"],
   ];
   let current = (location.hash.slice(1) || "overview");
@@ -138,7 +138,7 @@
     renderTabs();
     closeDrawer();
     clear($view).append(h("p", { class: "muted" }, "Loading"));
-    ({ overview, codes, accounts, grants, subscriptions, events, audit, system })[current]();
+    ({ overview, trading, codes, accounts, grants, subscriptions, events, audit, system })[current]();
   }
   const logout = h("form", { method: "post", action: "/logout", on: { submit: async (e) => {
     e.preventDefault();
@@ -191,6 +191,64 @@
             h("dt", {}, "Payments"), h("dd", {}, b.configured ? (b.test_mode ? tag("test keys", "bad") : tag("live", "on")) : tag("not configured", "bad")),
             h("dt", {}, "Paywall"), h("dd", {}, b.paywall_enabled ? tag("enforced", "on") : tag("off", "off")),
           ))),
+    );
+  }
+
+  // ── trading: plays' trades and what live plays paid ─────────────────
+  let tradeDays = 30;
+  async function trading() {
+    const r = await api("GET", `/trading?days=${tradeDays}`);
+    if (!r.ok) return clear($view).append(note(r.error, "bad"));
+    const t = r.data;
+    const head = h("div", { class: "head" },
+      h("div", {}, h("h1", {}, "Trading"), h("p", { class: "sub" }, t.available ? `Plays' trades and what live plays paid, as of ${when(t.now)} IST` : "")),
+      h("div", { class: "seg", role: "group", "aria-label": "Window" }, [7, 30, 90].map((d) => h("button", {
+        type: "button", "aria-pressed": String(d === tradeDays), on: { click: () => { tradeDays = d; trading(); } } }, `${d} days`))));
+    if (!t.available) return clear($view).append(head, note(`No trading data: ${t.reason}.`, ""));
+    const tr = t.trades, rv = t.revenue.month, w = t.wallet, p = t.plays;
+    const vol = (b) => `${n(b.trades)} trades, ${inr(b.volume_paise)}`;
+    const max = Math.max(1, ...t.series.map((s) => s.trades));
+    clear($view).append(head,
+      h("div", { class: "grid" },
+        stat("Trades", n(tr.total), `${n(tr.entries)} entries, ${n(tr.exits)} exits, ${t.days} days`),
+        stat("Trade volume", inr(tr.volume_paise), `average ${inr(tr.avg_paise)} a trade`),
+        stat("Traders", n(tr.traders), `${tr.per_trader} trades each`),
+        stat("Live trades", n(tr.by_venue.live.trades), `${inr(tr.by_venue.live.volume_paise)} traded live`),
+        stat("Pivot revenue, this month", inr(rv.charged_paise), `${inr(rv.base_paise)} plus ${inr(rv.gst_paise)} GST`),
+        stat("Waived by the ₹499 cap", inr(rv.waived_paise), `${n(rv.at_cap)} accounts at the cap`),
+        stat("Live traders, this month", n(rv.live_traders), `${inr(rv.per_live_trader_paise)} and ${rv.trades_per_live_trader} trades each`),
+        stat("Wallets", inr(w.balance_paise), `${n(w.funded)} funded, ${n(w.negative)} below zero, ${n(w.restricted)} paused`),
+        stat("Top-ups", n(w.topups), `${inr(w.topped_up_paise)} from ${n(w.topup_accounts)} accounts, ${t.days} days`),
+        stat("Entries skipped for money", n(tr.skipped_for_money), "a live entry the wallet could not cover"),
+        stat("Plays armed", n(p.armed), `${n(p.armed_live)} live, ${n(p.paused)} paused, ${n(p.created)} new in ${t.days} days`),
+        stat("Builds this month", n(p.builds_used_month), `${n(p.unlocked_month)} accounts unlocked by a paper arm`),
+      ),
+      h("div", { class: "card" },
+        h("div", { class: "row spread" }, h("h2", {}, `Trades a day, last ${t.days} days`), h("span", { class: "muted" }, `${n(tr.total)} total`)),
+        h("div", { class: "bars", role: "img", "aria-label": "Trades placed by plays each day" },
+          t.series.map((s) => h("div", { class: s.trades ? "has" : "", title: `${s.day}: ${s.trades} trades, ${inr(s.volume_paise)}, ${inr(s.revenue_paise)} charged`, style: `height:${Math.round((s.trades / max) * 100)}%` }))),
+        h("div", { class: "axis" }, h("span", {}, t.series[0].day), h("span", {}, t.series[t.series.length - 1].day))),
+      h("div", { class: "grid", style: "grid-template-columns:repeat(auto-fill,minmax(280px,1fr))" },
+        h("div", { class: "card stack" }, h("h2", {}, "By venue"),
+          h("dl", { class: "kv" }, h("dt", {}, "Paper"), h("dd", {}, vol(tr.by_venue.paper)), h("dt", {}, "Live"), h("dd", {}, vol(tr.by_venue.live)))),
+        h("div", { class: "card stack" }, h("h2", {}, "By segment"),
+          h("dl", { class: "kv" }, h("dt", {}, "Intraday, F&O, crypto"), h("dd", {}, vol(tr.by_segment.FNO)), h("dt", {}, "Delivery"), h("dd", {}, vol(tr.by_segment.DELIVERY)))),
+        h("div", { class: "card stack" }, h("h2", {}, "By action"),
+          h("dl", { class: "kv" }, Object.entries(tr.by_kind).flatMap(([k, c]) => [h("dt", {}, k), h("dd", {}, n(c))]))),
+        h("div", { class: "card stack" }, h("h2", {}, "Pricing in force"),
+          h("dl", { class: "kv" },
+            h("dt", {}, "Per trade"), h("dd", {}, `${inr(t.pricing.fno_paise)}, delivery up to ${inr(t.pricing.delivery_max_paise)}`),
+            h("dt", {}, "Monthly cap"), h("dd", {}, inr(t.pricing.cap_paise)),
+            h("dt", {}, "Live venue"), h("dd", {}, t.pricing.live_open ? tag("open (paper fills)", "on") : tag("closed", "off")),
+            h("dt", {}, "Build limits"), h("dd", {}, t.pricing.enforced ? tag("enforced", "on") : tag("off", "off"))))),
+      h("h2", {}, "Most active traders"),
+      tr.traders ? table([
+        { label: "Account", get: (u) => u.email || `#${u.user_id}` },
+        { label: "Trades", get: (u) => n(u.trades) },
+        { label: "Volume", get: (u) => inr(u.volume_paise) },
+        { label: "Charged", get: (u) => inr(u.charged_paise) },
+        { label: "Plays", get: (u) => n(u.plays) },
+      ], t.top_traders, (u) => accountDetail(u.user_id)) : note("No play has traded in this window.", ""),
     );
   }
 
