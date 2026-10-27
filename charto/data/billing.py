@@ -559,6 +559,10 @@ def _webhook(raw: bytes, headers) -> tuple[int, dict]:
     if etype in ("payment.captured", "refund.processed",
                  "payment.dispute.created", "payment.dispute.won",
                  "payment.dispute.lost"):
+        wallet = on_wallet_payment(ev) if etype == "payment.captured" and on_wallet_payment else None
+        if wallet:
+            ent.event_result(PROVIDER, eid, wallet)
+            return 200, {"ok": True, "result": wallet}
         try:
             result = on_verified_payment_event(etype, eid, ev) if on_verified_payment_event else "referrals disabled"
         except Exception as exc:  # event is retained for admin reconciliation
@@ -616,6 +620,8 @@ def _webhook(raw: bytes, headers) -> tuple[int, dict]:
 # this file does not import the alert engine.
 on_downgrade = None
 on_verified_payment_event = None
+# Set by revenue.bind: a captured payment against a wallet top-up order.
+on_wallet_payment = None
 # Set by dataserver: the account mail (notify.py). Called after a write, never
 # allowed to fail the request or the webhook.
 on_subscription_change = None

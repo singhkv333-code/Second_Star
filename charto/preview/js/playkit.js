@@ -485,7 +485,7 @@ const Kit = (() => {
       const fund = pc.funding != null ? `${(pc.funding * 100).toFixed(4)}%/h` : "–";
       return `<div class="node" data-node="a">${head("Action")}<div class="act-title">` +
         `<span class="chip ${close ? "plain" : long ? "buy" : "sell"}">${close ? "Close" : long ? "Long" : "Short"}</span>${logo(d.symbol, "sm")}` +
-        `<span class="chip plain">${esc(d.symbol)}</span><span>on</span><span class="chip plain">${ic("shield")}Paper</span></div>` + takeStop() +
+        `<span class="chip plain">${esc(d.symbol)}</span><span>on</span><span class="chip plain">${c.venue === "live" ? `${ic("bolt")}Live` : `${ic("shield")}Paper`}</span></div>` + takeStop() +
         `<div class="perp-facts"><span>Mark <b>${pc.mark != null ? esc(num(pc.mark)) : "–"}</b> USD</span><span>Funding <b class="${(pc.funding || 0) > 0 ? "down" : "up"}">${esc(fund)}</b></span>` +
         `<span>Open interest <b>${pc.oi != null ? esc(num(pc.oi, 0)) : "–"}</b></span><span>Max <b>${esc(pc.max_leverage || "–")}×</b></span></div>` +
         `<div class="inner"><div class="price-host" data-sym="${esc(d.symbol)}"></div></div>` +
@@ -494,7 +494,7 @@ const Kit = (() => {
     const [v, cls] = VERB[d.kind] || ["Buy", "buy"];
     if (d.symbol === "*") {
       return `<div class="node" data-node="a">${head("Action")}<div class="act-title"><span class="chip ${cls}">${v}</span>` +
-        `<span>the name that triggered, on</span><span class="chip plain">${ic("shield")}Paper</span></div>` + takeStop() +
+        `<span>the name that triggered, on</span><span class="chip plain">${c.venue === "live" ? `${ic("bolt")}Live` : `${ic("shield")}Paper`}</span></div>` + takeStop() +
         `<div class="inner" style="font-size:13px;line-height:1.5">Each name is sized and placed on its own` +
         `${(c.universe || {}).max_open ? `, at most ${esc(c.universe.max_open)} held at once` : ""}.</div>` +
         `<div class="nfoot"><span>${ic("link")} ${d.product === "MIS" ? "Intraday · squared off 15:20" : "Delivery"}</span><span>${esc(actsWord)}</span></div></div>`;
@@ -502,7 +502,7 @@ const Kit = (() => {
     const sym = d.symbol || c.symbol;
     return `<div class="node" data-node="a">${head("Action")}<div class="act-title"><span>${v === "Short" || v === "Cover" ? "" : ""}</span>` +
       `<span class="chip ${cls}">${v}</span><span>${d.size && d.size.all ? "all of" : ""}</span>${logo(sym, "sm")}<span class="chip plain">${esc(sym)}</span><span>on</span>` +
-      `<span class="chip plain">${ic("shield")}Paper</span></div>` + takeStop() +
+      `<span class="chip plain">${c.venue === "live" ? `${ic("bolt")}Live` : `${ic("shield")}Paper`}</span></div>` + takeStop() +
       `<div class="inner"><div class="price-host" data-sym="${esc(sym)}"></div></div>` +
       `<div class="nfoot"><span>${ic("link")} ${d.product === "MIS" ? "Intraday · squared off 15:20" : "Delivery"}</span><span>${esc(actsWord)}</span></div></div>`;
   }
@@ -591,7 +591,8 @@ const Kit = (() => {
       ? `Would have fired <b>${esc(h.fires)}×</b> in ${esc(h.bars)} ${c.interval === "1d" ? "days" : `${c.interval} bars`}` +
         (h.last_fire ? `, last on <b>${esc(dayY(h.last_fire))}</b>` : "") : "";
     el.innerHTML = `<div class="strat-head"><div style="flex:1;min-width:0"><div class="row" style="gap:8px;margin-bottom:3px">` +
-      `<h3>${c.state === "done" ? esc(c.title) : ed("title", c.title, esc(c.title))}</h3><span class="pill ${st[1]}"><i class="dot"></i>${esc(st[0])}</span></div></div>` +
+      `<h3>${c.state === "done" ? esc(c.title) : ed("title", c.title, esc(c.title))}</h3><span class="pill ${st[1]}"><i class="dot"></i>${esc(st[0])}</span>` +
+      (c.venue === "live" ? `<span class="pill live" title="Pays per trade it places">Live</span>` : "") + `</div></div>` +
       `<div class="logos">${syms.map((s) => logo(s, "lg")).join("")}</div>` +
       // on a phone the two paragraphs become cards you swipe across
       `<div class="strat-lede">${c.summary ? `<p>${esc(c.summary)}</p>` : ""}` +

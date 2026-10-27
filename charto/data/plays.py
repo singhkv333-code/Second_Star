@@ -41,6 +41,7 @@ import customsec
 import effects
 import hyperliquid
 import policy
+import revenue
 
 log = logging.getLogger("plays")
 
@@ -53,6 +54,7 @@ def bind(module, alerts_mod=None, paper_mod=None) -> None:
     global ds, _alerts, _paper
     ds, _alerts, _paper = module, alerts_mod, paper_mod
     policy.bind(module, paper_mod)
+    revenue.bind(module)
     effects.bind(module, paper_mod, customsec)
     import scan
     scan.bind(module)
@@ -148,6 +150,8 @@ def init_db() -> None:
             _db().execute("ALTER TABLE plays ADD COLUMN entry_bar INTEGER NOT NULL DEFAULT 0")
         if "marks" not in cols:          # a universe play's per-symbol clock: {sym: {eval, entry, done}}
             _db().execute("ALTER TABLE plays ADD COLUMN marks TEXT NOT NULL DEFAULT '{}'")
+        if "venue" not in cols:          # paper | live: live plays pay per trade (revenue.py)
+            _db().execute("ALTER TABLE plays ADD COLUMN venue TEXT NOT NULL DEFAULT 'paper'")
         _db().commit()
     _ready = True
 
@@ -2425,6 +2429,7 @@ def card(row: dict, live: dict | None = None) -> dict:
                 "leverage": do.get("leverage") if do.get("product") == "PERP" else None}
     return {
         "kind": "play", "id": row["id"], "title": spec["title"], "state": row["state"],
+        "venue": row.get("venue") or "paper",
         "why": row.get("why") or "", "symbol": spec["symbol"], "interval": spec["interval"],
         "join": "any" if "any" in when else "all", "summary": summary(spec),
         "on": ({"reads": _on_words(spec["on"]), "test": _on_test(spec["on"]),
@@ -2496,7 +2501,7 @@ def _freshness(row: dict) -> dict:
 
 _COLS = ("id", "user_id", "title", "ask", "spec", "symbol", "interval", "symbols", "state", "why",
          "created", "updated", "expires", "fires", "accepted", "spent_inr", "held_qty",
-         "held_sym", "held_legs", "last_eval_ts", "needs_confirm", "history", "entry_bar", "marks")
+         "held_sym", "held_legs", "last_eval_ts", "needs_confirm", "history", "entry_bar", "marks", "venue")
 
 
 def _row(t: tuple) -> dict:
@@ -2583,12 +2588,30 @@ def _event(play: dict, ts: int, kind: str, title: str, body: dict, status: str =
         eid = cur.lastrowid
     ev = {"id": eid, "play_id": play["id"], "play": play["spec"]["title"], "ts": ts,
           "created": now, "kind": kind, "title": title, "body": body, "status": status}
+    if play.get("venue") == "live" and kind in ("filled", "exited") and not body.get("resting"):
+        _bill(play, ev)
     if _alerts is not None:
         try:
             _alerts.push(play["user_id"], {"type": "play", "event": ev})
         except Exception:                                   # noqa: BLE001
             log.warning("plays: push failed", exc_info=True)
     return ev
+
+
+def _bill(play: dict, ev: dict) -> None:
+    """A live play's action filled: one charge, keyed on its event so a
+    replay is free. Billing never fails a fill, and an exit is charged like
+    any action but was never asked whether it could pay."""
+    try:
+        got = revenue.charge(play["user_id"], f"play_event:{ev['id']}", play["id"],
+                             revenue.segment_of(play["spec"]["do"]), revenue.filled_paise(ev["body"]))
+        ev["body"]["pivot_charge_paise"] = got["charge_paise"]
+        if got["cap_reached"]:
+            _event(play, ev["ts"], "note", play["spec"]["title"],
+                   {"reason": "You have reached ₹499 of Pivot charges this month. Live trades are free "
+                              "for the rest of the month."}, status="done")
+    except Exception:                                       # noqa: BLE001
+        log.exception("plays: billing failed for event %s", ev.get("id"))
 
 
 def events(uid: int, limit: int = 60) -> list[dict]:
@@ -3064,6 +3087,12 @@ def _fire(play: dict, data: dict, series: dict, i: int, *, late: bool,
         ev = _halt(play, ts, body)
     elif halt and authority != "notify":
         ev = _event(play, ts, "rejected", title, {**body, "reason": halt["text"]}, status="done")
+    elif (play.get("venue") == "live" and authority != "notify" and do["kind"] in revenue.ENTRY_KINDS
+          and not revenue.may_open(play["user_id"], revenue.segment_of(do))[0]):
+        # only entries ask whether the account can pay; exits never do
+        ev = _event(play, ts, "rejected", title,
+                    {**body, "reason": revenue.may_open(play["user_id"], revenue.segment_of(do))[1]},
+                    status="done")
     elif do["kind"] == "notify" or authority == "notify":
         ev = _event(play, ts, "fired", title, {**body, "reason": reason}, status="done")
     else:
@@ -3740,8 +3769,9 @@ def _judge_budget(pid: int) -> bool:
     half the news would otherwise spend a model call per headline."""
     key = (pid, int(time.time() // 86400))
     n = _judged.get(key, 0)
-    if n >= JUDGE_PER_DAY:
-        if n == JUDGE_PER_DAY:
+    cap = revenue.judge_per_day(JUDGE_PER_DAY)
+    if n >= cap:
+        if n == cap:
             log.info("plays: play %s reached its judge budget for today", pid)
             _judged[key] = n + 1
         return False
@@ -3865,6 +3895,11 @@ def compile_play(uid: int, raw: dict, *, chart_symbol: str = "", chart_interval:
     prior = get(uid, pid) if pid else None
     if pid and not prior:
         raise Bad(f"no play {pid} on this account")
+    if not prior:
+        try:
+            revenue.can_build(uid)       # an edit is free; a new play spends a build
+        except revenue.Limit as exc:
+            raise Bad(str(exc)) from None
     adopt = _adoption(uid, spec, said) if spec["do"]["kind"] == "rebalance" else None
     try:
         hist, data, series, tr = replay(spec)
@@ -3890,6 +3925,10 @@ def compile_play(uid: int, raw: dict, *, chart_symbol: str = "", chart_interval:
     # arm from the latest closed bar: history is the replay's, not the runtime's
     pid = _save(uid, spec, hist, state=state, pid=pid, last_eval_ts=data["t"][-1],
                 needs_confirm=bool(prior and structural and prior.get("fires")))
+    if not prior:
+        revenue.use_build(uid)
+    if state == "armed" and (not prior or prior.get("venue") != "live"):
+        revenue.paper_armed(uid)
     if adopt:
         # the holdings move with the instruction: the old play no longer owns them
         _set(pid, held_legs=json.dumps(adopt["legs"]), held_sym="rebalance",
@@ -4073,6 +4112,8 @@ def act(uid: int, pid: int, action: str) -> dict:
         data, _ = frame(play["spec"], limit=5)
         _set(pid, state="armed", why="" if play["why"] == "paused by you" else play["why"],
              last_eval_ts=data["t"][-1])
+        if play.get("venue") != "live":
+            revenue.paper_armed(uid)
         if play["held_sym"] and play["held_sym"] not in ("*", "rebalance"):
             _reconcile(uid, play["held_sym"])
     elif action == "policy":
@@ -4089,6 +4130,10 @@ def act(uid: int, pid: int, action: str) -> dict:
             _db().execute("UPDATE plays SET spec=? WHERE id=?", (json.dumps(spec), pid))
             _db().commit()
         _set(pid, state="armed", why="", last_eval_ts=data["t"][-1])
+    elif action == "live":
+        _go_live(uid, play)
+    elif action == "paper":
+        _set(pid, venue="paper")
     elif action == "delete":
         with ds._users_lock:
             _db().execute("DELETE FROM plays WHERE id=? AND user_id=?", (pid, uid))
@@ -4096,9 +4141,31 @@ def act(uid: int, pid: int, action: str) -> dict:
         _load_index()
         return {"deleted": pid}
     else:
-        raise Bad("action is pause, resume, policy or delete")
+        raise Bad("action is pause, resume, policy, live, paper or delete")
     _load_index()
     return {"play": card(get(uid, pid))}
+
+
+def _go_live(uid: int, play: dict) -> None:
+    """Switch a play to the live venue. Live trading is not open: the switch
+    exists so billing can be tested locally, and a live play still fills in
+    the paper book (revenue.py, LIVE IS NOT LIVE YET)."""
+    if play.get("venue") == "live":
+        return
+    if not revenue.live_open():
+        raise Bad("Live plays are not open yet. This play keeps running on paper.")
+    if play["spec"]["do"]["kind"] in ("notify", "halt"):
+        raise Bad("this play places no orders, so it has nothing to run live")
+    ok, why = revenue.may_open(uid, revenue.segment_of(play["spec"]["do"]))
+    if not ok:
+        raise Bad(why)
+    with ds._users_lock:
+        n = _db().execute("SELECT COUNT(*) FROM plays WHERE user_id=? AND venue='live' AND state='armed'",
+                          (uid,)).fetchone()[0]
+    cap = revenue.FREE_LIMITS["MAX_ARMED_LIVE_PLAYS"]
+    if n >= cap:
+        raise Bad(f"{cap} plays already run live. Move one back to paper to run this one live.")
+    _set(play["id"], venue="live")
 
 
 EDITABLE = ("title", "size_inr", "leverage", "stop_pct", "target_pct", "trail_pct", "exit_at",
@@ -4445,6 +4512,11 @@ def resolve_event(uid: int, eid: int, action: str) -> dict:
     if h:
         raise Bad(h["text"])
     t = dict(body.get("ticket") or {})
+    if (play.get("venue") == "live" and play["spec"]["do"]["kind"] in revenue.ENTRY_KINDS
+            and not t.get("close") and t.get("side") != "SELL"):
+        ok, why = revenue.may_open(uid, revenue.segment_of(play["spec"]["do"]))
+        if not ok:
+            raise Bad(why)
     if body.get("size"):
         play = {**play, "spec": {**play["spec"], "do": {**play["spec"]["do"], "size": body["size"]}}}
     if t.get("book") == "day":
@@ -4790,6 +4862,15 @@ def api_get(uid: int, tail: str) -> tuple[int, dict]:
         return 200, {"chats": chats_list(uid)}
     if parts == ["review"]:
         return 200, review(uid)
+    if parts[0] == "billing":
+        if parts == ["billing", "estimate"]:
+            return 404, {"error": "ask for /plays/billing/estimate/<play id>"}
+        if len(parts) == 3 and parts[1] == "estimate" and parts[2].isdigit():
+            p = get(uid, int(parts[2]))
+            if not p:
+                return 404, {"error": f"no play {parts[2]}"}
+            return 200, revenue.estimate(uid, revenue.segment_of(p["spec"]["do"]))
+        return revenue.api_get(uid, parts)
     if len(parts) == 2 and parts[0] == "chats":
         c = chat_get(uid, parts[1])
         return (200, {"chat": c}) if c else (404, {"error": "no such conversation"})
@@ -4815,6 +4896,8 @@ def api_post(uid: int, tail: str, body: dict) -> tuple[int, dict]:
             if body.get("action") == "set":
                 return 200, edit_field(uid, int(parts[0]), str(body.get("field") or ""), body.get("value"))
             return 200, act(uid, int(parts[0]), str(body.get("action") or ""))
+        if parts[0] == "billing":
+            return revenue.api_post(uid, parts, body)
         if parts == ["chats"]:
             return 200, chat_save(uid, body)
         if parts == ["halt"] and body.get("action") == "lift":

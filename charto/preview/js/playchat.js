@@ -557,7 +557,7 @@
       : pick((c.do || {}).symbol) || pick((c.do || {}).underlying) || c.symbol;
     main.innerHTML = `<div class="page"><div class="crumbs"><button type="button" data-go="strategies">Strategies</button><span>/</span><span>${esc(c.title)}</span></div>` +
       `<div class="detail"><div><div class="panel"><div class="panel-h">${ic("flow")}<span>Workflow</span><span class="grow"></span>` +
-      `<a class="btn sm ghost" href="./?symbol=${encodeURIComponent(chartSym)}&interval=1D" target="pivot-chart">${ic("chart")}Chart</a></div><div id="wf"></div></div>` +
+      `<span id="venue"></span><a class="btn sm ghost" href="./?symbol=${encodeURIComponent(chartSym)}&interval=1D" target="pivot-chart">${ic("chart")}Chart</a></div><div id="golive"></div><div id="wf"></div></div>` +
       `<div class="ask-bar">${composerHTML("ask", `Ask for a change to ${c.title}`)}</div></div>` +
       `<div><div class="panel"><div class="panel-h">${Kit.logo(chartSym, "sm")}<span>${esc(chartSym)}</span><span class="grow"></span>` +
       `<span class="muted" style="font-size:12px">${(c.history || {}).fire_ts && c.history.fire_ts.length ? "dots mark past fires" : ""}</span></div>` +
@@ -565,6 +565,7 @@
       `<div class="panel" style="margin-top:14px"><div class="subtabs"><button type="button" data-ptab="activity" class="${ptab === "activity" ? "on" : ""}">${ic("bell")}Activity</button>` +
       `<button type="button" data-ptab="holdings" class="${ptab === "holdings" ? "on" : ""}">${ic("pie")}Holdings</button></div><div id="ptab"></div></div></div></div></div>`;
     $("wf").appendChild(Kit.strategy(c, { open: false }));
+    if (c.action && c.state !== "done") venueSwitch(c);
     Kit.priceBlock($("px"), chartSym, { tfs: ["1D", "1W", "1M", "3M", "1Y", "ALL"], tf: "3M", height: 170, width: 330, area: true,
       markers: (c.history || {}).fire_ts, price: (c.history || {}).price });
     const paintP = async () => {
@@ -642,7 +643,9 @@
         `<div style="background:var(--panel);border-radius:10px;padding:10px"><div class="muted" style="font-size:12px">${k}</div><div class="num ${v != null && (k === "Today" || k === "All time") ? (v >= 0 ? "up" : "down") : ""}" style="font-size:16px;font-weight:500;margin-top:2px">${v == null ? "–" : esc(Kit.inr(v))}</div></div>`).join("")}</div>`) + `</div>` +
       `<div class="panel"><div class="panel-h">${ic("pie")}<span>Allocation</span></div><div class="donut-wrap" id="donut"></div></div></div>` +
       `<div class="panel" style="margin-top:16px"><div class="subtabs">${[["holdings", "Holdings", "pie"], ["day", "Day book", "bolt"], ["tx", "Transactions", "list"]].map(([k, l, i]) =>
-        `<button type="button" data-pf="${k}" class="${pftab === k ? "on" : ""}">${ic(i)}${l}</button>`).join("")}</div><div id="pft"></div></div></div>`;
+        `<button type="button" data-pf="${k}" class="${pftab === k ? "on" : ""}">${ic(i)}${l}</button>`).join("")}</div><div id="pft"></div></div>` +
+      `<div class="panel" id="charges" style="margin-top:16px" hidden></div></div>`;
+    charges($("charges"));
     const pts = (nav || []).map((n) => ({ t: Date.parse(n.as_of_date) / 1000, v: +n.nav }));
     if (pts.length >= 2) Kit.lineChart($("navc"), pts, { height: 150, width: 620, area: true, yfmt: (v) => Kit.inr(v) });
     else $("navc").innerHTML = `<div class="muted" style="font-size:13px;padding:24px 0">${none ? "Your paper account opens with your first order." : "The value line starts after the first day of trading."}</div>`;
@@ -686,6 +689,95 @@
       try { await call(`/plays/positions/${x.dataset.close}`, {}); await refresh(); paint(); } catch (err) { x.disabled = false; Kit.toast(err.message); }
     });
     paint();
+  }
+
+  /* ── what Pivot charges ───────────────────────────────────────────────── */
+  const rs = (p) => Kit.inr(p / 100, p % 100 ? 2 : 0);
+  const STATE_WORD = { ACTIVE: ["Ready for live", "live"], RESTRICTED: ["New entries paused", "bad"], NO_METHOD: ["No money in the wallet", "wait"] };
+
+  async function charges(host) {
+    let b;
+    try { b = await call("/plays/billing"); } catch { return; }
+    const m = b.month, st = b.statement, bl = b.builds;
+    const left = bl.starter_left + bl.month_left;
+    const tile = (k, v, s) => `<div style="background:var(--panel);border-radius:10px;padding:10px"><div class="muted" style="font-size:12px">${k}</div>` +
+      `<div class="num" style="font-size:16px;font-weight:500;margin-top:2px">${v}</div>${s ? `<div class="muted" style="font-size:12px;margin-top:2px">${s}</div>` : ""}</div>`;
+    const sw = STATE_WORD[b.state] || [b.state, ""];
+    host.hidden = false;
+    host.innerHTML = `<div class="panel-h">${ic("wallet")}<span>Pivot charges</span><span class="grow"></span>` +
+      (b.live_open ? `<span class="pill ${sw[1]}">${esc(sw[0])}</span>` : "") + `</div>` +
+      `<p class="muted" style="font-size:13px;line-height:1.5;margin:0 0 12px">Research and paper trading are free. A live play pays ₹10 a trade it places ` +
+      `(₹5 or 0.1% for delivery, whichever is less), and never more than ${esc(rs(m.cap_paise))} in a month. Exits always run.` +
+      (b.live_open ? "" : " Live plays are not open yet, so nothing here is charged.") + `</p>` +
+      `<div class="kpis">${(b.live_open ? [tile("Wallet", esc(rs(b.wallet_paise))), tile("This month", esc(rs(m.charged_paise)), `of ${esc(rs(m.cap_paise))} · ${m.trades} ${m.trades === 1 ? "trade" : "trades"}`)] : []).join("")}` +
+      (bl.enforced ? tile("Play builds left", String(left), bl.unlocked ? "this month" : "arm a play on paper for 10 a month") : "") + `</div>` +
+      (b.live_open ? `<div style="height:6px;border-radius:3px;background:var(--panel);margin:12px 0 4px;overflow:hidden"><div style="height:100%;width:${Math.min(100, m.charged_paise / m.cap_paise * 100).toFixed(1)}%;background:var(--ink)"></div></div>` : "") +
+      (b.live_open && b.topup_open ? `<div class="row" style="gap:8px;margin-top:12px;flex-wrap:wrap"><span class="muted" style="font-size:13px">Add to wallet</span>` +
+        b.topups_paise.map((p) => `<button type="button" class="btn sm" data-topup="${p}">${esc(rs(p))}</button>`).join("") + `</div>` : "") +
+      (st.trades.length ? `<table class="table" style="margin-top:12px"><thead><tr><th>When</th><th>Play</th><th class="wide">Kind</th><th class="r">Charge</th></tr></thead><tbody>` +
+        st.trades.slice(0, 20).map((t) => `<tr><td class="muted">${esc(new Date(t.at * 1000).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false }))}</td>` +
+          `<td>${esc(t.play || `Play ${t.play_id}`)}</td><td class="wide">${t.segment === "DELIVERY" ? "Delivery" : "Intraday, F&amp;O or crypto"}</td>` +
+          `<td class="r">${esc(rs(t.charge_paise))}${t.waived_paise ? ` <span class="muted pct">${esc(rs(t.waived_paise))} waived</span>` : ""}</td></tr>`).join("") +
+        `</tbody></table><div class="muted" style="font-size:12px;margin-top:8px">${esc(rs(st.total_paise))} this month: ${esc(rs(st.base_paise))} plus ${esc(rs(st.gst_paise))} GST` +
+        (st.waived_paise ? `. ${esc(rs(st.waived_paise))} waived by the monthly maximum.` : ".") + `</div>` : "");
+    host.querySelectorAll("[data-topup]").forEach((x) => x.addEventListener("click", () => topup(+x.dataset.topup, host, x)));
+  }
+
+  function razorpay() {
+    if (window.Razorpay) return Promise.resolve();
+    return new Promise((ok, no) => {
+      const s = Object.assign(document.createElement("script"), { src: "https://checkout.razorpay.com/v1/checkout.js", onload: ok, onerror: () => no(new Error("the payment window did not load")) });
+      document.head.appendChild(s);
+    });
+  }
+
+  async function topup(paise, host, btn) {
+    btn.disabled = true;
+    try {
+      const [o] = await Promise.all([call("/plays/billing/topup", { amount_paise: paise }), razorpay()]);
+      new window.Razorpay({
+        key: o.key_id, order_id: o.order_id, amount: o.amount_paise, currency: "INR", name: "Pivot", description: "Wallet top-up",
+        handler: async (r) => {
+          try { await call("/plays/billing/topup/verify", r); Kit.toast(`Added ${rs(paise)} to your wallet`); } catch (err) { Kit.toast(err.message); }
+          charges(host);
+        },
+        modal: { ondismiss: () => { btn.disabled = false; } },
+      }).open();
+    } catch (err) { btn.disabled = false; Kit.toast(err.message); }
+  }
+
+  /* a play's venue: paper is free; live shows its cost before it switches */
+  async function venueSwitch(c) {
+    let b;
+    try { b = await call("/plays/billing"); } catch { return; }
+    if (!b.live_open && c.venue !== "live") return;
+    const box = $("venue");
+    if (!box) return;
+    box.innerHTML = `<div class="seg" style="margin-right:8px">${[["paper", "Paper"], ["live", "Live"]].map(([k, l]) =>
+      `<button type="button" data-venue="${k}" class="${(c.venue || "paper") === k ? "on" : ""}">${l}</button>`).join("")}</div>`;
+    box.addEventListener("click", async (e) => {
+      const x = e.target.closest("[data-venue]");
+      if (!x || x.dataset.venue === (c.venue || "paper")) return;
+      if (x.dataset.venue === "paper") {
+        try { await call(`/plays/${c.id}`, { action: "paper" }); strategyPage(c.id); } catch (err) { Kit.toast(err.message); }
+        return;
+      }
+      let est;
+      try { est = await call(`/plays/billing/estimate/${c.id}`); } catch (err) { Kit.toast(err.message); return; }
+      const line = (k, v) => `<div class="row" style="justify-content:space-between;padding:3px 0"><span class="muted">${k}</span><span class="num">${v}</span></div>`;
+      $("golive").innerHTML = `<div style="background:var(--panel);border-radius:10px;padding:12px 14px;margin:0 0 12px;font-size:13px">` +
+        `<div style="font-weight:500;margin-bottom:6px">Estimated cost per trade</div>` +
+        line(`${esc(est.broker)} brokerage`, esc(rs(est.brokerage_paise))) + line("GST on brokerage", esc(rs(est.brokerage_gst_paise))) +
+        line("Taxes (STT and the rest)", "depends on the order size") +
+        line("Pivot", `${est.segment === "DELIVERY" ? "up to " : ""}${esc(rs(est.pivot_paise))} <span class="muted">(${esc(rs(est.cap_paise))} a month at most · ${esc(rs(est.used_paise))} used)</span>`) +
+        `<p class="muted" style="margin:8px 0 10px;line-height:1.5">Pivot charges only when this play trades. Exits always run, even with unpaid dues. ` +
+        `In this build a live play still fills in the paper book; no broker order is placed.</p>` +
+        `<div class="row" style="gap:8px"><button type="button" class="btn sm" id="goLive">Run live</button><button type="button" class="btn sm ghost" id="noLive">Cancel</button></div></div>`;
+      $("noLive").onclick = () => { $("golive").innerHTML = ""; };
+      $("goLive").onclick = async () => {
+        try { await call(`/plays/${c.id}`, { action: "live" }); strategyPage(c.id); } catch (err) { $("golive").innerHTML = ""; Kit.toast(err.message); }
+      };
+    });
   }
 
   function donut(host, holds, total, cash) {

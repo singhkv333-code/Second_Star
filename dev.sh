@@ -64,9 +64,12 @@ echo "Pivot — starting the platform"
 # CERTIFICATE_VERIFY_FAILED. certifi ships in the venv; point the runtime at it.
 CA="$("$PY" -c 'import certifi; print(certifi.where())' 2>/dev/null || true)"
 # CHARTO_PLAYS and NEXT_PUBLIC_PIVOT_PLAYS turn on the Execution tab (plays on
-# the paper books). Local only: production sets neither.
+# the paper books). PIVOT_REVENUE meters play builds; PIVOT_LIVE_PLAYS lets a
+# play switch to the live venue so per-trade billing can be tried (it still
+# fills on paper; see charto/data/revenue.py). Local only: production sets none.
 start 5174 "charto data"   /tmp/pivot_dev_dataserver.log \
-      env -C "$ROOT/charto/data" ${CA:+SSL_CERT_FILE="$CA"} CHARTO_PLAYS=1 CHARTO_CHAT_V2=1 "$PY" -u dataserver.py
+      env -C "$ROOT/charto/data" ${CA:+SSL_CERT_FILE="$CA"} CHARTO_PLAYS=1 CHARTO_CHAT_V2=1 \
+      PIVOT_REVENUE=1 PIVOT_LIVE_PLAYS=1 "$PY" -u dataserver.py
 start 8000 "pivot api"     /tmp/pivot_dev_api.log \
       env -C "$ROOT/pivot" "$PY" -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
 # Process env beats .env.local in Next, so these pin the one-origin bases even
