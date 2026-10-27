@@ -725,7 +725,9 @@ const Kit = (() => {
     const el = document.createElement("div");
     el.className = "strat review";
     if (!r || !r.trades) {
-      el.innerHTML = `<div class="strat-head"><div><h3>Your trading</h3><p>${esc((r || {}).note || "No closed trades yet.")}</p></div></div>`;
+      // the note is written for the model too, so it is made a sentence here
+      const note = String((r || {}).note || "No closed trades yet.").replace(/^\w/, (c) => c.toUpperCase()).replace(/([^.])$/, "$1.");
+      el.innerHTML = `<div class="strat-head"><div><h3>Your trading</h3><p>${esc(note)}</p></div></div>`;
       return el;
     }
     const a = r.after_a_loss || {}, o = a.others || {}, held = r.minutes_held || {};
@@ -878,6 +880,8 @@ const Kit = (() => {
   function alertCard(ev) {
     const a = ev.alert || { label: ev.title, line: [] };
     const open = ev.kind === "proposed" && ev.status === "open";
+    // a proposal keeps its card once answered; the head says what was decided
+    const decided = ev.kind === "proposed" && { confirmed: ["You confirmed", "checkc"], dismissed: ["You dismissed", "x"] }[ev.status];
     const t = (ev.body || {}).ticket || {};
     const line = (a.line || []).map((x) => x.b != null ? `<b>${esc(x.b)}</b>` : esc(x.t)).join("");
     const lead = a.symbol ? logo(a.symbol, "sm") : `<span class="dash"></span>`;
@@ -891,7 +895,7 @@ const Kit = (() => {
       `<div class="hl">${esc(a.source.title)}</div>` + (a.source.quote ? `<q>${esc(a.source.quote)}</q>` : "") +
       (a.source.url ? `<a class="rm" href="${esc(a.source.url)}" target="_blank" rel="noopener">Read more</a>` : "") + `</div>` : "";
     return `<article class="alert${open ? " wait" : ""}" data-ev="${esc(ev.id)}">` +
-      `<div class="ah">${ic(HEAD_IC[ev.kind] || "bell")}<h4>${esc(a.label)}</h4><span class="of">· ${esc(ev.play || ev.title)}</span>` +
+      `<div class="ah">${ic(decided ? decided[1] : HEAD_IC[ev.kind] || "bell")}<h4>${esc(decided ? decided[0] : a.label)}</h4><span class="of">${esc(ev.play || ev.title)}</span>` +
       `<span class="grow"></span>${a.late ? `<span class="pill wait">Missed while offline</span>` : ""}` +
       `<button type="button" class="x" data-x="${esc(ev.id)}" aria-label="${open ? "Dismiss" : "Hide"}">${ic("x")}</button></div>` +
       (src || (line ? `<div class="line">${lead}<span>${line}</span></div>` : "")) + (src && line ? `<div class="line">${lead}<span>${line}</span></div>` : "") +

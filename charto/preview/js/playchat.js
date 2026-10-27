@@ -91,7 +91,7 @@
     try { r = await call("/plays/review"); } catch (err) { main.innerHTML = `<div class="page"><div class="empty">${esc(err.message)}</div></div>`; return; }
     main.innerHTML = `<div class="page"><h1 class="h1">Review</h1><p class="sub">Your closed trades, cut the ways a coach would cut them. ` +
       `Ask what they mean, or turn what they show into a guard that stops the day for you.</p><div id="rv"></div>` +
-      `<div class="ideas" style="margin:18px 0 60px">${ASKS.map(([i, t]) => `<button type="button" class="idea" data-ask="${esc(t)}">${ic(i)}${esc(t)}</button>`).join("")}</div></div>`;
+      `<div class="ideas" style="margin-top:18px;margin-bottom:60px">${ASKS.map(([i, t]) => `<button type="button" class="idea" data-ask="${esc(t)}">${ic(i)}${esc(t)}</button>`).join("")}</div></div>`;
     $("rv").appendChild(Kit.review(r));
   }
 
@@ -631,19 +631,21 @@
         call("/paper/fills?limit=40").catch(() => [])]);
     } catch (err) { main.innerHTML = `<div class="page"><div class="empty">${esc(err.message)}</div></div>`; return; }
     const total = (holds || []).reduce((a, h) => a + (+h.market_value || 0), 0);
+    // a new account has no book until its first order: say so, not blank tiles
+    const none = sum.exists === false;
     main.innerHTML = `<div class="page"><h1 class="h1">Portfolio</h1><p class="sub">The paper book your plays trade in. Simulated, with estimated costs.</p><div class="pf">` +
       `<div class="panel"><div class="panel-h">${ic("wallet")}<span>Value</span></div><div class="pnl">` +
       `<div class="row" style="align-items:baseline;gap:10px"><span class="bignum">${Kit.bigMoney(sum.nav)}</span>` +
-      `<span class="pill ${sum.total_pnl >= 0 ? "up" : "down"}">${esc(Kit.signed(sum.total_pnl_pct))}</span></div>` +
+      (sum.total_pnl_pct != null ? `<span class="pill ${sum.total_pnl >= 0 ? "up" : "down"}">${esc(Kit.signed(sum.total_pnl_pct))}</span>` : "") + `</div>` +
       `<div id="navc" style="margin-top:8px"></div></div>` +
-      `<div class="kpis">${[["Cash", sum.cash_available], ["Invested", sum.invested], ["Today", sum.day_pnl], ["All time", sum.total_pnl]].map(([k, v]) =>
-        `<div style="background:var(--panel);border-radius:10px;padding:10px"><div class="muted" style="font-size:12px">${k}</div><div class="num ${k === "Today" || k === "All time" ? (v >= 0 ? "up" : "down") : ""}" style="font-size:16px;font-weight:500;margin-top:2px">${esc(Kit.inr(v))}</div></div>`).join("")}</div></div>` +
+      (none ? "" : `<div class="kpis">${[["Cash", sum.cash_available], ["Invested", sum.invested], ["Today", sum.day_pnl], ["All time", sum.total_pnl]].map(([k, v]) =>
+        `<div style="background:var(--panel);border-radius:10px;padding:10px"><div class="muted" style="font-size:12px">${k}</div><div class="num ${v != null && (k === "Today" || k === "All time") ? (v >= 0 ? "up" : "down") : ""}" style="font-size:16px;font-weight:500;margin-top:2px">${v == null ? "–" : esc(Kit.inr(v))}</div></div>`).join("")}</div>`) + `</div>` +
       `<div class="panel"><div class="panel-h">${ic("pie")}<span>Allocation</span></div><div class="donut-wrap" id="donut"></div></div></div>` +
       `<div class="panel" style="margin-top:16px"><div class="subtabs">${[["holdings", "Holdings", "pie"], ["day", "Day book", "bolt"], ["tx", "Transactions", "list"]].map(([k, l, i]) =>
         `<button type="button" data-pf="${k}" class="${pftab === k ? "on" : ""}">${ic(i)}${l}</button>`).join("")}</div><div id="pft"></div></div></div>`;
     const pts = (nav || []).map((n) => ({ t: Date.parse(n.as_of_date) / 1000, v: +n.nav }));
     if (pts.length >= 2) Kit.lineChart($("navc"), pts, { height: 150, width: 620, area: true, yfmt: (v) => Kit.inr(v) });
-    else $("navc").innerHTML = `<div class="muted" style="font-size:13px;padding:24px 0">The value line starts after the first day of trading.</div>`;
+    else $("navc").innerHTML = `<div class="muted" style="font-size:13px;padding:24px 0">${none ? "Your paper account opens with your first order." : "The value line starts after the first day of trading."}</div>`;
     donut($("donut"), holds, total, sum.cash_available);
     const paint = () => {
       main.querySelectorAll("[data-pf]").forEach((b) => b.classList.toggle("on", b.dataset.pf === pftab));

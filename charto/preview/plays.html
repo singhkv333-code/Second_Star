@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" />
+<script>if (window.parent !== window) document.documentElement.classList.add("framed");</script>
 <style>
 /* Plays, light. The shapes follow Catalyst's canvas (signal, trigger and
    action cards on a dotted grid, value chips, Met pills) and Instinct's
@@ -50,6 +51,7 @@ a { color: inherit; }
 .top-title { display: none; }
 .tab .count { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--orange);
   color: #fff; font-size: 11px; font-weight: 600; display: inline-grid; place-items: center; }
+.tab .count[hidden] { display: none; }
 .grow { flex: 1; }
 .search { display: flex; align-items: center; gap: 8px; height: 36px; width: 300px; padding: 0 8px 0 12px;
   border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink-3); cursor: text; }
@@ -367,6 +369,7 @@ h3 .edit svg { opacity: 0; } h3 .edit:hover svg { opacity: 1; }
 .alert .ah svg { width: 16px; height: 16px; color: var(--ink-2); flex: none; }
 .alert .ah h4 { margin: 0; font-size: 16px; font-weight: 500; letter-spacing: -.01em; }
 .alert .ah .of { color: var(--ink-3); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.alert .ah .of::before { content: "· "; }
 .alert .ah .grow { flex: 1; }
 .alert .x { width: 28px; height: 28px; border-radius: 7px; border: 0; background: none; cursor: pointer; display: grid; place-items: center; color: var(--ink-2); }
 .alert .x:hover { background: #e7e7e7; }
@@ -651,7 +654,12 @@ h3 .edit svg { opacity: 0; } h3 .edit:hover svg { opacity: 1; }
 @media (max-width: 760px) {
   :root { --tabbar: calc(58px + env(safe-area-inset-bottom)); }
   html, body { -webkit-tap-highlight-color: transparent; }
-  body { padding-bottom: var(--tabbar); }
+  /* the body grows with the page: held at the window's height, the page
+     overflowed it, so the room kept for the tab bar sat mid-page (the last
+     holding and the chat's last line went under the bars) and the sticky
+     header let go once the page passed one screen */
+  html, body { height: auto; }
+  body { min-height: 100dvh; padding-bottom: var(--tabbar); }
   /* a blurred header would become the tab bar's containing block, pinning it to the top */
   .top { height: 52px; gap: 10px; padding: 0 max(14px, env(safe-area-inset-left)); background: rgba(250,250,250,.97);
     backdrop-filter: none; -webkit-backdrop-filter: none; }
@@ -733,11 +741,21 @@ h3 .edit svg { opacity: 0; } h3 .edit:hover svg { opacity: 1; }
   .alert .ah { flex-wrap: wrap; row-gap: 0; }
   .alert .ah h4 { font-size: 15px; }
   .alert .ah .of { order: 5; flex: 1 1 100%; padding-left: 25px; margin-top: -2px; font-size: 12.5px; }
+  .alert .ah .of::before { content: none; }
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .bignum { font-size: 28px; }
   .crumbs { overflow: hidden; white-space: nowrap; }
   .crumbs > span:last-child { overflow: hidden; text-overflow: ellipsis; }
   .ask-bar { margin-top: 12px; }
+  /* one strategy: the play's own card is the outer card, not a card in a panel */
+  .detail .panel:has(.strat) { padding: 0; border: 0; background: none; box-shadow: none; }
+  .detail .panel:has(.strat) > .panel-h { margin: 0 2px 8px; }
+
+  /* inside the Pivot app, whose bar above already carries the brand and the
+     account: no second bar, only the tab bar at the bottom */
+  html.framed .top { position: static; height: 0; padding: 0; border: 0; }
+  html.framed .top > :not(.tabs) { display: none; }
+  html.framed main, html.framed .home { min-height: calc(100dvh - var(--tabbar)); }
 }
 </style>
 </head>
@@ -762,7 +780,7 @@ h3 .edit svg { opacity: 0; } h3 .edit:hover svg { opacity: 1; }
 <main id="main"></main>
 <div class="toast" id="toast"></div>
 <script src="./js/auth.js?v=11"></script>
-<script src="./js/playkit.js?v=26"></script>
-<script src="./js/playchat.js?v=15"></script>
+<script src="./js/playkit.js?v=27"></script>
+<script src="./js/playchat.js?v=16"></script>
 </body>
 </html>

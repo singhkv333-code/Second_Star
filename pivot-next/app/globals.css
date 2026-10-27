@@ -1544,11 +1544,15 @@ input[type="range"].payoff-slider::-moz-range-thumb {
        --safe-top keeps it clear of the camera cutout on notched devices. */
     padding-top: calc(var(--safe-top) + (var(--header-h, 56px) - 32px) / 2);
     transform: translateX(-100%);
-    transition: transform 260ms var(--ease-quartr, cubic-bezier(0.22, 1, 0.36, 1));
-    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+    transition: transform 260ms var(--ease-quartr, cubic-bezier(0.22, 1, 0.36, 1)),
+      box-shadow 260ms var(--ease-quartr, cubic-bezier(0.22, 1, 0.36, 1));
+    /* No shadow while closed: off-screen, its 28px blur still fell across
+       the page's left edge as a grey band. */
+    box-shadow: none;
   }
   .sidebar-shell[data-mobile-open="true"] {
     transform: translateX(0);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
   }
   .sidebar-close-mobile {
     display: inline-flex;
