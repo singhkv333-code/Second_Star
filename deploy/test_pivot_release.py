@@ -1,0 +1,204 @@
+"""pivot_release against a real git repository and a fake trimmed release.
+
+No systemd, no network: services are recorded instead of restarted, and
+health is whatever the test says it is.
+"""
+import importlib.util
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+spec = importlib.util.spec_from_file_location("pivot_release", Path(__file__).with_name("pivot_release.py"))
+pr = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(pr)
+
+
+def sh(cwd, *a):
+    return subprocess.run(a, cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
+
+
+def commit(repo: Path, files: dict, msg: str, delete=()) -> str:
+    for rel, body in files.items():
+        p = repo / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(body)
+    for rel in delete:
+        (repo / rel).unlink()
+    sh(repo, "git", "add", "-A")
+    sh(repo, "git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", msg)
+    return sh(repo, "git", "rev-parse", "HEAD")
+
+
+@pytest.fixture
+def env(tmp_path, monkeypatch):
+    origin = tmp_path / "origin"
+    origin.mkdir()
+    sh(origin, "git", "init", "-q", "-b", "production-live")
+    sh(origin, "git", "config", "uploadpack.allowFilter", "true")
+    sh(origin, "git", "config", "uploadpack.allowAnySHA1InWant", "true")
+    base = commit(origin, {
+        "dataserver/app.py": "VERSION = 1\n",
+        "dataserver/gone.py": "x = 1\n",
+        "chart/js/main.js": "var a = 1;\n",
+        "api/README.md": "docs\n",
+        "site/.env.local": "SECRET=1\n",
+        "api/backend/api.py": "A = 1\n",
+        "api/tests/test_api.py": "def test(): pass\n",
+    }, "base")
+    rel = tmp_path / "release"
+    for f in ("dataserver/app.py", "dataserver/gone.py", "chart/js/main.js", "api/backend/api.py"):
+        (rel / f).parent.mkdir(parents=True, exist_ok=True)
+        (rel / f).write_text(sh(origin, "git", "show", f"{base}:{f}") + "\n")
+    pointer = tmp_path / "stage-release"
+    pointer.write_text(str(rel) + "\n")
+    monkeypatch.setattr(pr, "REPO_URL", origin.as_uri())
+    monkeypatch.setattr(pr, "MIRROR", tmp_path / "repo.git")
+    monkeypatch.setattr(pr, "STATE", tmp_path / "state")
+    monkeypatch.setattr(pr, "POINTER", pointer)
+    monkeypatch.setattr(pr, "BUILD_ROOT", tmp_path / "builds")
+    monkeypatch.setattr(pr, "BUILD_USER", "")
+    monkeypatch.setattr(pr, "PYTHON", sys.executable)
+    calls, health = [], {"ok": True}
+    monkeypatch.setattr(pr, "systemctl", lambda *a: calls.append(a))
+    monkeypatch.setattr(pr, "healthy", lambda url, **k: health["ok"])
+    pr.STATE.mkdir()
+    pr.save_state({"deployed": base})
+    return dict(origin=origin, rel=rel, base=base, calls=calls, health=health)
+
+
+def test_plan_applies_only_what_the_trimmed_release_carries(env):
+    o = env["origin"]
+    new = commit(o, {
+        "dataserver/app.py": "VERSION = 2\n",          # modified, carried
+        "dataserver/new_mod.py": "N = 1\n",            # added, carried
+        "api/README.md": "more docs\n",                  # modified, release cut without it
+        "api/NOTES.md": "new top-level doc\n",           # added top-level doc
+        "site/.env.local": "SECRET=2\n",          # never shipped
+        "api/tests/test_new.py": "x = 1\n",           # trimmed tree
+        "docs/x.md": "outside\n",                       # outside the release
+    }, "change", delete=["dataserver/gone.py"])
+    pr.fetch()
+    actions, skipped = pr.plan(env["base"], new, env["rel"])
+    assert sorted((op, p) for op, p, _ in actions) == [
+        ("delete", "dataserver/gone.py"), ("install", "dataserver/app.py"), ("install", "dataserver/new_mod.py")]
+    reasons = dict(skipped)
+    assert reasons["api/README.md"] == "not in release"
+    assert reasons["api/NOTES.md"] == "top-level doc/config"
+    assert reasons["site/.env.local"] == "never shipped"
+    assert reasons["api/tests/test_new.py"] == "trimmed tree"
+    assert "docs/x.md" not in reasons            # not even diffed
+
+
+def test_a_move_deploys_restarts_what_moved_and_records_it(env):
+    new = commit(env["origin"], {"dataserver/app.py": "VERSION = 2\n"}, "v2", delete=["dataserver/gone.py"])
+    assert pr.main([]) == 0
+    rel = env["rel"]
+    assert (rel / "dataserver/app.py").read_text() == "VERSION = 2\n"
+    assert not (rel / "dataserver/gone.py").exists()
+    assert pr.load_state()["deployed"] == new
+    assert (pr.STATE / "backups" / new[:12] / "dataserver/app.py").read_text() == "VERSION = 1\n"
+    assert env["calls"] == [("restart", "pivot-dataserver")]                # not pivot-api: api/ did not move
+    assert pr.main([]) == 0 and env["calls"] == [("restart", "pivot-dataserver")]   # idle poll does nothing
+
+
+def test_chart_only_change_restarts_nothing(env):
+    commit(env["origin"], {"chart/js/main.js": "var a = 2;\n"}, "fe")
+    assert pr.main([]) == 0
+    assert env["calls"] == []
+    assert (env["rel"] / "chart/js/main.js").read_text() == "var a = 2;\n"
+
+
+def test_an_unhealthy_service_rolls_every_file_back_and_is_not_retried(env):
+    rel = env["rel"]
+    before = {f: (rel / f).read_text() for f in ("dataserver/app.py", "dataserver/gone.py", "api/backend/api.py")}
+    new = commit(env["origin"], {"dataserver/app.py": "VERSION = 2\n", "dataserver/added.py": "Z = 1\n",
+                                 "api/backend/api.py": "A = 2\n"}, "bad", delete=["dataserver/gone.py"])
+    env["health"]["ok"] = False
+    assert pr.main([]) == 1
+    assert {f: (rel / f).read_text() for f in before} == before
+    assert not (rel / "dataserver/added.py").exists()
+    st = pr.load_state()
+    assert st["deployed"] == env["base"] and st["failed"]["commit"] == new
+    # restarted (pivot-dataserver, failed health) and then restarted again on the restored files
+    assert env["calls"] == [("restart", "pivot-dataserver"), ("restart", "pivot-dataserver")]
+    env["calls"].clear()
+    assert pr.main([]) == 0 and env["calls"] == []              # same commit: left alone
+    env["health"]["ok"] = True
+    assert pr.main(["--retry"]) == 0                            # retry on request
+    assert pr.load_state()["deployed"] == new
+    assert (rel / "api/backend/api.py").read_text() == "A = 2\n"
+
+
+def test_a_syntax_error_never_reaches_a_restart(env):
+    commit(env["origin"], {"dataserver/app.py": "VERSION = (\n"}, "syntax")
+    assert pr.main([]) == 1
+    assert (env["rel"] / "dataserver/app.py").read_text() == "VERSION = 1\n"
+    assert env["calls"] == []
+
+
+def test_moving_the_branch_back_rolls_back(env):
+    o = env["origin"]
+    commit(o, {"dataserver/app.py": "VERSION = 2\n"}, "v2")
+    assert pr.main([]) == 0
+    sh(o, "git", "reset", "-q", "--hard", env["base"])
+    assert pr.main([]) == 0
+    assert (env["rel"] / "dataserver/app.py").read_text() == "VERSION = 1\n"
+    assert pr.load_state()["deployed"] == env["base"]
+
+
+def test_no_branch_on_the_remote_means_nothing_to_follow(env):
+    sh(env["origin"], "git", "branch", "-m", "production-live", "other")
+    assert pr.main([]) == 0
+    assert pr.load_state() == {"deployed": env["base"]}
+
+
+def test_dependencies_are_current_only_when_pnpm_installed_this_lockfile(tmp_path):
+    app = tmp_path / "app"
+    (app / "node_modules" / ".pnpm").mkdir(parents=True)
+    (app / "pnpm-lock.yaml").write_text("lockfileVersion: '9.0'\nrazorpay: 2.9.8\n")
+    assert not pr._deps_current(app)                      # never installed from it
+    (app / "node_modules" / ".pnpm" / "lock.yaml").write_text("lockfileVersion: '9.0'\n")
+    assert not pr._deps_current(app)                      # installed from an older lockfile
+    (app / "node_modules" / ".pnpm" / "lock.yaml").write_text("lockfileVersion: '9.0'\nrazorpay: 2.9.8\n")
+    assert pr._deps_current(app)
+    assert not pr._deps_current(tmp_path / "missing")
+
+
+def test_timer_does_not_roll_back_a_manual_release_ahead_of_branch(env):
+    new = commit(env['origin'], {'dataserver/app.py': 'VERSION = 2\n'}, 'manual')
+    pr.fetch()
+    sh(env['origin'], 'git', 'reset', '--hard', env['base'])
+    pr.save_state({'deployed': new, 'manual_deploy': True})
+    assert pr.main([]) == 0
+    assert pr.load_state()['deployed'] == new
+    assert env['calls'] == []
+
+
+def test_timer_does_not_replace_manual_release_with_divergent_history(env):
+    manual = commit(env['origin'], {'dataserver/app.py': 'VERSION = 2\n'}, 'manual')
+    pr.fetch()
+    sh(env['origin'], 'git', 'reset', '--hard', env['base'])
+    commit(env['origin'], {'dataserver/app.py': 'VERSION = 3\n'}, 'different')
+    pr.save_state({'deployed': manual, 'manual_deploy': True})
+    assert pr.main([]) == 0
+    assert pr.load_state()['deployed'] == manual
+    assert env['calls'] == []
+
+
+def test_a_symlink_is_installed_as_a_symlink(env):
+    """Production 2026-10-16: chart/workspace-theme.js is a git
+    symlink to js/workspace-theme.js and was written as a 21-byte text file
+    holding the target path, so the shell's colour picker never loaded."""
+    import os
+    o, rel = env["origin"], env["rel"]
+    (o / "chart/js/theme.js").write_text("var t = 1;\n")
+    os.symlink("js/theme.js", o / "chart/theme.js")
+    (rel / "chart/theme.js").write_text("js/theme.js")   # the broken copy on disk
+    sh(o, "git", "add", "-A")
+    sh(o, "git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "link")
+    assert pr.main([]) == 0
+    link = rel / "chart/theme.js"
+    assert link.is_symlink() and os.readlink(link) == "js/theme.js"
+    assert link.read_text() == "var t = 1;\n"

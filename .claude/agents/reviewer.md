@@ -55,7 +55,7 @@ You can `Edit` only:
 You can `Read` anything.
 You can `Bash` anything (running tests, lint, builds, scripts).
 
-You **cannot** Write or Edit code under `pivot/`, `pivot-next/`, `frontend/`. If you spot a code-level fix, file it as a task or `SendMessage` the relevant lead.
+You **cannot** Write or Edit code under `pivot/`, `app/`, `frontend/`. If you spot a code-level fix, file it as a task or `SendMessage` the relevant lead.
 
 ## Critical do-nots
 

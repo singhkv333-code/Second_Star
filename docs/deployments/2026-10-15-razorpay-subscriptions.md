@@ -32,7 +32,7 @@ in the existing whole user-state SQLite database.
 
 Only test keys were supplied. Configuration is in the existing protected
 `pivot-clean-kv-india` secret `razorpay-test-runtime`; no credential is committed,
-printed or passed through VM command arguments. `CHARTO_BILLING_TEST_EMAILS`
+printed or passed through VM command arguments. `PIVOT_BILLING_TEST_EMAILS`
 restricts new test checkout to `billing-e2e-20261015@pivotnow.in`. Ordinary
 customers cannot purchase paid access using simulated money. Live mode has
 not been configured or approved by this rollout.
@@ -84,7 +84,7 @@ on this account until merchant card eligibility has been resolved.
 
 Rollback source/builds using the release manager's retained backups. Disable
 test checkout by removing its service environment drop-in and restarting only
-Charto. Never restore an older whole user database over newer customer state;
+The dataserver. Never restore an older whole user database over newer customer state;
 retain additive billing tables and the payment audit trail.
 
 References: [Subscription testing](https://razorpay.com/docs/payments/subscriptions/test/),

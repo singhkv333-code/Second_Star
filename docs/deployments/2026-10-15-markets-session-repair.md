@@ -8,7 +8,7 @@ links with a transactional DELETE/INSERT. The serving role had SELECT and
 INSERT on `public.charto_account_links`, but no DELETE. PostgreSQL checks
 permission even when that DELETE matches zero rows.
 
-Applied `pivot/migrations/security/20261015_account_link_replacement_permission.sql`:
+Applied `api/migrations/security/20261015_account_link_replacement_permission.sql`:
 DELETE on that single mapping table for `pivotserve_20261008`. No account rows
 were manually edited; session credentials, authentication checks and other
 table privileges were unchanged.

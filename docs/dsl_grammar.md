@@ -2,7 +2,7 @@
 
 > **Status:** Phase-D foundation shipped. Backtest wiring + LLM
 > proposer extension + visual editor are follow-up phases.
-> **Code location:** `pivot/backend/workflows/dsl/`.
+> **Code location:** `api/backend/workflows/dsl/`.
 > **Step type:** `trigger.compound`.
 
 ## Why this exists

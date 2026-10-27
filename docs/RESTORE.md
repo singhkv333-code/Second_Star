@@ -1,6 +1,6 @@
 # Restore points — the platform-merge work, 2026-09-05
 
-Every phase of the Pivot/Charto merge is a separate commit with a named tag, so
+Every phase of the Pivot/the dataserver merge is a separate commit with a named tag, so
 any one of them can be undone without unwinding the rest. **Nothing has been
 pushed to any remote, and nothing has been applied to the VM.**
 
@@ -11,7 +11,7 @@ pushed to any remote, and nothing has been applied to the VM.**
 | `restore/before-merge` | `ff06fdfb` | Untouched. The last commit before any of this work. |
 | `restore/phase0-truth` | `40c8eeba` | CLAUDE.md/AGENTS.md rewritten, `docs/DATA_MAP.md` added, four false statements corrected, two dead files removed. |
 | `restore/phase1-excision` | `35db45ec` | Opinion markets gone from code, schema models, UI and prose. |
-| `restore/phase2-api` | `02fc6de0` | `pivot-api.service`, the `/api/pivot/` nginx block, and the Charto-session seam. Built, **not installed**. |
+| `restore/phase2-api` | `02fc6de0` | `pivot-api.service`, the `/api/pivot/` nginx block, and the dataserver-session seam. Built, **not installed**. |
 | `restore/phase3-shell` | `12a4132a` | The Chart tab in the shell + `js/embed.js`. Production untouched. |
 | `restore/phase4-tools` | `4286f6cb` | The tool-name collision guard + `docs/TOOL_SURFACE.md`. |
 | `restore/wip-landed` | `57c896a8` | The 52 pre-existing uncommitted files, landed as seven commits (see below). The working tree is clean for the first time in this work. |
@@ -60,13 +60,13 @@ validates. Revert them in that order or the app will not boot.
 
 **Recover one file from the WIP snapshot:**
 
-    git checkout wip/pre-phase2-2026-09-05 -- pivot/backend/execution/
-    git checkout wip/pre-phase2-2026-09-05 -- pivot-next/components/stock/ResearchPanel.tsx
+    git checkout wip/pre-phase2-2026-09-05 -- api/backend/execution/
+    git checkout wip/pre-phase2-2026-09-05 -- app/components/stock/ResearchPanel.tsx
 
 **Recover the opinion-markets data** (107 rows, exported before anything was
 dropped, including two `view_positions` rows owned by a real user):
 
-    pivot/archive/view_markets_2026_09_05/*.json
+    api/archive/view_markets_2026_09_05/*.json
 
 ## What is NOT yet reversible-by-git, because it has not happened
 
@@ -81,7 +81,7 @@ These are the deliberate, separate acts still outstanding. None has run:
 3. **The nginx `/api/pivot/` block** — in the repo, not on the box.
    `apply_nginx.sh` installs it with a syntax check, a backup and a rollback.
 4. **The Chart tab** — `pivot-next` is not deployed, so nothing serves it.
-   `charto/preview/js/embed.js` IS live-on-disk once deployed, but it returns
+   `chart/js/embed.js` IS live-on-disk once deployed, but it returns
    immediately when the page is not in a frame, so the standalone chart at `/`
    is unaffected either way.
 5. **Phase 5 (the verification loop)** — not built. It needs a migration and
@@ -91,7 +91,7 @@ These are the deliberate, separate acts still outstanding. None has run:
 
     # nginx — apply_nginx.sh keeps a timestamped backup and self-rolls-back on
     # a failed probe, but by hand:
-    sudo cp /etc/nginx/sites-available/charto.conf.bak.<ts> /etc/nginx/sites-available/charto.conf
+    sudo cp /etc/nginx/sites-available/the dataserver.conf.bak.<ts> /etc/nginx/sites-available/the dataserver.conf
     sudo nginx -t && sudo systemctl reload nginx
 
     # the API unit
@@ -99,6 +99,6 @@ These are the deliberate, separate acts still outstanding. None has run:
     sudo rm -f /etc/systemd/system/pivot-api.service /etc/sudoers.d/pivot-api
     sudo systemctl daemon-reload
 
-Neither touches Charto: `charto.service`, `charto-web.service` and
-`charto-research.service` are independent units and the `/api/pivot/` route is
+Neither touches the dataserver: `the dataserver.service`, `pivot-web.service` and
+`the dataserver-research.service` are independent units and the `/api/pivot/` route is
 additive.

@@ -18,9 +18,9 @@ when the workspace palette changes. Text contrast is computed for each surface.
 
 ## Files and bridge
 
-- Canonical runtime: `charto/preview/js/workspace-theme.js`.
-- Canonical chooser CSS: `charto/preview/css/workspace-theme.css`.
-- Mirror both into `pivot-next/public` and `charto/web/public` after editing.
+- Canonical runtime: `chart/js/workspace-theme.js`.
+- Canonical chooser CSS: `chart/css/workspace-theme.css`.
+- Mirror both into `app/public` and `site/public` after editing.
   Root preview symlinks expose the same filenames through nginx's static root.
 - Layouts load the runtime before paint. Increment all corresponding asset query
   versions when editing the runtime/CSS; keep preview script versions current.
@@ -34,9 +34,9 @@ when the workspace palette changes. Text contrast is computed for each surface.
 
 ## Verification
 
-`node --test charto/preview/tests/workspace-theme.test.cjs`
+`node --test chart/tests/workspace-theme.test.cjs`
 
-`cd pivot-next && pnpm exec vitest run tests/workspace-theme-bridge.test.tsx`
+`cd app && pnpm exec vitest run tests/workspace-theme-bridge.test.tsx`
 
 The tests cover preset contrast, old preference migration, persistence, unsafe
 color rejection, saved palette names, edits/reset/delete, keyboard dismissal,

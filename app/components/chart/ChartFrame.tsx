@@ -1,0 +1,283 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+
+/**
+ * The charting engine, mounted inside the Pivot shell.
+ *
+ * WHY AN IFRAME AND NOT A PORT
+ *
+ * `chart` is ~26k lines of vanilla JS over a vendored Lightweight
+ * Charts build carrying six hand-applied patches (see
+ * `chart/VENDOR_PATCHES.md` — the bundle is a different minification
+ * from upstream, so a patch written against upstream source silently does not
+ * apply). Re-expressing that as React would put every one of those at risk and
+ * buy nothing a user can see. The chart is the differentiator; the shell is
+ * chrome around it.
+ *
+ * WHAT CROSSES THE BOUNDARY, AND WHAT DOES NOT
+ *
+ *   Auth   — nothing crosses, and today nothing is shared either. The frame
+ *            is same-origin so the two CAN see one localStorage, but they
+ *            keep different keys issued by different servers: the shell holds
+ *            `pivot_jwt` from Pivot's API, the chart holds
+ *            `charto:auth:token` from the dataserver. So the chart asks
+ *            for its own sign-in the first time and remembers it after that.
+ *            Same origin is the precondition for ever fixing that — a chart
+ *            on a second port could not share a token even in principle — but
+ *            it is not the fix. That is a login that mints both.
+ *   Symbol — the `src`. The chart already switches symbol by assigning
+ *            `location.search` and reloading; setting `src` is that same door.
+ *            A postMessage that swapped it in place would be a second, weaker
+ *            mechanism for something that already works.
+ *   Theme  — postMessage, because the shell owns the toggle and a light shell
+ *            around a dark chart is the one thing the frame can get visibly
+ *            wrong.
+ */
+
+/** Where the chart app is served from — a PATH on this origin, not a host.
+ *
+ *  next.config.ts proxies /chart-app to the chart's own server (:5173 in
+ *  development, nginx in production), so the browser only ever sees one
+ *  origin. Pointing the frame at a second port instead would work for exactly
+ *  one thing — showing candles — and break the rest: the chart keeps its auth
+ *  token, workspace and saved layouts in localStorage, which is per-origin, so
+ *  a chart on :5173 is a chart the user signed into the shell is signed out
+ *  of. Same origin is the whole design, not a deployment detail.
+ */
+import type { PendingScreen } from "@/lib/screensApi";
+
+const CHART_BASE = "/chart-app";
+
+type Props = {
+  /** Symbol to open. Changing it reloads the frame, by design. */
+  symbol?: string;
+  /** Extra parameters for the chart's URL — a shared setup's `view` token,
+   *  and `mine` when the reader chose "Make it mine" on its bare link. */
+  query?: Record<string, string>;
+  /** "dark" | "light", pushed to the chart whenever the shell's theme changes. */
+  theme?: "dark" | "light";
+  /** The chart handing a universe screen to the Screener tab. The frame only
+   *  RELAYS it — it is the shell that owns the tab and the Pivot session that
+   *  can save a screen. */
+  onOpenScreen?: (screen: PendingScreen) => void;
+  /** A company-page affordance inside Pivot must navigate the parent shell,
+   *  not load the X-Frame-Options-protected stock route inside the iframe. */
+  onOpenCompany?: (symbol: string) => void;
+  /** The frame reports its own conversation opening and closing, so the
+   *  shell can avoid showing its Quick Ask and the chart's chat at once. */
+  onChatVisibilityChange?: (open: boolean) => void;
+};
+
+export function ChartFrame({
+  symbol, query, theme, onOpenScreen, onOpenCompany, onChatVisibilityChange,
+}: Props): React.ReactElement {
+  const ref = useRef<HTMLIFrameElement>(null);
+  // The message listener is deliberately mounted ONCE (empty deps, so the
+  // chart is never re-subscribed mid-session); a callback read straight from
+  // props would be captured stale on that first render. The ref keeps the
+  // listener stable and the callback current.
+  const onScreenRef = useRef(onOpenScreen);
+  useEffect(() => { onScreenRef.current = onOpenScreen; }, [onOpenScreen]);
+  const onCompanyRef = useRef(onOpenCompany);
+  useEffect(() => { onCompanyRef.current = onOpenCompany; }, [onOpenCompany]);
+  const [ready, setReady] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  // True while a dialog is open INSIDE the frame. See the "chart:overlay"
+  // handler below for why the shell has to care about the frame's modals.
+  const [overlay, setOverlay] = useState(false);
+  // That dialog's own veil, so the strip the shell veils matches it exactly.
+  const [veil, setVeil] = useState<string | null>(null);
+
+  // Built once per symbol. Deliberately NOT dependent on `theme`: rebuilding
+  // the URL on a theme flip would reload the chart and throw away the user's
+  // drawings, indicators and scroll position to change a colour.
+  // `/chart-app/index.html`, and both halves of that are deliberate.
+  //
+  // The chart's HTML loads its 30-odd scripts by RELATIVE path, so what they
+  // resolve against is decided by the frame's URL. At `/chart-app` the base is
+  // `/`, every `js/*.js` became `/js/*.js`, and the shell answered its own 404
+  // page — which the browser then refused to execute as script, so the frame
+  // rendered chrome with no chart in it.
+  //
+  // `/chart-app/` would fix the base, but Next 308-redirects a trailing slash
+  // away before the rewrite runs and we are back at the first case. Naming the
+  // file gives the same base with no redirect and no global config change.
+  const qs = new URLSearchParams({ ...(symbol ? { symbol } : {}), ...(query ?? {}) }).toString();
+  const src = `${CHART_BASE}/index.html${qs ? `?${qs}` : ""}`;
+
+  const post = useCallback((msg: Record<string, unknown>) => {
+    const win = ref.current?.contentWindow;
+    if (!win) return;
+    // Target a concrete origin, never "*": a wildcard would deliver the
+    // message to whatever happens to be loaded there if the src ever changes
+    // under us. The frame is same-origin by construction, so this is ours.
+    win.postMessage(msg, window.location.origin);
+  }, []);
+
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin || e.source !== ref.current?.contentWindow) return;
+      const d = e.data as { type?: string; open?: boolean; symbol?: unknown; veil?: unknown } | null;
+      if (d?.type === "chart:ready") { setReady(true); setFailed(false); }
+      if (d?.type === "chart:error") { setReady(false); setFailed(true); }
+      if (d?.type === "pivot:open-screen") {
+        // Validated like everything else off this channel: origin and source
+        // are checked above, and the payload is still treated as untrusted —
+        // a screen with no symbols is dropped rather than switching the user
+        // to an empty tab.
+        const raw = (e.data as { screen?: Partial<PendingScreen> }).screen;
+        const symbols = Array.isArray(raw?.symbols)
+          ? raw!.symbols.filter((x): x is string => typeof x === "string" && !!x)
+          : [];
+        if (!symbols.length) return;
+        onScreenRef.current?.({
+          symbols,
+          criteria: typeof raw?.criteria === "string" ? raw.criteria : "",
+          ranking: typeof raw?.ranking === "string" ? raw.ranking : undefined,
+          as_of: typeof raw?.as_of === "string" ? raw.as_of : "",
+          matched: typeof raw?.matched === "number" ? raw.matched : symbols.length,
+          universe: typeof raw?.universe === "number" ? raw.universe : 0,
+        });
+      }
+      if (d?.type === "pivot:open-company" && typeof d.symbol === "string") {
+        const companySymbol = d.symbol.trim().toUpperCase();
+        if (companySymbol && companySymbol.length <= 64) onCompanyRef.current?.(companySymbol);
+      }
+      if (d?.type === "chart:chat-visibility") onChatVisibilityChange?.(d.open === true);
+      // A modal opened (or closed) inside the frame. `position: fixed` in the
+      // frame resolves against the FRAME's viewport, so a dialog could only
+      // centre within the chart pane and dim the chart alone — the shell's
+      // sidebar, header and right rail stayed lit and clickable behind it.
+      // Promoting each dialog into React would mean a second copy of ~15
+      // surfaces; instead the frame tells us, and we float it over the whole
+      // window for as long as the dialog is up. Fixed positioning inside then
+      // resolves against the real viewport, and every overlay is correct at
+      // once. The chart does not reflow: the frame keeps its own box and only
+      // the wrapper that positions it changes.
+      if (d?.type === "chart:overlay") {
+        setOverlay(d.open === true);
+        setVeil(typeof d.veil === "string" ? d.veil : null);
+      }
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [onChatVisibilityChange]);
+
+  useEffect(() => {
+    setReady(false);
+    setFailed(false);
+    setOverlay(false);
+    onChatVisibilityChange?.(false);
+  }, [src, attempt, onChatVisibilityChange]);
+
+  useEffect(() => {
+    if (ready) return;
+    const timer = window.setTimeout(() => setFailed(true), 20000);
+    return () => window.clearTimeout(timer);
+  }, [ready, src, attempt]);
+
+  // Push the theme once the frame has announced itself, and on every later
+  // change. Before "chart:ready" the listener inside the frame does not exist
+  // yet and the message would land on nothing.
+  useEffect(() => {
+    if (!ready) return;
+    const sync = (): void => {
+      const palette = window.PivotWorkspaceTheme?.getTheme();
+      if (palette) post({ type: "pivot:workspace-theme", theme: palette });
+      else if (theme) post({ type: "pivot:theme", mode: theme });
+    };
+    sync();
+    window.addEventListener("pivot:workspace-colors", sync);
+    return () => window.removeEventListener("pivot:workspace-colors", sync);
+  }, [ready, theme, post]);
+
+  // Hidden shell tabs do not reliably trigger the chart's own resize observer.
+  useEffect(() => {
+    const frame = ref.current;
+    if (!ready || !frame) return;
+    let pending = 0;
+    const notify = (): void => {
+      cancelAnimationFrame(pending);
+      pending = requestAnimationFrame(() => {
+        if (frame.clientWidth > 0 && frame.clientHeight > 0 && !document.hidden)
+          post({ type: "pivot:chart-resize" });
+      });
+    };
+    const observer = new ResizeObserver(notify); observer.observe(frame);
+    const intersection = typeof IntersectionObserver !== "undefined" ? new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) notify();
+    }) : null;
+    intersection?.observe(frame);
+    window.addEventListener("resize", notify); document.addEventListener("visibilitychange", notify);
+    notify();
+    return () => {
+      observer.disconnect(); intersection?.disconnect(); cancelAnimationFrame(pending);
+      window.removeEventListener("resize", notify); document.removeEventListener("visibilitychange", notify);
+    };
+  }, [ready, post]);
+
+  // The shell's global Quick Ask is only a presentation bridge on Chart. The
+  // message is handed to Pivot's own chat model and thread; Pivot Copilot is
+  // deliberately not involved on this route.
+  useEffect(() => {
+    const onChartAsk = (event: Event): void => {
+      const text = (event as CustomEvent<{ text?: string }>).detail?.text?.trim();
+      if (text) post({ type: "pivot:chart-ask", text });
+    };
+    window.addEventListener("pivot:chart-ask", onChartAsk);
+    return () => window.removeEventListener("pivot:chart-ask", onChartAsk);
+  }, [post]);
+
+  return (
+    <div
+      className={`chart-frame-wrap relative flex flex-1 min-h-0 flex-col${overlay ? " chart-frame-wrap--overlay" : ""}`}
+      style={{ background: "var(--bg-base)", ...(veil ? { "--chart-veil": veil } : {}) } as React.CSSProperties}
+    >
+    {(!ready || failed) && (
+      // Drawn as the same framed window the chart paints once it is up
+      // (`.chart-frame-loading` in globals.css), so a reload does not flash
+      // a full-bleed page and then snap into the frame.
+      <div className="chart-frame-loading" role="status">
+        <div className="chart-frame-loading-window">
+          {failed ? "The chart could not finish loading." : "Loading chart…"}
+          {failed && <button type="button" onClick={() => setAttempt((value) => value + 1)}>Reload chart</button>}
+        </div>
+      </div>
+    )}
+    <iframe
+      key={attempt}
+      ref={ref}
+      src={src}
+      onLoad={() => {
+        setReady(false);
+        post({ type: "pivot:hello" });
+        const palette = window.PivotWorkspaceTheme?.getTheme();
+        if (palette) post({ type: "pivot:workspace-theme", theme: palette });
+        else if (theme) post({ type: "pivot:theme", mode: theme });
+      }}
+      onError={() => setFailed(true)}
+      style={{ visibility: ready && !failed ? "visible" : "hidden" }}
+      title="Chart"
+      // `flex-1 min-h-0`, not `h-full`. The parent (AppShell's chart pane) is
+      // `flex flex-col`, and on a flex CHILD `height:100%` resolves against a
+      // container whose height flexbox has not finished computing — Chrome
+      // falls back to the frame's intrinsic 150px. The chart app inside is
+      // `height:100dvh` against THAT box, so its header, left tool rail and
+      // right panel all laid out inside a sliver: the distorted, half-drawn
+      // chrome with no candles. Flexing the frame instead makes it consume the
+      // pane's real height, which is the height the chart then measures.
+      // `min-h-0` because a flex item's default `min-height:auto` would let the
+      // frame's own content push it past the pane and re-introduce clipping.
+      className="flex-1 min-h-0 w-full border-0"
+      // The chart needs its own storage (the auth token, the workspace, saved
+      // layouts) and same-origin is what grants it. `allow-scripts` plus
+      // `allow-same-origin` on a frame we serve ourselves is not a sandbox
+      // escape — it is the same trust the page already has.
+      sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads"
+      allow="clipboard-write; microphone"
+    />
+    </div>
+  );
+}

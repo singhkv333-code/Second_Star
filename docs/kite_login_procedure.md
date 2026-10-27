@@ -1,7 +1,7 @@
 # Kite login procedure (market-data feed)
 
 Pivot's live NSE/BSE data comes from one Zerodha account, **NHB457** — the
-pinned `kite_data_account` (default in `pivot/backend/config.py`, overridable
+pinned `kite_data_account` (default in `api/backend/config.py`, overridable
 with a `KITE_DATA_ACCOUNT` env var). Kite access tokens expire around **6 AM IST
 every day**, so this account is logged in once each morning before 09:15.
 Zerodha requires that login to be done by the account holder; it is not
@@ -29,14 +29,14 @@ signed `state`) and the morning data-feed login below (no `state`).
    ```
 
 2. Log in as **NHB457** and enter the TOTP from the authenticator app, or
-   generate one locally from the seed in `pivot/.env` (prints only the code):
+   generate one locally from the seed in `api/.env` (prints only the code):
 
    ```
-   cd pivot && python3 -c "import re,time,hmac,hashlib,base64,struct;s=re.search(r'^KITE_PERMANENT_TOKEN=[\"\']?([^\"\'\s#]+)',open('.env').read(),re.M).group(1).upper();k=base64.b32decode(s+'='*(-len(s)%8));t=int(time.time());h=hmac.new(k,struct.pack('>Q',t//30),hashlib.sha1).digest();o=h[-1]&15;print('%06d'%((struct.unpack('>I',h[o:o+4])[0]&0x7FFFFFFF)%10**6),'| valid',30-t%30,'s')"
+   cd api && python3 -c "import re,time,hmac,hashlib,base64,struct;s=re.search(r'^KITE_PERMANENT_TOKEN=[\"\']?([^\"\'\s#]+)',open('.env').read(),re.M).group(1).upper();k=base64.b32decode(s+'='*(-len(s)%8));t=int(time.time());h=hmac.new(k,struct.pack('>Q',t//30),hashlib.sha1).digest();o=h[-1]&15;print('%06d'%((struct.unpack('>I',h[o:o+4])[0]&0x7FFFFFFF)%10**6),'| valid',30-t%30,'s')"
    ```
 
 3. Kite redirects to `/pv/callback`, and the server does the rest: it
-   exchanges the token, stores the session for NHB457 and re-arms charto's Kite
+   exchanges the token, stores the session for NHB457 and re-arms the dataserver's Kite
    stream. The page reads **"Market data connected — Kite account NHB457 is
    connected for today. Live feed: re-armed."**
 
@@ -48,7 +48,7 @@ That page is the confirmation. Nothing else is needed.
 |---|---|---|
 | Kite rejected the login token | The `request_token` expired (they last minutes) or was already used | Open the login link again |
 | Not the platform's market-data account | Logged in with a Zerodha id other than NHB457 | Log out of Kite, log in as NHB457 |
-| Live feed: not re-armed … | The session is stored but charto's stream did not restart | Re-arm by hand (below) |
+| Live feed: not re-armed … | The session is stored but the dataserver's stream did not restart | Re-arm by hand (below) |
 
 ## Checking the feed
 
@@ -71,7 +71,7 @@ The VM's ssh is closed; commands run as root through
 Re-arm the Kite stream (reads the session already stored):
 
 ```
-K=$(sed -n 's/^CHARTO_FEED_CONTROL_KEY=//p' /etc/pivot/runtime.env | tr -d "\"'")
+K=$(sed -n 's/^PIVOT_FEED_CONTROL_KEY=//p' /etc/pivot/runtime.env | tr -d "\"'")
 curl -s -X POST http://127.0.0.1:5174/live -H "Content-Type: application/json" -H "X-Pivot-Feed-Key: $K" -d '{"venue":"kite","stop":true}'
 curl -s -X POST http://127.0.0.1:5174/live -H "Content-Type: application/json" -H "X-Pivot-Feed-Key: $K" -d '{"venue":"kite","symbols":[]}'
 ```
@@ -94,7 +94,7 @@ systemd-run --unit=pivot-kite-catchup --uid=pivot-data --gid=pivot-runtime \
   /opt/pivot/venv/bin/python -u /var/lib/pivot-catchup/catch_up.py
 ```
 
-(`/var/lib/pivot-catchup/catch_up.py` is `charto/deploy/catch_up_clean_universe.py`
+(`/var/lib/pivot-catchup/catch_up.py` is `deploy/catch_up_clean_universe.py`
 with the release path baked in, because `pivot-data` cannot read
 `/etc/pivot/stage-release`.) Progress: `journalctl -u pivot-kite-catchup`.
 Crypto has the same gate: if its daily series falls behind, refold `bars_1d`
@@ -102,11 +102,11 @@ from the minutes before re-arming bybit/coinbase.
 
 ## Where things live
 
-- Callback and data-feed login: `pivot/backend/routers/brokers.py`
-  (`_complete_data_feed_login`, `_rearm_charto_kite_feed`).
+- Callback and data-feed login: `api/backend/routers/brokers.py`
+  (`_complete_data_feed_login`, `_rearm_dataserver_kite_feed`).
 - The pinned account: `settings.kite_data_account`, default `NHB457` in
-  `pivot/backend/config.py` (env `KITE_DATA_ACCOUNT` overrides).
-- Venues armed at charto boot: `CHARTO_LIVE_VENUES=bybit,coinbase,kite` in
+  `api/backend/config.py` (env `KITE_DATA_ACCOUNT` overrides).
+- Venues armed at the dataserver boot: `PIVOT_LIVE_VENUES=bybit,coinbase,kite` in
   `/etc/pivot/runtime.env`.
-- Charto reads the token from the stored session
-  (`charto/data/kite_stream.py::_kite_access_token`).
+- The dataserver reads the token from the stored session
+  (`dataserver/kite_stream.py::_kite_access_token`).

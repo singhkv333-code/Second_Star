@@ -3,7 +3,7 @@
 Branch `claude-cloud-29sep`. The prompt bar on Home, Portfolio, Strategy,
 Screener, Brokers and the company page now opens a **Pivot Assistant** side
 panel, served by a separate lightweight engine. The Chat tab (full chat) and
-the Chart tab (Charto's chat) are unchanged.
+the Chart tab (the dataserver's chat) are unchanged.
 
 ## Why a second engine
 
@@ -14,7 +14,7 @@ page was already showing.
 
 ## How it works
 
-`pivot/backend/services/assist_chat.py`, served at `POST /chat/assist` (SSE)
+`api/backend/services/assist_chat.py`, served at `POST /chat/assist` (SSE)
 and `POST /chat/assist/warm`:
 
 1. **Page data first.** `page_snapshot(page, symbol)` runs each page's sources
@@ -31,7 +31,7 @@ and `POST /chat/assist/warm`:
      P/E band, news.
    - Screener and Home also send what only the browser holds: the screen and
      its first 25 rows, and the watchlist. Pages publish these through
-     `publishVisible()` in `pivot-next/lib/assist.ts`; the server labels them
+     `publishVisible()` in `app/lib/assist.ts`; the server labels them
      as data, not instructions.
 2. **Warm-up.** The shell calls `/chat/assist/warm` 0.8s after the user lands
    on a page, and again when the bar is focused, so the snapshot is ready
@@ -100,7 +100,7 @@ Old path for comparison: the same bar went through the full chat at
 
 ## Reproduce
 
-- Probe: `pivot/scripts/assist_probe.py home "how are markets today" --warm`.
+- Probe: `api/scripts/assist_probe.py home "how are markets today" --warm`.
   Point `DATABASE_URL`, `FINANCIALS_DSN` and `ENRICH_DSN` at
   `postgresql://x:x@127.0.0.1:1/x` where Postgres is unreachable.
 - End to end without Postgres:
@@ -111,8 +111,8 @@ Old path for comparison: the same bar went through the full chat at
   3. `POST /auth/register`, then run
      `PIVOT_BACKEND_ORIGIN=http://localhost:8000 pnpm next dev`.
   4. Put the token in `localStorage.pivot_jwt`.
-- Tests: `pivot/tests/test_assist_chat.py` (6),
-  `pivot-next/tests/chat/assistant-panel.test.tsx` (4). The full `pivot-next`
+- Tests: `api/tests/test_assist_chat.py` (6),
+  `app/tests/chat/assistant-panel.test.tsx` (4). The full `pivot-next`
   suite has 36 failures in 11 files, identical by name on the untouched base.
 
 ## Open items

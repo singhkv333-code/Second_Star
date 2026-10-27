@@ -67,15 +67,18 @@ Thumbs.db
 *.bak
 
 # ── Research price caches (regenerable; large parquet/pickle, not source) ────
-pivot/scripts/strategy_research/**/_cache/
-pivot/scripts/strategy_research/**/*.parquet
-pivot/scripts/strategy_research/**/*.pkl
+api/scripts/strategy_research/**/_cache/
+api/scripts/strategy_research/**/*.parquet
+api/scripts/strategy_research/**/*.pkl
 
 # Operational DB-backfill artifacts (not source)
-pivot/backups/
+api/backups/
 
 # pnpm content-addressable store — a local cache, never source.
 .pnpm-store/
 
 # a 578MB corrupt Next build kept for forensics, never a commit
 .next-corrupt-*/
+
+# Browser-automation screenshots and page dumps — scratch, never source.
+.playwright-mcp/

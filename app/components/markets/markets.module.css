@@ -1,0 +1,450 @@
+/*
+ * Markets tab. Ink on paper: text is black at every size, the only hue is the
+ * gain/loss pair (figures, the heatmap's wash, the calendar's kinds). Surfaces
+ * are the shell frame's shade with no borders. Selected controls are ink
+ * filled. One type family (Inter, tabular figures), Newsreader for the brief.
+ */
+
+.root {
+  --mk-border: var(--glass-border);
+  --mk-border-strong: var(--glass-border-hover);
+  --mk-card: var(--shell-chrome);
+  --mk-hover: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  --mk-active: color-mix(in srgb, var(--text-primary) 9%, transparent);
+  --mk-ink: var(--text-primary);
+  --mk-radius: 14px;
+  --mk-up: var(--color-profit);
+  --mk-down: var(--color-loss);
+  font-family: var(--font-ui);
+  color: var(--text-primary);
+  font-feature-settings: "tnum" 1, "cv11" 1;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.up { color: var(--mk-up); }
+.down { color: var(--mk-down); }
+.muted { color: var(--mk-ink); }
+.soft { color: var(--mk-ink); }
+
+/* ── layout ─────────────────────────────────────────────────────────── */
+
+.pageTitle {
+  margin: 0;
+  font-size: clamp(24px, 2.4vw, 30px);
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 1.1;
+}
+
+.stamp {
+  font-size: 12px;
+  color: var(--mk-ink);
+  white-space: nowrap;
+}
+
+.card {
+  background: var(--mk-card);
+  border-radius: var(--mk-radius);
+  min-width: 0;
+}
+
+.cardPad { padding: 18px 20px; }
+
+.sectionHead {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.sectionTitle {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+.sectionCaption {
+  margin: 3px 0 0;
+  font-size: 12.5px;
+  color: var(--mk-ink);
+}
+.cardTitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+.label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--mk-ink);
+}
+
+/* ── in-page navigation ─────────────────────────────────────────────── */
+
+.navBar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: color-mix(in srgb, var(--bg-inset, var(--bg-base)) 90%, transparent);
+  backdrop-filter: saturate(140%) blur(10px);
+  -webkit-backdrop-filter: saturate(140%) blur(10px);
+}
+.navLink {
+  padding: 8px 0;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.2s var(--ease-quartr), background-color 0.2s var(--ease-quartr);
+}
+.navLink:hover { color: var(--mk-ink); }
+.navLink[data-active="true"] { color: var(--mk-ink); font-weight: 700; }
+.navLink:focus-visible { outline: 2px solid var(--mk-ink); outline-offset: 4px; }
+
+/* ── controls ───────────────────────────────────────────────────────── */
+
+/* The app's toggle (Portfolio's Overview / Orders / History): a white track
+   with a hairline border, an ink pill for the selected item. */
+.segmented {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-base);
+  border: 1px solid var(--glass-border);
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.segmented::-webkit-scrollbar { display: none; }
+.segItem {
+  border: none;
+  background: transparent;
+  color: var(--mk-ink);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 6px 14px;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.2s var(--ease-quartr), background-color 0.2s var(--ease-quartr);
+}
+.segItem:hover { background: var(--mk-card); }
+.segItem[data-active="true"] {
+  color: var(--bg-primary);
+  background: var(--text-primary);
+}
+.segSm .segItem { padding: 5px 11px; font-size: 12px; }
+
+.chipRow {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+  mask-image: linear-gradient(90deg, #000 92%, transparent);
+}
+.chipRow::-webkit-scrollbar { display: none; }
+.chip {
+  flex: none;
+  border: none;
+  background: var(--mk-card);
+  color: var(--mk-ink);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: border-color 150ms var(--ease-quartr), color 150ms var(--ease-quartr), background 150ms var(--ease-quartr);
+}
+.chip:hover { background: var(--mk-active); }
+.chip[data-active="true"] {
+  background: var(--text-primary);
+  color: var(--bg-primary);
+}
+.chip[data-active="true"] .chipValue { color: inherit; opacity: 0.85; }
+.chipValue { font-size: 11.5px; font-variant-numeric: tabular-nums; }
+
+.ghostBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: var(--bg-base);
+  color: var(--mk-ink);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 6px 11px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 150ms var(--ease-quartr), color 150ms var(--ease-quartr), background 150ms var(--ease-quartr);
+}
+.ghostBtn:hover { background: var(--mk-ink); color: var(--bg-base); }
+.ghostBtn:disabled { opacity: 0.4; cursor: default; }
+
+.iconBtn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--mk-ink);
+  border-radius: 7px;
+  cursor: pointer;
+  transition: color 150ms var(--ease-quartr), background 150ms var(--ease-quartr);
+}
+.iconBtn:hover:not(:disabled) { background: var(--mk-active); }
+.iconBtn:disabled { opacity: 0.4; cursor: default; }
+
+/* ── rows ───────────────────────────────────────────────────────────── */
+
+.row {
+  position: relative;
+  display: grid;
+  align-items: center;
+  column-gap: 12px;
+  padding: 9px 10px;
+  margin: 0 -10px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 140ms var(--ease-quartr);
+}
+.row:hover { background: var(--mk-hover); }
+.row .rowActions { opacity: 0; transition: opacity 140ms var(--ease-quartr); }
+.row:hover .rowActions, .row:focus-within .rowActions { opacity: 1; }
+.rowDivider { border: none; border-top: 1px solid var(--mk-border); margin: 0; }
+
+.headRow {
+  display: grid;
+  column-gap: 12px;
+  padding: 0 0 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--mk-ink);
+  border-bottom: 1px solid var(--mk-border);
+  margin-bottom: 4px;
+}
+
+.symbol { font-size: 13.5px; font-weight: 600; letter-spacing: -0.01em; }
+.subname {
+  font-size: 12px;
+  color: var(--mk-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── tiles ──────────────────────────────────────────────────────────── */
+
+.tile {
+  background: var(--mk-card);
+  border: none;
+  border-radius: 12px;
+  padding: 12px 14px;
+  min-width: 0;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  transition: border-color 160ms var(--ease-quartr), transform 160ms var(--ease-quartr), background 160ms var(--ease-quartr);
+}
+.tile:hover { background: color-mix(in srgb, var(--mk-card), var(--text-primary) 5%); }
+.assetTile { min-width: 0; }
+.assetName { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
+@media (max-width: 560px) {
+  .assetTile { padding: 12px; }
+  .assetIdentity { gap: 7px; align-items: flex-start; }
+  .assetName { font-size: 12px; line-height: 1.35; min-height: 2.7em; }
+  .assetTile .subname { font-size: 10px; }
+  .assetPrice { flex-direction: column; align-items: flex-start; gap: 2px; }
+  .assetPrice > span:first-child { font-size: 15px; }
+  .assetRange { flex-wrap: wrap; justify-content: space-between; gap: 4px; }
+  .assetRange > span { min-width: 0; }
+  .assetRange > span:nth-child(2) { flex: 0 0 100%; order: 1; }
+  .assetRange .label { font-size: 9px; }
+}
+
+/* ── heatmap ────────────────────────────────────────────────────────── */
+
+.heat {
+  position: relative;
+  width: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.heatCell {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid var(--mk-card);
+  border-radius: 6px;
+  overflow: hidden;
+  padding: 6px 7px;
+  cursor: pointer;
+  transition: filter 140ms var(--ease-quartr), outline-color 140ms var(--ease-quartr);
+  outline: 1.5px solid transparent;
+  outline-offset: -2px;
+}
+.heatCell:hover { outline-color: var(--text-primary); }
+.heatSector {
+  position: absolute;
+  pointer-events: none;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--mk-ink);
+  text-transform: uppercase;
+  padding: 4px 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── tooltip (hand-rolled for charts) ───────────────────────────────── */
+
+.tip {
+  position: absolute;
+  z-index: 20;
+  pointer-events: none;
+  min-width: 150px;
+  max-width: 240px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: var(--bg-base);
+  border: none;
+  box-shadow: 0 10px 30px rgba(15, 18, 22, 0.16), 0 0 0 1px rgba(15, 18, 22, 0.05);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* ── brief ──────────────────────────────────────────────────────────── */
+
+.briefCard { height: 340px; min-height: 0; overflow: hidden; }
+/* The breadth content sets the shared row height, regardless of brief length. */
+.overviewGrid[data-wide="true"] .briefCard { contain: size; height: 100%; }
+.briefCard > :first-child { flex-shrink: 0; }
+.briefScroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
+}
+.briefScroll:focus-visible { outline: 2px solid var(--text-primary); outline-offset: -2px; }
+
+.brief {
+  margin: 0;
+  padding-left: 20px;
+  list-style: disc;
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.85;
+  letter-spacing: normal;
+  color: var(--text-primary);
+}
+.brief li + li { margin-top: 8px; }
+.brief strong { font-weight: 600; }
+
+/* ── news ───────────────────────────────────────────────────────────── */
+
+.newsItem {
+  display: block;
+  padding: 12px 10px;
+  margin: 0 -10px;
+  border-radius: 10px;
+  text-decoration: none;
+  color: inherit;
+  transition: background 140ms var(--ease-quartr);
+}
+.newsItem:hover { background: var(--mk-hover); }
+.newsItem:hover .newsTitle { text-decoration: underline; text-decoration-color: var(--mk-border-strong); text-underline-offset: 3px; }
+.newsTitle {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.newsMeta { margin-top: 5px; font-size: 11.5px; color: var(--mk-ink); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.tag {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--mk-ink);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.tag:hover { text-decoration: underline; text-underline-offset: 2px; }
+
+/* ── strips and phones ─────────────────────────────────────────────── */
+
+/* A row that scrolls sideways fades its far edge while more lies beyond. */
+.fadeX[data-fade="true"] {
+  mask-image: linear-gradient(90deg, #000 calc(100% - 36px), transparent);
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 36px), transparent);
+}
+.newsRow { display: flex; gap: 12px; align-items: flex-start; }
+.strip { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+@media (min-width: 640px) { .strip { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (min-width: 1536px) { .strip { grid-template-columns: repeat(8, minmax(0, 1fr)); } }
+
+/* Phones: the page runs edge to edge inside a 16px gutter, cards pad
+   less, the benchmarks swipe in one row instead of stacking four deep,
+   and the asset toggle spans the width so every class shows at once. */
+@media (max-width: 639px) {
+  .cardPad { padding: 14px; }
+  .strip {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: 42%;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: 16px;
+    margin-inline: -16px;
+    padding-inline: 16px;
+    scrollbar-width: none;
+  }
+  .strip::-webkit-scrollbar { display: none; }
+  .strip > * { scroll-snap-align: start; }
+  .segFill { width: 100%; }
+  .segFill .segmented { display: flex; width: 100%; }
+  .segFill .segItem { flex: 1 1 auto; padding: 6px 6px; font-size: 12px; }
+  .battlePick { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+  .battlePick > :first-child { grid-column: 1 / -1; }
+  .newsRow .newsTitle { font-size: 13px; }
+}
+
+.scrollHide { scrollbar-width: none; }
+.scrollHide::-webkit-scrollbar { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .row, .tile, .chip, .segItem, .navLink, .heatCell, .newsItem { transition: none; }
+}

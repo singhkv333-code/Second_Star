@@ -4,8 +4,8 @@ Built 2026-09-28. The background research is in `RESEARCH.md`, every HTTP route 
 
 ## How it works
 
-- **The plans are data.** `charto/data/plans_catalog.json` defines the plans (free, pro, pro_plus, plus a signed-out pseudo-plan) and gives a value for every feature key. Code asks what a feature is worth for a user (`alerts.price`, `ai.credits` and so on). It never checks `plan == "pro"`. Changing a number or adding a plan is a catalog edit.
-- **One source of truth.** Plans, subscriptions and usage live in `charto_users.db`, next to the users. Pivot's API and pivotted never write that file. They call charto's `POST /billing/consume`.
+- **The plans are data.** `dataserver/plans_catalog.json` defines the plans (free, pro, pro_plus, plus a signed-out pseudo-plan) and gives a value for every feature key. Code asks what a feature is worth for a user (`alerts.price`, `ai.credits` and so on). It never checks `plan == "pro"`. Changing a number or adding a plan is a catalog edit.
+- **One source of truth.** Plans, subscriptions and usage live in `users.db`, next to the users. Pivot's API and pivotted never write that file. They call the dataserver's `POST /billing/consume`.
 - **There are four kinds of feature:**
   - `flag`: on or off.
   - `limit`: a cap on live objects, counted when one more is written.
@@ -39,13 +39,13 @@ Every plan refusal from every service returns HTTP **402**:
 
 | Sheet row | Key | Enforced at |
 |---|---|---|
-| AI credits 15 / 200 / 500 a month, 1 credit = 1 prompt | `ai.credits` (quota, monthly; paid plans reset on the billing date, others on the 1st, IST) | charto `POST /chat`; pivot `POST /chat` and `/chat/stream`; pivotted research chat. Signed out: 3 a month per hashed IP |
+| AI credits 15 / 200 / 500 a month, 1 credit = 1 prompt | `ai.credits` (quota, monthly; paid plans reset on the billing date, others on the 1st, IST) | the dataserver `POST /chat`; pivot `POST /chat` and `/chat/stream`; pivotted research chat. Signed out: 3 a month per hashed IP |
 | Price alerts 20 / 400 / 1000 | `alerts.price` (armed) | `alerts.api_create` / `api_patch`: HTTP and chat `set_alert` / `update_alert` |
 | Technical alerts 20 / 100 / 1000 | `alerts.technical` (armed) | same. TradingView's rule applies: indicator, average, volume, profile, detector, **drawing**, channel and %-move alerts count as technical |
 | Multi-condition alerts ✓✓✓ | `alerts.multi_condition` | same |
 | Alert expiry 2m / 6m / never | `alerts.expiry_days` 60 / 180 / null | same. The expiry is brought within the limit rather than refused, and the reply states the date |
 | Indicators per chart 5 / 10 / all | `chart.indicators` | layout save (server); the indicator menu and chat-added indicators (client) |
-| Charts per tab 4 / 8 / 8 | `chart.panes` | layout save and the `open_chart` tool (server); the grid menu (client) |
+| Charts per tab 25 on every plan (the largest grid, 5×5) | `chart.panes` | layout save and the `open_chart` tool (server); the grid menu (client) |
 | Parallel charts 10 / 20 / 50 | `chart.parallel` | `POST /charts/lease` heartbeat. The oldest tab is evicted, as on TradingView |
 | Historical bars 10K / – / – | `chart.history_bars` | `/bars` and `/indicator`, intraday only. Daily and longer charts are unlimited on every plan, as on TradingView |
 | Watchlists U / U / U | `watchlists` null | nothing to enforce |
@@ -61,22 +61,22 @@ Every plan refusal from every service returns HTTP **402**:
 | `POST /billing/cancel` | user | Cancels at the end of the cycle; the user keeps the plan until `period_end` |
 | `POST /billing/webhook` | HMAC | Uses the raw-body signature and deduplicates on `x-razorpay-event-id`. Stale events for an older cycle are ignored |
 | `POST /billing/consume {feature, idem_key, refund?}` | user bearer or `X-Internal-Key` | Metering for other services. Refund requires the service key |
-| `POST /admin/billing/grant {email, plan or feature+value, days, reason}` | `CHARTO_ADMIN_EMAILS` | Comps and custom deals, each with a reason and an end date |
+| `POST /admin/billing/grant {email, plan or feature+value, days, reason}` | `PIVOT_ADMIN_EMAILS` | Comps and custom deals, each with a reason and an end date |
 | `POST /charts/lease {tab_id, release?, reclaim?}` | optional | Parallel-chart heartbeat |
 
 ## Switching on payments (nothing charges until this is done)
 
-1. In the Razorpay dashboard, create 4 plans: Pro monthly ₹499, Pro annual ₹5,388, Pro+ monthly ₹999 and Pro+ annual ₹10,788. Prices are GST-inclusive.
+1. In the Razorpay dashboard, create 4 plans: Pro monthly ₹599, Pro annual ₹5,988 (₹499/mo), Pro+ monthly ₹1,099 and Pro+ annual ₹11,388 (₹949/mo). Prices are GST-inclusive.
 2. Set these on the VM:
    - `RAZORPAY_KEY_ID`
    - `RAZORPAY_KEY_SECRET`
    - `RAZORPAY_WEBHOOK_SECRET`
    - `RAZORPAY_PLAN_PRO_MONTHLY`, `…_PRO_ANNUAL`, `…_PRO_PLUS_MONTHLY`, `…_PRO_PLUS_ANNUAL`
 3. Add a webhook to `https://<host>/billing/webhook` for the `subscription.*` events.
-4. Set the same random `CHARTO_INTERNAL_KEY` for charto, pivot and pivotted. Without it:
+4. Set the same random `PIVOT_INTERNAL_KEY` for the dataserver, pivot and pivotted. Without it:
    - refunds from pivot and pivotted are refused;
-   - pivot accounts that have no charto session are not metered. The turn is allowed and a warning is logged.
-5. Set `CHARTO_ADMIN_EMAILS` for the grant route.
+   - pivot accounts that have no dataserver session are not metered. The turn is allowed and a warning is logged.
+5. Set `PIVOT_ADMIN_EMAILS` for the grant route.
 
 Until step 2 is done, checkout, verify, cancel and webhook answer 503 `billing_unavailable`, which is an honest boundary. Admin grants work regardless.
 
@@ -110,12 +110,12 @@ Still open:
 
 ### See it locally
 
-- **Every screen and state, no backend needed:** `cd pivot-next && pnpm dev`, then open
+- **Every screen and state, no backend needed:** `cd app && pnpm dev`, then open
   `http://localhost:3000/paywall-gallery`. It renders the production components with fixtures,
   in light and dark and at phone width, and never calls the network or Razorpay. Use the
   "Viewer" picker to walk the pricing page and Plan & billing through every subscription state.
 - **The real pages:** `/pricing`, `/checkout?plan=pro&cycle=annual`, `/settings/billing`. They read
-  `/billing/*` from the charto dataserver (proxied to `:5174` by `next.config.ts`).
+  `/billing/*` from the dataserver (proxied to `:5174` by `next.config.ts`).
 - **On the chart:** open the chart with `?paywall=preview` to see the lock markers and prompts
   while the server's paywall is off. Account menu → Plan & billing opens the chart's billing dialog.
 
@@ -123,12 +123,12 @@ Still open:
 
 | Piece | File |
 |---|---|
-| Catalog snapshot (a test fails if it drifts from `plans_catalog.json`) | `pivot-next/lib/billing/catalog.snapshot.json` |
-| Entitlement logic mirrored from `entitlements.py`, subscription states, guards | `pivot-next/lib/billing/entitlements.ts` |
+| Catalog snapshot (a test fails if it drifts from `plans_catalog.json`) | `app/lib/billing/catalog.snapshot.json` |
+| Entitlement logic mirrored from `entitlements.py`, subscription states, guards | `app/lib/billing/entitlements.ts` |
 | Copy (taglines, feature benefits, FAQ, terms, placeholders) | `lib/billing/presentation.ts`, `lib/billing/policy.ts` |
-| Design tokens and components | `pivot-next/app/billing.css`, `pivot-next/components/billing/*` |
+| Design tokens and components | `app/app/billing.css`, `app/components/billing/*` |
 | Pages | `app/pricing`, `app/checkout`, `app/settings/billing`, `app/paywall-gallery` |
-| Chart: prompt, credits, evicted banner, locks, billing dialog | `charto/preview/js/paywall.js` |
+| Chart: prompt, credits, evicted banner, locks, billing dialog | `chart/js/paywall.js` |
 
 ### How a 402 becomes a paywall
 
@@ -160,6 +160,6 @@ Each is a visible "To be confirmed" placeholder in the UI (search `tbd(` in `lib
    wire, so nothing renders it yet.
 6. **Updating the payment method** opens the subscription's Razorpay `short_url`. Confirm in test
    mode that it lets the customer change the card or mandate.
-7. **pivot-next and charto accounts are separate.** Billing uses charto's session token
+7. **pivot-next and the dataserver accounts are separate.** Billing uses the dataserver's session token
    (`charto:auth:token`). A pivot-only login sees the signed-out billing state until roadmap step 2
    (share the session) lands.

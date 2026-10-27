@@ -22,7 +22,7 @@ User clicks Open → a side panel slides in with the workflow editor. User scans
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────┐
-│                         pivot-next/  (Next.js 15)                          │
+│                         app/  (Next.js 15)                          │
 │  ┌──────────────┐    ┌───────────────────┐    ┌──────────────────┐         │
 │  │  Chat UI     │ →  │ Workflow editor   │ ←  │  RunView         │         │
 │  │  (existing)  │    │ (AgentPanel +     │    │  (live status    │         │
@@ -35,7 +35,7 @@ User clicks Open → a side panel slides in with the workflow editor. User scans
           │                      │ /api/runs              │
           v                      v                        v
 ┌────────────────────────────────────────────────────────────────────────────┐
-│                       pivot/backend/  (FastAPI)                            │
+│                       api/backend/  (FastAPI)                            │
 │                                                                            │
 │  routers/chat.py          routers/workflows.py    routers/run_stream.py    │
 │       │                        │                       │                   │
@@ -95,7 +95,7 @@ POST /chat
 { "message": "Every weekday at 3:55 PM IST, if my buying power is over ₹50,000, buy 10 shares of RELIANCE and notify me by email." }
 ```
 
-The chat router (existing code at `pivot/backend/routers/chat.py`) hands the message to Sarvam with the full tool catalog from `services/tool_registry.py` (which now includes `propose_workflow`).
+The chat router (existing code at `api/backend/routers/chat.py`) hands the message to Sarvam with the full tool catalog from `services/tool_registry.py` (which now includes `propose_workflow`).
 
 ### 2.2 The chatbot picks `propose_workflow`
 
@@ -110,11 +110,11 @@ Sarvam's tool-call output looks like:
 }
 ```
 
-The handler `_propose_workflow` in `pivot/backend/agents/tool_executor.py:339` is dispatched.
+The handler `_propose_workflow` in `api/backend/agents/tool_executor.py:339` is dispatched.
 
 ### 2.3 `propose_workflow_async` runs
 
-Two paths inside `pivot/backend/workflows/propose.py`:
+Two paths inside `api/backend/workflows/propose.py`:
 
 **Mock mode** (no `SARVAM_API_KEY` / `OPENAI_API_KEY`): pattern-matches the prompt — extracts cron from "every weekday at HH:MM PM IST", quantity from "buy N", symbol from uppercase tokens, threshold from "over X" — emits a deterministic 5-step draft.
 
@@ -241,7 +241,7 @@ Authorization: Bearer <jwt>
 }
 ```
 
-### 3.3 Backend: `pivot/backend/routers/workflows.py:create_workflow`
+### 3.3 Backend: `api/backend/routers/workflows.py:create_workflow`
 
 The handler:
 
@@ -284,7 +284,7 @@ The activate handler:
 1. Loads the workflow (404 if not found / not yours).
 2. Re-validates every step config (defense in depth — the DB could have drifted via a manual SQL edit).
 3. Sets `status = 'active'`, `activated_at = now()`.
-4. Calls `upsert_workflow_schedule(db, wf)` from `pivot/backend/workflows/scheduler.py`:
+4. Calls `upsert_workflow_schedule(db, wf)` from `api/backend/workflows/scheduler.py`:
    - Walks step 0; it's a `trigger.schedule`.
    - Calls `compute_next_run_at(cron="55 15 * * 1-5", tz_str="Asia/Kolkata")` — uses APScheduler's `CronTrigger.from_crontab` to compute the next fire time, returns it as UTC.
    - Sets `wf.next_run_at` = e.g. `2026-05-04T10:25:00+00:00` (3:55 PM IST = 10:25 UTC, next weekday).
@@ -304,9 +304,9 @@ The scheduler's poll job (running every 30s in the same process via APScheduler)
 
 ## 4. The scheduler fires the workflow
 
-### 4.1 Two parallel poll jobs in `pivot/backend/workflows/scheduler.py`
+### 4.1 Two parallel poll jobs in `api/backend/workflows/scheduler.py`
 
-Both attached to the existing `AsyncIOScheduler` from `pivot/backend/scheduler.py` at app startup (`backend/main.py:startup` → `register_workflow_scheduler`):
+Both attached to the existing `AsyncIOScheduler` from `api/backend/scheduler.py` at app startup (`backend/main.py:startup` → `register_workflow_scheduler`):
 
 | Job | Cadence | What it does |
 |---|---|---|
@@ -361,7 +361,7 @@ The scheduler now hands the run to the engine: `asyncio.create_task(WorkflowEngi
 
 ## 5. The engine orchestrates the run
 
-`pivot/backend/workflows/engine.py:WorkflowEngine.execute_run(run_id)` is the orchestrator. It walks every step in order, honoring all 7 invariants from [ARCHITECTURE.md §7](./ARCHITECTURE.md#7-execution-engine--invariants).
+`api/backend/workflows/engine.py:WorkflowEngine.execute_run(run_id)` is the orchestrator. It walks every step in order, honoring all 7 invariants from [ARCHITECTURE.md §7](./ARCHITECTURE.md#7-execution-engine--invariants).
 
 For each step, it:
 1. Acquires the single-instance advisory lock (Postgres) on `workflow_id`.
@@ -389,7 +389,7 @@ WS frame published: `{"type": "step_update", "step_index": 0, "step": {...}}`.
 
 ### 5.2 Step 1 — `fetch.portfolio`
 
-Calls `pivot/backend/services/portfolio.get_user_portfolio(user_id, db)`. In production this hits Kite; in mock mode (no Kite key) it returns from `pivot/backend/kite/mock_data.MOCK_HOLDINGS`.
+Calls `api/backend/services/portfolio.get_user_portfolio(user_id, db)`. In production this hits Kite; in mock mode (no Kite key) it returns from `api/backend/kite/mock_data.MOCK_HOLDINGS`.
 
 **Output** written to `run.context["1"]`:
 
@@ -413,7 +413,7 @@ Calls `pivot/backend/services/portfolio.get_user_portfolio(user_id, db)`. In pro
 
 ### 5.3 Step 2 — `condition.numeric`
 
-Before invoking the executor, the engine resolves refs in the step config via `pivot/backend/workflows/refs.py:resolve_refs`:
+Before invoking the executor, the engine resolves refs in the step config via `api/backend/workflows/refs.py:resolve_refs`:
 
 - `"left": "{{ context.1.buying_power }}"` → resolves to `75000.0` (from the previous step's output).
 - `"right": 50000` → already a number, passes through.
@@ -484,7 +484,7 @@ Authorization: Bearer <jwt>
 { "decision": "approved" }
 ```
 
-Handler in `pivot/backend/routers/approvals.py`:
+Handler in `api/backend/routers/approvals.py`:
 1. Loads the approval (404 if not yours).
 2. Sets `decision="approved"`, `decided_at=now`.
 3. Sets `workflow_runs.status='running'` so the engine can re-enter.
@@ -555,25 +555,25 @@ Run history accumulates in `workflow_runs`. The user can view past runs via `GET
 
 | Concern | File |
 |---|---|
-| Chatbot tool registration | `pivot/backend/agents/tools.py` (`tool("propose_workflow", ...)`) |
-| Tool dispatch from chat → backend | `pivot/backend/agents/tool_executor.py:_propose_workflow` |
-| NL → WorkflowDraft logic | `pivot/backend/workflows/propose.py` |
-| Step type catalog | `pivot/backend/workflows/registry.py` (24 step types) + `workflows/schemas.py` (per-step Pydantic configs) |
-| Step executors | `pivot/backend/workflows/steps/{triggers,fetches,conditions,actions,notify,control}.py` |
-| Engine orchestration | `pivot/backend/workflows/engine.py:WorkflowEngine` |
-| Ref resolver (`{{ context.X.path }}`) | `pivot/backend/workflows/refs.py` |
-| WS pub/sub | `pivot/backend/workflows/events.py:RUN_BUS` |
-| Cron + watcher polling | `pivot/backend/workflows/scheduler.py` |
-| REST CRUD | `pivot/backend/routers/workflows.py` |
-| Run history & cancel | `pivot/backend/routers/runs.py` |
-| Approval decisions | `pivot/backend/routers/approvals.py` |
-| Webhook trigger ingress | `pivot/backend/routers/webhooks.py` |
-| WebSocket endpoint | `pivot/backend/routers/run_stream.py` |
-| Canonical error envelope | `pivot/backend/main.py` (FastAPI exception handlers) |
-| Models | `pivot/backend/models.py` (Workflow, WorkflowStep, WorkflowRun, WorkflowRunStep, WorkflowApproval, WorkflowWebhookToken, WatchlistItem) |
-| Migrations | `pivot/migrations/versions/0001_workflows.py`, `0002_watchlist.py` |
-| Test scaffold | `pivot/tests/workflows/conftest.py` (autouse fixture rebinds engine/scheduler/run_stream `SessionLocal`) |
-| End-to-end smoke | `pivot/scripts/smoke_test_api.sh` (41 curl checks against running uvicorn) |
+| Chatbot tool registration | `api/backend/agents/tools.py` (`tool("propose_workflow", ...)`) |
+| Tool dispatch from chat → backend | `api/backend/agents/tool_executor.py:_propose_workflow` |
+| NL → WorkflowDraft logic | `api/backend/workflows/propose.py` |
+| Step type catalog | `api/backend/workflows/registry.py` (24 step types) + `workflows/schemas.py` (per-step Pydantic configs) |
+| Step executors | `api/backend/workflows/steps/{triggers,fetches,conditions,actions,notify,control}.py` |
+| Engine orchestration | `api/backend/workflows/engine.py:WorkflowEngine` |
+| Ref resolver (`{{ context.X.path }}`) | `api/backend/workflows/refs.py` |
+| WS pub/sub | `api/backend/workflows/events.py:RUN_BUS` |
+| Cron + watcher polling | `api/backend/workflows/scheduler.py` |
+| REST CRUD | `api/backend/routers/workflows.py` |
+| Run history & cancel | `api/backend/routers/runs.py` |
+| Approval decisions | `api/backend/routers/approvals.py` |
+| Webhook trigger ingress | `api/backend/routers/webhooks.py` |
+| WebSocket endpoint | `api/backend/routers/run_stream.py` |
+| Canonical error envelope | `api/backend/main.py` (FastAPI exception handlers) |
+| Models | `api/backend/models.py` (Workflow, WorkflowStep, WorkflowRun, WorkflowRunStep, WorkflowApproval, WorkflowWebhookToken, WatchlistItem) |
+| Migrations | `api/migrations/versions/0001_workflows.py`, `0002_watchlist.py` |
+| Test scaffold | `api/tests/workflows/conftest.py` (autouse fixture rebinds engine/scheduler/run_stream `SessionLocal`) |
+| End-to-end smoke | `api/scripts/smoke_test_api.sh` (41 curl checks against running uvicorn) |
 
 ---
 
@@ -581,15 +581,15 @@ Run history accumulates in `workflow_runs`. The user can view past runs via `GET
 
 ```bash
 # Backend up (no docker needed if you use APP_ENV=test sqlite)
-cd pivot
+cd api
 APP_ENV=test JWT_SECRET_KEY="dev-secret-key-minimum-32-characters-long" \
   uvicorn backend.main:app --reload --port 8000
 
 # In another terminal: walk every endpoint with curl
-bash pivot/scripts/smoke_test_api.sh   # 41/41 should pass
+bash api/scripts/smoke_test_api.sh   # 41/41 should pass
 
 # Or call propose_workflow directly via Python
-cd pivot
+cd api
 python3 -c "
 import asyncio, json
 from backend.workflows.propose import propose_workflow_async
@@ -602,7 +602,7 @@ asyncio.run(main())
 "
 ```
 
-For the chat path (full UX), you'll need the human FE dev's `pivot-next/` running against the backend. Until that's wired (Day 5 in the original plan), the smoke script + the propose_workflow Python snippet are the cleanest demos.
+For the chat path (full UX), you'll need the human FE dev's `app/` running against the backend. Until that's wired (Day 5 in the original plan), the smoke script + the propose_workflow Python snippet are the cleanest demos.
 
 ---
 

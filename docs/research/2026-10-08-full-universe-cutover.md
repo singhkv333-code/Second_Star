@@ -196,7 +196,7 @@ Chart-loading causes and fixes:
   atomic, resumable, per-symbol transactions, prioritising the default chart.
 - Slow blanket legacy retention was delaying the entire data service. Deferred
   non-NSE legacy histories rather than claim migration was complete. Their
-  source remains intact at `/mnt/pivot-old-data/charto_bars.db`.
+  source remains intact at `/mnt/pivot-old-data/bars.db`.
 - A verified `serving_inventory` avoids the daily-table scan at startup.
   Public `/symbols` reports **6,917 minute-backed series**, **7,332 listed
   instrument IDs**, and **zero missing names from the existing top-500 list**.

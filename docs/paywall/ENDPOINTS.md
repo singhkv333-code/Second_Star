@@ -1,7 +1,7 @@
-# Paywall endpoint inventory — charto dataserver (:5174) + AI consumers
+# Paywall endpoint inventory — the dataserver (:5174) + AI consumers
 
-Verifier, 2026-09-28. Read from `charto/data/dataserver.py` (`Handler.do_GET` L15896,
-`do_DELETE` L16508, `do_POST` L16544, `_account_post` L15693) and `charto/data/alerts.py`.
+Verifier, 2026-09-28. Read from `dataserver/dataserver.py` (`Handler.do_GET` L15896,
+`do_DELETE` L16508, `do_POST` L16544, `_account_post` L15693) and `dataserver/alerts.py`.
 Line numbers are as of this read; the code wins.
 
 Tags: **GATE** (must check an entitlement) · **METER** (consumes a quota) · **OPEN** · **ADMIN** (should not be user-reachable).
@@ -9,7 +9,7 @@ Tags: **GATE** (must check an entitlement) · **METER** (consumes a quota) · **
 ## 0. How a request is authenticated — the enforcement hook
 
 - `_auth_user(headers)` (dataserver.py L14235) → `(user_id, email, name)` or `None`.
-  Reads `Authorization: Bearer <token>`, joins `sessions`→`users` in `charto_users.db`
+  Reads `Authorization: Bearer <token>`, joins `sessions`→`users` in `users.db`
   (under `_users_lock`), 30-day TTL, touches `last_seen`.
 - Every authed branch calls it inline: `me = _auth_user(self.headers); if not me: 401`.
   There is no middleware. Enforcement = one call after `me` is resolved, e.g.
@@ -20,7 +20,7 @@ Tags: **GATE** (must check an entitlement) · **METER** (consumes a quota) · **
   anything per-user on `/stream` needs a query token or a switch to fetch-SSE
   (alerts.js already made that switch for `/alerts/stream`).
 - `/api/auth/*` is rewritten to `/auth/*` at the door (`_strip_api_auth`).
-- Plan state does not exist yet: `users` has no plan column; `charto_users.db` is the
+- Plan state does not exist yet: `users` has no plan column; `users.db` is the
   whole user-state plane (DATA_MAP) so any plan/usage table goes there, same lock.
 
 ## 1. GET routes
@@ -108,7 +108,7 @@ Tags: **GATE** (must check an entitlement) · **METER** (consumes a quota) · **
   localStorage, `WL_MAX = 12` lists) — the server has no watchlist table, so a watchlist
   alert needs a new stored list (server-side) before it can exist. Until then: spec row
   "Watchlist alerts" has nothing to gate.
-- **Screen (screener) alerts do not exist** and **saved screens do not exist** in charto.
+- **Screen (screener) alerts do not exist** and **saved screens do not exist** in the dataserver.
   `/screen/run` is stateless. The only saved-screens store is pivot's
   `/api/screener/screens` (GET/POST/DELETE, `require_pivot_user`, screener.py L1644-1724),
   and pivot API is not deployed. Both rows are "build first, then gate".
@@ -137,7 +137,7 @@ Tags: **GATE** (must check an entitlement) · **METER** (consumes a quota) · **
 | Watchlists (unlimited) | client-only, `WL_MAX=12` | nothing to enforce (note: unlimited contradicts WL_MAX=12) |
 | Multi-condition alerts (all plans) | `MAX_CONDITIONS=4` | no gate |
 
-## 6. pivot API (`pivot/backend/routers`) — AI-consuming routes only (not deployed)
+## 6. pivot API (`api/backend/routers`) — AI-consuming routes only (not deployed)
 
 | Route | Auth | Note |
 |---|---|---|

@@ -2,7 +2,7 @@
 
 > Status (2026-10-22): **local only, paper only.** Nothing here places a broker
 > order, and none of it is deployed: the layer runs only when the dataserver is
-> started with `CHARTO_PLAYS=1`, which production does not set. The design and
+> started with `PIVOT_PLAYS=1`, which production does not set. The design and
 > its reasons are in `docs/plans/2026-10-22-execution-layer-architecture.md`;
 > this file describes what the code does today.
 
@@ -23,7 +23,7 @@ question it must back with a quote.
 
 | Surface | What it does |
 |---|---|
-| Plays page (`charto/preview/plays.html`) | Chat that builds and edits plays, a live card per play, Alerts, Portfolio, Review tabs, the halt bar |
+| Plays page (`chart/plays.html`) | Chat that builds and edits plays, a live card per play, Alerts, Portfolio, Review tabs, the halt bar |
 | Chat tool `play` | `compile` (build, replay, arm), `edit`, `list`, `pause`, `resume`, `delete`, `explain`, `review` |
 | Chat tool `measure` | test or save a measure, make a custom security (basket, ratio, spread), `scan` a universe |
 | Chat tool `search`, source `social` | read the latest posts at a social address |
@@ -226,17 +226,17 @@ assumed.
 ## Running it locally
 
 ```
-cd charto/data
-CHARTO_PORT=5184 CHARTO_USERS_DB=<scratch>/users.db CHARTO_EVENTS_DB=<scratch>/events.db \
-CHARTO_CHAT_V2=1 CHARTO_PLAYS=1 python3.11 -u dataserver.py
+cd dataserver
+PIVOT_PORT=5184 PIVOT_USERS_DB=<scratch>/users.db PIVOT_EVENTS_DB=<scratch>/events.db \
+PIVOT_CHAT_V2=1 PIVOT_PLAYS=1 python3.11 -u dataserver.py
 python3.11 -m pytest -q test_plays.py test_play_laws.py test_chat_v2.py test_paper.py
 HYPOTHESIS_PROFILE=deep python3.11 -m pytest -q test_play_laws.py      # 10,000 books per law
-CHARTO_USERS_DB=... CHARTO_EVENTS_DB=... python3.11 plays_eval.py --token <file> --uid <id> [--k 2]
+PIVOT_USERS_DB=... PIVOT_EVENTS_DB=... python3.11 plays_eval.py --token <file> --uid <id> [--k 2]
 ```
 
 The tests need `hypothesis` (`pip install hypothesis`).
 
-`CHARTO_LOG_TOOL_ERRORS=1` prints each chat tool error to stderr.
+`PIVOT_LOG_TOOL_ERRORS=1` prints each chat tool error to stderr.
 
 ## Known gaps
 

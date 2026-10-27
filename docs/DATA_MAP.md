@@ -25,22 +25,22 @@ Everything else is SQLite on the VM.
 placeholder or an eval scratchpad, despite holding eval users. Three distinct
 things live here and they have different lifecycles:
 
-### 1a. Reference data charto serves from a cache — **load-bearing**
+### 1a. Reference data the dataserver serves from a cache — **load-bearing**
 
 | Table | Rows | Built by | Reaches the user via |
 |---|---:|---|---|
-| `quarterly_statement_lines` | 6,641,992 | `pivotted/load_mc_quarterly.py` | `charto/data/sync_quarters.py` → `charto_bars.db.quarters` → company page Quarterly tab |
-| `quarterly_metrics` | 335,287 | `pivotted/build_quarterly_metrics.py` | same path |
+| `quarterly_statement_lines` | 6,641,992 | `research/load_mc_quarterly.py` | `dataserver/jobs/sync_quarters.py` → `bars.db.quarters` → company page Quarterly tab |
+| `quarterly_metrics` | 335,287 | `research/build_quarterly_metrics.py` | same path |
 | `instrument_master` | 75,128 | `refresh_instrument_master` | option chains, symbol resolution |
 | `option_universe` | 11,699 | options admin | F&O tools |
-| `company_identity` | 5,206 | `pivotted/build_identity.py` | symbol↔ISIN↔sc_id resolution everywhere |
+| `company_identity` | 5,206 | `research/build_identity.py` | symbol↔ISIN↔sc_id resolution everywhere |
 | `result_filings` | 4,210 | filings pipeline | results markers on the chart |
 
-**The trap:** `dataserver.py:3810` reads `quarters` from `charto_bars.db`, not
+**The trap:** `dataserver.py:3810` reads `quarters` from `bars.db`, not
 from Postgres. If `pivot_db` is dropped, moved or its DSN broken, the company
 page keeps drawing quarterly data indefinitely from the SQLite cache, and the
 only symptom is that it stops advancing. **Do not treat `pivot_db` as
-disposable because charto does not connect to it at request time.**
+disposable because the dataserver does not connect to it at request time.**
 
 ### 1b. Pivot's own application state — real rows, not currently user-facing
 
@@ -59,7 +59,7 @@ not customers. See §5.
 ### 1c. The landing waitlist — live, customer-facing
 
 `charto_landing.waitlist_registrations` (9 rows, all `source=landing`).
-Written by `charto/web/app/api/waitlist/route.ts` on Vercel via
+Written by `site/app/api/waitlist/route.ts` on Vercel via
 `WAITLIST_DATABASE_URL`. Unrelated to everything else in this database and
 must survive any restructuring of `public`.
 
@@ -98,10 +98,10 @@ Three schemas, and **the schema is not ours — the scraper owns it.**
 | `shp.filings` | 36,192 |
 | `shp.universe` | 5,588 |
 
-**Readers:** `pivot/backend/market/financials_db.py` (via `mc.*`),
-`pivotted/fundamentals.py` (which imports pivot's `financials_db` rather than
+**Readers:** `api/backend/market/financials_db.py` (via `mc.*`),
+`research/fundamentals.py` (which imports pivot's `financials_db` rather than
 re-deriving — deliberate, keeps one set of numbers),
-`charto/data/sync_financials.py` (copies into `charto_bars.db.financials` and
+`dataserver/jobs/sync_financials.py` (copies into `bars.db.financials` and
 `.balance_sheet`).
 
 `provision_research.sh` refuses to deploy if `FINANCIALS_DSN` is unset,
@@ -123,7 +123,7 @@ as an identity key.
 
 ---
 
-## 4. `charto_users.db` — SQLite on the VM. **The entire live user-state plane.**
+## 4. `users.db` — SQLite on the VM. **The entire live user-state plane.**
 
 This is the single most dangerous file in the system, because its name
 understates it by a wide margin. It is not an auth database.
@@ -131,12 +131,12 @@ understates it by a wide margin. It is not an auth database.
 | Tables | Owner module |
 |---|---|
 | `users`, `sessions`, `workspace_state`, `layouts`, `conversations` | `dataserver.py:13511-13560` |
-| `alerts`, `alert_log` | `charto/data/alerts.py` (`_db()` → `ds._users`) |
-| `alert_email_outbox` (additive email feature) | `charto/data/alert_email.py`, initialized by `alerts.py`; same user DB and lock, included in whole-plane backups |
+| `alerts`, `alert_log` | `dataserver/alerts.py` (`_db()` → `ds._users`) |
+| `alert_email_outbox` (additive email feature) | `dataserver/alert_email.py`, initialized by `alerts.py`; same user DB and lock, included in whole-plane backups |
 | `subscriptions`, `billing_events`, `billing_checkouts`, `usage_ledger`, `entitlement_grants` | `entitlements.py` + `billing.py`; same user DB/lock. Checkout intent precedes provider calls; unfinished webhook receipts remain retryable. Included in whole-plane backups |
-| `paper_accounts`, `paper_orders`, `paper_fills`, `paper_positions`, `paper_ledger`, `paper_nav` | `charto/data/paper.py:212` |
-| `strategies`, `strategy_log` | `charto/data/strategies.py:172` |
-| `journal_trades`, `journal_revisions`, `journal_playbooks` | `charto/data/journal.py:24` |
+| `paper_accounts`, `paper_orders`, `paper_fills`, `paper_positions`, `paper_ledger`, `paper_nav` | `dataserver/paper.py:212` |
+| `strategies`, `strategy_log` | `dataserver/strategies.py:172` |
+| `journal_trades`, `journal_revisions`, `journal_playbooks` | `dataserver/journal.py:24` |
 
 `sessions.token` holds the SHA-256 of a session token, never the token
 (since 2026-10-17; the dataserver rewrites older rows on start). A session
@@ -158,7 +158,7 @@ Backed up to `/data/backup/charto_users.last_success.json` (`dataserver.py:14849
 
 ## 5. The two user tables are disjoint. Do not merge them.
 
-| | `pivot_db.public.users` | `charto_users.db.users` |
+| | `pivot_db.public.users` | `users.db.users` |
 |---|---|---|
 | Rows | 48 | **11** |
 | Who | almost entirely `@pivoteval.com` eval fixtures | the real signups, 4 of them in the last two days |
@@ -166,24 +166,24 @@ Backed up to `/data/backup/charto_users.last_success.json` (`dataserver.py:14849
 | Reached by | nothing in production — pivot's API is not deployed | everything the user touches |
 
 Separately, 9 people sit in `charto_landing.waitlist_registrations`; 2 of them
-also hold charto accounts. **18 unique people across all three stores.**
+also hold the dataserver accounts. **18 unique people across all three stores.**
 
 ---
 
-## 6. `charto_bars.db` — SQLite, ~24 GB on the VM (`CHARTO_DB`)
+## 6. `bars.db` — SQLite, ~24 GB on the VM (`PIVOT_DB`)
 
 Bars plus a set of **read-caches synced from Postgres**. Sync scripts are
-one-directional (PG → SQLite) and are named `charto/data/sync_*.py`.
+one-directional (PG → SQLite) and are named `dataserver/sync_*.py`.
 
 - Bars: `bars`, `bars_*` (~497M minute rows, 557 symbols)
 - Synced caches: `financials`, `balance_sheet` (← `sync_financials.py`),
   `quarters` (← `sync_quarters.py`), `statement`, `results`, `benchmark`,
   `company_profile`, `classification`, `revenue_mix`, `instrument_logo`
-- Charto-owned: `screen_meta`, `pattern_stats`, `sync_state`, `news_cache`,
+- The dataserver-owned: `screen_meta`, `pattern_stats`, `sync_state`, `news_cache`,
   `deals`, `delivery`, `fut_oi`, `vp_screen`
 
 `sqlite3.connect()` **creates whatever it cannot find**, so a deleted or
-mispointed `CHARTO_DB` does not raise — it answers `1`, reports ready, and
+mispointed `PIVOT_DB` does not raise — it answers `1`, reports ready, and
 serves an empty chart (`dataserver.py:14900`).
 
 `flows_market.db` is a small separate store for market-wide flows
@@ -194,7 +194,7 @@ serves an empty chart (`dataserver.py:14900`).
 ## 7. Rules that follow from all of the above
 
 1. **Never merge the two user stores.** Share the session token across
-   `:3000`/`:5174`/`:8000`; leave `charto_users.db` as the system of record.
+   `:3000`/`:5174`/`:8000`; leave `users.db` as the system of record.
 2. **`pivot_db` is upstream, not disposable.** Its failure mode is a cache
    that quietly stops advancing, not an error.
 3. **Sync direction is always PG → SQLite.** Nothing writes reference data
@@ -203,5 +203,5 @@ serves an empty chart (`dataserver.py:14900`).
 4. **Export before dropping.** Any table with a non-zero row count owned by a
    real `user_id` gets a JSON export first.
 5. **A missing DSN is not an error anywhere.** `FINANCIALS_DSN`, `ENRICH_DSN`
-   and `CHARTO_DB` all have defaults that fail silently. Probe for a real row,
+   and `PIVOT_DB` all have defaults that fail silently. Probe for a real row,
    never for reachability.

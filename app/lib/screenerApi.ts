@@ -1,0 +1,326 @@
+/**
+ * screenerApi — typed client for the NEW screener endpoints.
+ *
+ * Lives in its own file (per task ownership) so it never collides with the
+ * shared `lib/api.ts` client. It mirrors that client's conventions:
+ *   - base URL from `NEXT_PUBLIC_PIVOT_API_BASE` (defaults to `/api`). The
+ *     screener routes are mounted UNDER `/api` (prefix="/api/screener"), so we
+ *     use the base as-is and DO NOT strip a trailing `/api` (unlike the legacy
+ *     /portfolio router).
+ *   - Bearer JWT read from `localStorage.pivot_jwt` (the same TOKEN_KEY
+ *     AppBootstrap writes; matching liveQuoteManager.getToken() and
+ *     portfolioApi.getToken()).
+ *   - returns `Promise<ApiResult<T>>` so callers use the shared `isError`
+ *     guard exactly like every other Pivot fetch.
+ *
+ * Backend contract (backend/routers/screener.py):
+ *   GET /api/screener/stocks   → filterable/sortable grid (server-side)
+ *   GET /api/screener/search   → symbol/name autosuggest over the universe
+ *   GET /api/screener/sectors  → the sector filter rail
+ *
+ * Honest-data contract: `div_yield` and `one_year_pct` are ALWAYS null on the
+ * stocks path (no source on this route — see `null_metrics`), and `pe`/`roe`
+ * are null per-row when the financials DB can't serve them. The UI must render
+ * an em-dash, never a fabricated value.
+ */
+
+import type { ApiResult, ErrorBody } from "@/lib/types";
+import { getAccessToken } from "@/lib/authToken";
+import { getApiBaseUrl } from "@/lib/api-base";
+
+// ---------------------------------------------------------------------------
+// Response shapes (from the backend contract)
+// ---------------------------------------------------------------------------
+
+export type ScreenerStock = {
+  symbol: string;
+  name: string;
+  /** canonical sector key, e.g. "private_bank" */
+  sector: string;
+  market_cap_cr: number | null;
+  /** Last price (₹). Kite-primary when a live session exists, else delayed
+   *  yfinance; null while the market-metrics cache is warming. */
+  price: number | null;
+  /** Day change (%), signed. Same source/nullability as `price`. */
+  change_pct: number | null;
+  /** The same move in rupees, from the same quote as `change_pct`. */
+  change_abs: number | null;
+  /** The session, straight off the batch quote — no extra round trip. */
+  day_open: number | null;
+  day_high: number | null;
+  day_low: number | null;
+  prev_close: number | null;
+  /** Shares traded today. An integer count, never a rounded float. */
+  volume: number | null;
+  pe: number | null;
+  roe: number | null;
+  /** Return on capital employed (%) and debt/equity (x). Both come from the
+   *  same single statement as roe/pe — the backend was already fetching and
+   *  discarding them. */
+  roce: number | null;
+  de: number | null;
+  /** 1-year price return (%), signed. Same source/nullability as `price`. */
+  one_year_pct: number | null;
+  /** No source on this path — always null (kept for contract stability). */
+  div_yield: number | null;
+  rsi14?: number | null;
+  atr_pct?: number | null;
+  sma20_rel?: number | null;
+  sma50_rel?: number | null;
+  sma200_rel?: number | null;
+  dist_52w_high?: number | null;
+  dist_52w_low?: number | null;
+  range_20d_pct?: number | null;
+  vol_z20?: number | null;
+  turnover_20d_cr?: number | null;
+  vp20_pos?: number | null;
+  vp20_va_width_pct?: number | null;
+  vp20_poc_dist_pct?: number | null;
+  vp20_poc_shift_pct?: number | null;
+  logo_url: string | null;
+};
+
+export type ScreenerFilterClause = {
+  field: string;
+  op: "gt" | "gte" | "lt" | "lte" | "eq" | "between";
+  value: number;
+  value2?: number;
+};
+
+export type ScreenerStocksResponse = {
+  count: number;
+  /** Total rows matching the filters across the WHOLE universe (paging). */
+  total: number;
+  /** Echo of the requested offset for this page. */
+  offset: number;
+  results: ScreenerStock[];
+  /** Row metrics this endpoint does not serve — render "—", not "screened out". */
+  null_metrics: string[];
+  /** Human-readable disclosure of ignored/unserved filters & sort fallbacks. */
+  note: string;
+};
+
+export type ScreenerSearchResult = {
+  symbol: string;
+  name: string;
+  sector: string | null;
+  logo_url: string | null;
+  has_fundamentals: boolean;
+};
+
+export type ScreenerSearchResponse = {
+  results: ScreenerSearchResult[];
+};
+
+export type ScreenerSector = {
+  /** canonical key, e.g. "private_bank" */
+  sector: string;
+  /** display label, e.g. "Private Bank" */
+  label: string;
+  count: number;
+};
+
+export type ScreenerSectorsResponse = {
+  sectors: ScreenerSector[];
+};
+
+/** Server-side sort fields accepted by GET /api/screener/stocks. */
+export type ScreenerSortBy =
+  | "market_cap_cr"
+  | "pe"
+  | "roe"
+  | "symbol"
+  | "name"
+  // Market-metric columns are now server-sortable over the full universe too
+  // (priced names first, unpriced sink to the bottom).
+  | "price"
+  | "change_pct"
+  | "one_year_pct";
+
+/** Market-cap tier accepted by GET /api/screener/stocks. */
+export type ScreenerMcapTier = "large" | "mid" | "small";
+
+export type ScreenerStocksParams = {
+  sector?: string;
+  mcap_tier?: ScreenerMcapTier;
+  pe_max?: number;
+  roe_min?: number;
+  dy_min?: number;
+  ret_min?: number;
+  filters?: string;
+  /** Comma-separated tickers — restricts the grid to a saved screen's
+   *  membership. Applied server-side BEFORE every other filter, so sector /
+   *  mcap / PE / ROE stack on top of a screen rather than replacing it. */
+  symbols?: string;
+  sort_by?: ScreenerSortBy;
+  /** Overrides the field's default direction (server nulls always sink). */
+  sort_dir?: "asc" | "desc";
+  limit?: number;
+  /** Page start — the grid loads the whole universe incrementally. */
+  offset?: number;
+};
+
+// ---------------------------------------------------------------------------
+// Minimal fetch (/api base + bearer token), additive — no shared client edits
+// ---------------------------------------------------------------------------
+
+
+function buildUrl(
+  path: string,
+  query?: Record<string, string | number | undefined>,
+): string {
+  const base = getApiBaseUrl();
+  const sep = base.endsWith("/") || path.startsWith("/") ? "" : "/";
+  let url = `${base}${sep}${path}`;
+  if (query) {
+    const params = new URLSearchParams();
+    for (const [k, v] of Object.entries(query)) {
+      if (v !== undefined && v !== null && v !== "") {
+        params.append(k, String(v));
+      }
+    }
+    const qs = params.toString();
+    if (qs) url += `?${qs}`;
+  }
+  return url;
+}
+
+async function getJson<T>(
+  path: string,
+  query?: Record<string, string | number | undefined>,
+  signal?: AbortSignal,
+): Promise<ApiResult<T>> {
+  const url = buildUrl(path, query);
+  const token = await getAccessToken();
+
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "GET",
+      headers,
+      cache: "no-store",
+      signal,
+    });
+  } catch (e) {
+    // Surface aborts so callers can ignore them; other failures are network.
+    if (e instanceof DOMException && e.name === "AbortError") {
+      return { error: { code: "aborted", message: "Request aborted" } };
+    }
+    return {
+      error: {
+        code: "network_error",
+        message: e instanceof Error ? e.message : "Network request failed",
+      },
+    };
+  }
+
+  const text = await res.text();
+  let parsed: unknown = null;
+  if (text.length > 0) {
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      return {
+        error: {
+          code: "internal_error",
+          message: `Unexpected non-JSON response (status ${res.status})`,
+        },
+      };
+    }
+  }
+
+  if (!res.ok) {
+    // Accept both the canonical envelope and FastAPI's { detail } shape.
+    const envelope = (parsed ?? {}) as {
+      error?: Partial<ErrorBody>;
+      detail?: unknown;
+    };
+    const err = envelope.error ?? {};
+    const legacyMessage =
+      typeof envelope.detail === "string" ? envelope.detail : undefined;
+    return {
+      error: {
+        code: err.code ?? `http_${res.status}`,
+        message:
+          err.message ??
+          legacyMessage ??
+          `Request failed with status ${res.status}`,
+      },
+    };
+  }
+
+  return { data: parsed as T };
+}
+
+/** `GET /api/screener/stocks` — server-filtered/sorted stock grid. */
+export function getScreenerStocks(
+  params: ScreenerStocksParams = {},
+  signal?: AbortSignal,
+): Promise<ApiResult<ScreenerStocksResponse>> {
+  return getJson<ScreenerStocksResponse>(
+    "/screener/stocks",
+    {
+      sector: params.sector,
+      mcap_tier: params.mcap_tier,
+      pe_max: params.pe_max,
+      roe_min: params.roe_min,
+      dy_min: params.dy_min,
+      ret_min: params.ret_min,
+      filters: params.filters,
+      symbols: params.symbols,
+      sort_by: params.sort_by,
+      sort_dir: params.sort_dir,
+      limit: params.limit,
+      offset: params.offset,
+    },
+    signal,
+  );
+}
+
+/** `GET /api/screener/search` — symbol/name autosuggest across the universe. */
+export function searchScreener(
+  q: string,
+  limit = 15,
+  signal?: AbortSignal,
+): Promise<ApiResult<ScreenerSearchResponse>> {
+  return getJson<ScreenerSearchResponse>(
+    "/screener/search",
+    { q, limit },
+    signal,
+  );
+}
+
+/** `GET /api/screener/sectors` — sectors (with counts) for the filter rail. */
+export function getScreenerSectors(
+  signal?: AbortSignal,
+): Promise<ApiResult<ScreenerSectorsResponse>> {
+  return getJson<ScreenerSectorsResponse>("/screener/sectors", undefined, signal);
+}
+
+
+// ── 1-day sparklines ─────────────────────────────────────────────────
+
+export type ScreenerSparklines = {
+  /** `{SYMBOL: [close, ...]}`, oldest first. A symbol the source cannot serve
+   *  is ABSENT, not an empty array — "no data" and "a flat session" are
+   *  different facts and must not render the same. */
+  series: Record<string, number[]>;
+  source: string;
+};
+
+/** Intraday closes for the rows currently on screen. Deliberately a second
+ *  request: the grid must render before these land, and a sort or a filter
+ *  change must not pay for them. Cap is 60 symbols per call, server-side. */
+export function getScreenerSparklines(
+  symbols: string[],
+  signal?: AbortSignal,
+): Promise<ApiResult<ScreenerSparklines>> {
+  return getJson<ScreenerSparklines>(
+    "/screener/sparklines",
+    { symbols: symbols.join(",") },
+    signal,
+  );
+}

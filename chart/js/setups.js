@@ -1,0 +1,936 @@
+/* Pivot preview — shared setups.
+ *
+ * A trader publishes the desk they are looking at — panes, drawings, what the
+ * chat drew, indicators, and (if they choose) the conversation — as a frozen,
+ * read-only SETUP behind an unlisted link. Anyone with the link sees it on a
+ * live chart, exactly as it was; a signed-in reader can "Make it mine" and
+ * get an editable copy in their own layouts to carry the analysis on.
+ *
+ * ── three surfaces ────────────────────────────────────────────────────────
+ *   publish()  the Share dialog: title, note, what travels, the link.
+ *   manage()   the author's list: views, copies, copy link, unpublish.
+ *   view mode  ?symbol=X&view=<token>: the setup on the chart, the chat panel
+ *              turned into the setup's card and its conversation, and one bar
+ *              of actions over the candles.
+ *
+ * ── why a view session cannot hurt the viewer's own work ──────────────────
+ * The chart saves everything it shows into the viewer's storage. In a view
+ * session js/store.js holds all of it in memory, drawings.js and auth.js
+ * write nothing, layouts.js adopts no layout and autosaves nothing, and
+ * chat.js files nothing. The server side is read-only by construction
+ * (dataserver /setup is a GET that returns a snapshot). See shares.py.
+ *
+ * ── what travels ──────────────────────────────────────────────────────
+ * The whole workspace, not only the chart: every widget, where it sits and
+ * its settings (Dock.exportState), and — if the author leaves it on — what
+ * the notes and sheets hold. Documents' files and the author's custom
+ * indicators stay with the author. The dialog draws the workspace as it is,
+ * tile for tile, so the author sees exactly what a reader will open.
+ */
+"use strict";
+
+const Setups = (() => {
+  const API = location.port === "5173"
+    ? "http://127.0.0.1:5174" : "";
+  const BASE = (document.currentScript && document.currentScript.src) || location.href;
+  const el = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const toast = (m) => Layouts.toast(m);
+  const VIEW = Store.viewOnly ? Store.viewToken : "";
+  // The server photographing a setup for its link preview (dataserver
+  // _setup_screenshot): the author's workspace as it was shared, without the
+  // reader's chrome around it. It writes nothing, like any view.
+  const CAPTURE = !!VIEW && new URLSearchParams(location.search).get("capture") === "1";
+  let viewing = null;                 // the setup on screen, in a view session
+
+  /* ══ the visual kit ══════════════════════════════════════════════════ */
+
+  /** The bars ON SCREEN, not the whole history loaded behind them: a
+   *  sparkline beside a picture of the desk has to describe that picture. */
+  function onScreen(c) {
+    const bars = (c && c.state && c.state.bars) || [];
+    try {
+      const r = c.chart.timeScale().getVisibleLogicalRange();
+      if (r) return bars.slice(Math.max(0, Math.floor(r.from)), Math.ceil(r.to) + 1);
+    } catch { /* no chart yet: fall back to the tail */ }
+    return bars.slice(-120);
+  }
+  /** Closes as a small SVG line; green or red only for the direction. */
+  function spark(bars) {
+    const closes = (bars || []).map((b) => b.close).filter((x) => Number.isFinite(x));
+    if (closes.length < 2) return null;
+    const step = Math.max(1, Math.floor(closes.length / 60));
+    const pts = closes.filter((_, i) => i % step === 0 || i === closes.length - 1);
+    const lo = Math.min(...pts), hi = Math.max(...pts), span = hi - lo || 1;
+    const W = 120, H = 30;
+    const xy = pts.map((p, i) => [(i / (pts.length - 1)) * W, H - 2 - ((p - lo) / span) * (H - 4)]);
+    const line = xy.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+    const chg = (closes[closes.length - 1] / closes[0] - 1) * 100;
+    const dir = chg >= 0 ? "up" : "down";
+    const svg = `<svg class="sx-spark ${dir}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">` +
+      `<polygon points="0,${H} ${line} ${W},${H}"/><polyline points="${line}"/></svg>`;
+    return { svg, chg, dir };
+  }
+
+  function indicatorName(id) {
+    const c = window.__pivot;
+    const def = c && c.ind && (c.ind.CATALOG || []).find((d) => d.id === id);
+    if (def && (def.short || def.label || def.name)) {
+      return String(def.short || def.label || def.name);
+    }
+    const m = /^([a-z_]+?)(\d+)$/.exec(id || "");
+    return m ? `${m[1].toUpperCase()} ${m[2]}` : String(id || "").toUpperCase();
+  }
+
+  const typeMeta = (type) => (type === "main" ? { title: "Chart", icon: "candles" }
+    : (typeof Dock !== "undefined" && Dock.meta && Dock.meta(type)) || { title: type, icon: "widgets" });
+
+  /** The tiled tree of a workspace state, each group by its active widget. */
+  function shapeOf(st) {
+    if (!st || !st.tree || !st.groups || !st.inst) return null;
+    const g = (n) => {
+      if (!n) return null;
+      if (n.k === "g") {
+        const gr = st.groups[n.g];
+        if (!gr) return null;
+        const tabs = gr.tabs.map((id) => (st.inst[id] || {}).type).filter(Boolean);
+        return tabs.length ? { g: true, tabs, active: (st.inst[gr.active] || {}).type || tabs[0] } : null;
+      }
+      const kids = (n.c || []).map((c, j) => [g(c), (n.s || [])[j] || 1]).filter(([c]) => c);
+      return kids.length ? { k: n.k, c: kids.map(([c]) => c), s: kids.map(([, w]) => w) } : null;
+    };
+    return { tree: g(st.tree), floats: (st.floats || []).map((f) => g({ k: "g", g: f.gid })).filter(Boolean) };
+  }
+  const widgetsIn = (st) => (st && st.inst ? Object.values(st.inst).filter((i) => i.type !== "main" && i.type !== "slot").length : 0);
+
+  /** The workspace in miniature: one tile per group at its real share of the
+   *  screen, the chart tile showing the chart. */
+  function deskMini(shape, thumb, sym) {
+    let i = 0;
+    const tile = (n) => {
+      const chart = n.active === "main";
+      const m = chart ? { title: sym || "Chart", icon: "candles" } : typeMeta(n.active);
+      const more = n.tabs.length - 1;
+      return `<div class="sx-tile${chart ? " chart" : ""}" style="--i:${i++}">` +
+        (chart && thumb ? `<img src="${esc(thumb)}" alt="">` : `<i class="sx-glyph">${Icons.svg(m.icon, "sm")}</i>`) +
+        `<span class="sx-lab">${Icons.svg(m.icon, "xs")}<b>${esc(m.title)}</b>${more > 0 ? `<em>+${more}</em>` : ""}</span></div>`;
+    };
+    const node = (n) => {
+      if (n.g) return tile(n);
+      const tot = n.s.reduce((x, y) => x + y, 0) || 1;
+      return `<div class="sx-split ${n.k}">` +
+        n.c.map((c, j) => `<div class="sx-cell" style="flex:${(n.s[j] / tot).toFixed(4)} 1 0">${node(c)}</div>`).join("") + `</div>`;
+    };
+    const body = shape && shape.tree ? node(shape.tree) : tile({ g: true, tabs: ["main"], active: "main" });
+    const fl = shape && shape.floats && shape.floats.length
+      ? `<div class="sx-floats">${shape.floats.map(tile).join("")}</div>` : "";
+    return `<div class="sx-desk">${body}${fl}</div>`;
+  }
+
+  /** What a desk carries, as chips. The same words in the Share dialog and
+   *  on the setup card, so the author sees what the reader gets. */
+  function manifest(spec, chatTurns, dataOn) {
+    const ws = (spec && spec.workspace) || {};
+    const charts = (spec && spec.charts) || [];
+    const st = spec && spec.dock && spec.dock.state;
+    const n = (v, one, many) => `${v} ${v === 1 ? one : many}`;
+    const inds = (ws.indicators || []).map(indicatorName);
+    const chips = [
+      ["candles", n(charts.length, "chart", "charts")],
+      ["pen", n((ws.drawings || []).length, "drawing", "drawings")],
+      ["indicators", n(inds.length, "indicator", "indicators"), inds.slice(0, 6).join(", ")],
+    ];
+    if ((ws.scene || []).length) chips.push(["sparkles", n(ws.scene.length, "chat annotation", "chat annotations")]);
+    if (st || dataOn !== undefined) chips.push(["widgets", n(widgetsIn(st), "widget", "widgets"), "Every widget with its settings"]);
+    if (dataOn) chips.push(["note", "Notes and sheets"]);
+    if (chatTurns) chips.push(["chat", n(chatTurns, "chat turn", "chat turns")]);
+    return chips.map(([ic, t, tip]) => `<span class="sx-chip"${tip ? ` title="${esc(tip)}"` : ""}>${Icons.svg(ic, "xs")}${esc(t)}</span>`).join("");
+  }
+
+  /** The instrument strip: logo, name, interval, the move on screen. */
+  function idStrip(sym, iv, sp) {
+    const logo = typeof Universe !== "undefined" && Universe.logoHTML ? Universe.logoHTML(sym, "sx-logo") : "";
+    return `<div class="sx-id">${logo || `<span class="sx-logo sx-mono">${esc(String(sym || "?").charAt(0))}</span>`}` +
+      `<div class="sx-idt"><b>${esc(sym)}</b>${iv ? `<span>${esc(iv)}</span>` : ""}</div>` +
+      (sp ? `<span class="sx-gap"></span>${sp.svg}<b class="sx-chg ${sp.dir}">${sp.chg >= 0 ? "+" : "−"}${Math.abs(sp.chg).toFixed(2)}%</b>` : "") +
+      `</div>`;
+  }
+
+  /** The credit chain, nearest first. */
+  function lineage(chain) {
+    if (!chain || !chain.length) return "";
+    return `<div class="sx-lineage"><span>Built on</span>` + chain.slice(0, 5).map((c) =>
+      `<span class="sx-credit">${Icons.svg("link", "xs")}“${esc(c.title)}” by ${esc(c.by)}</span>`).join("") + `</div>`;
+  }
+
+  /* ── the workspace's own contents ─────────────────────────────────────
+   * Notes travel as blocks of plain text (the server strips angle brackets
+   * from everything shared, so HTML would not survive, and should not);
+   * sheets as their cells. Both are put back by applyDesk. */
+  function noteBlocks(html) {
+    const doc = new DOMParser().parseFromString(`<div>${html || ""}</div>`, "text/html");
+    const out = [];
+    const walk = (el) => {
+      for (const n of el.children) {
+        const t = n.tagName;
+        if (/^(UL|OL|DIV|SECTION|ARTICLE)$/.test(t) && n.children.length) { walk(n); continue; }
+        const text = n.textContent.replace(/\s+/g, " ").trim();
+        if (!text) continue;
+        out.push({ t: /^H[1-6]$/.test(t) ? "h" : t === "LI" ? "li" : t === "BLOCKQUOTE" ? "q" : "p", s: text.slice(0, 4000) });
+      }
+    };
+    walk(doc.body.firstChild);
+    if (!out.length) { const t = doc.body.textContent.trim(); if (t) out.push({ t: "p", s: t.slice(0, 8000) }); }
+    return out.slice(0, 400);
+  }
+  const blocksHtml = (bl) => (bl || []).map((b) => b.t === "h" ? `<h3>${esc(b.s)}</h3>` : b.t === "li" ? `<ul><li>${esc(b.s)}</li></ul>`
+    : b.t === "q" ? `<blockquote>${esc(b.s)}</blockquote>` : `<p>${esc(b.s)}</p>`).join("");
+
+  async function deskOf(withData, symbols) {
+    if (typeof Dock === "undefined" || !Dock.exportState) return null;
+    const state = Dock.exportState();
+    const out = { v: 1, state };
+    if (!withData) return out;
+    const ids = Object.entries(state.inst);
+    const noteSuffix = new Set(ids.filter(([, i]) => i.type === "notes").map(([id]) => (id === "notes" ? "" : id.split(":")[1])));
+    const scopes = new Set(["general", ...symbols]);
+    out.notes = {};
+    try {
+      for (const key of Object.keys(localStorage)) {
+        const m = /^charto:(note:([^:]+)(?::(.+))?)$/.exec(key);
+        if (!m || !scopes.has(m[2]) || !noteSuffix.has(m[3] || "")) continue;
+        const v = JSON.parse(localStorage.getItem(key) || "null");
+        const bl = v && noteBlocks(v.html);
+        if (bl && bl.length) out.notes[m[1]] = bl;
+      }
+    } catch { /* notes are a courtesy; the workspace still travels */ }
+    out.sheets = {};
+    for (const [id, i] of ids) {
+      if (i.type !== "sheet") continue;
+      try {
+        const v = await WKit.idb.get(`sheet:${id}`);
+        if (v && JSON.stringify(v).length < 400_000) out.sheets[id] = v;
+      } catch { /* skip it */ }
+    }
+    if (JSON.stringify(out).length > 1_100_000) delete out.sheets;
+    return out;
+  }
+
+  let sharedSheets = {};
+  /** A sheet a shared workspace brought, for w-sheet.js in a view session. */
+  const sheet = (key) => sharedSheets[key.replace(/^sheet:/, "")] || null;
+
+  /** Put a shared workspace's widgets and contents on screen. In a view
+   *  session everything stays in memory (store.js); on a copy the notes join
+   *  the reader's own (never replacing them) and a sheet lands only where
+   *  the reader has none under that id. */
+  async function applyDesk(desk, view) {
+    if (!desk || !desk.state || typeof Dock === "undefined" || !Dock.applyState) return;
+    for (const [key, bl] of Object.entries(desk.notes || {})) {
+      if (!/^note:[^:]+(:[\w-]+)?$/.test(key)) continue;
+      const html = blocksHtml(bl);
+      const had = Store.get(key, null);
+      if (view || !had || !had.html) Store.set(key, { html, at: Date.now() });
+      else if (!had.html.includes(html)) Store.set(key, { html: `${had.html}<p><b>From a shared setup</b></p>${html}`, at: Date.now() });
+    }
+    sharedSheets = view ? (desk.sheets || {}) : {};
+    if (!view) {
+      for (const [id, v] of Object.entries(desk.sheets || {})) {
+        try { if (!(await WKit.idb.get(`sheet:${id}`))) await WKit.idb.set(`sheet:${id}`, v); } catch {}
+      }
+    }
+    Dock.applyState(desk.state);
+  }
+
+  function ago(ts) {
+    if (!ts) return "";
+    const s = Date.now() / 1000 - ts;
+    if (s < 90) return "just now";
+    if (s < 3600) return `${Math.round(s / 60)} min ago`;
+    if (s < 86400) return `${Math.round(s / 3600)} h ago`;
+    const d = Math.round(s / 86400);
+    if (d < 30) return `${d} day${d === 1 ? "" : "s"} ago`;
+    return new Date(ts * 1000).toLocaleDateString([], { day: "2-digit", month: "short", year: "numeric" });
+  }
+
+  // The product's own domain, whichever door the page was opened through: the
+  // Azure hostname still answers, but a link people post must not carry it.
+  const PRODUCT_ORIGIN = "https://app.pivotnow.in";
+  const LOCAL_HOST = /^(localhost|127\.0\.0\.1)(:\d+)?$/;
+  function linkFor(token, symbol) {
+    const origin = LOCAL_HOST.test(location.host) ? location.origin : PRODUCT_ORIGIN;
+    return `${origin}/share/${encodeURIComponent(token)}`;
+  }
+
+  async function copyText(text, done) {
+    try { await navigator.clipboard.writeText(text); toast(done); }
+    catch { toast("Could not reach the clipboard. Select the link and copy it"); }
+  }
+
+  /* ══ dialogs ══════════════════════════════════════════════════════════ */
+
+  function dialog(html) {
+    const back = document.createElement("div");
+    back.className = "ly-back su-back";
+    back.innerHTML = `<div class="ly-dlg su-dlg" role="dialog" aria-modal="true">${html}</div>`;
+    document.body.appendChild(back);
+    const onKey = (e) => { if (e.key === "Escape") close(); };
+    const close = () => { back.remove(); document.removeEventListener("keydown", onKey); };
+    back.addEventListener("mousedown", (e) => { if (e.target === back) close(); });
+    document.addEventListener("keydown", onKey);
+    return { back, dlg: back.firstElementChild, close };
+  }
+
+  const sw = (name, on, label, sub) =>
+    `<label class="su-switch" data-sw="${name}">`
+    + `<span class="su-switch-text"><span>${esc(label)}</span>`
+    + (sub ? `<small>${esc(sub)}</small>` : "") + `</span>`
+    + `<span class="switch${on ? " on" : ""}" role="switch" aria-checked="${on}"><i></i></span></label>`;
+
+  /* ── Share ────────────────────────────────────────────────────────────── */
+
+  async function publish() {
+    if (Store.viewOnly) return toast("Make it mine first, then share your own version");
+    if (!Layouts.signedIn()) {
+      if (window.PIVOT_SIGNIN) window.PIVOT_SIGNIN("share");
+      return;
+    }
+    const spec = Layouts.snapshot();
+    if (!spec) return toast("The chart is still loading");
+    const c = window.__pivot;
+    const cur = Layouts.current;
+    const chat = (window.Chat && Chat.transcript) ? Chat.transcript() : [];
+    const thumb = Layouts.thumbnail();
+    let existing = null;
+    if (cur && cur.id) {
+      try { existing = ((await Layouts.call(`/setups?layout=${cur.id}`)).setups || [])[0] || null; }
+      catch { existing = null; }
+    }
+    const sym = c.symbol;
+    const iv = String(c.interval || "").toUpperCase();
+    const named = cur && cur.name && cur.name !== "Unnamed" ? cur.name : "";
+    const state = {
+      include_chat: existing ? existing.has_chat : chat.length > 0,
+      include_data: true,
+      allow_copy: existing ? existing.allow_copy : true,
+      mode: existing ? "update" : "new",
+    };
+    const live = typeof Dock !== "undefined" && Dock.exportState ? Dock.exportState() : null;
+    const preview = { ...spec, dock: live ? { state: live } : undefined };
+    const sp = spark(onScreen(c));
+    const firstAsk = (chat.find((t) => t.role === "user") || {}).content || "";
+    const row = (name, icon, on, label, sub, off) =>
+      `<label class="sx-opt${off ? " off" : ""}" data-sw="${name}"><span class="sx-opt-ic">${Icons.svg(icon, "xs")}</span>` +
+      `<span class="sx-opt-t"><span>${esc(label)}</span>${sub ? `<small>${esc(sub)}</small>` : ""}</span>` +
+      `<span class="switch${on ? " on" : ""}" role="switch" aria-checked="${on}"><i></i></span></label>`;
+
+    const { dlg, close } = dialog(`
+      <div class="sx">
+        <aside class="sx-art">
+          <div class="sx-kick">Your workspace</div>
+          ${deskMini(shapeOf(live), thumb, sym)}
+          ${idStrip(sym, iv, sp)}
+          <div class="sx-chips" id="sxChips"></div>
+        </aside>
+        <section class="sx-form">
+          <h3>Share this workspace</h3>
+          <p class="sx-lede">A read-only copy of your screen: the chart, every widget and its settings.
+             Anyone with the link opens it live, and can copy it to build on.</p>
+          <label class="ly-lab" for="suTitle">Title</label>
+          <input class="textfield" id="suTitle" maxlength="120" autocomplete="off"
+                 value="${esc(existing ? existing.title : named || `${sym} ${iv} workspace`)}">
+          <label class="ly-lab su-gap" for="suNote">Your read <span class="su-count" id="suCount"></span></label>
+          <textarea class="textfield su-note" id="suNote" maxlength="2000" rows="4"
+            placeholder="What are you seeing? The levels that matter, what would confirm it, what would prove it wrong.">${esc(existing ? existing.note : "")}</textarea>
+          <div class="sx-opts">
+            ${row("include_chat", "chat", state.include_chat, `The conversation${chat.length ? ` · ${chat.length} turns` : ""}`,
+                  chat.length ? `Starts with “${firstAsk.slice(0, 56)}${firstAsk.length > 56 ? "…" : ""}”` : "There is no conversation on this desk yet.", !chat.length)}
+            ${row("include_data", "note", state.include_data, "What the notes and sheets hold",
+                  "Their text and cells. Documents' files stay with you.")}
+            ${row("allow_copy", "copy", state.allow_copy, "Let others copy it", "Copies are theirs to edit. Yours never changes.")}
+          </div>
+          ${existing ? `<div class="su-seg" role="radiogroup" aria-label="Link">
+              <button type="button" data-mode="update" class="${state.mode === "update" ? "on" : ""}">Update the existing link</button>
+              <button type="button" data-mode="new" class="${state.mode === "new" ? "on" : ""}">Publish a new link</button>
+            </div>` : ""}
+        </section>
+      </div>
+      <div class="sx-foot">
+        <span class="su-privacy">${Icons.svg("lock", "xs")} Unlisted. Only people with the link can open it; your email is never shown.</span>
+        <div class="ly-actions">
+          <button class="btn" data-x>Cancel</button>
+          <button class="btn cta" data-ok>${Icons.svg("link", "xs")}<span>${existing ? "Update link" : "Publish"}</span></button>
+        </div>
+      </div>`);
+    dlg.classList.add("sx-dlg");
+
+    const paintManifest = () => {
+      dlg.querySelector("#sxChips").innerHTML =
+        manifest(preview, state.include_chat && chat.length ? chat.length : 0, state.include_data);
+    };
+    paintManifest();
+    const note = dlg.querySelector("#suNote"), count = dlg.querySelector("#suCount");
+    const recount = () => { count.textContent = note.value.length ? `${note.value.length}/2000` : ""; };
+    note.addEventListener("input", recount); recount();
+    dlg.querySelector("#suTitle").select();
+
+    dlg.addEventListener("click", (e) => {
+      const t = e.target.closest("[data-sw]");
+      if (t) {
+        e.preventDefault();
+        const k = t.dataset.sw;
+        if (k === "include_chat" && !chat.length) return;
+        state[k] = !state[k];
+        const s2 = t.querySelector(".switch");
+        s2.classList.toggle("on", state[k]);
+        s2.setAttribute("aria-checked", String(state[k]));
+        paintManifest();
+        return;
+      }
+      const m = e.target.closest("[data-mode]");
+      if (m) {
+        state.mode = m.dataset.mode;
+        dlg.querySelectorAll("[data-mode]").forEach((b) => b.classList.toggle("on", b === m));
+        dlg.querySelector("[data-ok] span").textContent = state.mode === "update" ? "Update link" : "Publish";
+      }
+    });
+    dlg.querySelector("[data-x]").onclick = close;
+    const ok = dlg.querySelector("[data-ok]");
+    ok.onclick = async () => {
+      const title = dlg.querySelector("#suTitle").value.trim();
+      if (!title) { dlg.querySelector("#suTitle").focus(); return toast("Give the setup a title"); }
+      ok.disabled = true;
+      ok.querySelector("span").textContent = "Publishing…";
+      // The card is a screenshot of the whole platform: shell, chart, widgets
+      // and the conversation when it is shared. The SERVER takes it, of the
+      // link as published (so it holds exactly what a reader may see), at
+      // this window's size and theme; no browser prompt. The chart-only card
+      // goes up with the setup first, as the image until the screenshot lands.
+      let top = window;
+      try { if (window.top && window.top.innerWidth) top = window.top; } catch { /* another origin */ }
+      const screenshot = {
+        w: top.innerWidth, h: top.innerHeight,
+        dpr: Math.min(2, Math.max(1, window.devicePixelRatio || 1)),
+        // the theme the author SEES: the shell's own ground, light or dark
+        scheme: (() => {
+          try {
+            const m = getComputedStyle(top.document.body).backgroundColor.match(/\d+(\.\d+)?/g) || [];
+            const [r, g, b] = m.map(Number);
+            if (m.length >= 3) return (0.2126 * r + 0.7152 * g + 0.0722 * b) > 128 ? "light" : "dark";
+          } catch { /* another origin */ }
+          return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+        })(),
+      };
+      try {
+        const desk = await deskOf(state.include_data, [...new Set((spec.charts || []).map((x) => x.symbol))]);
+        let ogImage = "", ogHires = "";
+        try {
+          ogImage = await ShareCard.render({
+            symbol: sym, interval: iv,
+            logo: Universe.logo(sym) || Universe.logo(Universe.baseSymbol(sym)) || "",
+            by: (Auth.user && Auth.user.name) || "",
+          });
+        } catch (e) { console.warn("Chart share card unavailable", e); }
+        if (!ogImage) try {
+          ogImage = await SharePreview.render({
+            title, note: note.value, thumb, symbol: sym, interval: iv,
+            bars: onScreen(c), chart: Layouts.capture(1400, 0.92),
+            by: (Auth.user && Auth.user.name) || "",
+            chatTurns: state.include_chat ? chat.length : 0,
+          });
+        } catch (e) { console.warn("Share preview unavailable", e); }
+        ok.querySelector("span").textContent = "Taking the screenshot…";
+        const body = {
+          ...(state.mode === "update" && existing ? { token: existing.token } : {}),
+          layout_id: cur && cur.id ? cur.id : undefined,
+          title, note: note.value, spec: desk ? { ...spec, dock: desk } : spec, thumb,
+          og_image: ogImage, symbol: sym, screenshot,
+          include_chat: !!(state.include_chat && chat.length), chat,
+          allow_copy: state.allow_copy,
+        };
+        const d = await Layouts.call("/setups", body);
+        // The server could not take it (its browser is down or not set up):
+        // the page makes its own card of the workspace, frame only, and
+        // updates the link with it.
+        if (!d.card && state.include_data) {
+          const wc = await WorkspaceCard.render({
+            withChat: !chat.length || !!state.include_chat,
+          }).catch(() => null);
+          if (wc) {
+            await Layouts.call("/setups", { ...body, token: d.token, screenshot: undefined,
+                                            og_image: wc.og, og_hires: wc.hires }).catch(() => null);
+            ogHires = wc.hires;
+          }
+        }
+        if (d.card) ogHires = "server";
+        published(dlg, close, d.token, sym, title, !d.created, deskMini(shapeOf(live), thumb, sym), !!ogHires);
+      } catch (err) {
+        ok.disabled = false;
+        ok.querySelector("span").textContent = existing ? "Update link" : "Publish";
+        toast(err.message);
+      }
+    };
+  }
+
+  // Share targets are plain links the reader's own apps open; nothing is
+  // sent from here. Each shows as a full-colour brand badge: the real mark in
+  // white, served as an image the same way the instrument logos are (a CDN by
+  // brand, not a hand-drawn path that distorts), on a disc of the brand colour.
+  const ICON = (slug) => `https://cdn.simpleicons.org/${slug}/white`;
+  // LinkedIn is not on Simple Icons (brand policy), so it carries its own white
+  // glyph inline rather than a slug. The others resolve to the CDN by slug.
+  const LINKEDIN = '<svg viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M20.45 20.45h-3.56v-5.57c0-1.33-.02-3.04-1.85-3.04-1.86 0-2.14 1.45-2.14 2.94v5.67H9.35V9h3.41v1.56h.05c.48-.9 1.64-1.85 3.37-1.85 3.6 0 4.27 2.37 4.27 5.46v6.28ZM5.34 7.43a2.07 2.07 0 1 1 0-4.14 2.07 2.07 0 0 1 0 4.14Zm1.78 13.02H3.56V9h3.56v11.45ZM22.22 0H1.77C.8 0 0 .78 0 1.73v20.54C0 23.22.8 24 1.77 24h20.45c.98 0 1.78-.78 1.78-1.73V1.73C24 .78 23.2 0 22.22 0Z"/></svg>';
+  const TARGETS = [
+    ["Facebook", (u) => `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(u)}`, "#1877F2", "facebook"],
+    ["X", (u, t) => `https://x.com/intent/post?text=${encodeURIComponent(t)}&url=${encodeURIComponent(u)}`, "#000000", "x"],
+    ["WhatsApp", (u, t) => `https://wa.me/?text=${encodeURIComponent(`${t} ${u}`)}`, "#25D366", "whatsapp"],
+    ["Telegram", (u, t) => `https://t.me/share/url?url=${encodeURIComponent(u)}&text=${encodeURIComponent(t)}`, "#229ED9", "telegram"],
+    ["LinkedIn", (u) => `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(u)}`, "#0A66C2", LINKEDIN],
+  ];
+  // A full-colour brand badge: a disc of the brand's colour (set per chip from
+  // --brand) carrying the real mark in white. The disc is the WRAPPER, so a
+  // dead CDN hides only the glyph and leaves the coloured disc — never a gap.
+  // An inline SVG (one starting with "<") is used as-is; a slug goes to the CDN.
+  const mark = (icon) => `<span class="sx-disc">${/^</.test(icon)
+    ? `<span class="sx-brand">${icon}</span>`
+    : `<img class="sx-brand" src="${ICON(icon)}" alt="" loading="lazy" onerror="this.style.display='none'"/>`}</span>`;
+
+  function published(dlg, close, token, sym, title, updated, mini, hires) {
+    const url = linkFor(token, sym);
+    dlg.classList.add("sx-done");
+    dlg.innerHTML = `
+      <div class="sx-ok">
+        <div class="sx-ok-art">${mini}
+          <svg class="sx-check" viewBox="0 0 52 52" aria-hidden="true"><circle cx="26" cy="26" r="23"/><path d="m15 27 7.5 7.5L37.5 19"/></svg>
+        </div>
+        <h3>${updated ? "The link shows this version now" : "Your workspace is live"}</h3>
+        ${updated ? `<p class="sx-lede">Anyone opening the link sees what is on your screen now. Copies people already took are unchanged.</p>` : ""}
+        <div class="sx-link">${Icons.svg("lock", "xs")}<input readonly value="${esc(url)}" aria-label="Share link">
+          <button class="btn icon sx-copy" data-copy title="Copy link" aria-label="Copy link">${Icons.svg("copy", "sm")}</button></div>
+        <div class="sx-share-lab">Share to</div>
+        <div class="sx-targets">
+          ${TARGETS.map(([n, , brand, slug], i) => `<button type="button" class="sx-target" data-t="${i}" title="Share on ${n}" style="--brand:${brand}">${mark(slug)}<span>${n}</span></button>`).join("")}
+        </div>
+      </div>
+      <div class="ly-actions">
+        <button class="btn" data-manage>${Icons.svg("eye", "xs")}<span>My shared setups</span></button>
+        <a class="btn" href="${esc(url)}" target="_blank" rel="noopener">${Icons.svg("externalLink", "xs")}<span>Open as a viewer</span></a>
+        ${hires ? `<a class="btn" href="${esc(url)}/image-4k.jpg" download="pivot-workspace.jpg">${Icons.svg("download", "xs")}<span>Download screenshot</span></a>` : ""}
+        <button class="btn" data-x>Done</button>
+      </div>`;
+    const input = dlg.querySelector(".sx-link input");
+    input.addEventListener("focus", () => input.select());
+    dlg.querySelector("[data-copy]").onclick = () => copyText(url, "Link copied");
+    dlg.querySelector("[data-x]").onclick = close;
+    dlg.querySelector("[data-manage]").onclick = () => { close(); manage(); };
+    dlg.querySelector(".sx-targets").addEventListener("click", (e) => {
+      const b = e.target.closest("[data-t]");
+      if (!b) return;
+      const text = `${title} · ${sym} on Pivot`;
+      if (b.dataset.t === "more") { navigator.share({ title: text, url }).catch(() => {}); return; }
+      const [, make] = TARGETS[+b.dataset.t];
+      open(make(url, text), "_blank", "noopener,noreferrer");
+    });
+    copyText(url, "Published. The link is on your clipboard");
+  }
+
+  /* ── the author's list ────────────────────────────────────────────────── */
+
+  async function manage() {
+    if (!Layouts.signedIn()) {
+      if (window.PIVOT_SIGNIN) window.PIVOT_SIGNIN("share");
+      return;
+    }
+    const { dlg, close } = dialog(`
+      <div class="su-head slim">
+        <h3>My shared setups</h3>
+        <span class="su-sub" id="suTotals"></span>
+      </div>
+      <div class="su-list" id="suList"><div class="su-loading">Loading…</div></div>
+      <div class="ly-actions"><button class="btn" data-x>Close</button></div>`);
+    dlg.classList.add("su-manage");
+    dlg.querySelector("[data-x]").onclick = close;
+    let list = [];
+    const render = () => {
+      const box = dlg.querySelector("#suList");
+      const views = list.reduce((a, s) => a + s.views, 0);
+      const copies = list.reduce((a, s) => a + s.copies, 0);
+      dlg.querySelector("#suTotals").textContent = list.length
+        ? `${list.length} live · ${views} views · ${copies} copies` : "";
+      if (!list.length) {
+        box.innerHTML = `<div class="sx-empty">${Icons.svg("link", "sm")}<b>Nothing shared yet</b>` +
+          `<span>Share, in the top bar, publishes the workspace you are on as a read-only link.</span></div>`;
+        return;
+      }
+      box.innerHTML = list.map((s) => `
+        <div class="su-row" data-token="${esc(s.token)}" data-symbol="${esc(s.symbol)}">
+          <div class="su-row-main">
+            <div class="su-row-title">${esc(s.title)}
+              ${s.has_chat ? '<span class="ly-tag alt">Chat</span>' : ""}
+              ${s.allow_copy ? "" : '<span class="ly-tag alt">View only</span>'}</div>
+            <div class="su-row-sub"><span class="su-mono">${esc(s.symbols.join(" · "))}${s.interval ? " " + esc(s.interval.toUpperCase()) : ""}</span>
+              <span class="ly-dotsep">·</span> updated ${esc(ago(s.updated))}</div>
+          </div>
+          <div class="su-stats su-mono" title="${s.views} views · ${s.copies} copies">
+            <span>${Icons.svg("eye", "xs")}${s.views}</span>
+            <span>${Icons.svg("copy", "xs")}${s.copies}</span>
+          </div>
+          <div class="su-row-acts">
+            <button class="btn icon" data-act="copy" title="Copy link">${Icons.svg("link", "xs")}</button>
+            <a class="btn icon" data-act="open" title="Open as a viewer" target="_blank" rel="noopener"
+               href="${esc(linkFor(s.token, s.symbol))}">${Icons.svg("externalLink", "xs")}</a>
+            <button class="btn icon su-danger" data-act="unpublish" title="Unpublish">${Icons.svg("trash", "xs")}</button>
+          </div>
+        </div>`).join("");
+    };
+    try { list = (await Layouts.call("/setups")).setups || []; }
+    catch (e) { list = []; toast(e.message); }
+    render();
+    dlg.addEventListener("click", async (e) => {
+      const b = e.target.closest("[data-act]");
+      if (!b) return;
+      const row = b.closest(".su-row");
+      const tok = row.dataset.token;
+      if (b.dataset.act === "copy") return copyText(linkFor(tok, row.dataset.symbol), "Link copied");
+      if (b.dataset.act === "unpublish") {
+        if (row.classList.contains("confirm")) {
+          try {
+            await Layouts.call("/setups", { token: tok, delete: true });
+            list = list.filter((s) => s.token !== tok);
+            render();
+            toast("Unpublished. The link no longer opens; copies people took are theirs");
+          } catch (err) { toast(err.message); }
+          return;
+        }
+        row.classList.add("confirm");
+        b.title = "Click again to unpublish";
+        toast("Click the bin again to unpublish this link");
+        setTimeout(() => row.classList.remove("confirm"), 3500);
+      }
+    });
+  }
+
+  /* ══ view mode ════════════════════════════════════════════════════════ */
+
+  function exitUrl(sym) {
+    const u = new URL(location.href);
+    u.searchParams.delete("view");
+    u.searchParams.delete("shared");
+    if (sym) u.searchParams.set("symbol", sym);
+    return u.toString();
+  }
+
+  async function fetchSetup(token) {
+    // The page's own link was asked for by store.js before anything booted;
+    // reuse that answer rather than asking a second time.
+    let r = token === VIEW && Store.viewSetup ? await Store.viewSetup : null;
+    if (!r) {
+      const res = await fetch(`${API}/shared?token=${encodeURIComponent(token)}`,
+        { headers: (typeof Auth !== "undefined" && Auth.token) ? Auth.headers({}) : {} });
+      let body = {};
+      try { body = await res.json(); } catch { /* an HTML fall-through is a miss too */ }
+      r = { ok: res.ok, status: res.status, d: body };
+    }
+    const d = r.d || {};
+    if (!r.ok || !d.spec) return { error: d.error || "This setup is no longer shared", status: r.status };
+    // An older live layout link (`?shared=`) answers in the layout's shape;
+    // it is shown the same way, without a conversation or a copy button.
+    if (!d.token) {
+      return { token, title: d.name || "Shared layout", note: "", by: d.by || "A Pivot trader",
+               symbol: (d.symbols || [])[0] || ((d.spec.charts || [])[0] || {}).symbol,
+               symbols: d.symbols || [], spec: d.spec, chat: null, allow_copy: false,
+               lineage: [], updated: d.updated, created: d.updated, views: null,
+               copies: null, legacy: true };
+    }
+    return d;
+  }
+
+  function mountGone(msg) {
+    document.body.classList.add("view-only", "su-gone");
+    const bar = document.createElement("div");
+    bar.className = "su-bar gone";
+    bar.innerHTML = `<div class="sx-gone">${Icons.svg("link", "sm")}<b>This link is closed</b><span>${esc(msg)}</span></div>
+      <a class="btn cta" href="${esc(exitUrl())}">Open my chart</a>`;
+    (el("stage") || document.body).appendChild(bar);
+  }
+
+  function mountBar(d) {
+    const bar = document.createElement("div");
+    bar.className = "su-bar";
+    bar.id = "suBar";
+    const canCopy = d.allow_copy || d.own;
+    bar.innerHTML = `
+      <span class="su-badge">${Icons.svg("eye", "xs")}View only</span>
+      <span class="su-bar-sep"></span>
+      <span class="su-bar-title" title="${esc(d.title)}">${esc(d.title)}</span>
+      <span class="su-bar-by">by ${esc(d.by)}</span>
+      <span class="su-bar-sep"></span>
+      <button class="btn" data-act="link" title="Copy this link">${Icons.svg("link", "xs")}<span>Copy link</span></button>
+      <button class="btn cta" data-act="mine" ${canCopy ? "" : "disabled"}
+        title="${canCopy ? "Copy this setup into your own layouts and keep going" : "The author has made this setup view-only"}">
+        ${Icons.svg("copy", "xs")}<span>${canCopy ? "Make it mine" : "View only"}</span></button>`;
+    // In the HEADER, in the room the editing controls leave when they stand
+    // down (see body.view-only in the stylesheet). Floated over the candles
+    // it sat on the OHLC readout — the one line a reader most needs.
+    const header = document.querySelector("body > header");
+    const spacer = header && header.querySelector(".spacer");
+    if (spacer) {
+      bar.classList.add("in-header");
+      const after = document.createElement("div");
+      after.className = "spacer";
+      spacer.after(bar, after);
+    } else {
+      (el("stage") || document.body).appendChild(bar);
+    }
+    bar.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-act]");
+      if (!b) return;
+      if (b.dataset.act === "link") copyText(location.href, "Link copied");
+      if (b.dataset.act === "mine") makeItMine();
+    });
+  }
+
+  async function mountCard(d) {
+    const thread = el("thread");
+    if (!thread) return;
+    const c = window.__pivot;
+    const s = spark(onScreen(c));
+    const card = document.createElement("section");
+    card.className = "su-card";
+    card.id = "suCard";
+    const stats = d.legacy ? "" : `
+      <div class="su-card-stats su-mono">
+        <span title="Views">${Icons.svg("eye", "xs")}${d.views}</span>
+        <span title="Copies">${Icons.svg("copy", "xs")}${d.copies}</span>
+        <span title="Published">${Icons.svg("clock", "xs")}${esc(ago(d.updated))}</span>
+      </div>`;
+    const st = d.spec && d.spec.dock && d.spec.dock.state;
+    const iv = String(((d.spec && d.spec.charts) || [{}])[0].interval || "").toUpperCase();
+    card.innerHTML = `
+      ${st ? deskMini(shapeOf(st), d.thumb || "", d.symbol) : ""}
+      ${idStrip(d.symbol, iv, s)}
+      <h2 class="su-card-title">${esc(d.title)}</h2>
+      <div class="su-card-by"><span class="su-avatar">${esc((d.by || "?").trim().charAt(0).toUpperCase())}</span>
+        <span>${esc(d.by)}</span></div>
+      ${stats}
+      ${d.note ? `<div class="su-card-note">${esc(d.note)}</div>` : ""}
+      <div class="sx-chips">${manifest(d.spec, d.chat ? d.chat.length : 0, !!(d.spec && d.spec.dock && (d.spec.dock.notes || d.spec.dock.sheets)))}</div>
+      ${lineage(d.lineage)}
+      ${d.chat && d.chat.length ? `<div class="su-card-rule"><span>the conversation</span></div>` : ""}`;
+    thread.insertBefore(card, thread.firstChild);
+    // The thread opens at its newest turn, and chat.js keeps pulling it back
+    // there as turns lay out. A reader arriving from a link should meet the
+    // setup first and scroll down into how it was made — so hold the top
+    // while the thread settles, and let go the moment they touch it.
+    let touched = false;
+    const let_go = () => { touched = true; };
+    for (const ev of ["wheel", "touchstart", "keydown", "mousedown"]) {
+      thread.addEventListener(ev, let_go, { once: true, passive: true });
+    }
+    const t0 = performance.now();
+    (function hold() {
+      if (touched) return;
+      thread.scrollTop = 0;
+      if (performance.now() - t0 < 2500) requestAnimationFrame(hold);
+    })();
+
+    const wrap = document.querySelector(".composer-wrap");
+    if (wrap && !el("suReadonly")) {
+      const note = document.createElement("div");
+      note.className = "su-readonly";
+      note.id = "suReadonly";
+      const canCopy = d.allow_copy || d.own;
+      note.innerHTML = `<span class="su-ro-mark">${Icons.svg("lock", "xs")}</span>
+        <span class="su-ro-text">${canCopy
+          ? "This conversation is read-only. Make it mine to continue it on your own copy."
+          : "This setup is view-only. The author has not allowed copies."}</span>
+        ${canCopy ? `<button class="btn cta" data-mine>${Icons.svg("copy", "xs")}<span>Make it mine</span></button>` : ""}`;
+      wrap.appendChild(note);
+      const m = note.querySelector("[data-mine]");
+      if (m) m.onclick = makeItMine;
+    }
+  }
+
+  /** The reader's OWN working desk on this symbol, kept as a layout before
+   *  the copy opens over it. Opening any layout replaces the working desk;
+   *  a reader who clicked "Make it mine" on someone else's TCS setup did not
+   *  ask to lose the lines they had on their own TCS chart. Read straight
+   *  from localStorage: in a view session the store is memory (store.js). */
+  async function keepOwnDesk(sym) {
+    const rd = (k) => { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch { return null; } };
+    const scoped = (key) => (sym === "RELIANCE" ? `charto:${key}` : `charto:${sym}:${key}`);
+    const drawings = rd(`charto_drawings_v2_${sym}`) || [];
+    const scene = rd(scoped("scene")) || [];
+    if (!drawings.length && !scene.length) return null;
+    try {
+      const d = await Layouts.call("/layouts", {
+        name: `${sym} desk (before copy)`, symbols: [sym],
+        spec: { v: 1, grid: "1",
+                charts: [{ symbol: sym, interval: rd("charto:interval") || "5m" }],
+                workspace: { drawings, scene, indicators: rd("charto:indicators") || [],
+                             vp: rd(scoped("vp")) } },
+      });
+      return d.name;
+    } catch { return null; }
+  }
+
+  async function makeItMine() {
+    const d = viewing;
+    if (!d || d.legacy) return toast("This older link can be viewed but not copied");
+    if (!d.allow_copy && !d.own) return toast("The author has made this setup view-only");
+    // Opened as a bare link, the chart stands on its own, without the rest
+    // of Pivot. A copy is the reader moving in, so it is finished inside the
+    // whole platform: the shell asks them to sign in to Pivot (and returns
+    // here after), opens this setup on its Chart tab, and the frame completes
+    // the copy (mine=1, see enterView). Only where the shell serves this page
+    // — under /chart-app/ — since a local chart server has no shell to go to.
+    if (window.parent === window && /^\/chart-app\//.test(location.pathname)) {
+      const u = new URL("/", location.origin);
+      u.searchParams.set("symbol", d.symbol);
+      u.searchParams.set("view", d.token);
+      u.searchParams.set("mine", "1");
+      u.hash = "chart";
+      location.href = u.toString();
+      return;
+    }
+    if (typeof Auth === "undefined" || !Auth.token) {
+      // Signing in reloads the page; the intent survives it and finishes on
+      // the other side (see enterView).
+      try { sessionStorage.setItem("charto:pending-copy", d.token); } catch {}
+      if (window.PIVOT_SIGNIN) window.PIVOT_SIGNIN("save");
+      const desc = el("authDesc");
+      if (desc) {
+        desc.textContent = `Create a free account to copy “${d.title}” into your `
+          + "own layouts, with its drawings and conversation, and keep working on it.";
+      }
+      return;
+    }
+    const btns = document.querySelectorAll('[data-act="mine"], [data-mine]');
+    btns.forEach((b) => { b.disabled = true; const t = b.querySelector("span"); if (t) t.textContent = "Copying…"; });
+    try {
+      const kept = await keepOwnDesk(d.symbol);
+      if (kept) { try { sessionStorage.setItem("charto:kept-desk", kept); } catch {} }
+      const r = await Layouts.call("/setups/copy", { token: d.token });
+      if (r.chat && r.chat.length && r.chat_id) {
+        try {
+          sessionStorage.setItem("charto:adopt-chat",
+            JSON.stringify({ id: r.chat_id, turns: r.chat, title: d.title }));
+        } catch { /* the layout still copies; only its thread stays behind */ }
+      }
+      const u = new URL(exitUrl(r.symbol || d.symbol));
+      u.searchParams.set("layout", String(r.layout_id));
+      location.href = u.toString();
+    } catch (err) {
+      btns.forEach((b) => { b.disabled = false; const t = b.querySelector("span"); if (t) t.textContent = "Make it mine"; });
+      toast(err.message);
+    }
+  }
+
+  async function enterView() {
+    const c = window.__pivot;
+    const d = await fetchSetup(VIEW);
+    if (d.error) {
+      mountGone(d.status === 404 ? "The author has unpublished it, or the link is mistyped."
+                                 : d.error);
+      return;
+    }
+    // The chart's symbol is fixed at boot from ?symbol= (see layouts.js), so
+    // a link that names the wrong one — or none — is re-pointed first.
+    if (d.symbol && d.symbol !== c.symbol) {
+      const u = new URL(location.href);
+      u.searchParams.set("symbol", d.symbol);
+      location.replace(u.toString());
+      return;
+    }
+    viewing = d;
+    if (!CAPTURE) document.body.classList.add("view-only");
+    document.title = `${d.title} · ${d.symbol} — Pivot`;
+    // Locked, so a reader's click selects a shape and reads it but cannot
+    // drag the author's level somewhere it was never drawn.
+    const spec = JSON.parse(JSON.stringify(d.spec));
+    const ws = spec.workspace || (spec.workspace = {});
+    ws.drawings = (ws.drawings || []).map((x) => ({ ...x, locked: true }));
+    try { await Layouts.restore(spec); }
+    catch (e) { console.error("[pivot] setup restore", e); }
+    if (!CAPTURE) mountBar(d);
+    if (window.Chat && Chat.showShared) Chat.showShared(d.chat || []);
+    if (CAPTURE) return captureReady();
+    await mountCard(d);
+    let pending = null;
+    try { pending = sessionStorage.getItem("charto:pending-copy"); } catch {}
+    if (pending && pending === d.token && Auth.token) {
+      try { sessionStorage.removeItem("charto:pending-copy"); } catch {}
+      makeItMine();
+      return;
+    }
+    // Handed over from the bare link with "Make it mine" already chosen:
+    // finish it here, inside the shell. Off the URL first, so a reload is a
+    // view rather than a second copy.
+    const u = new URL(location.href);
+    if (u.searchParams.get("mine") === "1") {
+      u.searchParams.delete("mine");
+      history.replaceState(history.state, "", u.toString());
+      makeItMine();
+    }
+  }
+
+  /** Tell the screenshotting browser the picture is ready: the desk is
+   *  restored and the chart has painted its bars. */
+  async function captureReady() {
+    const c = window.__pivot;
+    for (let i = 0; i < 80 && !(c && c.state && c.state.bars && c.state.bars.length); i++) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    await document.fonts.ready.catch(() => null);
+    // The shell holds its own "Loading chart…" over this frame until the
+    // frame says it is up; a picture taken before that is of the placeholder.
+    for (let i = 0; i < 60; i++) {
+      let loading = false;
+      try { loading = !!window.parent.document.querySelector(".chart-frame-loading"); } catch { /* not framed by us */ }
+      if (!loading) break;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    await new Promise((r) => setTimeout(r, 900));       // widgets and the chat lay out
+    document.documentElement.dataset.captureReady = "1";
+  }
+
+  /* ── boot ─────────────────────────────────────────────────────────────── */
+
+  const shareBtn = el("shareBtn");
+  if (shareBtn) {
+    shareBtn.innerHTML = `${Icons.svg("link", "xs")}<span>Share</span>`;
+    shareBtn.addEventListener("click", () => publish());
+  }
+
+  // An older `?shared=<token>` link is turned into a view session before
+  // anything is drawn from it: without ?view= the store is the reader's real
+  // one, and restoring someone else's desk into it would overwrite theirs.
+  const legacy = new URLSearchParams(location.search).get("shared");
+  if (legacy && !VIEW) {
+    const u = new URL(location.href);
+    u.searchParams.delete("shared");
+    u.searchParams.set("view", legacy);
+    location.replace(u.toString());
+  } else if (VIEW) {
+    if (!CAPTURE) document.body.classList.add("view-only");
+    document.addEventListener("pivot:workspace-ready", () => { enterView(); }, { once: true });
+  } else {
+    // Arrived from "Make it mine" with drawings of your own on this symbol:
+    // say where they went, after the copy's own "Opened …" has been read.
+    let kept = null;
+    try { kept = sessionStorage.getItem("charto:kept-desk"); } catch {}
+    if (kept) {
+      try { sessionStorage.removeItem("charto:kept-desk"); } catch {}
+      document.addEventListener("pivot:workspace-ready", () => {
+        setTimeout(() => toast(`Your earlier drawings here were saved as “${kept}”`), 3200);
+      }, { once: true });
+    }
+  }
+
+  return { publish, manage, makeItMine, get viewing() { return viewing; },
+           // exposed for tests and for the eval harness
+           applyDesk, sheet, _kit: { spark, manifest, shapeOf, deskMini } };
+})();
+
+window.Setups = Setups;

@@ -1,0 +1,26 @@
+[Unit]
+Description=Pivot API (FastAPI, :8000)
+After=network-online.target
+[Service]
+User=pivot-api
+Group=pivot-runtime
+WorkingDirectory=/var/lib/pivot/pivot-api
+EnvironmentFile=/etc/pivot/runtime.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/pivot/venv/bin/python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 --workers 1 --no-access-log
+Restart=on-failure
+RestartSec=5
+UMask=0007
+MemoryMax=1800M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=tmpfs
+ProtectSystem=strict
+ReadWritePaths=/srv/pivot-data /var/lib/pivot/pivot-api
+InaccessiblePaths=/mnt /root /var/lib/waagent /var/lib/cloud
+RestrictSUIDSGID=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+[Install]
+WantedBy=multi-user.target

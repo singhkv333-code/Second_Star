@@ -1,0 +1,122 @@
+/**
+ * CompanyAutosuggest — the browse surface where you see companies WITHOUT
+ * clicking in. Proves each result row renders the company logo <img> (not
+ * just a monogram), and that the logo.dev attribution link is present.
+ */
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { CompanyAutosuggest } from "@/components/CompanyAutosuggest";
+import * as api from "@/lib/api";
+
+describe("CompanyAutosuggest logos", () => {
+  beforeEach(() => vi.restoreAllMocks());
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("filters the real instrument universe to crypto and opens its chart", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({
+      symbols: ["BTC-USD", "RELIANCE"],
+      names: { "BTC-USD": "Bitcoin / U.S. dollar", RELIANCE: "Reliance Industries" },
+      meta: { "BTC-USD": ["COINBASE", "crypto", 2] },
+    }) }));
+    vi.spyOn(api, "searchCompanies").mockResolvedValue({ data: { results: [] } });
+    const openChart = vi.fn();
+    render(<CompanyAutosuggest placeholder="Search instruments" onSelect={() => {}} onOpenChart={openChart} />);
+    fireEvent.focus(screen.getByLabelText("Search instruments"));
+    fireEvent.click(screen.getByRole("tab", { name: "Crypto" }));
+    expect(screen.getByRole("tab", { name: "Crypto" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByLabelText("Search symbols")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Search symbols"), { target: { value: "BTC" } });
+    expect(await screen.findByText("Bitcoin / U.S. dollar")).toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByRole("option", { name: /BTC-USD/ }));
+    expect(openChart).toHaveBeenCalledWith("BTC-USD");
+  });
+
+  it("renders the company logo image in each result row", async () => {
+    vi.spyOn(api, "searchCompanies").mockResolvedValue({
+      data: {
+        results: [
+          {
+            symbol: "TCS",
+            name: "Tata Consultancy Services",
+            sector: "IT",
+            has_fundamentals: true,
+            logo_url: "https://img.logo.dev/tcs.com?token=pk_test",
+          },
+        ],
+      },
+    } as Awaited<ReturnType<typeof api.searchCompanies>>);
+
+    render(<CompanyAutosuggest placeholder="Search companies" onSelect={() => {}} />);
+    fireEvent.change(screen.getByLabelText("Search companies"), {
+      target: { value: "TCS" },
+    });
+
+    const img = (await screen.findByAltText(
+      "Tata Consultancy Services logo",
+    )) as HTMLImageElement;
+    expect(img.tagName).toBe("IMG");
+    expect(img.getAttribute("src")).toContain("img.logo.dev/tcs.com");
+
+    // logo.dev attribution link is shown wherever logos render.
+    const attrib = screen.getByRole("link", { name: "Logo.dev" });
+    expect(attrib).toHaveAttribute("href", "https://logo.dev");
+  });
+
+  it("falls back to a monogram when a result has no logo_url", async () => {
+    vi.spyOn(api, "searchCompanies").mockResolvedValue({
+      data: {
+        results: [
+          {
+            symbol: "IRS02",
+            name: "Indemnity Shell",
+            sector: null,
+            has_fundamentals: false,
+            logo_url: null,
+          },
+        ],
+      },
+    } as Awaited<ReturnType<typeof api.searchCompanies>>);
+
+    render(<CompanyAutosuggest placeholder="Search companies" onSelect={() => {}} />);
+    fireEvent.change(screen.getByLabelText("Search companies"), {
+      target: { value: "IRS" },
+    });
+
+    await waitFor(() =>
+      expect(screen.queryByText("Indemnity Shell")).toBeInTheDocument(),
+    );
+    expect(screen.queryByAltText("Indemnity Shell logo")).toBeNull(); // monogram, no <img>
+    expect(screen.getByText("I")).toBeInTheDocument(); // first-letter monogram
+  });
+
+  it("shows Pivot-style venue, price, daily move, and relay status", async () => {
+    vi.spyOn(api, "searchCompanies").mockResolvedValue({
+      data: {
+        results: [
+          {
+            symbol: "RELIANCE",
+            name: "Reliance Industries Limited",
+            sector: "Energy",
+            has_fundamentals: true,
+            logo_url: null,
+            exchange: "NSE",
+            instrument_type: "Equity",
+            price: 1309,
+            change_pct: -0.37,
+            currency: "INR",
+            quote_source: "dataserver_relay",
+          },
+        ],
+      },
+    } as Awaited<ReturnType<typeof api.searchCompanies>>);
+
+    render(<CompanyAutosuggest placeholder="Search instruments" onSelect={() => {}} />);
+    fireEvent.change(screen.getByLabelText("Search instruments"), {
+      target: { value: "Reliance" },
+    });
+
+    expect(await screen.findByText("NSE")).toBeInTheDocument();
+    expect(screen.getByText("₹1,309.00")).toBeInTheDocument();
+    expect(screen.getByText("-0.37% · delayed")).toBeInTheDocument();
+  });
+});

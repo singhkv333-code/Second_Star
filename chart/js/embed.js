@@ -1,0 +1,197 @@
+/* Pivot preview — the embed seam.
+ *
+ * The chart is becoming a route inside Pivot's Next.js shell (/chart) rather
+ * than a separate site, and it gets there in an iframe. That is a deliberate
+ * choice over a port: this app is 26k lines of vanilla JS over a vendored
+ * Lightweight Charts bundle with six hand-applied patches (VENDOR_PATCHES.md),
+ * and rewriting it as React would risk every one of them for nothing a user
+ * can see.
+ *
+ * THREE THINGS THE FRAME NEEDS, AND HOW LITTLE THIS FILE HAS TO DO
+ *
+ *   Auth   — nothing. The token lives in localStorage under
+ *            "charto:auth:token", and the frame is SAME-ORIGIN in production
+ *            (nginx serves both the shell and this app). Same origin means the
+ *            same localStorage, so a user signed in on the shell is already
+ *            signed in here. Cross-origin would need a token hand-off; it is
+ *            not built, because the topology does not call for it.
+ *
+ *   Symbol — nothing. This app already changes symbol by assigning
+ *            `location.search = "?symbol=X"` and reloading (main.js:4445), and
+ *            layouts.js says in as many words that the primary symbol is fixed
+ *            at boot. The parent therefore switches symbols by setting the
+ *            iframe's src, which is the same reload through the same door. A
+ *            postMessage that tried to swap the symbol in place would be a
+ *            second, weaker mechanism for something that already works.
+ *
+ *   Theme  — this file. The shell owns the theme toggle; a user flipping to
+ *            light must not leave a dark chart sitting in the middle of the
+ *            page. `Theme.set(mode)` repaints canvas and CSS together.
+ *
+ * INERT WHEN NOT FRAMED. Standalone is still the primary way this app runs —
+ * it is what `/` serves today — so everything below is behind the top-window
+ * check and adds one listener when embedded, nothing when not.
+ */
+"use strict";
+
+(() => {
+  // Not in a frame: the standalone app owns its own theme and says nothing to
+  // anybody. Returning here is what keeps this file free at `/`.
+  if (window.parent === window) return;
+
+  // Framed: the parent owns the shared header and sidebar. `.in-shell` keeps
+  // this app's chart-specific controls while hiding its duplicate global
+  // chrome. Also set inline in <head> so it lands before first paint.
+  const root = document.documentElement;
+  root.classList.add("in-shell");
+  // Signed out, the shell's header carries a "Create free account" button
+  // where the avatar would be, so this header leaves it the room.
+  try { if (!localStorage.getItem("charto:auth:token")) root.classList.add("shell-guest"); } catch { /* storage denied */ }
+
+  // Same-origin only. In production nginx serves the shell and this app from
+  // one origin, so a message from anywhere else is not the shell — it is
+  // somebody else's page that has framed us, and it does not get to repaint
+  // the chart or learn what the user is looking at.
+  const trusted = (e) => e.origin === window.location.origin && e.source === window.parent;
+
+  const tell = (msg) => {
+    try {
+      window.parent.postMessage(msg, window.location.origin);
+    } catch { /* the parent went away mid-navigation; nothing to do */ }
+  };
+
+  /* Company pages belong to the React shell, not inside this iframe. A plain
+   * anchor navigates the frame itself; the shell's stock route correctly
+   * refuses to be framed, so the click appears to do nothing. Relay the
+   * user's explicit click to the parent instead. Capture phase is deliberate:
+   * the symbol menu stops bubbling on its row-end link so a company-page click
+   * does not also select that symbol for the chart. */
+  document.addEventListener("click", (e) => {
+    const link = e.target.closest("[data-company-symbol]");
+    if (!link) return;
+    const symbol = String(link.dataset.companySymbol || "").trim().toUpperCase();
+    if (!symbol || symbol.length > 64) return;
+    e.preventDefault();
+    tell({ type: "pivot:open-company", symbol });
+  }, true);
+
+  // Inside the unified shell the chart's conversation keeps whatever state
+  // the user left it in (js/chat.js remembers it). It used to be closed here
+  // on EVERY load, so each refresh took away a chat that was open — and the
+  // close, landing while the desk was still being laid out, resized the
+  // chart mid-restore. The shell hides its Quick Ask while this chat is open,
+  // so the two never show at once; every open/close is reported to it.
+  const chatPanel = document.getElementById("chatPanel");
+  const chatToggle = document.getElementById("chatToggle");
+  const tellChatVisibility = () => tell({
+    type: "chart:chat-visibility",
+    open: !!chatPanel && !chatPanel.classList.contains("hidden"),
+  });
+  if (chatPanel && chatToggle) {
+    new MutationObserver(tellChatVisibility).observe(chatPanel, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+    tellChatVisibility();
+  }
+
+  /* ── MODALS NEED THE WHOLE WINDOW ────────────────────────────────────────
+   * `position: fixed` resolves against the IFRAME's viewport, not the page's.
+   * So this app's dialogs — chart settings, indicator settings, alerts,
+   * shortcuts, the layout dialogs, the mobile sheet, the auth screen — could
+   * only ever centre inside the chart pane and dim the chart alone, leaving
+   * the shell's sidebar, top bar and right-hand rail lit and clickable behind
+   * a supposedly modal card. Framed, the pane is also lifted one header height
+   * (`.chart-shell-pane .chart-frame-wrap` in the shell's globals.css), which
+   * is why the card sat visibly high as well as inset.
+   *
+   * The fix is geometric, not per-dialog: while any full-screen overlay is
+   * open, the shell floats THIS FRAME over the whole window. Every fixed
+   * overlay inside then resolves against the real viewport at once, so the
+   * scrim covers the app and the card centres on the window — with no dialog
+   * rewritten, and no second copy of these surfaces in React.
+   *
+   * Detected by class rather than wired into ~15 call sites: every one of
+   * these is `inset: 0` + `.open`, already this app's convention.
+   */
+  const OVERLAYS = ".dlg-wrap, .ly-back, .sheet-host, .auth-screen";
+  let overlaid = null;
+  const syncOverlay = () => {
+    // `.open` is the shared convention; .ly-back is shown by inline display
+    // instead, so treat "in the DOM and not display:none" as open for it.
+    const top = Array.prototype.filter.call(
+      document.querySelectorAll(OVERLAYS),
+      (n) => n.classList.contains("open") ||
+             (n.classList.contains("ly-back") && n.style.display !== "none"),
+    ).pop();
+    // The shell veils the strip of window the frame cannot cover (its nav
+    // rail) itself, so it needs THIS dialog's veil: alerts use a lighter one,
+    // indicator settings none at all. A fixed shade there drew a seam where
+    // the two met.
+    const veil = top ? getComputedStyle(top).backgroundColor : null;
+    const key = top ? veil : null;
+    if (key === overlaid) return;         // only speak when it actually changes
+    overlaid = key;
+    tell({ type: "chart:overlay", open: !!top, veil });
+  };
+  new MutationObserver(syncOverlay).observe(document.body, {
+    subtree: true, childList: true, attributes: true,
+    attributeFilter: ["class", "style"],
+  });
+  syncOverlay();
+
+  window.addEventListener("message", (e) => {
+    if (!trusted(e)) return;
+    const d = e.data;
+    if (!d || typeof d !== "object") return;
+    if (d.type === "pivot:hello") announce();
+
+    if (d.type === "pivot:chart-resize") {
+      document.dispatchEvent(new CustomEvent("pivot:viewport"));
+    }
+    if (d.type === "pivot:workspace-theme") {
+      window.PivotWorkspaceTheme?.setTheme(d.theme, false);
+    }
+    if (d.type === "pivot:theme" && (d.mode === "dark" || d.mode === "light")) {
+      // `persist` left true on purpose: if the user goes back to the chart
+      // standalone, it should still be wearing the theme they chose in the
+      // shell. One theme per person, not one per surface.
+      try { Theme.set(d.mode); } catch { /* theme.js not up yet */ }
+    }
+
+    // Global shell Quick Ask on the Chart route is only an entry point into
+    // Pivot's existing sidebar. Keep its separate model, messages and thread.
+    if (d.type === "pivot:chart-ask") {
+      const text = String(d.text || "").trim();
+      if (text && window.Chat && typeof window.Chat.ask === "function") {
+        window.Chat.ask(text);
+      }
+    }
+  });
+
+  // Tell the shell we are alive, and which symbol we ended up on. The shell
+  // uses this to label its own chrome — it cannot read the iframe's URL
+  // (same-origin would allow it, but the shell should not be reaching into
+  // this app's internals to find out something the app can simply say).
+  const announce = (tries = 0) => {
+    // A loaded HTML document is not sufficient: failed scripts can leave
+    // the static controls on screen without ever constructing the chart.
+    // But the canvas can also simply be late (a slow device, a slow first
+    // fetch), and saying "error" once on `load` left the shell on "Loading
+    // chart…" for good. So look again for up to ten seconds first.
+    if (!document.querySelector("#chart canvas")) {
+      if (tries < 40) setTimeout(() => announce(tries + 1), 250);
+      else tell({ type: "chart:error" });
+      return;
+    }
+    let symbol = null;
+    try {
+      symbol = new URLSearchParams(window.location.search).get("symbol");
+    } catch { /* ignore */ }
+    tell({ type: "chart:ready", symbol });
+    tellChatVisibility();
+  };
+
+  if (document.readyState === "complete") announce();
+  else window.addEventListener("load", announce);
+})();

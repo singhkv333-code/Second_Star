@@ -55,7 +55,7 @@ marketing copy, because TV changes its tables often.
   - A monthly quota is fairest on the **billing anchor** for paid users and on the calendar month for Free.
   - Store `window_key` (e.g. `d:2026-09-28` or `m:2026-09`) on each ledger row.
 - **Race safety.**
-  - The check and the debit must be one atomic step: under the same lock (Pivot already has `ds._users_lock` over `charto_users.db`), or as a conditional write: `INSERT … SELECT … WHERE (SELECT SUM(amount) …) + :n <= :limit`.
+  - The check and the debit must be one atomic step: under the same lock (Pivot already has `ds._users_lock` over `users.db`), or as a conditional write: `INSERT … SELECT … WHERE (SELECT SUM(amount) …) + :n <= :limit`.
   - For live-object caps, do `COUNT(*)` and `INSERT` inside the same lock. The current `alerts.api_create` counts under one lock acquisition and inserts under another, which is a TOCTOU window.
 - **When to debit AI.**
   - Debit **before** the expensive call, and reverse on a hard failure where no model output was produced (5xx or a provider outage). Otherwise one retry storm drains a Free user.
@@ -183,7 +183,7 @@ it consolidates eight earlier circulars)
 ## Recommendations for Pivot
 
 1. **Catalog as data**: `plans_catalog.json` with keys such as `ai.credits.daily`, `ai.summaries.daily`, `alerts.price`, `alerts.technical`, `alerts.watchlist`, `alerts.expiry_days`, `screens.saved`, `alerts.screen`, `chart.indicators`, `layout.charts`, `chart.parallel`, `chart.custom_tf`, `bars.intraday_max`, `ads.free`. Use `null`/`"unlimited"` for unlimited. Code checks keys only.
-2. **Plan state in `charto_users.db`** (the user plane, one lock, per DATA_MAP): `subscriptions(user_id, plan, status, current_period_end, provider_sub_id)` plus an append-only `usage_ledger`. Never a second DB.
+2. **Plan state in `users.db`** (the user plane, one lock, per DATA_MAP): `subscriptions(user_id, plan, status, current_period_end, provider_sub_id)` plus an append-only `usage_ledger`. Never a second DB.
 3. **One helper, called after `_auth_user`, before any side effect**. It returns `402 {error, code, feature, limit, used, plan, upgrade_to, resets_at}`. Reserve 429 for the existing capacity 503s and rate limits.
 4. **Alerts**: derive price vs technical from the spec with the TV rule (ENDPOINTS §4). Count **armed** rows per class (TV counts *active* alerts), and gate create, re-arm (`state:"armed"`) and any class-changing edit. With armed-only counting, the lead's downgrade auto-pause frees slots, and re-arm is where the limit bites. Today's `MAX_PER_USER` counts `state!='fired'`; pick one rule and use it everywhere. Put the gate inside `alerts.api_create`/`api_patch`, so chat (`set_alert`/`update_alert`) and HTTP share it. Close the COUNT→INSERT lock gap while there.
 5. **Expiry: clamp, do not refuse**. On Free and Pro, `expires = min(requested or ∞, now + plan_days)`, including when a patch sends `expires: null`. Say the date in the tool `_note`.
@@ -194,7 +194,7 @@ it consolidates eight earlier circulars)
 8. **Historical bars**: follow TV. Cap **intraday** depth only (`/bars`, `/indicator`, chat `get_bars`, clamping both `limit` and the `to` cursor). Daily and above stay unlimited on every plan.
 9. **Charts per tab**: enforce on `/layouts` save/copy (`len(spec.charts)`) and in `open_chart(layout=)`. The FE greys out grids above the limit using `/auth/me` entitlements.
 10. **Parallel charts**: follow TV semantics (one tab = one connection, evict the oldest, never hard-refuse). This needs `/stream` to carry identity, so it can come after v1.
-11. **Build before gating**: watchlist alerts, screen alerts and saved screens have **no backing store in charto**, and custom timeframes do not exist either. Ship these rows as "coming" or build them first. Never show a gate on a feature that is not there.
+11. **Build before gating**: watchlist alerts, screen alerts and saved screens have **no backing store in the dataserver**, and custom timeframes do not exist either. Ship these rows as "coming" or build them first. Never show a gate on a feature that is not there.
 12. **Downgrade**: entitlements last to `current_period_end`. Over-limit alerts are auto-**paused** (newest kept) with a visible reason, and never deleted. Layouts stay openable. New creation is refused until the user is under the limit.
 13. **Razorpay**: verify HMAC over the raw body with the webhook secret, dedupe on `x-razorpay-event-id` in a `billing_events` table, drive state from the payload's subscription `status`, and treat `pending` as paid and `halted`/`cancelled`-past-period-end as Free.
 14. **Pricing display**: decide GST-inclusive (recommended for B2C) and show the identical rupee figure on the pricing page, at checkout and on the invoice.

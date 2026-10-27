@@ -21,7 +21,7 @@ Entry point is **inside the chat**. No standalone `/agents` route in v1 — the 
 
 ## 2. Repo layout (adapted from spec to actual repo)
 
-The original spec assumed `src/...`. This repo uses `pivot/backend/...`. Path conventions for this sprint:
+The original spec assumed `src/...`. This repo uses `api/backend/...`. Path conventions for this sprint:
 
 **Backend (Python, FastAPI, sync SQLAlchemy 2):**
 ```
@@ -59,9 +59,9 @@ pivot/
     └── workflows/              # NEW — unit + integration tests
 ```
 
-**Frontend (Next.js 15 at `pivot-next/`):**
+**Frontend (Next.js 15 at `app/`):**
 ```
-pivot-next/
+app/
 ├── package.json                # Next.js 15 + shadcn + Tailwind + dnd-kit + …
 ├── components.json             # shadcn config
 ├── tailwind.config.ts
@@ -100,7 +100,7 @@ pivot-next/
 | Migrations | Alembic | matches repo; first version is `0001_workflows.py` |
 | Scheduler | APScheduler `AsyncIOScheduler` | extend existing `backend/scheduler.py`, don't add a parallel scheduler |
 | LLM (propose_workflow) | Sarvam (existing chatbot pipeline) | reuse `backend/agents/...` plumbing |
-| Frontend | Next.js 15 (app router) | new dir `pivot-next/` |
+| Frontend | Next.js 15 (app router) | new dir `app/` |
 | UI | shadcn/ui + Tailwind | pinned versions in `package.json` |
 | Forms | react-hook-form + zod | forms generated from JSON schemas |
 | DnD | @dnd-kit/sortable | NOT React Flow / xyflow — linear list |
@@ -369,7 +369,7 @@ POST   /api/webhooks/{token}                   # external trigger endpoint
 WS     /api/runs/{id}/stream                   # server pushes step status changes
 ```
 
-Authn: existing JWT bearer (matches `pivot/backend/auth/`). All `/api/workflows*`, `/api/runs*`, `/api/approvals*` are user-scoped — every query filters by `user_id`. Webhooks are unauthenticated but require a valid `token`.
+Authn: existing JWT bearer (matches `api/backend/auth/`). All `/api/workflows*`, `/api/runs*`, `/api/approvals*` are user-scoped — every query filters by `user_id`. Webhooks are unauthenticated but require a valid `token`.
 
 ---
 
@@ -483,7 +483,7 @@ Plus: backend tests pass, frontend tests pass, lint clean, no `TODO`/`FIXME`/`XX
 | Day | Backend | Frontend | Reviewer |
 |---|---|---|---|
 | 0 | — | — | architecture + API contract docs (this doc + API_CONTRACT.md) |
-| 1 | schema migration, Pydantic models, `/api/step-types` | scaffold `pivot-next/`, shadcn setup, panel shell, mock data renderer | lock API contract |
+| 1 | schema migration, Pydantic models, `/api/step-types` | scaffold `app/`, shadcn setup, panel shell, mock data renderer | lock API contract |
 | 2-4 | engine, all executors, REST endpoints, WebSocket | editor, step config drawer, picker, mock run view | integration tests, edge case backlog |
 | 5 | — | wire to real backend; demo path manually | bug bash |
 | 6 | `propose_workflow` tool | chat → panel draft load flow | validate with 10 NL prompts |

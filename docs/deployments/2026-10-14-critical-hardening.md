@@ -7,17 +7,17 @@ Applied to `pivot-clean-stage`, serving `app.pivotnow.in` and the existing Azure
 ### Shared feeds and replay
 
 - `GET /live?status=1` stays read-only/public.
-- Control GETs return 405. Control POSTs require `X-Pivot-Feed-Key` matching server-only `CHARTO_FEED_CONTROL_KEY`; ordinary sessions/admin email matching cannot authorize them. Missing configuration denies everyone.
+- Control GETs return 405. Control POSTs require `X-Pivot-Feed-Key` matching server-only `PIVOT_FEED_CONTROL_KEY`; ordinary sessions/admin email matching cannot authorize them. Missing configuration denies everyone.
 - `/replay` GET and POST return 403. Shared replay remains disabled until isolated from production data. Normal candle reads and chart streams remain available.
-- An operator key was generated on the VM in the protected runtime environment. It was not printed or added to Git. Google sign-in remains disabled by default; re-enabling it requires explicit `CHARTO_GOOGLE_SIGNIN_ENABLED` configuration and a separate safe identity-linking design.
+- An operator key was generated on the VM in the protected runtime environment. It was not printed or added to Git. Google sign-in remains disabled by default; re-enabling it requires explicit `PIVOT_GOOGLE_SIGNIN_ENABLED` configuration and a separate safe identity-linking design.
 
 ### Account identity
 
-New `public.charto_account_links` binds immutable Charto user IDs to distinct Pivot IDs, with unique constraints and a foreign key. The bridge creates a new password-disabled Pivot identity only if no independently existing email account collides, and never marks password signup as email-verified. Existing bindings require an active Pivot account. Missing schema/configuration fails closed.
+New `public.charto_account_links` binds immutable the dataserver user IDs to distinct Pivot IDs, with unique constraints and a foreign key. The bridge creates a new password-disabled Pivot identity only if no independently existing email account collides, and never marks password signup as email-verified. Existing bindings require an active Pivot account. Missing schema/configuration fails closed.
 
-`POST /pv/auth/link-charto` requires a genuine, non-revoked Pivot JWT in `Authorization: Bearer …` and a valid Charto session in `X-Charto-Token`. Both accounts must have matching emails, and conflicting bindings are rejected. The server validates both credentials; an email alone never authorizes linking.
+`POST /pv/auth/link-charto` requires a genuine, non-revoked Pivot JWT in `Authorization: Bearer …` and a valid dataserver session in `X-The dataserver-Token`. Both accounts must have matching emails, and conflicting bindings are rejected. The server validates both credentials; an email alone never authorizes linking.
 
-**User-visible migration boundary:** seven current Charto accounts have an independently existing Pivot account with the same email. They are not automatically linked; owners need one-time proof of both logins. Their Charto accounts, sessions and workspace state remain intact. No existing account was auto-approved or reassigned. This endpoint is currently an API flow, not a new frontend wizard. Ten current identities had no Pivot email collision and can create their own binding on first use. No matching password-disabled legacy bridge record was found to migrate.
+**User-visible migration boundary:** seven current dataserver accounts have an independently existing Pivot account with the same email. They are not automatically linked; owners need one-time proof of both logins. Their dataserver accounts, sessions and workspace state remain intact. No existing account was auto-approved or reassigned. This endpoint is currently an API flow, not a new frontend wizard. Ten current identities had no Pivot email collision and can create their own binding on first use. No matching password-disabled legacy bridge record was found to migrate.
 
 ### PostgreSQL network
 
@@ -46,7 +46,7 @@ The Azure route proxies the existing Next waitlist handler on :5175. It accepts 
 - Feed-control GET → 405; anonymous control POST → 403; replay GET/POST → 403; live status → 200.
 - Linking without a genuine Pivot JWT → 401; local tests cover email collision, active/inactive binding, missing schema, unverified new identities and possession of both accounts.
 - Security tests: 3 shared-control tests and 6 identity tests passed. Including related billing/entitlement regression coverage: 53 tests passed (47 + 6). The Unicode operator-header rejection was additionally rerun in the 3 security tests.
-- nginx configuration and changed Python files compiled successfully; Charto and Pivot API restarted and passed health checks; backup remained fresh.
+- nginx configuration and changed Python files compiled successfully; the dataserver and Pivot API restarted and passed health checks; backup remained fresh.
 - A fresh PostgreSQL connection from the serving VM succeeded after hardening.
 - Synthetic waitlist submissions through both Azure and Vercel returned 200 and were confirmed in PostgreSQL. Every synthetic row was removed. The Vercel test was repeated after removal of the broad firewall rule and still passed.
 - Firewall readback confirmed only the seven single-address rules above.
@@ -61,14 +61,14 @@ Rollback selectively: restore affected application/nginx files from the backup a
 
 ## Files
 
-- `charto/data/dataserver.py` (only security hunks)
-- `charto/data/test_feed_security.py`
-- `charto/deploy/nginx-charto.conf`
-- `charto/deploy/harden_launch_controls.py`
-- `pivot/backend/auth/charto_session.py`
-- `pivot/backend/auth/router.py`
-- `pivot/backend/tests/test_charto_identity_binding.py`
-- `pivot/migrations/security/20261014_charto_account_links.sql`
+- `dataserver/dataserver.py` (only security hunks)
+- `dataserver/tests/test_feed_security.py`
+- `deploy/nginx-the dataserver.conf`
+- `deploy/harden_launch_controls.py`
+- `api/backend/auth/dataserver_session.py`
+- `api/backend/auth/router.py`
+- `api/backend/tests/test_dataserver_identity_binding.py`
+- `api/migrations/security/20261014_charto_account_links.sql`
 - this deployment record
 
 ## Reviewed automated-release candidate

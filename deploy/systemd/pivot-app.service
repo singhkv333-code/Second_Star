@@ -1,0 +1,30 @@
+[Unit]
+Description=Pivot app (Next.js, :3000)
+After=network-online.target
+[Service]
+User=pivot-web
+Group=pivot-runtime
+WorkingDirectory=/var/lib/pivot/app
+EnvironmentFile=/etc/pivot/runtime.env
+Environment=PYTHONUNBUFFERED=1
+Environment=NODE_ENV=production
+Environment=HOSTNAME=127.0.0.1
+Environment=PORT=3000
+Environment=PIVOT_BACKEND_ORIGIN=http://127.0.0.1:8000
+ExecStart=/usr/bin/node @RELEASE@/app/.next/standalone/server.js
+Restart=on-failure
+RestartSec=5
+UMask=0007
+MemoryMax=1200M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=tmpfs
+ProtectSystem=strict
+ReadWritePaths=/srv/pivot-data /var/lib/pivot/app
+InaccessiblePaths=/mnt /root /var/lib/waagent /var/lib/cloud
+RestrictSUIDSGID=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+[Install]
+WantedBy=multi-user.target

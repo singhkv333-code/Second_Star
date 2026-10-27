@@ -1,6 +1,6 @@
 # One chat that runs the whole workspace — plan
 
-2026-10-10 · charto (`charto/preview`, `charto/data/dataserver.py`)
+2026-10-10 · the dataserver (`chart`, `dataserver/dataserver.py`)
 
 ## What we are building
 

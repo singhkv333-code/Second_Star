@@ -24,21 +24,21 @@ This implementation does not change DNS or Google account settings.
 The clean serving VM is `PIVOT/pivot-clean-stage`. Store the app password in
 `/etc/pivot/alert-smtp-password`, root-owned, group `pivot-data`, mode `0640`;
 never in Git, browser code, chat, a shell argument or a log. Copy the non-secret
-fields from [the example](../charto/deploy/alerts-mail.env.example) to
+fields from [the example](../deploy/alerts-mail.env.example) to
 `/etc/pivot/alerts-mail.env` with the same owner/group/mode. Add this systemd
-drop-in for the `charto` service:
+drop-in for the `the dataserver` service:
 
 ```ini
-# /etc/systemd/system/charto.service.d/alerts-mail.conf
+# /etc/systemd/system/the dataserver.service.d/alerts-mail.conf
 [Service]
 EnvironmentFile=/etc/pivot/alerts-mail.env
 ```
 
-Reload systemd and restart **only charto** once the source files are installed.
+Reload systemd and restart **only the dataserver** once the source files are installed.
 Do not restart the broker feed unnecessarily or touch the rollback VM.
 If the account is not yet configured, triggers remain in-app and emails are
 pending, never falsely marked sent. The dialog reports sender unavailability.
-An environment-only `CHARTO_SMTP_PASSWORD` is also supported for a secret
+An environment-only `PIVOT_SMTP_PASSWORD` is also supported for a secret
 manager that injects process environment, but the private file is preferred.
 
 ### Deployment verification — 10 October 2026
@@ -48,7 +48,7 @@ The scoped deployment completed on `pivot-clean-stage`:
 `0`, and `ALERT_EMAIL_DEPLOYED`. Source and the entire user-state database
 were backed up before installation. The source rollback directory is
 `/opt/pivot/alert-email-rollbacks/c3bb7fa009bb60f9`.
-The subsequent VM check confirmed `charto` active, the outbox installed with
+The subsequent VM check confirmed `the dataserver` active, the outbox installed with
 no queued messages, and `/health` reporting `ready: true`, including healthy
 alert evaluation, market/user databases and a fresh user-state backup.
 
@@ -64,10 +64,10 @@ email was sent. Enable only after verifying a Google app password and the
 sender alias, then validate an approved recipient's inbox. The source
 deployment does not install credentials or enable sending.
 
-The scoped deployment helper `charto/deploy/deploy_alert_email.py` reuses the
+The scoped deployment helper `deploy/deploy_alert_email.py` reuses the
 existing private-blob transport, checks original source hashes, preserves a
 whole-plane SQLite backup and updates only this feature's files/contexts.
-It restarts charto, checks readiness and restores source on failure. It does
+It restarts the dataserver, checks readiness and restores source on failure. It does
 **not** enable SMTP or push Git. The Azure managed-command name it prints is
 dispatch confirmation only; check its `instanceView.executionState` and output
 for successful execution before claiming deployment.
@@ -105,10 +105,10 @@ for successful execution before claiming deployment.
 Run the isolated fixture suite (no network mail and no customer-state writes):
 
 ```sh
-PYTHONPATH=charto/data pivot/.venv/bin/python -m pytest -q \
-  charto/data/test_alerts.py charto/data/test_alert_email.py
-node --check charto/preview/js/alerts.js
-node --check charto/preview/js/panels.js
+PYTHONPATH=dataserver api/.venv/bin/python -m pytest -q \
+  dataserver/tests/test_alerts.py dataserver/tests/test_alert_email.py
+node --check chart/js/alerts.js
+node --check chart/js/panels.js
 ```
 
 For live validation, use an explicitly approved test account, create a real
@@ -116,8 +116,8 @@ crossing alert, and check the alert-log status plus the recipient inbox. Do
 not manufacture a price crossing or email every account as a test. Never
 claim live validation without a genuine connected market feed.
 
-To disable mail immediately, set `CHARTO_ALERT_EMAIL_ENABLED=false` and restart
-charto. In-app alert evaluation and durable logs remain active. To roll back
+To disable mail immediately, set `PIVOT_ALERT_EMAIL_ENABLED=false` and restart
+the dataserver. In-app alert evaluation and durable logs remain active. To roll back
 source, restore the exact saved source files and JS version stamps; the new
 outbox table is additive and should be left intact. Preserve a fresh entire
 user DB backup before a VM rollback so no newer user state is lost.

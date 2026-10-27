@@ -7,16 +7,16 @@
 > [the current rollout record](deployments/2026-10-15-razorpay-subscriptions.md).
 > The remainder below documents the retired one-time flow and its earlier tests.
 
-The Vercel project `pivotnow` is linked to `charto/web`, a Next.js 15 App
+The Vercel project `pivotnow` is linked to `site`, a Next.js 15 App
 Router app. Its `/checkout` page and same-origin Node.js API routes implement
 Razorpay Standard Web Checkout. The landing footer links to Checkout.
-Existing Charto subscription billing remains in `charto/data/billing.py`.
+Existing dataserver subscription billing remains in `dataserver/billing.py`.
 This one-time checkout does not grant plans or change those subscriptions.
 
 ## Local setup
 
 ```sh
-cd charto/web
+cd site
 pnpm install
 # Fill .env using .env.example; retain any existing environment settings.
 pnpm dev --port 3011
@@ -59,7 +59,7 @@ purchase. The entered amount is a one-time payment, not a product price.
 ## Domain deployment
 
 Set the two server variables in the **pivotnow** Vercel project's desired
-environment, then deploy `charto/web` so `https://pivotnow.in/checkout` and
+environment, then deploy `site` so `https://pivotnow.in/checkout` and
 both API routes share the same origin. Local `.env` files are not uploaded.
 The domain configuration lists project `pivot`, but the live aliases for
 `pivotnow.in` and `www.pivotnow.in` serve a `pivotnow` deployment. Verify the
@@ -92,24 +92,24 @@ success/failure payment scenarios manually using Razorpay test instruments.
 ## Files
 
 Created:
-- `charto/web/.env` (ignored local test credentials)
-- `charto/web/app/api/create-order/route.ts`
-- `charto/web/app/api/verify-payment/route.ts`
-- `charto/web/app/checkout/page.tsx`
-- `charto/web/components/RazorpayCheckout.tsx`
-- `charto/web/lib/razorpay-server.ts`
-- `charto/web/tests/razorpay-routes.test.ts`
-- `charto/web/tests/razorpay-checkout.test.tsx`
-- `charto/web/vitest.config.ts`
+- `site/.env` (ignored local test credentials)
+- `site/app/api/create-order/route.ts`
+- `site/app/api/verify-payment/route.ts`
+- `site/app/checkout/page.tsx`
+- `site/components/RazorpayCheckout.tsx`
+- `site/lib/razorpay-server.ts`
+- `site/tests/razorpay-routes.test.ts`
+- `site/tests/razorpay-checkout.test.tsx`
+- `site/vitest.config.ts`
 - `docs/RAZORPAY_CHECKOUT.md`
 
 Modified:
-- `charto/web/.env.example`
-- `charto/web/components/AppBootstrap.tsx`
-- `charto/web/components/landing/PivotLanding.tsx`
-- `charto/web/package.json`
-- `charto/web/pnpm-lock.yaml`
-- `charto/web/package-lock.json`
+- `site/.env.example`
+- `site/components/AppBootstrap.tsx`
+- `site/components/landing/PivotLanding.tsx`
+- `site/package.json`
+- `site/pnpm-lock.yaml`
+- `site/package-lock.json`
 
 The existing root `.gitignore` already ignores `.env` and `.env.*`, while
 allowing `.env.example`, so no additional ignore rule was needed.

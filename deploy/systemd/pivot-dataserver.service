@@ -1,0 +1,26 @@
+[Unit]
+Description=Pivot dataserver (:5174)
+After=network-online.target
+[Service]
+User=pivot-data
+Group=pivot-runtime
+WorkingDirectory=/var/lib/pivot/dataserver
+EnvironmentFile=/etc/pivot/runtime.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/pivot/venv/bin/python -u @RELEASE@/dataserver/dataserver.py
+Restart=on-failure
+RestartSec=5
+UMask=0007
+MemoryMax=5G
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=tmpfs
+ProtectSystem=strict
+ReadWritePaths=/srv/pivot-data /var/lib/pivot/dataserver
+InaccessiblePaths=/mnt /root /var/lib/waagent /var/lib/cloud
+RestrictSUIDSGID=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+[Install]
+WantedBy=multi-user.target

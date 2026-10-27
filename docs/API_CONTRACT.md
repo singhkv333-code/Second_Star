@@ -10,7 +10,7 @@
 
 - **Base URL:** all endpoints under `/api`.
 - **Content-Type:** `application/json` (UTF-8) for request and response unless noted.
-- **Authentication:** Bearer JWT (existing scheme from `pivot/backend/auth/`). Header: `Authorization: Bearer <token>`. Webhooks (`POST /api/webhooks/{token}`) are unauthenticated.
+- **Authentication:** Bearer JWT (existing scheme from `api/backend/auth/`). Header: `Authorization: Bearer <token>`. Webhooks (`POST /api/webhooks/{token}`) are unauthenticated.
 - **User scoping:** every workflow/run/approval query filters by the authenticated user. A user can never read or mutate another user's resources. Cross-user access returns `404` (not `403`) to avoid leaking existence.
 - **Timestamps:** ISO 8601 UTC, e.g. `"2026-05-08T14:25:30.123Z"`. Timezones for cron/time-window configs are stored as IANA strings (e.g. `"Asia/Kolkata"`).
 - **IDs:** UUID v4 strings.
@@ -284,7 +284,7 @@ satisfied by `ambient.held_symbols` is treated as met.
 }
 ```
 
-**`Diagnostic` shape** (1:1 with `pivot/backend/workflows/compat.py`):
+**`Diagnostic` shape** (1:1 with `api/backend/workflows/compat.py`):
 
 | field | type | notes |
 |---|---|---|
@@ -745,7 +745,7 @@ Generate these types from the OpenAPI spec produced by FastAPI at `/openapi.json
 Bring up the backend locally:
 
 ```bash
-cd pivot
+cd api
 docker-compose up -d            # postgres + redis
 uvicorn backend.main:app --reload --port 8000
 # OR — for a fast no-docker probe against sqlite:
@@ -755,7 +755,7 @@ APP_ENV=test uvicorn backend.main:app --port 8000
 Smoke-test every endpoint at once:
 
 ```bash
-bash pivot/scripts/smoke_test_api.sh
+bash api/scripts/smoke_test_api.sh
 # 41 / 41 checks pass against http://127.0.0.1:8765 by default.
 # Set SMOKE_PORT=9000 to use a different port.
 ```
@@ -908,13 +908,13 @@ The frontend's `isError()` discriminator should check `"error" in result`. The `
 
 ## 14. Reproducible smoke test
 
-`pivot/scripts/smoke_test_api.sh` is the source of truth for "does this endpoint actually work end-to-end". It:
+`api/scripts/smoke_test_api.sh` is the source of truth for "does this endpoint actually work end-to-end". It:
 
 - Boots `uvicorn` against a fresh sqlite DB on port 8765 (override via `SMOKE_PORT=...`)
 - Registers a user, hits every endpoint above, and asserts the canonical envelope on every error
 - Verifies CORS preflight from `http://localhost:3000`
 - Closes Day-2 reviewer edge case #1 (bad cron at activate → 422)
 
-Run it from repo root: `bash pivot/scripts/smoke_test_api.sh`. Exit 0 if every endpoint matches the contract; exit 1 with the failing endpoint identified.
+Run it from repo root: `bash api/scripts/smoke_test_api.sh`. Exit 0 if every endpoint matches the contract; exit 1 with the failing endpoint identified.
 
 This is what backend changes are expected to keep green. If it goes red, the contract is broken, not just the test.
