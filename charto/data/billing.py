@@ -65,6 +65,7 @@ import urllib.error
 import urllib.request
 from os import environ
 
+import coupons
 import entitlements as ent
 
 log = logging.getLogger("charto.billing")
@@ -124,7 +125,24 @@ def _plan_for_id(pid: str) -> tuple[str, str] | None:
     for k, v in plan_ids().items():
         if v == pid:
             return k
-    return None
+    # A discount code's own provider plan (coupons.py) is still Pro or Pro+.
+    cp = coupons.provider_plan(pid)
+    return (cp["plan"], cp["cycle"]) if cp else None
+
+
+def _make_plan(plan: str, cycle: str, amount: int, c: dict) -> str:
+    """The provider plan a discount code checks out on: the catalog plan at
+    the code's price. Made once per (code, plan, cycle); coupons.py keeps it."""
+    name = f"Pivot {ent.CATALOG['plans'][plan]['name']} ({c['code']})"
+    out = http("POST", "/plans", {
+        "period": "monthly" if cycle == "monthly" else "yearly", "interval": 1,
+        "item": {"name": name, "amount": amount, "currency": "INR",
+                 "description": coupons.describe(c)["summary"][:200]},
+        "notes": {"coupon_id": str(c["id"]), "plan": plan, "cycle": cycle}})
+    pid = out.get("id")
+    if not isinstance(pid, str) or not pid.startswith("plan_"):
+        raise BillingError("Missing provider plan ID")
+    return pid
 
 
 # ── the wire, replaceable in tests ─────────────────────────────────────────
@@ -219,6 +237,7 @@ def _apply(uid: int, entity: dict) -> dict:
         uid, plan=plan, status=status, cycle=cycle, provider=PROVIDER,
         provider_sub_id=str(entity.get("id")), period_start=ps, period_end=pe,
         cancel_at_period_end=None, grace_until=grace)
+    coupons.on_subscription(str(entity.get("id") or ""), status)
     if on_subscription_change:
         try:
             on_subscription_change(
@@ -259,6 +278,11 @@ def _checkout(uid: int, email: str, body: dict) -> tuple[int, dict]:
     pid = plan_ids().get((plan, cycle))
     if not pid:
         return 400, {"error": f"no {cycle} price is configured for plan '{plan}'"}
+    code = coupons.normalize(body.get("code") or "")
+    found = coupons.find(code) if code else None
+    if code and not found:
+        return 404, {"error": "That code is not valid.", "code": "not_found"}
+    coupon_id = found["id"] if found else None
     cur = ent.summary(uid)["subscription"]
     if cur and cur["provider"] == PROVIDER \
             and ent.plan_of(uid) != "free":
@@ -266,7 +290,7 @@ def _checkout(uid: int, email: str, body: dict) -> tuple[int, dict]:
                               "instead of starting a second one.",
                      "code": "already_subscribed"}
     with ent._lock:
-        attempt = ent._con.execute("SELECT checkout_id,plan,cycle,state,provider_sub_id "
+        attempt = ent._con.execute("SELECT checkout_id,plan,cycle,state,provider_sub_id,coupon_id "
                                    "FROM billing_checkouts WHERE user_id=?", (uid,)).fetchone()
     if attempt:
         if attempt[3] != "ready" or not attempt[4]:
@@ -283,29 +307,61 @@ def _checkout(uid: int, email: str, body: dict) -> tuple[int, dict]:
             with ent._lock:
                 ent._con.execute("DELETE FROM billing_checkouts WHERE user_id=?", (uid,))
                 ent._con.commit()
+            coupons.release_checkout(attempt[0])
         elif existing.get("status") in ("active", "pending"):
             _apply(uid, existing)
             return 409, {"error": "This subscription is already being confirmed. Check your billing status before paying again.",
                          "code": "checkout_pending"}
-        elif (attempt[1], attempt[2]) != (plan, cycle):
-            return 409, {"error": "Finish or cancel your existing checkout before choosing another plan.",
-                         "code": "checkout_pending"}
+        elif (attempt[1], attempt[2], attempt[5]) != (plan, cycle, coupon_id):
+            # Another plan or another code. A mandate nobody has authorised
+            # yet (`created`) can be withdrawn safely and replaced; one that
+            # is authorised could still charge, so it has to finish first.
+            if existing.get("status") != "created":
+                return 409, {"error": "Finish or cancel your existing checkout before choosing another plan.",
+                             "code": "checkout_pending"}
+            try:
+                http("POST", f"/subscriptions/{attempt[4]}/cancel", {"cancel_at_cycle_end": 0})
+            except BillingError:
+                return 503, {"error": "Could not replace your existing checkout. Please retry shortly.",
+                             "code": "checkout_pending"}
+            with ent._lock:
+                ent._con.execute("DELETE FROM billing_checkouts WHERE user_id=?", (uid,))
+                ent._con.commit()
+            coupons.release_checkout(attempt[0])
         else:
             return 200, {"subscription_id": attempt[4], "key_id": _env("RAZORPAY_KEY_ID"),
                          "plan": plan, "cycle": cycle, "test_mode": test_mode(),
-                         "prefill": {"email": email}, "resumed": True}
+                         "prefill": {"email": email}, "resumed": True,
+                         **_offer_fields(attempt[0], plan, cycle)}
     checkout_id = secrets.token_hex(24)
+    total = TOTAL_COUNT[cycle]
+    notes = {"user_id": str(uid), "checkout_id": checkout_id}
+    if code:
+        # The use is held before the provider is asked, so the last use of a
+        # code cannot be paid for twice; an unpaid hold lapses on its own.
+        try:
+            offer = coupons.reserve_discount(code, uid, email, plan, cycle,
+                                             checkout_id, _make_plan)
+        except coupons.CodeError as exc:
+            return exc.status, exc.body()
+        except BillingError as exc:
+            log.warning("discount plan for %s failed: %s", code, exc)
+            return 502, {"error": "The discount could not be set up with the payment provider. "
+                                  "Nothing was charged. Try again shortly.", "code": "provider_error"}
+        pid = offer["provider_plan_id"]
+        total = offer["total_count"] or total
+        notes["coupon"] = offer["code"]
     with ent._lock:
         ent._con.execute("INSERT INTO billing_checkouts "
-                         "(user_id,checkout_id,plan,cycle,state,created,updated) "
-                         "VALUES (?,?,?,?,'creating',?,?)",
-                         (uid, checkout_id, plan, cycle, int(time.time()), int(time.time())))
+                         "(user_id,checkout_id,plan,cycle,state,created,updated,coupon_id) "
+                         "VALUES (?,?,?,?,'creating',?,?,?)",
+                         (uid, checkout_id, plan, cycle, int(time.time()), int(time.time()),
+                          coupon_id))
         ent._con.commit()
     try:
         sub = http("POST", "/subscriptions", {
-            "plan_id": pid, "total_count": TOTAL_COUNT[cycle],
-            "customer_notify": 1,
-            "notes": {"user_id": str(uid), "checkout_id": checkout_id}})
+            "plan_id": pid, "total_count": total,
+            "customer_notify": 1, "notes": notes})
         if not isinstance(sub.get("id"), str) or not sub["id"].startswith("sub_"):
             raise BillingError("Missing provider subscription ID")
     except BillingError as exc:
@@ -323,9 +379,24 @@ def _checkout(uid: int, email: str, body: dict) -> tuple[int, dict]:
         ent._con.execute("UPDATE billing_checkouts SET state='ready',provider_sub_id=?,updated=? "
                          "WHERE user_id=?", (sub["id"], int(time.time()), uid))
         ent._con.commit()
+    coupons.attach_subscription(checkout_id, sub["id"])
     return 200, {"subscription_id": sub["id"], "key_id": _env("RAZORPAY_KEY_ID"),
                  "short_url": sub.get("short_url"), "plan": plan,
-                 "cycle": cycle, "test_mode": test_mode(), "prefill": {"email": email}}
+                 "cycle": cycle, "test_mode": test_mode(), "prefill": {"email": email},
+                 **_offer_fields(checkout_id, plan, cycle)}
+
+
+def _offer_fields(checkout_id: str, plan: str, cycle: str) -> dict:
+    """What the checkout charges: the catalog price, or a code's price."""
+    with ent._lock:
+        r = ent._con.execute(
+            "SELECT c.code, r.amount, c.discount_cycles FROM coupon_redemptions r "
+            "JOIN coupons c ON c.id=r.coupon_id WHERE r.checkout_id=? AND r.state='reserved'",
+            (checkout_id,)).fetchone()
+    was = ent.CATALOG["plans"][plan]["prices"][cycle]["amount"]
+    if not r:
+        return {"amount": was}
+    return {"amount": r[1], "was": was, "code": r[0], "discount_cycles": r[2]}
 
 
 def api_verify(uid: int, body: dict) -> tuple[int, dict]:
@@ -356,7 +427,8 @@ def _verify(uid: int, body: dict) -> tuple[int, dict]:
         pc = _plan_for_id(str(entity.get("plan_id") or ""))
         if not pc or invoice.get("subscription_id") != sid or invoice.get("payment_id") != pay:
             return 400, {"error": "Payment does not match this subscription."}
-        expected = ent.CATALOG["plans"][pc[0]]["prices"][pc[1]]["amount"]
+        cp = coupons.provider_plan(str(entity.get("plan_id") or ""))
+        expected = cp["amount"] if cp else ent.CATALOG["plans"][pc[0]]["prices"][pc[1]]["amount"]
         if payment.get("currency") != "INR" or payment.get("amount") != expected:
             return 400, {"error": "Payment amount or currency does not match this plan."}
         out = _apply(uid, entity)

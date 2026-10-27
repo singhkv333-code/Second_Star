@@ -11,7 +11,7 @@
  */
 
 import { readChartoToken } from "@/lib/charto-auth";
-import type { BillingMe, Cycle, InvoiceList, PaidPlanId, PublicCatalog, Refusal } from "./types";
+import type { BillingMe, CodeInfo, Cycle, InvoiceList, PaidPlanId, PublicCatalog, Refusal } from "./types";
 
 export type BillingResult<T> =
   | { ok: true; status: number; data: T }
@@ -62,12 +62,22 @@ export const billingApi = {
   plans: () => call<PublicCatalog>("GET", "/billing/plans"),
   me: () => call<BillingMe>("GET", "/billing/me"),
   invoices: () => call<InvoiceList>("GET", "/billing/invoices"),
-  checkout: (plan: PaidPlanId, cycle: Cycle) =>
-    call<{ subscription_id: string; key_id: string; short_url?: string; prefill?: { email?: string } }>(
-      "POST",
-      "/billing/checkout",
-      { plan, cycle },
-    ),
+  checkout: (plan: PaidPlanId, cycle: Cycle, code?: string | null) =>
+    call<{
+      subscription_id: string;
+      key_id: string;
+      short_url?: string;
+      prefill?: { email?: string };
+      amount?: number;
+      was?: number;
+      code?: string;
+    }>("POST", "/billing/checkout", code ? { plan, cycle, code } : { plan, cycle }),
+  /** What a code does for this account. Uses nothing. */
+  checkCode: (code: string, plan?: PaidPlanId, cycle?: Cycle) =>
+    call<{ coupon: CodeInfo }>("POST", "/billing/coupon", { code, plan, cycle }),
+  /** Use a free-time code now. No payment. */
+  redeem: (code: string) =>
+    call<{ redeemed: CodeInfo & { until: number }; billing: BillingMe }>("POST", "/billing/redeem", { code }),
   verify: (p: { razorpay_payment_id: string; razorpay_subscription_id: string; razorpay_signature: string }) =>
     call<{ ok?: true; pending?: true; note?: string; billing?: BillingMe }>("POST", "/billing/verify", p),
   reconcile: () => call<{ billing: BillingMe }>("POST", "/billing/reconcile", {}),
