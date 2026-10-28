@@ -45,6 +45,19 @@
     try { const c = window.parent.__pivot.getChartContext(); return { symbol: c.symbol, interval: c.interval }; }
     catch { return null; }
   };
+  /** A play drawn on the chart beside the panel (plays.overlay on the server):
+   *  where it would have fired, the series it reads, its levels and its order. */
+  async function onChart(id, quiet) {
+    try {
+      const o = await call(`/plays/${id}/overlay`);
+      if (o.symbol !== (chartNow() || {}).symbol) {
+        if (!quiet) Kit.toast(`This play runs on ${o.symbol}. Open its chart to see it drawn.`);
+        return;
+      }
+      if (!o.items.length && !quiet) Kit.toast(o.note || "Nothing to draw for this play.");
+      window.parent.postMessage({ type: "plays:overlay", interval: o.interval, items: o.items }, location.origin);
+    } catch (err) { if (!quiet) Kit.toast(err.message); }
+  }
   if (side && !location.hash) {
     const last = load(SIDE, null);
     if (last) history.replaceState(null, "", `#/c/${last}`);
@@ -361,7 +374,8 @@
   phone.addEventListener("change", () => { if (route.page === "home" && cur) home(cur.id); });
   const unfolded = new Set();
   function playFolder(c) {
-    if (!phone.matches || side) return Kit.strategy(c);
+    if (side) return Kit.strategy(c, { onChart: true });
+    if (!phone.matches) return Kit.strategy(c);
     const box = document.createElement("div");
     box.className = "pfold";
     const paint = () => {
@@ -543,6 +557,8 @@
       const t = { role: "assistant", content: text2, cards, steps: steps.slice(), meta: `${((performance.now() - t0) / 1000).toFixed(1)}s` };
       cur.turns.push(t);
       for (const c of cards) if (c.kind === "play" && c.id) { where[c.id] = cur.id; if (!cur.focus) cur.focusOf = c.id; }
+      const built = side && cards.filter((c) => c.kind === "play" && c.id).pop();
+      if (built) onChart(built.id, true);
       save(MAP, where);
       persist();
       w.replaceWith(turnEl(t));
@@ -929,6 +945,8 @@
 
   /* ── global clicks ────────────────────────────────────────────────────── */
   document.addEventListener("click", async (e) => {
+    const oc = e.target.closest("[data-onchart]");
+    if (oc) { onChart(+oc.dataset.onchart); return; }
     if (e.target.closest("[data-expand]")) { expand(cur ? `#/c/${cur.id}` : "#/"); return; }
     const rb = e.target.closest("[data-recent]"), menu = main.querySelector(".side-menu");
     if (menu && !e.target.closest(".side-menu")) {

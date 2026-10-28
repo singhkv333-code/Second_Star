@@ -1876,6 +1876,11 @@ def _cum(rets: list[float]) -> list[float]:
     return out
 
 
+# Trade replays (round trips against a control) are a backtest, and Pivot does
+# not offer backtests yet: compile reports only how often and when a rule fires.
+BACKTEST = os.environ.get("PIVOT_PLAYS_BACKTEST") == "1"
+
+
 def replay(spec: dict, check: bool = True, keep_raw: bool = False, pre: tuple | None = None) -> dict:
     """The play over stored history: the same measures and the same condition
     code the live bar runs. What the trader sees before it is armed."""
@@ -1911,7 +1916,7 @@ def replay(spec: dict, check: bool = True, keep_raw: bool = False, pre: tuple | 
                   for k, s in series.items()},
         "notes": notes + problems, "events": hits,
     }
-    if spec.get("on") or not spec.get("when"):
+    if spec.get("on") or not spec.get("when") or not BACKTEST:
         return out, data, series, tr       # nothing to replay: it acts on events or now
     try:
         rt = round_trips(spec, data, series, tr)
@@ -4891,6 +4896,71 @@ def chat_delete(uid: int, cid: str) -> dict:
     return {"deleted": bool(n)}
 
 
+def overlay(uid: int, pid: int, keep: int = 600) -> dict:
+    """What the play looks like on its chart, as scene items: the bars it
+    would have fired on, the price-scale series its rule reads (VWAP, a prior
+    high, a stop), its fixed trigger levels, and for an entry the order it
+    would place there (entry, stop, target, projected forward). All of it off
+    the same replay compile ran, so the chart cannot show a different rule."""
+    row = get(uid, pid)
+    if not row:
+        raise Bad(f"no play {pid}")
+    spec = row["spec"]
+    sym, iv = spec["symbol"], spec["interval"]
+    base = {"symbol": sym, "interval": iv, "items": []}
+    if not spec.get("when") or spec.get("on") or spec.get("universe"):
+        return {**base, "note": "nothing to draw: it acts on events, at once, or across many names"}
+    _, data, series, tr = replay(spec)
+    t, close = data["t"], data["close"]
+    n0 = max(0, len(t) - keep)
+    chart = {"symbol": sym, "interval": iv}
+    tag = f"PLAY{pid}-"
+    items: list[dict] = []
+    med = sorted(c for c in close[n0:] if c)[len(close[n0:]) // 2] if close[n0:] else 0
+    for m in spec.get("measures") or []:
+        v = series.get(m["name"]) or []
+        pts = [{"t": t[i], "v": round(v[i], 4)} for i in range(n0, min(len(v), len(t)))
+               if isinstance(v[i], (int, float)) and math.isfinite(v[i])]
+        mid = sorted(p["v"] for p in pts)[len(pts) // 2] if pts else 0
+        if len(pts) > 1 and med and 0.8 < mid / med < 1.25:      # on the price scale
+            items.append({"kind": "poly", "id": f"{tag}m-{m['name']}", "pane": "price", "role": "neutral",
+                          "pts": pts, "solid": True, "label": m["title"], "chart": chart})
+    when = spec["when"]
+    levels, entry_at, drawn = [], None, {it["id"][len(tag) + 2:] for it in items}
+    for c in when.get("all") or when.get("any") or []:
+        left, right = str(c.get("left", "")).split(".")[-1], c.get("right")
+        if left in ("open", "high", "low", "close") and isinstance(right, (int, float)):
+            levels += [right] + ([c["right2"]] if isinstance(c.get("right2"), (int, float)) else [])
+        elif left in ("open", "high", "low", "close") and right in drawn and not levels:
+            entry_at = (series.get(right) or [None])[-1]   # the series it trades through, where it is now
+    for k, lv in enumerate(levels[:3]):
+        items.append({"kind": "level", "id": f"{tag}l{k}", "price": lv, "pane": "price", "role": "neutral",
+                      "label": f"{spec['title']}: trigger {lv:,.2f}", "chart": chart})
+    d = _direction(spec)
+    kind = spec["do"]["kind"]
+    side = {"buy": "long", "short": "short"}.get(kind)
+    mg = spec.get("manage") or {}
+    entry = levels[0] if levels else entry_at or close[-1]
+    if side and mg.get("stop_pct") and len(t) > 1:
+        stop = entry * (1 - d * mg["stop_pct"] / 100)
+        tgt = [entry * (1 + d * mg["target_pct"] / 100)] if mg.get("target_pct") else []
+        step = t[-1] - t[-2]
+        items.append({"kind": "position", "id": f"{tag}order", "pane": "price", "side": side,
+                      "entry": round(entry, 2), "stop": round(stop, 2), "targets": [round(x, 2) for x in tgt],
+                      "rr": round(mg["target_pct"] / mg["stop_pct"], 2) if tgt else None,
+                      "t0": t[-1], "t1": t[-1] + step * 24, "label": f"{spec['title']}: the order it places",
+                      "chart": chart})
+    fires = [i for i in fire_points(tr, _every(spec)) if i >= n0]
+    word = {"buy": "Buy", "short": "Short", "sell": "Sell", "cover": "Cover"}.get(kind, "Alert")
+    up = kind in ("buy", "cover")
+    if fires:
+        items.append({"kind": "markers", "id": f"{tag}fires", "pane": "price", "role": "neutral", "chart": chart,
+                      "marks": [{"t": t[i], "text": word, "position": "belowBar" if up else "aboveBar",
+                                 "shape": "arrowUp" if up else ("arrowDown" if kind in ("short", "sell") else "circle")}
+                                for i in fires[-60:]]})
+    return {**base, "items": items, "fires": len(fires)}
+
+
 def api_get(uid: int, tail: str) -> tuple[int, dict]:
     init_db()
     parts = tail.strip("/").split("/")
@@ -4912,6 +4982,11 @@ def api_get(uid: int, tail: str) -> tuple[int, dict]:
     if len(parts) == 2 and parts[0] == "chats":
         c = chat_get(uid, parts[1])
         return (200, {"chat": c}) if c else (404, {"error": "no such conversation"})
+    if len(parts) == 2 and parts[0].isdigit() and parts[1] == "overlay":
+        try:
+            return 200, overlay(uid, int(parts[0]))
+        except Bad as exc:
+            return 404, {"error": str(exc)}
     if len(parts) == 2 and parts[0].isdigit() and parts[1] == "options":
         try:
             return 200, options(uid, int(parts[0]))
@@ -5068,12 +5143,8 @@ def tool_play(action: str = "", play: dict | str | None = None, play_id: int = 0
                                 "means for how often they will hear from it, what it does when it fires "
                                 "and how the exits limit the loss, and every item in `assumed` as a "
                                 "choice they can change. A fire count is not an edge: do not call it "
-                                "one. When history.trades is there, give its round trips against the "
-                                "control (win rate, average win and loss, expectancy, after costs when "
-                                "given) and say plainly whether the play beat entering anywhere; with "
-                                "few trades, say it proves nothing. For an option play it is the "
-                                "underlying's move, not the premium. Quote only numbers from this "
-                                "result or other tools.")
+                                "one, and there is no backtest of its trades. Quote only numbers from "
+                                "this result or other tools.")
                 if row["spec"]["do"]["kind"] == "halt":
                     out["_note"] = ("A guard is on the trader's screen as a card. Say what stops the day, "
                                     "what it blocks (new intraday, F&O and perp entries; exits always "

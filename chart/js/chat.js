@@ -2561,8 +2561,16 @@
       window.parent.postMessage({ type: "pivot:open-plays", hash: String(d.hash || "#/") }, location.origin);
     } else if (d.type === "plays:open-chart" && d.symbol && window.__pivot?.panes) {
       window.__pivot.panes.openChart(String(d.symbol), null, true);
+    } else if (d.type === "plays:overlay" && Array.isArray(d.items) && window.__pivot) {
+      showPlay(d);
     }
   });
+  /** One play on the chart at a time, on the timeframe it is clocked on. */
+  async function showPlay(d) {
+    const P = window.__pivot, wire = (iv) => ({ D: "1d", W: "1w", M: "1mo" })[iv] || String(iv || "");
+    if (d.interval && wire(P.state.interval) !== d.interval) await P.switchInterval(d.interval);
+    P.applyScenePatch([{ kind: "clear", scope: "id_prefix", prefix: "PLAY" }, ...d.items]);
+  }
   function paintChatMode() {
     if (chatMode === "plays") mountPlays();
     panel.dataset.chatMode = chatMode;

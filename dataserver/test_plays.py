@@ -847,7 +847,8 @@ def _dip(**over):
     return p
 
 
-def test_an_exit_rule_reads_the_position_and_history_counts_round_trips(uid) -> None:
+def test_an_exit_rule_reads_the_position_and_history_counts_round_trips(uid, monkeypatch) -> None:
+    monkeypatch.setattr(plays, "BACKTEST", True)   # the engine, switched off in the product
     got = plays.tool_play("compile", _dip())
     assert "error" not in got, got
     t = got["history"]["trades"]
@@ -863,6 +864,20 @@ def test_an_exit_rule_reads_the_position_and_history_counts_round_trips(uid) -> 
     assert card["exit_rule"][0]["right"] == "high since entry - 2 × ATR 14"
 
 
+def test_the_chart_shows_where_a_play_fired_what_it_reads_and_the_order_it_places(uid) -> None:
+    got = plays.tool_play("compile", _dip(
+        measures=[{"name": "sma20", "title": "SMA 20", "code": "def compute(data, params): return ta.sma(data['close'], 20)"}],
+        when={"all": [{"left": "close", "op": "cross_up", "right": "sma20"}]},
+        manage={"stop_pct": 2, "target_pct": 4}))
+    assert "error" not in got and got["history"].get("trades") is None, got   # no backtest in the product
+    o = plays.overlay(1, got["play_id"])
+    kinds = {i["kind"]: i for i in o["items"]}
+    assert set(kinds) == {"poly", "position", "markers"} and o["fires"] == len(kinds["markers"]["marks"])
+    p = kinds["position"]
+    assert p["entry"] == round(plays.get(1, got["play_id"])["history"]["now"]["sma20"], 2)
+    assert p["stop"] < p["entry"] < p["targets"][0] and p["rr"] == 2.0
+
+
 def test_position_names_belong_to_exits_only(uid) -> None:
     bad = plays.tool_play("compile", _dip(when={"all": [{"left": "close", "op": "above", "right": "entry"}]}))
     assert "manage.exit_when" in bad["error"]
@@ -872,7 +887,8 @@ def test_position_names_belong_to_exits_only(uid) -> None:
     assert "error" in bad
 
 
-def test_a_play_with_no_exit_shows_what_followed_against_any_bar(uid) -> None:
+def test_a_play_with_no_exit_shows_what_followed_against_any_bar(uid, monkeypatch) -> None:
+    monkeypatch.setattr(plays, "BACKTEST", True)   # the engine, switched off in the product
     got = plays.tool_play("compile", _dip(manage={}))
     t = got["history"]["trades"]
     assert t["kind"] == "forward" and set(t["forward"]) == {"5", "20"}
@@ -1000,7 +1016,8 @@ def test_a_scan_runs_the_models_measures_across_a_universe_and_ranks_them(uid) -
     assert "no stored company" in bad["error"]
 
 
-def test_a_play_over_a_universe_replays_every_name_and_fires_for_the_one_that_triggered(uid) -> None:
+def test_a_play_over_a_universe_replays_every_name_and_fires_for_the_one_that_triggered(uid, monkeypatch) -> None:
+    monkeypatch.setattr(plays, "BACKTEST", True)   # the engine, switched off in the product
     got = plays.tool_play("compile", {
         "title": "RSI dips across five", "interval": "1d",
         "universe": ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK"],

@@ -676,6 +676,7 @@ const Kit = (() => {
       (c.state === "armed" ? `<button type="button" class="btn sm" data-act="pause">${ic("pause")}Pause</button>` : "") +
       (c.state === "paused" ? `<button type="button" class="btn sm" data-act="resume">${ic("play")}Resume</button>` : "") +
       `<button type="button" class="btn sm ghost danger" data-act="delete">${ic("trash")}Delete</button>` +
+      (o.onChart ? `<button type="button" class="btn sm" data-onchart="${esc(c.id)}">${ic("chart")}On chart</button>` : "") +
       (o.open !== false ? `<button type="button" class="btn sm" data-open="${esc(c.id)}">Open</button>` : "");
     el.appendChild(foot);
     el.addEventListener("click", (e) => {

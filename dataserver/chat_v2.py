@@ -686,26 +686,16 @@ def journal(action=None, **args) -> dict:
 # ── 10. strategy ─────────────────────────────────────────────────────────
 
 def strategy(action=None, condition=None, exit_condition=None, symbol=None, interval=None,
-             frm=None, to=None, candidates=None, capital=None, strategy_id=None, **args) -> dict:
+             capital=None, strategy_id=None, **args) -> dict:
     sym = symbol or getattr(ds._req, "symbol", "")
     iv = _iv(interval) if interval else _chart_iv()
     if action == "build":
         return _call("propose_dsl_workflow", {"condition": condition, "primary_symbol": sym,
                                               "exit_condition": exit_condition, "interval": iv,
                                               "name": args.get("name")})
-    if action == "backtest":
-        return _call("backtest_dsl_tree", {"condition": condition, "primary_symbol": sym,
-                                           "exit_condition": exit_condition, "interval": iv,
-                                           "start_date": frm, "end_date": to,
-                                           "starting_capital": capital,
-                                           "exit_kind": args.get("exit_kind"),
-                                           "exit_bars": args.get("exit_bars"),
-                                           "exit_pct": args.get("exit_pct"),
-                                           "direction": args.get("side")})
-    if action == "compare":
-        return _call("evaluate_strategies", {"primary_symbol": sym, "candidates": candidates,
-                                             "interval": iv, "start_date": frm, "end_date": to,
-                                             "starting_capital": capital})
+    if action in ("backtest", "compare"):
+        return {"error": "Pivot has no strategy backtests yet. Say so; read_chart pattern_stats or query "
+                         "can measure how price moved after a setup."}
     if action == "plan":
         keys = ("entry", "stop", "stop_atr", "targets", "targets_r", "qty", "risk_amount",
                 "risk_pct", "side", "drawing_id", "basis")
@@ -717,7 +707,7 @@ def strategy(action=None, condition=None, exit_condition=None, symbol=None, inte
         return _call("pause_strategy", {"strategy_id": strategy_id, "resume": args.get("resume")})
     if action == "delete":
         return _call("delete_strategy", {"strategy_id": strategy_id})
-    return {"error": "action is one of build, backtest, compare, plan, list, pause, delete"}
+    return {"error": "action is one of build, plan, list, pause, delete"}
 
 
 # ── 11. play, 12. measure (the execution layer, plays.py) ───────────────
@@ -920,9 +910,10 @@ _PLAY_DOC = (
     "a buy, 5% a stop or trail, 'every X% fall' a standing buy on falls_pct X, a cadence they name in "
     "play.policy.every. Code fills "
     "only what is required and says so; a useful extra is one sentence offering it.\n"
-    "compile replays the play over stored history (how often it fires; for a position, its round trips "
-    "against a control of the same exits from anywhere), so 'has this worked?' is answered by compiling "
-    "(arm: false only tests). Everything is on paper; nothing reaches a broker.\n"
+    "compile replays the rule over stored history: how often and when it would have fired (arm: false only "
+    "tests). That is not a backtest; Pivot has no strategy backtests yet. For how a setup has played out, "
+    "read_chart pattern_stats and query measure the moves after it. Everything is on paper; nothing reaches "
+    "a broker.\n"
     "did_now is what it did at once; when_it_triggers is the order each trigger would place against their "
     "book (before → after, untouched, refused, ignored fields). Check both against their words: the names, "
     "side and size they meant and nothing else. If they differ, compile again fixed; if it still cannot, "
@@ -1144,7 +1135,9 @@ def _tools() -> list[dict]:
             "day-of-week or time-of-day behaviour, gap fill rates, opening-range statistics, "
             "drawdowns, volatility, correlation, rankings across stocks, fundamentals filters, and NSE "
             "F&O history (fo_eod: every option and future by day with OI, volume and premiums; fo_snap: "
-            "the live chain through the day) for OI buildup, PCR, max pain, IV or skew. Call with "
+            "the live chain through the day) for OI buildup, PCR, max pain, IV or skew. It measures what "
+            "followed a setup (the move after a pattern, a level, a date); it does not simulate trades with "
+            "entries, stops, exits and P&L, because Pivot has no backtests yet. Call with "
             "no sql to list the tables and columns. Example: sql \"SELECT ts, o, h, l, c FROM bars_1d "
             "WHERE symbol='RELIANCE' AND ts > strftime('%s','2025-01-01')\" with python \"def "
             "compute(data, params):\\n    c = data['c']\\n    r = [c[i]/c[i-1]-1 for i in range(1, "
@@ -1195,21 +1188,14 @@ def _tools() -> list[dict]:
              "limit": {"type": "integer"}},
             ["action"]),
         _fn("strategy",
-            "Turn a trading idea into a rule and test it honestly. build (plain English to a rule), "
-            "backtest (on real bars, with a trust verdict: insufficient data, no edge, unproven, "
-            "promising), compare (several rule variants), plan (entry, stop, targets, size and risk, "
-            "drawn on the chart), list, pause, delete saved strategies. Nothing is armed or traded.",
-            {"action": {"type": "string", "enum": ["build", "backtest", "compare", "plan", "list",
-                                                   "pause", "delete"]},
+            "Turn a trading idea into a rule. build (plain English to a rule), plan (entry, stop, "
+            "targets, size and risk, drawn on the chart), list, pause, delete saved strategies. Nothing "
+            "is armed or traded, and there are no backtests yet.",
+            {"action": {"type": "string", "enum": ["build", "plan", "list", "pause", "delete"]},
              "condition": {**_STR, "description": "entry rule in words, e.g. 'RSI 14 crosses above 30 "
                            "while close is above the 200 EMA'"},
              "exit_condition": _STR, "symbol": _STR, "interval": _IVS,
-             "from": _STR, "to": _STR,
-             "candidates": {"type": "array", "items": {"type": "object"},
-                            "description": "compare: [{name, condition, exit_condition}]"},
              "capital": {"type": "number"},
-             "exit_kind": {"type": "string", "enum": ["n_day_hold", "stop_loss_pct", "hold_to_end"]},
-             "exit_bars": {"type": "integer"}, "exit_pct": {"type": "number"},
              "entry": {"type": "number"}, "stop": {"type": "number"}, "stop_atr": {"type": "number"},
              "targets": {"type": "array", "items": {"type": "number"}},
              "targets_r": {"type": "array", "items": {"type": "number"}},
@@ -1228,7 +1214,7 @@ PROMPT = """\
 You are Pivot, the assistant inside a charting workspace for Indian markets. Traders and investors of every kind use you: intraday traders on 1 to 15 minute charts, swing traders on hourly and daily, positional traders and investors on daily and weekly, and options traders reading the chain. Infer the trader's horizon from the chart's interval and the question, and answer for that horizon.
 
 ## What you can do
-You read charts with computed evidence (read_chart), mark them up (draw), arrange the screen and its widgets (workspace), pull company and market facts (market_data), search news, the web and past conversations (search), run your own SQL and statistics on the market database (query), screen the 500-stock universe (screen), manage alerts (alerts), keep the trade journal and paper portfolio (journal), and build, backtest and plan strategies (strategy). Coverage is NSE and BSE equities, NIFTY, BANKNIFTY and SENSEX, NSE options, MCX commodities and crypto as USDT pairs (BTCUSDT, ETHUSDT). For anything outside that, say so in one line and name the nearest listed proxy (US tech: MON100; gold: GOLDBEES).
+You read charts with computed evidence (read_chart), mark them up (draw), arrange the screen and its widgets (workspace), pull company and market facts (market_data), search news, the web and past conversations (search), run your own SQL and statistics on the market database (query), screen the 500-stock universe (screen), manage alerts (alerts), keep the trade journal and paper portfolio (journal), and build and plan strategies (strategy). Coverage is NSE and BSE equities, NIFTY, BANKNIFTY and SENSEX, NSE options, MCX commodities and crypto as USDT pairs (BTCUSDT, ETHUSDT). For anything outside that, say so in one line and name the nearest listed proxy (US tech: MON100; gold: GOLDBEES).
 
 ## How to work
 - Gather what the question needs in as few rounds as possible. read_chart takes several reads and several timeframes in one call, and independent calls in the same round run in parallel. A full read is usually one read_chart call plus one draw call.
@@ -1319,8 +1305,8 @@ def prompt() -> str:
     if not plays_on():
         return PROMPT
     return PROMPT.replace(
-        "manage alerts (alerts), keep the trade journal and paper portfolio (journal), and build, "
-        "backtest and plan strategies (strategy)", _PLAYS_LINE).replace("\n## Evidence", _PLAYS_WORK + "\n## Evidence", 1)
+        "manage alerts (alerts), keep the trade journal and paper portfolio (journal), and build "
+        "and plan strategies (strategy)", _PLAYS_LINE).replace("\n## Evidence", _PLAYS_WORK + "\n## Evidence", 1)
 
 
 def system_block(context_block: str) -> str:
