@@ -149,6 +149,7 @@
     if (d.type === "pivot:chart-resize") {
       document.dispatchEvent(new CustomEvent("pivot:viewport"));
     }
+    if (d.type === "pivot:features" && d.plays === true) window.Chat?.enablePlays?.();
     if (d.type === "pivot:workspace-theme") {
       window.PivotWorkspaceTheme?.setTheme(d.theme, false);
     }

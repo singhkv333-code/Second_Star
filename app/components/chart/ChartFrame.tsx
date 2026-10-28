@@ -46,6 +46,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
  *  of. Same origin is the whole design, not a deployment detail.
  */
 import type { PendingScreen } from "@/lib/screensApi";
+import { tabEnabled } from "@/lib/launch";
 
 const CHART_BASE = "/chart-app";
 
@@ -67,10 +68,13 @@ type Props = {
   /** The frame reports its own conversation opening and closing, so the
    *  shell can avoid showing its Quick Ask and the chart's chat at once. */
   onChatVisibilityChange?: (open: boolean) => void;
+  /** The chat panel's Plays half asking for the full Plays tab, at a
+   *  plays.html hash (its conversation). */
+  onOpenPlays?: (hash: string) => void;
 };
 
 export function ChartFrame({
-  symbol, query, theme, onOpenScreen, onOpenCompany, onChatVisibilityChange,
+  symbol, query, theme, onOpenScreen, onOpenCompany, onChatVisibilityChange, onOpenPlays,
 }: Props): React.ReactElement {
   const ref = useRef<HTMLIFrameElement>(null);
   // The message listener is deliberately mounted ONCE (empty deps, so the
@@ -81,6 +85,8 @@ export function ChartFrame({
   useEffect(() => { onScreenRef.current = onOpenScreen; }, [onOpenScreen]);
   const onCompanyRef = useRef(onOpenCompany);
   useEffect(() => { onCompanyRef.current = onOpenCompany; }, [onOpenCompany]);
+  const onPlaysRef = useRef(onOpenPlays);
+  useEffect(() => { onPlaysRef.current = onOpenPlays; }, [onOpenPlays]);
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -146,6 +152,10 @@ export function ChartFrame({
         if (companySymbol && companySymbol.length <= 64) onCompanyRef.current?.(companySymbol);
       }
       if (d?.type === "chart:chat-visibility") onChatVisibilityChange?.(d.open === true);
+      if (d?.type === "pivot:open-plays") {
+        const hash = (e.data as { hash?: unknown }).hash;
+        onPlaysRef.current?.(typeof hash === "string" && /^#\/[\w/]{0,60}$/.test(hash) ? hash : "#/");
+      }
       // A modal opened (or closed) inside the frame. `position: fixed` in the
       // frame resolves against the FRAME's viewport, so a dialog could only
       // centre within the chart pane and dim the chart alone — the shell's
@@ -189,6 +199,8 @@ export function ChartFrame({
       else if (theme) post({ type: "pivot:theme", mode: theme });
     };
     sync();
+    // what the chart may offer: its chat's Plays half needs the Plays tab
+    post({ type: "pivot:features", plays: tabEnabled("plays") });
     window.addEventListener("pivot:workspace-colors", sync);
     return () => window.removeEventListener("pivot:workspace-colors", sync);
   }, [ready, theme, post]);

@@ -17,18 +17,11 @@
   // dev, or nginx on the VM. Only a standalone static server on :5173 is a
   // second origin, and only it needs the data server addressed directly.
   const API = location.port === "5173" ? "http://127.0.0.1:5174" : "";
-  /* Execution mode was laptop-only while the deployed box had nowhere to keep
-   * a strategy: a visitor could compose a rule, be told it was saved, and
-   * find nothing afterwards. The paper book and /strategies now hold them, and
-   * the deployed dataserver loads Pivot's engine (/health?deep=1 reports
-   * execution ok), so it is on everywhere since 2026-09-25.
-   *
-   * One flag, read in setChatMode below, so the click, the arrow keys and the
-   * phone menu are all governed by a single rule. Set false and the switch
-   * stays, inert, saying "Coming soon" on hover.
-   *
-   * Off for the research launch (2026-10-13): the page's PIVOT_CHART_EXECUTION. */
-  const EXECUTION_ENABLED = window.PIVOT_CHART_EXECUTION === true;
+  /* The Plays half is the Plays page itself (plays.html?side), framed in the
+   * panel: its own conversation, prompt, tools and cards, never mixed into
+   * this thread. On only where the shell has a Plays tab (embed.js hears
+   * `pivot:features`); until then the half says "Coming soon". */
+  let playsOn = false;
   const el = (id) => document.getElementById(id);
   const msgsEl = el("chatMsgs"), threadEl = el("thread"), input = el("chatInput"),
         sendBtn = el("chatSend"), panel = el("chatPanel");
@@ -40,11 +33,8 @@
   // Mutated in PLACE, never rebound: every closure below holds this one array,
   // so opening a past conversation refills it rather than replacing it.
   const turns = [];   // [{role, content, ts?, image?, drawing?, meta?, acts?}]
-  // A stored "execution" must not survive into a build that cannot run it:
-  // the mode is remembered per browser, so anyone who used it on a laptop and
-  // then opened the deployed site would land in the half that is switched off.
-  let chatMode = EXECUTION_ENABLED
-    && Store.get("chatmode", "chat") === "execution" ? "execution" : "chat";
+  // "plays" is restored only once the shell says Plays exist (enablePlays)
+  let chatMode = "chat";
   const wireHistory = () => turns.map((t) => ({
     role: t.role, content: t.content,
     // The chart this turn was asked on. A conversation survives a symbol
@@ -254,8 +244,7 @@
     if (!row) { row = document.createElement("div"); row.id = "widgetTagRow"; row.className = "draw-tag-row"; el("drawTagRow").after(row); }
     row.style.display = w ? "" : "none";
     row.innerHTML = w ? `<span class="draw-tag widget-tag">${widgetTagInner(w, true)}</span>` : "";
-    input.placeholder = w ? (w.question || `Ask about ${w.title}…`)
-      : (chatMode === "execution" ? EXECUTION_PLACEHOLDER : PLACEHOLDER);
+    input.placeholder = w ? (w.question || `Ask about ${w.title}…`) : PLACEHOLDER;
   }
   document.addEventListener("click", (e) => { if (e.target.closest("[data-unwidget]")) { setWidgetTag(null); input.focus(); } });
 
@@ -1968,48 +1957,14 @@
     ]},
   ];
 
-  /* Execution mode's own openings. NOT the research rows reworded: a
-   * builder's blank page is a different blank page. Each one is a complete,
-   * buildable rule with every value the tools need already in it (a size, a
-   * threshold, a period), because a template that lands the user in a
-   * clarifying question has taught them the mode asks questions rather than
-   * that it builds things. Grouped the way the work actually goes: an idea,
-   * an entry, an exit, then run it and test it. */
-  const EXEC_GROUPS = [
-    // The first two name only a NATURE. Most people arrive with an
-    // adjective, not an indicator, a lookback and a threshold.
-    { id: "idea", label: "Start from an idea", items: [
-      { icon: "lock", q: "Build me something defensive on {sym}: protect the downside even if the upside is small." },
-      { icon: "opRise", q: "Build me a momentum strategy on {sym}." },
-    ]},
-    { id: "entry", label: "Entries", items: [
-      { icon: "indicators", q: "Buy 10 {sym} when RSI(14) falls below 30." },
-      { icon: "cross", q: "Buy 25 {sym} when the 20-day EMA crosses above the 50-day EMA." },
-      { icon: "levels", q: "Buy 15 {sym} when it closes above the highest high of the last 20 days." },
-      { icon: "trendlines", q: "Buy 10 {sym} when RSI(14) is under 35 and price is above the 200-day SMA." },
-      { icon: "volumeProfile", q: "Buy 20 {sym} when volume is more than 1.5 times its 20-day average and the bar closes up." },
-      { icon: "compare", q: "Buy 15 {sym} when its 20-day return beats NIFTY's 20-day return." },
-    ]},
-    { id: "exit", label: "Exits and risk", items: [
-      { icon: "exit", q: "Buy 10 {sym} when RSI(14) drops below 30, and sell when unrealised profit reaches 8%." },
-      { icon: "planTrade", q: "Buy 10 {sym} on a close above the 50-day SMA, with a 3% stop from my entry." },
-      { icon: "trail", q: "Buy 10 {sym} when RSI(14) is below 30 and exit when drawdown from the peak reaches 4%." },
-      { icon: "squareoff", q: "Square off all my intraday positions at 15:15 every trading day." },
-    ]},
-    { id: "run", label: "Run and test", items: [
-      { icon: "schedule", q: "Every Friday at 10:00, buy 5 {sym}." },
-      { icon: "evidence", q: "Backtest buying {sym} when RSI(14) is under 35 and selling when it is over 65, over the last two years with 1 lakh." },
-    ]},
-  ];
-
-  // The open group per mode survives a rebuild, so a new chat or a symbol
-  // change keeps the trader on the shelf they were reading.
-  const tplOpen = { research: "read", execution: "idea" };
+  // The open group survives a rebuild, so a new chat or a symbol change
+  // keeps the trader on the shelf they were reading.
+  const tplOpen = { research: "read" };
 
   function tplGroups() {
     const d = Sym.of(Sym.name);
     const listed = !d.isCrypto && d.venue !== "MCX";
-    return (chatMode === "execution" ? EXEC_GROUPS : GROUPS)
+    return GROUPS
       .filter((g) => listed || !g.eq)
       .map((g) => ({ ...g, items: g.items.filter((t) => listed || !t.eq) }))
       .filter((g) => g.items.length);
@@ -2019,7 +1974,7 @@
   // nodes and wrong for an attribute — these prompts are going into one
   const attr = (s) => String(s).replace(/[&<>"]/g,
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-  const tplMode = () => (chatMode === "execution" ? "execution" : "research");
+  const tplMode = () => "research";
 
   function tplRows(group) {
     return group.items.map((t, i) => {
@@ -2041,8 +1996,7 @@
     const open = groups.find((g) => g.id === tplOpen[tplMode()]) || groups[0];
     const tabs = groups.map((g) => `<button type="button" class="tpl-tab${g === open ? " is-on" : ""}"`
       + ` role="tab" aria-selected="${g === open}" data-group="${attr(g.id)}">${attr(g.label)}</button>`).join("");
-    return `<div class="tpl-head">${tplMode() === "execution"
-        ? `Build a strategy on ${attr(Sym.name)}` : `What Pivot can do with ${attr(Sym.name)}`}</div>`
+    return `<div class="tpl-head">What Pivot can do with ${attr(Sym.name)}</div>`
       + `<div class="tpl-tabbar">`
       + `<button type="button" class="tpl-scroll" data-tpl-scroll="-1" aria-label="Earlier categories" disabled>${Icons.svg("chevronLeft")}</button>`
       + `<div class="tpl-tabs" role="tablist" aria-label="Chart prompt categories">${tabs}</div>`
@@ -2080,7 +2034,6 @@
    * It never runs at all under prefers-reduced-motion.
    */
   const PLACEHOLDER = "Ask about this chart…";
-  const EXECUTION_PLACEHOLDER = "Describe the strategy you want to build…";
   const TYPED = [
     "What's the trend here right now?",
     "Mark the levels that actually held",
@@ -2096,7 +2049,7 @@
     if (turns.length) return;      // a thread was restored: never start
     let i = 0, ch = 0, dir = 1, timer = null, done = false;
     const resting = () => (pendingWidget && (pendingWidget.question || `Ask about ${pendingWidget.title}…`))
-      || (chatMode === "execution" ? EXECUTION_PLACEHOLDER : PLACEHOLDER);
+      || PLACEHOLDER;
     function retire() {           // used once; the bar is static from here on
       if (done) return;
       done = true;
@@ -2108,7 +2061,6 @@
       if (done) return;
       // an attached widget's question owns the box until it is sent
       if (pendingWidget) { input.placeholder = resting(); input.classList.remove("ph-typing"); timer = setTimeout(step, 900); return; }
-      if (chatMode === "execution") { retire(); return; }
       // The conversation started, however it started — typed, clicked off a
       // template tile, or sent from a follow-up chip.
       if (turns.length) { retire(); return; }
@@ -2307,8 +2259,7 @@
       // Mode-aware, not the literal. Sending a message used to reset the box
       // to the research prompt, so the builder asked you to "ask about this
       // chart" the moment you finished building something on it.
-      input.placeholder = chatMode === "execution"
-        ? EXECUTION_PLACEHOLDER : PLACEHOLDER;
+      input.placeholder = PLACEHOLDER;
       input.value = "";
       autoGrow();
     }
@@ -2377,7 +2328,7 @@
         // `engine` names the user's own connected model (js/models.js);
         // absent, Pivot's model answers.
         body: JSON.stringify({ messages: wireHistory(), context, stream: true,
-                               chat_id: activeId, mode: chatMode,
+                               chat_id: activeId, plays: false,
                                ...(typeof Models !== "undefined" && Models.engine()
                                  ? { engine: Models.engine() } : {}) }),
         signal: requestAbort.signal,
@@ -2561,7 +2512,8 @@
    * overflow to ellipsis its label, which would cut the tip off, and it is
    * absolutely positioned so the switch stays a two-column grid rather than
    * growing a third. The `~` needs it after both halves. */
-  if (!EXECUTION_ENABLED) {
+  const soonOff = [];
+  {
     const soon = (n, label) => {
       n.setAttribute("aria-disabled", "true");
       // The markup's own title has to GO, not be rewritten. Left in place it
@@ -2573,17 +2525,46 @@
       // same breath as the label — the visible word stays the prefix, so what
       // is said and what is shown still match.
       n.setAttribute("aria-label", `${label} — coming soon`);
+      soonOff.push(n);
     };
-    for (const seg of modeSegs) if (seg.dataset.chatMode === "execution") soon(seg, "Execution");
+    for (const seg of modeSegs) if (seg.dataset.chatMode === "plays") soon(seg, "Plays");
     for (const it of mobileModeItems) {
-      if (it.dataset.mobileChatMode === "execution") soon(it, "Execution");
+      if (it.dataset.mobileChatMode === "plays") soon(it, "Plays");
     }
     modeSwitch.insertAdjacentHTML("beforeend",
       '<span class="mode-tip" aria-hidden="true">Coming soon</span>');
   }
+  /** The shell has a Plays tab: the half turns on, and a stored "plays" returns. */
+  function enablePlays() {
+    if (playsOn) return;
+    playsOn = true;
+    for (const n of soonOff) { n.removeAttribute("aria-disabled"); n.setAttribute("aria-label", "Plays"); }
+    modeSwitch.querySelector(".mode-tip")?.remove();
+    if (Store.get("chatmode", "chat") === "plays") setChatMode("plays");
+  }
+  /* The Plays page, framed once on first use and kept, so its conversation
+   * survives flipping back to Analysis. It asks for two things: the full
+   * Plays tab (on the same conversation) and a chart. */
+  let playsFrame = null;
+  function mountPlays() {
+    if (playsFrame) return;
+    playsFrame = document.createElement("iframe");
+    playsFrame.className = "plays-side";
+    playsFrame.title = "Plays";
+    playsFrame.src = "./plays.html?side=1";
+    panel.appendChild(playsFrame);
+  }
+  window.addEventListener("message", (e) => {
+    if (!playsFrame || e.source !== playsFrame.contentWindow || e.origin !== location.origin) return;
+    const d = e.data || {};
+    if (d.type === "plays:expand" && window.parent !== window) {
+      window.parent.postMessage({ type: "pivot:open-plays", hash: String(d.hash || "#/") }, location.origin);
+    } else if (d.type === "plays:open-chart" && d.symbol && window.__pivot?.panes) {
+      window.__pivot.panes.openChart(String(d.symbol), null, true);
+    }
+  });
   function paintChatMode() {
-    const execution = chatMode === "execution";
-    input.placeholder = execution ? EXECUTION_PLACEHOLDER : PLACEHOLDER;
+    if (chatMode === "plays") mountPlays();
     panel.dataset.chatMode = chatMode;
     for (const seg of modeSegs) {
       const on = seg.dataset.chatMode === chatMode;
@@ -2596,14 +2577,14 @@
     for (const item of mobileModeItems) {
       item.setAttribute("aria-checked", String(item.dataset.mobileChatMode === chatMode));
     }
-    showTray(!turns.length);
+    showTray(!turns.length && chatMode === "chat");
   }
   function setChatMode(next, { focus = false } = {}) {
-    next = next === "execution" ? "execution" : "chat";
+    next = next === "plays" ? "plays" : "chat";
     // The one gate. Every path into the mode — the segment, the arrow keys,
     // the phone menu — comes through here, so switching it off is one line
     // rather than three that have to agree.
-    if (next === "execution" && !EXECUTION_ENABLED) return;
+    if (next === "plays" && !playsOn) return;
     if (next === chatMode) return;
     chatMode = next;
     Store.set("chatmode", chatMode);
@@ -2620,7 +2601,7 @@
     if (e.key !== "ArrowLeft" && e.key !== "ArrowRight"
         && e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
     e.preventDefault();
-    const next = chatMode === "execution" ? "chat" : "execution";
+    const next = chatMode === "plays" ? "chat" : "plays";
     // An unavailable half still TAKES FOCUS. Refusing the key outright would
     // leave a keyboard reader with a group that appears to hold one option:
     // the arrow would do nothing, nothing would be announced, and the mode
@@ -2628,8 +2609,8 @@
     // its disabled state are read, and only the switch itself is declined —
     // which is what a radio group with an unavailable option is supposed to
     // do. (Roving tabindex, so `.focus()` on the -1 segment is the point.)
-    if (next === "execution" && !EXECUTION_ENABLED) {
-      modeSegs.find((s) => s.dataset.chatMode === "execution")?.focus();
+    if (next === "plays" && !playsOn) {
+      modeSegs.find((s) => s.dataset.chatMode === "plays")?.focus();
       return;
     }
     setChatMode(next, { focus: true });
@@ -3355,6 +3336,7 @@
    * panel drives so there is one path in and out of a conversation. */
   window.Chat = {
     activeId: () => activeId,
+    enablePlays,
     newChat: newConversation,
     openChat: openConversation,
     /* The open conversation, text only — what a published setup may carry.

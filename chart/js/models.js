@@ -63,10 +63,10 @@ const Models = (() => {
     paintChip();
   }
 
-  /** What the next message is sent with, or null for Pivot. Execution mode is
-   *  always Pivot: strategy building runs on Pivot's own model. */
+  /** What the next message is sent with, or null for Pivot. Plays always run
+   *  on Pivot's own model. */
   function engine() {
-    if (!pick || mode() === "execution") return null;
+    if (!pick || mode() === "plays") return null;
     const p = prov(pick.provider);
     if (!p || !p.connected) return null;
     const model = (p.models || []).some((m) => m.id === pick.model) ? pick.model : p.model;
@@ -144,19 +144,19 @@ const Models = (() => {
     const b = chip.querySelector(".mk-chip");
     const e = engine();
     const p = e && prov(e.provider);
-    const exec = mode() === "execution";
+    const exec = mode() === "plays";
     b.classList.toggle("own", !!e);
     b.innerHTML = e
       ? `${logo(e.provider)}<span class="mk-chip-t">${esc(modelLabel(p, e.model))}</span>${CARET}`
       : `${logo("pivot")}<span class="mk-chip-t">Pivot</span>${CARET}`;
     b.title = e ? `Answering with ${modelLabel(p, e.model)} on your ${p.name}${p.kind === "oauth" ? " plan" : " key"}`
-      : exec && pick ? "Strategy building runs on Pivot's model" : "Answering with Pivot's model";
+      : exec && pick ? "Plays run on Pivot's model" : "Answering with Pivot's model";
   }
 
   function paintMenu() {
     const menu = chip.querySelector(".mk-menu");
     const e = engine();
-    const exec = mode() === "execution";
+    const exec = mode() === "plays";
     const rows = [];
     rows.push('<div class="head">Model</div>');
     rows.push(item("pivot", "", "Pivot", "Included · uses Pivot credits", !e));

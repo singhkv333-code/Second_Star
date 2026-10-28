@@ -19,7 +19,7 @@
 (() => {
   const { esc, ic, call } = Kit;
   const $ = (id) => document.getElementById(id);
-  const KEY = "pivot:plays:convs", MAP = "pivot:plays:where", HIDE = "pivot:plays:hidden";
+  const KEY = "pivot:plays:convs", MAP = "pivot:plays:where", HIDE = "pivot:plays:hidden", SIDE = "pivot:plays:side";
   const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) || d; } catch { return d; } };
   const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* full */ } };
 
@@ -34,6 +34,20 @@
     if (location.pathname.startsWith("/chart-app/")) { location.replace("/#plays"); return; }
     $("main").innerHTML = `<div class="signin"><h2>Plays open inside Pivot</h2><p>Use the Execution tab in the Pivot app.</p></div>`;
     return;
+  }
+  // The chart's side panel (chat.js, its Plays half): the conversation only,
+  // beside the chart, with the rest of Plays one click away in the full tab
+  const side = new URLSearchParams(location.search).has("side");
+  if (side) document.documentElement.dataset.side = "";
+  const expand = (hash) => window.parent.postMessage({ type: "plays:expand", hash }, location.origin);
+  /** The chart beside the side panel, as the model is told it. */
+  const chartNow = () => {
+    try { const c = window.parent.__pivot.getChartContext(); return { symbol: c.symbol, interval: c.interval }; }
+    catch { return null; }
+  };
+  if (side && !location.hash) {
+    const last = load(SIDE, null);
+    if (last) history.replaceState(null, "", `#/c/${last}`);
   }
   if (framed) {
     document.addEventListener("click", (e) => {
@@ -75,6 +89,13 @@
 
   function render() {
     route = parse();
+    // the side panel holds conversations; Strategies, a play's page and Inbox open in the tab
+    if (side && route.page !== "home") {
+      expand(location.hash);
+      history.replaceState(null, "", cur ? `#/c/${cur.id}` : "#/");
+      route = parse();
+      return;
+    }
     paintStatus();
     if (!Auth.user) return signIn();
     if (route.page === "home") return home(route.conv);
@@ -147,7 +168,10 @@
     if (rc) rc.innerHTML = recentHTML();
   }
 
-  const homeActions = (showBack = false) => '<div class="home-actions">' +
+  const homeActions = (showBack = false) => side ? '<div class="home-actions">' +
+    (showBack ? `<button type="button" class="btn" data-go="home">${ic("plus")}New</button>` : "") +
+    `<span class="grow"></span><button type="button" class="btn" data-expand>${ic("expand")}Open in Plays</button></div>` :
+    '<div class="home-actions">' +
     (showBack ? '<button type="button" class="btn" data-go="home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m12 5-7 7 7 7M5 12h14"/></svg>Back to Plays</button><span class="grow"></span>' : '') +
     '<button type="button" class="btn" data-go="strategies">Strategies</button></div>';
 
@@ -172,6 +196,15 @@
       } catch { cur = null; }
     }
     if (convId && !cur) return go("#/");
+    if (side) save(SIDE, cur ? cur.id : null);
+    if (!cur && side) {
+      const sym = (chartNow() || {}).symbol || "RELIANCE";
+      main.innerHTML = `<div class="home">${homeActions()}<div class="hero">` +
+        composerHTML("new", `Describe a trade on ${sym}, a watch or a rule`) + `</div>` + showcase() +
+        `<div id="homeRecent">${recentHTML()}</div></div>`;
+      wireComposer(main.querySelector("[data-form]"));
+      return;
+    }
     if (!cur) {
       main.innerHTML = `<div class="home">${homeActions()}<div class="hero"><h1>Turn ideas into <mark>plays</mark><br/>that watch the market.</h1>` +
         `<p>Say a trade the way you would to a friend. Pivot reads the market, builds the rule, shows how often it would have fired, and runs it on paper.</p>` +
@@ -321,7 +354,7 @@
   phone.addEventListener("change", () => { if (route.page === "home" && cur) home(cur.id); });
   const unfolded = new Set();
   function playFolder(c) {
-    if (!phone.matches) return Kit.strategy(c);
+    if (!phone.matches || side) return Kit.strategy(c);
     const box = document.createElement("div");
     box.className = "pfold";
     const paint = () => {
@@ -465,7 +498,8 @@
         method: "POST",
         headers: Auth.headers({ "Content-Type": "application/json" }),
         body: JSON.stringify({ messages: wire, stream: true, harness: "v2", plays: true, chat_id: cur.id,
-                               context: { surface: "plays", ...(cur.focus ? { focus_play: cur.focus } : {}) } }),
+                               context: { surface: "plays", ...(side && chartNow() ? { chart: chartNow() } : {}),
+                                          ...(cur.focus ? { focus_play: cur.focus } : {}) } }),
       });
       if (!res.ok) {
         if (res.status === 401) window.dispatchEvent(new Event("plays:unauthorized"));
@@ -888,6 +922,7 @@
 
   /* ── global clicks ────────────────────────────────────────────────────── */
   document.addEventListener("click", async (e) => {
+    if (e.target.closest("[data-expand]")) { expand(cur ? `#/c/${cur.id}` : "#/"); return; }
     const g = e.target.closest("[data-go]");
     if (g) { e.preventDefault(); go(g.dataset.go === "home" ? "#/" : `#/${g.dataset.go}`); return; }
     const op = e.target.closest("[data-open]");

@@ -772,6 +772,28 @@ h3 .inline-in { box-sizing: border-box; font-size: inherit; font-weight: inherit
   .detail .panel:has(.strat) > .panel-h { margin: 0 2px 8px; }
 
 }
+/* the chart's side panel (playchat.js `side`): the prompt, the three examples
+   stacked, then recent conversations, all one column */
+:root[data-side] .home { padding: 0 12px; min-height: 100dvh; }
+:root[data-side] .home-actions { padding: 8px 8px 0; gap: 6px; }
+:root[data-side] .home-actions .btn { height: 30px; padding: 0 10px; font-size: 13px; }
+:root[data-side] .hero { padding-top: 10px; }
+:root[data-side] .composer textarea { font-size: 14.5px; }
+:root[data-side] .showcase { display: flex; flex-direction: column; gap: 10px; margin: 14px 0 20px; }
+:root[data-side] .show { min-height: 0; padding: 10px; gap: 8px; border-radius: 14px; }
+:root[data-side] .show:hover { transform: none; }
+:root[data-side] .show .ask { font-size: 13.5px; min-height: 0; padding: 8px 10px; border-radius: 10px; }
+:root[data-side] .show .demo { flex: none; padding: 2px 8px; font-size: 12px; border-radius: 10px; }
+:root[data-side] .show .demo > div { padding: 5px 2px !important; }
+:root[data-side] .show .demo > div:nth-child(n+4) { display: none !important; }
+:root[data-side] .show .demo > div:nth-child(3) { border-bottom: 0 !important; }
+:root[data-side] .show .cap { display: none; }
+:root[data-side] #homeRecent > div { margin: 0 0 24px !important; }
+:root[data-side] #homeRecent .panel-h { font-size: 13px; margin: 0 2px 8px; }
+:root[data-side] #homeRecent .grid { display: flex; flex-direction: column; gap: 8px; }
+:root[data-side] #homeRecent .sc { min-width: 0; padding: 10px 12px; border-radius: 12px; }
+:root[data-side] #homeRecent .sc .top2 b { font-size: 13.5px; }
+:root[data-side] #homeRecent .sc .desc { font-size: 12px; height: auto; max-height: 34px; }
 </style>
 </head>
 <body>
@@ -788,7 +810,7 @@ h3 .inline-in { box-sizing: border-box; font-size: inherit; font-weight: inherit
 </div><div class="showcase"><div class="sk sk-card"></div><div class="sk sk-card"></div><div class="sk sk-card"></div></div></div></main>
 <div class="toast" id="toast"></div>
 <script src="./js/auth.js?v=14"></script>
-<script src="./js/playkit.js?v=34"></script>
-<script src="./js/playchat.js?v=29"></script>
+<script src="./js/playkit.js?v=35"></script>
+<script src="./js/playchat.js?v=32"></script>
 </body>
 </html>

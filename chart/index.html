@@ -3935,6 +3935,11 @@ body.two-columns .readout .row { display: none; }
   display: flex; flex-direction: column; min-height: 0; position: relative;
 }
 .chatpanel.hidden { display: none; }
+/* Plays: the Plays page itself (plays.html?side), framed in place of the thread */
+.chatpanel[data-chat-mode="plays"] > :not(.chat-actions):not(.plays-side),
+.chatpanel[data-chat-mode="plays"] .chat-action,
+.chatpanel:not([data-chat-mode="plays"]) > .plays-side { display: none !important; }
+.plays-side { flex: 1; min-height: 0; width: 100%; border: 0; background: var(--background); }
 
 .chat-actions {
   height: 42px; padding: 6px 12px; flex: none;
@@ -10184,6 +10189,7 @@ i.mg { height: 3px !important; border-radius: 2px !important; background: var(--
   /* On a phone the actions live in the composer's + menu. Removing this
      whole desktop row gives its complete height back to the response. */
   .chat-actions { display: none; }
+  .chatpanel[data-chat-mode="plays"] .chat-actions { display: flex; }
   .thread { padding-block: 6px; }
   .thread-inner { padding-inline: 12px; gap: 20px; }
   /* The desktop offset assumes a two-row composer. On the one-row phone
@@ -11942,10 +11948,10 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
              aria-label="Conversation mode">
           <button type="button" class="chat-mode-seg" data-chat-mode="chat"
                   role="radio" aria-checked="true"
-                  title="Read, measure and discuss this chart">Research</button>
-          <button type="button" class="chat-mode-seg" data-chat-mode="execution"
+                  title="Read, measure and discuss this chart">Analysis</button>
+          <button type="button" class="chat-mode-seg" data-chat-mode="plays"
                   role="radio" aria-checked="false"
-                  title="Build a validated, register-only strategy draft">Execution</button>
+                  title="Build and run plays, as on the Plays tab">Plays</button>
         </div>
         <button type="button" class="chat-action" id="chatNew" title="New conversation" aria-label="New conversation"></button>
         <button type="button" class="chat-action" id="chatHistoryBtn" title="Chat history" aria-label="Chat history"></button>
@@ -11992,9 +11998,9 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
               <div class="dropdown up mobile-chat-menu" id="mobileChatMenu" role="menu">
                 <div class="head">Chat mode</div>
                 <button type="button" class="item" data-mobile-chat-mode="chat"
-                        role="menuitemradio" aria-checked="true">Research</button>
-                <button type="button" class="item" data-mobile-chat-mode="execution"
-                        role="menuitemradio" aria-checked="false">Execution</button>
+                        role="menuitemradio" aria-checked="true">Analysis</button>
+                <button type="button" class="item" data-mobile-chat-mode="plays"
+                        role="menuitemradio" aria-checked="false">Plays</button>
                 <div class="sep"></div>
                 <button type="button" class="item" id="mobileChatNew" role="menuitem">New conversation</button>
                 <button type="button" class="item" id="mobileChatHistory" role="menuitem">Conversation history</button>
@@ -12130,9 +12136,9 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/cards.js?v=78"></script>
   <script src="./js/layers-panel.js?v=19"></script>
   <script src="./js/model-logos.js?v=8"></script>
-  <script src="./js/models.js?v=11"></script>
+  <script src="./js/models.js?v=12"></script>
   <script src="./js/pricehover.js?v=7"></script>
-  <script src="./js/chat.js?v=204"></script>
+  <script src="./js/chat.js?v=205"></script>
   <script src="./js/codeview.js?v=12"></script>
   <script src="./js/journal.js?v=15"></script>
   <!-- BEFORE panels.js, which reads Alerts.state and subscribes to it while it
@@ -12165,6 +12171,6 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/mobile.js?v=19"></script>
   <!-- after mobile.js: the pager turns the phone's chart/chat/widgets into pages -->
   <script src="./js/pager.js?v=10"></script>
-  <script src="./js/embed.js?v=23"></script>
+  <script src="./js/embed.js?v=24"></script>
 </body>
 </html>

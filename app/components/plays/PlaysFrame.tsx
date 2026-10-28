@@ -25,12 +25,24 @@ export function PlaysFrame({
   onOpenChart,
   onInboxCount,
   page = "execution",
+  open,
 }: {
   onOpenChart?: (symbol: string) => void;
   onInboxCount?: (count: number) => void;
   page?: "execution" | "inbox";
+  /** A plays.html hash to show (the chart panel's "Open in Plays"); `n` re-opens the same one. */
+  open?: { hash: string; n: number } | null;
 }): React.ReactElement {
   const ref = useRef<HTMLIFrameElement>(null);
+  // the first one rides the src; later ones move the loaded page
+  const first = useRef(open?.hash ?? "");
+  const applied = useRef(open?.n ?? 0);
+  useEffect(() => {
+    if (!open || open.n === applied.current) return;
+    applied.current = open.n;
+    const win = ref.current?.contentWindow;
+    if (win) win.location.hash = open.hash;
+  }, [open]);
   const onChartRef = useRef(onOpenChart);
   useEffect(() => { onChartRef.current = onOpenChart; }, [onOpenChart]);
   const onCountRef = useRef(onInboxCount);
@@ -55,7 +67,7 @@ export function PlaysFrame({
   return (
     <iframe
       ref={ref}
-      src={page === "inbox" ? "/chart-app/plays.html#/inbox" : "/chart-app/plays.html"}
+      src={page === "inbox" ? "/chart-app/plays.html#/inbox" : `/chart-app/plays.html${first.current}`}
       title={page === "inbox" ? "Pivot inbox" : "Pivot execution"}
       className="h-full w-full flex-1 border-0"
       // the workspace surface, so a dark palette does not flash white while

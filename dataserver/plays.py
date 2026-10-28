@@ -4618,10 +4618,20 @@ def surface_block(ctx: dict) -> str:
     """The context block for the Plays page: no chart, and what the trader
     already has, so "make it 25" can find the play it means."""
     uid = _uid()
-    lines = ["## Where the trader is",
+    chart = ctx.get("chart") if isinstance(ctx.get("chart"), dict) else {}
+    sym = re.sub(r"[^\w:&.@-]", "", str(chart.get("symbol") or ""))[:40]
+    where = ("The Plays panel beside the trader's chart of " + sym
+             + (f" ({chart.get('interval')})" if chart.get("interval") else "")
+             + f": a narrow column for building and adjusting plays. \"This\", \"it\" or \"here\" "
+             f"with nothing else named means {sym}; any other symbol works as asked. The chart and "
+             "its drawings belong to the Analysis chat, so you cannot draw; read_chart, market_data "
+             "and the rest still work. Keep replies short and let the card carry the detail. "
+             if sym else
              "The Plays page: a conversation for building and adjusting plays. No chart is on "
              "screen, so do not draw; read_chart, market_data and the rest still work for any "
-             "symbol. Every play you compile or edit appears in this conversation as its card. "
+             "symbol. ")
+    lines = ["## Where the trader is",
+             where + "Every play you compile or edit appears in this conversation as its card. "
              "When they ask to change a play (in this conversation, or by naming it), edit it (play "
              "edit with its id and the whole play) rather than making a second one. A new request that "
              "only resembles one of their plays is a new play: build it as asked, and mention the "

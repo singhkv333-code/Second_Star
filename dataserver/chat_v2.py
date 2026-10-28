@@ -828,6 +828,8 @@ def tools() -> list[dict]:
     out = _tools()
     if plays_on():
         out = [t for t in out if t["name"] not in ("alerts", "strategy")] + _play_tools()
+    if getattr(ds._req, "surface", "") == "plays":   # no chart to draw on, no desk
+        out = [t for t in out if t["name"] not in ("draw", "workspace")]
     return out
 
 

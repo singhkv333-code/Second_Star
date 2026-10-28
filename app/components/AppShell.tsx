@@ -366,6 +366,8 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
   const [accountEmail, setAccountEmail] = useState<string>("");
   // Inbox has its own shell view; opening it never navigates the Execution frame.
   const [inboxCount, setInboxCount] = useState(0);
+  // the chart panel's "Open in Plays": which conversation the Plays tab shows
+  const [playsOpen, setPlaysOpen] = useState<{ hash: string; n: number } | null>(null);
   const inboxReturnTab = useRef<TabKey>(DEFAULT_TAB);
   // True once the user has sent ≥1 message in the chat tab. Active
   // conversations use a slightly wider reading column than the empty state.
@@ -1725,6 +1727,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
                 onOpenScreen={openScreenFromChart}
                 onOpenCompany={(symbol) => router.push(`/stock/${encodeURIComponent(symbol)}`)}
                 onChatVisibilityChange={setChartChatOpen}
+                onOpenPlays={(hash) => { setPlaysOpen((o) => ({ hash, n: (o?.n ?? 0) + 1 })); goTab("plays"); }}
               />
             </div>
           )}
@@ -1742,6 +1745,7 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
               <PlaysFrame
                 onOpenChart={(symbol) => openChart(symbol)}
                 onInboxCount={setInboxCount}
+                open={playsOpen}
               />
             </div>
           )}
