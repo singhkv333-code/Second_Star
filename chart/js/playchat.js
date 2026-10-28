@@ -161,16 +161,23 @@
   // logos in the showcase, the recent list) is patched in place, so a draft
   // already in the composer is never wiped.
   function repaintHome() {
-    if (cur || !main.querySelector(".hero h1")) return;
+    if (cur || !main.querySelector(".hero h1, .side-home")) return;
     const sc = main.querySelector(".showcase");
     if (sc) sc.outerHTML = showcase();
     const rc = $("homeRecent");
     if (rc) rc.innerHTML = recentHTML();
   }
 
-  const homeActions = (showBack = false) => side ? '<div class="home-actions">' +
-    (showBack ? `<button type="button" class="btn" data-go="home">${ic("plus")}New</button>` : "") +
-    `<span class="grow"></span><button type="button" class="btn" data-expand>${ic("expand")}Open in Plays</button></div>` :
+  // the side panel's bar: recent conversations on the left, new and the full tab on the right
+  const sideBar = (showNew) => `<div class="side-bar"><div class="side-recent"><button type="button" class="side-btn" data-recent aria-expanded="false">` +
+    `${ic("clock")}<span>Recent</span>${ic("chevron", "chev")}</button><div class="side-menu" hidden></div></div><span class="grow"></span>` +
+    (showNew ? `<button type="button" class="side-btn icon" data-go="home" title="New conversation" aria-label="New conversation">${ic("plus")}</button>` : "") +
+    `<button type="button" class="side-btn icon" data-expand title="Open in Plays" aria-label="Open in Plays">${ic("expand")}</button></div>`;
+  const recentMenu = () => convs.length ? convs.slice(0, 8).map((c) =>
+    `<button type="button" class="side-item${cur && cur.id === c.id ? " on" : ""}" data-conv="${esc(c.id)}"><b>${esc(c.title)}</b>` +
+    `<span>${esc(Array.isArray(c.turns) ? lastReply(c) : c.last || "")}</span></button>`).join("")
+    : `<div class="side-none">No conversations yet.</div>`;
+  const homeActions = (showBack = false) => side ? sideBar(showBack) :
     '<div class="home-actions">' +
     (showBack ? '<button type="button" class="btn" data-go="home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m12 5-7 7 7 7M5 12h14"/></svg>Back to Plays</button><span class="grow"></span>' : '') +
     '<button type="button" class="btn" data-go="strategies">Strategies</button></div>';
@@ -199,9 +206,9 @@
     if (side) save(SIDE, cur ? cur.id : null);
     if (!cur && side) {
       const sym = (chartNow() || {}).symbol || "RELIANCE";
-      main.innerHTML = `<div class="home">${homeActions()}<div class="hero">` +
-        composerHTML("new", `Describe a trade on ${sym}, a watch or a rule`) + `</div>` + showcase() +
-        `<div id="homeRecent">${recentHTML()}</div></div>`;
+      main.innerHTML = `<div class="side-home">${homeActions()}<div class="side-mid">` +
+        composerHTML("new", `Describe a trade on ${sym}, a watch or a rule`) +
+        `<div class="side-cards">${showcase()}</div></div></div>`;
       wireComposer(main.querySelector("[data-form]"));
       return;
     }
@@ -923,6 +930,14 @@
   /* ── global clicks ────────────────────────────────────────────────────── */
   document.addEventListener("click", async (e) => {
     if (e.target.closest("[data-expand]")) { expand(cur ? `#/c/${cur.id}` : "#/"); return; }
+    const rb = e.target.closest("[data-recent]"), menu = main.querySelector(".side-menu");
+    if (menu && !e.target.closest(".side-menu")) {
+      const open = !!rb && menu.hidden;
+      if (open) menu.innerHTML = recentMenu();
+      menu.hidden = !open;
+      main.querySelector("[data-recent]").setAttribute("aria-expanded", String(open));
+      if (rb) return;
+    }
     const g = e.target.closest("[data-go]");
     if (g) { e.preventDefault(); go(g.dataset.go === "home" ? "#/" : `#/${g.dataset.go}`); return; }
     const op = e.target.closest("[data-open]");
