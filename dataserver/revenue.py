@@ -23,16 +23,15 @@ WHAT IS BUILT HERE, AND WHAT IS NOT YET
     not yet UPI AutoPay mandates and the monthly debit cycle, deep-answer and
             backtest meters, invoices. The wallet is the only billing method.
 
-LIVE IS NOT LIVE YET
---------------------
-No play places a broker order: Pivot simulates, it does not execute
-(CLAUDE.md §4). `PIVOT_LIVE_PLAYS=1` lets a play be switched to the live
-venue so this ledger can be exercised end to end, and such a play still fills
-in the paper book. It is a local test switch, never a production setting,
-until exchange empanelment and broker onboarding are done.
+LIVE PLAYS
+----------
+`PIVOT_LIVE_PLAYS=1` lets a play be switched to the live venue. A live play
+places nothing on its own: each fire is a proposal, and an order goes to the
+trader's own connected broker (their API, brokers.py) only when they confirm
+it (plays.py, live orders). One-stock orders only; the rest stay on paper.
 
     PIVOT_REVENUE=1      enforce the build allowance (charges need live plays)
-    PIVOT_LIVE_PLAYS=1   allow the live venue (local billing tests only)
+    PIVOT_LIVE_PLAYS=1   allow the live venue
 
 Bound to dataserver (`bind()`) for its users connection and lock, like the
 other modules that share charto_users.db.

@@ -142,8 +142,10 @@ def _get_cipher():
     if _cipher_loaded:
         return _cipher
     _cipher_loaded = True
-    key = (os.environ.get("BROKER_TOKEN_ENC_KEY")
-           or os.environ.get("KITE_TOKEN_ENC_KEY") or "").strip()
+    # the process env, else Pivot's own env file (api/.env), as the API reads it
+    filed = ds._env_values("BROKER_TOKEN_ENC_KEY", "KITE_TOKEN_ENC_KEY")
+    key = (os.environ.get("BROKER_TOKEN_ENC_KEY") or os.environ.get("KITE_TOKEN_ENC_KEY")
+           or filed["BROKER_TOKEN_ENC_KEY"] or filed["KITE_TOKEN_ENC_KEY"] or "").strip()
     if not key:
         logger.warning("broker tokens stored PLAINTEXT — set BROKER_TOKEN_ENC_KEY")
         return None

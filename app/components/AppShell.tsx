@@ -76,6 +76,7 @@ import { AgentsTab } from "@/components/agent-panel/AgentsTab";
 import { PortfolioTab } from "@/components/agent-panel/PortfolioTab";
 import { ChartFrame } from "@/components/chart/ChartFrame";
 import { PlaysFrame } from "@/components/plays/PlaysFrame";
+import { PlaysConfirm } from "@/components/plays/PlaysConfirm";
 import { QuickAsk } from "@/components/copilot/QuickAsk";
 import { AssistantPanel } from "@/components/copilot/AssistantPanel";
 import { warmAssist, type AssistPage } from "@/lib/assist";
@@ -1439,6 +1440,8 @@ export function AppShell({ children }: AppShellProps = {}): React.ReactElement {
 
   return (
     <ActiveDraftContext.Provider value={activeDraftCtx}>
+    {/* A play's order waiting for a confirm, and the once-only guide to how that works. */}
+    {!guest && tabEnabled("plays") && <PlaysConfirm />}
     {/* Brand intro — plays once, right after login/signup (armLoginIntro). */}
     <LoginIntroGate />
     <div
@@ -2811,8 +2814,8 @@ function Sidebar({
           In the collapsed 48px rail it is a single centred broker glyph; in the
           expanded drawer it becomes a full row with a label (see globals.css
           .broker-sidebar-row). */}
-      {/* A broker is for live orders, which are off for launch. */}
-      {LAUNCH.execution && <div className="broker-sidebar-row shrink-0">
+      {/* A broker is for live orders: live plays, confirmed one by one, route to it. */}
+      {(LAUNCH.execution || LAUNCH.plays) && <div className="broker-sidebar-row shrink-0">
         <BrokerSidebarButton />
       </div>}
     </nav>

@@ -2604,6 +2604,9 @@ def _event(play: dict, ts: int, kind: str, title: str, body: dict, status: str =
             "authority": play["spec"]["contract"].get("authority"),
             **({"charge_paise": got["charge_paise"], "fee_paise": got["fee_paise"],
                 "waived_paise": got["waived_paise"]} if got else {})})
+    if kind == "proposed":
+        import play_confirm
+        play_confirm.ask(play, ev)
     if _alerts is not None:
         try:
             _alerts.push(play["user_id"], {"type": "play", "event": ev})
@@ -3087,6 +3090,8 @@ def _fire(play: dict, data: dict, series: dict, i: int, *, late: bool,
     reason = ""
     if late:
         authority, reason = "notify", "it fired while Pivot was offline, so nothing was placed"
+    elif play.get("venue") == "live" and authority in ("act", "manage"):
+        authority, reason = "propose", "a live order is placed only when you confirm it"
     elif (authority in ("act", "manage") and play["accepted"] == 0 and play["fires"] == 0
           and c["lifespan"] != "now" and not opening):
         # a play told to act NOW was confirmed by the trader in the same breath;
@@ -3748,7 +3753,14 @@ def _held_now(play: dict) -> float:
 def _day_event(play_id: int, kind: str, title: str, body: dict) -> None:
     """An exit or a note from the day book, into the play's inbox."""
     play = _load(play_id)
-    if play:
+    if play and kind == "exited" and play.get("venue") == "live" and body.get("why") != "closed by the play":
+        # the play's paper ledger closed; the real position closes when they confirm
+        t = {"live_exit": True, "symbol": body["symbol"], "side": "SELL" if body["side"] == "long" else "BUY",
+             "qty": body["qty"], "price": body.get("exit"), "product": "MIS"}
+        _event(play, int(time.time()), "proposed", play["spec"]["title"],
+               {**body, "detail": title, "ticket": t,
+                "reason": f"its exit was reached ({body.get('why')}); confirm to close it at your broker"})
+    elif play:
         _event(play, int(time.time()), kind, play["spec"]["title"], {**body, "detail": title},
                status="done")
         if kind == "exited":
@@ -4170,15 +4182,21 @@ def act(uid: int, pid: int, action: str) -> dict:
 
 
 def _go_live(uid: int, play: dict) -> None:
-    """Switch a play to the live venue. Live trading is not open: the switch
-    exists so billing can be tested locally, and a live play still fills in
-    the paper book (revenue.py, LIVE IS NOT LIVE YET)."""
+    """Switch a play to the live venue: each order it proposes goes to the
+    trader's connected broker once they confirm it (see live orders). Open
+    only where PIVOT_LIVE_PLAYS=1."""
     if play.get("venue") == "live":
         return
     if not revenue.live_open():
         raise Bad("Live plays are not open yet. This play keeps running on paper.")
     if play["spec"]["do"]["kind"] in ("notify", "halt"):
         raise Bad("this play places no orders, so it has nothing to run live")
+    why = _live_shape(play["spec"])
+    if why:
+        raise Bad(why)
+    import brokers
+    if not brokers.active_connection(uid):
+        raise Bad("Connect your broker first (bottom left), then switch this play to live.")
     ok, why = revenue.may_open(uid, revenue.segment_of(play["spec"]["do"]))
     if not ok:
         raise Bad(why)
@@ -4530,6 +4548,12 @@ def resolve_event(uid: int, eid: int, action: str) -> dict:
         raise Bad("the play behind this proposal was deleted")
     if play["spec"].get("universe"):
         play = _member(play, body.get("symbol") or (body.get("ticket") or {}).get("symbol") or "")
+    if (body.get("ticket") or {}).get("live_exit"):      # closing a live position: a halt never blocks it
+        live = _send_live(play, [body["ticket"]], eid)
+        _event_status(eid, "confirmed")
+        ev = _event(play, int(time.time()), "exited", play["spec"]["title"],
+                    {**body, "live": live, "confirmed": eid}, status="done")
+        return {"event": eid, "status": "confirmed", "result": ev}
     h = _halted(uid) if _halts_entries(play["spec"]["do"]) and not body.get("ticket", {}).get("close") \
         and (body.get("ticket") or {}).get("side") != "SELL" else None
     if h:
@@ -4566,11 +4590,68 @@ def resolve_event(uid: int, eid: int, action: str) -> dict:
         if not legs:
             raise Bad("none of it is held any more, so there is nothing to sell")
         t = {**t, "legs": legs} if t.get("basket") else legs[0]
-    ev = _place(play, t, ts, {"confirmed": eid, "symbol": t.get("symbol")})
+    live = _send_live(play, _live_orders(t), eid) if play.get("venue") == "live" else None
+    ev = _place(play, t, ts, {"confirmed": eid, "symbol": t.get("symbol"), **({"live": live} if live else {})})
     _event_status(eid, "confirmed")
     _set(pid, accepted=play["accepted"] + 1, needs_confirm=0)
     _after_proposal(pid)
     return {"event": eid, "status": "confirmed", "result": ev}
+
+
+# ══ live orders ═════════════════════════════════════════════════════════════
+# A live play sends a real order to the trader's own broker, through their own
+# API connection (brokers.py), for each fire they confirm. Nothing is sent
+# unattended: every fire of a live play is a proposal (_fire), so no order is
+# an automated one. The play's ledger then records the fill, so its exits keep
+# watching it; an exit it reaches is again a proposal to close at the broker.
+
+def _live_shape(spec: dict) -> str:
+    """Why this play cannot run live, or "" when it can."""
+    do = spec["do"]
+    if do["kind"] not in ("buy", "sell", "short", "cover") or spec.get("universe") or spec.get("security"):
+        return "only plays that trade one stock run live for now"
+    sym = str(do.get("symbol") or spec["symbol"]).upper()
+    if sym.startswith("@") or sym.endswith(("USDT", "-USD", hyperliquid.SUFFIX)) or do.get("product") == "NRML":
+        return "only NSE stocks run live for now; options, futures, commodities and crypto stay on paper"
+    mg = spec.get("manage") or {}
+    if (do.get("product") or "CNC") == "CNC" and (mg.get("stop_pct") or mg.get("target_pct") or mg.get("trail_pct")):
+        return ("a delivery play's stop or target rests in the paper book and cannot follow a live position yet; "
+                "make it intraday, or put the exit in its rule")
+    return ""
+
+
+def _live_orders(t: dict) -> list[dict]:
+    """The broker orders a confirmed ticket stands for."""
+    if t.get("book") == "day":
+        if len(t.get("legs") or []) != 1 or t["legs"][0].get("kind") not in ("equity", None):
+            raise Bad("only a single stock order can be sent live")
+        lg = t["legs"][0]
+        buy = (lg["side"] == "long") != bool(t.get("close"))
+        return [{"symbol": lg["symbol"], "side": "BUY" if buy else "SELL", "qty": lg["qty"], "product": "MIS"}]
+    if t.get("basket") or t.get("rebalance") or t.get("stop") or not t.get("symbol"):
+        raise Bad("only a single stock order can be sent live")
+    return [{"symbol": t["symbol"], "side": t["side"], "qty": t["qty"], "product": "CNC"}]
+
+
+def _send_live(play: dict, orders: list[dict], eid: int) -> list[dict]:
+    """Each order to the trader's connected broker, once (keyed on the proposal)."""
+    import brokers
+    out = []
+    for i, o in enumerate(orders):
+        qty = int(float(o["qty"]))
+        if qty < 1:
+            raise Bad("that is less than one share, so there is nothing to send")
+        try:
+            out.append(brokers.place_live(play["user_id"], o["symbol"], o["side"], qty,
+                                          product=o.get("product") or "CNC", idem_key=f"play-ev:{eid}:{i}"))
+        except brokers.LiveReject as exc:
+            # sent once per proposal, so a refused one is closed rather than left to retry
+            _event_status(eid, "dismissed")
+            _event(play, int(time.time()), "rejected", play["spec"]["title"],
+                   {"reason": f"your broker did not take it ({exc}); the play proposes again when it next "
+                              "triggers"}, status="done")
+            raise Bad(f"Your broker did not take the order: {exc}") from None
+    return out
 
 
 def _event_status(eid: int, status: str) -> None:
@@ -4968,6 +5049,9 @@ def api_get(uid: int, tail: str) -> tuple[int, dict]:
         return 200, {"chats": chats_list(uid)}
     if parts == ["review"]:
         return 200, review(uid)
+    if parts == ["pending"]:
+        import play_confirm
+        return 200, {"pending": play_confirm.pending(uid)}
     if parts == ["book"]:
         return 200, day_book(uid)
     if parts[0] == "billing":

@@ -16,9 +16,23 @@ RIL = {"title": "t", "symbol": "RELIANCE", "interval": "1d"}
 
 @pytest.fixture
 def live(uid, monkeypatch):
+    import types
+    import brokers
     monkeypatch.setenv("PIVOT_LIVE_PLAYS", "1")
     monkeypatch.setattr(revenue, "_ready_for", None)
+    # a connected broker that takes every order: billing is what is tested here
+    monkeypatch.setattr(brokers, "active_connection", lambda user_id: types.SimpleNamespace(broker="zerodha"))
+    monkeypatch.setattr(plays, "_live_orders", lambda t: [])
+    monkeypatch.setattr(plays, "_send_live", lambda play, orders, eid: [{"order_id": "T1"}])
     return uid
+
+
+def _fire_live(play, data, i):
+    """A live fire is a proposal; the trader confirms it and it fills."""
+    ev = plays._fire(play, data, {}, i, late=False)
+    if ev["kind"] != "proposed":
+        return ev
+    return plays.resolve_event(play["user_id"], ev["id"], "confirm")["result"]
 
 
 def _live_play(uid, raw: dict) -> int:
@@ -101,8 +115,10 @@ def test_a_wallet_that_dipped_below_zero_is_recovered_by_the_next_topup(uid) -> 
 def test_a_two_leg_straddle_firing_once_is_one_ten_rupee_trade(live, book) -> None:
     revenue.credit(live, 10000, "TOPUP", "pay_1")
     pid = plays.tool_play("compile", _straddle())["play_id"]
-    plays.act(live, pid, "live")
+    plays._set(pid, venue="live")                     # F&O is billed like this once it can run live
     ev = _fire_now(pid)
+    assert ev["kind"] == "proposed", ev
+    ev = plays.resolve_event(live, ev["id"], "confirm")["result"]
     assert ev["kind"] == "filled", ev
     assert _charges(live) == [("FNO", 1000, 1000, 0)]
 
@@ -132,7 +148,7 @@ def test_an_unpaid_account_skips_entries_but_its_exits_run(live) -> None:
     plays._set(pid, accepted=1, fires=1)
     play = plays._load(pid)
     data, _ = plays.frame(play["spec"])
-    assert plays._fire(play, data, {}, len(data["t"]) - 1, late=False)["kind"] == "filled"
+    assert _fire_live(play, data, len(data["t"]) - 1)["kind"] == "filled"
     # the wallet runs dry: the next entry is skipped with the reason, nothing charged
     revenue.charge(live, "drain", pid, revenue.FNO, 0)
     server._users.execute("UPDATE rev_accounts SET wallet_paise=0 WHERE user_id=?", (live,))
@@ -143,7 +159,7 @@ def test_an_unpaid_account_skips_entries_but_its_exits_run(live) -> None:
     # an exit never asks: selling what the play holds runs, and is charged like any action
     sell = plays._load(pid)
     sell["spec"] = {**sell["spec"], "do": {"kind": "sell", "symbol": "RELIANCE"}}
-    assert plays._fire(sell, data, {}, len(data["t"]) - 1, late=False)["kind"] == "filled"
+    assert _fire_live(sell, data, len(data["t"]) - 1)["kind"] == "filled"
     assert revenue.summary(live)["wallet_paise"] < 0
 
 
@@ -156,6 +172,12 @@ def test_live_needs_the_switch_and_money(uid, monkeypatch) -> None:
     with pytest.raises(plays.Bad, match="not open"):
         plays.act(uid, pid, "live")
     monkeypatch.setenv("PIVOT_LIVE_PLAYS", "1")
+    import types
+    import brokers
+    monkeypatch.setattr(brokers, "active_connection", lambda user_id: None)
+    with pytest.raises(plays.Bad, match="Connect your broker"):
+        plays.act(uid, pid, "live")
+    monkeypatch.setattr(brokers, "active_connection", lambda user_id: types.SimpleNamespace(broker="zerodha"))
     with pytest.raises(plays.Bad, match="wallet"):
         plays.act(uid, pid, "live")
     revenue.credit(uid, 10000, "TOPUP", "pay_1")
@@ -255,7 +277,7 @@ def test_trades_are_counted_by_venue_and_sent_to_posthog(live, monkeypatch) -> N
         plays._set(pid, accepted=1, fires=1)
         play = plays._load(pid)
         data, _ = plays.frame(play["spec"])
-        assert plays._fire(play, data, {}, len(data["t"]) - 1, late=False)["kind"] == "filled"
+        assert _fire_live(play, data, len(data["t"]) - 1)["kind"] == "filled"
     trades = [p for e, p in heard if e == "play_trade"]
     assert [t["venue"] for t in trades] == ["paper", "live"]
     assert trades[1]["charge_paise"] == revenue.fee_paise(revenue.DELIVERY, round(trades[1]["value_inr"] * 100))

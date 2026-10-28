@@ -324,6 +324,24 @@ def paper_fill(*, strategy: str, symbol: str, side: str, quantity: str,
               market=True))
 
 
+def order_confirm(*, order: str, play: str, where: str, url: str, minutes: int = 30,
+                  reason: str = "", origin: str = APP) -> Mail:
+    blocks = [
+        heading("Confirm your order"),
+        para(f"Your play “{play}” triggered. Its order waits for you."),
+        facts([("Order", order), ("Placed in", where), ("Play", play)]),
+    ]
+    if reason:
+        blocks.append(para(reason[0].upper() + reason[1:] + ("" if reason.endswith(".") else ".")))
+    blocks += [
+        button("Review and confirm", url),
+        note(f"The button opens a page where you confirm or dismiss the order; it works for {minutes} "
+             "minutes. You can also confirm it in Pivot. Pivot does not place orders on its own."),
+    ]
+    return _mail("order_confirm", "product", f"Confirm: {order}", f"{play} triggered. Confirm or dismiss it.",
+                 blocks, Footer("You're receiving this because a play you armed proposed an order.", market=True))
+
+
 # ── billing ─────────────────────────────────────────────────────────────────
 
 def subscription_started(*, plan: str, cycle: str, amount: str, period: str,

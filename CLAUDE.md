@@ -75,11 +75,13 @@ investor would find genuinely useful?"*
 
 Identity-level. Violating one is never "a small bug."
 
-- **Simulate, don't execute.** Pivot builds, backtests and arms strategies, and
-  fills them into a **simulated paper book**. It does not place live broker
-  orders. The broker rails exist but are dormant behind `live_orders_enabled`;
-  re-arming them is a business decision plus a registered-broker partnership
-  under SEBI's April-2026 framework, not a code change.
+- **Confirm, then execute.** Plays fill a **simulated paper book** by default.
+  A play switched to live (`PIVOT_LIVE_PLAYS=1`, decided 2026-10-28) sends
+  one-stock orders to the trader's own connected broker, and only when the
+  trader confirms each one (the app's prompt, the Inbox or the emailed link):
+  nothing is ever placed unattended, in line with SEBI's retail algo rules.
+  Options, futures, crypto and baskets stay on paper. The older strategy
+  rails stay dormant behind `live_orders_enabled`.
 - **Not a broker. Not a registered advisor.** We give **data and frameworks**,
   never personalised buy/sell/hold advice (stock/portfolio/trade answers end
   "…this is analysis, not financial advice.").

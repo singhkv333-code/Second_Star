@@ -19389,6 +19389,17 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _html(self, code: int, page: str) -> None:
+        body = page.encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def _share_image(self, token: str, hires: bool = False) -> None:
         body = _shares.preview_image(token, hires) if _shares is not None else None
         if body is None:
@@ -20563,6 +20574,9 @@ class Handler(BaseHTTPRequestHandler):
                     if code != 404 or u.path == "/setup":
                         return self._send(code, payload)
                 return self._send(*_layout_shared_get(tok))
+            if u.path.startswith("/confirm/"):
+                import play_confirm
+                return self._html(*play_confirm.page(u.path[len("/confirm/"):]))
             if u.path == "/plays" or u.path.startswith("/plays/"):
                 me = _auth_user(self.headers)
                 if not me:
@@ -21128,6 +21142,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(413, {"error": "body too large"})
             raw = self.rfile.read(ln) if ln else b""
             return self._send(*self._billing_post(u.path, raw))
+        if u.path.startswith("/confirm/"):
+            # the emailed link's page posts its own form; the token is the credential
+            import play_confirm
+            ln = int(self.headers.get("Content-Length", 0) or 0)
+            form = urllib.parse.parse_qs(self.rfile.read(min(ln, 2048)).decode("utf-8", "replace"))
+            return self._html(*play_confirm.act(u.path[len("/confirm/"):], (form.get("action") or [""])[0]))
         if u.path.startswith("/plays/"):
             try:
                 ln = int(self.headers.get("Content-Length", 0))

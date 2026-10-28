@@ -14,6 +14,7 @@ import daybook
 import paper
 import plays
 import policy
+import revenue
 
 RSI = "def compute(data, params):\n    return ta.rsi(data['close'], 14)"
 
@@ -1270,3 +1271,99 @@ def test_confirming_an_act_now_proposal_keeps_its_own_size(uid) -> None:
     eid = [e for e in plays.events(uid) if e["kind"] == "proposed"][0]["id"]
     res = plays.resolve_event(uid, eid, "confirm")
     assert res["result"]["body"]["ticket"]["qty"] == got["did_now"]["body"]["ticket"]["qty"] == 8, res
+
+
+# ── live orders: always confirmed, then sent to the trader's own broker ──────
+
+@pytest.fixture
+def broker(uid, monkeypatch):
+    import types
+    import brokers
+    import mailer
+    import play_confirm
+    sent, mails = [], []
+
+    def place(user_id, symbol, side, qty, **k):
+        sent.append({"symbol": symbol, "side": side, "qty": qty, "product": k["product"], "idem": k["idem_key"]})
+        return {"broker": "zerodha", "order_id": f"Z{len(sent)}", "status": "placed"}
+    monkeypatch.setattr(brokers, "place_live", place)
+    monkeypatch.setattr(brokers, "active_connection", lambda user_id: types.SimpleNamespace(broker="zerodha"))
+    monkeypatch.setattr(revenue, "live_open", lambda: True)
+    monkeypatch.setattr(revenue, "may_open", lambda user_id, seg: (True, ""))
+    monkeypatch.setattr(play_confirm, "_ready", False)
+    monkeypatch.setattr(mailer.Config, "from_env", classmethod(lambda cls: cls(
+        True, "pivot@pivotnow.in", "pw", 465, "smtp.test", "pivot@pivotnow.in", "http://localhost:3000")))
+    monkeypatch.setattr(mailer, "send_later", lambda mail, to, cfg, ref="": mails.append((mail, to)) or True)
+    return sent, mails
+
+
+def _live_buy(uid):
+    p = plays.tool_play("compile", _rsi_play(do={"kind": "buy", "size": {"inr": 4000}},
+                                             contract={"lifespan": "standing", "authority": "act"}))
+    plays._go_live(uid, plays._load(p["play_id"]))
+    plays._set(p["play_id"], accepted=3, fires=3)       # long past its first fire
+    play = plays._load(p["play_id"])
+    data, _ = plays.frame(play["spec"])
+    series, _ = plays.run_measures(play["spec"], data)
+    return play, plays._fire(play, data, series, len(data["t"]) - 1, late=False)
+
+
+def test_a_live_play_proposes_by_email_and_a_confirm_sends_one_order_to_the_broker(broker) -> None:
+    sent, mails = broker
+    play, ev = _live_buy(1)
+    assert ev["kind"] == "proposed" and "only when you confirm" in ev["body"]["reason"], ev
+    (mail, to), = mails
+    assert to == "t@x.in" and mail.subject.startswith("Confirm: Buy") and "/confirm/" in mail.text
+    assert "Your Zerodha account" in mail.text and not sent
+    res = plays.resolve_event(1, ev["id"], "confirm")
+    assert sent == [{"symbol": "RELIANCE", "side": "BUY", "qty": ev["body"]["ticket"]["qty"], "product": "CNC",
+                     "idem": f"play-ev:{ev['id']}:0"}]
+    assert res["result"]["body"]["live"][0]["order_id"] == "Z1"
+    assert __import__("play_confirm").pending(1) == []
+
+
+def test_a_broker_refusal_closes_the_proposal_and_says_why(broker, monkeypatch) -> None:
+    import brokers
+    play, ev = _live_buy(1)
+
+    def refuse(*a, **k):
+        raise brokers.LiveReject("zerodha: insufficient funds")
+    monkeypatch.setattr(brokers, "place_live", refuse)
+    with pytest.raises(plays.Bad, match="insufficient funds"):
+        plays.resolve_event(1, ev["id"], "confirm")
+    assert __import__("play_confirm").pending(1) == []
+    assert "insufficient funds" in [e for e in plays.events(1) if e["kind"] == "rejected"][0]["body"]["reason"]
+
+
+def test_a_live_exit_is_a_proposal_to_close_at_the_broker(broker) -> None:
+    sent, _ = broker
+    play, _ = _live_buy(1)
+    plays._day_event(play["id"], "exited", "RELIANCE: stop hit",
+                     {"symbol": "RELIANCE", "side": "long", "qty": 5, "exit": 1300.0, "why": "stop hit"})
+    ex = [e for e in plays.events(1) if e["kind"] == "proposed" and e["body"]["ticket"].get("live_exit")][0]
+    plays.resolve_event(1, ex["id"], "confirm")
+    assert sent[-1] == {"symbol": "RELIANCE", "side": "SELL", "qty": 5, "product": "MIS", "idem": f"play-ev:{ex['id']}:0"}
+
+
+def test_the_email_link_shows_the_order_and_only_a_post_confirms_it(broker) -> None:
+    import play_confirm
+    sent, mails = broker
+    _, ev = _live_buy(1)
+    tok = mails[0][0].text.split("/confirm/")[1].split()[0]
+    code, page = play_confirm.page(tok)
+    assert code == 200 and "Confirm" in page and "RELIANCE" in page and not sent
+    code, page = play_confirm.act(tok, "confirm")
+    assert code == 200 and len(sent) == 1
+    assert play_confirm.page(tok)[0] == 410                # the link is spent
+    assert play_confirm.page("nope")[0] == 410
+
+
+def test_only_single_stock_plays_go_live(broker, monkeypatch) -> None:
+    import brokers
+    p = plays.tool_play("compile", _rsi_play(do={"kind": "buy", "symbol": "BTCUSDT", "size": {"inr": 4000}}))
+    with pytest.raises(plays.Bad, match="only NSE stocks"):
+        plays._go_live(1, plays._load(p["play_id"]))
+    monkeypatch.setattr(brokers, "active_connection", lambda user_id: None)
+    p = plays.tool_play("compile", _rsi_play(do={"kind": "buy", "size": {"inr": 4000}}))
+    with pytest.raises(plays.Bad, match="Connect your broker"):
+        plays._go_live(1, plays._load(p["play_id"]))

@@ -242,7 +242,7 @@
     }
     main.innerHTML = `<div class="home">${homeActions(true)}<div class="thread" id="thread"></div><div class="dock">` +
       composerHTML("conv", cur.focus ? "Ask for a change to this play" : "Ask for a change, or describe another play", focusChip()) +
-      `<div class="fine">Every order is simulated on paper. Nothing is sent to a broker. This is analysis, not financial advice.</div></div></div>`;
+      `<div class="fine">Orders run on paper unless a play is live; a live order goes to your broker only when you confirm it. This is analysis, not financial advice.</div></div></div>`;
     const th = $("thread");
     cur.turns.forEach((t) => th.appendChild(turnEl(t)));
     wireComposer(main.querySelector("[data-form]"));
@@ -559,6 +559,9 @@
       for (const c of cards) if (c.kind === "play" && c.id) { where[c.id] = cur.id; if (!cur.focus) cur.focusOf = c.id; }
       const built = side && cards.filter((c) => c.kind === "play" && c.id).pop();
       if (built) onChart(built.id, true);
+      // the app's once-only guide to confirming orders (PlaysConfirm in the shell)
+      if (cards.some((c) => c.kind === "play" && c.state === "armed") && window.top !== window)
+        window.top.postMessage({ type: "plays:armed" }, location.origin);
       save(MAP, where);
       persist();
       w.replaceWith(turnEl(t));
@@ -861,11 +864,15 @@
         line("Taxes (STT and the rest)", "depends on the order size") +
         line("Pivot", `${est.segment === "DELIVERY" ? "up to " : ""}${esc(rs(est.pivot_paise))} <span class="muted">(${esc(rs(est.cap_paise))} a month at most · ${esc(rs(est.used_paise))} used)</span>`) +
         `<p class="muted" style="margin:8px 0 10px;line-height:1.5">Pivot charges only when this play trades. Exits always run, even with unpaid dues. ` +
-        `In this build a live play still fills in the paper book; no broker order is placed.</p>` +
+        `Each order goes to your connected broker only after you confirm it, here or from the email. Pivot never places one on its own.</p>` +
         `<div class="row" style="gap:8px"><button type="button" class="btn sm" id="goLive">Run live</button><button type="button" class="btn sm ghost" id="noLive">Cancel</button></div></div>`;
       $("noLive").onclick = () => { $("golive").innerHTML = ""; };
       $("goLive").onclick = async () => {
-        try { await call(`/plays/${c.id}`, { action: "live" }); strategyPage(c.id); } catch (err) { $("golive").innerHTML = ""; Kit.toast(err.message); }
+        try {
+          await call(`/plays/${c.id}`, { action: "live" });
+          if (window.top !== window) window.top.postMessage({ type: "plays:armed" }, location.origin);
+          strategyPage(c.id);
+        } catch (err) { $("golive").innerHTML = ""; Kit.toast(err.message); }
       };
     });
   }
