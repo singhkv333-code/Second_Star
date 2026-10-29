@@ -7,7 +7,7 @@ const BODY = `# Pivot
 
 > Pivot is AI stock research for Indian markets. Ask a question in plain English and the answer is drawn on live NSE charts with the evidence behind it; every NSE-listed company has a free page with its price, financials, quarterly results, shareholding and peers; strategies are written in plain English and backtested with checks for overfitting before anything is called an edge.
 
-Pivot covers NSE and BSE equities, the NIFTY, BANKNIFTY and SENSEX indices, NSE options, MCX commodities, and crypto on the chart. It runs strategies in a simulated paper book and never places live orders. It is not a broker or a SEBI-registered investment adviser and does not give buy or sell recommendations.
+Pivot covers NSE and BSE equities, the NIFTY, BANKNIFTY and SENSEX indices, NSE options, MCX commodities, and crypto on the chart. It runs strategies in a simulated paper book by default; a play the trader switches to live sends one-stock orders to the trader's own broker, and only after the trader confirms each order. It is not a broker or a SEBI-registered investment adviser and does not give buy or sell recommendations.
 
 ## Company data (cite these)
 - [All NSE stocks](https://app.pivotnow.in/stocks): a page per company, end-of-day prices, refreshed every trading day
