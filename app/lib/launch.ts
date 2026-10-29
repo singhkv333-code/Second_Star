@@ -12,8 +12,9 @@
  *               book; the chart chat's Execution mode is off separately, by
  *               the chart's own PIVOT_CHART_EXECUTION.
  *   plays       the Execution tab: plays built in chat, run on the paper books
- *               (chart/plays.html, framed). Local only for now; it
- *               also needs the data server started with PIVOT_PLAYS=1.
+ *               (chart/plays.html, framed). On in production since 2026-10-30:
+ *               deploy/pivot_release.py builds with it, and the data server
+ *               runs with PIVOT_PLAYS=1 (PIVOT_LIVE_PLAYS=1 for the live venue).
  *
  * Each turns back on with its NEXT_PUBLIC_PIVOT_* variable set to "1" at
  * build time.

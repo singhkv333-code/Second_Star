@@ -83,6 +83,7 @@ NEXT_ENV = {
     "PIVOT_DATASERVER_ORIGIN": "http://127.0.0.1:5174",
     "NEXT_PUBLIC_PIVOT_API_BASE": "/pv/api",
     "NEXT_PUBLIC_PIVOT_WS_BASE": "wss://pivot-india.centralindia.cloudapp.azure.com/pv/api",
+    "NEXT_PUBLIC_PIVOT_PLAYS": "1",          # the Plays and Inbox tabs (app/lib/launch.ts)
     "NODE_OPTIONS": "--max-old-space-size=3072",
 }
 DEPENDENCY_FILES = ("api/requirements.txt", "dataserver/requirements.txt")
