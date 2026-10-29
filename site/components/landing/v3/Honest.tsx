@@ -12,8 +12,8 @@
  *                a gap, pushed it under the blurred glass above, where it
  *                could not be seen.) Under it, the verdict scale, with
  *                the real verdict for the backtest the desk shows lit.
- *   Three cards  server-checked alerts, the paper book, and the desk's real
- *                backtest set beside holding.
+ *   Two cards    server-checked alerts, and the desk's real backtest set
+ *                beside holding. The paper book is the Plays section's.
  */
 "use client";
 
@@ -112,7 +112,7 @@ export function Honest(): React.ReactElement {
           </div>
         </div>
 
-        <div className="hn-trio">
+        <div className="hn-trio duo">
           <article className="hn-card">
             <div className="hn-obj toggles">
               <label><span>Close above 1,329.75</span><i className="sw on" /></label>
@@ -121,14 +121,6 @@ export function Honest(): React.ReactElement {
             </div>
             <h3>Alerts checked on every bar.</h3>
             <p>On the server, whether or not the tab is open.</p>
-          </article>
-          <article className="hn-card">
-            <div className="hn-obj rings">
-              <i /><i /><i /><i />
-              <span className="hn-lock"><Lock /></span>
-            </div>
-            <h3>Watch strategies run on paper.</h3>
-            <p>See simulated fills and positions in your paper book.</p>
           </article>
           <article className="hn-card">
             <div className="hn-obj comparison">

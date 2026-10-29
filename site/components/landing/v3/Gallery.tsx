@@ -62,6 +62,10 @@ function Tiles() {
 export function Gallery(): React.ReactElement {
   const loop = React.useRef<HTMLDivElement | null>(null);
   const held = React.useRef(false);
+  // An arrow step still owed to the belt, eased in by the drift loop: a
+  // native smooth scrollBy would be overwritten by the loop on its next frame.
+  const owed = React.useRef(0);
+  const running = React.useRef(false);
 
   React.useEffect(() => {
     const el = loop.current;
@@ -83,13 +87,20 @@ export function Gallery(): React.ReactElement {
     const tick = (now: number) => {
       const dt = last ? Math.min(64, now - last) : 16;
       last = now;
-      if (!held.current) { pos += dt * 0.045; el.scrollLeft = pos; wrap(); }
+      let moved = false;
+      if (owed.current) {
+        let d = owed.current * Math.min(1, dt * 0.012);
+        if (Math.abs(owed.current - d) < 0.5) d = owed.current;
+        pos += d; owed.current -= d; moved = true;
+      }
+      if (!held.current) { pos += dt * 0.045; moved = true; }
+      if (moved) { el.scrollLeft = pos; wrap(); }
       if (on) raf = requestAnimationFrame(tick);
     };
     const io = new IntersectionObserver(([e]) => {
       const vis = !!e?.isIntersecting;
-      if (vis && !on && !still) { on = true; last = 0; raf = requestAnimationFrame(tick); }
-      if (!vis) { on = false; cancelAnimationFrame(raf); }
+      if (vis && !on && !still) { on = running.current = true; last = 0; raf = requestAnimationFrame(tick); }
+      if (!vis) { on = running.current = false; owed.current = 0; cancelAnimationFrame(raf); }
     });
     io.observe(el);
     el.scrollLeft = pos = 1;
@@ -104,14 +115,17 @@ export function Gallery(): React.ReactElement {
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
     return () => {
-      io.disconnect(); cancelAnimationFrame(raf); el.removeEventListener("scroll", wrap);
+      running.current = false; io.disconnect(); cancelAnimationFrame(raf); el.removeEventListener("scroll", wrap);
       el.removeEventListener("pointerdown", down); window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up);
     };
   }, []);
 
   const step = (dir: 1 | -1) => {
     const el = loop.current, tile = el?.querySelector<HTMLElement>(".gl-tile");
-    if (el && tile) el.scrollBy({ left: dir * (tile.offsetWidth + 20), behavior: "smooth" });
+    if (!el || !tile) return;
+    const by = dir * (tile.offsetWidth + 20);
+    if (running.current) owed.current += by;
+    else el.scrollBy({ left: by, behavior: "smooth" });
   };
   const hold = (v: boolean) => () => { held.current = v; };
 

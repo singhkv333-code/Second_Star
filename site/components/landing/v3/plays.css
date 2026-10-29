@@ -1,0 +1,303 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   PLAYS — the Plays tab, transcribed (Plays.tsx).
+
+   Every rule under `.ply` is chart/plays.html's own, with the selector
+   scoped so it cannot reach the rest of the page. The tokens are the
+   light workspace's, as plays.html declares them by default.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── the section ──────────────────────────────────────────────────────── */
+.py { background: #fff; padding: var(--sec) 0 calc(var(--sec) * 0.8); }
+.py .v3-head { max-width: none; }
+.py .v3-head h2 { max-width: 760px; }
+@media (min-width: 1000px) { .py .v3-head p { white-space: nowrap; } }
+.py-win .mw-body { background: #fff; }
+.py-show { margin-top: 20px; background: transparent; }
+
+/* the window: the conversation, and the side panel beside it */
+/* One fixed height for the home and the built play, so the window never
+   jumps between them, and short enough to sit whole in a laptop viewport
+   below the nav. */
+.py-app { position: relative; height: 580px; overflow: hidden; }
+.py-main { height: 100%; min-width: 0; padding: 20px 28px 22px; container-type: inline-size; animation: py-fade 320ms ease both; transition: opacity 340ms ease;
+  display: flex; flex-direction: column; }
+/* the card takes the rest of the window and its canvas the rest of the
+   card, so the nodes sit centred in the space rather than above a gap */
+.py-main .strat { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.py-main .strat .canvas { flex: 1; min-height: 0; }
+.py-main.out, .py-home.out { opacity: 0; }
+.py-main .prose { margin: 0 0 10px; }
+@keyframes py-fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* the home: the app's composer (plays.html) alone in the window, the ask
+   typed into it */
+/* hairline only, over paper.css's window shadow */
+.pivot-landing .mw.mw-light.py-win { box-shadow: 0 0 0 1px rgba(17, 19, 18, 0.12); }
+.py-home { height: 100%; padding: 0 32px; display: grid; place-items: center; animation: py-fade 320ms ease both; }
+.ply .composer { width: min(820px, 100%); background: var(--surface); border: 1px solid var(--line-2); border-radius: 16px;
+  box-shadow: 0 2px 4px rgba(0,0,0,.03), 0 12px 32px rgba(0,0,0,.05); padding: 14px 14px 10px 16px; text-align: left; }
+.ply .composer .ta { font-size: 15.5px; line-height: 1.5; min-height: 46px; color: var(--ink); }
+.ply .caret { display: inline-block; width: 1.5px; height: 1.1em; margin-left: 1px; vertical-align: -0.18em; background: var(--ink); animation: py-blink 1s steps(1, end) infinite; }
+@keyframes py-blink { 50% { opacity: 0; } }
+.ply .composer .bar { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.ply .send, .ply .mic { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; }
+.ply .send { background: var(--rule); color: var(--surface); transition: background .2s, transform .15s; }
+.ply .send.on { background: var(--ink); }
+.ply .send.press { transform: scale(.88); }
+.ply .send svg { width: 16px; height: 16px; }
+.ply .mic { color: var(--ink-2); }
+.ply .mic svg { width: 17px; height: 17px; }
+
+/* the build: each part waits in its place and comes in on its stage */
+.ply .rv { opacity: 0; transform: translateY(6px); transition: opacity 300ms ease, transform 300ms cubic-bezier(.25,1,.5,1); }
+.ply .rv.on { opacity: 1; transform: none; }
+.ply .spin { width: 15px; height: 15px; margin: 1px; flex: none; border-radius: 50%; border: 2px solid var(--line-2); border-top-color: var(--ink-2); animation: py-spin .7s linear infinite; }
+@keyframes py-spin { to { transform: rotate(360deg); } }
+.ply .wires path { stroke-dasharray: 1; stroke-dashoffset: 1; animation: py-draw 520ms ease-out forwards; }
+.ply .wires circle { animation: py-fade 300ms ease both; }
+@keyframes py-draw { to { stroke-dashoffset: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .ply .rv, .py-main, .py-home, .ply .wires path, .ply .wires circle { transition: none; animation: none; opacity: 1; transform: none; stroke-dashoffset: 0; }
+}
+
+
+/* ── tokens: the light workspace ──────────────────────────────────────── */
+.ply {
+  --surface: #ffffff;
+  --line: #e2e2e5;
+  --ink: #17191e;
+  --acc: #8bb8b0;
+  --green: #089981; --red: #f23645; --green-ink: var(--green);
+
+  --panel: color-mix(in srgb, var(--surface) 95%, var(--ink));
+  --hover: color-mix(in srgb, var(--surface) 93.5%, var(--ink));
+  --panel-2: color-mix(in srgb, var(--surface) 92%, var(--ink));
+  --line-2: color-mix(in srgb, var(--line) 94%, var(--ink));
+  --grid: color-mix(in srgb, var(--line) 60%, transparent);
+  --ink-2: color-mix(in srgb, var(--ink) 72%, var(--surface));
+  --ink-3: color-mix(in srgb, var(--ink) 52%, var(--surface));
+  --rule: color-mix(in srgb, var(--ink) 22%, var(--surface));
+  --rule-2: color-mix(in srgb, var(--ink) 30%, var(--surface));
+
+  --blue: #2563eb; --sky: #0a86c4; --pink: #d63d8f; --orange: #f0570f;
+  --violet: #7c4dff; --amber: #b26b00;
+  --blue-bg: color-mix(in srgb, var(--blue) 12%, var(--surface));
+  --sky-bg: color-mix(in srgb, var(--sky) 13%, var(--surface));
+  --pink-bg: color-mix(in srgb, var(--pink) 12%, var(--surface));
+  --orange-bg: color-mix(in srgb, var(--orange) 13%, var(--surface));
+  --green-bg: color-mix(in srgb, var(--green) 13%, var(--surface));
+  --red-bg: color-mix(in srgb, var(--red) 12%, var(--surface));
+  --violet-bg: color-mix(in srgb, var(--violet) 12%, var(--surface));
+  --amber-bg: color-mix(in srgb, var(--amber) 14%, var(--surface));
+  --font: 'Inter', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --serif: 'Newsreader', ui-serif, Georgia, 'Times New Roman', serif;
+  --r: 12px; --shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 14px rgba(0,0,0,.06);
+  background: var(--surface); color: var(--ink); font-family: var(--font); font-size: 14px;
+  -webkit-font-smoothing: antialiased; text-align: left;
+}
+.ply.py-show { background: transparent; color: var(--ink); }
+.ply * { box-sizing: border-box; }
+.ply svg { display: inline-block; }
+.ply a { color: inherit; text-decoration: none; }
+.ply .grow { flex: 1; }
+.ply .row { display: flex; align-items: center; gap: 10px; }
+.ply .muted { color: var(--ink-3); }
+
+/* ── buttons, chips and pills ─────────────────────────────────────────── */
+.ply .btn { height: 36px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--surface);
+  font-weight: 500; display: inline-flex; align-items: center; gap: 7px; box-shadow: 0 1px 0 rgba(0,0,0,.03); white-space: nowrap; }
+.ply .btn.sm { height: 30px; padding: 0 11px; border-radius: 8px; font-size: 13px; }
+.ply .btn svg { width: 16px; height: 16px; }
+.ply .pill { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 6px;
+  font-size: 12px; font-weight: 500; white-space: nowrap; background: var(--panel-2); color: var(--ink-2); }
+.ply .pill.met, .ply .pill.up, .ply .pill.live { background: var(--green-bg); color: var(--green); }
+.ply .pill.wait { background: var(--amber-bg); color: var(--amber); }
+.ply .pill.armed { background: var(--blue-bg); color: var(--blue); }
+.ply .pill i.dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.ply .pill svg { width: 12px; height: 12px; }
+.ply .chip { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 7px; border-radius: 6px;
+  font-weight: 600; font-size: 13px; white-space: nowrap; font-variant-numeric: tabular-nums; vertical-align: middle; max-width: 100%; }
+.ply .chip svg { width: 12px; height: 12px; }
+.ply .chip.sig { background: var(--pink-bg); color: var(--pink); }
+.ply .chip.op { background: var(--sky-bg); color: var(--sky); min-width: 24px; justify-content: center; }
+.ply .chip.val { background: var(--blue-bg); color: var(--blue); }
+.ply .chip.sell { background: var(--red-bg); color: var(--red); }
+.ply .chip.buy { background: var(--green-bg); color: var(--green); }
+.ply .logo { width: 20px; height: 20px; border-radius: 5px; object-fit: contain; background: #fff; flex: none;
+  border: 1px solid var(--line); vertical-align: middle; }
+.ply .logo.lg { width: 30px; height: 30px; border-radius: 8px; }
+.ply .logo.sm { width: 16px; height: 16px; border-radius: 4px; }
+.ply .logo.xs { width: 14px; height: 14px; border-radius: 3px; margin-right: 4px; }
+.ply .mono-mark { display: inline-grid; place-items: center; font-weight: 700; font-size: 10px; color: #fff; border: 0; }
+.ply .logo.has-img { position: relative; overflow: hidden; }
+.ply .logo.has-img img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #fff; opacity: 0; }
+.ply .logo.has-img img.in { opacity: 1; }
+.ply .logos { display: flex; }
+.ply .mark-ic { width: 22px; height: 22px; }
+
+/* ── the canvas: Signal → Trigger → Action ────────────────────────────── */
+.ply .ruled { background-color: color-mix(in srgb, var(--surface) 98.5%, var(--ink));
+  background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 24px 24px; background-position: -1px -1px; }
+.ply .canvas { position: relative; border: 1px solid var(--line); border-radius: 14px; padding: 14px 18px;
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.12fr); gap: 0 clamp(28px, 4vw, 64px); align-items: center;
+  overflow: hidden; }
+.ply .canvas .col { display: flex; flex-direction: column; gap: 16px; position: relative; z-index: 1; min-width: 0; }
+.ply .canvas svg.wires { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; overflow: visible; }
+.ply .wires path { fill: none; stroke: var(--rule-2); stroke-width: 1.5; }
+.ply .wires circle { fill: var(--rule-2); }
+.ply .wires path.hot { stroke: var(--green-ink); }
+.ply .node { background: var(--surface); border: 1.5px solid var(--line-2); border-radius: 12px; padding: 10px 11px 11px;
+  box-shadow: 0 1px 2px rgba(0,0,0,.03); min-width: 0; }
+.ply .nh { display: flex; align-items: center; gap: 7px; color: var(--ink-2); font-size: 13px; font-weight: 500; margin-bottom: 7px; }
+.ply .nh svg { width: 14px; height: 14px; }
+.ply .node .tt { font-size: 14px; font-weight: 500; line-height: 1.35; margin-bottom: 8px; }
+.ply .inner { background: var(--panel); border-radius: 9px; padding: 9px 10px; }
+.ply .lvl-strip { margin-top: 10px; }
+.ply .lvl-strip svg { display: block; width: 100%; height: auto; overflow: visible; }
+.ply .lv-line { fill: none; stroke: var(--blue); stroke-width: 1.6; stroke-linejoin: round; }
+.ply .lv-dot { fill: var(--blue); }
+.ply .lv-level { fill: none; stroke: var(--ink-3); stroke-width: 1.2; stroke-dasharray: 4 3; }
+.ply .lv-fill { fill: color-mix(in srgb, var(--amber) 16%, transparent); }
+.ply .lv-gap { stroke: var(--amber); stroke-width: 1.4; stroke-linecap: round; }
+.ply .lv-tag { font-size: 11px; font-weight: 600; fill: var(--amber); font-variant-numeric: tabular-nums; font-family: var(--font); }
+.ply .lvl-strip.met .lv-fill { fill: color-mix(in srgb, var(--green) 16%, transparent); }
+.ply .lvl-strip.met .lv-tag { fill: var(--green-ink); }
+.ply .lvl-cap { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--ink-3); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.ply .inner .src { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--ink-2); min-width: 0; }
+.ply .inner .src > span:not(.grow):not(.pill) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.ply .inner .src svg { width: 14px; height: 14px; flex: none; }
+.ply .big { font-size: 24px; font-weight: 500; letter-spacing: -.02em; margin: 4px 0 2px; font-variant-numeric: tabular-nums; }
+.ply .big .dec { color: var(--ink-3); }
+.ply .cond { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; font-size: 14px; line-height: 1.6; }
+.ply .inner .note { font-size: 13px; margin-top: 6px; line-height: 1.45; }
+.ply .act-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 15px; font-weight: 500; margin-bottom: 8px; }
+.ply .chart { position: relative; }
+.ply .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.ply .chart .ln { fill: none; stroke: var(--blue); stroke-width: 1.6; stroke-linejoin: round; }
+.ply .chart .mark { fill: var(--orange); stroke: var(--surface); stroke-width: 2; }
+.ply .sig-chart { margin-top: 6px; }
+
+/* ── strategy card ────────────────────────────────────────────────────── */
+.ply .strat { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); overflow: hidden; }
+.ply .strat-head { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px; padding: 12px 16px 10px; }
+.ply .strat-head h3 { margin: 0 0 3px; font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
+.ply .strat-head p { margin: 0; color: var(--ink-2); font-size: 13.5px; line-height: 1.5; }
+.ply .lede-wrap { position: relative; flex: 1 1 100%; min-width: 0; margin-top: -8px; }
+.ply .strat .canvas { margin: 0 12px; border-radius: 12px; }
+.ply .strat-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 16px 12px; }
+.ply .strat-foot .facts { display: flex; gap: 18px; flex-wrap: wrap; font-size: 13px; color: var(--ink-2); flex: 1; }
+.ply .strat-foot .facts b { color: var(--ink); font-weight: 600; }
+
+/* ── the conversation ─────────────────────────────────────────────────── */
+.ply .msg-u { display: flex; justify-content: flex-end; margin: 0 0 12px; }
+.ply .msg-u div { max-width: 76%; background: var(--hover); border-radius: 16px 16px 4px 16px; padding: 10px 14px; line-height: 1.5;
+  white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14.5px; }
+.ply .steps { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 22px; }
+.ply .steps li { display: flex; align-items: center; gap: 10px; font-size: 14.5px; color: var(--ink); }
+.ply .steps li svg { width: 17px; height: 17px; flex: none; color: var(--ink-2); }
+.ply .steps li .logo { margin-left: 2px; }
+.ply .prose { font-size: 15px; line-height: 1.62; overflow-wrap: anywhere; }
+.ply .prose p { margin: 0 0 12px; }
+.ply .prose strong { font-weight: 600; }
+
+/* ── the showcase ─────────────────────────────────────────────────────── */
+.ply .py-examples { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; }
+.ply .py-example { --accent: #174d3c; --stage: #e3eee7; min-width: 0; display: flex; flex-direction: column; overflow: hidden; color: #16231c; background: #fafcf9; border: 0; border-radius: 18px; transition: box-shadow 250ms ease; }
+.ply .py-example--basket { --accent: #334990; --stage: #e9edf8; background: #fafbff; color: #1b2543; }
+.ply .py-example--trade { --accent: #904824; --stage: #f3e7da; background: #fffcf8; color: #39281b; }
+.ply .py-example:hover { box-shadow: 0 14px 32px rgba(24, 35, 29, .09); }
+.ply .py-example:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; }
+.ply .py-example-stage { min-height: 288px; padding: 19px 22px 24px; background: var(--stage); border-bottom: 1px solid rgba(25, 40, 30, .08); }
+.ply .py-example-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 23px; color: var(--accent); font-size: 10px; line-height: 1.4; }
+.ply .py-example-toolbar > span:first-child { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; }
+.ply .py-example-toolbar svg { width: 15px; height: 15px; }
+.ply .py-example-content { display: flex; flex-direction: column; flex: 1; padding: 25px 26px 22px; }
+.ply .py-example-content h3 { margin: 0 0 13px; font: 450 29px/1.12 var(--serif); letter-spacing: -.03em; }
+.ply .py-example blockquote { margin: 0 0 25px; max-width: 35ch; min-height: 64px; font-size: 14px; line-height: 1.6; color: inherit; }
+.ply .py-example-link { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: auto; font-size: 12px; font-weight: 600; color: var(--accent); }
+.ply .py-example-arrow { display: grid; place-items: center; width: 32px; height: 32px; border: 1px solid currentColor; border-radius: 50%; transition: background 200ms ease, color 200ms ease; }
+.ply .py-example-arrow svg { width: 15px; height: 15px; transform: rotate(45deg); }
+.ply .py-example:hover .py-example-arrow { color: #fff; background: var(--accent); border-color: var(--accent); }
+/* The alert is a condition connected to a destination, never a fabricated fire. */
+.ply .py-alert-art { padding: 0 1px; }
+.ply .py-alert-source { display: flex; gap: 7px; align-items: center; font-size: 11px; font-weight: 600; }
+.ply .py-alert-source > span:last-child { margin-left: auto; color: #3c5e4e; font-size: 10px; font-weight: 400; }
+.ply .py-volume-rule { display: flex; align-items: center; gap: 15px; margin-top: 12px; padding: 0 0 10px; border-bottom: 1px solid #b4cbbb; color: #174d3c; }
+.ply .py-volume-rule > strong { font: 450 65px/.95 var(--serif); letter-spacing: -.04em; }
+.ply .py-volume-rule > strong span { font-size: 42px; }
+.ply .py-volume-rule > div { font-size: 13px; font-weight: 500; line-height: 1.4; }
+.ply .py-volume-rule > div span { display: block; margin-top: 3px; font-size: 10px; font-weight: 400; }
+.ply .py-volume-rule > svg { width: 23px; height: 23px; margin-left: auto; }
+.ply .py-alert-wire { height: 24px; display: flex; flex-direction: column; align-items: center; color: #729480; }
+.ply .py-alert-wire span { height: 16px; width: 1px; background: currentColor; }
+.ply .py-alert-wire svg { height: 10px; width: 10px; transform: rotate(180deg); margin-top: -3px; }
+.ply .py-alert-destination { display: flex; gap: 12px; align-items: center; padding: 14px; border-radius: 10px; background: #174d3c; color: #f2f8f1; box-shadow: 0 6px 14px rgba(23, 77, 60, .12); }
+.ply .py-alert-destination > svg { width: 20px; height: 20px; flex: none; }
+.ply .py-alert-destination b { font-size: 11px; font-weight: 500; }
+.ply .py-alert-destination div > span { display: block; margin-top: 3px; font-size: 9px; color: #d0e4d6; }
+/* Allocation is literal: each of the five selected names gets twenty percent. */
+.ply .py-basket-filter { display: flex; align-items: center; gap: 8px; font-size: 10px; color: #334990; }
+.ply .py-basket-filter > span:first-child { font-size: 11px; font-weight: 600; }
+.ply .py-basket-filter svg { height: 11px; width: 11px; transform: rotate(90deg); }
+.ply .py-allocation { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 3px; margin: 22px 0 18px; border-radius: 8px; overflow: hidden; }
+.ply .py-allocation > div { height: 93px; padding: 12px 8px; display: flex; flex-direction: column; justify-content: space-between; color: #fff; background: #334990; }
+.ply .py-allocation > div:nth-child(2) { background: #40589f; }
+.ply .py-allocation > div:nth-child(3) { background: #4e65ae; }
+.ply .py-allocation > div:nth-child(4) { background: #5c72b6; }
+.ply .py-allocation > div:nth-child(5) { background: #687dc0; }
+.ply .py-allocation > div > span { font-size: 10px; }
+.ply .py-allocation b { font-size: 21px; font-weight: 500; letter-spacing: -.04em; }
+.ply .py-allocation b span { font-size: 11px; margin-left: 1px; }
+.ply .py-basket-summary { display: flex; align-items: center; gap: 6px; font-size: 10px; color: #334990; }
+.ply .py-basket-summary svg { width: 15px; height: 15px; }
+.ply .py-basket-summary b { margin-left: auto; font-size: 12px; }
+.ply .py-basket-note { margin-top: 9px; color: #455783; font-size: 10px; }
+/* A schematic risk plan; the percentages come from the example prompt. */
+.ply .py-trade-symbol { display: flex; align-items: center; gap: 7px; font-size: 10px; }
+.ply .py-trade-symbol b { font-weight: 600; }
+.ply .py-trade-symbol > span:last-child { margin-left: auto; border: 1px solid #bda185; border-radius: 4px; padding: 3px 6px; color: #75401f; font-size: 9px; }
+.ply .py-risk-plan { position: relative; display: flex; flex-direction: column; margin: 15px 0 13px; padding-right: 16px; }
+.ply .py-risk-target, .ply .py-risk-stop { display: flex; align-items: center; justify-content: space-between; padding: 0 13px; }
+.ply .py-risk-target { height: 58px; background: #d4e5d5; border-top: 1px solid #52785c; color: #284d32; }
+.ply .py-risk-stop { height: 29px; background: #e9cdb9; border-bottom: 1px solid #b57b52; color: #774020; }
+.ply .py-risk-target > span, .ply .py-risk-stop > span { font-size: 10px; }
+.ply .py-risk-target b { font: 500 27px/1 var(--serif); }
+.ply .py-risk-stop b { font-size: 13px; font-weight: 500; }
+.ply .py-risk-entry { position: relative; display: flex; justify-content: space-between; gap: 5px; align-items: center; height: 26px; font-size: 9px; border-top: 1px dashed #92775e; border-bottom: 1px dashed #92775e; }
+.ply .py-risk-entry > span:first-child { font-weight: 600; }
+.ply .py-risk-entry i { position: absolute; width: 6px; height: 6px; background: #904824; right: -19px; border-radius: 50%; }
+.ply .py-risk-bracket { position: absolute; inset: 0 0 0 auto; width: 7px; border: 1px solid #a17c5c; border-left: 0; }
+.ply .py-trade-note { display: flex; align-items: center; gap: 7px; color: #75401f; font-size: 10px; }
+.ply .py-trade-note svg { width: 14px; height: 14px; }
+@media (prefers-reduced-motion: reduce) { .ply .py-example, .ply .py-example-arrow { transition: none; } }
+
+/* ── narrower ─────────────────────────────────────────────────────────── */
+@container (max-width: 720px) {
+  .ply .canvas { grid-template-columns: minmax(0, 1fr); gap: 26px; padding: 20px 14px; }
+  .ply .canvas svg.wires { display: none; }
+  .ply .canvas .col + .col::before { content: ""; position: absolute; left: 50%; top: -26px; height: 26px; width: 1.5px; background: var(--rule); }
+}
+@media (max-width: 1100px) {
+  .py-app { height: 640px; }
+}
+@media (max-width: 980px) {
+  .ply .py-examples { grid-template-columns: minmax(0, 1fr); }
+  .ply .py-example { display: grid; grid-template-columns: 1fr 1fr; }
+  .ply .py-example-stage { border-bottom: 0; }
+  .ply .py-example blockquote { min-height: 0; max-width: 36ch; }
+}
+@media (max-width: 720px) {
+  .py-app { height: auto; min-height: 560px; }
+  .py-main { height: auto; padding: 18px 14px; }
+  .py-home { height: auto; min-height: 560px; padding: 24px 14px; }
+  .ply .msg-u div { max-width: 90%; }
+}
+
+@media (max-width: 600px) {
+  .ply .py-example { display: flex; }
+  .ply .py-example-stage { min-height: 282px; border-bottom: 1px solid rgba(25, 40, 30, .08); padding: 19px 22px 24px; }
+  .ply .py-example-content { padding: 24px; }
+  .ply .py-example blockquote { margin-bottom: 20px; }
+  .ply .py-example-content h3 { font-size: 29px; }
+}

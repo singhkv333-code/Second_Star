@@ -373,3 +373,15 @@ html.pivot-landing-active,html.pivot-landing-active body{height:auto;min-height:
 /* Content must be readable before the entrance script initializes (or when
    a phone delays it). GSAP applies inline opacity only while it runs. */
 .pivot-landing [data-reveal]{opacity:1}
+
+/* the nav's one section link, beside Sign in */
+.pl-nav-links{display:flex;align-items:center;gap:6px}
+.pl-nav-link{display:inline-flex;align-items:center;height:38px;padding:0 12px;border-radius:4px;color:inherit;font-size:13px;font-weight:500;text-decoration:none;opacity:.86;transition:opacity .2s,background-color .2s}
+.pl-nav-link:hover{opacity:1;background:rgba(127,127,127,.14)}
+
+/* Match the white Plays section rather than carrying the paper tint over it. */
+.pivot-landing[data-bg="paper"] .pl-nav.light.scrolled[data-surface="white"] {
+  background: #fff;
+  border-bottom-color: rgba(17, 19, 18, .1);
+  box-shadow: none;
+}

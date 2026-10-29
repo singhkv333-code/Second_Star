@@ -537,6 +537,8 @@
 
 /* ── Workspace: a fitted bento ──────────────────────────────────────── */
 .ws { background: #fff; padding: var(--sec) 0; }
+/* under the gallery, as the second half of "Everything in one place" */
+.ws.joined { padding-top: 56px; }
 @media (min-width: 768px) {
   .ws .v3-head { max-width: none; }
   .ws .v3-head h2 { font-size: clamp(36px, 4.6vw, 60px); white-space: nowrap; }
@@ -739,6 +741,7 @@
 .hn-scale i { font-style: normal; opacity: 0.3; }
 
 .hn-trio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 16px; }
+.hn-trio.duo { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .hn-card {
   display: flex; flex-direction: column; min-height: 420px; padding: 32px; border-radius: 24px;
   background: linear-gradient(180deg, #111112, #0a0a0b); box-shadow: inset 0 0 0 1px rgba(244, 241, 234, 0.1);
@@ -795,7 +798,7 @@
   .ws-card, .ws-card.ws-full, .ws-card:not(.ws-full) { grid-column: span 12; }
   .ws-card.ws-full { grid-template-columns: 1fr; }
   .hn-ladder { grid-template-columns: 1fr; padding: 48px; }
-  .hn-trio { grid-template-columns: 1fr; }
+  .hn-trio, .hn-trio.duo { grid-template-columns: 1fr; }
   .hn-card { min-height: 0; }
   .px-chat { width: 300px; }
   .fg-row { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 40px; }
