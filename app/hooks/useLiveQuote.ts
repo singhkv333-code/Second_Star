@@ -5,8 +5,8 @@
  *
  * Sources (in priority order):
  * 1. WebSocket ticks from the module-level liveQuoteManager singleton.
- * 2. REST fallback: `GET /api/markets/quote/{symbol}` on mount (after 5s if
- *    no WS tick has arrived) and every 60s while the WS is disconnected.
+ * 2. REST: `GET /api/markets/quote/{symbol}` on mount, and every 60s while no
+ *    WS tick has arrived. A tick always wins over a REST answer.
  *
  * `isLive` is true only when the latest update came via the WS.
  *
@@ -106,7 +106,11 @@ function normalise(symbol: string): string {
 // useLiveQuote
 // ---------------------------------------------------------------------------
 
-const REST_FALLBACK_DELAY_MS = 5_000;
+// Asked for at once. Waiting 5s for a tick first left every price on Portfolio
+// and Screener blank for 5-6s whenever the feed was quiet (nights, weekends,
+// symbols off the stream); the REST answer is cached 15s and a tick still
+// overwrites it the moment one lands.
+const REST_FALLBACK_DELAY_MS = 0;
 const REST_POLL_INTERVAL_MS = 60_000;
 
 export function useLiveQuote(symbol: string | null): LiveQuoteResult {
@@ -186,7 +190,7 @@ export function useLiveQuote(symbol: string | null): LiveQuoteResult {
 
     subscribe(sym, listener);
 
-    // 5s grace: if no WS tick arrives, fall back to REST.
+    // No tick yet: ask REST now (see REST_FALLBACK_DELAY_MS).
     fallbackTimerRef.current = setTimeout(() => {
       if (!wsTickArrivedRef.current) {
         fetchRest(sym);

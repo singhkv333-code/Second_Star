@@ -353,8 +353,10 @@ def _anchors_as_addresses(shapes: list, iv: str, symbol, lookback) -> tuple[list
 
 _CHART_OPS = {"show_chart", "add_chart", "add_study", "remove_study",
               "build_indicator", "edit_indicator", "list_indicators"}
+# Live TV is off (js/w-media.js) and the Strategy widget is locked
+# (js/w-strategy.js), so neither is offered to the model.
 _WIDGETS = ["watch", "screener", "notes", "sheet", "financials", "news", "options", "calendar",
-            "alerts", "journal", "portfolio", "strategy", "browser", "docs", "code", "depth", "tv"]
+            "alerts", "journal", "portfolio", "browser", "docs", "code", "depth"]
 _FOLLOWS_CHART = {"news", "financials", "options", "depth", "notes"}
 
 
@@ -1080,7 +1082,7 @@ def _tools() -> list[dict]:
             "already on the desk for the same symbol, and new=true adds a second one. What write takes: watch {add: [symbols], "
             "remove: [symbols]}; notes {text: light markdown with ### headings, bullets and - [ ] "
             "checklists, section: a name}; sheet {table: {title, columns, rows}}; screener {name, "
-            "filters, industry, pattern}; browser {url or q}; strategy {name, steps}. News, financials, "
+            "filters, industry, pattern}; browser {url or q}. News, financials, "
             "options and notes follow the chart in focus unless given a symbol. describe returns a "
             "widget's settings, for configure. Ops run in order. Widgets on screen are listed under "
             "'Workspace now'.",
@@ -1151,7 +1153,9 @@ def _tools() -> list[dict]:
             "Find stocks across the 500-stock universe by conditions on returns, momentum, trend, "
             "volatility, volume, 52-week distance, opening range and volume profile, optionally within "
             "an industry or with a recent daily pattern; or pass like=<symbol> to find the stocks whose "
-            "chart looks most like that one now.",
+            "chart looks most like that one now. It runs once per answer, so put every condition the "
+            "trader named into this one call: filters combine with AND, and industry takes an "
+            "industry or sector word (pharma, banks, healthcare).",
             {"filters": feat,
              "industry": _STR,
              "pattern": {**_STR, "description": "a recent daily pattern, e.g. bull_flag"},

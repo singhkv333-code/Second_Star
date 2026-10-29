@@ -8651,6 +8651,11 @@ label.ds-row { cursor: pointer; }
   transition: transform .3s var(--ease-quartr), box-shadow .3s var(--ease-quartr);
 }
 .hub-card[hidden] { display: none; }
+.hub-card.locked { cursor: not-allowed; }
+.hub-card.locked .hub-pic { opacity: .45; }
+.hub-card.locked .hub-lock { position: absolute; right: 8px; top: 8px; display: grid; place-items: center;
+  width: 24px; height: 24px; border-radius: 999px; background: var(--background); color: var(--foreground); }
+.hub-card.locked .hub-lock svg { width: 13px; height: 13px; }
 .hub-card:hover, .hub-card:focus-visible {
   transform: translateX(-4px);
   background: color-mix(in srgb, color-mix(in srgb, var(--foreground) 10%, var(--surface-plain)) 94%, transparent);
@@ -12115,7 +12120,7 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/drawedit.js?v=11"></script>
   <script src="./js/wkit.js?v=6"></script>
   <script src="./js/hub-art.js?v=11"></script>
-  <script src="./js/dock.js?v=43"></script>
+  <script src="./js/dock.js?v=44"></script>
   <script src="./js/agentws.js?v=5"></script>
   <!-- after main.js: it restores into the chart main.js has already built,
        and its save path reads that chart's state -->
@@ -12155,14 +12160,14 @@ body.journal-open .journal { display: grid; grid-template-columns: 212px minmax(
   <script src="./js/notes.js?v=13"></script>
   <script src="./js/w-sheet.js?v=12"></script>
   <script src="./js/w-fin.js?v=11"></script>
-  <script src="./js/w-news.js?v=8"></script>
+  <script src="./js/w-news.js?v=9"></script>
   <script src="./js/w-options.js?v=9"></script>
   <script src="./js/w-portfolio.js?v=9"></script>
-  <script src="./js/w-strategy.js?v=8"></script>
+  <script src="./js/w-strategy.js?v=9"></script>
   <script src="./js/w-browser.js?v=14"></script>
   <script src="./js/w-code.js?v=11"></script>
   <script src="./js/w-docs.js?v=12"></script>
-  <script src="./js/w-media.js?v=17"></script>
+  <script src="./js/w-media.js?v=18"></script>
   <!-- every widget is registered by now; build the rail before js/mobile.js
        reads it for the phone toolbar -->
   <script>Dock.start();</script>

@@ -375,6 +375,8 @@ def _scene_reset() -> None:
     _scene.budget = {}
     _scene.parked = []
     _scene.cards = []
+    # tools that run once per answer (see _ONCE_PER_TURN)
+    _scene.once = set()
     # anchors minted by ADDRESS (a named date, a scoped range) live for the
     # turn so draw_shape can re-resolve them without knowing the address
     _scene.minted_anchors = {}
@@ -6058,14 +6060,26 @@ def tool_screen_universe(filters: list | None = None, industry: str = "",
             return _screen_vocab(f"filter on {name} needs a numeric value")
         parsed.append((name, op, val))
 
-    cls = {r[0]: (r[1], r[2]) for r in _con.execute(
-        "SELECT symbol, name, industry FROM classification")}
+    # A stock answers to every name its industry goes by, not only the one in
+    # `industry`: SUNPHARMA's is the profile slug drugmanufacturersspecialty-
+    # generic, while its Moneycontrol industry is pharmaceuticals and its
+    # sector Healthcare. Matching one column, "pharma" found 3 of ~30 drug
+    # makers and the model re-screened to make up for the empty table.
+    try:
+        rows_cls = _con.execute(
+            "SELECT symbol, name, industry, industry_mc, label, sector "
+            "FROM classification").fetchall()
+    except sqlite3.Error:                  # an older store without the extra names
+        rows_cls = [r + (None, None, None) for r in _con.execute(
+            "SELECT symbol, name, industry FROM classification")]
+    cls = {r[0]: (r[1], r[2]) for r in rows_cls}
+    tags = {r[0]: {t for t in r[2:] if t} for r in rows_cls}
     want_inds: set = set()
     if str(industry or "").strip():
         # Moneycontrol industry slugs carry no separators ("banksprivatesector"),
         # so both sides are squashed before matching — otherwise the natural
         # words the model actually types can never hit a single one.
-        known = {i for _, i in cls.values() if i}
+        known = set().union(*tags.values()) if tags else set()
         q = _squash(industry)
         # substring matching needs length to mean anything: "it" sits inside
         # wh"it"egoods and hosp"it"al, so short queries match by prefix only
@@ -6119,7 +6133,7 @@ def tool_screen_universe(filters: list | None = None, industry: str = "",
     # the filter, and the sentence was wrong in a way only the screener could
     # see. When an industry narrows the pool, the pool is what gets counted.
     def _in_pool(sym: str) -> bool:
-        return not want_inds or cls.get(sym, (sym, None))[1] in want_inds
+        return not want_inds or bool(tags.get(sym, set()) & want_inds)
 
     vp_pool = [f for s, f in feats.items() if _in_pool(s)] if vp_used else []
     vp_scored = sum(1 for f in vp_pool
@@ -6128,7 +6142,7 @@ def tool_screen_universe(filters: list | None = None, industry: str = "",
     survivors = []
     for sym, f in feats.items():
         name, ind = cls.get(sym, (sym, None))
-        if want_inds and ind not in want_inds:
+        if not _in_pool(sym):
             continue
         for fname, op, val in parsed:
             v = f.get(fname)
@@ -6312,6 +6326,16 @@ def tool_screen_universe(filters: list | None = None, industry: str = "",
         }
     if want_inds:
         res["industry_matched"] = sorted(want_inds)
+        # Only the classified stocks carry an industry at all; saying so stops
+        # a short sector table being read as a filter that was too tight.
+        classified = sum(1 for s in feats if tags.get(s))
+        res["industry_coverage"] = {
+            "pool": sum(1 for s in feats if _in_pool(s)),
+            "classified": classified, "universe": universe,
+            "_note": (f"An industry is known for {classified} of the {universe} "
+                      f"stocks, so an industry screen ranks within those; "
+                      f"stocks without one cannot be matched by industry."),
+        }
     if kind:
         res["pattern"] = kind.replace("_", " ")
         res["pattern_within_sessions"] = within
@@ -14263,6 +14287,32 @@ def _run_call_in_worker(snap: list, name: str, args: dict) -> dict:
     return out
 
 
+# A screen is one answer's table. Three in a row put three cards above the
+# reply, each a looser retry of the last; the trader asked for one list.
+_ONCE_PER_TURN = frozenset({"screen"})
+
+
+def _once_per_turn(jobs: list[tuple[str, dict]]):
+    """Split jobs into those that run and those already run this answer."""
+    seen = getattr(_scene, "once", None)
+    if seen is None:
+        seen = _scene.once = set()
+    run, held = [], []
+    for i, (name, args) in enumerate(jobs):
+        if name in _ONCE_PER_TURN and _v2_on():
+            if name in seen:
+                held.append((i, {"result": {
+                    "error": f"{name} already ran in this answer, and runs once per answer",
+                    "_note": ("Nothing was run and no card was added. Answer from the rows the "
+                              "first call returned, and say plainly what they do not cover; "
+                              "conditions it left out can be one combined call next turn.")},
+                    "secs": 0.0, "scene": [], "views": [], "cards": [], "req": {}}))
+                continue
+            seen.add(name)
+        run.append((i, (name, args)))
+    return run, held
+
+
 def _dispatch_calls(jobs: list[tuple[str, dict]]):
     """Yield (index, outcome) for each (name, args) as it FINISHES.
 
@@ -14271,14 +14321,16 @@ def _dispatch_calls(jobs: list[tuple[str, dict]]):
     be shown the moment they land without the turn's state depending on which
     finished first.
     """
-    if len(jobs) < 2 or not _PARALLEL_TOOLS:
-        for i, (name, args) in enumerate(jobs):
+    run, held = _once_per_turn(jobs)
+    yield from held
+    if len(run) < 2 or not _PARALLEL_TOOLS:
+        for i, (name, args) in run:
             yield i, _run_call(name, args)
         return
     from concurrent.futures import as_completed
     snap = [(loc, dict(loc.__dict__)) for loc in (_req, _scene, _drawings)]
     pool = _tool_pool()
-    futs = {pool.submit(_run_call_in_worker, snap, n, a): i for i, (n, a) in enumerate(jobs)}
+    futs = {pool.submit(_run_call_in_worker, snap, n, a): i for i, (n, a) in run}
     done: dict[int, dict] = {}
     for f in as_completed(futs):
         i = futs[f]
@@ -19051,6 +19103,16 @@ def get_bars(symbol: str, interval: str, to: int | None, limit: int) -> dict:
 _QUOTES_MAX = 120        # a panel that scrolls, not a screener
 _QUOTE_MIN_TAIL = 3000   # ≥2 sessions of minutes on every venue we carry
 
+# The instrument list is the same for everyone and moves when a symbol is
+# hydrated or the master syncs. Rebuilt per request it cost ~190 ms of SQL and
+# a 1.2 MB re-serialise each time the picker opened, and with no Cache-Control
+# the browser could not keep it, so "loading instruments…" showed on every
+# visit. Built once per five minutes here; a browser reuses its copy for five
+# minutes and shows a stale one instantly for a day while it refreshes.
+_SYMBOLS_TTL_S = 300.0
+_SYMBOLS_MEMO: dict = {}
+_SYMBOLS_CACHE = {"Cache-Control": "public, max-age=300, stale-while-revalidate=86400"}
+
 _HEAVY_HTTP_PATHS = frozenset({
     "/bars", "/quotes", "/symbols", "/indicator", "/volume_profile",
     "/patterns/draw", "/company", "/screen", "/screen/features", "/screen/run",
@@ -20104,6 +20166,9 @@ class Handler(BaseHTTPRequestHandler):
                 _api_store(key, age, code, payload)
                 return self._send(code, payload, max_age=age)
             if u.path == "/symbols":
+                hit = _SYMBOLS_MEMO.get("v")
+                if hit and time.monotonic() - hit[0] < _SYMBOLS_TTL_S:
+                    return self._send(200, hit[1], headers=_SYMBOLS_CACHE)
                 have = _symbols_with_bars()
                 # names ride along so a reply that writes "Caplin Labs" can be
                 # linked to its company page as readily as one that writes the
@@ -20173,11 +20238,13 @@ class Handler(BaseHTTPRequestHandler):
                         logos.setdefault(ps, _hl.icon(ps))
                 except Exception:                            # noqa: BLE001
                     pass
-                return self._send(200, {"symbols": sorted(set(_known_symbols()) | listed),
-                                        "meta": meta,
-                                        "hydrated": sorted(have),
-                                        "names": names, "long": longs,
-                                        "alias": alias, "logos": logos})
+                payload = {"symbols": sorted(set(_known_symbols()) | listed),
+                           "meta": meta,
+                           "hydrated": sorted(have),
+                           "names": names, "long": longs,
+                           "alias": alias, "logos": logos}
+                _SYMBOLS_MEMO["v"] = (time.monotonic(), payload)
+                return self._send(200, payload, headers=_SYMBOLS_CACHE)
             if u.path == "/bars":
                 interval = q.get("interval", "5m")
                 if interval not in (*INTRADAY_MIN, "1d", "1w", "1mo"):

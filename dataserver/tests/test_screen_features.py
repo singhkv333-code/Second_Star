@@ -121,5 +121,37 @@ check("an unknown pattern lists names as words",
 ok = ds.tool_screen_universe(pattern="Bull Flag")
 check("a pattern named in words is accepted", "error" not in ok, ok.get("error"))
 
+# The store above has only `industry`; a full one also carries the
+# Moneycontrol industry, a label and a sector. A stock answers to all of them.
+con = sqlite3.connect(_DB)
+for col in ("label", "sector", "industry_mc"):
+    con.execute(f"ALTER TABLE classification ADD COLUMN {col} TEXT")
+con.execute("UPDATE classification SET industry='drugmanufacturersspecialtygeneric', "
+            "industry_mc='pharmaceuticals', sector='Healthcare' WHERE symbol='UPCO'")
+con.commit()
+con.close()
+pharma = ds.tool_screen_universe(industry="pharma")
+check("an industry word matches the Moneycontrol industry, not only the slug",
+      [r["symbol"] for r in pharma.get("rows", [])] == ["UPCO"], pharma.get("rows"))
+health = ds.tool_screen_universe(industry="healthcare")
+check("a sector word screens the sector",
+      [r["symbol"] for r in health.get("rows", [])] == ["UPCO"], health.get("rows"))
+check("an industry screen says how many stocks carry an industry",
+      (pharma.get("industry_coverage") or {}).get("classified") == 2,
+      pharma.get("industry_coverage"))
+
+# One screen per answer: a second call in the same turn is not run.
+ds._v2_on = lambda: True
+ds._scene_reset()
+calls = []
+ds.run_tool = lambda n, a: calls.append(n) or {"rows": []}
+first = dict(ds._dispatch_calls([("screen", {}), ("screen", {"industry": "x"})]))
+later = dict(ds._dispatch_calls([("screen", {})]))
+check("screen runs once per answer", calls == ["screen"]
+      and "error" in first[1]["result"] and "error" in later[0]["result"], calls)
+ds._scene_reset()
+dict(ds._dispatch_calls([("screen", {})]))
+check("the next answer can screen again", calls == ["screen", "screen"], calls)
+
 print(f"\n{len(FAILS)} failed" if FAILS else "\nall passed")
 sys.exit(1 if FAILS else 0)

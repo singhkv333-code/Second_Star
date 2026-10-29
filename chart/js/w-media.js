@@ -151,7 +151,12 @@
     };
   }
 
-  Dock.register({
+  // Live TV is off. YouTube names a channel's live broadcast to a cloud server
+  // only through its Data API (YOUTUBE_API_KEY, unset), so the tile could only
+  // say it cannot play. Not registered: gone from the picker and the chat, and
+  // a saved desk drops it. Flip TV_ON once a key is configured.
+  const TV_ON = false;
+  if (TV_ON) Dock.register({
     type: "tv", title: "Live TV", icon: "tv", hue: "red", group: "Media", anim: "pulse",
     desc: "Business news channels, live", zone: "right", minW: 300, mount: tvMount,
     defaults: { ch: CHANNELS[0].id },
