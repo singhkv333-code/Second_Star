@@ -1,16 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { LANDING_FAQS } from "./faqs";
 import {
   ArrowUp, Instagram,
 } from "lucide-react";
-import { Patterns } from "@/components/landing/v3/Patterns";
 import { Workspace } from "@/components/landing/v3/Workspace";
 import { Figures } from "@/components/landing/v3/Figures";
 import { Honest } from "@/components/landing/v3/Honest";
 import { Gallery } from "@/components/landing/v3/Gallery";
 import { Tour } from "@/components/landing/v3/Tour";
+import { Plays } from "@/components/landing/v3/Plays";
 import { PivotLogo } from "@/components/landing/PivotLogo";
 import { logoSrc } from "@/components/landing/v3/logos";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -21,11 +21,17 @@ import "@/components/landing/v3/paper.css";
  *  (v3/paper.css). False restores the white page; nothing else changes. */
 const PAPER = true;
 
+/** A question for the chart, then a play, in turn: the two things one
+ *  composer takes. */
 const examples = [
   "Mark the major support and resistance levels",
+  "Tell me when Reliance closes below its 50-day average",
   "Why did volume spike on this candle?",
+  "Short Reliance if it breaks the opening range",
   "Compare this breakout with the previous one",
+  "Build a basket of the five largest defence stocks",
   "What invalidates this setup?",
+  "Stop my trading for the day after two losses in a row",
 ];
 
 /** Marks stacked in the hero composer, one per market Pivot reads. */
@@ -46,28 +52,39 @@ function Brand({ href }: { href: string }) {
 export function Nav({ home = "#top" }: { home?: string } = {}) {
   const [scrolled, setScrolled] = useState(false);
   const [isDark, setIsDark] = useState(true);
+  const [navSurface, setNavSurface] = useState("paper");
+  const bar = useRef<HTMLElement | null>(null);
   useEffect(() => {
     const darkSections = Array.from(document.querySelectorAll("[data-nav-theme='dark']"));
+    const whiteSections = Array.from(document.querySelectorAll('[data-nav-surface="white"]'));
     const onScroll = () => {
       const y = document.body.scrollTop || document.documentElement.scrollTop || window.scrollY || 0;
       setScrolled((wasScrolled) => (wasScrolled ? y > 4 : y > 32));
-      const probeY = 40;
+      // Probe at the bar's bottom edge, so it turns as soon as the section
+      // beneath shows below it rather than a band later.
+      const probeY = bar.current?.getBoundingClientRect().bottom ?? 56;
+      setNavSurface(whiteSections.some((section) => {
+        const bounds = section.getBoundingClientRect();
+        return bounds.top <= probeY && bounds.bottom > probeY;
+      }) ? "white" : "paper");
       setIsDark(darkSections.some((section) => {
         const bounds = section.getBoundingClientRect();
         return bounds.top < probeY && bounds.bottom > probeY;
       }));
     };
     onScroll();
+    window.addEventListener("resize", onScroll, { passive: true });
     window.addEventListener("scroll", onScroll, { passive: true });
     document.addEventListener("scroll", onScroll, { passive: true });
     document.body.addEventListener("scroll", onScroll, { passive: true });
     return () => {
+      window.removeEventListener("resize", onScroll);
       window.removeEventListener("scroll", onScroll);
       document.removeEventListener("scroll", onScroll);
       document.body.removeEventListener("scroll", onScroll);
     };
   }, []);
-  return <header className={`pl-nav ${isDark ? "dark" : "light"}${scrolled ? " scrolled" : ""}`}><div className="pl-nav-inner"><Brand href={home} /><div className="pl-nav-links"><SignIn /></div></div></header>;
+  return <header ref={bar} data-surface={navSurface} className={`pl-nav ${isDark ? "dark" : "light"}${scrolled ? " scrolled" : ""}`}><div className="pl-nav-inner"><Brand href={home} /><div className="pl-nav-links"><SignIn /></div></div></header>;
 
 }
 
@@ -200,7 +217,7 @@ function XGlyph(): React.ReactElement {
   </svg>;
 }
 
-export function PivotLanding(): React.ReactElement { useLandingScroll(); return <main className="pivot-landing" data-bg={PAPER ? "paper" : undefined}><Nav/><Hero/><Tour/><Figures/><Patterns/><Gallery/><Workspace/><Honest/><FAQ/><Footer/></main>; }
+export function PivotLanding(): React.ReactElement { useLandingScroll(); return <main className="pivot-landing" data-bg={PAPER ? "paper" : undefined}><Nav/><Hero/><Tour/><Plays/><Figures/><Gallery/><Workspace/><Honest/><FAQ/><Footer/></main>; }
 
 /* The hero's arrows say where each button goes: out to the platform (up and
    right), down the page to the demo. They move a step that way on hover. */

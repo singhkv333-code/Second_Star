@@ -50,14 +50,16 @@ function useCycle(n: number, ms: number) {
   return { ref, k, setK, live };
 }
 
-export function Workspace(): React.ReactElement {
+/** `joined` drops the heading and sits it under the gallery, so the two read
+ *  as one "Everything in one place" section. */
+export function Workspace({ joined = false }: { joined?: boolean } = {}): React.ReactElement {
   return (
-    <section id="workspace" className="v3 ws">
+    <section id="workspace" className={`v3 ws${joined ? " joined" : ""}`}>
       <div className="v3-shell">
-        <header className="v3-head" data-reveal>
+        {!joined && <header className="v3-head" data-reveal>
           <h2>Set up your view of the market.</h2>
           <p>Arrange it, ask it, share it.</p>
-        </header>
+        </header>}
         <div className="ws-grid">
           <LayoutsCard />
           <ResearchCard />
